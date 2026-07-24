@@ -536,7 +536,7 @@ class TestTrackIndependence:
 # ── Module Discovery Integration ────────────────────────────────────
 
 class TestModuleDiscovery:
-    def test_all_18_modules_discoverable(self) -> None:
+    def test_all_21_modules_discoverable(self) -> None:
         from core import TypeRegistry, ModuleRegistry, discover_modules
         tr = TypeRegistry()
         mr = ModuleRegistry(tr)
@@ -559,6 +559,9 @@ class TestModuleDiscovery:
             "proteinmpnn.design",
             "proteinmpnn.score",
             "proteinmpnn.constraints",
+            "esmfold2.fold",
+            "simplefold.fold",
+            "simplefold.evaluate",
         }
         assert module_ids == expected
 

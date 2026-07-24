@@ -1,0 +1,43 @@
+module_id: esmfold2.fold
+version: 1.0.0
+display_name: ESMFold2 Fold
+category: model
+description: "Folds protein sequences into 3D structures using ESMFold2 via Biohub."
+input_ports:
+  - name: sequence
+    type_id: protein.sequence
+    display_name: Sequence
+    description: "Single protein sequence to fold."
+  - name: candidates
+    type_id: candidate.collection
+    display_name: Candidates
+    description: "Collection of sequence candidates to fold."
+output_ports:
+  - name: candidates
+    type_id: candidate.collection
+    display_name: Structures
+    description: "Folded structure candidates with lineage."
+  - name: scores
+    type_id: score.collection
+    display_name: Scores
+    description: "Confidence scores (pTM, pLDDT, PAE) for folded structures."
+parameters:
+  - name: model_name
+    type: enum
+    default: "esmfold2-fast-2026-05"
+    display_name: Model
+    description: "ESMFold2 model to use."
+    options:
+      - "esmfold2-fast-2026-05"
+      - "esmfold2-2026-05"
+  - name: include_pae
+    type: bool
+    default: false
+    display_name: Include PAE
+    description: "Request Predicted Aligned Error matrix."
+  - name: include_embeddings
+    type: bool
+    default: false
+    display_name: Include Embeddings
+    description: "Request pair-pooled embeddings in output."
+module_api: "1.0"

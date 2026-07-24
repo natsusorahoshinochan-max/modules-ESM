@@ -234,7 +234,7 @@ class TestModuleDiscovery:
             "proteinmpnn.constraints",
         }
         assert expected_new.issubset(ids)
-        assert len(mr) == 18
+        assert len(mr) == 21
 
     def test_constraints_type_registered(self) -> None:
         from core import TypeRegistry, ModuleRegistry, discover_modules

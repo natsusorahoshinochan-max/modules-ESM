@@ -184,6 +184,12 @@ def create_app() -> FastAPI:
         register_module_factory("proteinmpnn.design", ProteinMPNNDesignModule)
         register_module_factory("proteinmpnn.score", ProteinMPNNScoreModule)
         register_module_factory("proteinmpnn.constraints", ProteinMPNNConstraintsModule)
+        from modules.esmfold2_fold.module import ESMFold2FoldModule
+        from modules.simplefold_fold.module import SimpleFoldFoldModule
+        from modules.simplefold_evaluate.module import SimpleFoldEvaluateModule
+        register_module_factory("esmfold2.fold", ESMFold2FoldModule)
+        register_module_factory("simplefold.fold", SimpleFoldFoldModule)
+        register_module_factory("simplefold.evaluate", SimpleFoldEvaluateModule)
         yield
         for task in _active_runs.values():
             task.cancel()
