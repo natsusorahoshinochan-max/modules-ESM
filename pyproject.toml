@@ -24,3 +24,7 @@ include = ["core*", "datatypes*", "modules*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+markers = [
+    "acceptance: live-provider tests that require real APIs and binaries",
+    "slow: acceptance tests with long model loading times (SimpleFold, ProteinMPNN)",
+]

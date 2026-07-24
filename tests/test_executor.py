@@ -158,3 +158,136 @@ class TestExecutorErrorPropagation:
         assert wf.nodes["echo"].state == NodeState.COMPLETED
         assert "echo" in result
         assert result["echo"]["text"] == "OK:"
+
+
+# ── Cache E2E Tests ──────────────────────────────────────────────────
+
+class TestCacheE2E:
+    def test_cache_hit_skips_execution(self) -> None:
+        """Second run with same inputs should hit cache and skip module.run."""
+        from unittest.mock import MagicMock
+        from core.graph import Workflow, WorkflowNode, WorkflowEdge
+        from core.executor import Executor
+        from modules.stub import EchoModule
+        import tempfile, os, asyncio
+
+        mock_module = MagicMock(wraps=EchoModule())
+        mock_module.definition = EchoModule().definition
+
+        workflow = Workflow()
+        node = WorkflowNode(node_id="n1", module_id="stub.echo", module_version="1.0.0",
+                            parameters={"text": "cache-test"})
+        workflow.add_node(node)
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            ex = Executor()
+            modules = {"stub.echo": mock_module}
+
+            # First run: should execute
+            asyncio.run(ex.execute(workflow, modules, tmpdir, "run1", seed=42))
+            assert mock_module.run.call_count == 1
+            assert node.state.value == "completed"
+
+            # Second run: should hit cache, not call run again
+            node2 = WorkflowNode(node_id="n1", module_id="stub.echo", module_version="1.0.0",
+                                 parameters={"text": "cache-test"})
+            workflow2 = Workflow()
+            workflow2.add_node(node2)
+
+            mock_module2 = MagicMock(wraps=EchoModule())
+            mock_module2.definition = EchoModule().definition
+            modules2 = {"stub.echo": mock_module2}
+
+            asyncio.run(ex.execute(workflow2, modules2, tmpdir, "run2", seed=42))
+            assert mock_module2.run.call_count == 0  # Cache hit!
+            assert node2.state.value == "completed"
+
+    def test_cache_miss_on_input_change(self) -> None:
+        """Different input should cause cache miss."""
+        from unittest.mock import MagicMock
+        from core.graph import Workflow, WorkflowNode
+        from core.executor import Executor
+        from modules.stub import EchoModule
+        import tempfile, asyncio
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            ex = Executor()
+
+            # First run
+            mock1 = MagicMock(wraps=EchoModule())
+            mock1.definition = EchoModule().definition
+            wf1 = Workflow()
+            wf1.add_node(WorkflowNode(node_id="n1", module_id="stub.echo", module_version="1.0.0",
+                         parameters={"text": "input-A"}))
+            asyncio.run(ex.execute(wf1, {"stub.echo": mock1}, tmpdir, "run1", seed=42))
+            assert mock1.run.call_count == 1
+
+            # Second run with different input
+            mock2 = MagicMock(wraps=EchoModule())
+            mock2.definition = EchoModule().definition
+            wf2 = Workflow()
+            wf2.add_node(WorkflowNode(node_id="n1", module_id="stub.echo", module_version="1.0.0",
+                         parameters={"text": "input-B"}))
+            asyncio.run(ex.execute(wf2, {"stub.echo": mock2}, tmpdir, "run2", seed=42))
+            assert mock2.run.call_count == 1  # Cache miss!
+
+    def test_force_rerun_ignores_cache(self) -> None:
+        """force_rerun_nodes should skip cache and re-execute."""
+        from unittest.mock import MagicMock
+        from core.graph import Workflow, WorkflowNode
+        from core.executor import Executor
+        from modules.stub import EchoModule
+        import tempfile, asyncio
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            ex = Executor()
+
+            # First run: populate cache
+            mock1 = MagicMock(wraps=EchoModule())
+            mock1.definition = EchoModule().definition
+            wf1 = Workflow()
+            wf1.add_node(WorkflowNode(node_id="n1", module_id="stub.echo", module_version="1.0.0",
+                         parameters={"text": "force-test"}))
+            asyncio.run(ex.execute(wf1, {"stub.echo": mock1}, tmpdir, "run1", seed=42))
+            assert mock1.run.call_count == 1
+
+            # Second run: force rerun same node
+            mock2 = MagicMock(wraps=EchoModule())
+            mock2.definition = EchoModule().definition
+            wf2 = Workflow()
+            wf2.add_node(WorkflowNode(node_id="n1", module_id="stub.echo", module_version="1.0.0",
+                         parameters={"text": "force-test"}))
+            asyncio.run(ex.execute(
+                wf2, {"stub.echo": mock2}, tmpdir, "run2", seed=42,
+                force_rerun_nodes={"n1"},
+            ))
+            assert mock2.run.call_count == 1  # Should re-execute despite cache
+
+
+# ── Cancel E2E Tests ─────────────────────────────────────────────────
+
+class TestCancelE2E:
+    def test_cancel_endpoint_works(self) -> None:
+        """Cancel endpoint accepts run_id and returns cancelled status."""
+        from core.server import app
+        from fastapi.testclient import TestClient
+
+        with TestClient(app) as client:
+            # Start a simple execution
+            payload = {
+                "nodes": [
+                    {"node_id": "n1", "module_id": "stub.echo",
+                     "module_version": "1.0.0", "parameters": {"text": "test"}},
+                ],
+                "edges": [],
+            }
+            resp = client.post("/api/execute", json=payload)
+            assert resp.status_code == 200
+            run_id = resp.json().get("run_id", "")
+            assert run_id
+
+            # Cancel immediately (echo is fast, so it may already be done)
+            cancel_resp = client.post("/api/execute/cancel", json={"run_id": run_id})
+            assert cancel_resp.status_code == 200
+            # Status can be "cancelled" or "not_found" if already completed
+            assert cancel_resp.json()["status"] in ("cancelled", "not_found")
