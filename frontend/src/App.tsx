@@ -151,6 +151,8 @@ export default function App() {
   const [projects, setProjects] = useState<ProjectMeta[]>([]);
   const [openDialog, setOpenDialog] = useState(false);
   const wsRef = useRef<WebSocket | null>(null);
+  const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const EXECUTION_TIMEOUT_MS = 300_000; // 5 minutes
   const autoSaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -186,9 +188,16 @@ export default function App() {
         data.type === "run_cancelled"
       ) {
         setIsRunning(false);
+        if (timeoutRef.current) { clearTimeout(timeoutRef.current); timeoutRef.current = null; }
       }
     };
-    ws.onclose = () => { wsRef.current = null; };
+    ws.onclose = () => {
+      wsRef.current = null;
+      setIsRunning((prev) => {
+        if (prev) console.warn("WebSocket disconnected during execution");
+        return false;
+      });
+    };
     wsRef.current = ws;
   }, []);
 
@@ -336,9 +345,9 @@ export default function App() {
         })),
         edges: edges.map((e) => ({
           source_node_id: e.source,
-          source_port: e.sourceHandle || "text",
+          source_port: (e.sourceHandle != null ? e.sourceHandle : "text"),
           target_node_id: e.target,
-          target_port: e.targetHandle || "text",
+          target_port: (e.targetHandle != null ? e.targetHandle : "text"),
         })),
       };
       const uiPayload = {
@@ -477,6 +486,12 @@ export default function App() {
     if (nodes.length === 0) return;
     connectWS();
     setIsRunning(true);
+    // Clear any previous timeout
+    if (timeoutRef.current) clearTimeout(timeoutRef.current);
+    timeoutRef.current = setTimeout(() => {
+      setIsRunning(false);
+      console.warn("Execution timed out after " + EXECUTION_TIMEOUT_MS / 1000 + "s");
+    }, EXECUTION_TIMEOUT_MS);
     setNodeStates({});
     for (const n of nodes) {
       setNodeStates((prev) => ({ ...prev, [n.id]: "queued" }));
@@ -492,9 +507,9 @@ export default function App() {
       })),
       edges: edges.map((e) => ({
         source_node_id: e.source,
-        source_port: e.sourceHandle || "text",
+        source_port: (e.sourceHandle != null ? e.sourceHandle : "text"),
         target_node_id: e.target,
-        target_port: e.targetHandle || "text",
+        target_port: (e.targetHandle != null ? e.targetHandle : "text"),
       })),
     };
 
@@ -509,6 +524,7 @@ export default function App() {
     } catch {
       alert("Failed to execute workflow");
       setIsRunning(false);
+      if (timeoutRef.current) { clearTimeout(timeoutRef.current); timeoutRef.current = null; }
     }
   }, [nodes, edges, connectWS, projectId]);
 
