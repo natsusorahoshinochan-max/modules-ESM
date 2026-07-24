@@ -536,7 +536,7 @@ class TestTrackIndependence:
 # ── Module Discovery Integration ────────────────────────────────────
 
 class TestModuleDiscovery:
-    def test_all_39_modules_discoverable(self) -> None:
+    def test_all_40_modules_discoverable(self) -> None:
         from core import TypeRegistry, ModuleRegistry, discover_modules
         tr = TypeRegistry()
         mr = ModuleRegistry(tr)
@@ -554,6 +554,7 @@ class TestModuleDiscovery:
             "prompt.add_function_annotation",
             "prompt.assemble_protein_prompt",
             "prompt.random_mask",
+            "prompt.random_insert_masked",
             "esm3.generate_sequence",
             "esm3.update_prompt_sequence",
             "esm3.generate_structure",
