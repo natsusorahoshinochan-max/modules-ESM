@@ -1,0 +1,20 @@
+module_id: structure.pairwise_align
+version: 1.0.0
+display_name: Pairwise Structure Alignment
+category: scoring
+description: "Performs index-matched pairwise SVD alignment between two CandidateCollections of protein structures. Each reference[i] is aligned onto mobile[i]. Outputs a CandidateCollection of StructureAlignment items with candidate IDs inherited from the reference collection."
+input_ports:
+  - name: reference_candidates
+    type_id: candidate.collection
+    display_name: Reference Candidates
+    description: "Reference collection of ProteinStructure candidates (fixed side)."
+  - name: mobile_candidates
+    type_id: candidate.collection
+    display_name: Mobile Candidates
+    description: "Mobile collection of ProteinStructure candidates to align onto reference."
+output_ports:
+  - name: alignments
+    type_id: candidate.collection
+    display_name: Alignments
+    description: "CandidateCollection of StructureAlignment items, one per input pair."
+module_api: "1.0"

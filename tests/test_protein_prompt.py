@@ -536,7 +536,7 @@ class TestTrackIndependence:
 # ── Module Discovery Integration ────────────────────────────────────
 
 class TestModuleDiscovery:
-    def test_all_43_modules_discoverable(self) -> None:
+    def test_all_44_modules_discoverable(self) -> None:
         from core import TypeRegistry, ModuleRegistry, discover_modules
         tr = TypeRegistry()
         mr = ModuleRegistry(tr)
@@ -570,6 +570,7 @@ class TestModuleDiscovery:
             "structure.align",
             "structure.tm_score",
             "structure.rmsd",
+            "structure.pairwise_align",
             "compute.dssp",
             "scoring.ss_agreement",
             "scoring.aggregate_confidence",

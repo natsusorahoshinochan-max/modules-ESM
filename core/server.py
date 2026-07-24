@@ -193,6 +193,7 @@ def create_app() -> FastAPI:
         from modules.structure_align.module import StructureAlignModule
         from modules.structure_tm_score.module import StructureTMScoreModule
         from modules.structure_rmsd.module import StructureRMSDModule
+        from modules.structure_pairwise_align.module import PairwiseAlignModule
         from modules.compute_dssp.module import ComputeDSSPModule
         from modules.secondary_structure_agreement.module import SecondaryStructureAgreementModule
         from modules.aggregate_confidence.module import AggregateConfidenceModule
@@ -200,6 +201,7 @@ def create_app() -> FastAPI:
         register_module_factory("structure.align", StructureAlignModule)
         register_module_factory("structure.tm_score", StructureTMScoreModule)
         register_module_factory("structure.rmsd", StructureRMSDModule)
+        register_module_factory("structure.pairwise_align", PairwiseAlignModule)
         register_module_factory("compute.dssp", ComputeDSSPModule)
         register_module_factory("scoring.ss_agreement", SecondaryStructureAgreementModule)
         register_module_factory("scoring.aggregate_confidence", AggregateConfidenceModule)
