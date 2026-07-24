@@ -28,7 +28,7 @@ from datatypes import (
 def _setup_simplefold_imports() -> None:
     """Ensure simplefold internal absolute imports resolve correctly."""
     import simplefold
-    sf_dir = str(Path(simplefold.__file__).parent)
+    sf_dir = os.path.abspath(os.path.dirname(simplefold.__file__))
     if sf_dir not in sys.path:
         sys.path.insert(0, sf_dir)
 
@@ -57,8 +57,7 @@ def fold_sequence(
 
     num_steps is capped at 50 per ADR 0013.
     """
-    _setup_simplefold_imports()
-    _setup_simplefold_imports()
+    old_cwd = _setup_simplefold_imports()
     from simplefold.wrapper import ModelWrapper, InferenceWrapper
     from simplefold.utils.boltz_utils import (
         process_structure,
@@ -183,6 +182,7 @@ def fold_sequence(
                     },
                 ))
 
+    os.chdir(old_cwd)
     return structures, ScoreCollection(
         collection_id=str(uuid.uuid4()),
         entries=all_score_entries,
@@ -200,7 +200,7 @@ def evaluate_structure(
     feeds existing coordinates through the folding model for latent extraction,
     then runs the pLDDT head.
     """
-    _setup_simplefold_imports()
+    old_cwd = _setup_simplefold_imports()
     from simplefold.wrapper import ModelWrapper
     from simplefold.utils.fasta_utils import (
         download_fasta_utilities,
@@ -318,6 +318,7 @@ def evaluate_structure(
             },
         ))
 
+    os.chdir(old_cwd)
     return ScoreCollection(
         collection_id=str(uuid.uuid4()),
         entries=entries,
