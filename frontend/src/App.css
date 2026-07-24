@@ -19,6 +19,26 @@
   background: #1d4ed8;
 }
 
+.run-btn {
+  padding: 8px 16px;
+  background: #16a34a;
+  color: white;
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 14px;
+  font-weight: 500;
+}
+
+.run-btn:hover:not(:disabled) {
+  background: #15803d;
+}
+
+.run-btn:disabled {
+  background: #86efac;
+  cursor: not-allowed;
+}
+
 .add-node-menu {
   background: white;
   border: 1px solid #e2e8f0;
@@ -82,4 +102,102 @@
 
 .category-group {
   margin-bottom: 4px;
+}
+
+/* Parameter panel */
+.param-panel {
+  width: 280px;
+  min-width: 280px;
+  border-left: 1px solid #e2e8f0;
+  padding: 16px;
+  overflow-y: auto;
+  background: #fff;
+}
+
+.param-panel h3 {
+  margin: 0 0 4px 0;
+  font-size: 16px;
+  color: #1e293b;
+}
+
+.param-panel h4 {
+  margin: 16px 0 8px 0;
+  font-size: 12px;
+  text-transform: uppercase;
+  color: #94a3b8;
+  letter-spacing: 0.05em;
+}
+
+.param-desc {
+  font-size: 13px;
+  color: #64748b;
+  margin: 0 0 8px 0;
+}
+
+.param-field {
+  margin-bottom: 12px;
+}
+
+.param-field label {
+  display: block;
+  font-size: 13px;
+  font-weight: 500;
+  margin-bottom: 4px;
+  color: #334155;
+}
+
+.param-desc-hint {
+  font-weight: 400;
+  color: #94a3b8;
+}
+
+.param-field input[type="text"],
+.param-field input[type="number"],
+.param-field select {
+  width: 100%;
+  padding: 6px 8px;
+  border: 1px solid #cbd5e1;
+  border-radius: 4px;
+  font-size: 13px;
+  color: #1e293b;
+}
+
+.param-field input[type="checkbox"] {
+  width: 16px;
+  height: 16px;
+  margin-top: 4px;
+}
+
+.ports-info {
+  font-size: 13px;
+  color: #475569;
+}
+
+.port-item {
+  padding: 2px 0;
+  font-size: 12px;
+}
+
+.port-item code {
+  font-size: 11px;
+  color: #6366f1;
+  background: #eef2ff;
+  padding: 1px 4px;
+  border-radius: 3px;
+}
+
+.close-panel-btn {
+  margin-top: 16px;
+  width: 100%;
+  padding: 6px 12px;
+  background: #f1f5f9;
+  border: 1px solid #e2e8f0;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 13px;
+  color: #475569;
+}
+
+.close-panel-btn:hover {
+  background: #e2e8f0;
 }
