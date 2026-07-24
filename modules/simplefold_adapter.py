@@ -24,16 +24,13 @@ from datatypes import (
     ScoreCollection,
 )
 
-# Path to ml-simplefold repository
-_SIMPLEFOLD_DIR = Path(__file__).parent.parent / "repositories" / "ml-simplefold"
 
-
-def _setup_simplefold_path() -> None:
-    """Ensure ml-simplefold is importable."""
-    sf_src = str(_SIMPLEFOLD_DIR / "src")
-    if sf_src not in sys.path:
-        sys.path.insert(0, sf_src)
-
+def _setup_simplefold_imports() -> None:
+    """Ensure simplefold internal absolute imports resolve correctly."""
+    import simplefold
+    sf_dir = str(Path(simplefold.__file__).parent)
+    if sf_dir not in sys.path:
+        sys.path.insert(0, sf_dir)
 
 def _get_artifact_dir(project_dir: str | None) -> Path:
     """Get or create artifact directory for model checkpoints and outputs."""
@@ -60,8 +57,8 @@ def fold_sequence(
 
     num_steps is capped at 50 per ADR 0013.
     """
-    _setup_simplefold_path()
-
+    _setup_simplefold_imports()
+    _setup_simplefold_imports()
     from simplefold.wrapper import ModelWrapper, InferenceWrapper
     from simplefold.utils.boltz_utils import (
         process_structure,
@@ -203,8 +200,7 @@ def evaluate_structure(
     feeds existing coordinates through the folding model for latent extraction,
     then runs the pLDDT head.
     """
-    _setup_simplefold_path()
-
+    _setup_simplefold_imports()
     from simplefold.wrapper import ModelWrapper
     from simplefold.utils.fasta_utils import (
         download_fasta_utilities,

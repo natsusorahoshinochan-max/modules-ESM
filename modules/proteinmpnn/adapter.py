@@ -101,7 +101,10 @@ def _featurize(
     device: torch.device,
     constraints: ProteinMPNNConstraints | None = None,
 ) -> dict[str, Any]:
-    """Featurize parsed PDB data into tensors for ProteinMPNN."""
+    """Featurize parsed PDB data into tensors for ProteinMPNN.
+    
+    Converts tied_featurize's tuple output to a dict keyed by field name.
+    """
     mpnn_path = str(_PROTEINMPNN_DIR)
     if mpnn_path not in sys.path:
         sys.path.insert(0, mpnn_path)
@@ -116,14 +119,10 @@ def _featurize(
     bias_by_res_dict = None
 
     if constraints is not None:
-        if constraints.designable_positions or constraints.fixed_positions:
+        if constraints.fixed_positions:
             fixed_position_dict = {}
-            if constraints.fixed_positions:
-                for pos in constraints.fixed_positions:
-                    fixed_position_dict.setdefault("A", []).append(pos)
-            if constraints.designable_positions:
-                # Mark non-designable positions as fixed
-                pass  # designable = not fixed; fixed_positions handles it
+            for pos in constraints.fixed_positions:
+                fixed_position_dict.setdefault("A", []).append(pos)
 
         if constraints.omit_amino_acids:
             omit_AA_dict = {"A": [c for c in constraints.omit_amino_acids]}
@@ -136,7 +135,7 @@ def _featurize(
         if constraints.bias_by_res:
             bias_by_res_dict = {"A": constraints.bias_by_res}
 
-    batch = tied_featurize(
+    result = tied_featurize(
         pdb_dict_list,
         device,
         chain_dict,
@@ -146,7 +145,16 @@ def _featurize(
         None,  # pssm_dict
         bias_by_res_dict,
     )
-    return batch
+    # tied_featurize returns a tuple; convert to dict for downstream use
+    keys = [
+        "X", "S", "mask", "lengths", "chain_M", "chain_encoding_all",
+        "letter_list_list", "visible_list_list", "masked_list_list",
+        "masked_chain_length_list_list", "chain_M_pos", "omit_AA_mask",
+        "residue_idx", "dihedral_mask", "tied_pos_list_of_lists_list",
+        "pssm_coef_all", "pssm_bias_all", "pssm_log_odds_all",
+        "bias_by_res_all", "tied_beta",
+    ]
+    return dict(zip(keys, result))
 
 
 def _run_design(
@@ -174,7 +182,7 @@ def _run_design(
     chain_encoding_all = batch["chain_encoding_all"]
     residue_idx = batch["residue_idx"]
     chain_M_pos = batch["chain_M_pos"]
-    tied_pos = batch.get("tied_pos", None) if hasattr(batch, "get") else None
+    tied_pos = batch.get("tied_pos_list_of_lists_list", None) if hasattr(batch, "get") else None
 
     sequences: list[ProteinSequence] = []
 
@@ -183,9 +191,19 @@ def _run_design(
         randn_2 = torch.randn(chain_M.shape, device=device)
 
         # tied_pos_list format: list of lists of positions
-        tied_pos_list = None
-        if tied_pos is not None:
-            tied_pos_list = [[int(p[0]), int(p[1])] for p in tied_pos]
+        tied_pos_list = []
+        if tied_pos:
+            try:
+                tied_pos_list = [[int(p[0]), int(p[1])] for p in tied_pos if len(p) >= 2]
+                if not tied_pos_list:
+                    tied_pos_list = []
+            except (IndexError, TypeError):
+                tied_pos_list = []
+
+        bias_by_res = batch.get("bias_by_res_all",
+            torch.zeros((1, X.shape[1], 21), device=device))
+        if isinstance(bias_by_res, torch.Tensor) and bias_by_res.dim() == 0:
+            bias_by_res = torch.zeros((1, X.shape[1], 21), device=device)
 
         sample_out = model.tied_sample(
             X, randn, S, chain_M, chain_encoding_all, residue_idx,
@@ -193,6 +211,7 @@ def _run_design(
             omit_AAs_np=omit_AAs_np, bias_AAs_np=bias_AAs_np,
             chain_M_pos=chain_M_pos, tied_pos=tied_pos_list,
             tied_beta=torch.ones(X.shape[1], device=device),
+            bias_by_res=bias_by_res,
         )
 
         # Decode sequences
