@@ -1,0 +1,22 @@
+module_id: export.structure
+version: 1.0.0
+display_name: Export Structure
+category: output
+description: "Writes a ProteinStructure to a PDB file."
+input_ports:
+  - name: structure
+    type_id: protein.structure
+    display_name: Structure
+    description: "The protein structure to export."
+output_ports:
+  - name: file_path
+    type_id: text
+    display_name: Output Path
+    description: "Path to the exported PDB file."
+parameters:
+  - name: filename
+    type: str
+    default: "exported.pdb"
+    display_name: Filename
+    description: "Output filename (written under project outputs/)."
+module_api: "1.0"

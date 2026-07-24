@@ -70,6 +70,33 @@ function groupByCategory(modules: ApiModule[]): Map<string, ApiModule[]> {
   return map;
 }
 
+
+function initNGL(containerId: string, pdbString: string) {
+  if (typeof (window as any).NGL === 'undefined') return;
+  const stage = new (window as any).NGL.Stage(containerId, { backgroundColor: '#f8fafc' });
+  stage.loadFile(new Blob([pdbString], { type: 'text/plain' }), { ext: 'pdb' }).then(function(c: any) {
+    c.addRepresentation('cartoon', { colorScheme: 'chainid' });
+    c.autoView();
+  }).catch(function() {});
+}
+
+function StructureViewer({ pdbString }: { pdbString: string | null }) {
+  const containerRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!pdbString || !containerRef.current) return;
+    containerRef.current.innerHTML = '';
+    initNGL(containerRef.current.id || 'ngl-container', pdbString);
+  }, [pdbString]);
+  const id = 'ngl-' + Math.random().toString(36).slice(2, 8);
+  return (
+    <div className="viewer-panel">
+      <h3>3D Structure Viewer</h3>
+      {!pdbString ? <p className="empty-hint">Run a workflow to see structures here.</p>
+        : <div id={id} ref={containerRef} className="ngl-viewport" />}
+    </div>
+  );
+}
+
 export default function App() {
   const [nodes, setNodes, onNodesChange] = useNodesState<Node>([]);
   const [edges, setEdges, onEdgesChange] = useEdgesState<Edge>([]);
@@ -84,6 +111,7 @@ export default function App() {
   const [openDialog, setOpenDialog] = useState(false);
   const wsRef = useRef<WebSocket | null>(null);
   const autoSaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   // Fetch modules
   useEffect(() => {
@@ -302,6 +330,26 @@ export default function App() {
 
   // ── Node operations ─────────────────────────────────────────────
 
+
+  const handleImport = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]; if (!file) return;
+    const pid = projectId;
+    if (!pid) { alert("Create a project first"); return; }
+    const form = new FormData(); form.append("file", file);
+    const r = await fetch(`/api/projects/${pid}/inputs`, { method:"POST", body:form });
+    const up = await r.json();
+    if (up.error) { alert(up.error); return; }
+    const isPDB = file.name.endsWith(".pdb") || file.name.endsWith(".ent");
+    const modId = isPDB ? "import.structure" : "import.sequence";
+    const modDef = modules.find(m => m.module_id === modId);
+    const id = `node_${nodeIdCounter}`; setNodeIdCounter(c => c+1);
+    const nn: Node = { id, type:"default", position:{x:100+Math.random()*300, y:100+Math.random()*200},
+      data: { label:`${modDef?.display_name||modId} [idle]`, moduleId:modId, category:"input", state:"idle", moduleDef:modDef||null, parameters:{file_path:up.path}, available:true },
+      style:{ border:"2px solid #94a3b8", borderRadius:"6px", padding:"8px" } };
+    setNodes(nds => [...nds, nn]);
+    e.target.value = "";
+  }, [projectId, nodeIdCounter, setNodes, modules]);
+
   const addNode = useCallback(
     (mod: ApiModule) => {
       const id = `node_${nodeIdCounter}`;
@@ -332,6 +380,12 @@ export default function App() {
     },
     [nodeIdCounter, setNodes],
   );
+
+
+  const handleExport = useCallback(async (nodeId: string) => {
+    const node = nodes.find(n => n.id === nodeId); if (!node) return;
+    alert("Export from canvas: outputs are stored on the server. Use the Export Structure/Sequence module in your workflow.");
+  }, [nodes]);
 
   const onConnect = useCallback(
     (connection: Connection) => {
@@ -371,6 +425,13 @@ export default function App() {
 
   // ── Run workflow ─────────────────────────────────────────────────
 
+  const selectedNode = selectedNodeId ? nodes.find(n => n.id===selectedNodeId) : undefined;
+  const selectedParams = selectedNode
+    ? ((selectedNode.data as Record<string, unknown>).parameters as Record<string, unknown>) || {}
+    : {};
+  const selectedAvailable = selectedNode
+    ? ((selectedNode.data as Record<string, unknown>).available as boolean) !== false
+    : true;
   const runWorkflow = useCallback(async () => {
     if (nodes.length === 0) return;
     connectWS();
@@ -414,13 +475,6 @@ export default function App() {
 
   const grouped = groupByCategory(modules);
   const selectedModule = selectedNodeId ? getModuleDef(selectedNodeId) : undefined;
-  const selectedNode = selectedNodeId ? nodes.find((n) => n.id === selectedNodeId) : undefined;
-  const selectedParams = selectedNode
-    ? ((selectedNode.data as Record<string, unknown>).parameters as Record<string, unknown>) || {}
-    : {};
-  const selectedAvailable = selectedNode
-    ? ((selectedNode.data as Record<string, unknown>).available as boolean) !== false
-    : true;
 
   return (
     <div style={{ width: "100vw", height: "100vh", display: "flex" }}>
@@ -439,9 +493,11 @@ export default function App() {
           <MiniMap />
 
           <Panel position="top-left" className="toolbar">
+            <input type="file" ref={fileInputRef} style={{display:"none"}} accept=".pdb,.ent,.cif,.fasta,.fa" onChange={handleImport} />
             <button className="add-node-btn" onClick={() => setMenuOpen(!menuOpen)}>
               + Add Node
             </button>
+            <button className="import-btn" onClick={()=>fileInputRef.current?.click()}>Import</button>
             <button className="run-btn" onClick={runWorkflow}
               disabled={isRunning || nodes.length === 0}>
               {isRunning ? "Running..." : "\u25B6 Run Workflow"}
@@ -459,6 +515,7 @@ export default function App() {
                 <button className="proj-btn" onClick={() => setOpenDialog(true)}>
                   Open
                 </button>
+            {selectedNode && <button className="proj-btn" onClick={()=>handleExport(selectedNode.id)}>Export</button>}
               </>
             )}
           </Panel>
@@ -572,6 +629,7 @@ export default function App() {
           <button className="close-panel-btn" onClick={() => setSelectedNodeId(null)}>Close</button>
         </div>
       )}
+      <StructureViewer pdbString={null} />
     </div>
   );
 }

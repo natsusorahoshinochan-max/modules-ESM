@@ -292,3 +292,24 @@
 .close-panel-btn:hover {
   background: #e2e8f0;
 }
+
+.import-btn {
+  padding: 8px 16px;
+  background: #7c3aed;
+  color: white;
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 14px;
+  font-weight: 500;
+}
+.import-btn:hover { background: #6d28d9; }
+
+.viewer-panel {
+  width: 320px; min-width: 320px;
+  border-left: 1px solid #e2e8f0;
+  padding: 12px; overflow-y: auto;
+  background: #fff; display: flex; flex-direction: column;
+}
+.viewer-panel h3 { margin: 0 0 8px 0; font-size: 14px; color: #334155; }
+.ngl-viewport { flex: 1; min-height: 300px; border: 1px solid #e2e8f0; border-radius: 6px; overflow: hidden; }

@@ -4,10 +4,12 @@ from __future__ import annotations
 
 import asyncio
 import uuid
-from contextlib import asynccontextmanager
+import shutil
 from typing import Any, AsyncGenerator
 
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+from contextlib import asynccontextmanager
+from fastapi import FastAPI, File, UploadFile, WebSocket, WebSocketDisconnect
+from fastapi.responses import FileResponse
 from fastapi.middleware.cors import CORSMiddleware
 
 from core.executor import Executor
@@ -148,6 +150,14 @@ def create_app() -> FastAPI:
 
         from modules.stub import EchoModule
         register_module_factory("stub.echo", EchoModule)
+        from modules.import_structure import ImportStructureModule
+        from modules.import_sequence import ImportSequenceModule
+        from modules.export_structure import ExportStructureModule
+        from modules.export_sequence import ExportSequenceModule
+        register_module_factory("import.structure", ImportStructureModule)
+        register_module_factory("import.sequence", ImportSequenceModule)
+        register_module_factory("export.structure", ExportStructureModule)
+        register_module_factory("export.sequence", ExportSequenceModule)
         yield
         for task in _active_runs.values():
             task.cancel()
@@ -355,6 +365,32 @@ def create_app() -> FastAPI:
         meta = project_manager.save(project_id, wf, ui)
         return _project_meta_to_dict(meta)
 
+
+    # ── file upload / download ───────────────────────────────────────
+
+
+    @app.post("/api/projects/{project_id}/inputs")
+    async def upload_input(project_id: str, file: UploadFile = File(...)):
+        meta = project_manager.load_meta(project_id)
+        if meta is None:
+            return {"error": "Project not found"}
+        project_dir = project_manager._project_dir(project_id)
+        inputs_dir = project_dir / "inputs"
+        inputs_dir.mkdir(parents=True, exist_ok=True)
+        dest = inputs_dir / (file.filename or "uploaded")
+        with open(dest, "wb") as f:
+            shutil.copyfileobj(file.file, f)
+        return {"path": str(dest), "filename": file.filename}
+
+    @app.get("/api/projects/{project_id}/outputs/{filename:path}")
+    async def download_output(project_id: str, filename: str):
+        meta = project_manager.load_meta(project_id)
+        if meta is None:
+            return {"error": "Project not found"}
+        file_path = project_manager._project_dir(project_id) / "outputs" / filename
+        if not file_path.exists():
+            return {"error": "File not found"}
+        return FileResponse(str(file_path), filename=filename)
     return app
 
 
