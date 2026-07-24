@@ -172,6 +172,12 @@ def create_app() -> FastAPI:
         register_module_factory("prompt.override_residue_track", OverrideResidueTrackModule)
         register_module_factory("prompt.add_function_annotation", AddFunctionAnnotationModule)
         register_module_factory("prompt.assemble_protein_prompt", AssembleProteinPromptModule)
+        from modules.esm3_generate_sequence import ESM3GenerateSequenceModule
+        from modules.esm3_update_prompt_sequence import UpdatePromptSequenceModule
+        from modules.esm3_generate_structure import ESM3GenerateStructureModule
+        register_module_factory("esm3.generate_sequence", ESM3GenerateSequenceModule)
+        register_module_factory("esm3.update_prompt_sequence", UpdatePromptSequenceModule)
+        register_module_factory("esm3.generate_structure", ESM3GenerateStructureModule)
         yield
         for task in _active_runs.values():
             task.cancel()

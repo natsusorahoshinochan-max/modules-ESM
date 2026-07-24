@@ -1,0 +1,21 @@
+module_id: esm3.update_prompt_sequence
+version: 1.0.0
+display_name: Update Prompt Sequence
+category: conversion
+description: "Replaces the sequence track of a ProteinPrompt with a new sequence, preserving all other tracks."
+input_ports:
+  - name: protein_prompt
+    type_id: protein.prompt
+    display_name: ProteinPrompt
+    description: "Existing protein prompt to update."
+  - name: sequence
+    type_id: protein.sequence
+    display_name: Sequence
+    description: "New amino acid sequence."
+output_ports:
+  - name: protein_prompt
+    type_id: protein.prompt
+    display_name: ProteinPrompt
+    description: "Updated protein prompt with new sequence track."
+parameters: []
+module_api: "1.0"
