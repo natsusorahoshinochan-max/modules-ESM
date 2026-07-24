@@ -15,6 +15,7 @@ import {
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
 import "./App.css";
+import WorkflowModuleNode from "./WorkflowModuleNode";
 import ProteinPromptEditor, { type ResidueRow, type FunctionAnnotation } from "./ProteinPromptEditor";
 
 interface ApiParam {
@@ -134,6 +135,8 @@ function parseAnnotationData(params: Record<string, unknown>): FunctionAnnotatio
   }
   return [];
 }
+
+const nodeTypes = { workflowModule: WorkflowModuleNode };
 
 export default function App() {
   const [nodes, setNodes, onNodesChange] = useNodesState<Node>([]);
@@ -272,7 +275,7 @@ export default function App() {
       const modDef = modules.find((m) => m.module_id === (n.module_id as string));
       return {
         id: n.node_id as string,
-        type: "default",
+        type: "workflowModule",
         position: pos,
         data: {
           label: isAvailable
@@ -381,7 +384,7 @@ export default function App() {
     const modId = isPDB ? "import.structure" : "import.sequence";
     const modDef = modules.find(m => m.module_id === modId);
     const id = `node_${nodeIdCounter}`; setNodeIdCounter(c => c+1);
-    const nn: Node = { id, type:"default", position:{x:100+Math.random()*300, y:100+Math.random()*200},
+    const nn: Node = { id, type:"workflowModule", position:{x:100+Math.random()*300, y:100+Math.random()*200},
       data: { label:`${modDef?.display_name||modId} [idle]`, moduleId:modId, category:"input", state:"idle", moduleDef:modDef||null, parameters:{file_path:up.path}, available:true },
       style:{ border:"2px solid #94a3b8", borderRadius:"6px", padding:"8px" } };
     setNodes(nds => [...nds, nn]);
@@ -394,7 +397,7 @@ export default function App() {
       setNodeIdCounter((c) => c + 1);
       const newNode: Node = {
         id,
-        type: "default",
+        type: "workflowModule",
         position: { x: 100 + Math.random() * 300, y: 100 + Math.random() * 200 },
         data: {
           label: mod.display_name,
@@ -524,6 +527,7 @@ export default function App() {
           onEdgesChange={onEdgesChange}
           onConnect={onConnect}
           onNodeClick={onNodeClick}
+          nodeTypes={nodeTypes}
           fitView
         >
           <Background />
