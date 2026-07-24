@@ -1,0 +1,22 @@
+module_id: prompt.override_residue_track
+version: 1.0.0
+display_name: Override Residue Track
+category: prompt
+description: "Override individual residue positions in a track with manual values."
+input_ports:
+  - name: track_input
+    type_id: residue.track
+    display_name: Track
+    description: "Input residue track to override."
+output_ports:
+  - name: track_output
+    type_id: residue.track
+    display_name: Track
+    description: "Updated residue track with overrides applied."
+parameters:
+  - name: overrides
+    type: str
+    default: "[]"
+    display_name: Overrides
+    description: "JSON list of overrides."
+module_api: "1.0"

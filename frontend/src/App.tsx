@@ -15,6 +15,7 @@ import {
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
 import "./App.css";
+import ProteinPromptEditor, { type ResidueRow, type FunctionAnnotation } from "./ProteinPromptEditor";
 
 interface ApiParam {
   name: string;
@@ -95,6 +96,43 @@ function StructureViewer({ pdbString }: { pdbString: string | null }) {
         : <div id={id} ref={containerRef} className="ngl-viewport" />}
     </div>
   );
+}
+
+
+function parseResidueData(params: Record<string, unknown>, chainId: string, length: number): ResidueRow[] {
+  const raw = params.residues_data as string | undefined;
+  if (raw) {
+    try {
+      const parsed = JSON.parse(raw) as ResidueRow[];
+      if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+    } catch {}
+  }
+  // Default: generate from chain_id and length
+  const rows: ResidueRow[] = [];
+  let chain = chainId;
+  if (chain === "multi") chain = "A";
+  for (let i = 0; i < length; i++) {
+    rows.push({
+      index: i + 1,
+      chain: chain,
+      aminoAcid: null,
+      structureVisible: false,
+      secondaryStructure: null,
+      sasa: null,
+    });
+  }
+  return rows;
+}
+
+function parseAnnotationData(params: Record<string, unknown>): FunctionAnnotation[] {
+  const raw = params.annotations_data as string | undefined;
+  if (raw) {
+    try {
+      const parsed = JSON.parse(raw) as FunctionAnnotation[];
+      if (Array.isArray(parsed)) return parsed;
+    } catch {}
+  }
+  return [];
 }
 
 export default function App() {
@@ -629,6 +667,37 @@ export default function App() {
           <button className="close-panel-btn" onClick={() => setSelectedNodeId(null)}>Close</button>
         </div>
       )}
+      {selectedModule && selectedNodeId && selectedModule.category === "prompt" && (() => {
+        const nodeParams = (selectedNode?.data as Record<string, unknown>)?.parameters as Record<string, unknown> || {};
+        const chainId = (nodeParams.chain_id as string) || "A";
+        const length = (nodeParams.length as number) || 0;
+        const residues = parseResidueData(nodeParams, chainId, length > 0 ? length : 10);
+        const annotations = parseAnnotationData(nodeParams);
+
+        const handleResiduesChange = (newResidues: ResidueRow[]) => {
+          const nd = selectedNode?.data as Record<string, unknown>;
+          if (!nd || !selectedNodeId) return;
+          const params = { ...(nd.parameters as Record<string, unknown> || {}), residues_data: JSON.stringify(newResidues), length: newResidues.length };
+          // Update node via setNodes
+          setNodes((nds) => nds.map((n) => n.id === selectedNodeId ? { ...n, data: { ...n.data, parameters: params } } : n));
+        };
+
+        const handleAnnotationsChange = (newAnnotations: FunctionAnnotation[]) => {
+          const nd = selectedNode?.data as Record<string, unknown>;
+          if (!nd || !selectedNodeId) return;
+          const params = { ...(nd.parameters as Record<string, unknown> || {}), annotations_data: JSON.stringify(newAnnotations) };
+          setNodes((nds) => nds.map((n) => n.id === selectedNodeId ? { ...n, data: { ...n.data, parameters: params } } : n));
+        };
+
+        return (
+          <ProteinPromptEditor
+            residues={residues}
+            annotations={annotations}
+            onResiduesChange={handleResiduesChange}
+            onAnnotationsChange={handleAnnotationsChange}
+          />
+        );
+      })()}
       <StructureViewer pdbString={null} />
     </div>
   );

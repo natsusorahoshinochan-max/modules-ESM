@@ -1,0 +1,34 @@
+module_id: prompt.add_function_annotation
+version: 1.0.0
+display_name: Add Function Annotation
+category: prompt
+description: "Add named function annotations as residue ranges."
+input_ports:
+  - name: existing_annotations
+    type_id: function.annotations
+    display_name: Existing Annotations
+    description: "Existing function annotations to add to (optional)."
+output_ports:
+  - name: updated_annotations
+    type_id: function.annotations
+    display_name: Annotations
+    description: "Updated function annotations."
+parameters:
+  - name: label
+    type: str
+    default: ""
+    display_name: Label
+    description: "Annotation label."
+  - name: start
+    type: int
+    default: 1
+    min: 1
+    display_name: Start
+    description: "Start residue index (1-based)."
+  - name: end
+    type: int
+    default: 1
+    min: 1
+    display_name: End
+    description: "End residue index (1-based, inclusive)."
+module_api: "1.0"

@@ -1,0 +1,24 @@
+module_id: prompt.build_residue_layout
+version: 1.0.0
+display_name: Build Residue Layout
+category: prompt
+description: "Defines the target residue layout: chain count and per-chain residue lengths."
+input_ports: []
+output_ports:
+  - name: layout
+    type_id: residue.layout
+    display_name: Layout
+    description: "Target residue layout."
+parameters:
+  - name: chain_id
+    type: str
+    default: "A"
+    display_name: Chain ID
+    description: "Chain identifier."
+  - name: length
+    type: int
+    default: 1
+    min: 1
+    display_name: Length
+    description: "Number of residues in this chain."
+module_api: "1.0"

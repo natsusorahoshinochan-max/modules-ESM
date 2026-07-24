@@ -1,0 +1,232 @@
+.prompt-editor {
+  width: 360px;
+  min-width: 360px;
+  border-left: 1px solid #e2e8f0;
+  background: #fff;
+  display: flex;
+  flex-direction: column;
+  overflow-y: auto;
+  font-size: 13px;
+}
+
+.prompt-editor-header {
+  padding: 10px 12px 6px;
+  border-bottom: 1px solid #e2e8f0;
+  background: #f8fafc;
+}
+
+.prompt-editor-header h3 {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.prompt-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 6px 8px;
+  border-bottom: 1px solid #e2e8f0;
+  background: #fafafa;
+  flex-wrap: wrap;
+}
+
+.prompt-toolbar button {
+  font-size: 11px;
+  padding: 3px 7px;
+  border: 1px solid #cbd5e1;
+  border-radius: 3px;
+  background: #fff;
+  cursor: pointer;
+}
+
+.prompt-toolbar button:hover:not(:disabled) {
+  background: #e2e8f0;
+}
+
+.prompt-toolbar button:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.toolbar-sep-inline {
+  width: 8px;
+}
+
+.set-all-select {
+  font-size: 11px;
+  padding: 2px 4px;
+  border: 1px solid #cbd5e1;
+  border-radius: 3px;
+}
+
+.residue-table-wrap {
+  flex: 1;
+  overflow-y: auto;
+}
+
+.residue-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-variant-numeric: tabular-nums;
+}
+
+.residue-table th {
+  position: sticky;
+  top: 0;
+  background: #f1f5f9;
+  font-size: 11px;
+  font-weight: 600;
+  text-align: left;
+  padding: 4px 6px;
+  border-bottom: 1px solid #cbd5e1;
+}
+
+.residue-table td {
+  padding: 2px 4px;
+  border-bottom: 1px solid #f1f5f9;
+}
+
+.residue-table tr.selected {
+  background: #dbeafe;
+}
+
+.residue-table tr:hover {
+  background: #f8fafc;
+}
+
+.residue-table tr.selected:hover {
+  background: #bfdbfe;
+}
+
+.idx-cell {
+  color: #94a3b8;
+  font-size: 11px;
+  text-align: right;
+  width: 32px;
+}
+
+.residue-table select {
+  font-size: 11px;
+  padding: 1px 2px;
+  border: 1px solid transparent;
+  background: transparent;
+  border-radius: 2px;
+}
+
+.residue-table tr:hover select,
+.residue-table tr.selected select {
+  border-color: #cbd5e1;
+  background: #fff;
+}
+
+.residue-table input[type="checkbox"] {
+  margin: 0;
+  cursor: pointer;
+}
+
+.sasa-input {
+  width: 55px;
+  font-size: 11px;
+  padding: 1px 3px;
+  border: 1px solid transparent;
+  background: transparent;
+  border-radius: 2px;
+  font-variant-numeric: tabular-nums;
+}
+
+.residue-table tr:hover .sasa-input,
+.residue-table tr.selected .sasa-input {
+  border-color: #cbd5e1;
+  background: #fff;
+}
+
+.annotations-section {
+  border-top: 1px solid #e2e8f0;
+  padding: 8px 12px;
+  background: #fafafa;
+}
+
+.annotations-section h4 {
+  margin: 0 0 6px;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.annotation-list {
+  list-style: none;
+  padding: 0;
+  margin: 0 0 8px;
+}
+
+.annotation-list li {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 0;
+  font-size: 12px;
+}
+
+.ann-label {
+  font-weight: 500;
+  color: #1e40af;
+}
+
+.ann-range {
+  color: #64748b;
+  font-size: 11px;
+}
+
+.ann-remove-btn {
+  margin-left: auto;
+  border: none;
+  background: none;
+  color: #94a3b8;
+  cursor: pointer;
+  font-size: 14px;
+  padding: 0 3px;
+}
+
+.ann-remove-btn:hover {
+  color: #ef4444;
+}
+
+.annotation-add {
+  display: flex;
+  gap: 4px;
+}
+
+.annotation-add input {
+  font-size: 11px;
+  padding: 3px 5px;
+  border: 1px solid #cbd5e1;
+  border-radius: 3px;
+  min-width: 0;
+}
+
+.annotation-add input[type="text"] {
+  width: 80px;
+}
+
+.annotation-add input[type="number"] {
+  width: 55px;
+}
+
+.annotation-add button {
+  font-size: 11px;
+  padding: 3px 7px;
+  border: 1px solid #cbd5e1;
+  border-radius: 3px;
+  background: #fff;
+  cursor: pointer;
+}
+
+.annotation-add button:hover {
+  background: #e2e8f0;
+}
+
+.empty-hint {
+  color: #94a3b8;
+  font-size: 12px;
+  font-style: italic;
+}

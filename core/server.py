@@ -158,6 +158,20 @@ def create_app() -> FastAPI:
         register_module_factory("import.sequence", ImportSequenceModule)
         register_module_factory("export.structure", ExportStructureModule)
         register_module_factory("export.sequence", ExportSequenceModule)
+        from modules.build_residue_layout import BuildResidueLayoutModule
+        from modules.apply_residue_edits import ApplyResidueEditsModule
+        from modules.compute_secondary_structure import ComputeSecondaryStructureModule
+        from modules.compute_sasa import ComputeSASAModule
+        from modules.override_residue_track import OverrideResidueTrackModule
+        from modules.add_function_annotation import AddFunctionAnnotationModule
+        from modules.assemble_protein_prompt import AssembleProteinPromptModule
+        register_module_factory("prompt.build_residue_layout", BuildResidueLayoutModule)
+        register_module_factory("prompt.apply_residue_edits", ApplyResidueEditsModule)
+        register_module_factory("prompt.compute_secondary_structure", ComputeSecondaryStructureModule)
+        register_module_factory("prompt.compute_sasa", ComputeSASAModule)
+        register_module_factory("prompt.override_residue_track", OverrideResidueTrackModule)
+        register_module_factory("prompt.add_function_annotation", AddFunctionAnnotationModule)
+        register_module_factory("prompt.assemble_protein_prompt", AssembleProteinPromptModule)
         yield
         for task in _active_runs.values():
             task.cancel()

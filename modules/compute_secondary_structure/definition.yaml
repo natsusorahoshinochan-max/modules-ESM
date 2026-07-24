@@ -1,0 +1,22 @@
+module_id: prompt.compute_secondary_structure
+version: 1.0.0
+display_name: Compute Secondary Structure
+category: prompt
+description: "Computes per-residue DSSP secondary structure from a ProteinStructure."
+input_ports:
+  - name: structure
+    type_id: protein.structure
+    display_name: Structure
+    description: "Protein structure to analyse."
+output_ports:
+  - name: secondary_structure_track
+    type_id: residue.track.secondary_structure
+    display_name: Secondary Structure Track
+    description: "Per-residue DSSP secondary structure codes."
+parameters:
+  - name: dssp_binary
+    type: str
+    default: "/opt/homebrew/bin/mkdssp"
+    display_name: DSSP Binary Path
+    description: "Path to the mkdssp executable."
+module_api: "1.0"
