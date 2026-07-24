@@ -1,0 +1,20 @@
+module_id: structure.batch_tm_score
+version: 1.0.0
+display_name: Batch TM-score
+category: scoring
+description: "Batch-align each candidate structure to a reference and compute TM-score. Outputs one tm_score entry per candidate with subjects referencing candidate IDs for downstream weighted ranking."
+input_ports:
+  - name: reference
+    type_id: protein.structure
+    display_name: Reference Structure
+    description: "Reference structure to align candidates against."
+  - name: candidates
+    type_id: candidate.collection
+    display_name: Candidate Structures
+    description: "Collection of candidate ProteinStructure objects to score."
+output_ports:
+  - name: scores
+    type_id: score.collection
+    display_name: Scores
+    description: "ScoreCollection with one tm_score entry per candidate."
+module_api: "1.0"
