@@ -166,6 +166,10 @@ def create_app() -> FastAPI:
         from modules.override_residue_track import OverrideResidueTrackModule
         from modules.add_function_annotation import AddFunctionAnnotationModule
         from modules.assemble_protein_prompt import AssembleProteinPromptModule
+        from modules.prompt_random_mask.module import RandomMaskModule
+        from modules.prompt_random_insert_masked.module import RandomInsertMaskedModule
+        from modules.prompt_random_fixed_positions.module import RandomFixedPositionsModule
+        from modules.esm3_generate.module import ESM3GenerateModule
         register_module_factory("prompt.build_residue_layout", BuildResidueLayoutModule)
         register_module_factory("prompt.apply_residue_edits", ApplyResidueEditsModule)
         register_module_factory("prompt.compute_secondary_structure", ComputeSecondaryStructureModule)
@@ -173,6 +177,10 @@ def create_app() -> FastAPI:
         register_module_factory("prompt.override_residue_track", OverrideResidueTrackModule)
         register_module_factory("prompt.add_function_annotation", AddFunctionAnnotationModule)
         register_module_factory("prompt.assemble_protein_prompt", AssembleProteinPromptModule)
+        register_module_factory("prompt.random_mask", RandomMaskModule)
+        register_module_factory("prompt.random_insert_masked", RandomInsertMaskedModule)
+        register_module_factory("prompt.random_fixed_positions", RandomFixedPositionsModule)
+        register_module_factory("esm3.generate", ESM3GenerateModule)
         from modules.esm3_generate_sequence import ESM3GenerateSequenceModule
         from modules.esm3_update_prompt_sequence import UpdatePromptSequenceModule
         from modules.esm3_generate_structure import ESM3GenerateStructureModule
