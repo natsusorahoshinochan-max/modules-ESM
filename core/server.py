@@ -214,12 +214,14 @@ def create_app() -> FastAPI:
         from modules.weighted_rank.module import WeightedRankModule
         from modules.pareto_select.module import ParetoSelectModule
         from modules.diversity_select.module import DiversitySelectModule
+        from modules.selection_concat.module import ConcatCandidatesModule
         register_module_factory("selection.filter", FilterCandidatesModule)
         register_module_factory("selection.sort", SortCandidatesModule)
         register_module_factory("selection.top_k", TopKModule)
         register_module_factory("selection.weighted_rank", WeightedRankModule)
         register_module_factory("selection.pareto", ParetoSelectModule)
         register_module_factory("selection.diversity", DiversitySelectModule)
+        register_module_factory("selection.concat", ConcatCandidatesModule)
         from modules.extract_sequence_from_structure.module import ExtractSequenceFromStructureModule
         from modules.extract_backbone.module import ExtractBackboneModule
         from modules.select_chains.module import SelectChainsModule

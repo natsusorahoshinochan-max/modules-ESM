@@ -1,0 +1,24 @@
+module_id: selection.concat
+version: 1.0.0
+display_name: Concatenate Candidates
+category: selection
+description: "Concatenates up to three CandidateCollections of the same item_type into one."
+input_ports:
+  - name: candidates_a
+    type_id: candidate.collection
+    display_name: Candidates A
+    description: "First CandidateCollection to concatenate."
+  - name: candidates_b
+    type_id: candidate.collection
+    display_name: Candidates B
+    description: "Second CandidateCollection to concatenate."
+  - name: candidates_c
+    type_id: candidate.collection
+    display_name: Candidates C
+    description: "Third CandidateCollection to concatenate (optional)."
+output_ports:
+  - name: candidates
+    type_id: candidate.collection
+    display_name: Candidates
+    description: "Concatenated CandidateCollection with all items preserved."
+module_api: "1.0"

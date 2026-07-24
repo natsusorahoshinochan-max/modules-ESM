@@ -37,6 +37,15 @@ class ProteinMPNNDesignModule(WorkflowModule):
         structure: ProteinStructure | None = inputs.get("structure")
         if structure is None:
             raise ValueError("structure input is required")
+        # Accept CandidateCollection (first item) for DAG compatibility
+        if isinstance(structure, CandidateCollection):
+            if len(structure) == 0:
+                raise ValueError("structure CandidateCollection is empty")
+            structure = structure.items[0].data
+            if not isinstance(structure, ProteinStructure):
+                raise ValueError(
+                    "First candidate in structure collection is not a ProteinStructure")
+
 
         constraints: ProteinMPNNConstraints | None = inputs.get("constraints")
 
