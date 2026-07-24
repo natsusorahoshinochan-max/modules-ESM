@@ -1,0 +1,11 @@
+{
+  "sha256": {
+    "direct-esm3-medium-2024-08-coordinate_conditioned.pdb": "81a4d2d8af47c3d4f90f904be8abd00fbc754e4245f9cc4b4b6020b1009a4626",
+    "direct-esm3-open-2024-03-coordinate_conditioned.pdb": "37503c4bf1e717e28cfbe0422751c643e983a007c1b9a7117bfb190b16b2267d",
+    "guided-denoise-esm3-medium-2024-08.pdb": "10c464c34cb8032161fbb519138a9a5bc2b0322ab008f4851771ea276c6c3ed0",
+    "guided-denoise-esm3-open-2024-03.pdb": "c11800373f7f0c4a58d8c99fa13ce50e285ba69358c8a1e307f2b05ba2b8eaa0",
+    "input-1pga.pdb": "908f8dbf3bb7567f36eec4683eb8cfab5ac0c011dfee1b9c940cab7f482bc841",
+    "observations.json": "a39c39ce11f325160e4cb18f8160dde486b36944975d0a644b417374b85c094b",
+    "report.md": "19656cbbc0581d70145c75d6d6972dc9d260f6fb4c83b984a00a927bd6a1d9af"
+  }
+}

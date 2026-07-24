@@ -1,0 +1,113 @@
+{
+  "schema_version": 1,
+  "provider": "Biohub Platform",
+  "api_version": "v1",
+  "captured_at": "2026-07-16T03:56:50.184Z",
+  "site_release": "sha-7062746",
+  "authority_scope": "external_provider_wire_reference",
+  "files": {
+    "machine_readable_contract": "api-reference.json",
+    "human_index": "README.md",
+    "endpoint_documents": "endpoints/*.md"
+  },
+  "normalization": {
+    "preserved": [
+      "HTTP method and path",
+      "request headers",
+      "request field names and nesting",
+      "types, required flags, defaults, enums, and ranges"
+    ],
+    "summarized": [
+      "endpoint and field descriptions"
+    ],
+    "omitted": [
+      "site navigation, styling, scripts, analytics, and legal footer",
+      "schema-renderer variant placeholders that do not represent request fields"
+    ],
+    "empty_default_rule": "An empty source default marker is treated as undocumented, not as an empty-string default.",
+    "nullable_enum_rule": "The source token null is normalized to JSON null when the field type is nullable."
+  },
+  "limitations": [
+    "The source pages did not publish response status codes, media types, or response body schemas.",
+    "The source pages document relative API paths but do not establish an API base URL in the captured endpoint definitions.",
+    "Private models may be available even when they are absent from the public allowed-values lists."
+  ],
+  "hash": {
+    "algorithm": "sha256",
+    "subject": "Canonical JSON serialization of each endpoint definition extracted from the page payload."
+  },
+  "sources": [
+    {
+      "endpoint": "logits",
+      "requested_url": "https://biohub.ai/api-reference/logits",
+      "resolved_url": "https://biohub.ai/api-reference/logits",
+      "http_status": 200,
+      "definition_sha256": "6da5dc2e1778fe43dd77543bbcf168d1fbc08a8a71839dd1a0f047250dd678cc",
+      "document": "endpoints/logits.md"
+    },
+    {
+      "endpoint": "encode",
+      "requested_url": "https://biohub.ai/api-reference/encode",
+      "resolved_url": "https://biohub.ai/api-reference/encode",
+      "http_status": 200,
+      "definition_sha256": "a37046ffe4bb88f6618c024d898a380cb90c204b455dea608a6300842a031793",
+      "document": "endpoints/encode.md"
+    },
+    {
+      "endpoint": "decode",
+      "requested_url": "https://biohub.ai/api-reference/decode",
+      "resolved_url": "https://biohub.ai/api-reference/decode",
+      "http_status": 200,
+      "definition_sha256": "b8a68d24c583030be549118d1ae61a4068a0a8720a4ce0139b6b71c26b4fed89",
+      "document": "endpoints/decode.md"
+    },
+    {
+      "endpoint": "generate",
+      "requested_url": "https://biohub.ai/api-reference/generate",
+      "resolved_url": "https://biohub.ai/api-reference/generate",
+      "http_status": 200,
+      "definition_sha256": "50607f5fe12e4aeabea00e6e4a5aecd0bf212fad4861a057aa16466e83195f86",
+      "document": "endpoints/generate.md"
+    },
+    {
+      "endpoint": "generate_tensor",
+      "requested_url": "https://biohub.ai/api-reference/generate_tensor",
+      "resolved_url": "https://biohub.ai/api-reference/generate_tensor",
+      "http_status": 200,
+      "definition_sha256": "6be7397d84b760be1c1aff281a4d6341dd03f24e4d21140ab2382168687708fc",
+      "document": "endpoints/generate_tensor.md"
+    },
+    {
+      "endpoint": "forward_and_sample",
+      "requested_url": "https://biohub.ai/api-reference/forward_and_sample",
+      "resolved_url": "https://biohub.ai/api-reference/forward_and_sample",
+      "http_status": 200,
+      "definition_sha256": "1f5006d0895f0d107df386722f790542f5c484710eac93ba5361195e7e7ffdaa",
+      "document": "endpoints/forward_and_sample.md"
+    },
+    {
+      "endpoint": "fold",
+      "requested_url": "https://biohub.ai/api-reference/fold",
+      "resolved_url": "https://biohub.ai/api-reference/fold",
+      "http_status": 200,
+      "definition_sha256": "3db2562edf1ae9ab0ab4722bbf58b16fbae50f5632faada757e39bb1428f540e",
+      "document": "endpoints/fold.md"
+    },
+    {
+      "endpoint": "fold_all_atom",
+      "requested_url": "http://biohub.ai/api-reference/fold_all_atom",
+      "resolved_url": "https://biohub.ai/api-reference/fold_all_atom",
+      "http_status": 200,
+      "definition_sha256": "98fc1b846d2b2d8dcf8ddce2694afb11582a92fdc95281f1f788be7d7e9a8559",
+      "document": "endpoints/fold_all_atom.md"
+    },
+    {
+      "endpoint": "inverse_fold",
+      "requested_url": "https://biohub.ai/api-reference/inverse_fold",
+      "resolved_url": "https://biohub.ai/api-reference/inverse_fold",
+      "http_status": 200,
+      "definition_sha256": "fa7495ba86abac45c2e6366e030904709b3543ff0741d36835ec2f527f1b384f",
+      "document": "endpoints/inverse_fold.md"
+    }
+  ]
+}

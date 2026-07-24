@@ -1,0 +1,1702 @@
+{
+  "coordinate_hash_definition": {
+    "algorithm": "sha256(shape-json || finite-mask-u8-C || rounded-finite-values-little-endian-f64-C)",
+    "nonfinite_payload_normalization": 0.0,
+    "rounding_decimals": 6
+  },
+  "credential_handling": {
+    "loader": "scripts/verify/provider-authorization",
+    "serialized_credentials": false
+  },
+  "input": {
+    "chain_id": "A",
+    "coordinates": {
+      "canonical_sha256": "9e18246a0d5c5444260d873e16f944ee218ad289ef9fe43fb4805224249e619a",
+      "dtype": "float32",
+      "finite_atom_positions": 436,
+      "finite_count": 1308,
+      "maximum": 39.62200164794922,
+      "mean": 24.905557310909305,
+      "minimum": 10.369999885559082,
+      "present": true,
+      "residues_with_any_finite_atom": 56,
+      "residues_with_finite_backbone_n_ca_c": 56,
+      "shape": [
+        56,
+        37,
+        3
+      ],
+      "value_count": 6216
+    },
+    "copied_evidence_file": "input-1pga.pdb",
+    "sequence": "MTYKLILNGKTLKGETTTEAVDAATAEKVFKQYANDNGVDGEWTYDDATKTFTVTE",
+    "sequence_length": 56,
+    "source_content_sha256": "908f8dbf3bb7567f36eec4683eb8cfab5ac0c011dfee1b9c940cab7f482bc841",
+    "source_file": "resources/structures/1PGA.pdb"
+  },
+  "observations": [
+    {
+      "call_topology": [
+        {
+          "operation": "generate",
+          "status": "succeeded"
+        }
+      ],
+      "endpoint_id": "biohub",
+      "endpoint_path": "/api/v1/generate",
+      "fields": {
+        "coordinates": {
+          "attribute_exists": true,
+          "numeric": false,
+          "present": false,
+          "shape": null,
+          "type": "NoneType"
+        },
+        "function_annotations": {
+          "attribute_exists": true,
+          "numeric": false,
+          "present": false,
+          "shape": null,
+          "type": "NoneType"
+        },
+        "pae": {
+          "attribute_exists": true,
+          "numeric": false,
+          "present": false,
+          "shape": null,
+          "type": "NoneType"
+        },
+        "plddt": {
+          "attribute_exists": true,
+          "numeric": false,
+          "present": false,
+          "shape": null,
+          "type": "NoneType"
+        },
+        "ptm": {
+          "attribute_exists": true,
+          "numeric": false,
+          "present": false,
+          "shape": null,
+          "type": "NoneType"
+        },
+        "sasa": {
+          "attribute_exists": true,
+          "numeric": false,
+          "present": false,
+          "shape": null,
+          "type": "NoneType"
+        },
+        "secondary_structure": {
+          "attribute_exists": true,
+          "numeric": false,
+          "present": false,
+          "shape": null,
+          "type": "NoneType"
+        },
+        "sequence": {
+          "attribute_exists": true,
+          "length": 56,
+          "present": true,
+          "sha256": "ba8284e511afff780167ed352c1b6a0f577b87fe94a989a721983ae8f611c08f",
+          "type": "str",
+          "value": "MALLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLL"
+        },
+        "structure": {
+          "attribute_exists": false,
+          "numeric": false,
+          "present": false,
+          "shape": null,
+          "type": "NoneType"
+        }
+      },
+      "id": "direct-esm3-open-2024-03-no_coordinates",
+      "model": "esm3-open-2024-03",
+      "prompt_kind": "no_coordinates",
+      "public_operation": "generate",
+      "request": {
+        "condition_on_coordinates_only": true,
+        "coordinates_present": false,
+        "coordinates_shape": null,
+        "num_steps": 1,
+        "schedule": "linear",
+        "sequence_length": 56,
+        "sequence_mask_count": 56,
+        "strategy": "random",
+        "temperature": 0.0,
+        "temperature_annealing": false,
+        "top_p": 1.0,
+        "track": "sequence"
+      },
+      "response_type": "ESMProtein",
+      "status": "succeeded"
+    },
+    {
+      "call_topology": [
+        {
+          "operation": "generate",
+          "status": "succeeded"
+        }
+      ],
+      "coordinate_comparison_to_prompt": {
+        "all_atom_kabsch_rmsd_angstrom": 0.8958112099944501,
+        "all_atom_raw_rmsd_angstrom": 43.984797759645055,
+        "backbone_n_ca_c_atom_count": 168,
+        "backbone_n_ca_c_kabsch_rmsd_angstrom": 0.1489828820642551,
+        "backbone_n_ca_c_raw_rmsd_angstrom": 43.77353448687667,
+        "ca_kabsch_rmsd_angstrom": 0.14026953036419454,
+        "ca_raw_rmsd_angstrom": 43.81560442231228,
+        "ca_residue_count": 56,
+        "comparable": true,
+        "exact_equal_with_nan": false,
+        "finite_in_both_atom_positions": 387,
+        "intersecting_finite_atom_positions": 387,
+        "newly_finite_atom_positions": 66,
+        "no_longer_finite_atom_positions": 49,
+        "observed_canonical_sha256": "caa77cebc0283db15a3e58dce1ae8aa02e079763cddc7a92b8f9f7f526449282",
+        "observed_finite_atom_positions": 453,
+        "observed_shape": [
+          56,
+          37,
+          3
+        ],
+        "reference_canonical_sha256": "9e18246a0d5c5444260d873e16f944ee218ad289ef9fe43fb4805224249e619a",
+        "reference_finite_atom_positions": 436,
+        "reference_shape": [
+          56,
+          37,
+          3
+        ]
+      },
+      "endpoint_id": "biohub",
+      "endpoint_path": "/api/v1/generate",
+      "fields": {
+        "coordinates": {
+          "attribute_exists": true,
+          "canonical_sha256": "caa77cebc0283db15a3e58dce1ae8aa02e079763cddc7a92b8f9f7f526449282",
+          "dtype": "float32",
+          "finite_atom_positions": 453,
+          "finite_count": 1359,
+          "maximum": 19.921567916870117,
+          "mean": 0.6019599641658876,
+          "minimum": -14.092618942260742,
+          "present": true,
+          "residues_with_any_finite_atom": 56,
+          "residues_with_finite_backbone_n_ca_c": 56,
+          "shape": [
+            56,
+            37,
+            3
+          ],
+          "type": "Tensor",
+          "value_count": 6216
+        },
+        "function_annotations": {
+          "attribute_exists": true,
+          "numeric": false,
+          "present": false,
+          "shape": null,
+          "type": "NoneType"
+        },
+        "pae": {
+          "attribute_exists": true,
+          "numeric": false,
+          "present": false,
+          "shape": null,
+          "type": "NoneType"
+        },
+        "plddt": {
+          "attribute_exists": true,
+          "canonical_sha256": "bd6e79110a39e8f47b56110e64d9dde4c788f22ec13eea4c93f1cd4de2cc0da6",
+          "dtype": "float32",
+          "finite_count": 56,
+          "maximum": 0.9899263978004456,
+          "mean": 0.9895687752536365,
+          "minimum": 0.9877763986587524,
+          "present": true,
+          "shape": [
+            56
+          ],
+          "type": "Tensor",
+          "value_count": 56,
+          "values": [
+            0.9880986213684082,
+            0.9898476004600525,
+            0.98990398645401,
+            0.9899244904518127,
+            0.9899263978004456,
+            0.9898499846458435,
+            0.9899020195007324,
+            0.9897421598434448,
+            0.9891688227653503,
+            0.9881477355957031,
+            0.9877763986587524,
+            0.9888300895690918,
+            0.9895066022872925,
+            0.9893741011619568,
+            0.9897384643554688,
+            0.9897237420082092,
+            0.9898860454559326,
+            0.9898431301116943,
+            0.989871621131897,
+            0.9898479580879211,
+            0.9897444844245911,
+            0.9897500872612,
+            0.9897662401199341,
+            0.9897101521492004,
+            0.9898646473884583,
+            0.9898707270622253,
+            0.9898224472999573,
+            0.9898136854171753,
+            0.989901602268219,
+            0.9898123741149902,
+            0.9898551106452942,
+            0.9898216128349304,
+            0.9898673295974731,
+            0.9897265434265137,
+            0.9895495176315308,
+            0.9892747402191162,
+            0.9891014099121094,
+            0.9884799122810364,
+            0.9894362092018127,
+            0.9891546964645386,
+            0.9894657731056213,
+            0.9897397756576538,
+            0.9896219968795776,
+            0.9898148775100708,
+            0.9898476004600525,
+            0.989759624004364,
+            0.9895579814910889,
+            0.9895720481872559,
+            0.9897306561470032,
+            0.9898374080657959,
+            0.9898985028266907,
+            0.9898743629455566,
+            0.9899194240570068,
+            0.9898242950439453,
+            0.9897189140319824,
+            0.9884346723556519
+          ]
+        },
+        "ptm": {
+          "attribute_exists": true,
+          "canonical_sha256": "f883bb1c88742fb300c01d0a65b2ccd4f8201af1d2acee1d92ba4fb650d7326d",
+          "dtype": "float32",
+          "finite_count": 1,
+          "maximum": 0.8739483952522278,
+          "mean": 0.8739483952522278,
+          "minimum": 0.8739483952522278,
+          "present": true,
+          "shape": [],
+          "type": "Tensor",
+          "value_count": 1,
+          "values": [
+            0.8739483952522278
+          ]
+        },
+        "sasa": {
+          "attribute_exists": true,
+          "numeric": false,
+          "present": false,
+          "shape": null,
+          "type": "NoneType"
+        },
+        "secondary_structure": {
+          "attribute_exists": true,
+          "numeric": false,
+          "present": false,
+          "shape": null,
+          "type": "NoneType"
+        },
+        "sequence": {
+          "attribute_exists": true,
+          "length": 56,
+          "present": true,
+          "sha256": "206534c7ed553a9ccaa7c0701e19a6e3aa75d7a6b3f5007f41ee3b038f617143",
+          "type": "str",
+          "value": "MKYYLVINGKKIKGTTSIEAENEEEAKKIFDKWAKENGISGEWSYDPSTNTFTITE"
+        },
+        "structure": {
+          "attribute_exists": false,
+          "numeric": false,
+          "present": false,
+          "shape": null,
+          "type": "NoneType"
+        }
+      },
+      "id": "direct-esm3-open-2024-03-coordinate_conditioned",
+      "model": "esm3-open-2024-03",
+      "prompt_kind": "coordinate_conditioned",
+      "public_operation": "generate",
+      "request": {
+        "condition_on_coordinates_only": true,
+        "coordinates_present": true,
+        "coordinates_shape": [
+          56,
+          37,
+          3
+        ],
+        "num_steps": 1,
+        "schedule": "linear",
+        "sequence_length": 56,
+        "sequence_mask_count": 56,
+        "strategy": "random",
+        "temperature": 0.0,
+        "temperature_annealing": false,
+        "top_p": 1.0,
+        "track": "sequence"
+      },
+      "response_type": "ESMProtein",
+      "status": "succeeded",
+      "structure_artifact": {
+        "file": "direct-esm3-open-2024-03-coordinate_conditioned.pdb",
+        "sha256": "37503c4bf1e717e28cfbe0422751c643e983a007c1b9a7117bfb190b16b2267d",
+        "size_bytes": 36692,
+        "written": true
+      }
+    },
+    {
+      "call_topology": [
+        {
+          "operation": "encode",
+          "status": "succeeded"
+        },
+        {
+          "operation": "forward_and_sample",
+          "status": "succeeded"
+        },
+        {
+          "operation": "decode",
+          "status": "succeeded"
+        }
+      ],
+      "decoded_fields": {
+        "coordinates": {
+          "attribute_exists": true,
+          "canonical_sha256": "7f11430efa631447aafad85911b2d5e6bff96b1679d1cf8bbddb12f0c21352c4",
+          "dtype": "float32",
+          "finite_atom_positions": 440,
+          "finite_count": 1320,
+          "maximum": 38.99167251586914,
+          "mean": -0.3465265542268753,
+          "minimum": -32.09086990356445,
+          "present": true,
+          "residues_with_any_finite_atom": 56,
+          "residues_with_finite_backbone_n_ca_c": 56,
+          "shape": [
+            56,
+            37,
+            3
+          ],
+          "type": "Tensor",
+          "value_count": 6216
+        },
+        "function_annotations": {
+          "attribute_exists": true,
+          "numeric": false,
+          "present": false,
+          "shape": null,
+          "type": "NoneType"
+        },
+        "pae": {
+          "attribute_exists": true,
+          "numeric": false,
+          "present": false,
+          "shape": null,
+          "type": "NoneType"
+        },
+        "plddt": {
+          "attribute_exists": true,
+          "canonical_sha256": "40c810ae6187c79417c2a59912924b1f89755ee0c9bc990047ad8a2c910bd536",
+          "dtype": "float32",
+          "finite_count": 56,
+          "maximum": 0.5175482034683228,
+          "mean": 0.47490721355591503,
+          "minimum": 0.4003788232803345,
+          "present": true,
+          "shape": [
+            56
+          ],
+          "type": "Tensor",
+          "value_count": 56,
+          "values": [
+            0.42579370737075806,
+            0.435698926448822,
+            0.43083417415618896,
+            0.4355543255805969,
+            0.43419861793518066,
+            0.4335944652557373,
+            0.449003666639328,
+            0.4666675329208374,
+            0.4649384319782257,
+            0.4734950065612793,
+            0.48543599247932434,
+            0.49066710472106934,
+            0.48204758763313293,
+            0.4953252077102661,
+            0.5001929402351379,
+            0.4987069368362427,
+            0.4981660842895508,
+            0.504259467124939,
+            0.5070359706878662,
+            0.5005178451538086,
+            0.5037190318107605,
+            0.5017832517623901,
+            0.5072080492973328,
+            0.4986942410469055,
+            0.5011730790138245,
+            0.5106956958770752,
+            0.5016483664512634,
+            0.509049654006958,
+            0.513198733329773,
+            0.5170127749443054,
+            0.5109529495239258,
+            0.5175482034683228,
+            0.5076867341995239,
+            0.49382147192955017,
+            0.4910813271999359,
+            0.4908788502216339,
+            0.47623583674430847,
+            0.4797177016735077,
+            0.48088037967681885,
+            0.47319674491882324,
+            0.4733439087867737,
+            0.47336405515670776,
+            0.48237890005111694,
+            0.4678863286972046,
+            0.47138139605522156,
+            0.4675588607788086,
+            0.4714043140411377,
+            0.4582434594631195,
+            0.4573264718055725,
+            0.4540364444255829,
+            0.4328424334526062,
+            0.42596834897994995,
+            0.4285297393798828,
+            0.4276528060436249,
+            0.4003788232803345,
+            0.4041905999183655
+          ]
+        },
+        "ptm": {
+          "attribute_exists": true,
+          "canonical_sha256": "7f7ff6d33360007ac0ea95f3fa4c01badaeb44211fc206212fff8b45c9e1baa2",
+          "dtype": "float32",
+          "finite_count": 1,
+          "maximum": 0.32857275009155273,
+          "mean": 0.32857275009155273,
+          "minimum": 0.32857275009155273,
+          "present": true,
+          "shape": [],
+          "type": "Tensor",
+          "value_count": 1,
+          "values": [
+            0.32857275009155273
+          ]
+        },
+        "sasa": {
+          "attribute_exists": true,
+          "numeric": false,
+          "present": false,
+          "shape": null,
+          "type": "NoneType"
+        },
+        "secondary_structure": {
+          "attribute_exists": true,
+          "numeric": false,
+          "present": false,
+          "shape": null,
+          "type": "NoneType"
+        },
+        "sequence": {
+          "attribute_exists": true,
+          "length": 56,
+          "present": true,
+          "sha256": "e3fbbb78c436d1760f6a13e9900431cd1e514fcd934ccd68478cab91e0150843",
+          "type": "str",
+          "value": "MALLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLX"
+        },
+        "structure": {
+          "attribute_exists": false,
+          "numeric": false,
+          "present": false,
+          "shape": null,
+          "type": "NoneType"
+        }
+      },
+      "endpoint_id": "biohub",
+      "endpoint_paths": [
+        "/api/v1/encode",
+        "/api/v1/forward_and_sample",
+        "/api/v1/decode"
+      ],
+      "forward_and_sample_response": {
+        "auxiliary_tracks": {
+          "entropy": {
+            "function": {
+              "numeric": false,
+              "present": false,
+              "shape": null
+            },
+            "sasa": {
+              "numeric": false,
+              "present": false,
+              "shape": null
+            },
+            "secondary_structure": {
+              "numeric": false,
+              "present": false,
+              "shape": null
+            },
+            "sequence": {
+              "canonical_sha256": "d62aaef37c6cd2861e33efd9ec65fe4c949730c3c35228d48c6bb721880b2e17",
+              "dtype": "float32",
+              "finite_count": 58,
+              "maximum": 2.8957197666168213,
+              "mean": 2.8542085783234956,
+              "minimum": 1.8660210371017456,
+              "present": true,
+              "shape": [
+                58
+              ],
+              "value_count": 58
+            },
+            "structure": {
+              "canonical_sha256": "11a49475791a51e1109ff472f9265233db0ee2ad5cda355dd3d180cc4697dada",
+              "dtype": "float32",
+              "finite_count": 58,
+              "maximum": 7.037419319152832,
+              "mean": 6.831568512423285,
+              "minimum": 4.3939008712768555,
+              "present": true,
+              "shape": [
+                58
+              ],
+              "value_count": 58
+            }
+          },
+          "logprob": {
+            "function": {
+              "numeric": false,
+              "present": false,
+              "shape": null
+            },
+            "sasa": {
+              "numeric": false,
+              "present": false,
+              "shape": null
+            },
+            "secondary_structure": {
+              "numeric": false,
+              "present": false,
+              "shape": null
+            },
+            "sequence": {
+              "canonical_sha256": "9842442c1932cbe098270bd6953d87498f1754a593619d528f53aff353abdfbc",
+              "dtype": "float32",
+              "finite_count": 58,
+              "maximum": 0.0,
+              "mean": -2.207479255980459,
+              "minimum": -2.4561707973480225,
+              "present": true,
+              "shape": [
+                58
+              ],
+              "value_count": 58
+            },
+            "structure": {
+              "canonical_sha256": "56e3ab3e2a2189467c1e473e8fc811f07284a9fe6bc67c296ee8dc5479666695",
+              "dtype": "float32",
+              "finite_count": 58,
+              "maximum": 0.0,
+              "mean": -3.604514348095861,
+              "minimum": -4.537408828735352,
+              "present": true,
+              "shape": [
+                58
+              ],
+              "value_count": 58
+            }
+          },
+          "prob": {
+            "function": {
+              "numeric": false,
+              "present": false,
+              "shape": null
+            },
+            "sasa": {
+              "numeric": false,
+              "present": false,
+              "shape": null
+            },
+            "secondary_structure": {
+              "numeric": false,
+              "present": false,
+              "shape": null
+            },
+            "sequence": {
+              "canonical_sha256": "00a3a85ea3fac8f99b373792dfe3b8df5bdbc01b819c0df6d2674a0b90edb448",
+              "dtype": "float32",
+              "finite_count": 58,
+              "maximum": 1.0,
+              "mean": 0.13816135517995934,
+              "minimum": 0.08576272428035736,
+              "present": true,
+              "shape": [
+                58
+              ],
+              "value_count": 58
+            },
+            "structure": {
+              "canonical_sha256": "1761a26f5d2407c789486bdefbd0ec68803f64cd8a48f33044ed2eecbd1aa148",
+              "dtype": "float32",
+              "finite_count": 58,
+              "maximum": 1.0,
+              "mean": 0.05898896819944012,
+              "minimum": 0.010701099410653114,
+              "present": true,
+              "shape": [
+                58
+              ],
+              "value_count": 58
+            }
+          },
+          "top_prob": {
+            "function": {
+              "numeric": false,
+              "present": false,
+              "shape": null
+            },
+            "sasa": {
+              "numeric": false,
+              "present": false,
+              "shape": null
+            },
+            "secondary_structure": {
+              "numeric": false,
+              "present": false,
+              "shape": null
+            },
+            "sequence": {
+              "numeric": false,
+              "present": false,
+              "shape": null
+            },
+            "structure": {
+              "numeric": false,
+              "present": false,
+              "shape": null
+            }
+          },
+          "topk_logprob": {
+            "function": {
+              "numeric": false,
+              "present": false,
+              "shape": null
+            },
+            "sasa": {
+              "numeric": false,
+              "present": false,
+              "shape": null
+            },
+            "secondary_structure": {
+              "numeric": false,
+              "present": false,
+              "shape": null
+            },
+            "sequence": {
+              "numeric": false,
+              "present": false,
+              "shape": null
+            },
+            "structure": {
+              "numeric": false,
+              "present": false,
+              "shape": null
+            }
+          },
+          "topk_tokens": {
+            "function": {
+              "numeric": false,
+              "present": false,
+              "shape": null
+            },
+            "sasa": {
+              "numeric": false,
+              "present": false,
+              "shape": null
+            },
+            "secondary_structure": {
+              "numeric": false,
+              "present": false,
+              "shape": null
+            },
+            "sequence": {
+              "numeric": false,
+              "present": false,
+              "shape": null
+            },
+            "structure": {
+              "numeric": false,
+              "present": false,
+              "shape": null
+            }
+          }
+        },
+        "mean_embedding": {
+          "numeric": false,
+          "present": false,
+          "shape": null
+        },
+        "per_residue_embedding": {
+          "numeric": false,
+          "present": false,
+          "shape": null
+        },
+        "protein_tensor": {
+          "coordinates": {
+            "numeric": false,
+            "present": false,
+            "shape": null
+          },
+          "function": {
+            "canonical_sha256": "cbeb5ffce88f9e7c558795d47ea4931bdb2e3f17e24ebeb9913b65cdc52e6eca",
+            "dtype": "int64",
+            "finite_count": 464,
+            "maximum": 0.0,
+            "mean": 0.0,
+            "minimum": 0.0,
+            "present": true,
+            "shape": [
+              58,
+              8
+            ],
+            "value_count": 464
+          },
+          "sasa": {
+            "canonical_sha256": "86d3b59e61d0fd38ce7757e1286da47c26d740df6fa1a89642b091a0464d2072",
+            "dtype": "float32",
+            "finite_count": 58,
+            "maximum": 0.0,
+            "mean": 0.0,
+            "minimum": 0.0,
+            "present": true,
+            "shape": [
+              58
+            ],
+            "value_count": 58
+          },
+          "secondary_structure": {
+            "canonical_sha256": "86d3b59e61d0fd38ce7757e1286da47c26d740df6fa1a89642b091a0464d2072",
+            "dtype": "float32",
+            "finite_count": 58,
+            "maximum": 0.0,
+            "mean": 0.0,
+            "minimum": 0.0,
+            "present": true,
+            "shape": [
+              58
+            ],
+            "value_count": 58
+          },
+          "sequence": {
+            "canonical_sha256": "ebc9f24223e3a476b331b92e4a2970c214ad62706ab853ac020a314339a2f489",
+            "dtype": "float32",
+            "finite_count": 58,
+            "maximum": 24.0,
+            "mean": 4.5344827586206895,
+            "minimum": 0.0,
+            "present": true,
+            "shape": [
+              58
+            ],
+            "value_count": 58
+          },
+          "structure": {
+            "canonical_sha256": "40722b9168340d56355f1b373e47655118dfe656b9e7884ba9b4259019f045a5",
+            "dtype": "float32",
+            "finite_count": 58,
+            "maximum": 4098.0,
+            "mean": 803.8965517241379,
+            "minimum": 588.0,
+            "present": true,
+            "shape": [
+              58
+            ],
+            "value_count": 58
+          }
+        },
+        "type": "ForwardAndSampleOutput"
+      },
+      "id": "guided-denoise-esm3-open-2024-03-no_coordinates",
+      "model": "esm3-open-2024-03",
+      "prompt_kind": "no_coordinates",
+      "public_operation": "guided_denoise",
+      "request": {
+        "coordinates_present": false,
+        "sampling_config": {
+          "sequence": {
+            "invalid_ids": [],
+            "temperature": 0.0,
+            "top_p": 1.0
+          },
+          "structure": {
+            "invalid_ids": [],
+            "temperature": 0.0,
+            "top_p": 1.0
+          }
+        },
+        "sequence_length": 56,
+        "sequence_mask_count": 56
+      },
+      "response_type": "ESMProtein",
+      "status": "succeeded",
+      "structure_artifact": {
+        "file": "guided-denoise-esm3-open-2024-03.pdb",
+        "sha256": "c11800373f7f0c4a58d8c99fa13ce50e285ba69358c8a1e307f2b05ba2b8eaa0",
+        "size_bytes": 35639,
+        "written": true
+      }
+    },
+    {
+      "call_topology": [
+        {
+          "operation": "generate",
+          "status": "succeeded"
+        }
+      ],
+      "endpoint_id": "biohub",
+      "endpoint_path": "/api/v1/generate",
+      "fields": {
+        "coordinates": {
+          "attribute_exists": true,
+          "numeric": false,
+          "present": false,
+          "shape": null,
+          "type": "NoneType"
+        },
+        "function_annotations": {
+          "attribute_exists": true,
+          "numeric": false,
+          "present": false,
+          "shape": null,
+          "type": "NoneType"
+        },
+        "pae": {
+          "attribute_exists": true,
+          "numeric": false,
+          "present": false,
+          "shape": null,
+          "type": "NoneType"
+        },
+        "plddt": {
+          "attribute_exists": true,
+          "numeric": false,
+          "present": false,
+          "shape": null,
+          "type": "NoneType"
+        },
+        "ptm": {
+          "attribute_exists": true,
+          "numeric": false,
+          "present": false,
+          "shape": null,
+          "type": "NoneType"
+        },
+        "sasa": {
+          "attribute_exists": true,
+          "numeric": false,
+          "present": false,
+          "shape": null,
+          "type": "NoneType"
+        },
+        "secondary_structure": {
+          "attribute_exists": true,
+          "numeric": false,
+          "present": false,
+          "shape": null,
+          "type": "NoneType"
+        },
+        "sequence": {
+          "attribute_exists": true,
+          "length": 56,
+          "present": true,
+          "sha256": "1f1c0966470902a326504c049f8886011c1fe582049cb618bf6a94b4e398bdf0",
+          "type": "str",
+          "value": "MLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLL"
+        },
+        "structure": {
+          "attribute_exists": false,
+          "numeric": false,
+          "present": false,
+          "shape": null,
+          "type": "NoneType"
+        }
+      },
+      "id": "direct-esm3-medium-2024-08-no_coordinates",
+      "model": "esm3-medium-2024-08",
+      "prompt_kind": "no_coordinates",
+      "public_operation": "generate",
+      "request": {
+        "condition_on_coordinates_only": true,
+        "coordinates_present": false,
+        "coordinates_shape": null,
+        "num_steps": 1,
+        "schedule": "linear",
+        "sequence_length": 56,
+        "sequence_mask_count": 56,
+        "strategy": "random",
+        "temperature": 0.0,
+        "temperature_annealing": false,
+        "top_p": 1.0,
+        "track": "sequence"
+      },
+      "response_type": "ESMProtein",
+      "status": "succeeded"
+    },
+    {
+      "call_topology": [
+        {
+          "operation": "generate",
+          "status": "succeeded"
+        }
+      ],
+      "coordinate_comparison_to_prompt": {
+        "all_atom_kabsch_rmsd_angstrom": 0.910947022730224,
+        "all_atom_raw_rmsd_angstrom": 43.99016624631266,
+        "backbone_n_ca_c_atom_count": 168,
+        "backbone_n_ca_c_kabsch_rmsd_angstrom": 0.15331404150544223,
+        "backbone_n_ca_c_raw_rmsd_angstrom": 43.762524927966595,
+        "ca_kabsch_rmsd_angstrom": 0.14655705784122347,
+        "ca_raw_rmsd_angstrom": 43.80532146446539,
+        "ca_residue_count": 56,
+        "comparable": true,
+        "exact_equal_with_nan": false,
+        "finite_in_both_atom_positions": 401,
+        "intersecting_finite_atom_positions": 401,
+        "newly_finite_atom_positions": 45,
+        "no_longer_finite_atom_positions": 35,
+        "observed_canonical_sha256": "5ea368199f6064134dfc0554630f829f9aaa84ca18bcf519bb2bb55494160a08",
+        "observed_finite_atom_positions": 446,
+        "observed_shape": [
+          56,
+          37,
+          3
+        ],
+        "reference_canonical_sha256": "9e18246a0d5c5444260d873e16f944ee218ad289ef9fe43fb4805224249e619a",
+        "reference_finite_atom_positions": 436,
+        "reference_shape": [
+          56,
+          37,
+          3
+        ]
+      },
+      "endpoint_id": "biohub",
+      "endpoint_path": "/api/v1/generate",
+      "fields": {
+        "coordinates": {
+          "attribute_exists": true,
+          "canonical_sha256": "5ea368199f6064134dfc0554630f829f9aaa84ca18bcf519bb2bb55494160a08",
+          "dtype": "float32",
+          "finite_atom_positions": 446,
+          "finite_count": 1338,
+          "maximum": 19.94304847717285,
+          "mean": 0.6933686445023091,
+          "minimum": -14.48164176940918,
+          "present": true,
+          "residues_with_any_finite_atom": 56,
+          "residues_with_finite_backbone_n_ca_c": 56,
+          "shape": [
+            56,
+            37,
+            3
+          ],
+          "type": "Tensor",
+          "value_count": 6216
+        },
+        "function_annotations": {
+          "attribute_exists": true,
+          "numeric": false,
+          "present": false,
+          "shape": null,
+          "type": "NoneType"
+        },
+        "pae": {
+          "attribute_exists": true,
+          "numeric": false,
+          "present": false,
+          "shape": null,
+          "type": "NoneType"
+        },
+        "plddt": {
+          "attribute_exists": true,
+          "canonical_sha256": "5c1ed88e1713080423bd12306288be80268ce5b74949c4435ad3e2c1eb7a02be",
+          "dtype": "float32",
+          "finite_count": 56,
+          "maximum": 0.9899618625640869,
+          "mean": 0.9896621267710414,
+          "minimum": 0.987745463848114,
+          "present": true,
+          "shape": [
+            56
+          ],
+          "type": "Tensor",
+          "value_count": 56,
+          "values": [
+            0.987745463848114,
+            0.9898648262023926,
+            0.9899311661720276,
+            0.9899538159370422,
+            0.9899618625640869,
+            0.9899179339408875,
+            0.9899377822875977,
+            0.9897851347923279,
+            0.9892980456352234,
+            0.9883107542991638,
+            0.9879684448242188,
+            0.9890123009681702,
+            0.9896256327629089,
+            0.9895541071891785,
+            0.9898712635040283,
+            0.9898782968521118,
+            0.9899288415908813,
+            0.9899235367774963,
+            0.9899030923843384,
+            0.9898858070373535,
+            0.989788293838501,
+            0.9898073673248291,
+            0.9898033142089844,
+            0.9897656440734863,
+            0.9898889064788818,
+            0.9899115562438965,
+            0.9898959398269653,
+            0.9899047613143921,
+            0.989929735660553,
+            0.9898892641067505,
+            0.9899301528930664,
+            0.9899182915687561,
+            0.9899339079856873,
+            0.9898605346679688,
+            0.9897503852844238,
+            0.9895687103271484,
+            0.9894683957099915,
+            0.9887659549713135,
+            0.9896016120910645,
+            0.9894310832023621,
+            0.9896156191825867,
+            0.9898329377174377,
+            0.9897440075874329,
+            0.9898983836174011,
+            0.9898752570152283,
+            0.9898009896278381,
+            0.9896610975265503,
+            0.9896075129508972,
+            0.9897761940956116,
+            0.9898684024810791,
+            0.9899357557296753,
+            0.9899389147758484,
+            0.9899566173553467,
+            0.989906907081604,
+            0.9897847175598145,
+            0.9888038635253906
+          ]
+        },
+        "ptm": {
+          "attribute_exists": true,
+          "canonical_sha256": "fe7acfa8322060f9e7cc1f096cf6d95bcdfc5093df40035cac5ed7ed415eb3a4",
+          "dtype": "float32",
+          "finite_count": 1,
+          "maximum": 0.8701377511024475,
+          "mean": 0.8701377511024475,
+          "minimum": 0.8701377511024475,
+          "present": true,
+          "shape": [],
+          "type": "Tensor",
+          "value_count": 1,
+          "values": [
+            0.8701377511024475
+          ]
+        },
+        "sasa": {
+          "attribute_exists": true,
+          "numeric": false,
+          "present": false,
+          "shape": null,
+          "type": "NoneType"
+        },
+        "secondary_structure": {
+          "attribute_exists": true,
+          "numeric": false,
+          "present": false,
+          "shape": null,
+          "type": "NoneType"
+        },
+        "sequence": {
+          "attribute_exists": true,
+          "length": 56,
+          "present": true,
+          "sha256": "cdbbc33147b8a2c72ef61050229c40c599003e44942476b56a9c405f2072c7a6",
+          "type": "str",
+          "value": "MKYTLIINGKKLKGTISTEAENAAEAEKIFKEYAKENGINGKWTYDPSTKTFTIKE"
+        },
+        "structure": {
+          "attribute_exists": false,
+          "numeric": false,
+          "present": false,
+          "shape": null,
+          "type": "NoneType"
+        }
+      },
+      "id": "direct-esm3-medium-2024-08-coordinate_conditioned",
+      "model": "esm3-medium-2024-08",
+      "prompt_kind": "coordinate_conditioned",
+      "public_operation": "generate",
+      "request": {
+        "condition_on_coordinates_only": true,
+        "coordinates_present": true,
+        "coordinates_shape": [
+          56,
+          37,
+          3
+        ],
+        "num_steps": 1,
+        "schedule": "linear",
+        "sequence_length": 56,
+        "sequence_mask_count": 56,
+        "strategy": "random",
+        "temperature": 0.0,
+        "temperature_annealing": false,
+        "top_p": 1.0,
+        "track": "sequence"
+      },
+      "response_type": "ESMProtein",
+      "status": "succeeded",
+      "structure_artifact": {
+        "file": "direct-esm3-medium-2024-08-coordinate_conditioned.pdb",
+        "sha256": "81a4d2d8af47c3d4f90f904be8abd00fbc754e4245f9cc4b4b6020b1009a4626",
+        "size_bytes": 36125,
+        "written": true
+      }
+    },
+    {
+      "call_topology": [
+        {
+          "operation": "encode",
+          "status": "succeeded"
+        },
+        {
+          "operation": "forward_and_sample",
+          "status": "succeeded"
+        },
+        {
+          "operation": "decode",
+          "status": "succeeded"
+        }
+      ],
+      "decoded_fields": {
+        "coordinates": {
+          "attribute_exists": true,
+          "canonical_sha256": "1943d8e075bed10a1b5efaa0e825f7403090dfc23f75ad10ddb65992a7f5e256",
+          "dtype": "float32",
+          "finite_atom_positions": 443,
+          "finite_count": 1329,
+          "maximum": 37.893890380859375,
+          "mean": -0.9347405505637821,
+          "minimum": -27.32758903503418,
+          "present": true,
+          "residues_with_any_finite_atom": 56,
+          "residues_with_finite_backbone_n_ca_c": 56,
+          "shape": [
+            56,
+            37,
+            3
+          ],
+          "type": "Tensor",
+          "value_count": 6216
+        },
+        "function_annotations": {
+          "attribute_exists": true,
+          "numeric": false,
+          "present": false,
+          "shape": null,
+          "type": "NoneType"
+        },
+        "pae": {
+          "attribute_exists": true,
+          "numeric": false,
+          "present": false,
+          "shape": null,
+          "type": "NoneType"
+        },
+        "plddt": {
+          "attribute_exists": true,
+          "canonical_sha256": "61d25c35200eed852143153855508de65a4305175fb91483faa4eba7530bd2f7",
+          "dtype": "float32",
+          "finite_count": 56,
+          "maximum": 0.4850633144378662,
+          "mean": 0.4258112385869026,
+          "minimum": 0.32377296686172485,
+          "present": true,
+          "shape": [
+            56
+          ],
+          "type": "Tensor",
+          "value_count": 56,
+          "values": [
+            0.35034045577049255,
+            0.36576902866363525,
+            0.3783836364746094,
+            0.38050055503845215,
+            0.3825851082801819,
+            0.38704991340637207,
+            0.39790934324264526,
+            0.41568902134895325,
+            0.41378891468048096,
+            0.42589253187179565,
+            0.42612046003341675,
+            0.43509483337402344,
+            0.4291873574256897,
+            0.4397900700569153,
+            0.4439930319786072,
+            0.4398733675479889,
+            0.44200968742370605,
+            0.44564512372016907,
+            0.4483485221862793,
+            0.4380203187465668,
+            0.44703012704849243,
+            0.453655481338501,
+            0.45650017261505127,
+            0.4485853314399719,
+            0.4652729332447052,
+            0.47232121229171753,
+            0.46026813983917236,
+            0.46936988830566406,
+            0.4850633144378662,
+            0.47227105498313904,
+            0.45953214168548584,
+            0.48124414682388306,
+            0.4759126901626587,
+            0.4535626173019409,
+            0.45344406366348267,
+            0.4688912630081177,
+            0.4475293755531311,
+            0.4484729468822479,
+            0.4485355615615845,
+            0.44662874937057495,
+            0.43784767389297485,
+            0.4362107217311859,
+            0.43845850229263306,
+            0.43002191185951233,
+            0.4263318181037903,
+            0.41991356015205383,
+            0.41849297285079956,
+            0.4089568555355072,
+            0.3978387415409088,
+            0.3850860595703125,
+            0.3779463469982147,
+            0.3585692048072815,
+            0.3714534044265747,
+            0.3684454560279846,
+            0.34600067138671875,
+            0.32377296686172485
+          ]
+        },
+        "ptm": {
+          "attribute_exists": true,
+          "canonical_sha256": "e224197847b7ceca1f744abcd876df8de41d67ce080491e06eb9bb8fd400bf5d",
+          "dtype": "float32",
+          "finite_count": 1,
+          "maximum": 0.2838563621044159,
+          "mean": 0.2838563621044159,
+          "minimum": 0.2838563621044159,
+          "present": true,
+          "shape": [],
+          "type": "Tensor",
+          "value_count": 1,
+          "values": [
+            0.2838563621044159
+          ]
+        },
+        "sasa": {
+          "attribute_exists": true,
+          "numeric": false,
+          "present": false,
+          "shape": null,
+          "type": "NoneType"
+        },
+        "secondary_structure": {
+          "attribute_exists": true,
+          "numeric": false,
+          "present": false,
+          "shape": null,
+          "type": "NoneType"
+        },
+        "sequence": {
+          "attribute_exists": true,
+          "length": 56,
+          "present": true,
+          "sha256": "40f9f9f7c5943a70c7fd31399aeef88907327ac9366cd4451d1096e06b259530",
+          "type": "str",
+          "value": "MLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLX"
+        },
+        "structure": {
+          "attribute_exists": false,
+          "numeric": false,
+          "present": false,
+          "shape": null,
+          "type": "NoneType"
+        }
+      },
+      "endpoint_id": "biohub",
+      "endpoint_paths": [
+        "/api/v1/encode",
+        "/api/v1/forward_and_sample",
+        "/api/v1/decode"
+      ],
+      "forward_and_sample_response": {
+        "auxiliary_tracks": {
+          "entropy": {
+            "function": {
+              "numeric": false,
+              "present": false,
+              "shape": null
+            },
+            "sasa": {
+              "numeric": false,
+              "present": false,
+              "shape": null
+            },
+            "secondary_structure": {
+              "numeric": false,
+              "present": false,
+              "shape": null
+            },
+            "sequence": {
+              "canonical_sha256": "359c0129c9b42261f999713fef4a1dd4a6e113e6775fc106d77eb0f17fff36dd",
+              "dtype": "float32",
+              "finite_count": 58,
+              "maximum": 2.894538640975952,
+              "mean": 2.86761566277208,
+              "minimum": 1.8552896976470947,
+              "present": true,
+              "shape": [
+                58
+              ],
+              "value_count": 58
+            },
+            "structure": {
+              "canonical_sha256": "153d059eec7cdeff0a3c191221888e8874dac38cd95bafab08a7d4df3e91e820",
+              "dtype": "float32",
+              "finite_count": 58,
+              "maximum": 7.196228981018066,
+              "mean": 7.003579460341355,
+              "minimum": 4.593243598937988,
+              "present": true,
+              "shape": [
+                58
+              ],
+              "value_count": 58
+            }
+          },
+          "logprob": {
+            "function": {
+              "numeric": false,
+              "present": false,
+              "shape": null
+            },
+            "sasa": {
+              "numeric": false,
+              "present": false,
+              "shape": null
+            },
+            "secondary_structure": {
+              "numeric": false,
+              "present": false,
+              "shape": null
+            },
+            "sequence": {
+              "canonical_sha256": "40f38cc6e3e4d29351ff8af8e60fb21527905c29e017e0d757f6124cb259689d",
+              "dtype": "float32",
+              "finite_count": 58,
+              "maximum": 0.0,
+              "mean": -2.208137166911158,
+              "minimum": -2.4706902503967285,
+              "present": true,
+              "shape": [
+                58
+              ],
+              "value_count": 58
+            },
+            "structure": {
+              "canonical_sha256": "66ed222ddfe19aa53ef64b66a369e476859d005ae5f5bc926799f0a596a87ed5",
+              "dtype": "float32",
+              "finite_count": 58,
+              "maximum": 0.0,
+              "mean": -3.8500193974067427,
+              "minimum": -4.7575225830078125,
+              "present": true,
+              "shape": [
+                58
+              ],
+              "value_count": 58
+            }
+          },
+          "prob": {
+            "function": {
+              "numeric": false,
+              "present": false,
+              "shape": null
+            },
+            "sasa": {
+              "numeric": false,
+              "present": false,
+              "shape": null
+            },
+            "secondary_structure": {
+              "numeric": false,
+              "present": false,
+              "shape": null
+            },
+            "sequence": {
+              "canonical_sha256": "64bfb852736350080eb05cee1dfe1fb6668cf77411073446b87a598ac103a07f",
+              "dtype": "float32",
+              "finite_count": 58,
+              "maximum": 1.0,
+              "mean": 0.13813128078292156,
+              "minimum": 0.08452649414539337,
+              "present": true,
+              "shape": [
+                58
+              ],
+              "value_count": 58
+            },
+            "structure": {
+              "canonical_sha256": "75c824bfc5ea57b88ffdd6706665de2d749029545d357e8554d59aacb7ac96b1",
+              "dtype": "float32",
+              "finite_count": 58,
+              "maximum": 1.0,
+              "mean": 0.05335741014829997,
+              "minimum": 0.008586856536567211,
+              "present": true,
+              "shape": [
+                58
+              ],
+              "value_count": 58
+            }
+          },
+          "top_prob": {
+            "function": {
+              "numeric": false,
+              "present": false,
+              "shape": null
+            },
+            "sasa": {
+              "numeric": false,
+              "present": false,
+              "shape": null
+            },
+            "secondary_structure": {
+              "numeric": false,
+              "present": false,
+              "shape": null
+            },
+            "sequence": {
+              "numeric": false,
+              "present": false,
+              "shape": null
+            },
+            "structure": {
+              "numeric": false,
+              "present": false,
+              "shape": null
+            }
+          },
+          "topk_logprob": {
+            "function": {
+              "numeric": false,
+              "present": false,
+              "shape": null
+            },
+            "sasa": {
+              "numeric": false,
+              "present": false,
+              "shape": null
+            },
+            "secondary_structure": {
+              "numeric": false,
+              "present": false,
+              "shape": null
+            },
+            "sequence": {
+              "numeric": false,
+              "present": false,
+              "shape": null
+            },
+            "structure": {
+              "numeric": false,
+              "present": false,
+              "shape": null
+            }
+          },
+          "topk_tokens": {
+            "function": {
+              "numeric": false,
+              "present": false,
+              "shape": null
+            },
+            "sasa": {
+              "numeric": false,
+              "present": false,
+              "shape": null
+            },
+            "secondary_structure": {
+              "numeric": false,
+              "present": false,
+              "shape": null
+            },
+            "sequence": {
+              "numeric": false,
+              "present": false,
+              "shape": null
+            },
+            "structure": {
+              "numeric": false,
+              "present": false,
+              "shape": null
+            }
+          }
+        },
+        "mean_embedding": {
+          "numeric": false,
+          "present": false,
+          "shape": null
+        },
+        "per_residue_embedding": {
+          "numeric": false,
+          "present": false,
+          "shape": null
+        },
+        "protein_tensor": {
+          "coordinates": {
+            "numeric": false,
+            "present": false,
+            "shape": null
+          },
+          "function": {
+            "canonical_sha256": "cbeb5ffce88f9e7c558795d47ea4931bdb2e3f17e24ebeb9913b65cdc52e6eca",
+            "dtype": "int64",
+            "finite_count": 464,
+            "maximum": 0.0,
+            "mean": 0.0,
+            "minimum": 0.0,
+            "present": true,
+            "shape": [
+              58,
+              8
+            ],
+            "value_count": 464
+          },
+          "sasa": {
+            "canonical_sha256": "86d3b59e61d0fd38ce7757e1286da47c26d740df6fa1a89642b091a0464d2072",
+            "dtype": "float32",
+            "finite_count": 58,
+            "maximum": 0.0,
+            "mean": 0.0,
+            "minimum": 0.0,
+            "present": true,
+            "shape": [
+              58
+            ],
+            "value_count": 58
+          },
+          "secondary_structure": {
+            "canonical_sha256": "86d3b59e61d0fd38ce7757e1286da47c26d740df6fa1a89642b091a0464d2072",
+            "dtype": "float32",
+            "finite_count": 58,
+            "maximum": 0.0,
+            "mean": 0.0,
+            "minimum": 0.0,
+            "present": true,
+            "shape": [
+              58
+            ],
+            "value_count": 58
+          },
+          "sequence": {
+            "canonical_sha256": "949ee0a41e0e0d84837a348b71ecdcd8b0334f2258675b5e1b3127f74358d3dd",
+            "dtype": "float32",
+            "finite_count": 58,
+            "maximum": 24.0,
+            "mean": 4.517241379310345,
+            "minimum": 0.0,
+            "present": true,
+            "shape": [
+              58
+            ],
+            "value_count": 58
+          },
+          "structure": {
+            "canonical_sha256": "5d54f8a383748243d33e7f221c0086d4e24cddc2e810cac854ab1af072f46d0d",
+            "dtype": "float32",
+            "finite_count": 58,
+            "maximum": 4098.0,
+            "mean": 793.8103448275862,
+            "minimum": 588.0,
+            "present": true,
+            "shape": [
+              58
+            ],
+            "value_count": 58
+          }
+        },
+        "type": "ForwardAndSampleOutput"
+      },
+      "id": "guided-denoise-esm3-medium-2024-08-no_coordinates",
+      "model": "esm3-medium-2024-08",
+      "prompt_kind": "no_coordinates",
+      "public_operation": "guided_denoise",
+      "request": {
+        "coordinates_present": false,
+        "sampling_config": {
+          "sequence": {
+            "invalid_ids": [],
+            "temperature": 0.0,
+            "top_p": 1.0
+          },
+          "structure": {
+            "invalid_ids": [],
+            "temperature": 0.0,
+            "top_p": 1.0
+          }
+        },
+        "sequence_length": 56,
+        "sequence_mask_count": 56
+      },
+      "response_type": "ESMProtein",
+      "status": "succeeded",
+      "structure_artifact": {
+        "file": "guided-denoise-esm3-medium-2024-08.pdb",
+        "sha256": "10c464c34cb8032161fbb519138a9a5bc2b0322ab008f4851771ea276c6c3ed0",
+        "size_bytes": 35882,
+        "written": true
+      }
+    }
+  ],
+  "observed_at_utc": "2026-07-21T06:09:42.777308+00:00",
+  "provider": {
+    "endpoint_id": "biohub",
+    "endpoint_origin": "https://biohub.ai",
+    "name": "Biohub"
+  },
+  "repository_commit": "d030204ed7cc67201d6b03e0fd3a21a3ec8ca927",
+  "rmsd_definition": {
+    "alignment": "proper-rotation Kabsch after centroid subtraction",
+    "correspondence": "same residue index and atom37 index, finite in both arrays",
+    "units": "angstrom"
+  },
+  "schema_version": "1",
+  "sdk": {
+    "distribution": "esm",
+    "version": "3.3.0"
+  }
+}

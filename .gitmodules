@@ -1,0 +1,9 @@
+[submodule "repositories/ProteinMPNN"]
+	path = repositories/ProteinMPNN
+	url = https://github.com/dauparas/ProteinMPNN.git
+[submodule "repositories/esm"]
+	path = repositories/esm
+	url = https://github.com/Biohub/esm.git
+[submodule "repositories/ml-simplefold"]
+	path = repositories/ml-simplefold
+	url = https://github.com/apple/ml-simplefold.git

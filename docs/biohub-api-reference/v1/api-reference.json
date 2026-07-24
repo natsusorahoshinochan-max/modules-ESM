@@ -1,0 +1,1561 @@
+{
+  "schema_version": 1,
+  "provider": "Biohub Platform",
+  "api_version": "v1",
+  "captured_at": "2026-07-16T03:56:50.184Z",
+  "site_release": "sha-7062746",
+  "source_kind": "official_api_reference_pages",
+  "endpoints": [
+    {
+      "name": "logits",
+      "source_url": "https://biohub.ai/api-reference/logits",
+      "source_definition_sha256": "6da5dc2e1778fe43dd77543bbcf168d1fbc08a8a71839dd1a0f047250dd678cc",
+      "method": "POST",
+      "path": "/api/v1/logits",
+      "summary": "(ESM3, ESMC) Performs one inference step and returns logits, embeddings, and SAE features (ESMC only).",
+      "authentication": {
+        "type": "http",
+        "scheme": "bearer"
+      },
+      "request": {
+        "content_type": "application/json",
+        "headers": [
+          {
+            "name": "return-bytes",
+            "type": "string",
+            "required": false,
+            "default": "false"
+          },
+          {
+            "name": "accept",
+            "type": "string | null",
+            "required": false
+          }
+        ],
+        "body_fields": [
+          {
+            "name": "model",
+            "type": "string",
+            "required": true,
+            "allowed_values": [
+              "esmc-300m-2024-12",
+              "esmc-600m-2024-12",
+              "esmc-6b-2024-12",
+              "esm3-open-2024-03"
+            ]
+          },
+          {
+            "name": "potential_sequence_of_concern",
+            "type": "boolean",
+            "required": false,
+            "default": false
+          },
+          {
+            "name": "inputs",
+            "type": "Tokens",
+            "required": true,
+            "fields": [
+              {
+                "name": "sequence",
+                "type": "array[integer] | null",
+                "required": false
+              },
+              {
+                "name": "coordinates",
+                "type": "array[array[array[number | null]]] | null",
+                "required": false
+              },
+              {
+                "name": "structure",
+                "type": "array[integer] | null",
+                "required": false
+              },
+              {
+                "name": "secondary_structure",
+                "type": "array[integer] | null",
+                "required": false
+              },
+              {
+                "name": "sasa",
+                "type": "array[integer | null] | null",
+                "required": false
+              },
+              {
+                "name": "function",
+                "type": "array[array[integer]] | null",
+                "required": false
+              },
+              {
+                "name": "residue_annotation",
+                "type": "array[array[integer]] | null",
+                "required": false
+              }
+            ]
+          },
+          {
+            "name": "logits_config",
+            "type": "LogitsConfig",
+            "required": true,
+            "fields": [
+              {
+                "name": "sequence",
+                "type": "boolean",
+                "required": false,
+                "default": false
+              },
+              {
+                "name": "structure",
+                "type": "boolean",
+                "required": false,
+                "default": false
+              },
+              {
+                "name": "secondary_structure",
+                "type": "boolean",
+                "required": false,
+                "default": false
+              },
+              {
+                "name": "sasa",
+                "type": "boolean",
+                "required": false,
+                "default": false
+              },
+              {
+                "name": "function",
+                "type": "boolean",
+                "required": false,
+                "default": false
+              },
+              {
+                "name": "residue_annotations",
+                "type": "boolean",
+                "required": false,
+                "default": false
+              },
+              {
+                "name": "return_embeddings",
+                "type": "boolean",
+                "required": false,
+                "default": false
+              },
+              {
+                "name": "return_mean_embedding",
+                "type": "boolean",
+                "required": false,
+                "default": false
+              },
+              {
+                "name": "return_hidden_states",
+                "type": "boolean",
+                "required": false,
+                "default": false
+              },
+              {
+                "name": "return_mean_hidden_states",
+                "type": "boolean",
+                "required": false,
+                "default": false
+              },
+              {
+                "name": "ith_hidden_layer",
+                "type": "integer",
+                "required": false,
+                "default": -1
+              },
+              {
+                "name": "sae_config",
+                "type": "SAEConfig | null",
+                "required": false,
+                "fields": [
+                  {
+                    "name": "models",
+                    "type": "array[string]",
+                    "required": false,
+                    "allowed_values": [
+                      "esmc-300m-2024-12-sae-layer23-k64-codebook65536",
+                      "esmc-600m-2024-12-sae-layer27-k64-codebook16384",
+                      "esmc-600m-2024-12-sae-layer27-k64-codebook65536",
+                      "esmc-6b-2024-12-sae-layer60-k64-codebook16384",
+                      "esmc-6b-2024-12-sae-layer60-k64-codebook65536"
+                    ]
+                  },
+                  {
+                    "name": "normalize_features",
+                    "type": "boolean",
+                    "required": false,
+                    "default": true
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      "response": {
+        "documented": false,
+        "schema": null
+      }
+    },
+    {
+      "name": "encode",
+      "source_url": "https://biohub.ai/api-reference/encode",
+      "source_definition_sha256": "a37046ffe4bb88f6618c024d898a380cb90c204b455dea608a6300842a031793",
+      "method": "POST",
+      "path": "/api/v1/encode",
+      "summary": "(ESM3, ESMC) Tokenize sequence, structure, or function annotations",
+      "authentication": {
+        "type": "http",
+        "scheme": "bearer"
+      },
+      "request": {
+        "content_type": "application/json",
+        "headers": [],
+        "body_fields": [
+          {
+            "name": "model",
+            "type": "string",
+            "required": true,
+            "allowed_values": [
+              "esmc-300m-2024-12",
+              "esmc-600m-2024-12",
+              "esmc-6b-2024-12",
+              "esm3-open-2024-03"
+            ]
+          },
+          {
+            "name": "potential_sequence_of_concern",
+            "type": "boolean",
+            "required": false,
+            "default": false
+          },
+          {
+            "name": "inputs",
+            "type": "Tracks",
+            "required": true,
+            "fields": [
+              {
+                "name": "sequence",
+                "type": "string | null",
+                "required": false
+              },
+              {
+                "name": "secondary_structure",
+                "type": "string | null",
+                "required": false
+              },
+              {
+                "name": "sasa",
+                "type": "array[integer | number | null] | null",
+                "required": false
+              },
+              {
+                "name": "function",
+                "type": "array[array[tuple]] | null",
+                "required": false
+              },
+              {
+                "name": "coordinates",
+                "type": "array[array[array[number | null]]] | null",
+                "required": false
+              },
+              {
+                "name": "plddt",
+                "type": "array[number] | null",
+                "required": false
+              },
+              {
+                "name": "ptm",
+                "type": "number | null",
+                "required": false
+              },
+              {
+                "name": "crmsd",
+                "type": "number | null",
+                "required": false
+              },
+              {
+                "name": "globularity",
+                "type": "number | null",
+                "required": false
+              },
+              {
+                "name": "interface",
+                "type": "array[string] | null",
+                "required": false
+              },
+              {
+                "name": "interface_ptm",
+                "type": "number | null",
+                "required": false
+              },
+              {
+                "name": "pae",
+                "type": "array[array[number]] | null",
+                "required": false
+              }
+            ]
+          }
+        ]
+      },
+      "response": {
+        "documented": false,
+        "schema": null
+      }
+    },
+    {
+      "name": "decode",
+      "source_url": "https://biohub.ai/api-reference/decode",
+      "source_definition_sha256": "b8a68d24c583030be549118d1ae61a4068a0a8720a4ce0139b6b71c26b4fed89",
+      "method": "POST",
+      "path": "/api/v1/decode",
+      "summary": "(ESM3, ESMC) Decodes tokens sequence, structure, or function annotations",
+      "authentication": {
+        "type": "http",
+        "scheme": "bearer"
+      },
+      "request": {
+        "content_type": "application/json",
+        "headers": [],
+        "body_fields": [
+          {
+            "name": "model",
+            "type": "string",
+            "required": true,
+            "allowed_values": [
+              "esmc-300m-2024-12",
+              "esmc-600m-2024-12",
+              "esmc-6b-2024-12",
+              "esm3-open-2024-03"
+            ]
+          },
+          {
+            "name": "potential_sequence_of_concern",
+            "type": "boolean",
+            "required": false,
+            "default": false
+          },
+          {
+            "name": "inputs",
+            "type": "Tokens",
+            "required": true,
+            "fields": [
+              {
+                "name": "sequence",
+                "type": "array[integer] | null",
+                "required": false
+              },
+              {
+                "name": "coordinates",
+                "type": "array[array[array[number | null]]] | null",
+                "required": false
+              },
+              {
+                "name": "structure",
+                "type": "array[integer] | null",
+                "required": false
+              },
+              {
+                "name": "secondary_structure",
+                "type": "array[integer] | null",
+                "required": false
+              },
+              {
+                "name": "sasa",
+                "type": "array[integer | null] | null",
+                "required": false
+              },
+              {
+                "name": "function",
+                "type": "array[array[integer]] | null",
+                "required": false
+              },
+              {
+                "name": "residue_annotation",
+                "type": "array[array[integer]] | null",
+                "required": false
+              }
+            ]
+          }
+        ]
+      },
+      "response": {
+        "documented": false,
+        "schema": null
+      }
+    },
+    {
+      "name": "generate",
+      "source_url": "https://biohub.ai/api-reference/generate",
+      "source_definition_sha256": "50607f5fe12e4aeabea00e6e4a5aecd0bf212fad4861a057aa16466e83195f86",
+      "method": "POST",
+      "path": "/api/v1/generate",
+      "summary": "(ESM3) Generates an output track conditioned on inputs",
+      "authentication": {
+        "type": "http",
+        "scheme": "bearer"
+      },
+      "request": {
+        "content_type": "application/json",
+        "headers": [],
+        "body_fields": [
+          {
+            "name": "model",
+            "type": "string",
+            "required": true,
+            "allowed_values": [
+              "esm3-open-2024-03"
+            ]
+          },
+          {
+            "name": "potential_sequence_of_concern",
+            "type": "boolean",
+            "required": false,
+            "default": false
+          },
+          {
+            "name": "track",
+            "type": "string",
+            "required": true
+          },
+          {
+            "name": "invalid_ids",
+            "type": "array[integer]",
+            "required": false
+          },
+          {
+            "name": "schedule",
+            "type": "string",
+            "required": false,
+            "default": "cosine",
+            "allowed_values": [
+              "cosine",
+              "linear"
+            ]
+          },
+          {
+            "name": "strategy",
+            "type": "string",
+            "required": false,
+            "default": "random",
+            "allowed_values": [
+              "random",
+              "entropy"
+            ]
+          },
+          {
+            "name": "num_steps",
+            "type": "integer",
+            "required": false,
+            "default": 20,
+            "range": "[1, 100]"
+          },
+          {
+            "name": "temperature",
+            "type": "number",
+            "required": false,
+            "default": 0.5,
+            "range": "[0, ∞)"
+          },
+          {
+            "name": "temperature_annealing",
+            "type": "boolean",
+            "required": false,
+            "default": true
+          },
+          {
+            "name": "top_p",
+            "type": "number",
+            "required": false,
+            "default": 1,
+            "range": "(0, 1]"
+          },
+          {
+            "name": "condition_on_coordinates_only",
+            "type": "boolean",
+            "required": false,
+            "default": true
+          },
+          {
+            "name": "inputs",
+            "type": "Tracks",
+            "required": true,
+            "fields": [
+              {
+                "name": "sequence",
+                "type": "string | null",
+                "required": false
+              },
+              {
+                "name": "secondary_structure",
+                "type": "string | null",
+                "required": false
+              },
+              {
+                "name": "sasa",
+                "type": "array[integer | number | null] | null",
+                "required": false
+              },
+              {
+                "name": "function",
+                "type": "array[array[tuple]] | null",
+                "required": false
+              },
+              {
+                "name": "coordinates",
+                "type": "array[array[array[number | null]]] | null",
+                "required": false
+              },
+              {
+                "name": "plddt",
+                "type": "array[number] | null",
+                "required": false
+              },
+              {
+                "name": "ptm",
+                "type": "number | null",
+                "required": false
+              },
+              {
+                "name": "crmsd",
+                "type": "number | null",
+                "required": false
+              },
+              {
+                "name": "globularity",
+                "type": "number | null",
+                "required": false
+              },
+              {
+                "name": "interface",
+                "type": "array[string] | null",
+                "required": false
+              },
+              {
+                "name": "interface_ptm",
+                "type": "number | null",
+                "required": false
+              },
+              {
+                "name": "pae",
+                "type": "array[array[number]] | null",
+                "required": false
+              }
+            ]
+          },
+          {
+            "name": "only_compute_backbone_rmsd",
+            "type": "boolean",
+            "required": false,
+            "default": false
+          }
+        ]
+      },
+      "response": {
+        "documented": false,
+        "schema": null
+      }
+    },
+    {
+      "name": "generate_tensor",
+      "source_url": "https://biohub.ai/api-reference/generate_tensor",
+      "source_definition_sha256": "6be7397d84b760be1c1aff281a4d6341dd03f24e4d21140ab2382168687708fc",
+      "method": "POST",
+      "path": "/api/v1/generate_tensor",
+      "summary": "(ESM3) Generates an output track conditioned on inputs. Accepts and returns raw tokens.",
+      "authentication": {
+        "type": "http",
+        "scheme": "bearer"
+      },
+      "request": {
+        "content_type": "application/json",
+        "headers": [],
+        "body_fields": [
+          {
+            "name": "model",
+            "type": "string",
+            "required": true,
+            "allowed_values": [
+              "esm3-open-2024-03"
+            ]
+          },
+          {
+            "name": "potential_sequence_of_concern",
+            "type": "boolean",
+            "required": false,
+            "default": false
+          },
+          {
+            "name": "track",
+            "type": "string",
+            "required": true
+          },
+          {
+            "name": "invalid_ids",
+            "type": "array[integer]",
+            "required": false
+          },
+          {
+            "name": "schedule",
+            "type": "string",
+            "required": false,
+            "default": "cosine",
+            "allowed_values": [
+              "cosine",
+              "linear"
+            ]
+          },
+          {
+            "name": "strategy",
+            "type": "string",
+            "required": false,
+            "default": "random",
+            "allowed_values": [
+              "random",
+              "entropy"
+            ]
+          },
+          {
+            "name": "num_steps",
+            "type": "integer",
+            "required": false,
+            "default": 20,
+            "range": "[1, 100]"
+          },
+          {
+            "name": "temperature",
+            "type": "number",
+            "required": false,
+            "default": 0.5,
+            "range": "[0, ∞)"
+          },
+          {
+            "name": "temperature_annealing",
+            "type": "boolean",
+            "required": false,
+            "default": true
+          },
+          {
+            "name": "top_p",
+            "type": "number",
+            "required": false,
+            "default": 1,
+            "range": "(0, 1]"
+          },
+          {
+            "name": "condition_on_coordinates_only",
+            "type": "boolean",
+            "required": false,
+            "default": true
+          },
+          {
+            "name": "inputs",
+            "type": "Tokens",
+            "required": true,
+            "fields": [
+              {
+                "name": "sequence",
+                "type": "array[integer] | null",
+                "required": false
+              },
+              {
+                "name": "coordinates",
+                "type": "array[array[array[number | null]]] | null",
+                "required": false
+              },
+              {
+                "name": "structure",
+                "type": "array[integer] | null",
+                "required": false
+              },
+              {
+                "name": "secondary_structure",
+                "type": "array[integer] | null",
+                "required": false
+              },
+              {
+                "name": "sasa",
+                "type": "array[integer | null] | null",
+                "required": false
+              },
+              {
+                "name": "function",
+                "type": "array[array[integer]] | null",
+                "required": false
+              },
+              {
+                "name": "residue_annotation",
+                "type": "array[array[integer]] | null",
+                "required": false
+              }
+            ]
+          }
+        ]
+      },
+      "response": {
+        "documented": false,
+        "schema": null
+      }
+    },
+    {
+      "name": "forward_and_sample",
+      "source_url": "https://biohub.ai/api-reference/forward_and_sample",
+      "source_definition_sha256": "1f5006d0895f0d107df386722f790542f5c484710eac93ba5361195e7e7ffdaa",
+      "method": "POST",
+      "path": "/api/v1/forward_and_sample",
+      "summary": "(ESM3) Performs one inference step and samples output tokens",
+      "authentication": {
+        "type": "http",
+        "scheme": "bearer"
+      },
+      "request": {
+        "content_type": "application/json",
+        "headers": [
+          {
+            "name": "accept",
+            "type": "string | null",
+            "required": false
+          }
+        ],
+        "body_fields": [
+          {
+            "name": "model",
+            "type": "string",
+            "required": true,
+            "allowed_values": [
+              "esm3-open-2024-03"
+            ]
+          },
+          {
+            "name": "potential_sequence_of_concern",
+            "type": "boolean",
+            "required": false,
+            "default": false
+          },
+          {
+            "name": "inputs",
+            "type": "Tokens",
+            "required": true,
+            "fields": [
+              {
+                "name": "sequence",
+                "type": "array[integer] | null",
+                "required": false
+              },
+              {
+                "name": "coordinates",
+                "type": "array[array[array[number | null]]] | null",
+                "required": false
+              },
+              {
+                "name": "structure",
+                "type": "array[integer] | null",
+                "required": false
+              },
+              {
+                "name": "secondary_structure",
+                "type": "array[integer] | null",
+                "required": false
+              },
+              {
+                "name": "sasa",
+                "type": "array[integer | null] | null",
+                "required": false
+              },
+              {
+                "name": "function",
+                "type": "array[array[integer]] | null",
+                "required": false
+              },
+              {
+                "name": "residue_annotation",
+                "type": "array[array[integer]] | null",
+                "required": false
+              }
+            ]
+          },
+          {
+            "name": "sampling_config",
+            "type": "SamplingConfig",
+            "required": true,
+            "fields": [
+              {
+                "name": "sequence",
+                "type": "PerTrackSamplingConfig | null",
+                "required": false,
+                "fields": [
+                  {
+                    "name": "temperature",
+                    "type": "number",
+                    "required": false,
+                    "default": 1,
+                    "range": "[0, ∞)"
+                  },
+                  {
+                    "name": "top_p",
+                    "type": "number",
+                    "required": false,
+                    "default": 1,
+                    "range": "(0, 1]"
+                  },
+                  {
+                    "name": "only_sample_masked_tokens",
+                    "type": "boolean",
+                    "required": false,
+                    "default": true
+                  },
+                  {
+                    "name": "invalid_ids",
+                    "type": "array[integer]",
+                    "required": false
+                  },
+                  {
+                    "name": "topk_logprobs",
+                    "type": "integer",
+                    "required": false,
+                    "default": 0
+                  }
+                ]
+              },
+              {
+                "name": "structure",
+                "type": "PerTrackSamplingConfig | null",
+                "required": false,
+                "fields": [
+                  {
+                    "name": "temperature",
+                    "type": "number",
+                    "required": false,
+                    "default": 1,
+                    "range": "[0, ∞)"
+                  },
+                  {
+                    "name": "top_p",
+                    "type": "number",
+                    "required": false,
+                    "default": 1,
+                    "range": "(0, 1]"
+                  },
+                  {
+                    "name": "only_sample_masked_tokens",
+                    "type": "boolean",
+                    "required": false,
+                    "default": true
+                  },
+                  {
+                    "name": "invalid_ids",
+                    "type": "array[integer]",
+                    "required": false
+                  },
+                  {
+                    "name": "topk_logprobs",
+                    "type": "integer",
+                    "required": false,
+                    "default": 0
+                  }
+                ]
+              },
+              {
+                "name": "secondary_structure",
+                "type": "PerTrackSamplingConfig | null",
+                "required": false,
+                "fields": [
+                  {
+                    "name": "temperature",
+                    "type": "number",
+                    "required": false,
+                    "default": 1,
+                    "range": "[0, ∞)"
+                  },
+                  {
+                    "name": "top_p",
+                    "type": "number",
+                    "required": false,
+                    "default": 1,
+                    "range": "(0, 1]"
+                  },
+                  {
+                    "name": "only_sample_masked_tokens",
+                    "type": "boolean",
+                    "required": false,
+                    "default": true
+                  },
+                  {
+                    "name": "invalid_ids",
+                    "type": "array[integer]",
+                    "required": false
+                  },
+                  {
+                    "name": "topk_logprobs",
+                    "type": "integer",
+                    "required": false,
+                    "default": 0
+                  }
+                ]
+              },
+              {
+                "name": "sasa",
+                "type": "PerTrackSamplingConfig | null",
+                "required": false,
+                "fields": [
+                  {
+                    "name": "temperature",
+                    "type": "number",
+                    "required": false,
+                    "default": 1,
+                    "range": "[0, ∞)"
+                  },
+                  {
+                    "name": "top_p",
+                    "type": "number",
+                    "required": false,
+                    "default": 1,
+                    "range": "(0, 1]"
+                  },
+                  {
+                    "name": "only_sample_masked_tokens",
+                    "type": "boolean",
+                    "required": false,
+                    "default": true
+                  },
+                  {
+                    "name": "invalid_ids",
+                    "type": "array[integer]",
+                    "required": false
+                  },
+                  {
+                    "name": "topk_logprobs",
+                    "type": "integer",
+                    "required": false,
+                    "default": 0
+                  }
+                ]
+              },
+              {
+                "name": "function",
+                "type": "PerTrackSamplingConfig | null",
+                "required": false,
+                "fields": [
+                  {
+                    "name": "temperature",
+                    "type": "number",
+                    "required": false,
+                    "default": 1,
+                    "range": "[0, ∞)"
+                  },
+                  {
+                    "name": "top_p",
+                    "type": "number",
+                    "required": false,
+                    "default": 1,
+                    "range": "(0, 1]"
+                  },
+                  {
+                    "name": "only_sample_masked_tokens",
+                    "type": "boolean",
+                    "required": false,
+                    "default": true
+                  },
+                  {
+                    "name": "invalid_ids",
+                    "type": "array[integer]",
+                    "required": false
+                  },
+                  {
+                    "name": "topk_logprobs",
+                    "type": "integer",
+                    "required": false,
+                    "default": 0
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "name": "embedding_config",
+            "type": "EmbeddingConfig | null",
+            "required": false,
+            "fields": [
+              {
+                "name": "sequence",
+                "type": "boolean",
+                "required": false,
+                "default": false
+              },
+              {
+                "name": "per_residue",
+                "type": "boolean",
+                "required": false,
+                "default": false
+              }
+            ]
+          }
+        ]
+      },
+      "response": {
+        "documented": false,
+        "schema": null
+      }
+    },
+    {
+      "name": "fold",
+      "source_url": "https://biohub.ai/api-reference/fold",
+      "source_definition_sha256": "3db2562edf1ae9ab0ab4722bbf58b16fbae50f5632faada757e39bb1428f540e",
+      "method": "POST",
+      "path": "/api/v1/fold",
+      "summary": "(ESM3, ESMFold2) Folds proteins. Defaults to esmfold2-fast-2026-05 if no model is given",
+      "authentication": {
+        "type": "http",
+        "scheme": "bearer"
+      },
+      "request": {
+        "content_type": "application/json",
+        "headers": [],
+        "body_fields": [
+          {
+            "name": "model",
+            "type": "string | null",
+            "required": false,
+            "allowed_values": [
+              "esm3-open-2024-03",
+              "esmfold2-fast-2026-05",
+              "esmfold2-2026-05",
+              null
+            ]
+          },
+          {
+            "name": "potential_sequence_of_concern",
+            "type": "boolean",
+            "required": false,
+            "default": false
+          },
+          {
+            "name": "sequence",
+            "type": "string | null",
+            "required": false
+          },
+          {
+            "name": "msa",
+            "type": "MSA | null",
+            "required": false,
+            "fields": [
+              {
+                "name": "sequences",
+                "type": "array[string]",
+                "required": true
+              },
+              {
+                "name": "deletions",
+                "type": "array[array[number]] | null",
+                "required": false
+              }
+            ]
+          },
+          {
+            "name": "num_loops",
+            "type": "integer",
+            "required": false,
+            "default": 20,
+            "range": "[0, 20]"
+          },
+          {
+            "name": "num_sampling_steps",
+            "type": "integer",
+            "required": false,
+            "default": 100,
+            "range": "[1, 100]"
+          },
+          {
+            "name": "lm_dropout",
+            "type": "number",
+            "required": false,
+            "default": 0.3,
+            "range": "[0, 1]"
+          },
+          {
+            "name": "lm_mask_pct",
+            "type": "number",
+            "required": false,
+            "default": 0,
+            "range": "[0, 1]"
+          },
+          {
+            "name": "msa_max_depth",
+            "type": "integer | null",
+            "required": false,
+            "default": 1024,
+            "range": "[1, 16384]"
+          },
+          {
+            "name": "msa_column_mask_rate",
+            "type": "number",
+            "required": false,
+            "default": 0.1,
+            "range": "[0, 1]"
+          },
+          {
+            "name": "include_distogram",
+            "type": "boolean",
+            "required": false,
+            "default": false
+          },
+          {
+            "name": "include_pae",
+            "type": "boolean",
+            "required": false,
+            "default": false
+          },
+          {
+            "name": "include_pair_chains_iptm",
+            "type": "boolean",
+            "required": false,
+            "default": false
+          },
+          {
+            "name": "include_embeddings",
+            "type": "boolean",
+            "required": false,
+            "default": false
+          }
+        ]
+      },
+      "response": {
+        "documented": false,
+        "schema": null
+      }
+    },
+    {
+      "name": "fold_all_atom",
+      "source_url": "https://biohub.ai/api-reference/fold_all_atom",
+      "source_definition_sha256": "98fc1b846d2b2d8dcf8ddce2694afb11582a92fdc95281f1f788be7d7e9a8559",
+      "method": "POST",
+      "path": "/api/v1/fold_all_atom",
+      "summary": "(ESMFold2) Folds molecular complexes containing proteins, dna, rna, and ligands. Defaults to esmfold2-fast-2026-05 if no model is given",
+      "authentication": {
+        "type": "http",
+        "scheme": "bearer"
+      },
+      "request": {
+        "content_type": "application/json",
+        "headers": [],
+        "body_fields": [
+          {
+            "name": "model",
+            "type": "string | null",
+            "required": false,
+            "allowed_values": [
+              "esmfold2-fast-2026-05",
+              "esmfold2-2026-05",
+              null
+            ]
+          },
+          {
+            "name": "potential_sequence_of_concern",
+            "type": "boolean",
+            "required": false,
+            "default": false
+          },
+          {
+            "name": "sequence",
+            "type": "string | null",
+            "required": false
+          },
+          {
+            "name": "msa",
+            "type": "MSA | null",
+            "required": false,
+            "fields": [
+              {
+                "name": "sequences",
+                "type": "array[string]",
+                "required": true
+              },
+              {
+                "name": "deletions",
+                "type": "array[array[number]] | null",
+                "required": false
+              }
+            ]
+          },
+          {
+            "name": "num_loops",
+            "type": "integer",
+            "required": false,
+            "default": 20,
+            "range": "[0, 20]"
+          },
+          {
+            "name": "num_sampling_steps",
+            "type": "integer",
+            "required": false,
+            "default": 100,
+            "range": "[1, 100]"
+          },
+          {
+            "name": "lm_dropout",
+            "type": "number",
+            "required": false,
+            "default": 0.3,
+            "range": "[0, 1]"
+          },
+          {
+            "name": "lm_mask_pct",
+            "type": "number",
+            "required": false,
+            "default": 0,
+            "range": "[0, 1]"
+          },
+          {
+            "name": "msa_max_depth",
+            "type": "integer | null",
+            "required": false,
+            "default": 1024,
+            "range": "[1, 16384]"
+          },
+          {
+            "name": "msa_column_mask_rate",
+            "type": "number",
+            "required": false,
+            "default": 0.1,
+            "range": "[0, 1]"
+          },
+          {
+            "name": "include_distogram",
+            "type": "boolean",
+            "required": false,
+            "default": false
+          },
+          {
+            "name": "include_pae",
+            "type": "boolean",
+            "required": false,
+            "default": false
+          },
+          {
+            "name": "include_pair_chains_iptm",
+            "type": "boolean",
+            "required": false,
+            "default": false
+          },
+          {
+            "name": "all_atom_input",
+            "type": "FoldAllAtomInput | null",
+            "required": false,
+            "fields": [
+              {
+                "name": "sequences",
+                "type": "array[ProteinInput | RNAInput | DNAInput | LigandInput]",
+                "required": true,
+                "fields": [
+                  {
+                    "name": "ProteinInput",
+                    "type": "object",
+                    "required": false,
+                    "fields": [
+                      {
+                        "name": "id",
+                        "type": "string | array[string] | null",
+                        "required": false
+                      },
+                      {
+                        "name": "sequence",
+                        "type": "string",
+                        "required": true
+                      },
+                      {
+                        "name": "msa",
+                        "type": "MSA | null",
+                        "required": false,
+                        "fields": [
+                          {
+                            "name": "sequences",
+                            "type": "array[string]",
+                            "required": true
+                          },
+                          {
+                            "name": "deletions",
+                            "type": "array[array[number]] | null",
+                            "required": false
+                          }
+                        ]
+                      },
+                      {
+                        "name": "modifications",
+                        "type": "array[Modification] | null",
+                        "required": false,
+                        "fields": [
+                          {
+                            "name": "position",
+                            "type": "integer",
+                            "required": true
+                          },
+                          {
+                            "name": "ccd",
+                            "type": "string",
+                            "required": true
+                          }
+                        ]
+                      },
+                      {
+                        "name": "type",
+                        "type": "string",
+                        "required": true
+                      }
+                    ]
+                  },
+                  {
+                    "name": "RNAInput",
+                    "type": "object",
+                    "required": false,
+                    "fields": [
+                      {
+                        "name": "id",
+                        "type": "string | array[string] | null",
+                        "required": false
+                      },
+                      {
+                        "name": "sequence",
+                        "type": "string",
+                        "required": true
+                      },
+                      {
+                        "name": "modifications",
+                        "type": "array[Modification] | null",
+                        "required": false,
+                        "fields": [
+                          {
+                            "name": "position",
+                            "type": "integer",
+                            "required": true
+                          },
+                          {
+                            "name": "ccd",
+                            "type": "string",
+                            "required": true
+                          }
+                        ]
+                      },
+                      {
+                        "name": "type",
+                        "type": "string",
+                        "required": true
+                      }
+                    ]
+                  },
+                  {
+                    "name": "DNAInput",
+                    "type": "object",
+                    "required": false,
+                    "fields": [
+                      {
+                        "name": "id",
+                        "type": "string | array[string] | null",
+                        "required": false
+                      },
+                      {
+                        "name": "sequence",
+                        "type": "string",
+                        "required": true
+                      },
+                      {
+                        "name": "modifications",
+                        "type": "array[Modification] | null",
+                        "required": false,
+                        "fields": [
+                          {
+                            "name": "position",
+                            "type": "integer",
+                            "required": true
+                          },
+                          {
+                            "name": "ccd",
+                            "type": "string",
+                            "required": true
+                          }
+                        ]
+                      },
+                      {
+                        "name": "type",
+                        "type": "string",
+                        "required": true
+                      }
+                    ]
+                  },
+                  {
+                    "name": "LigandInput",
+                    "type": "object",
+                    "required": false,
+                    "fields": [
+                      {
+                        "name": "id",
+                        "type": "string | array[string] | null",
+                        "required": false
+                      },
+                      {
+                        "name": "smiles",
+                        "type": "string | null",
+                        "required": false
+                      },
+                      {
+                        "name": "ccd",
+                        "type": "array[string] | null",
+                        "required": false
+                      },
+                      {
+                        "name": "type",
+                        "type": "string",
+                        "required": true
+                      }
+                    ]
+                  }
+                ]
+              },
+              {
+                "name": "covalent_bonds",
+                "type": "array[CovalentBond] | null",
+                "required": false,
+                "fields": [
+                  {
+                    "name": "chain_id1",
+                    "type": "string",
+                    "required": true
+                  },
+                  {
+                    "name": "res_idx1",
+                    "type": "integer",
+                    "required": true
+                  },
+                  {
+                    "name": "atom_idx1",
+                    "type": "integer",
+                    "required": true
+                  },
+                  {
+                    "name": "chain_id2",
+                    "type": "string",
+                    "required": true
+                  },
+                  {
+                    "name": "res_idx2",
+                    "type": "integer",
+                    "required": true
+                  },
+                  {
+                    "name": "atom_idx2",
+                    "type": "integer",
+                    "required": true
+                  }
+                ]
+              },
+              {
+                "name": "pocket",
+                "type": "PocketConditioning | null",
+                "required": false,
+                "fields": [
+                  {
+                    "name": "binder_chain_id",
+                    "type": "string",
+                    "required": true
+                  },
+                  {
+                    "name": "contacts",
+                    "type": "array[array[tuple]]",
+                    "required": true
+                  }
+                ]
+              },
+              {
+                "name": "distogram_conditioning",
+                "type": "array[DistogramConditioning] | null",
+                "required": false,
+                "fields": [
+                  {
+                    "name": "chain_id",
+                    "type": "string",
+                    "required": true
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "name": "include_embeddings",
+            "type": "boolean",
+            "required": false,
+            "default": false
+          }
+        ]
+      },
+      "response": {
+        "documented": false,
+        "schema": null
+      }
+    },
+    {
+      "name": "inverse_fold",
+      "source_url": "https://biohub.ai/api-reference/inverse_fold",
+      "source_definition_sha256": "fa7495ba86abac45c2e6366e030904709b3543ff0741d36835ec2f527f1b384f",
+      "method": "POST",
+      "path": "/api/v1/inverse_fold",
+      "summary": "(ESM3) Inverse folds proteins. Defaults to esm3-open-2024-03 if no model is given",
+      "authentication": {
+        "type": "http",
+        "scheme": "bearer"
+      },
+      "request": {
+        "content_type": "application/json",
+        "headers": [],
+        "body_fields": [
+          {
+            "name": "model",
+            "type": "string | null",
+            "required": false,
+            "allowed_values": [
+              "esm3-open-2024-03",
+              null
+            ]
+          },
+          {
+            "name": "potential_sequence_of_concern",
+            "type": "boolean",
+            "required": false,
+            "default": false
+          },
+          {
+            "name": "coordinates",
+            "type": "array[array[array[number | null]]]",
+            "required": false
+          },
+          {
+            "name": "inverse_folding_config",
+            "type": "InverseFoldingConfig",
+            "required": true,
+            "fields": [
+              {
+                "name": "invalid_ids",
+                "type": "array[integer]",
+                "required": false
+              },
+              {
+                "name": "temperature",
+                "type": "number",
+                "required": false,
+                "default": 0.1,
+                "range": "[0, ∞)"
+              }
+            ]
+          },
+          {
+            "name": "sequence",
+            "type": "string | null",
+            "required": false
+          }
+        ]
+      },
+      "response": {
+        "documented": false,
+        "schema": null
+      }
+    }
+  ]
+}
