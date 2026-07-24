@@ -185,7 +185,7 @@ class TestCacheE2E:
 
             # First run: should execute
             asyncio.run(ex.execute(workflow, modules, tmpdir, "run1", seed=42))
-            assert mock_module.run.call_count == 1
+            assert mock_module.run_async.call_count == 1
             assert node.state.value == "completed"
 
             # Second run: should hit cache, not call run again
@@ -199,7 +199,7 @@ class TestCacheE2E:
             modules2 = {"stub.echo": mock_module2}
 
             asyncio.run(ex.execute(workflow2, modules2, tmpdir, "run2", seed=42))
-            assert mock_module2.run.call_count == 0  # Cache hit!
+            assert mock_module2.run_async.call_count == 0  # Cache hit!
             assert node2.state.value == "completed"
 
     def test_cache_miss_on_input_change(self) -> None:
@@ -220,7 +220,7 @@ class TestCacheE2E:
             wf1.add_node(WorkflowNode(node_id="n1", module_id="stub.echo", module_version="1.0.0",
                          parameters={"text": "input-A"}))
             asyncio.run(ex.execute(wf1, {"stub.echo": mock1}, tmpdir, "run1", seed=42))
-            assert mock1.run.call_count == 1
+            assert mock1.run_async.call_count == 1
 
             # Second run with different input
             mock2 = MagicMock(wraps=EchoModule())
@@ -229,7 +229,7 @@ class TestCacheE2E:
             wf2.add_node(WorkflowNode(node_id="n1", module_id="stub.echo", module_version="1.0.0",
                          parameters={"text": "input-B"}))
             asyncio.run(ex.execute(wf2, {"stub.echo": mock2}, tmpdir, "run2", seed=42))
-            assert mock2.run.call_count == 1  # Cache miss!
+            assert mock2.run_async.call_count == 1  # Cache miss!
 
     def test_force_rerun_ignores_cache(self) -> None:
         """force_rerun_nodes should skip cache and re-execute."""
@@ -249,7 +249,7 @@ class TestCacheE2E:
             wf1.add_node(WorkflowNode(node_id="n1", module_id="stub.echo", module_version="1.0.0",
                          parameters={"text": "force-test"}))
             asyncio.run(ex.execute(wf1, {"stub.echo": mock1}, tmpdir, "run1", seed=42))
-            assert mock1.run.call_count == 1
+            assert mock1.run_async.call_count == 1
 
             # Second run: force rerun same node
             mock2 = MagicMock(wraps=EchoModule())
@@ -261,7 +261,7 @@ class TestCacheE2E:
                 wf2, {"stub.echo": mock2}, tmpdir, "run2", seed=42,
                 force_rerun_nodes={"n1"},
             ))
-            assert mock2.run.call_count == 1  # Should re-execute despite cache
+            assert mock2.run_async.call_count == 1  # Should re-execute despite cache
 
 
 # ── Cancel E2E Tests ─────────────────────────────────────────────────

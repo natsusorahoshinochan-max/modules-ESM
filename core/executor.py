@@ -199,7 +199,7 @@ class Executor:
                 if issues and any("error" in i.lower() for i in issues):
                     raise RuntimeError(f"Validation failed: {'; '.join(issues)}")
 
-                outputs = module.run(inputs, node.parameters, context)
+                outputs = await module.run_async(inputs, node.parameters, context)
 
                 # Store outputs
                 node.outputs = outputs

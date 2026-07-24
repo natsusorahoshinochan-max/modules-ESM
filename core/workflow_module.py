@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from abc import ABC, abstractmethod
 from typing import Any
 
@@ -14,6 +15,11 @@ class WorkflowModule(ABC):
 
     Subclasses must implement definition (property) and run().
     validate() is optional and defaults to no validation warnings.
+
+    Modules that call external subprocesses or network APIs should override
+    run_async() with a native async implementation to avoid blocking the
+    event loop. The executor always calls run_async(); the default
+    implementation delegates to run() in a thread pool.
     """
 
     @property
@@ -21,6 +27,20 @@ class WorkflowModule(ABC):
     def definition(self) -> ModuleDefinition:
         """The module's definition (ports, parameters, metadata)."""
         ...
+
+    async def run_async(
+        self,
+        inputs: dict[str, Any],
+        parameters: dict[str, Any],
+        context: RunContext,
+    ) -> dict[str, Any]:
+        """Execute the module asynchronously.
+
+        Default implementation delegates to run() in a thread pool.
+        Override with a native async implementation for modules that
+        call subprocesses or make network requests.
+        """
+        return await asyncio.to_thread(self.run, inputs, parameters, context)
 
     @abstractmethod
     def run(self, inputs: dict[str, Any], parameters: dict[str, Any],

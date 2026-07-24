@@ -1,6 +1,9 @@
-"""Compute DSSP: runs mkdssp and produces per-residue DSSP secondary structure codes."""
+"""Compute DSSP: runs mkdssp and produces per-residue DSSP secondary structure codes.
 
-import subprocess
+Uses async subprocess execution to avoid blocking the event loop.
+"""
+
+import asyncio
 import tempfile
 from pathlib import Path
 from typing import Any
@@ -29,11 +32,22 @@ class ComputeDSSPModule(WorkflowModule):
         parameters: dict[str, Any],
         context: RunContext,
     ) -> dict[str, Any]:
+        """Synchronous fallback: delegates to async implementation."""
+        import asyncio
+        return asyncio.run(self.run_async(inputs, parameters, context))
+
+    async def run_async(
+        self,
+        inputs: dict[str, Any],
+        parameters: dict[str, Any],
+        context: RunContext,
+    ) -> dict[str, Any]:
         structure: ProteinStructure | None = inputs.get("structure")
         if structure is None:
             raise ValueError("structure input is required")
 
         dssp_bin = str(parameters.get("dssp_binary", "/opt/homebrew/bin/mkdssp"))
+        timeout = int(parameters.get("timeout", 30))
 
         with tempfile.NamedTemporaryFile(
             mode="w", suffix=".pdb", delete=False
@@ -42,16 +56,32 @@ class ComputeDSSPModule(WorkflowModule):
             pdb_path = tmp.name
 
         try:
-            result = subprocess.run(
-                [dssp_bin, pdb_path],
-                capture_output=True, text=True, timeout=30,
+            proc = await asyncio.create_subprocess_exec(
+                dssp_bin, pdb_path,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
             )
-            if result.returncode != 0:
+            try:
+                stdout, stderr = await asyncio.wait_for(
+                    proc.communicate(), timeout=timeout
+                )
+            except asyncio.TimeoutError:
+                proc.kill()
+                await proc.wait()
                 raise RuntimeError(
-                    f"mkdssp failed: {result.stderr.strip()}"
+                    f"mkdssp timed out after {timeout}s"
                 )
 
-            ss_codes, _ = _parse_dssp_mmcif(result.stdout)
+            if proc.returncode != 0:
+                err_msg = stderr.decode().strip() if stderr else "unknown error"
+                if "No such file" in err_msg or "not found" in err_msg.lower():
+                    raise RuntimeError(
+                        f"mkdssp binary not found at '{dssp_bin}'. "
+                        f"Install mkdssp or set dssp_binary parameter."
+                    )
+                raise RuntimeError(f"mkdssp failed (exit {proc.returncode}): {err_msg}")
+
+            ss_codes, _ = _parse_dssp_mmcif(stdout.decode())
             track = ResidueTrack(values=ss_codes, sentinel=None)
             return {"secondary_structure_track": track}
         finally:
