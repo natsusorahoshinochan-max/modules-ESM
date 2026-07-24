@@ -214,9 +214,9 @@ def _run_design(
             bias_by_res=bias_by_res,
         )
 
-        # Decode sequences
+        # Decode sequences — _S_to_seq expects 1D tensors, squeeze batch dim
         S_sample = sample_out["S"]
-        seq_str = _S_to_seq(S_sample, mask)[0]
+        seq_str = _S_to_seq(S_sample[0], mask[0])
         sequences.append(ProteinSequence(sequence=seq_str))
 
     return sequences
@@ -257,7 +257,7 @@ def _compute_score(
         X, seq_encoded, mask, chain_M, residue_idx, chain_encoding_all, randn
     )
     mask_for_loss = mask * chain_M
-    score = float(_scores(seq_encoded, log_probs, mask_for_loss).cpu().numpy()[0])
+    score = float(_scores(seq_encoded, log_probs, mask_for_loss).detach().cpu().numpy()[0])
     return score
 
 
@@ -287,8 +287,9 @@ def design_sequences(
     try:
         native_score = _compute_score(model, batch, native_seq, device)
         avg_score = native_score
-    except Exception:
-        pass
+    except Exception as e:
+        import warnings
+        warnings.warn(f"ProteinMPNN score computation failed: {e}")
 
     return sequences, avg_score
 
