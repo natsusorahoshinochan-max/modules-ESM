@@ -1,0 +1,29 @@
+module_id: stub.echo
+version: 1.0.0
+display_name: Echo
+category: input
+description: "Stub module that echoes text input. For testing the execution engine."
+input_ports:
+  - name: text
+    type_id: text
+    display_name: Input Text
+    description: "Any text string."
+output_ports:
+  - name: text
+    type_id: text
+    display_name: Output Text
+    description: "The echoed text."
+parameters:
+  - name: repeat
+    type: int
+    default: 1
+    display_name: Repeat Count
+    description: "Number of times to repeat the input text."
+    min: 1
+    max: 100
+  - name: prefix
+    type: str
+    default: ""
+    display_name: Prefix
+    description: "String to prepend to every repetition."
+module_api: "1.0"

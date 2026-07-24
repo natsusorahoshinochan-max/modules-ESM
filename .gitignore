@@ -2,3 +2,8 @@
 .DS_Store
 .codex/
 keys/
+protein_workbench.egg-info/
+frontend/node_modules/
+frontend/dist/
+__pycache__/
+.pytest_cache/

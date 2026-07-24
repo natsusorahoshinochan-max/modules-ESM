@@ -1,0 +1,85 @@
+.toolbar {
+  display: flex;
+  gap: 8px;
+  padding: 8px;
+}
+
+.add-node-btn {
+  padding: 8px 16px;
+  background: #2563eb;
+  color: white;
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 14px;
+  font-weight: 500;
+}
+
+.add-node-btn:hover {
+  background: #1d4ed8;
+}
+
+.add-node-menu {
+  background: white;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  padding: 12px;
+  min-width: 240px;
+  max-height: 400px;
+  overflow-y: auto;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+  margin-top: 48px;
+}
+
+.add-node-menu h3 {
+  margin: 0 0 8px 0;
+  font-size: 14px;
+  color: #334155;
+}
+
+.add-node-menu h4 {
+  margin: 8px 0 4px 0;
+  font-size: 11px;
+  text-transform: uppercase;
+  color: #94a3b8;
+  letter-spacing: 0.05em;
+}
+
+.empty-hint {
+  color: #94a3b8;
+  font-size: 13px;
+  font-style: italic;
+}
+
+.node-option {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  width: 100%;
+  padding: 6px 8px;
+  background: none;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  cursor: pointer;
+  text-align: left;
+}
+
+.node-option:hover {
+  background: #f1f5f9;
+  border-color: #cbd5e1;
+}
+
+.node-name {
+  font-size: 13px;
+  font-weight: 500;
+  color: #1e293b;
+}
+
+.node-id {
+  font-size: 11px;
+  color: #94a3b8;
+}
+
+.category-group {
+  margin-bottom: 4px;
+}
