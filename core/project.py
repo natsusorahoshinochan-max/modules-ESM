@@ -12,6 +12,7 @@ Directory layout per project:
 from __future__ import annotations
 
 import json
+import logging
 import uuid
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
@@ -20,6 +21,8 @@ from typing import Any
 
 from core.graph import Workflow, WorkflowEdge, WorkflowNode
 from core.module_registry import ModuleRegistry
+
+_logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -32,6 +35,7 @@ class ProjectMeta:
     modified_at: str = ""
     workflow_version: str = "1.0"
     module_dependencies: list[str] = field(default_factory=list)
+    seed: bool = False
 
     def __post_init__(self) -> None:
         now = datetime.now(timezone.utc).isoformat()
@@ -86,6 +90,70 @@ class ProjectManager:
         self._save_meta(meta)
         self._save_workflow(project_id, Workflow())
         self._save_ui(project_id, UIState())
+        return meta
+
+    # ── seed project ──────────────────────────────────────────────────
+
+    def ensure_seed_project(
+        self,
+        workflow_json_path: str | Path,
+        ui_json_path: str | Path | None = None,
+        name: str = "3GB1 Design Pipeline",
+    ) -> ProjectMeta | None:
+        """Create a seed project from a workflow JSON if it does not exist.
+
+        The project ID is deterministic (UUID5 from workflow content hash)
+        so repeated calls are idempotent. Validates all module_ids against
+        the registry; on failure logs a warning and returns None.
+        """
+        wf_path = Path(workflow_json_path)
+        if not wf_path.exists():
+            _logger.warning("Seed workflow JSON not found: %s", wf_path)
+            return None
+
+        try:
+            workflow_content = json.loads(wf_path.read_text())
+        except (json.JSONDecodeError, Exception) as e:
+            _logger.warning("Failed to parse seed workflow JSON: %s", e)
+            return None
+
+        # Deterministic project ID
+        content_hash = json.dumps(workflow_content, sort_keys=True)
+        project_id = str(uuid.uuid5(uuid.NAMESPACE_OID, content_hash))
+
+        # Idempotent: skip if already exists
+        if self._project_dir(project_id).exists():
+            return self._load_meta(project_id)
+
+        # Validate module_ids
+        if self.module_registry is not None:
+            for node in workflow_content.get("nodes", []):
+                mid = node.get("module_id", "")
+                if mid not in self.module_registry:
+                    _logger.warning(
+                        "Seed project references unknown module '%s'; skipping creation", mid
+                    )
+                    return None
+
+        # Create project
+        meta = ProjectMeta(id=project_id, name=name, seed=True)
+        self._ensure_dir(project_id)
+        self._save_meta(meta)
+
+        # Copy workflow JSON directly
+        (self._project_dir(project_id) / "workflow.json").write_text(
+            wf_path.read_text()
+        )
+
+        # Copy or default UI JSON
+        if ui_json_path and Path(ui_json_path).exists():
+            (self._project_dir(project_id) / "ui.json").write_text(
+                Path(ui_json_path).read_text()
+            )
+        else:
+            self._save_ui(project_id, UIState())
+
+        _logger.info("Created seed project '%s' (%s)", name, project_id)
         return meta
 
     # ── save ──────────────────────────────────────────────────────────
@@ -196,6 +264,7 @@ class ProjectManager:
             "modified_at": meta.modified_at,
             "workflow_version": meta.workflow_version,
             "module_dependencies": meta.module_dependencies,
+            "seed": meta.seed,
         }
         (self._project_dir(meta.id) / "project.json").write_text(
             json.dumps(data, indent=2)
@@ -212,6 +281,7 @@ class ProjectManager:
             modified_at=raw.get("modified_at", ""),
             workflow_version=raw.get("workflow_version", "1.0"),
             module_dependencies=raw.get("module_dependencies", []),
+            seed=raw.get("seed", False),
         )
 
     def _save_workflow(self, project_id: str, workflow: Workflow) -> None:

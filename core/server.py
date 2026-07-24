@@ -84,6 +84,7 @@ def _project_meta_to_dict(m: ProjectMeta) -> dict:
         "modified_at": m.modified_at,
         "workflow_version": m.workflow_version,
         "module_dependencies": m.module_dependencies,
+        "seed": m.seed,
     }
 
 
@@ -230,6 +231,7 @@ def create_app() -> FastAPI:
         register_module_factory("convert.extract_backbone", ExtractBackboneModule)
         register_module_factory("convert.select_chains", SelectChainsModule)
         register_module_factory("convert.map_track", MapResidueTrackModule)
+        project_manager.ensure_seed_project("examples/3gb1_pipeline.json", "examples/3gb1_pipeline_ui.json")
         yield
         for task in _active_runs.values():
             task.cancel()
