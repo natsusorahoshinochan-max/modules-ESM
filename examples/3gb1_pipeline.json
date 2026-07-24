@@ -207,7 +207,7 @@
     },
     {
       "source_node_id": "compute_ss",
-      "source_port": "secondary_structure",
+      "source_port": "secondary_structure_track",
       "target_node_id": "override_ss",
       "target_port": "track_input"
     },
