@@ -118,11 +118,15 @@ def _featurize(
     tied_positions_dict = None
     bias_by_res_dict = None
 
+    # Build pdb_name -> chain -> positions dict for tied_featurize.
+    # parse_PDB assigns each entry a 'name' (tempfile basename);
+    # tied_featurize expects fixed_position_dict[pdb_name][chain] = [...].
     if constraints is not None:
         if constraints.fixed_positions:
             fixed_position_dict = {}
-            for pos in constraints.fixed_positions:
-                fixed_position_dict.setdefault("A", []).append(pos)
+            fixed_list = list(constraints.fixed_positions)
+            for b in pdb_dict_list:
+                fixed_position_dict[b["name"]] = {"A": fixed_list}
 
         if constraints.omit_amino_acids:
             omit_AA_dict = {"A": [c for c in constraints.omit_amino_acids]}
