@@ -1,0 +1,20 @@
+module_id: structure.align
+version: 1.0.0
+display_name: Structure Alignment
+category: scoring
+description: "Superimposes two protein structures using SVD and produces a reusable StructureAlignment."
+input_ports:
+  - name: reference
+    type_id: protein.structure
+    display_name: Reference
+    description: "Reference protein structure (fixed)."
+  - name: mobile
+    type_id: protein.structure
+    display_name: Mobile
+    description: "Mobile protein structure to align onto reference."
+output_ports:
+  - name: alignment
+    type_id: structure.alignment
+    display_name: Alignment
+    description: "StructureAlignment with rotation, translation, RMSD, and residue mapping."
+module_api: "1.0"

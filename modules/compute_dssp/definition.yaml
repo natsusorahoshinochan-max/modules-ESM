@@ -1,0 +1,16 @@
+module_id: compute.dssp
+version: 1.0.0
+display_name: DSSP
+category: scoring
+description: "Runs mkdssp on a protein structure to compute per-residue secondary structure codes."
+input_ports:
+  - name: structure
+    type_id: protein.structure
+    display_name: Structure
+    description: "Protein structure to analyze with DSSP."
+output_ports:
+  - name: secondary_structure_track
+    type_id: residue.track.secondary_structure
+    display_name: Secondary Structure
+    description: "Per-residue DSSP secondary structure codes."
+module_api: "1.0"

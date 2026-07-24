@@ -1,0 +1,16 @@
+module_id: structure.tm_score
+version: 1.0.0
+display_name: TM-score
+category: scoring
+description: "Computes TM-score from a pre-computed StructureAlignment using tmtools."
+input_ports:
+  - name: alignment
+    type_id: structure.alignment
+    display_name: Alignment
+    description: "Pre-computed StructureAlignment."
+output_ports:
+  - name: scores
+    type_id: score.collection
+    display_name: Scores
+    description: "TM-score entry with normalization info."
+module_api: "1.0"

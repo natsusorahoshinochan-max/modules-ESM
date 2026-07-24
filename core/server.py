@@ -190,6 +190,20 @@ def create_app() -> FastAPI:
         register_module_factory("esmfold2.fold", ESMFold2FoldModule)
         register_module_factory("simplefold.fold", SimpleFoldFoldModule)
         register_module_factory("simplefold.evaluate", SimpleFoldEvaluateModule)
+        from modules.structure_align.module import StructureAlignModule
+        from modules.structure_tm_score.module import StructureTMScoreModule
+        from modules.structure_rmsd.module import StructureRMSDModule
+        from modules.compute_dssp.module import ComputeDSSPModule
+        from modules.secondary_structure_agreement.module import SecondaryStructureAgreementModule
+        from modules.aggregate_confidence.module import AggregateConfidenceModule
+        from modules.merge_scores.module import MergeScoresModule
+        register_module_factory("structure.align", StructureAlignModule)
+        register_module_factory("structure.tm_score", StructureTMScoreModule)
+        register_module_factory("structure.rmsd", StructureRMSDModule)
+        register_module_factory("compute.dssp", ComputeDSSPModule)
+        register_module_factory("scoring.ss_agreement", SecondaryStructureAgreementModule)
+        register_module_factory("scoring.aggregate_confidence", AggregateConfidenceModule)
+        register_module_factory("scoring.merge", MergeScoresModule)
         yield
         for task in _active_runs.values():
             task.cancel()

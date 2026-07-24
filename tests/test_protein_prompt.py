@@ -536,7 +536,7 @@ class TestTrackIndependence:
 # ── Module Discovery Integration ────────────────────────────────────
 
 class TestModuleDiscovery:
-    def test_all_21_modules_discoverable(self) -> None:
+    def test_all_28_modules_discoverable(self) -> None:
         from core import TypeRegistry, ModuleRegistry, discover_modules
         tr = TypeRegistry()
         mr = ModuleRegistry(tr)
@@ -562,10 +562,17 @@ class TestModuleDiscovery:
             "esmfold2.fold",
             "simplefold.fold",
             "simplefold.evaluate",
+            "structure.align",
+            "structure.tm_score",
+            "structure.rmsd",
+            "compute.dssp",
+            "scoring.ss_agreement",
+            "scoring.aggregate_confidence",
+            "scoring.merge",
         }
         assert module_ids == expected
 
-    def test_all_15_types_registered(self) -> None:
+    def test_all_16_types_registered(self) -> None:
         from core import TypeRegistry, ModuleRegistry, discover_modules
         tr = TypeRegistry()
         mr = ModuleRegistry(tr)
@@ -579,5 +586,6 @@ class TestModuleDiscovery:
             "function.annotations", "protein.prompt",
             "candidate.collection", "score.collection",
             "proteinmpnn.constraints",
+            "structure.alignment",
         }
         assert types == expected

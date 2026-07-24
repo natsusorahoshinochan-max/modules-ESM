@@ -1,0 +1,16 @@
+module_id: scoring.aggregate_confidence
+version: 1.0.0
+display_name: Aggregate Confidence
+category: scoring
+description: "Aggregates per-residue or per-candidate confidence scores into summary statistics."
+input_ports:
+  - name: scores
+    type_id: score.collection
+    display_name: Scores
+    description: "ScoreCollection with per-residue confidence values."
+output_ports:
+  - name: scores
+    type_id: score.collection
+    display_name: Aggregated Scores
+    description: "Summary statistics: mean, median, min, max of input confidence values."
+module_api: "1.0"

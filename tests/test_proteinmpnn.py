@@ -222,7 +222,7 @@ class TestConstraintsDatatype:
 # ── Module Discovery ─────────────────────────────────────────────────
 
 class TestModuleDiscovery:
-    def test_18_modules_discoverable(self) -> None:
+    def test_28_modules_discoverable(self) -> None:
         from core import TypeRegistry, ModuleRegistry, discover_modules
         tr = TypeRegistry()
         mr = ModuleRegistry(tr)
@@ -234,7 +234,7 @@ class TestModuleDiscovery:
             "proteinmpnn.constraints",
         }
         assert expected_new.issubset(ids)
-        assert len(mr) == 21
+        assert len(mr) == 28
 
     def test_constraints_type_registered(self) -> None:
         from core import TypeRegistry, ModuleRegistry, discover_modules
