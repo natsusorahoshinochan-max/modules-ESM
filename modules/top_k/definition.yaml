@@ -1,0 +1,23 @@
+module_id: selection.top_k
+version: 1.0.0
+display_name: Top-K
+category: selection
+description: "Keeps the first K candidates (typically after sorting)."
+input_ports:
+  - name: candidates
+    type_id: candidate.collection
+    display_name: Candidates
+    description: "CandidateCollection to select from."
+output_ports:
+  - name: candidates
+    type_id: candidate.collection
+    display_name: Top-K Candidates
+    description: "First K candidates."
+parameters:
+  - name: k
+    type: int
+    default: 10
+    min: 1
+    display_name: K
+    description: "Number of candidates to keep."
+module_api: "1.0"

@@ -1,0 +1,30 @@
+module_id: selection.weighted_rank
+version: 1.0.0
+display_name: Weighted Rank
+category: selection
+description: "Ranks candidates by weighted combination of multiple scores. Negative weights minimize."
+input_ports:
+  - name: candidates
+    type_id: candidate.collection
+    display_name: Candidates
+    description: "CandidateCollection to rank."
+  - name: scores
+    type_id: score.collection
+    display_name: Scores
+    description: "ScoreCollection with scores for each candidate."
+output_ports:
+  - name: candidates
+    type_id: candidate.collection
+    display_name: Ranked Candidates
+    description: "Candidates sorted by weighted score sum (descending)."
+  - name: scores
+    type_id: score.collection
+    display_name: Weighted Scores
+    description: "Weighted rank score entries added to each candidate."
+parameters:
+  - name: metrics
+    type: string
+    default: "[]"
+    display_name: Metrics
+    description: "JSON list of {score: score_id, weight: float}. Negative weights minimize."
+module_api: "1.0"

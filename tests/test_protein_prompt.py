@@ -536,7 +536,7 @@ class TestTrackIndependence:
 # ── Module Discovery Integration ────────────────────────────────────
 
 class TestModuleDiscovery:
-    def test_all_28_modules_discoverable(self) -> None:
+    def test_all_34_modules_discoverable(self) -> None:
         from core import TypeRegistry, ModuleRegistry, discover_modules
         tr = TypeRegistry()
         mr = ModuleRegistry(tr)
@@ -569,6 +569,12 @@ class TestModuleDiscovery:
             "scoring.ss_agreement",
             "scoring.aggregate_confidence",
             "scoring.merge",
+            "selection.filter",
+            "selection.sort",
+            "selection.top_k",
+            "selection.weighted_rank",
+            "selection.pareto",
+            "selection.diversity",
         }
         assert module_ids == expected
 

@@ -1,0 +1,34 @@
+module_id: selection.sort
+version: 1.0.0
+display_name: Sort Candidates
+category: selection
+description: "Sorts candidates by a specified score in ascending or descending order."
+input_ports:
+  - name: candidates
+    type_id: candidate.collection
+    display_name: Candidates
+    description: "CandidateCollection to sort."
+  - name: scores
+    type_id: score.collection
+    display_name: Scores
+    description: "ScoreCollection with scores for each candidate."
+output_ports:
+  - name: candidates
+    type_id: candidate.collection
+    display_name: Sorted Candidates
+    description: "Candidates sorted by the specified score."
+parameters:
+  - name: score
+    type: string
+    default: "plddt"
+    display_name: Score ID
+    description: "Score identifier to sort by."
+  - name: order
+    type: enum
+    default: "descending"
+    display_name: Order
+    description: "Sort order."
+    options:
+      - "ascending"
+      - "descending"
+module_api: "1.0"
