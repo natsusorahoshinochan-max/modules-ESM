@@ -536,7 +536,7 @@ class TestTrackIndependence:
 # ── Module Discovery Integration ────────────────────────────────────
 
 class TestModuleDiscovery:
-    def test_all_15_modules_discoverable(self) -> None:
+    def test_all_18_modules_discoverable(self) -> None:
         from core import TypeRegistry, ModuleRegistry, discover_modules
         tr = TypeRegistry()
         mr = ModuleRegistry(tr)
@@ -556,10 +556,13 @@ class TestModuleDiscovery:
             "esm3.generate_sequence",
             "esm3.update_prompt_sequence",
             "esm3.generate_structure",
+            "proteinmpnn.design",
+            "proteinmpnn.score",
+            "proteinmpnn.constraints",
         }
         assert module_ids == expected
 
-    def test_all_14_types_registered(self) -> None:
+    def test_all_15_types_registered(self) -> None:
         from core import TypeRegistry, ModuleRegistry, discover_modules
         tr = TypeRegistry()
         mr = ModuleRegistry(tr)
@@ -572,5 +575,6 @@ class TestModuleDiscovery:
             "residue.track.secondary_structure", "residue.track.sasa",
             "function.annotations", "protein.prompt",
             "candidate.collection", "score.collection",
+            "proteinmpnn.constraints",
         }
         assert types == expected

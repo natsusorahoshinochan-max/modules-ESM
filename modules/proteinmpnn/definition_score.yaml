@@ -1,0 +1,31 @@
+module_id: proteinmpnn.score
+version: 1.0.0
+display_name: ProteinMPNN Score
+category: scoring
+description: "Scores how well a sequence fits a structure using ProteinMPNN's internal scoring."
+input_ports:
+  - name: structure
+    type_id: protein.structure
+    display_name: Structure
+    description: "Protein structure (PDB)."
+  - name: sequence
+    type_id: protein.sequence
+    display_name: Sequence
+    description: "Amino acid sequence to score."
+output_ports:
+  - name: scores
+    type_id: score.collection
+    display_name: Scores
+    description: "ScoreCollection with proteinmpnn_score entry."
+parameters:
+  - name: model_name
+    type: enum
+    default: "v_48_020"
+    display_name: Model
+    description: "ProteinMPNN model variant."
+    options:
+      - "v_48_002"
+      - "v_48_010"
+      - "v_48_020"
+      - "v_48_030"
+module_api: "1.0"

@@ -178,6 +178,12 @@ def create_app() -> FastAPI:
         register_module_factory("esm3.generate_sequence", ESM3GenerateSequenceModule)
         register_module_factory("esm3.update_prompt_sequence", UpdatePromptSequenceModule)
         register_module_factory("esm3.generate_structure", ESM3GenerateStructureModule)
+        from modules.proteinmpnn.module_design import ProteinMPNNDesignModule
+        from modules.proteinmpnn.module_score import ProteinMPNNScoreModule
+        from modules.proteinmpnn.module_constraints import ProteinMPNNConstraintsModule
+        register_module_factory("proteinmpnn.design", ProteinMPNNDesignModule)
+        register_module_factory("proteinmpnn.score", ProteinMPNNScoreModule)
+        register_module_factory("proteinmpnn.constraints", ProteinMPNNConstraintsModule)
         yield
         for task in _active_runs.values():
             task.cancel()

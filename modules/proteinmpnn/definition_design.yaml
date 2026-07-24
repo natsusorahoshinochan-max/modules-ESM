@@ -1,0 +1,51 @@
+module_id: proteinmpnn.design
+version: 1.0.0
+display_name: ProteinMPNN Design
+category: model
+description: "Generates protein sequences from a structure using ProteinMPNN."
+input_ports:
+  - name: structure
+    type_id: protein.structure
+    display_name: Structure
+    description: "Input protein structure (PDB)."
+  - name: sequence
+    type_id: protein.sequence
+    display_name: Reference Sequence
+    description: "Optional reference sequence."
+  - name: constraints
+    type_id: proteinmpnn.constraints
+    display_name: Constraints
+    description: "Optional design constraints."
+output_ports:
+  - name: candidates
+    type_id: candidate.collection
+    display_name: Candidates
+    description: "Generated sequence candidates."
+  - name: scores
+    type_id: score.collection
+    display_name: Scores
+    description: "Per-sequence scores."
+parameters:
+  - name: model_name
+    type: enum
+    default: "v_48_020"
+    display_name: Model
+    description: "ProteinMPNN model variant."
+    options:
+      - "v_48_002"
+      - "v_48_010"
+      - "v_48_020"
+      - "v_48_030"
+  - name: num_sequences
+    type: int
+    default: 1
+    min: 1
+    display_name: Num Sequences
+    description: "Number of sequences to generate."
+  - name: temperature
+    type: float
+    default: 0.1
+    min: 0.0
+    display_name: Temperature
+    description: "Sampling temperature."
+module_api: "1.0"

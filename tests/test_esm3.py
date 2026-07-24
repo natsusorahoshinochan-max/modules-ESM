@@ -309,7 +309,7 @@ class TestESM3GenerateStructure:
 # ── Module Discovery ─────────────────────────────────────────────────
 
 class TestModuleDiscoveryE2E:
-    def test_15_modules_discoverable(self) -> None:
+    def test_18_modules_discoverable(self) -> None:
         from core import TypeRegistry, ModuleRegistry, discover_modules
         tr = TypeRegistry()
         mr = ModuleRegistry(tr)
@@ -321,7 +321,7 @@ class TestModuleDiscoveryE2E:
             "esm3.generate_structure",
         }
         assert expected_esm3.issubset(ids)
-        assert len(mr) == 15
+        assert len(mr) == 18
 
     def test_all_types_registered(self) -> None:
         from core import TypeRegistry, ModuleRegistry, discover_modules

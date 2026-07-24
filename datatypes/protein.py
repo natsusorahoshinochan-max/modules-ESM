@@ -207,3 +207,18 @@ class StructureAlignment:
     translation: list[float] = field(default_factory=list)
     rmsd: float = 0.0
     coverage: float = 0.0
+
+
+@dataclass
+class ProteinMPNNConstraints:
+    """Residue-level constraints for ProteinMPNN design.
+
+    All fields are optional lists; None means no constraint in that dimension.
+    """
+    designable_positions: Optional[list[int]] = None
+    fixed_positions: Optional[list[int]] = None
+    designed_chains: Optional[list[str]] = None
+    fixed_chains: Optional[list[str]] = None
+    omit_amino_acids: Optional[list[str]] = None
+    tied_positions: Optional[list[list[int]]] = None
+    bias_by_res: Optional[dict[int, dict[str, float]]] = None

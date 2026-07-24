@@ -26,4 +26,6 @@ __all__ = [
     "Score",
     "ScoreCollection",
     "StructureAlignment",
+    "ProteinMPNNConstraints",
 ]
+from datatypes.protein import ProteinMPNNConstraints

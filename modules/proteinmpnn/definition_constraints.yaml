@@ -1,0 +1,33 @@
+module_id: proteinmpnn.constraints
+version: 1.0.0
+display_name: ProteinMPNN Constraints
+category: prompt
+description: "Defines residue-level constraints for ProteinMPNN design."
+input_ports: []
+output_ports:
+  - name: constraints
+    type_id: proteinmpnn.constraints
+    display_name: Constraints
+    description: "ProteinMPNN design constraints."
+parameters:
+  - name: designable_positions
+    type: str
+    default: "[]"
+    display_name: Designable Positions
+    description: "JSON list of designable residue indices."
+  - name: fixed_positions
+    type: str
+    default: "[]"
+    display_name: Fixed Positions
+    description: "JSON list of fixed residue indices."
+  - name: omit_amino_acids
+    type: str
+    default: "[]"
+    display_name: Omit Amino Acids
+    description: "JSON list of AA codes to exclude."
+  - name: tied_positions
+    type: str
+    default: "[]"
+    display_name: Tied Positions
+    description: "JSON list of position pairs that must share the same AA."
+module_api: "1.0"
