@@ -1,0 +1,23 @@
+module_id: prompt.random_mask
+version: 1.0.0
+display_name: Random Mask
+category: prompt
+description: "Randomly mask exactly N non-sentinel positions in a residue track. Given the same seed, the same positions are always selected."
+input_ports:
+  - name: track
+    type_id: residue.track
+    display_name: Track
+    description: "Input residue track to partially mask."
+output_ports:
+  - name: track
+    type_id: residue.track
+    display_name: Track
+    description: "Output residue track with exactly count positions set to sentinel."
+parameters:
+  - name: count
+    type: int
+    default: 0
+    display_name: Mask Count
+    description: "Number of non-sentinel positions to randomly mask. Must not exceed the number of specified positions."
+    min: 0
+module_api: "1.0"

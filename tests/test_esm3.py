@@ -321,7 +321,7 @@ class TestModuleDiscoveryE2E:
             "esm3.generate_structure",
         }
         assert expected_esm3.issubset(ids)
-        assert len(mr) == 38
+        assert len(mr) == 39
 
     def test_all_types_registered(self) -> None:
         from core import TypeRegistry, ModuleRegistry, discover_modules
