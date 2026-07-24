@@ -1,0 +1,16 @@
+module_id: convert.extract_sequence
+version: 1.0.0
+display_name: Extract Sequence from Structure
+category: conversion
+description: "Extracts amino acid sequence from PDB ATOM records."
+input_ports:
+  - name: structure
+    type_id: protein.structure
+    display_name: Structure
+    description: "Protein structure to extract sequence from."
+output_ports:
+  - name: sequence
+    type_id: protein.sequence
+    display_name: Sequence
+    description: "Extracted amino acid sequence."
+module_api: "1.0"

@@ -1,0 +1,20 @@
+module_id: convert.map_track
+version: 1.0.0
+display_name: Map Residue Track
+category: conversion
+description: "Applies a ResidueMap to remap a ResidueTrack from source layout to target layout."
+input_ports:
+  - name: track
+    type_id: residue.track
+    display_name: Track
+    description: "ResidueTrack to remap."
+  - name: residue_map
+    type_id: residue.map
+    display_name: Residue Map
+    description: "ResidueMap defining the source-to-target mapping."
+output_ports:
+  - name: track
+    type_id: residue.track
+    display_name: Mapped Track
+    description: "ResidueTrack remapped to the target layout."
+module_api: "1.0"

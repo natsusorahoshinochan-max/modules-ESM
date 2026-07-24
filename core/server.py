@@ -216,6 +216,14 @@ def create_app() -> FastAPI:
         register_module_factory("selection.weighted_rank", WeightedRankModule)
         register_module_factory("selection.pareto", ParetoSelectModule)
         register_module_factory("selection.diversity", DiversitySelectModule)
+        from modules.extract_sequence_from_structure.module import ExtractSequenceFromStructureModule
+        from modules.extract_backbone.module import ExtractBackboneModule
+        from modules.select_chains.module import SelectChainsModule
+        from modules.map_residue_track.module import MapResidueTrackModule
+        register_module_factory("convert.extract_sequence", ExtractSequenceFromStructureModule)
+        register_module_factory("convert.extract_backbone", ExtractBackboneModule)
+        register_module_factory("convert.select_chains", SelectChainsModule)
+        register_module_factory("convert.map_track", MapResidueTrackModule)
         yield
         for task in _active_runs.values():
             task.cancel()
@@ -303,9 +311,11 @@ def create_app() -> FastAPI:
 
         async def _run() -> None:
             try:
+                force_rerun = set(payload.get("force_rerun_nodes", []))
                 await executor.execute(
                     workflow=workflow, modules=modules,
                     project_dir=project_dir, run_id=run_id, seed=seed,
+                    force_rerun_nodes=force_rerun,
                 )
                 for ws in _active_ws:
                     try:
@@ -337,6 +347,40 @@ def create_app() -> FastAPI:
             task.cancel()
             return {"status": "cancelled"}
         return {"status": "not_found"}
+
+
+    # ── cache management ────────────────────────────────────────────
+
+    @app.delete("/api/projects/{project_id}/cache")
+    async def clear_project_cache(project_id: str) -> dict:
+        """Clear all cached outputs for a project."""
+        meta = project_manager.load_meta(project_id)
+        if meta is None:
+            return {"error": "Project not found"}
+        project_dir = project_manager._project_dir(project_id)
+        cache_dir = project_dir / "cache"
+        count = 0
+        if cache_dir.exists():
+            for f in cache_dir.iterdir():
+                f.unlink()
+                count += 1
+        return {"status": "cleared", "removed": count}
+
+    @app.delete("/api/projects/{project_id}/cache/{node_id}")
+    async def clear_node_cache(project_id: str, node_id: str) -> dict:
+        """Clear cached outputs for a specific node."""
+        meta = project_manager.load_meta(project_id)
+        if meta is None:
+            return {"error": "Project not found"}
+        project_dir = project_manager._project_dir(project_id)
+        cache_dir = project_dir / "cache"
+        count = 0
+        if cache_dir.exists():
+            for f in cache_dir.iterdir():
+                if f.name.startswith(f"{node_id}_"):
+                    f.unlink()
+                    count += 1
+        return {"status": "cleared", "removed": count}
 
     # ── projects CRUD ────────────────────────────────────────────────
 
