@@ -219,3 +219,203 @@ class TestBatchTMScore:
         assert entry.value < 1.0
         assert entry.value > 0.0
         assert entry.details["aligned_residues"] == 3
+
+
+class TestBatchTMScoreAlignmentPath:
+    """Tests for the alignments input port (ticket 18b)."""
+
+    def test_alignments_produces_scores(self) -> None:
+        from modules.structure_batch_tm_score.module import BatchTMScoreModule
+        from datatypes import StructureAlignment
+        mod = BatchTMScoreModule()
+        ctx = RunContext("/tmp/test", "n1")
+
+        # Create a pre-computed alignment with 3 residues, RMSD ~0
+        alignment = StructureAlignment(
+            residue_map=[
+                ("A:1", "A:1"),
+                ("A:2", "A:2"),
+                ("A:3", "A:3"),
+            ],
+            chain_map={"A": "A"},
+            rotation=[[1, 0, 0], [0, 1, 0], [0, 0, 1]],
+            translation=[0, 0, 0],
+            rmsd=0.0,
+            coverage=1.0,
+        )
+        alignments_coll = CandidateCollection(
+            collection_id="align_coll",
+            item_type="structure.alignment",
+            items=[
+                Candidate(candidate_id="c1", data=alignment),
+                Candidate(candidate_id="c2", data=alignment),
+            ],
+        )
+
+        result = mod.run({"alignments": alignments_coll}, {}, ctx)
+        scores = result["scores"]
+
+        assert len(scores.entries) == 2
+        for entry in scores.entries:
+            assert entry.score_id == "tm_score"
+            assert entry.value == pytest.approx(1.0, abs=0.01)
+            assert entry.subjects[0] in ("c1", "c2")
+
+    def test_alignments_preserves_subjects(self) -> None:
+        from modules.structure_batch_tm_score.module import BatchTMScoreModule
+        from datatypes import StructureAlignment
+        mod = BatchTMScoreModule()
+        ctx = RunContext("/tmp/test", "n1")
+
+        alignment = StructureAlignment(
+            residue_map=[("A:1", "A:1")],
+            chain_map={"A": "A"},
+            rotation=[[1, 0, 0], [0, 1, 0], [0, 0, 1]],
+            translation=[0, 0, 0],
+            rmsd=0.5,
+            coverage=0.5,
+        )
+        alignments_coll = CandidateCollection(
+            collection_id="align_coll",
+            item_type="structure.alignment",
+            items=[
+                Candidate(candidate_id="alpha", data=alignment),
+                Candidate(candidate_id="beta", data=alignment),
+            ],
+        )
+
+        result = mod.run({"alignments": alignments_coll}, {}, ctx)
+        subjects = [s.subjects[0] for s in result["scores"].entries]
+        assert subjects == ["alpha", "beta"]
+
+    def test_alignments_empty_raises(self) -> None:
+        from modules.structure_batch_tm_score.module import BatchTMScoreModule
+        mod = BatchTMScoreModule()
+        ctx = RunContext("/tmp/test", "n1")
+
+        alignments_coll = CandidateCollection(
+            collection_id="empty",
+            item_type="structure.alignment",
+            items=[],
+        )
+
+        with pytest.raises(ValueError, match="empty"):
+            mod.run({"alignments": alignments_coll}, {}, ctx)
+
+    def test_alignments_wrong_item_type_raises(self) -> None:
+        from modules.structure_batch_tm_score.module import BatchTMScoreModule
+        mod = BatchTMScoreModule()
+        ctx = RunContext("/tmp/test", "n1")
+
+        alignments_coll = CandidateCollection(
+            collection_id="wrong",
+            item_type="protein.structure",
+            items=[Candidate(candidate_id="c1", data=None)],
+        )
+
+        with pytest.raises(ValueError, match="item_type"):
+            mod.run({"alignments": alignments_coll}, {}, ctx)
+
+    def test_custom_score_id_alignment_path(self) -> None:
+        from modules.structure_batch_tm_score.module import BatchTMScoreModule
+        from datatypes import StructureAlignment
+        mod = BatchTMScoreModule()
+        ctx = RunContext("/tmp/test", "n1")
+
+        alignment = StructureAlignment(
+            residue_map=[("A:1", "A:1")],
+            chain_map={"A": "A"},
+            rotation=[[1, 0, 0], [0, 1, 0], [0, 0, 1]],
+            translation=[0, 0, 0],
+            rmsd=0.0,
+            coverage=1.0,
+        )
+        alignments_coll = CandidateCollection(
+            collection_id="align_coll",
+            item_type="structure.alignment",
+            items=[Candidate(candidate_id="c1", data=alignment)],
+        )
+
+        result = mod.run(
+            {"alignments": alignments_coll},
+            {"score_id": "tm_vs_esm3"},
+            ctx,
+        )
+        entry = result["scores"].entries[0]
+        assert entry.score_id == "tm_vs_esm3"
+
+    def test_custom_score_id_reference_path(self) -> None:
+        from modules.structure_batch_tm_score.module import BatchTMScoreModule
+        mod = BatchTMScoreModule()
+        ctx = RunContext("/tmp/test", "n1")
+
+        ref = ProteinStructure(pdb_string=SAMPLE_PDB_3RES)
+        cands = CandidateCollection(
+            collection_id="coll",
+            item_type="protein.structure",
+            items=[_make_cand("c1", SAMPLE_PDB_3RES)],
+        )
+
+        result = mod.run(
+            {"reference": ref, "candidates": cands},
+            {"score_id": "tm_vs_3gb1"},
+            ctx,
+        )
+        entry = result["scores"].entries[0]
+        assert entry.score_id == "tm_vs_3gb1"
+
+    def test_zero_coverage_alignment_zero_score(self) -> None:
+        from modules.structure_batch_tm_score.module import BatchTMScoreModule
+        from datatypes import StructureAlignment
+        mod = BatchTMScoreModule()
+        ctx = RunContext("/tmp/test", "n1")
+
+        alignment = StructureAlignment(
+            residue_map=[],
+            chain_map={},
+            rotation=[[1, 0, 0], [0, 1, 0], [0, 0, 1]],
+            translation=[0, 0, 0],
+            rmsd=0.0,
+            coverage=0.0,
+        )
+        alignments_coll = CandidateCollection(
+            collection_id="align_coll",
+            item_type="structure.alignment",
+            items=[Candidate(candidate_id="no_overlap", data=alignment)],
+        )
+
+        result = mod.run({"alignments": alignments_coll}, {}, ctx)
+        entry = result["scores"].entries[0]
+
+        assert entry.value == 0.0
+        assert entry.details["aligned_residues"] == 0
+
+    def test_nonzero_rmsd_tm_below_1(self) -> None:
+        from modules.structure_batch_tm_score.module import BatchTMScoreModule
+        from datatypes import StructureAlignment
+        mod = BatchTMScoreModule()
+        ctx = RunContext("/tmp/test", "n1")
+
+        # 5 residues with large RMSD → TM-score < 1.0
+        alignment = StructureAlignment(
+            residue_map=[
+                ("A:1", "A:1"), ("A:2", "A:2"), ("A:3", "A:3"),
+                ("A:4", "A:4"), ("A:5", "A:5"),
+            ],
+            chain_map={"A": "A"},
+            rotation=[[1, 0, 0], [0, 1, 0], [0, 0, 1]],
+            translation=[0, 0, 0],
+            rmsd=2.5,
+            coverage=1.0,
+        )
+        alignments_coll = CandidateCollection(
+            collection_id="align_coll",
+            item_type="structure.alignment",
+            items=[Candidate(candidate_id="c1", data=alignment)],
+        )
+
+        result = mod.run({"alignments": alignments_coll}, {}, ctx)
+        entry = result["scores"].entries[0]
+
+        assert entry.value < 1.0
+        assert entry.value > 0.0

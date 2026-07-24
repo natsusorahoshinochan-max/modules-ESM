@@ -2,19 +2,29 @@ module_id: structure.batch_tm_score
 version: 1.0.0
 display_name: Batch TM-score
 category: scoring
-description: "Batch-align each candidate structure to a reference and compute TM-score. Outputs one tm_score entry per candidate with subjects referencing candidate IDs for downstream weighted ranking."
+description: "Batch-align each candidate structure to a reference and compute TM-score. Optionally accepts pre-computed StructureAlignments via the alignments port. Outputs one score entry per candidate with subjects referencing candidate IDs for downstream weighted ranking."
 input_ports:
   - name: reference
     type_id: protein.structure
     display_name: Reference Structure
-    description: "Reference structure to align candidates against."
+    description: "Reference structure to align candidates against. Ignored when alignments port is provided."
   - name: candidates
     type_id: candidate.collection
     display_name: Candidate Structures
-    description: "Collection of candidate ProteinStructure objects to score."
+    description: "Collection of candidate ProteinStructure objects to score. Ignored when alignments port is provided."
+  - name: alignments
+    type_id: candidate.collection
+    display_name: Pre-computed Alignments
+    description: "Optional collection of StructureAlignment items. When provided, TM-scores are computed directly from alignments; reference and candidates ports are ignored."
 output_ports:
   - name: scores
     type_id: score.collection
     display_name: Scores
-    description: "ScoreCollection with one tm_score entry per candidate."
+    description: "ScoreCollection with one score entry per candidate."
+parameters:
+  - name: score_id
+    type: string
+    default: "tm_score"
+    display_name: Score ID
+    description: "Identifier for output score entries. Use to differentiate multiple batch_tm_score instances in the same DAG."
 module_api: "1.0"

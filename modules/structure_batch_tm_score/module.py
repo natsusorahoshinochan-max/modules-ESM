@@ -1,4 +1,9 @@
-"""Batch TM-score: aligns each candidate structure to reference, computes TM-score."""
+"""Batch TM-score: aligns each candidate structure to reference, computes TM-score.
+
+Supports two modes:
+1. reference + candidates: internal SVD alignment + TM-score (original behavior).
+2. alignments: compute TM-score directly from pre-computed StructureAlignment items.
+"""
 
 import uuid
 from pathlib import Path
@@ -9,7 +14,13 @@ import numpy as np
 from core.module_definition import ModuleDefinition
 from core.run_context import RunContext
 from core.workflow_module import WorkflowModule
-from datatypes import CandidateCollection, ProteinStructure, Score, ScoreCollection
+from datatypes import (
+    CandidateCollection,
+    ProteinStructure,
+    Score,
+    ScoreCollection,
+    StructureAlignment,
+)
 
 _AA_3TO1 = {
     "ALA": "A", "ARG": "R", "ASN": "N", "ASP": "D", "CYS": "C",
@@ -68,6 +79,25 @@ def _compute_tm_score(
     return float(round(tm, 4))
 
 
+def _compute_tm_from_alignment(alignment: StructureAlignment) -> float:
+    """Compute TM-score directly from a StructureAlignment's RMSD and coverage.
+
+    Uses the same TM-score formula as structure.tm_score.
+    """
+    n_aligned = len(alignment.residue_map)
+    if n_aligned == 0:
+        return 0.0
+
+    if n_aligned > 15:
+        d0 = 1.24 * (n_aligned - 15) ** (1.0 / 3.0) - 1.8
+    else:
+        d0 = 0.5
+    d0 = max(d0, 0.5)
+
+    tm = 1.0 / (1.0 + (alignment.rmsd / d0) ** 2)
+    return float(round(tm, 4))
+
+
 class BatchTMScoreModule(WorkflowModule):
     def __init__(self) -> None:
         d = Path(__file__).parent / "definition.yaml"
@@ -83,6 +113,49 @@ class BatchTMScoreModule(WorkflowModule):
         parameters: dict[str, Any],
         context: RunContext,
     ) -> dict[str, Any]:
+        score_id: str = parameters.get("score_id", "tm_score")
+        alignments: CandidateCollection | None = inputs.get("alignments")
+
+        # ── Alignment path ──────────────────────────────────────────
+        if alignments is not None:
+            if len(alignments) == 0:
+                raise ValueError("alignments collection is empty")
+
+            if alignments.item_type != "structure.alignment":
+                raise ValueError(
+                    f"alignments item_type must be structure.alignment, "
+                    f"got {alignments.item_type}"
+                )
+
+            entries: list[Score] = []
+            for cand in alignments.items:
+                alignment = cand.data
+                if not isinstance(alignment, StructureAlignment):
+                    raise ValueError(
+                        f"Alignment candidate {cand.candidate_id} data "
+                        f"is not a StructureAlignment"
+                    )
+
+                tm = _compute_tm_from_alignment(alignment)
+                entries.append(Score(
+                    score_id=score_id,
+                    value=tm,
+                    subjects=[cand.candidate_id],
+                    details={
+                        "aligned_residues": len(alignment.residue_map),
+                        "rmsd": round(float(alignment.rmsd), 4),
+                        "coverage": round(float(alignment.coverage), 4),
+                    },
+                ))
+
+            return {
+                "scores": ScoreCollection(
+                    collection_id=str(uuid.uuid4()),
+                    entries=entries,
+                ),
+            }
+
+        # ── Reference + Candidates path (original behavior) ─────────
         ref_struct: ProteinStructure | None = inputs.get("reference")
         candidates: CandidateCollection | None = inputs.get("candidates")
 
@@ -95,7 +168,8 @@ class BatchTMScoreModule(WorkflowModule):
 
         if candidates.item_type != "protein.structure":
             raise ValueError(
-                f"candidates item_type must be protein.structure, got {candidates.item_type}"
+                f"candidates item_type must be protein.structure, "
+                f"got {candidates.item_type}"
             )
 
         # Parse reference CA coordinates
@@ -107,7 +181,7 @@ class BatchTMScoreModule(WorkflowModule):
         }
         n_ref = len(ref_coords_raw)
 
-        entries: list[Score] = []
+        entries = []
 
         for cand in candidates.items:
             struct = cand.data
@@ -131,7 +205,7 @@ class BatchTMScoreModule(WorkflowModule):
             if not common:
                 # No overlap → TM-score is effectively 0
                 entries.append(Score(
-                    score_id="tm_score",
+                    score_id=score_id,
                     value=0.0,
                     subjects=[cand.candidate_id],
                     details={"aligned_residues": 0},
@@ -149,7 +223,7 @@ class BatchTMScoreModule(WorkflowModule):
 
             tm = _compute_tm_score(ref_aligned, mob_aligned, n_ref)
             entries.append(Score(
-                score_id="tm_score",
+                score_id=score_id,
                 value=tm,
                 subjects=[cand.candidate_id],
                 details={"aligned_residues": len(common)},
