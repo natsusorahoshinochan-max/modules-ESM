@@ -13,4 +13,10 @@ output_ports:
     type_id: score.collection
     display_name: Scores
     description: "RMSD score entry in angstroms."
+parameters:
+  - name: candidate_id
+    type: string
+    default: ""
+    display_name: Candidate ID
+    description: "Candidate evaluated by this alignment. Required for candidate-bound scoring."
 module_api: "1.0"

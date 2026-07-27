@@ -126,7 +126,7 @@ def test_single_score_uses_per_residue_distances_and_reference_normalization() -
 
     result = StructureTMScoreModule().run(
         {"alignment": alignment},
-        {},
+        {"candidate_id": "candidate"},
         RunContext("/tmp/test", "standard-tm-score"),
     )
     score = result["scores"].entries[0]
@@ -158,7 +158,7 @@ def test_rmsd_reads_the_same_alignment_without_rebuilding_correspondence() -> No
 
     result = StructureRMSDModule().run(
         {"alignment": alignment},
-        {},
+        {"candidate_id": "candidate"},
         RunContext("/tmp/test", "shared-alignment-rmsd"),
     )
 
@@ -236,7 +236,7 @@ def test_3gb1_length_controls_scale_and_uncovered_reference_contribution() -> No
 
     result = StructureTMScoreModule().run(
         {"alignment": alignment},
-        {},
+        {"candidate_id": "candidate"},
         RunContext("/tmp/test", "3gb1-normalization"),
     )
     score = result["scores"].entries[0]
@@ -358,7 +358,7 @@ def test_public_scoring_paths_agree_with_trusted_tmtools(
 
     single_score = StructureTMScoreModule().run(
         {"alignment": alignment},
-        {},
+        {"candidate_id": "candidate"},
         RunContext("/tmp/test", "differential-single"),
     )["scores"].entries[0]
     alignment_collection_score = BatchTMScoreModule().run(

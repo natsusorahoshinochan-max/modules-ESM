@@ -28,12 +28,15 @@ class StructureRMSDModule(WorkflowModule):
         alignment: StructureAlignment | None = inputs.get("alignment")
         if alignment is None:
             raise ValueError("alignment input is required")
+        candidate_id = str(parameters.get("candidate_id", "")).strip()
+        if not candidate_id:
+            raise ValueError("candidate_id is required for structure RMSD")
 
         entries = [
             Score(
                 score_id="rmsd",
                 value=round(float(alignment.rmsd), 4),
-                subjects=[],
+                subjects=[candidate_id],
                 details={
                     "aligned_residues": len(alignment.residue_map),
                     "coverage": round(float(alignment.coverage), 4),

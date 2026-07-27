@@ -237,7 +237,7 @@ class TestWeightedRank:
 
         # Check weighted rank scores
         out_scores = result["scores"]
-        assert len(out_scores.entries) == 3
+        assert len(out_scores.entries) == 9
         rank_entry = [s for s in out_scores.entries if s.score_id == "weighted_rank"]
         assert len(rank_entry) == 3
 

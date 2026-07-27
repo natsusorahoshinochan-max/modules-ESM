@@ -150,7 +150,11 @@ class TestTMScore:
         ctx = RunContext("/tmp/test", "n1")
         alignment = _make_alignment(rmsd=0.0)
 
-        result = mod.run({"alignment": alignment}, {}, ctx)
+        result = mod.run(
+            {"alignment": alignment},
+            {"candidate_id": "candidate"},
+            ctx,
+        )
         scores = result["scores"]
 
         assert isinstance(scores, ScoreCollection)
@@ -164,7 +168,11 @@ class TestTMScore:
         ctx = RunContext("/tmp/test", "n1")
         alignment = _make_alignment(rmsd=10.0)
 
-        result = mod.run({"alignment": alignment}, {}, ctx)
+        result = mod.run(
+            {"alignment": alignment},
+            {"candidate_id": "candidate"},
+            ctx,
+        )
         scores = result["scores"]
         tm_entry = [s for s in scores.entries if s.score_id == "tm_score"]
         assert tm_entry[0].value < 0.5
@@ -186,7 +194,11 @@ class TestRMSD:
         ctx = RunContext("/tmp/test", "n1")
         alignment = _make_alignment(rmsd=2.345)
 
-        result = mod.run({"alignment": alignment}, {}, ctx)
+        result = mod.run(
+            {"alignment": alignment},
+            {"candidate_id": "candidate"},
+            ctx,
+        )
         scores = result["scores"]
 
         rmsd_entry = [s for s in scores.entries if s.score_id == "rmsd"]

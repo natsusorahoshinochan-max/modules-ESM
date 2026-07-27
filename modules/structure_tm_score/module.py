@@ -31,12 +31,16 @@ class StructureTMScoreModule(WorkflowModule):
         alignment: StructureAlignment | None = inputs.get("alignment")
         if alignment is None:
             raise ValueError("alignment input is required")
+        candidate_id = str(parameters.get("candidate_id", "")).strip()
+        if not candidate_id:
+            raise ValueError("candidate_id is required for structure TM-score")
+        score_id = str(parameters.get("score_id", "tm_score"))
 
         entries = [
             score_reference_normalized_alignment(
                 alignment,
-                score_id="tm_score",
-                subjects=[],
+                score_id=score_id,
+                subjects=[candidate_id],
             )
         ]
 

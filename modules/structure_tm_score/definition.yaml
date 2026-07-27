@@ -13,4 +13,15 @@ output_ports:
     type_id: score.collection
     display_name: Scores
     description: "Reference-normalized TM-score entry with normalization length and reference coverage."
+parameters:
+  - name: candidate_id
+    type: string
+    default: ""
+    display_name: Candidate ID
+    description: "Candidate evaluated by this alignment. Required for candidate-bound scoring."
+  - name: score_id
+    type: string
+    default: "tm_score"
+    display_name: Score ID
+    description: "Identifier for the output score entry."
 module_api: "1.0"
