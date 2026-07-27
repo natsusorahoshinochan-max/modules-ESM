@@ -147,6 +147,7 @@ def _append_event(event: dict[str, Any]) -> bool:
     nonce = os.environ.get("PROTEIN_WORKBENCH_REAL_GATE_NONCE")
     gate = os.environ.get("PROTEIN_WORKBENCH_VERIFICATION_TIER")
     if not path_value or not nonce or gate not in {
+        "fresh-remote-3gb1",
         "local-provider",
         "heavy-model",
         "live-provider",
@@ -172,7 +173,12 @@ def _append_event(event: dict[str, Any]) -> bool:
         flags |= os.O_NOFOLLOW
     descriptor = os.open(path, flags, 0o600)
     try:
-        os.write(descriptor, encoded)
+        written = 0
+        while written < len(encoded):
+            count = os.write(descriptor, encoded[written:])
+            if count <= 0:
+                raise OSError("Provider evidence write made no progress")
+            written += count
         os.fsync(descriptor)
     finally:
         os.close(descriptor)
@@ -219,6 +225,8 @@ def record_provider_call_result(
         or set(provider_identity) - _IDENTITY_KEYS
     ):
         raise ValueError("Provider call evidence contains non-allowlisted fields")
+    from core.run_context import RunContext
+
     return _append_event({
         "event_type": "provider_call",
         "provider": provider,
@@ -235,4 +243,5 @@ def record_provider_call_result(
             "status": "succeeded",
             "summary": result_summary,
         },
+        **RunContext.active_provider_evidence(),
     })

@@ -271,6 +271,7 @@ class TestESM3Adapter:
 
         token_path = tmp_path / "esmkey.txt"
         token_path.write_text("configured-test-token")
+        token_path.chmod(0o600)
         monkeypatch.setenv(
             "PROTEIN_WORKBENCH_BIOHUB_TOKEN_FILE",
             str(token_path),

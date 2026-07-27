@@ -27,6 +27,10 @@ from core.module_registry import ModuleRegistry, TypeRegistry, discover_modules
 # ── Module instances (reused across tests) ────────────────────────────
 
 
+def _no_sleep(_: float) -> None:
+    """Keep fixture-backed workflow tests independent of provider pacing."""
+
+
 def _build_modules():
     from modules.apply_residue_edits import ApplyResidueEditsModule
     from modules.assemble_protein_prompt import AssembleProteinPromptModule
@@ -58,7 +62,7 @@ def _build_modules():
         "prompt.override_residue_track": OverrideResidueTrackModule(),
         "prompt.assemble_protein_prompt": AssembleProteinPromptModule(),
         "esm3.generate": ESM3GenerateModule(),
-        "esmfold2.fold": ESMFold2FoldModule(),
+        "esmfold2.fold": ESMFold2FoldModule(sleep=_no_sleep),
         "export.structure": ExportStructureModule(),
         "structure.pairwise_align": PairwiseAlignModule(),
         "structure.batch_tm_score": BatchTMScoreModule(),

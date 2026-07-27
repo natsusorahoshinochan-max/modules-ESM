@@ -12,9 +12,11 @@ Every invocation creates temporary, distinct project, Cache, output, and run roo
 Configured production roots are replaced only in the child verification process and
 are not written. JUnit, a sanitized pytest command transcript, an environment
 summary, raw redacted provider events, and a validated provider summary when required
-are retained with mode `0600` under the ignored
+are written with mode `0600` under the ignored
 `verification-results/<tier>/<UTC-run-id>/` directory; set
 `PROTEIN_WORKBENCH_VERIFICATION_RESULTS_ROOT` to select a CI artifact directory.
+After a successful fresh canonical tier, every retained file is frozen to `0400`
+and every evidence directory to `0500`; other tiers retain their files at `0600`.
 Plain `.venv/bin/pytest` uses the same isolation policy and defaults to the routine
 marker expression.
 
@@ -30,6 +32,7 @@ marker expression.
 | Local provider | `.venv/bin/python scripts/verify_backend.py local-provider` | Runs non-heavy installed binaries and requires both zero skips and provider-call evidence. |
 | Heavy local model | `.venv/bin/python scripts/verify_backend.py heavy-model` | Explicitly loads slow local models and requires both zero skips and provider-call evidence. |
 | Live remote provider | `.venv/bin/python scripts/verify_backend.py live-provider` | Makes remote provider calls and requires both zero skips and provider-call evidence. Readiness alone cannot satisfy this gate. |
+| Fresh canonical 3GB1 | `.venv/bin/python scripts/verify_backend.py fresh-remote-3gb1` | Runs the protected canonical Workflow once through REST and its run-scoped WebSocket against local ESM3, Biohub ESMFold2, ProteinMPNN, mkdssp, Biopython SVD, and tmtools, then retrieves and seals exactly 15 run-bound PDBs. |
 
 The complete real gates require these exact successful adapter-boundary calls:
 
@@ -87,9 +90,49 @@ local path without a network or inherited `TORCH_HOME` fallback. Missing files,
 byte-count or digest mismatches, a symlink, an unclean or wrong ESM2 checkout,
 source-tree drift, and historical PDB outputs all fail readiness.
 
-Fresh remote 3GB1 acceptance is intentionally not a placeholder tier here. Its
-command becomes valid only when tickets 18 through 20 add the remaining
-deterministic and source-bound evidence contracts.
+The fresh canonical tier is a coherent run, not a replay of the narrow Ticket 19
+gates. It requires the same clean approved source attestation while combining the
+Biohub credential, local ESM3 snapshot, locked ProteinMPNN checkout, mkdssp, and
+alignment/scoring libraries in one isolated backend process. SimpleFold is not in
+the canonical Workflow and is therefore not called by this tier. The verifier
+owns one process group containing pytest, uvicorn, every canonical Module worker,
+and mkdssp; timeout or abnormal pytest exit terminates that complete group.
+
+The exact successful real-boundary multiplicities are:
+
+- `local_open:esm3.generate_sequence` × 10;
+- `local_open:esm3.generate_structure` × 10;
+- `biohub:esmfold2.fold` × 25;
+- `local-proteinmpnn:design_sequences` × 3;
+- `mkdssp:secondary_structure` × 1;
+- `biopython-svd:structure_align` × 20;
+- `tmtools:tm_score` × 20.
+
+That is 89 source-bound successful events. The backend run manifest also retains
+the 49 Node-scoped provider call attempts (20 ESM3, 25 ESMFold2, 3 ProteinMPNN,
+and 1 mkdssp). The verifier rejects a missing or extra call, a Cache hit, a dirty
+or changed source, a non-terminal run, incomplete lineage or scoring, a mismatched
+artifact, a skipped test, or a missing evidence file.
+
+Use an explicit token path and locked local roots:
+
+```bash
+export PROTEIN_WORKBENCH_APPROVED_SOURCE_REVISION="$(git rev-parse HEAD)"
+export PROTEIN_WORKBENCH_BIOHUB_TOKEN_FILE=/secure/path/esmkey.txt
+export PROTEIN_WORKBENCH_PROTEINMPNN_ROOT=/opt/proteinmpnn
+export HF_HOME=/path/to/reviewed/huggingface-cache
+.venv/bin/python scripts/verify_backend.py fresh-remote-3gb1
+```
+
+The dated result directory retains `sealed-manifest.json`, 15 read-only PDBs,
+`artifact-checksums.sha256`, `bundle-checksums.sha256`, sanitized JUnit,
+the command transcript, environment summary, raw redacted provider events, and
+their validated provider summary. The sealed manifest binds the exact Git
+revision and clean state, Workflow hash, ModuleDefinition versions, environment,
+effective seeds, Cache bypasses, ordered Node and WebSocket outcomes, Candidate
+lineage, scores, actual calls, and independently retrieved artifacts. Credential
+contents, sequences, input PDB text, provider stdout, and failure bodies are not
+retained.
 
 ## Deterministic public-protocol acceptance
 

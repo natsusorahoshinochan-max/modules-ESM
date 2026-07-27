@@ -156,8 +156,10 @@ def _module_process_entry(
     cancellation_connection: Any,
     connection: Any,
 ) -> None:
+    from core.process_control import enter_module_worker_process_group
+
     with suppress(OSError):
-        os.setsid()
+        enter_module_worker_process_group()
     try:
         child_context = replace(
             context,

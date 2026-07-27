@@ -7,6 +7,7 @@ import hashlib
 import importlib.metadata
 import json
 import os
+import stat
 import subprocess
 from functools import lru_cache
 from pathlib import Path
@@ -305,22 +306,88 @@ def validate_installed_provider_checkout(
     return checkout
 
 
+def _open_biohub_token(path: Path) -> int:
+    flags = os.O_RDONLY
+    if hasattr(os, "O_NONBLOCK"):
+        flags |= os.O_NONBLOCK
+    if hasattr(os, "O_NOFOLLOW"):
+        flags |= os.O_NOFOLLOW
+    descriptor = os.open(path, flags)
+    file_stat = os.fstat(descriptor)
+    if (
+        not stat.S_ISREG(file_stat.st_mode)
+        or file_stat.st_uid != os.getuid()
+        or file_stat.st_nlink != 1
+        or stat.S_IMODE(file_stat.st_mode) & 0o077
+        or not 0 < file_stat.st_size <= 16 * 1024
+    ):
+        os.close(descriptor)
+        raise PermissionError("Biohub token file is not a private regular file")
+    return descriptor
+
+
+def validate_biohub_token_file(path: str | Path) -> Path:
+    """Validate token metadata through one no-follow descriptor."""
+    candidate = Path(path).expanduser()
+    if not candidate.is_absolute():
+        raise FileNotFoundError("Biohub token file path must be absolute")
+    try:
+        descriptor = _open_biohub_token(candidate)
+    except OSError as error:
+        raise FileNotFoundError(
+            "Configured Biohub token file is unavailable"
+        ) from error
+    os.close(descriptor)
+    return candidate
+
+
 def read_biohub_token(project_dir: str | None = None) -> str:
     """Read a token from a configured file without retaining its value."""
     configured = os.environ.get("PROTEIN_WORKBENCH_BIOHUB_TOKEN_FILE")
-    candidates = [Path(configured)] if configured else []
-    candidates.append(Path("keys/esmkey.txt"))
-    if project_dir:
-        candidates.append(Path(project_dir) / ".." / ".." / "keys" / "esmkey.txt")
-    for candidate in candidates:
+    if configured:
+        candidates = [Path(configured).expanduser()]
+    else:
         if (
-            not candidate.is_symlink()
-            and candidate.is_file()
-            and candidate.stat().st_size <= 16 * 1024
+            os.environ.get("PROTEIN_WORKBENCH_VERIFICATION_TIER")
+            == "fresh-remote-3gb1"
         ):
-            token = candidate.read_text().strip()
+            raise FileNotFoundError(
+                "Fresh remote gate requires an explicit Biohub token file"
+            )
+        candidates = [Path("keys/esmkey.txt")]
+        if project_dir:
+            candidates.append(
+                Path(project_dir) / ".." / ".." / "keys" / "esmkey.txt"
+            )
+    for candidate in candidates:
+        try:
+            descriptor = _open_biohub_token(candidate)
+        except OSError:
+            continue
+        try:
+            before = os.fstat(descriptor)
+            payload = os.read(descriptor, 16 * 1024 + 1)
+            after = os.fstat(descriptor)
+            stable_fields = (
+                "st_dev",
+                "st_ino",
+                "st_size",
+                "st_mtime_ns",
+                "st_ctime_ns",
+                "st_nlink",
+            )
+            if any(
+                getattr(before, field_name) != getattr(after, field_name)
+                for field_name in stable_fields
+            ):
+                continue
+            if len(payload) > 16 * 1024:
+                continue
+            token = payload.decode().strip()
             if token:
                 return token
+        finally:
+            os.close(descriptor)
     raise FileNotFoundError(
         "Biohub API key not found. Configure "
         "PROTEIN_WORKBENCH_BIOHUB_TOKEN_FILE."

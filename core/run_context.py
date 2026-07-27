@@ -45,6 +45,10 @@ class RunContext:
         default=None,
         repr=False,
     )
+    _provider_evidence_details: dict[str, Any] = field(
+        default_factory=dict,
+        repr=False,
+    )
 
     def __post_init__(self) -> None:
         safe_run_id = validate_identifier(self.run_id, "run_id")
@@ -150,6 +154,19 @@ class RunContext:
         details: dict[str, Any] | None = None,
     ) -> None:
         """Record an actual external provider operation for this Node."""
+        self._provider_evidence_details = {
+            "run_id": self.run_id,
+            "node_id": self.node_id,
+            **{
+                key: value
+                for key, value in (details or {}).items()
+                if key in {
+                    "candidate_id",
+                    "candidate_ids",
+                    "parent_candidate_id",
+                }
+            },
+        }
         if self._manifest_store is not None:
             call_details = {"node_id": self.node_id, **(details or {})}
             self._manifest_store.record_provider_call(
@@ -184,6 +201,18 @@ class RunContext:
                 model=model,
                 details=details,
             )
+
+    @staticmethod
+    def active_provider_evidence() -> dict[str, Any]:
+        """Return bounded run lineage for the current adapter call."""
+        context = _ACTIVE_RUN_CONTEXT.get()
+        if context is None:
+            return {}
+        return {
+            "run_id": context.run_id,
+            "node_id": context.node_id,
+            **context._provider_evidence_details,
+        }
 
     def record_artifact(
         self,

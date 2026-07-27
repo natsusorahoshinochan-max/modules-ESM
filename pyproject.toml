@@ -55,6 +55,7 @@ markers = [
     "installed_package: builds and installs release artifacts in an isolated environment",
     "live_provider: tests that make remote provider calls",
     "local_provider: tests that execute installed local providers or binaries",
+    "fresh_remote_real: one source-bound canonical run against all required real providers",
     "slow: tests with long or heavy model loading",
     "scientific_repro: deterministic reproductions intentionally red until their repair ticket",
 ]

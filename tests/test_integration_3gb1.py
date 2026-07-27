@@ -21,6 +21,7 @@ from datatypes import (
     Score,
     ScoreCollection,
 )
+from modules.esmfold2_fold.module import ESMFold2FoldModule
 
 # Import pipeline module (filename starts with digit, use importlib)
 _pipeline = importlib.import_module("scripts.3gb1_pipeline")
@@ -32,6 +33,10 @@ step4_final_fold = _pipeline.step4_final_fold
 
 
 # ── Helpers ───────────────────────────────────────────────────────────
+
+def _no_sleep(_: float) -> None:
+    """Keep adapter-mocked integration tests independent of pacing."""
+
 
 AA3 = {
     "A": "ALA",
@@ -198,7 +203,12 @@ class Test3GB1Pipeline:
             "modules.esmfold2_adapter.fold_sequence",
             side_effect=mock_fold_sequence,
         ):
-            top3, rank_scores = step2_fold_and_rank(seq_cands, ref_3gb1, struct_cands)
+            top3, rank_scores = step2_fold_and_rank(
+                seq_cands,
+                ref_3gb1,
+                struct_cands,
+                fold_module=ESMFold2FoldModule(sleep=_no_sleep),
+            )
 
         assert len(top3) == 3
         weighted_entries = [
@@ -251,7 +261,11 @@ class Test3GB1Pipeline:
                 "modules.esmfold2_adapter.fold_sequence",
                 side_effect=mock_final_fold,
             ):
-                final_structs = step4_final_fold(mpnn_seqs, tmpdir)
+                final_structs = step4_final_fold(
+                    mpnn_seqs,
+                    tmpdir,
+                    fold_module=ESMFold2FoldModule(sleep=_no_sleep),
+                )
 
             assert len(final_structs) == 15
             pdb_files = sorted(Path(tmpdir).glob("final_*.pdb"))
@@ -355,7 +369,11 @@ class Test3GB1Pipeline:
                 "modules.esmfold2_adapter.fold_sequence",
                 side_effect=mock_fold,
             ):
-                result = step4_final_fold(seqs, tmpdir)
+                result = step4_final_fold(
+                    seqs,
+                    tmpdir,
+                    fold_module=ESMFold2FoldModule(sleep=_no_sleep),
+                )
 
             assert len(result) == 15
             pdb_files = sorted(Path(tmpdir).glob("final_*.pdb"))

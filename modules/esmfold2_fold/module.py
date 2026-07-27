@@ -3,6 +3,7 @@
 import uuid
 from collections.abc import Callable
 from pathlib import Path
+from time import sleep as sleep_for
 from typing import Any
 
 from core.module_definition import ModuleDefinition
@@ -17,6 +18,8 @@ from datatypes import (
 )
 # adapter functions are imported inside run() for testability
 
+BIOHUB_BATCH_CALL_INTERVAL_SECONDS = 3.25
+
 
 class ESMFold2FoldModule(WorkflowModule):
     def __init__(
@@ -25,10 +28,12 @@ class ESMFold2FoldModule(WorkflowModule):
             ProteinStructure,
             ScoreCollection,
         ]] | None = None,
+        sleep: Callable[[float], None] = sleep_for,
     ) -> None:
         d = Path(__file__).parent / "definition.yaml"
         self._definition = ModuleDefinition.from_yaml(d)
         self._fold_provider = fold_provider
+        self._sleep = sleep
 
     @property
     def definition(self) -> ModuleDefinition:
@@ -82,7 +87,11 @@ class ESMFold2FoldModule(WorkflowModule):
         candidates: list[Candidate] = []
         all_scores_entries = []
 
-        for parent_id, seq in sequences:
+        for sequence_index, (parent_id, seq) in enumerate(sequences):
+            if sequence_index:
+                # Even when two canonical batch Nodes touch at their boundary,
+                # this keeps the twenty-first request outside a rolling minute.
+                self._sleep(BIOHUB_BATCH_CALL_INTERVAL_SECONDS)
             cid = f"fold-{context.run_id}-{parent_id}"
             structure, scores = fold_provider(
                 sequence=seq,

@@ -11,12 +11,15 @@ import os
 import platform
 import re
 import secrets
+import select
 import shlex
 import signal
+import stat
 import subprocess
 import sys
 import tempfile
 import threading
+import time
 import xml.etree.ElementTree as ET
 from collections import Counter
 from dataclasses import dataclass
@@ -58,6 +61,7 @@ LIVE_ESM3_TEST = (
     "tests/acceptance/test_biohub_generation.py::"
     "TestBiohubGeneration::test_generate_3gb1_sequence"
 )
+PROCESS_SUPERVISOR_FLAG = "--verification-process-supervisor"
 
 
 @dataclass(frozen=True)
@@ -65,7 +69,45 @@ class Tier:
     pytest_args: tuple[str, ...]
     requires_provider_evidence: bool = False
     required_calls: frozenset[tuple[str, str]] = frozenset()
+    required_call_counts: tuple[tuple[str, str, int], ...] = ()
     expected_test_ids: frozenset[str] = frozenset()
+    timeout_seconds: int = TIER_TIMEOUT_SECONDS
+    termination_grace_seconds: int = 5
+    requires_biohub_credential: bool = False
+    requires_local_model_environment: bool = False
+    requires_simplefold_environment: bool = False
+    requires_fresh_bundle: bool = False
+
+    @property
+    def expected_call_counts(self) -> dict[tuple[str, str], int]:
+        """Return one source of truth for exact provider multiplicities."""
+        if self.required_call_counts:
+            return {
+                (provider, operation): count
+                for provider, operation, count in self.required_call_counts
+            }
+        return {key: 1 for key in self.required_calls}
+
+
+FRESH_CALL_NODE_COUNTS = (
+    ("local_open", "esm3.generate_sequence", "esm3_gen", 10),
+    ("local_open", "esm3.generate_structure", "esm3_gen", 10),
+    ("biohub", "esmfold2.fold", "fold_seq", 10),
+    ("biohub", "esmfold2.fold", "final_fold", 15),
+    ("local-proteinmpnn", "design_sequences", "mpnn_0", 3),
+    ("mkdssp", "secondary_structure", "compute_ss", 1),
+    ("biopython-svd", "structure_align", "align_3gb1", 10),
+    ("biopython-svd", "structure_align", "align_pw", 10),
+    ("tmtools", "tm_score", "tm_3gb1", 10),
+    ("tmtools", "tm_score", "tm_esm3", 10),
+)
+FRESH_REQUIRED_CALL_COUNTS = Counter()
+for _provider, _operation, _node_id, _count in FRESH_CALL_NODE_COUNTS:
+    FRESH_REQUIRED_CALL_COUNTS[(_provider, _operation)] += _count
+FRESH_CALL_NODE_COUNT_MAP = Counter({
+    (provider, operation, node_id): count
+    for provider, operation, node_id, count in FRESH_CALL_NODE_COUNTS
+})
 
 
 TIERS = {
@@ -127,7 +169,10 @@ TIERS = {
         "tests/acceptance/test_proteinmpnn_design.py::TestProteinMPNNDesign::test_score_3gb1",
         "tests/acceptance/test_simplefold.py::TestSimpleFold::test_fold_3gb1",
         "tests/acceptance/test_simplefold.py::TestSimpleFold::test_evaluate_3gb1",
-    })),
+    }),
+        requires_local_model_environment=True,
+        requires_simplefold_environment=True,
+    ),
     "live-provider": Tier((
         LIVE_ESM3_TEST,
         "tests/acceptance/test_biohub_folding.py::TestBiohubFolding::test_fold_3gb1[False-False]",
@@ -139,11 +184,31 @@ TIERS = {
     }), expected_test_ids=frozenset({
         LIVE_ESM3_TEST,
         "tests/acceptance/test_biohub_folding.py::TestBiohubFolding::test_fold_3gb1[False-False]",
-    })),
+    }), requires_biohub_credential=True),
+    "fresh-remote-3gb1": Tier((
+        "tests/fresh_remote_acceptance/test_fresh_remote_3gb1.py::"
+        "test_fresh_remote_real_canonical_3gb1",
+        "-m",
+        "fresh_remote_real",
+    ), requires_provider_evidence=True, required_call_counts=tuple(
+        (provider, operation, count)
+        for (provider, operation), count
+        in sorted(FRESH_REQUIRED_CALL_COUNTS.items())
+    ), expected_test_ids=frozenset({
+        "tests/fresh_remote_acceptance/test_fresh_remote_3gb1.py::"
+        "test_fresh_remote_real_canonical_3gb1",
+    }),
+        timeout_seconds=3 * 60 * 60,
+        termination_grace_seconds=30,
+        requires_biohub_credential=True,
+        requires_local_model_environment=True,
+        requires_fresh_bundle=True,
+    ),
 }
 
 EXPECTED_MODELS = {
     ("local_open", "esm3.generate_sequence"): "esm3_sm_open_v1",
+    ("local_open", "esm3.generate_structure"): "esm3_sm_open_v1",
     ("local-proteinmpnn", "design_sequences"): "v_48_020",
     ("local-proteinmpnn", "score_sequence"): "v_48_020",
     ("simplefold", "fold_sequence"): "simplefold_100M",
@@ -255,6 +320,184 @@ def _parse_args() -> argparse.Namespace:
                 "pytest targets must resolve to existing paths beneath tests/"
             )
     return args
+
+
+def _process_group_members(process_group: int) -> set[int]:
+    """Return current members while the supervisor keeps the PGID alive."""
+    completed = subprocess.run(
+        ["ps", "-axo", "pid=,pgid="],
+        check=True,
+        capture_output=True,
+        text=True,
+        timeout=5,
+        start_new_session=True,
+    )
+    members: set[int] = set()
+    for line in completed.stdout.splitlines():
+        fields = line.split()
+        if len(fields) != 2:
+            continue
+        try:
+            pid, pgid = (int(field) for field in fields)
+        except ValueError:
+            continue
+        if pgid == process_group:
+            members.add(pid)
+    return members
+
+
+def _write_descriptor(descriptor: int, payload: bytes) -> None:
+    written = 0
+    while written < len(payload):
+        count = os.write(descriptor, payload[written:])
+        if count <= 0:
+            raise OSError("descriptor write made no progress")
+        written += count
+
+
+def _finish_supervisor_control(
+    descriptor: int,
+    *,
+    normal_child_done: bool,
+    timed_out: bool,
+) -> bool:
+    """Release normal runs, but retain timeout control until PGID reap."""
+    if timed_out:
+        return True
+    try:
+        if normal_child_done:
+            _write_descriptor(descriptor, b"R")
+    finally:
+        os.close(descriptor)
+    return False
+
+
+def supervise_verification_process_group(
+    command: list[str],
+    *,
+    control_descriptor: int,
+    status_descriptor: int,
+) -> int:
+    """Hold the verification PGID until the parent explicitly releases it."""
+    if (
+        not command
+        or control_descriptor < 3
+        or status_descriptor < 3
+        or os.getpid() != os.getpgrp()
+    ):
+        return 2
+    termination_requested = threading.Event()
+    release_requested = threading.Event()
+    lifecycle_lock = threading.Lock()
+
+    def retain_group_leader(
+        signum: int,
+        frame: object,
+    ) -> None:
+        del signum, frame
+        termination_requested.set()
+
+    signal.signal(signal.SIGTERM, retain_group_leader)
+
+    def escalate_parent_loss() -> None:
+        with lifecycle_lock:
+            termination_requested.set()
+            try:
+                os.killpg(os.getpgrp(), signal.SIGTERM)
+            except ProcessLookupError:
+                return
+
+            def force_group_exit() -> None:
+                try:
+                    os.killpg(os.getpgrp(), signal.SIGKILL)
+                except ProcessLookupError:
+                    pass
+
+            escalation = threading.Timer(5, force_group_exit)
+            escalation.daemon = True
+            escalation.start()
+
+    def watch_parent() -> None:
+        try:
+            control = os.read(control_descriptor, 1)
+        except OSError:
+            control = b""
+        finally:
+            os.close(control_descriptor)
+        if control == b"R":
+            release_requested.set()
+            return
+        escalate_parent_loss()
+
+    parent_watch = threading.Thread(target=watch_parent, daemon=True)
+    parent_watch.start()
+    _write_descriptor(status_descriptor, b"READY\n")
+    with lifecycle_lock:
+        if termination_requested.is_set():
+            while True:
+                signal.pause()
+        child = subprocess.Popen(command)
+    return_code = child.wait()
+
+    supervisor_pid = os.getpid()
+    process_group = os.getpgrp()
+    deadline = time.monotonic() + 5
+    signalled: set[int] = set()
+    while True:
+        try:
+            members = _process_group_members(process_group) - {
+                supervisor_pid
+            }
+        except (OSError, subprocess.SubprocessError):
+            escalate_parent_loss()
+            while True:
+                signal.pause()
+        if termination_requested.is_set():
+            while True:
+                signal.pause()
+        if not members:
+            break
+        selected_signal = (
+            signal.SIGTERM
+            if time.monotonic() < deadline
+            else signal.SIGKILL
+        )
+        for pid in sorted(members):
+            if selected_signal == signal.SIGTERM and pid in signalled:
+                continue
+            try:
+                os.kill(pid, selected_signal)
+            except ProcessLookupError:
+                continue
+            signalled.add(pid)
+        time.sleep(0.05)
+
+    for stream in (sys.stdout, sys.stderr):
+        try:
+            stream.flush()
+        except (OSError, ValueError):
+            pass
+    devnull_descriptor = os.open(os.devnull, os.O_WRONLY)
+    try:
+        os.dup2(devnull_descriptor, 1)
+        os.dup2(devnull_descriptor, 2)
+    finally:
+        if devnull_descriptor > 2:
+            os.close(devnull_descriptor)
+    _write_descriptor(
+        status_descriptor,
+        f"DONE:{return_code}\n".encode(),
+    )
+    os.close(status_descriptor)
+
+    while not release_requested.wait(timeout=0.1):
+        if termination_requested.is_set():
+            while True:
+                signal.pause()
+    if termination_requested.is_set():
+        while True:
+            signal.pause()
+    return return_code
 
 
 def _junit_counts(path: Path) -> tuple[int, int, int]:
@@ -372,7 +615,7 @@ def _environment_summary(tier_name: str) -> dict[str, object]:
     }
 
 
-def _load_and_validate_provider_evidence(
+def validate_provider_evidence(
     path: Path,
     *,
     tier_name: str,
@@ -459,7 +702,7 @@ def _load_and_validate_provider_evidence(
         ):
             return [], "invalid provider-call evidence contract"
         key = (str(call["provider"]), str(call["operation"]))
-        if key not in tier.required_calls:
+        if key not in tier.expected_call_counts:
             return [], "unexpected provider call evidence"
         if call.get("model") != EXPECTED_MODELS[key]:
             return [], "provider call model identity mismatch"
@@ -500,9 +743,17 @@ def _load_and_validate_provider_evidence(
         (str(call["provider"]), str(call["operation"]))
         for call in calls
     )
-    if any(count != 1 for count in observed_counts.values()):
-        return events, "provider call count did not match the exact gate contract"
-    missing = tier.required_calls - observed_calls
+    required_counts = tier.expected_call_counts
+    for key, observed in sorted(observed_counts.items()):
+        expected = required_counts[key]
+        if observed != expected:
+            provider, operation = key
+            return events, (
+                "provider call count mismatch: "
+                f"{provider}:{operation} expected {expected}, "
+                f"observed {observed}"
+            )
+    missing = set(required_counts) - observed_calls
     if missing and not focused:
         formatted = ", ".join(
             f"{provider}:{operation}"
@@ -512,7 +763,11 @@ def _load_and_validate_provider_evidence(
     return events, None
 
 
-def _child_environment(tier_name: str, base: Path) -> dict[str, str]:
+def _child_environment(
+    tier_name: str,
+    tier: Tier,
+    base: Path,
+) -> dict[str, str]:
     """Construct a minimum tier-specific environment without ambient credentials."""
     retained = {
         "PATH",
@@ -532,22 +787,27 @@ def _child_environment(tier_name: str, base: Path) -> dict[str, str]:
     })
     Path(env["HOME"]).mkdir()
     Path(env["TMPDIR"]).mkdir()
-    if tier_name == "live-provider":
+    if tier.requires_biohub_credential:
         token_file = os.environ.get("PROTEIN_WORKBENCH_BIOHUB_TOKEN_FILE")
         if token_file:
             env["PROTEIN_WORKBENCH_BIOHUB_TOKEN_FILE"] = token_file
-    if tier_name == "heavy-model":
+    if tier.requires_local_model_environment:
         for key in (
             "PROTEIN_WORKBENCH_PROTEINMPNN_ROOT",
-            "PROTEIN_WORKBENCH_SIMPLEFOLD_ESM2_MODEL_ROOT",
-            "PROTEIN_WORKBENCH_SIMPLEFOLD_ESM2_ROOT",
-            "PROTEIN_WORKBENCH_SIMPLEFOLD_MODEL_ROOT",
             "HF_HOME",
             "HF_HUB_CACHE",
             "TORCH_HOME",
         ):
             if key in os.environ:
                 env[key] = os.environ[key]
+        if tier.requires_simplefold_environment:
+            for key in (
+                "PROTEIN_WORKBENCH_SIMPLEFOLD_ESM2_MODEL_ROOT",
+                "PROTEIN_WORKBENCH_SIMPLEFOLD_ESM2_ROOT",
+                "PROTEIN_WORKBENCH_SIMPLEFOLD_MODEL_ROOT",
+            ):
+                if key in os.environ:
+                    env[key] = os.environ[key]
         if "HF_HOME" not in env and "HF_HUB_CACHE" not in env:
             env["HF_HOME"] = str(Path.home() / ".cache" / "huggingface")
         env["HF_HUB_OFFLINE"] = "1"
@@ -611,9 +871,531 @@ def _provider_summary_completion(
     return True, None
 
 
+def _read_stable_private_file(
+    path: Path,
+    *,
+    maximum_bytes: int,
+) -> bytes:
+    """Read one owner-only, unlinked, stable regular evidence file."""
+    flags = os.O_RDONLY
+    if hasattr(os, "O_NONBLOCK"):
+        flags |= os.O_NONBLOCK
+    if hasattr(os, "O_NOFOLLOW"):
+        flags |= os.O_NOFOLLOW
+    descriptor = os.open(path, flags)
+    try:
+        before = os.fstat(descriptor)
+        if (
+            not stat.S_ISREG(before.st_mode)
+            or before.st_uid != os.getuid()
+            or before.st_nlink != 1
+            or stat.S_IMODE(before.st_mode) & 0o077
+            or before.st_size > maximum_bytes
+        ):
+            raise ValueError("evidence file metadata is unsafe")
+        chunks: list[bytes] = []
+        retained = 0
+        while chunk := os.read(descriptor, min(1024 * 1024, maximum_bytes + 1)):
+            retained += len(chunk)
+            if retained > maximum_bytes:
+                raise ValueError("evidence file exceeds its size bound")
+            chunks.append(chunk)
+        after = os.fstat(descriptor)
+        for field_name in (
+            "st_dev",
+            "st_ino",
+            "st_size",
+            "st_mtime_ns",
+            "st_ctime_ns",
+            "st_nlink",
+        ):
+            if getattr(before, field_name) != getattr(after, field_name):
+                raise ValueError("evidence file changed while reading")
+        return b"".join(chunks)
+    finally:
+        os.close(descriptor)
+
+
+def validate_fresh_bundle(
+    result_dir: Path,
+    *,
+    expected_revision: str,
+    provider_events: list[dict[str, object]],
+) -> tuple[str | None, str | None]:
+    """Fail closed unless the fresh-run test sealed all public evidence."""
+    manifest_path = result_dir / "sealed-manifest.json"
+    try:
+        sealed = json.loads(
+            _read_stable_private_file(
+                manifest_path,
+                maximum_bytes=16 * 1024 * 1024,
+            )
+        )
+    except (OSError, ValueError, json.JSONDecodeError):
+        if not manifest_path.exists():
+            return None, "sealed manifest was not a bounded regular file"
+        return None, "sealed manifest was not readable JSON"
+    if (
+        not isinstance(sealed, dict)
+        or sealed.get("schema_version") != 1
+        or sealed.get("fresh_run") is not True
+        or sealed.get("historical_cache_allowed") is not False
+        or sealed.get("secrets_retained") is not False
+        or sealed.get("project_id") != "canonical-3gb1"
+        or sealed.get("source") != {
+            "revision": expected_revision,
+            "dirty": False,
+        }
+        or sealed.get("providers", {}).get("validated_real_events")
+        != provider_events
+    ):
+        return None, "sealed manifest did not match the fresh gate"
+    run_id = sealed.get("run_id")
+    if not isinstance(run_id, str) or not run_id:
+        return None, "sealed manifest run identity was missing"
+    backend_manifest = sealed.get("backend_manifest")
+    if not isinstance(backend_manifest, dict):
+        return None, "sealed backend manifest was missing"
+    backend_manifest_sha256 = hashlib.sha256(
+        json.dumps(
+            backend_manifest,
+            sort_keys=True,
+            separators=(",", ":"),
+            ensure_ascii=False,
+        ).encode()
+    ).hexdigest()
+    if (
+        backend_manifest_sha256 != sealed.get("backend_manifest_sha256")
+        or backend_manifest.get("run_id") != run_id
+        or backend_manifest.get("source") != sealed.get("source")
+    ):
+        return None, "sealed backend manifest digest did not match"
+    artifacts = sealed.get("artifacts")
+    artifact_root = result_dir / "artifacts"
+    checksum_path = result_dir / "artifact-checksums.sha256"
+    try:
+        if (
+            artifact_root.is_symlink()
+            or not artifact_root.is_dir()
+            or not isinstance(artifacts, list)
+            or len(artifacts) != 15
+        ):
+            return None, "sealed artifact inventory was incomplete"
+        retained_files = sorted(
+            path
+            for path in artifact_root.iterdir()
+            if path.is_file() and not path.is_symlink()
+        )
+    except OSError:
+        return None, "sealed artifact inventory was not readable"
+    if len(retained_files) != 15 or len(list(artifact_root.iterdir())) != 15:
+        return None, "sealed artifact inventory did not contain exactly 15 files"
+
+    checksum_lines: list[str] = []
+    seen_paths: set[str] = set()
+    for artifact in artifacts:
+        if not isinstance(artifact, dict):
+            return None, "sealed artifact record was invalid"
+        relative = artifact.get("retained_path")
+        expected_size = artifact.get("size")
+        expected_sha256 = artifact.get("sha256")
+        if (
+            not isinstance(relative, str)
+            or not relative.startswith("artifacts/")
+            or Path(relative).parts != ("artifacts", Path(relative).name)
+            or relative in seen_paths
+            or not isinstance(expected_size, int)
+            or expected_size <= 0
+            or not isinstance(expected_sha256, str)
+            or not re.fullmatch(r"[0-9a-f]{64}", expected_sha256)
+        ):
+            return None, "sealed artifact record was invalid"
+        seen_paths.add(relative)
+        path = result_dir / relative
+        try:
+            payload = _read_stable_private_file(
+                path,
+                maximum_bytes=16 * 1024 * 1024,
+            )
+            if len(payload) != expected_size:
+                return None, "sealed artifact did not match its record"
+        except (OSError, ValueError):
+            return None, "sealed artifact was not readable"
+        if hashlib.sha256(payload).hexdigest() != expected_sha256:
+            return None, "sealed artifact SHA-256 did not match its record"
+        checksum_lines.append(f"{expected_sha256}  {relative}\n")
+    try:
+        checksum_payload = _read_stable_private_file(
+            checksum_path,
+            maximum_bytes=64 * 1024,
+        )
+        if checksum_payload.decode() != "".join(checksum_lines):
+            return None, "artifact checksum seal did not match retained PDBs"
+    except (OSError, UnicodeDecodeError, ValueError):
+        return None, "artifact checksum seal was not readable"
+
+    required_root_files = {
+        "artifact-checksums.sha256",
+        "command-transcript.txt",
+        "environment-summary.json",
+        "provider-calls.jsonl",
+        "provider-summary.json",
+        "pytest.xml",
+        "sealed-manifest.json",
+    }
+    bundle_checksum_path = result_dir / "bundle-checksums.sha256"
+    try:
+        root_entries = {path.name for path in result_dir.iterdir()}
+        if root_entries not in {
+            frozenset({*required_root_files, "artifacts"}),
+            frozenset({
+                *required_root_files,
+                "artifacts",
+                bundle_checksum_path.name,
+            }),
+        }:
+            return None, "fresh evidence bundle contained an unexpected path"
+        artifact_root_stat = artifact_root.stat(follow_symlinks=False)
+        if (
+            not stat.S_ISDIR(artifact_root_stat.st_mode)
+            or artifact_root_stat.st_uid != os.getuid()
+            or stat.S_IMODE(artifact_root_stat.st_mode) & 0o077
+        ):
+            return None, "fresh evidence artifact directory was unsafe"
+        for file_name in required_root_files:
+            _read_stable_private_file(
+                result_dir / file_name,
+                maximum_bytes=16 * 1024 * 1024,
+            )
+    except OSError:
+        return None, "fresh evidence bundle inventory was not readable"
+    except ValueError:
+        return None, "fresh evidence bundle file metadata was unsafe"
+
+    expected_descendants = {
+        *required_root_files,
+        "artifacts",
+        *seen_paths,
+    }
+    if bundle_checksum_path.name in root_entries:
+        expected_descendants.add(bundle_checksum_path.name)
+    try:
+        observed_descendants = {
+            path.relative_to(result_dir).as_posix()
+            for path in result_dir.rglob("*")
+        }
+    except OSError:
+        return None, "fresh evidence bundle inventory was not readable"
+    if observed_descendants != expected_descendants:
+        return None, "fresh evidence bundle contained an unexpected path"
+
+    call_events = [
+        event
+        for event in provider_events
+        if event.get("event_type") == "provider_call"
+    ]
+    fresh_node_ids = {
+        item.get("node_id")
+        for item in backend_manifest.get("modules", [])
+        if isinstance(item, dict)
+    }
+    observed_call_nodes = Counter(
+        (
+            str(event.get("provider")),
+            str(event.get("operation")),
+            str(event.get("node_id")),
+        )
+        for event in call_events
+    )
+    if (
+        observed_call_nodes != FRESH_CALL_NODE_COUNT_MAP
+        or any(
+        event.get("run_id") != run_id
+        or event.get("node_id") not in fresh_node_ids
+        for event in call_events
+        )
+    ):
+        return None, "provider evidence was not bound to the fresh run"
+
+    lineage = backend_manifest.get("candidate_lineage")
+    scores = backend_manifest.get("scores")
+    if not isinstance(lineage, list) or not isinstance(scores, list):
+        return None, "sealed backend result facts were incomplete"
+
+    def lineage_entries(
+        node_id: str,
+        output_port: str,
+    ) -> list[dict[str, object]]:
+        return [
+            entry
+            for entry in lineage
+            if (
+                isinstance(entry, dict)
+                and entry.get("node_id") == node_id
+                and entry.get("output_port") == output_port
+            )
+        ]
+
+    sequence_entries = lineage_entries(
+        "esm3_gen",
+        "sequence_candidates",
+    )
+    structure_entries = lineage_entries(
+        "esm3_gen",
+        "structure_candidates",
+    )
+    initial_entries = lineage_entries("fold_seq", "candidates")
+    selected_entries = lineage_entries("top3", "candidates")
+    mpnn_entries = lineage_entries("mpnn_0", "candidates")
+    final_entries = lineage_entries("final_fold", "candidates")
+
+    def call_subset(
+        provider: str,
+        operation: str,
+        node_id: str,
+    ) -> list[dict[str, object]]:
+        return [
+            event
+            for event in call_events
+            if (
+                event.get("provider") == provider
+                and event.get("operation") == operation
+                and event.get("node_id") == node_id
+            )
+        ]
+
+    sequence_calls = call_subset(
+        "local_open",
+        "esm3.generate_sequence",
+        "esm3_gen",
+    )
+    structure_calls = call_subset(
+        "local_open",
+        "esm3.generate_structure",
+        "esm3_gen",
+    )
+    initial_calls = call_subset(
+        "biohub",
+        "esmfold2.fold",
+        "fold_seq",
+    )
+    mpnn_calls = call_subset(
+        "local-proteinmpnn",
+        "design_sequences",
+        "mpnn_0",
+    )
+
+    def candidate_parent_map(
+        entries: list[dict[str, object]],
+    ) -> dict[object, object]:
+        return {
+            entry.get("candidate_id"): (
+                entry.get("parent_ids", [None])[0]
+                if isinstance(entry.get("parent_ids"), list)
+                and len(entry["parent_ids"]) == 1
+                else None
+            )
+            for entry in entries
+        }
+
+    if (
+        {event.get("candidate_id") for event in sequence_calls}
+        != {entry.get("candidate_id") for entry in sequence_entries}
+        or {
+            event.get("candidate_id"): event.get("parent_candidate_id")
+            for event in structure_calls
+        }
+        != candidate_parent_map(structure_entries)
+        or {
+            event.get("candidate_id"): event.get("parent_candidate_id")
+            for event in initial_calls
+        }
+        != candidate_parent_map(initial_entries)
+    ):
+        return None, "provider Candidate lineage did not match the fresh run"
+
+    mpnn_event_parent_by_candidate: dict[object, object] = {}
+    for event in mpnn_calls:
+        candidate_ids = event.get("candidate_ids")
+        if not isinstance(candidate_ids, list) or len(candidate_ids) != 5:
+            return None, "ProteinMPNN provider lineage was incomplete"
+        for candidate_id in candidate_ids:
+            if candidate_id in mpnn_event_parent_by_candidate:
+                return None, "ProteinMPNN provider lineage was incomplete"
+            mpnn_event_parent_by_candidate[candidate_id] = event.get(
+                "parent_candidate_id"
+            )
+    if (
+        mpnn_event_parent_by_candidate != candidate_parent_map(mpnn_entries)
+        or Counter(mpnn_event_parent_by_candidate.values())
+        != Counter({
+            entry.get("candidate_id"): 5
+            for entry in selected_entries
+        })
+    ):
+        return None, "ProteinMPNN provider lineage was incomplete"
+
+    final_folds = [
+        event
+        for event in call_events
+        if (
+            event.get("provider") == "biohub"
+            and event.get("operation") == "esmfold2.fold"
+            and event.get("node_id") == "final_fold"
+        )
+    ]
+    artifact_by_candidate = {
+        artifact["candidate_id"]: artifact for artifact in artifacts
+    }
+    final_parent_by_candidate = candidate_parent_map(final_entries)
+    if (
+        len(final_folds) != 15
+        or {event.get("candidate_id") for event in final_folds}
+        != set(artifact_by_candidate)
+        or {
+            event.get("candidate_id"): event.get("parent_candidate_id")
+            for event in final_folds
+        }
+        != final_parent_by_candidate
+        or any(
+            event.get("result", {}).get("summary", {}).get("pdb_sha256")
+            != artifact_by_candidate[event["candidate_id"]]["sha256"]
+            for event in final_folds
+        )
+    ):
+        return None, "final provider calls did not match retained PDB lineage"
+
+    for node_id, score_id in (
+        ("tm_3gb1", "tm_vs_3gb1"),
+        ("tm_esm3", "tm_vs_esm3"),
+    ):
+        tm_events = call_subset("tmtools", "tm_score", node_id)
+        tm_scores = [
+            score
+            for score in scores
+            if (
+                isinstance(score, dict)
+                and score.get("node_id") == node_id
+                and score.get("score_id") == score_id
+            )
+        ]
+        if len(tm_events) != len(tm_scores):
+            return None, "TM provider results did not match manifest scores"
+        try:
+            tm_values_match = all(
+                round(
+                    float(
+                        event.get("result", {})
+                        .get("summary", {})
+                        .get("value")
+                    ),
+                    4,
+                )
+                == float(score.get("value"))
+                for event, score in zip(tm_events, tm_scores, strict=True)
+            )
+        except (AttributeError, TypeError, ValueError):
+            tm_values_match = False
+        if not tm_values_match:
+            return None, "TM provider results did not match manifest scores"
+
+    if bundle_checksum_path.name in root_entries:
+        expected_bundle_lines: list[str] = []
+        try:
+            for path in sorted(
+                candidate
+                for candidate in result_dir.rglob("*")
+                if candidate.is_file()
+                and candidate != bundle_checksum_path
+            ):
+                payload = _read_stable_private_file(
+                    path,
+                    maximum_bytes=16 * 1024 * 1024,
+                )
+                relative = path.relative_to(result_dir).as_posix()
+                expected_bundle_lines.append(
+                    f"{hashlib.sha256(payload).hexdigest()}  {relative}\n"
+                )
+            observed_bundle = _read_stable_private_file(
+                bundle_checksum_path,
+                maximum_bytes=64 * 1024,
+            ).decode()
+        except (OSError, UnicodeDecodeError, ValueError):
+            return None, "bundle checksum seal was not readable"
+        if observed_bundle != "".join(expected_bundle_lines):
+            return None, "bundle checksum seal did not match retained evidence"
+    return run_id, None
+
+
+def seal_bundle_checksums(result_dir: Path) -> Path:
+    """Hash every retained evidence file after all writers are finished."""
+    checksum_path = result_dir / "bundle-checksums.sha256"
+    lines: list[str] = []
+    files = sorted(
+        path for path in result_dir.rglob("*") if path.is_file()
+    )
+    for path in files:
+        if path == checksum_path or not path.is_file():
+            continue
+        payload = _read_stable_private_file(
+            path,
+            maximum_bytes=16 * 1024 * 1024,
+        )
+        relative = path.relative_to(result_dir).as_posix()
+        lines.append(f"{hashlib.sha256(payload).hexdigest()}  {relative}\n")
+    temporary_path = result_dir / ".bundle-checksums.tmp"
+    flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL
+    if hasattr(os, "O_NOFOLLOW"):
+        flags |= os.O_NOFOLLOW
+    descriptor = os.open(temporary_path, flags, 0o600)
+    try:
+        payload = "".join(lines).encode()
+        written = 0
+        while written < len(payload):
+            count = os.write(descriptor, payload[written:])
+            if count <= 0:
+                raise OSError("bundle checksum write made no progress")
+            written += count
+        os.fsync(descriptor)
+    finally:
+        os.close(descriptor)
+    os.rename(temporary_path, checksum_path)
+    directory_descriptor = os.open(result_dir, os.O_RDONLY)
+    try:
+        os.fsync(directory_descriptor)
+    finally:
+        os.close(directory_descriptor)
+    if _read_stable_private_file(
+        checksum_path,
+        maximum_bytes=64 * 1024,
+    ) != payload:
+        raise ValueError("bundle checksum seal failed verification")
+    checksum_path.chmod(0o400)
+    for path in files:
+        path.chmod(0o400)
+    for path in sorted(
+        (candidate for candidate in result_dir.rglob("*") if candidate.is_dir()),
+        reverse=True,
+    ):
+        path.chmod(0o500)
+    result_dir.chmod(0o500)
+    return checksum_path
+
+
 def main() -> int:
     args = _parse_args()
     tier = TIERS[args.tier]
+    process_timeout_seconds = tier.timeout_seconds
+    termination_grace_seconds = tier.termination_grace_seconds
+    timeout_probe = (
+        args.tier == "routine"
+        and args.pytest_targets
+        == ["tests/tier_probes/process_timeout_probe.py"]
+        and os.environ.get("PROTEIN_WORKBENCH_PROCESS_TIMEOUT_PROBE") == "1"
+    )
+    if timeout_probe:
+        process_timeout_seconds = 1
+        termination_grace_seconds = 7
     if sys.prefix == sys.base_prefix:
         print(
             "BACKEND VERIFICATION RESULT: failed "
@@ -678,7 +1460,7 @@ def main() -> int:
         prefix=f"protein-workbench-{args.tier}-"
     ) as temporary_root:
         base = Path(temporary_root)
-        env = _child_environment(args.tier, base)
+        env = _child_environment(args.tier, tier, base)
         for variable in ROOT_VARIABLES:
             name = variable.removeprefix("PROTEIN_WORKBENCH_").removesuffix("_ROOT")
             root = base / name.lower()
@@ -688,6 +1470,16 @@ def main() -> int:
         env["PROTEIN_WORKBENCH_VERIFICATION_TIER"] = args.tier
         env["PROTEIN_WORKBENCH_REAL_GATE_NONCE"] = gate_nonce
         env["PROTEIN_WORKBENCH_REAL_GATE_FRESH"] = "1"
+        if timeout_probe:
+            env["PROTEIN_WORKBENCH_PROCESS_TIMEOUT_PROBE"] = "1"
+        if tier.requires_fresh_bundle:
+            env["PROTEIN_WORKBENCH_PROCESS_CONTAINMENT"] = (
+                "shared_process_group"
+            )
+        if initial_source_attestation is not None:
+            env["PROTEIN_WORKBENCH_APPROVED_SOURCE_REVISION"] = (
+                initial_source_attestation[0]
+            )
         if args.tier == "deterministic-acceptance":
             for variable in (
                 "PROTEIN_WORKBENCH_CANONICAL_WORKFLOW",
@@ -700,6 +1492,10 @@ def main() -> int:
 
         call_evidence = result_dir / "provider-calls.jsonl"
         env["PROTEIN_WORKBENCH_PROVIDER_CALL_EVIDENCE"] = str(call_evidence)
+        if tier.requires_fresh_bundle:
+            env["PROTEIN_WORKBENCH_ACCEPTANCE_EVIDENCE_ROOT"] = str(
+                result_dir
+            )
         if tier.requires_provider_evidence:
             env["PROTEIN_WORKBENCH_REQUIRE_PROVIDER_CALL"] = "1"
 
@@ -723,42 +1519,148 @@ def main() -> int:
             f"--junitxml={junit_path}",
             *pytest_args,
         ]
+        control_read, control_write = os.pipe()
+        status_read, status_write = os.pipe()
+        supervised_command = [
+            sys.executable,
+            str(Path(__file__).resolve()),
+            PROCESS_SUPERVISOR_FLAG,
+            str(control_read),
+            str(status_write),
+            *command,
+        ]
         resource_cleanup_warning = False
-        with subprocess.Popen(
-            command,
+        process = subprocess.Popen(
+            supervised_command,
             cwd=PROJECT_ROOT,
             env=env,
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
             start_new_session=True,
-        ) as process:
-            timed_out = threading.Event()
+            pass_fds=(control_read, status_write),
+        )
+        os.close(control_read)
+        os.close(status_write)
+        timed_out = threading.Event()
+        released = threading.Event()
+        timeout_handler_done = threading.Event()
+        decision_lock = threading.Lock()
+        escalation_timer: threading.Timer | None = None
 
-            def terminate_timed_out_process() -> None:
-                timed_out.set()
+        def terminate_timed_out_process() -> None:
+            nonlocal escalation_timer
+            try:
+                with decision_lock:
+                    if released.is_set():
+                        return
+                    timed_out.set()
+                    try:
+                        os.killpg(process.pid, signal.SIGTERM)
+                    except ProcessLookupError:
+                        pass
+
+                    def kill_process_group() -> None:
+                        try:
+                            os.killpg(process.pid, signal.SIGKILL)
+                        except ProcessLookupError:
+                            pass
+
+                    escalation_timer = threading.Timer(
+                        termination_grace_seconds,
+                        kill_process_group,
+                    )
+                    escalation_timer.daemon = True
+                    escalation_timer.start()
+            finally:
+                timeout_handler_done.set()
+
+        timer = threading.Timer(
+            process_timeout_seconds,
+            terminate_timed_out_process,
+        )
+        status_file = os.fdopen(status_read, "rb")
+        normal_child_done = False
+        return_code = 1
+        try:
+            readable, _, _ = select.select(
+                [status_file],
+                [],
+                [],
+                10,
+            )
+            if not readable or status_file.readline() != b"READY\n":
+                raise RuntimeError(
+                    "verification process supervisor did not become ready"
+                )
+            timer.start()
+            resource_cleanup_warning = _stream_process_output(process)
+            done_line = status_file.readline()
+            if (
+                not done_line.startswith(b"DONE:")
+                or not done_line.endswith(b"\n")
+            ):
+                if timed_out.is_set():
+                    return_code = process.poll() or 1
+                else:
+                    raise RuntimeError(
+                        "verification process supervisor lost child status"
+                    )
+            else:
+                return_code = int(done_line[5:-1])
+                normal_child_done = True
+                if timeout_probe:
+                    if (
+                        not timed_out.wait(
+                            timeout=process_timeout_seconds + 2
+                        )
+                        or not timeout_handler_done.wait(timeout=2)
+                    ):
+                        raise RuntimeError(
+                            "controlled timeout probe did not acquire timeout"
+                        )
+                    print(
+                        "PROCESS TIMEOUT PROBE: timeout acquired",
+                        flush=True,
+                    )
+        finally:
+            timer.cancel()
+            control_is_open = True
+            try:
+                with decision_lock:
+                    if normal_child_done and not timed_out.is_set():
+                        released.set()
+                    control_is_open = _finish_supervisor_control(
+                        control_write,
+                        normal_child_done=normal_child_done,
+                        timed_out=timed_out.is_set(),
+                    )
+                status_file.close()
+                if timed_out.is_set():
+                    timeout_handler_done.wait(timeout=15)
+                if escalation_timer is not None:
+                    if timed_out.is_set():
+                        escalation_timer.join(
+                            timeout=termination_grace_seconds + 1
+                        )
+                    else:
+                        escalation_timer.cancel()
+                        escalation_timer.join(timeout=1)
                 try:
-                    os.killpg(process.pid, signal.SIGTERM)
-                except ProcessLookupError:
-                    return
-
-                def kill_process_group() -> None:
+                    process.wait(
+                        timeout=max(
+                            6,
+                            termination_grace_seconds + 1,
+                        )
+                    )
+                except subprocess.TimeoutExpired:
                     try:
                         os.killpg(process.pid, signal.SIGKILL)
                     except ProcessLookupError:
                         pass
-
-                threading.Timer(5, kill_process_group).start()
-
-            timer = threading.Timer(
-                TIER_TIMEOUT_SECONDS,
-                terminate_timed_out_process,
-            )
-            timer.start()
-            try:
-                resource_cleanup_warning = _stream_process_output(process)
-                return_code = process.wait()
+                    process.wait()
             finally:
-                timer.cancel()
+                if control_is_open:
+                    os.close(control_write)
         completed = subprocess.CompletedProcess(
             command,
             return_code,
@@ -781,15 +1683,15 @@ def main() -> int:
         )
         transcript_path.chmod(0o600)
 
-        if not junit_path.exists():
-            print("BACKEND VERIFICATION RESULT: failed (no JUnit result)", flush=True)
-            return completed.returncode or 1
         if timed_out.is_set():
             print(
                 "BACKEND VERIFICATION RESULT: failed (tier timeout)",
                 flush=True,
             )
             return 1
+        if not junit_path.exists():
+            print("BACKEND VERIFICATION RESULT: failed (no JUnit result)", flush=True)
+            return completed.returncode or 1
 
         try:
             _sanitize_junit(junit_path)
@@ -828,11 +1730,11 @@ def main() -> int:
                 and not final_source_attestation[1]
             )
         evidence_error: str | None = None
+        evidence: list[dict[str, object]] = []
         if tier.requires_provider_evidence and not call_evidence.exists():
             evidence_error = "no provider-call evidence was recorded"
-            evidence: list[dict[str, object]] = []
         elif tier.requires_provider_evidence:
-            evidence, evidence_error = _load_and_validate_provider_evidence(
+            evidence, evidence_error = validate_provider_evidence(
                 call_evidence,
                 tier_name=args.tier,
                 tier=tier,
@@ -914,10 +1816,47 @@ def main() -> int:
                     flush=True,
                 )
                 return 3
+        if tier.requires_fresh_bundle:
+            run_id, bundle_error = validate_fresh_bundle(
+                result_dir,
+                expected_revision=initial_source_attestation[0],
+                provider_events=evidence,
+            )
+            if bundle_error is not None:
+                print(
+                    "BACKEND VERIFICATION RESULT: failed "
+                    f"(invalid fresh-run bundle: {bundle_error})",
+                    flush=True,
+                )
+                return 1
+            seal_bundle_checksums(result_dir)
+            sealed_run_id, sealed_bundle_error = validate_fresh_bundle(
+                result_dir,
+                expected_revision=initial_source_attestation[0],
+                provider_events=evidence,
+            )
+            if sealed_bundle_error is not None or sealed_run_id != run_id:
+                print(
+                    "BACKEND VERIFICATION RESULT: failed "
+                    "(final bundle checksum verification failed)",
+                    flush=True,
+                )
+                return 1
+            print(f"FRESH REMOTE RUN ID: {run_id}", flush=True)
+            print(f"SEALED EVIDENCE BUNDLE: {result_dir}", flush=True)
 
         print("BACKEND VERIFICATION RESULT: passed", flush=True)
         return 0
 
 
 if __name__ == "__main__":
+    if (
+        len(sys.argv) >= 5
+        and sys.argv[1] == PROCESS_SUPERVISOR_FLAG
+    ):
+        raise SystemExit(supervise_verification_process_group(
+            sys.argv[4:],
+            control_descriptor=int(sys.argv[2]),
+            status_descriptor=int(sys.argv[3]),
+        ))
     raise SystemExit(main())

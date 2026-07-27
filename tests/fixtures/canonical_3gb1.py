@@ -57,6 +57,10 @@ PROTEINMPNN_SCORES = [
     -3.4,
 ]
 
+
+def _no_sleep(_: float) -> None:
+    """Keep controlled canonical fixtures independent of wall-clock pacing."""
+
 _AA3 = dict(
     zip(
         "ACDEFGHIKLMNPQRSTVWY",
@@ -349,7 +353,7 @@ def canonical_modules(
         "prompt.assemble_protein_prompt": AssembleProteinPromptModule(),
         "compute.dssp": ControlledDSSPModule(),
         "esm3.generate": ESM3GenerateModule(),
-        "esmfold2.fold": ESMFold2FoldModule(),
+        "esmfold2.fold": ESMFold2FoldModule(sleep=_no_sleep),
         "structure.pairwise_align": PairwiseAlignModule(),
         "structure.batch_tm_score": BatchTMScoreModule(),
         "scoring.merge": MergeScoresModule(),

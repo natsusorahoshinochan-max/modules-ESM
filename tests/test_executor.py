@@ -1,6 +1,7 @@
 """Tests for the serial Executor."""
 
 import asyncio
+import os
 
 import pytest
 from core import Executor, NodeState, Workflow, WorkflowEdge, WorkflowNode
@@ -11,6 +12,45 @@ from modules.stub import EchoModule
 
 def make_echo_modules() -> dict[str, WorkflowModule]:
     return {"stub.echo": EchoModule()}
+
+
+class ProcessGroupEchoModule(EchoModule):
+    async def run_async(
+        self,
+        inputs,
+        parameters,
+        context,
+    ) -> dict[str, str]:
+        del inputs, parameters, context
+        return {"text": str(os.getpgrp())}
+
+
+def test_fresh_worker_remains_in_supervisor_process_group(
+    monkeypatch: pytest.MonkeyPatch,
+    isolated_project_dir: str,
+) -> None:
+    monkeypatch.setenv(
+        "PROTEIN_WORKBENCH_VERIFICATION_TIER",
+        "fresh-remote-3gb1",
+    )
+    monkeypatch.setenv(
+        "PROTEIN_WORKBENCH_PROCESS_CONTAINMENT",
+        "shared_process_group",
+    )
+    workflow = Workflow()
+    workflow.add_node(
+        WorkflowNode("pgid", "stub.echo", "1.0.0")
+    )
+
+    result = asyncio.run(Executor().execute(
+        workflow,
+        {"stub.echo": ProcessGroupEchoModule()},
+        isolated_project_dir,
+        "fresh-process-group",
+        force_rerun_nodes={"pgid"},
+    ))
+
+    assert result["pgid"]["text"] == str(os.getpgrp())
 
 
 class TestExecutorSingleNode:

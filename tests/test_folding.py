@@ -1,5 +1,6 @@
 """Tests for folding modules (ticket 08)."""
 
+import os
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -85,12 +86,59 @@ class TestESMFold2Adapter:
 
         token_path = tmp_path / "esmkey.txt"
         token_path.write_text("configured-test-token")
+        token_path.chmod(0o600)
         monkeypatch.setenv(
             "PROTEIN_WORKBENCH_BIOHUB_TOKEN_FILE",
             str(token_path),
         )
         token = read_biohub_token()
         assert token == "configured-test-token"
+
+    def test_explicit_biohub_token_path_never_falls_back(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path,
+    ) -> None:
+        from modules.esmfold2_adapter import read_biohub_token
+
+        implicit_root = tmp_path / "keys"
+        implicit_root.mkdir()
+        implicit_token = implicit_root / "esmkey.txt"
+        implicit_token.write_text("implicit-token")
+        implicit_token.chmod(0o600)
+        monkeypatch.chdir(tmp_path)
+        monkeypatch.setenv(
+            "PROTEIN_WORKBENCH_BIOHUB_TOKEN_FILE",
+            str(tmp_path / "missing-token"),
+        )
+
+        with pytest.raises(FileNotFoundError, match="not found"):
+            read_biohub_token()
+
+    def test_biohub_token_metadata_fails_closed(
+        self,
+        tmp_path,
+    ) -> None:
+        from core.provider_contract import validate_biohub_token_file
+
+        public_token = tmp_path / "public-token"
+        public_token.write_text("token")
+        public_token.chmod(0o644)
+        with pytest.raises(FileNotFoundError, match="unavailable"):
+            validate_biohub_token_file(public_token)
+
+        private_token = tmp_path / "private-token"
+        private_token.write_text("token")
+        private_token.chmod(0o600)
+        symlink = tmp_path / "token-link"
+        symlink.symlink_to(private_token)
+        with pytest.raises(FileNotFoundError, match="unavailable"):
+            validate_biohub_token_file(symlink)
+
+        hardlink = tmp_path / "token-hardlink"
+        os.link(private_token, hardlink)
+        with pytest.raises(FileNotFoundError, match="unavailable"):
+            validate_biohub_token_file(private_token)
 
     def test_esm_protein_to_pdb_string(self) -> None:
         from modules.esmfold2_adapter import _esm_protein_to_pdb_string
@@ -195,7 +243,7 @@ class TestESMFold2FoldModule:
 
         with patch("modules.esmfold2_adapter.fold_sequence",
                    return_value=(mock_struct, mock_scores)):
-            mod = ESMFold2FoldModule()
+            mod = ESMFold2FoldModule(sleep=lambda _: None)
             ctx = RunContext("/tmp/test", "n1", run_id="test-run")
             seq = ProteinSequence(sequence="AGS")
             result = mod.run(
@@ -219,7 +267,7 @@ class TestESMFold2FoldModule:
 
         with patch("modules.esmfold2_adapter.fold_sequence",
                    return_value=(mock_struct, mock_scores)):
-            mod = ESMFold2FoldModule()
+            mod = ESMFold2FoldModule(sleep=lambda _: None)
             ctx = RunContext("/tmp/test", "n1", run_id="test-run")
             coll = CandidateCollection(
                 collection_id="test-coll",
@@ -248,6 +296,47 @@ class TestESMFold2FoldModule:
         # Parent lineage preserved
         assert candidates.items[0].parent_ids == ["c1"]
         assert candidates.items[1].parent_ids == ["c2"]
+
+    def test_canonical_batches_keep_twenty_one_calls_over_sixty_seconds(
+        self,
+    ) -> None:
+        from modules.esmfold2_fold.module import ESMFold2FoldModule
+
+        now = [0.0]
+        call_starts: list[float] = []
+
+        def advance(seconds: float) -> None:
+            now[0] += seconds
+
+        def fold_provider(**kwargs):
+            del kwargs
+            call_starts.append(now[0])
+            return _make_mock_fold_result()
+
+        module = ESMFold2FoldModule(
+            fold_provider=fold_provider,
+            sleep=advance,
+        )
+        context = RunContext("/tmp/test", "fold", run_id="test-run")
+        for batch_size in (10, 15):
+            collection = CandidateCollection(
+                collection_id=f"batch-{batch_size}",
+                item_type="protein.sequence",
+                items=[
+                    Candidate(
+                        candidate_id=f"candidate-{batch_size}-{index}",
+                        data=ProteinSequence(sequence="AGS"),
+                    )
+                    for index in range(batch_size)
+                ],
+            )
+            module.run({"candidates": collection}, {}, context)
+
+        assert len(call_starts) == 25
+        assert all(
+            call_starts[index + 20] - call_starts[index] > 60
+            for index in range(5)
+        )
 
     def test_wrong_item_type_raises(self) -> None:
         from modules.esmfold2_fold.module import ESMFold2FoldModule

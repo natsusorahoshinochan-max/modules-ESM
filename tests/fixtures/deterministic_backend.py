@@ -52,6 +52,10 @@ ALLOWED_RUNTIME_MODULE_IDS = frozenset({
 })
 
 
+def _no_sleep(_: float) -> None:
+    """Keep deterministic providers independent of wall-clock pacing."""
+
+
 def _record_fixture_provider_call(operation: str) -> None:
     telemetry = Path(os.environ[TELEMETRY_ENV])
     telemetry.parent.mkdir(parents=True, exist_ok=True)
@@ -160,7 +164,10 @@ def _esm3_module() -> ESM3GenerateModule:
 
 
 def _fold_module() -> ESMFold2FoldModule:
-    return ESMFold2FoldModule(fold_provider=RecordedFoldProvider())
+    return ESMFold2FoldModule(
+        fold_provider=RecordedFoldProvider(),
+        sleep=_no_sleep,
+    )
 
 
 def _proteinmpnn_module() -> ProteinMPNNDesignModule:

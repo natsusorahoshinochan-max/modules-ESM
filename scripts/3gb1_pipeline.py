@@ -21,6 +21,7 @@ _project_root = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(_project_root))
 
 from core.run_context import RunContext
+from core.workflow_module import WorkflowModule
 from datatypes import (
     Candidate,
     CandidateCollection,
@@ -152,6 +153,8 @@ def step2_fold_and_rank(
     seq_candidates: CandidateCollection,
     ref_3gb1: ProteinStructure,
     esm3_struct_candidates: CandidateCollection,
+    *,
+    fold_module: WorkflowModule | None = None,
 ) -> tuple[CandidateCollection, CandidateCollection]:
     """Fold 10 sequences with ESMFold2, compute dual TM-scores, rank top 3."""
     from modules.esmfold2_fold.module import ESMFold2FoldModule
@@ -160,7 +163,7 @@ def step2_fold_and_rank(
     from modules.weighted_rank.module import WeightedRankModule
 
     # Fold all sequences
-    fold_mod = ESMFold2FoldModule()
+    fold_mod = fold_module or ESMFold2FoldModule()
     ctx_fold = RunContext(str(_project_root), "esmfold2", seed=42)
     fold_result = fold_mod.run(
         {"candidates": seq_candidates},
@@ -304,11 +307,13 @@ def step3_proteinmpnn_design(
 def step4_final_fold(
     sequences: CandidateCollection,
     output_dir: str | Path,
+    *,
+    fold_module: WorkflowModule | None = None,
 ) -> CandidateCollection:
     """Fold all 15 sequences with ESMFold2 and write PDB files."""
     from modules.esmfold2_fold.module import ESMFold2FoldModule
 
-    fold_mod = ESMFold2FoldModule()
+    fold_mod = fold_module or ESMFold2FoldModule()
     ctx_fold = RunContext(str(_project_root), "final_fold", seed=42)
     fold_result = fold_mod.run(
         {"candidates": sequences},

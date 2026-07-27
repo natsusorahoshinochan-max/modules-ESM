@@ -10,7 +10,10 @@ import signal
 from typing import Any
 
 from core.module_definition import ModuleDefinition
-from core.process_control import signal_process_group
+from core.process_control import (
+    signal_process_group,
+    verification_uses_shared_process_group,
+)
 from core.run_context import RunContext
 from core.workflow_module import WorkflowModule
 from datatypes import ProteinStructure, ResidueTrack
@@ -66,7 +69,7 @@ class ComputeDSSPModule(WorkflowModule):
                 dssp_bin, pdb_path,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
-                start_new_session=True,
+                start_new_session=not verification_uses_shared_process_group(),
             )
             try:
                 stdout, stderr = await asyncio.wait_for(

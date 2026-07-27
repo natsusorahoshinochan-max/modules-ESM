@@ -1024,6 +1024,63 @@ def test_provider_evidence_rejects_raw_payload_fields(
         )
 
 
+def test_fresh_provider_evidence_binds_run_node_and_candidate(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    from core.provider_contract import esm_provider_identity
+    from core.provider_evidence import record_provider_call_result
+
+    evidence_path = _enable_gate(
+        monkeypatch,
+        tmp_path,
+        "fresh-remote-3gb1",
+    )
+    context = RunContext(
+        str(tmp_path),
+        "final_fold",
+        run_id="fresh-run",
+    )
+    token = context.activate()
+    try:
+        context.record_provider_call(
+            "biohub",
+            "fold",
+            model="esmfold2-fast-2026-05",
+            details={
+                "candidate_id": "final-1",
+                "parent_candidate_id": "mpnn-1",
+            },
+        )
+        record_provider_call_result(
+            provider="biohub",
+            operation="esmfold2.fold",
+            model="esmfold2-fast-2026-05",
+            provider_identity=esm_provider_identity(),
+            effective_seed=None,
+            seed_control="unsupported_by_provider",
+            result_summary={
+                "input_sequence_length": 3,
+                "input_sequence_sha256": "1" * 64,
+                "pdb_bytes": 80,
+                "pdb_sha256": "2" * 64,
+                "score_ids": ["ptm"],
+            },
+        )
+    finally:
+        context.deactivate(token)
+
+    event = _events(evidence_path)[0]
+    assert event["run_id"] == "fresh-run"
+    assert event["node_id"] == "final_fold"
+    assert event["candidate_id"] == "final-1"
+    assert event["parent_candidate_id"] == "mpnn-1"
+    retained = evidence_path.read_text()
+    assert "secret" not in retained
+    assert "sequence" not in event
+    assert "pdb_string" not in event
+
+
 def test_required_provider_unavailability_is_a_failure(monkeypatch) -> None:
     from tests.acceptance.conftest import require_ready
 

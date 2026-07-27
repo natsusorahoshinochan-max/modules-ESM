@@ -33,8 +33,14 @@ class DownloadedArtifact:
 class BackendAcceptanceClient:
     """Exercise only the REST and run-scoped WebSocket contracts."""
 
-    def __init__(self, base_url: str) -> None:
+    def __init__(
+        self,
+        base_url: str,
+        *,
+        event_timeout_seconds: float = 30,
+    ) -> None:
         self.base_url = base_url.rstrip("/")
+        self.event_timeout_seconds = event_timeout_seconds
         self._http = httpx.Client(
             base_url=self.base_url,
             headers={"origin": TRUSTED_ORIGIN},
@@ -52,6 +58,11 @@ class BackendAcceptanceClient:
 
     def get_workflow(self, project_id: str) -> dict[str, Any]:
         response = self._http.get(f"/api/projects/{project_id}/workflow")
+        response.raise_for_status()
+        return response.json()
+
+    def modules(self) -> list[dict[str, Any]]:
+        response = self._http.get("/api/modules")
         response.raise_for_status()
         return response.json()
 
@@ -76,8 +87,18 @@ class BackendAcceptanceClient:
         )
         response.raise_for_status()
 
-    def run_saved(self, project_id: str, *, seed: int) -> dict[str, Any]:
-        response = self.run_saved_raw(project_id, seed=seed)
+    def run_saved(
+        self,
+        project_id: str,
+        *,
+        seed: int,
+        force_rerun_nodes: list[str] | None = None,
+    ) -> dict[str, Any]:
+        response = self.run_saved_raw(
+            project_id,
+            seed=seed,
+            force_rerun_nodes=force_rerun_nodes,
+        )
         response.raise_for_status()
         return response.json()
 
@@ -86,10 +107,14 @@ class BackendAcceptanceClient:
         project_id: str,
         *,
         seed: int,
+        force_rerun_nodes: list[str] | None = None,
     ) -> httpx.Response:
+        payload: dict[str, Any] = {"seed": seed}
+        if force_rerun_nodes is not None:
+            payload["force_rerun_nodes"] = force_rerun_nodes
         response = self._http.post(
             f"/api/projects/{project_id}/run",
-            json={"seed": seed},
+            json=payload,
         )
         return response
 
@@ -106,7 +131,7 @@ class BackendAcceptanceClient:
         on_event: Callable[[dict[str, Any]], None] | None = None,
     ) -> list[dict[str, Any]]:
         events: list[dict[str, Any]] = []
-        deadline = time.monotonic() + 30
+        deadline = time.monotonic() + self.event_timeout_seconds
         with connect(
             self._websocket_url(project_id, run_id),
             origin=TRUSTED_ORIGIN,
@@ -116,9 +141,11 @@ class BackendAcceptanceClient:
             while True:
                 remaining = deadline - time.monotonic()
                 if remaining <= 0:
-                    raise TimeoutError("Run event stream exceeded 30 seconds")
+                    raise TimeoutError(
+                        "Run event stream exceeded configured timeout"
+                    )
                 event = json.loads(
-                    websocket.recv(timeout=min(10, remaining))
+                    websocket.recv(timeout=remaining)
                 )
                 events.append(event)
                 if on_event is not None:
