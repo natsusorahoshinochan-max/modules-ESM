@@ -1,6 +1,7 @@
 """ProteinMPNN Design: generates sequence candidates from a structure."""
 
 import uuid
+from math import isfinite
 from pathlib import Path
 from typing import Any
 
@@ -48,17 +49,38 @@ class ProteinMPNNDesignModule(WorkflowModule):
 
 
         constraints: ProteinMPNNConstraints | None = inputs.get("constraints")
+        if constraints is not None and not isinstance(
+            constraints, ProteinMPNNConstraints
+        ):
+            raise ValueError("constraints input must be ProteinMPNNConstraints")
+        reference: ProteinSequence | None = inputs.get("sequence")
+        if reference is not None and not isinstance(reference, ProteinSequence):
+            raise ValueError("sequence input must be a ProteinSequence")
 
         model_name = str(parameters.get("model_name", "v_48_020"))
         num_sequences = int(parameters.get("num_sequences", 1))
         temperature = float(parameters.get("temperature", 0.1))
+        backbone_noise = float(parameters.get("backbone_noise", 0.0))
+        supported_models = {"v_48_002", "v_48_010", "v_48_020", "v_48_030"}
+        if model_name not in supported_models:
+            raise ValueError(
+                f"model_name must be one of {sorted(supported_models)}, got {model_name!r}"
+            )
+        if num_sequences < 1:
+            raise ValueError("num_sequences must be at least 1")
+        if not isfinite(temperature) or temperature <= 0:
+            raise ValueError("temperature must be a finite number greater than 0")
+        if not isfinite(backbone_noise) or backbone_noise < 0:
+            raise ValueError("backbone_noise must be a finite number at least 0")
 
         sequences, native_score = design_sequences(
             pdb_string=structure.pdb_string,
             model_name=model_name,
             num_sequences=num_sequences,
             temperature=temperature,
+            backbone_noise=backbone_noise,
             constraints=constraints,
+            reference_sequence=reference.sequence if reference is not None else None,
         )
 
         candidates: list[Candidate] = []

@@ -1,5 +1,5 @@
 module_id: proteinmpnn.constraints
-version: 1.0.0
+version: 1.1.0
 display_name: ProteinMPNN Constraints
 category: prompt
 description: "Defines residue-level constraints for ProteinMPNN design."
@@ -14,12 +14,22 @@ parameters:
     type: str
     default: "[]"
     display_name: Designable Positions
-    description: "JSON list of designable residue indices."
+    description: "JSON list of zero-based target-layout residue indices to design."
   - name: fixed_positions
     type: str
     default: "[]"
     display_name: Fixed Positions
-    description: "JSON list of fixed residue indices."
+    description: "JSON list of zero-based target-layout residue indices to fix."
+  - name: designed_chains
+    type: str
+    default: "[]"
+    display_name: Designed Chains
+    description: "JSON list of structure chain IDs to design."
+  - name: fixed_chains
+    type: str
+    default: "[]"
+    display_name: Fixed Chains
+    description: "JSON list of structure chain IDs to keep fixed."
   - name: omit_amino_acids
     type: str
     default: "[]"
@@ -29,5 +39,10 @@ parameters:
     type: str
     default: "[]"
     display_name: Tied Positions
-    description: "JSON list of position pairs that must share the same AA."
+    description: "JSON groups of zero-based target-layout positions that must share the same AA."
+  - name: bias_by_res
+    type: str
+    default: "{}"
+    display_name: Residue Bias
+    description: "JSON map from zero-based target-layout positions to amino-acid bias maps."
 module_api: "1.0"

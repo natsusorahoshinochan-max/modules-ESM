@@ -213,7 +213,17 @@ class StructureAlignment:
 class ProteinMPNNConstraints:
     """Residue-level constraints for ProteinMPNN design.
 
-    All fields are optional lists; None means no constraint in that dimension.
+    Residue positions are zero-based indices into the complete target layout in
+    structure-chain order.  The ProteinMPNN adapter performs the single
+    conversion to upstream one-based, chain-qualified positions.
+
+    ``designable_positions`` is a whitelist within the designed chains;
+    unlisted positions are fixed. ``fixed_positions`` fixes individual
+    positions. ``designed_chains`` and ``fixed_chains`` select the chain
+    partition. ``omit_amino_acids`` is a global sampling exclusion.
+    ``tied_positions`` contains groups of positions sampled as the same amino
+    acid. ``bias_by_res`` maps positions to per-amino-acid logit biases.
+    None means no constraint in that dimension.
     """
     designable_positions: Optional[list[int]] = None
     fixed_positions: Optional[list[int]] = None
