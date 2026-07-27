@@ -171,17 +171,71 @@ class Executor:
         module: WorkflowModule,
         outputs: Any,
     ) -> dict[str, Any]:
-        required = {
-            port.name for port in module.definition.output_ports
+        grouped = {
+            port_name
+            for group in module.definition.output_groups
+            for alternative in group.alternatives
+            for port_name in alternative
         }
-        supplied = set(outputs) if isinstance(outputs, dict) else set()
+        required = {
+            port.name
+            for port in module.definition.output_ports
+            if port.required and port.name not in grouped
+        }
+        if isinstance(outputs, dict):
+            present = {
+                port_name
+                for port_name, value in outputs.items()
+                if value is not None
+            }
+        else:
+            present = set()
         missing = sorted(
             port
             for port in required
-            if port not in supplied or outputs[port] is None
+            if port not in present
         )
-        if not isinstance(outputs, dict) or missing:
-            missing_description = ", ".join(missing or sorted(required))
+        incomplete_groups = []
+        for group in module.definition.output_groups:
+            complete_alternatives = [
+                alternative
+                for alternative in group.alternatives
+                if all(port_name in present for port_name in alternative)
+            ]
+            group_ports = {
+                port_name
+                for alternative in group.alternatives
+                for port_name in alternative
+            }
+            completed_ports = {
+                port_name
+                for alternative in complete_alternatives
+                for port_name in alternative
+            }
+            has_partial_alternative = bool(
+                (present & group_ports) - completed_ports
+            )
+            if (
+                len(complete_alternatives) != 1
+                or has_partial_alternative
+            ):
+                alternatives = " or ".join(
+                    f"({', '.join(alternative)})"
+                    for alternative in group.alternatives
+                )
+                incomplete_groups.append(
+                    f"{group.name}: {alternatives}"
+                )
+        if (
+            not isinstance(outputs, dict)
+            or missing
+            or incomplete_groups
+        ):
+            problems = list(missing)
+            problems.extend(incomplete_groups)
+            missing_description = ", ".join(
+                problems or sorted(required)
+            )
             raise IncompleteNodeOutputError(
                 f"Module '{module.definition.module_id}' did not produce "
                 f"required output Ports: {missing_description}"

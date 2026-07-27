@@ -26,26 +26,32 @@ class PairwiseAlignModule(WorkflowModule):
         parameters: dict[str, Any],
         context: RunContext,
     ) -> dict[str, Any]:
+        reference: ProteinStructure | None = inputs.get("reference")
         ref_coll: CandidateCollection | None = inputs.get("reference_candidates")
         mob_coll: CandidateCollection | None = inputs.get("mobile_candidates")
 
-        if ref_coll is None:
-            raise ValueError("reference_candidates input is required")
+        if (reference is None) == (ref_coll is None):
+            raise ValueError(
+                "exactly one of reference or reference_candidates is required"
+            )
         if mob_coll is None:
             raise ValueError("mobile_candidates input is required")
 
-        if len(ref_coll) == 0:
+        if ref_coll is not None and len(ref_coll) == 0:
             raise ValueError("reference_candidates collection is empty")
         if len(mob_coll) == 0:
             raise ValueError("mobile_candidates collection is empty")
 
-        if len(ref_coll) != len(mob_coll):
+        if ref_coll is not None and len(ref_coll) != len(mob_coll):
             raise ValueError(
                 f"Collections must have equal length: "
                 f"reference has {len(ref_coll)}, mobile has {len(mob_coll)}"
             )
 
-        if ref_coll.item_type != "protein.structure":
+        if (
+            ref_coll is not None
+            and ref_coll.item_type != "protein.structure"
+        ):
             raise ValueError(
                 f"reference_candidates item_type must be protein.structure, "
                 f"got {ref_coll.item_type}"
@@ -58,14 +64,25 @@ class PairwiseAlignModule(WorkflowModule):
 
         alignment_candidates: list[Candidate] = []
 
-        for ref_item, mob_item in zip(ref_coll.items, mob_coll.items):
-            ref_struct = ref_item.data
+        reference_items = (
+            ref_coll.items
+            if ref_coll is not None
+            else [None] * len(mob_coll)
+        )
+        for ref_item, mob_item in zip(reference_items, mob_coll.items):
+            ref_struct = (
+                reference if ref_item is None else ref_item.data
+            )
             mob_struct = mob_item.data
 
             if not isinstance(ref_struct, ProteinStructure):
+                candidate_id = (
+                    "shared reference"
+                    if ref_item is None
+                    else f"Reference candidate {ref_item.candidate_id}"
+                )
                 raise ValueError(
-                    f"Reference candidate {ref_item.candidate_id} data "
-                    f"is not a ProteinStructure"
+                    f"{candidate_id} data is not a ProteinStructure"
                 )
             if not isinstance(mob_struct, ProteinStructure):
                 raise ValueError(
@@ -77,7 +94,11 @@ class PairwiseAlignModule(WorkflowModule):
 
             alignment_candidates.append(
                 Candidate(
-                    candidate_id=ref_item.candidate_id,
+                    candidate_id=(
+                        mob_item.candidate_id
+                        if ref_item is None
+                        else ref_item.candidate_id
+                    ),
                     data=alignment,
                 )
             )

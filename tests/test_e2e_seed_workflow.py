@@ -1,6 +1,6 @@
 """End-to-end integration test: execute 3GB1 seed workflow DAG with mocked APIs.
 
-Verifies that all 22 nodes in examples/3gb1_pipeline.json complete successfully
+Verifies that all 23 nodes in examples/3gb1_pipeline.json complete successfully
 and that the complete data flow (prompt → ESM3 → Fold → TM-score → Rank →
 ProteinMPNN → FinalFold) produces expected output counts.
 """
@@ -225,13 +225,13 @@ def _mock_design(
 class TestE2ESeedWorkflow:
     """End-to-end execution of the 3GB1 seed workflow DAG."""
 
-    def test_all_22_nodes_complete_with_ss8_provider_payload(self) -> None:
+    def test_all_23_nodes_complete_with_ss8_provider_payload(self) -> None:
         """The canonical workflow reaches ESM3 with a legal SS8 payload."""
         workflow = _load_canonical_workflow()
 
         assert not workflow.validate_acyclic()
-        assert len(workflow.nodes) == 22
-        assert len(workflow.edges) == 31
+        assert len(workflow.nodes) == 23
+        assert len(workflow.edges) == 32
 
         mods = _build_modules()
         dssp_mod = mods["compute.dssp"]

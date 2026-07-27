@@ -30,6 +30,14 @@ class InputGroupDefinition:
     allow_multiple: bool = False
 
 
+@dataclass(frozen=True)
+class OutputGroupDefinition:
+    """Exactly-one output Port alternatives for one Module result mode."""
+
+    name: str
+    alternatives: tuple[tuple[str, ...], ...]
+
+
 @dataclass
 class ParameterDefinition:
     """A configurable module parameter."""
@@ -57,6 +65,7 @@ class ModuleDefinition:
         input_ports: list of named, typed input ports.
         input_groups: alternative input Port sets with group requirements.
         output_ports: list of named, typed output ports.
+        output_groups: alternative output Port sets with group requirements.
         parameters: list of configurable parameters.
         module_api: core-to-module API compatibility version.
     """
@@ -69,6 +78,7 @@ class ModuleDefinition:
     input_ports: list[PortDefinition] = field(default_factory=list)
     input_groups: list[InputGroupDefinition] = field(default_factory=list)
     output_ports: list[PortDefinition] = field(default_factory=list)
+    output_groups: list[OutputGroupDefinition] = field(default_factory=list)
     parameters: list[ParameterDefinition] = field(default_factory=list)
     module_api: str = "1.0"
 
@@ -124,6 +134,37 @@ class ModuleDefinition:
                 type_id=p["type_id"],
                 display_name=p.get("display_name", ""),
                 description=p.get("description", ""),
+                required=p.get("required", True),
+            ))
+
+        output_port_names = {port.name for port in output_ports}
+        output_groups = []
+        for group in raw.get("output_groups", []):
+            alternatives = tuple(
+                tuple(alternative)
+                for alternative in group.get("alternatives", [])
+            )
+            if (
+                not group.get("name")
+                or not alternatives
+                or any(not alternative for alternative in alternatives)
+            ):
+                raise ValueError(
+                    "Each output group must have 'name' and 'alternatives'"
+                )
+            referenced_ports = {
+                port_name
+                for alternative in alternatives
+                for port_name in alternative
+            }
+            unknown_ports = referenced_ports - output_port_names
+            if unknown_ports:
+                raise ValueError(
+                    f"Output group references unknown Ports: {sorted(unknown_ports)}"
+                )
+            output_groups.append(OutputGroupDefinition(
+                name=group["name"],
+                alternatives=alternatives,
             ))
 
         input_port_names = {port.name for port in input_ports}
@@ -182,6 +223,7 @@ class ModuleDefinition:
             input_ports=input_ports,
             input_groups=input_groups,
             output_ports=output_ports,
+            output_groups=output_groups,
             parameters=parameters,
             module_api=raw.get("module_api", "1.0"),
         )

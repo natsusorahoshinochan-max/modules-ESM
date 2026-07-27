@@ -26,8 +26,25 @@ class OverrideResidueTrackModule(WorkflowModule):
         context: RunContext,
     ) -> dict[str, Any]:
         track: ResidueTrack | None = inputs.get("track_input")
-        if track is None:
-            raise ValueError("track_input is required")
+        secondary_structure_track: ResidueTrack | None = inputs.get(
+            "secondary_structure_track_input"
+        )
+        if (track is None) == (secondary_structure_track is None):
+            raise ValueError(
+                "exactly one of track_input or "
+                "secondary_structure_track_input is required"
+            )
+        output_port = (
+            "track_output"
+            if track is not None
+            else "secondary_structure_track_output"
+        )
+        track = (
+            track
+            if track is not None
+            else secondary_structure_track
+        )
+        assert track is not None
 
         overrides_raw = str(parameters.get("overrides", "[]"))
         overrides = json.loads(overrides_raw)
@@ -48,4 +65,4 @@ class OverrideResidueTrackModule(WorkflowModule):
             new_values[pos] = val
 
         result = ResidueTrack(values=new_values, sentinel=track.sentinel)
-        return {"track_output": result}
+        return {output_port: result}

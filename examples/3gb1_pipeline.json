@@ -39,6 +39,7 @@
     {
       "node_id": "insert_seq",
       "module_id": "prompt.random_insert_masked",
+      "module_version": "1.1.0",
       "parameters": {
         "count": 15
       }
@@ -46,6 +47,7 @@
     {
       "node_id": "insert_struct",
       "module_id": "prompt.random_insert_masked",
+      "module_version": "1.1.0",
       "parameters": {
         "count": 15
       }
@@ -58,7 +60,7 @@
     {
       "node_id": "override_ss",
       "module_id": "prompt.override_residue_track",
-      "module_version": "1.1.0",
+      "module_version": "1.2.0",
       "parameters": {
         "overrides": "[{\"position\": 0, \"value\": \"E\"}, {\"position\": 1, \"value\": \"E\"}, {\"position\": 2, \"value\": \"E\"}, {\"position\": 3, \"value\": \"E\"}, {\"position\": 4, \"value\": \"E\"}, {\"position\": 5, \"value\": \"E\"}, {\"position\": 6, \"value\": \"E\"}, {\"position\": 7, \"value\": \"E\"}, {\"position\": 8, \"value\": \"E\"}, {\"position\": 9, \"value\": \"E\"}, {\"position\": 10, \"value\": \"E\"}, {\"position\": 11, \"value\": \"E\"}, {\"position\": 12, \"value\": \"E\"}, {\"position\": 13, \"value\": \"E\"}, {\"position\": 14, \"value\": \"E\"}, {\"position\": 15, \"value\": \"E\"}, {\"position\": 16, \"value\": \"E\"}, {\"position\": 17, \"value\": \"E\"}, {\"position\": 18, \"value\": \"E\"}, {\"position\": 22, \"value\": \"H\"}, {\"position\": 23, \"value\": \"H\"}, {\"position\": 24, \"value\": \"H\"}, {\"position\": 25, \"value\": \"H\"}, {\"position\": 26, \"value\": \"H\"}, {\"position\": 27, \"value\": \"H\"}, {\"position\": 28, \"value\": \"H\"}, {\"position\": 29, \"value\": \"H\"}, {\"position\": 34, \"value\": \"E\"}, {\"position\": 35, \"value\": \"E\"}, {\"position\": 36, \"value\": \"E\"}, {\"position\": 37, \"value\": \"E\"}, {\"position\": 38, \"value\": \"E\"}, {\"position\": 39, \"value\": \"E\"}, {\"position\": 40, \"value\": \"E\"}, {\"position\": 41, \"value\": \"E\"}, {\"position\": 42, \"value\": \"E\"}, {\"position\": 43, \"value\": \"E\"}, {\"position\": 44, \"value\": \"E\"}, {\"position\": 45, \"value\": \"E\"}, {\"position\": 46, \"value\": \"E\"}, {\"position\": 47, \"value\": \"E\"}, {\"position\": 48, \"value\": \"E\"}, {\"position\": 49, \"value\": \"E\"}, {\"position\": 50, \"value\": \"E\"}, {\"position\": 51, \"value\": \"E\"}, {\"position\": 52, \"value\": \"E\"}, {\"position\": 53, \"value\": \"E\"}, {\"position\": 54, \"value\": \"E\"}, {\"position\": 55, \"value\": \"E\"}]",
         "clear_unmentioned": true
@@ -67,6 +69,7 @@
     {
       "node_id": "insert_ss",
       "module_id": "prompt.random_insert_masked",
+      "module_version": "1.1.0",
       "parameters": {
         "count": 15
       }
@@ -93,6 +96,12 @@
       }
     },
     {
+      "node_id": "align_3gb1",
+      "module_id": "structure.pairwise_align",
+      "module_version": "1.1.0",
+      "parameters": {}
+    },
+    {
       "node_id": "tm_3gb1",
       "module_id": "structure.batch_tm_score",
       "module_version": "2.0.0",
@@ -103,6 +112,7 @@
     {
       "node_id": "align_pw",
       "module_id": "structure.pairwise_align",
+      "module_version": "1.1.0",
       "parameters": {}
     },
     {
@@ -143,9 +153,9 @@
     {
       "node_id": "mpnn_0",
       "module_id": "proteinmpnn.design",
-      "module_version": "1.1.0",
+      "module_version": "1.2.0",
       "parameters": {
-        "num_sequences": 15
+        "num_sequences": 5
       }
     },
     {
@@ -215,13 +225,13 @@
       "source_node_id": "compute_ss",
       "source_port": "secondary_structure_track",
       "target_node_id": "override_ss",
-      "target_port": "track_input"
+      "target_port": "secondary_structure_track_input"
     },
     {
       "source_node_id": "override_ss",
-      "source_port": "track_output",
+      "source_port": "secondary_structure_track_output",
       "target_node_id": "insert_ss",
-      "target_port": "track"
+      "target_port": "secondary_structure_track"
     },
     {
       "source_node_id": "build_layout",
@@ -249,7 +259,7 @@
     },
     {
       "source_node_id": "insert_ss",
-      "source_port": "track",
+      "source_port": "secondary_structure_track",
       "target_node_id": "assemble",
       "target_port": "secondary_structure_track"
     },
@@ -268,14 +278,20 @@
     {
       "source_node_id": "fold_seq",
       "source_port": "candidates",
-      "target_node_id": "tm_3gb1",
-      "target_port": "candidates"
+      "target_node_id": "align_3gb1",
+      "target_port": "mobile_candidates"
     },
     {
       "source_node_id": "import_3gb1",
       "source_port": "structure",
-      "target_node_id": "tm_3gb1",
+      "target_node_id": "align_3gb1",
       "target_port": "reference"
+    },
+    {
+      "source_node_id": "align_3gb1",
+      "source_port": "alignments",
+      "target_node_id": "tm_3gb1",
+      "target_port": "alignments"
     },
     {
       "source_node_id": "fold_seq",
@@ -329,7 +345,7 @@
       "source_node_id": "top3",
       "source_port": "candidates",
       "target_node_id": "mpnn_0",
-      "target_port": "structure"
+      "target_port": "structures"
     },
     {
       "source_node_id": "fixed_0",

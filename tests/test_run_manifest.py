@@ -18,6 +18,7 @@ from core import (
     RunManifest,
     RunManifestStore,
     Workflow,
+    WorkflowEdge,
     WorkflowNode,
     read_run_manifest,
 )
@@ -25,7 +26,14 @@ from core.module_definition import ModuleDefinition
 from core.run_context import RunContext
 from core.storage import StoragePathError
 from core.workflow_module import WorkflowModule
-from datatypes import Candidate, CandidateCollection, ProteinStructure
+from datatypes import (
+    Candidate,
+    CandidateCollection,
+    ProteinStructure,
+    ResidueLayout,
+    ResidueTrack,
+)
+from modules.prompt_random_insert_masked import RandomInsertMaskedModule
 
 
 class ManifestObservingModule(WorkflowModule):
@@ -104,6 +112,76 @@ parameters:
         del inputs, parameters, context
         type(self).calls += 1
         return {"text": f"call-{self.calls}"}
+
+
+class TrackSourceModule(WorkflowModule):
+    """A complete typed source for the canonical insertion Module."""
+
+    def __init__(self) -> None:
+        self._definition = ModuleDefinition.from_yaml_string(
+            """
+module_id: test.track_source
+version: 1.0.0
+display_name: Track source
+category: input
+output_ports:
+  - name: track
+    type_id: residue.track
+  - name: layout
+    type_id: residue.layout
+"""
+        )
+
+    @property
+    def definition(self) -> ModuleDefinition:
+        return self._definition
+
+    def run(
+        self,
+        inputs: dict[str, Any],
+        parameters: dict[str, Any],
+        context: RunContext,
+    ) -> dict[str, Any]:
+        del inputs, parameters, context
+        return {
+            "track": ResidueTrack(values=["A", "C"], sentinel=None),
+            "layout": ResidueLayout(chain_id="A", length=2),
+        }
+
+
+class MissingSelectedTrackOutputModule(RandomInsertMaskedModule):
+    """A contract-violating Module that omits its selected typed output."""
+
+    def run(
+        self,
+        inputs: dict[str, Any],
+        parameters: dict[str, Any],
+        context: RunContext,
+    ) -> dict[str, Any]:
+        del parameters, context
+        return {"layout": inputs["layout"]}
+
+
+def _typed_output_workflow() -> Workflow:
+    workflow = Workflow()
+    workflow.add_node(
+        WorkflowNode("source", "test.track_source", "1.0.0")
+    )
+    workflow.add_node(
+        WorkflowNode(
+            "insert",
+            "prompt.random_insert_masked",
+            "1.1.0",
+            {"count": 1},
+        )
+    )
+    workflow.add_edge(
+        WorkflowEdge("source", "track", "insert", "track")
+    )
+    workflow.add_edge(
+        WorkflowEdge("source", "layout", "insert", "layout")
+    )
+    return workflow
 
 
 class PartialModule(WorkflowModule):
@@ -597,6 +675,76 @@ def test_state_callback_failure_cannot_leave_manifest_non_terminal(
     )
     assert result["count"]["text"].startswith("call-")
     assert manifest["status"] == "completed"
+
+
+def test_executor_accepts_selected_typed_output_and_records_complete_manifest(
+    tmp_path: Path,
+) -> None:
+    project_dir = tmp_path / "project"
+    workflow = _typed_output_workflow()
+
+    result = asyncio.run(
+        Executor().execute(
+            workflow,
+            {
+                "test.track_source": TrackSourceModule(),
+                "prompt.random_insert_masked": RandomInsertMaskedModule(),
+            },
+            str(project_dir),
+            "typed-output",
+            seed=42,
+            project_id="project-11-15",
+        )
+    )
+
+    inserted = result["insert"]
+    assert set(inserted) == {"track", "layout"}
+    assert inserted["track"].values.count(None) == 1
+    assert inserted["layout"].length == 3
+    manifest = read_run_manifest(
+        project_dir / "runs" / "typed-output"
+    )
+    assert manifest["status"] == "completed"
+    assert manifest["failures"] == []
+    assert [
+        (event["node_id"], event["outcome"], event["published"])
+        for event in manifest["cache"]
+    ] == [
+        ("source", "miss", True),
+        ("insert", "miss", True),
+    ]
+
+
+def test_missing_selected_typed_output_fails_and_is_not_cached(
+    tmp_path: Path,
+) -> None:
+    project_dir = tmp_path / "project"
+    workflow = _typed_output_workflow()
+
+    result = asyncio.run(
+        Executor().execute(
+            workflow,
+            {
+                "test.track_source": TrackSourceModule(),
+                "prompt.random_insert_masked": (
+                    MissingSelectedTrackOutputModule()
+                ),
+            },
+            str(project_dir),
+            "missing-typed-output",
+            seed=42,
+            project_id="project-11-15",
+        )
+    )
+
+    assert set(result) == {"source"}
+    manifest = read_run_manifest(
+        project_dir / "runs" / "missing-typed-output"
+    )
+    assert manifest["status"] == "failed"
+    assert manifest["failures"][0]["kind"] == "incomplete_node_output"
+    assert manifest["cache"][-1]["node_id"] == "insert"
+    assert manifest["cache"][-1]["published"] is False
 
 
 def test_partial_node_output_fails_structurally_and_is_never_cached(

@@ -1,10 +1,96 @@
 """Tests for project CRUD server endpoints."""
 
 from fastapi.testclient import TestClient
-from core.server import app
+import pytest
+
+from core.project import CANONICAL_3GB1_PROJECT_ID, CanonicalSeedError
+from core.server import app, create_app
 
 
 class TestProjectEndpoints:
+    def test_startup_lists_one_read_only_canonical_project(
+        self,
+        tmp_path,
+        monkeypatch,
+    ) -> None:
+        monkeypatch.setenv(
+            "PROTEIN_WORKBENCH_PROJECT_ROOT",
+            str(tmp_path / "projects"),
+        )
+        canonical_app = create_app()
+
+        for _ in range(2):
+            with TestClient(canonical_app) as client:
+                projects = client.get("/api/projects").json()
+                assert len(projects) == 1
+                canonical = [
+                    project
+                    for project in projects
+                    if project["id"] == CANONICAL_3GB1_PROJECT_ID
+                ]
+                assert len(canonical) == 1
+                assert canonical[0]["seed"] is True
+                assert canonical[0]["legacy_seed"] is False
+
+                workflow = client.get(
+                    f"/api/projects/{CANONICAL_3GB1_PROJECT_ID}/workflow"
+                ).json()
+                response = client.put(
+                    f"/api/projects/{CANONICAL_3GB1_PROJECT_ID}/workflow",
+                    json=workflow,
+                )
+                assert response.status_code == 403
+                assert response.json()["error"]["kind"] == (
+                    "protected_canonical_project"
+                )
+                ui_response = client.put(
+                    f"/api/projects/{CANONICAL_3GB1_PROJECT_ID}/ui",
+                    json={},
+                )
+                assert ui_response.status_code == 403
+                upload_response = client.post(
+                    f"/api/projects/{CANONICAL_3GB1_PROJECT_ID}/inputs",
+                    files={"file": ("replacement.pdb", b"END\n")},
+                )
+                assert upload_response.status_code == 403
+
+    def test_startup_surfaces_canonical_workflow_drift(
+        self,
+        tmp_path,
+        monkeypatch,
+    ) -> None:
+        invalid_workflow = tmp_path / "invalid.json"
+        invalid_workflow.write_text(
+            """
+            {
+              "nodes": [
+                {
+                  "node_id": "echo",
+                  "module_id": "stub.echo",
+                  "module_version": "outdated",
+                  "parameters": {}
+                }
+              ],
+              "edges": []
+            }
+            """
+        )
+        monkeypatch.setenv(
+            "PROTEIN_WORKBENCH_PROJECT_ROOT",
+            str(tmp_path / "projects"),
+        )
+        monkeypatch.setenv(
+            "PROTEIN_WORKBENCH_CANONICAL_WORKFLOW",
+            str(invalid_workflow),
+        )
+
+        with pytest.raises(
+            CanonicalSeedError,
+            match="module_version_mismatch",
+        ):
+            with TestClient(create_app()):
+                pass
+
     def test_create_and_list_projects(self) -> None:
         with TestClient(app) as client:
             resp = client.post("/api/projects", json={"name": "Server Test"})
