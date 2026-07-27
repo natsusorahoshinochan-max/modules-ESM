@@ -521,6 +521,7 @@ def _bias_payload(
     chains: list[tuple[str, str]],
     designed_chains: list[str],
     constraints: ProteinMPNNConstraints,
+    fixed_position_dict: dict[str, dict[str, list[int]]] | None,
 ) -> dict[str, dict[str, list[list[float]]]] | None:
     if not constraints.bias_by_res:
         return None
@@ -533,6 +534,12 @@ def _bias_payload(
         if chain not in designed_chains:
             raise ValueError(
                 f"bias_by_res position {position} belongs to fixed chain {chain}"
+            )
+        fixed_positions = (fixed_position_dict or {}).get(name, {}).get(chain, [])
+        if local_position + 1 in fixed_positions:
+            raise ValueError(
+                f"bias_by_res position {position} is fixed by the effective "
+                "position mask"
             )
         for amino_acid, bias in amino_acid_biases.items():
             if amino_acid not in _ALPHABET_DICT:
@@ -629,7 +636,11 @@ def _prepare_design_request(
             fixed_position_dict,
         ),
         bias_by_res_dict=_bias_payload(
-            name, chains, designed_chains, selected_constraints
+            name,
+            chains,
+            designed_chains,
+            selected_constraints,
+            fixed_position_dict,
         ),
         omit_amino_acids=_omitted_amino_acids(selected_constraints),
         reference_sequences=_reference_sequences(chains, reference_sequence),

@@ -490,6 +490,13 @@ class TestProteinMPNNDesign:
                 ),
                 "tied position group 0 includes fixed-chain position A:1",
             ),
+            (
+                ProteinMPNNConstraints(
+                    designable_positions=[0],
+                    bias_by_res={1: {"A": 1.0}},
+                ),
+                "bias_by_res position 1 is fixed by the effective position mask",
+            ),
         ],
     )
     def test_adapter_rejects_invalid_constraints_before_inference(
