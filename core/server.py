@@ -398,6 +398,55 @@ def create_app() -> FastAPI:
                     count += 1
         return {"status": "cleared", "removed": count}
 
+
+    # ── node output ─────────────────────────────────────────────────
+
+    @app.get("/api/projects/{project_id}/nodes/{node_id}/output")
+    async def get_node_output(project_id: str, node_id: str) -> dict:
+        """Return PDB strings from a completed node's structure output."""
+        meta = project_manager.load_meta(project_id)
+        if meta is None:
+            return {"error": "Project not found"}
+
+        project_dir = project_manager._project_dir(project_id)
+        cache_dir = project_dir / "cache"
+        if not cache_dir.exists():
+            return {"error": "No cache for this project"}
+
+        import pickle
+        structures: list[dict] = []
+        for f in sorted(cache_dir.iterdir(), key=lambda x: x.stat().st_mtime, reverse=True):
+            if f.name.startswith(f"{node_id}_") and f.suffix == ".pkl":
+                try:
+                    with open(f, "rb") as fh:
+                        outputs = pickle.load(fh)
+                except Exception:
+                    continue
+
+                for port_name, value in outputs.items():
+                    from datatypes import CandidateCollection, ProteinStructure
+                    if isinstance(value, CandidateCollection) and value.item_type == "protein.structure":
+                        for i, item in enumerate(value.items):
+                            if isinstance(item.data, ProteinStructure):
+                                structures.append({
+                                    "candidate_id": item.candidate_id,
+                                    "pdb_string": item.data.pdb_string,
+                                    "index": i,
+                                    "port": port_name,
+                                })
+                    elif isinstance(value, ProteinStructure):
+                        structures.append({
+                            "candidate_id": node_id,
+                            "pdb_string": value.pdb_string,
+                            "index": 0,
+                            "port": port_name,
+                        })
+                break  # Only use the most recent cache file
+
+        if not structures:
+            return {"error": "No structure output found for this node"}
+        return {"node_id": node_id, "structures": structures}
+
     # ── projects CRUD ────────────────────────────────────────────────
 
     @app.get("/api/projects")

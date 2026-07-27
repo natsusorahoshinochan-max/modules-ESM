@@ -22,6 +22,10 @@ from datatypes import (
 
 _MASKED_COORD = float("nan")
 
+# ESM3 SS8 vocabulary (GHITEBSC). DSSP uses "-" for coil which is not
+# in the SS8 set; any code outside GHITEBSC is mapped to "C".
+_ESM3_SS8 = frozenset("GHITEBSC")
+
 
 def _track_to_str(track: ResidueTrack | None, length: int) -> str | None:
     """Convert a ResidueTrack to a string, with None sentinels mapped to '_'."""
@@ -32,7 +36,11 @@ def _track_to_str(track: ResidueTrack | None, length: int) -> str | None:
         if v is None:
             chars.append("_")
         else:
-            chars.append(str(v))
+            s = str(v)
+            if s in _ESM3_SS8:
+                chars.append(s)
+            else:
+                chars.append("C")
     result = "".join(chars)
     if len(result) > length:
         result = result[:length]

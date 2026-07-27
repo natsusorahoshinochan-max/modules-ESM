@@ -82,7 +82,7 @@ function initNGL(containerId: string, pdbString: string) {
   }).catch(function() {});
 }
 
-function StructureViewer({ pdbString }: { pdbString: string | null }) {
+function StructureViewer({ pdbString, label }: { pdbString: string | null; label?: string }) {
   const containerRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
     if (!pdbString || !containerRef.current) return;
@@ -94,7 +94,12 @@ function StructureViewer({ pdbString }: { pdbString: string | null }) {
     <div className="viewer-panel">
       <h3>3D Structure Viewer</h3>
       {!pdbString ? <p className="empty-hint">Run a workflow to see structures here.</p>
-        : <div id={id} ref={containerRef} className="ngl-viewport" />}
+        : (
+          <>
+            {label && <p style={{fontSize:'11px',color:'#64748b',margin:'0 0 4px'}}>{label}</p>}
+            <div id={id} ref={containerRef} className="ngl-viewport" />
+          </>
+        )}
     </div>
   );
 }
@@ -154,7 +159,11 @@ export default function App() {
   const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const EXECUTION_TIMEOUT_MS = 300_000; // 5 minutes
   const autoSaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [viewerPdb, setViewerPdb] = useState<string | null>(null);
+  const [viewerLabel, setViewerLabel] = useState<string>("");
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const nodeStatesRef = useRef<NodeStateInfo>({});
+  const projectIdRef = useRef<string | null>(null);
 
   // Fetch modules
   useEffect(() => {
@@ -174,6 +183,10 @@ export default function App() {
 
   useEffect(() => { refreshProjects(); }, [refreshProjects]);
 
+  // Keep ref in sync
+  useEffect(() => { nodeStatesRef.current = nodeStates; }, [nodeStates]);
+  useEffect(() => { projectIdRef.current = projectId; }, [projectId]);
+
   // WebSocket
   const connectWS = useCallback(() => {
     if (wsRef.current?.readyState === WebSocket.OPEN) return;
@@ -189,6 +202,28 @@ export default function App() {
       ) {
         setIsRunning(false);
         if (timeoutRef.current) { clearTimeout(timeoutRef.current); timeoutRef.current = null; }
+        if (data.type === "run_complete") {
+          // Auto-load structures from the last completed node
+          setTimeout(() => {
+            const states = nodeStatesRef.current;
+            const completedNodes = Object.entries(states).filter(([,s]) => s === "completed").map(([id]) => id);
+            // Try nodes in reverse order (last pipeline node first)
+            const tryLoad = async () => {
+              for (const nid of completedNodes.reverse()) {
+                try {
+                  const r = await fetch(`/api/projects/${projectIdRef.current}/nodes/${nid}/output`);
+                  const d = await r.json();
+                  if (d.structures?.length > 0) {
+                    setViewerPdb(d.structures[0].pdb_string);
+                    setViewerLabel(`${d.structures[0].candidate_id} (${nid})`);
+                    return;
+                  }
+                } catch {}
+              }
+            };
+            tryLoad();
+          }, 500);
+        }
       }
     };
     ws.onclose = () => {
@@ -264,7 +299,6 @@ export default function App() {
   }, [setNodes, setEdges, refreshProjects]);
 
   const openProject = useCallback(async (id: string) => {
-    setProjectId(id);
     setOpenDialog(false);
 
     const [wfResp, uiResp] = await Promise.all([
@@ -321,6 +355,7 @@ export default function App() {
       markerEnd: { type: MarkerType.ArrowClosed },
     }));
 
+    setProjectId(id);
     setNodes(loadedNodes);
     setEdges(loadedEdges);
     setNodeIdCounter(loadedNodes.length);
@@ -718,7 +753,7 @@ export default function App() {
           />
         );
       })()}
-      <StructureViewer pdbString={null} />
+      <StructureViewer pdbString={viewerPdb} label={viewerLabel} />
     </div>
   );
 }
