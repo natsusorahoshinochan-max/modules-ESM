@@ -539,7 +539,10 @@ def create_app() -> FastAPI:
 
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=["*"],
+        allow_origins=[
+            "http://127.0.0.1:5173",
+            "http://localhost:5173",
+        ],
         allow_credentials=True,
         allow_methods=["*"],
         allow_headers=["*"],
@@ -717,7 +720,11 @@ def create_app() -> FastAPI:
         _active_project_runs[project_id] = active_run
 
         task.add_done_callback(cleanup)
-        return {"run_id": run_id, **validation.to_dict()}
+        return {
+            "project_id": project_id,
+            "run_id": run_id,
+            **validation.to_dict(),
+        }
 
     @app.post("/api/execute")
     async def execute_workflow(payload: dict) -> Any:
@@ -736,9 +743,16 @@ def create_app() -> FastAPI:
         supplied_project_id = payload.get("project_id")
         if supplied_project_id is not None:
             validate_identifier(supplied_project_id, "project_id")
-        ephemeral_id = f"ephemeral-{uuid.uuid4().hex[:8]}"
+            if project_manager.load_meta(supplied_project_id) is None:
+                return JSONResponse(
+                    status_code=404,
+                    content={"error": "Project not found"},
+                )
+            execution_project_id = supplied_project_id
+        else:
+            execution_project_id = f"ephemeral-{uuid.uuid4().hex[:8]}"
         return start_execution(
-            project_id=ephemeral_id,
+            project_id=execution_project_id,
             workflow=workflow,
             validation=validation,
             options=payload,

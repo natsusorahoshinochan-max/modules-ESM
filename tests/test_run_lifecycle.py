@@ -5,7 +5,10 @@ from __future__ import annotations
 import asyncio
 from datetime import datetime
 from pathlib import Path
+import subprocess
+import sys
 import tempfile
+import threading
 import time
 
 import pytest
@@ -135,6 +138,88 @@ class CancellableAsyncLifecycleModule(WorkflowModule):
             await asyncio.Event().wait()
         finally:
             stopped.touch()
+
+
+class DescendantLifecycleModule(WorkflowModule):
+    @property
+    def definition(self) -> ModuleDefinition:
+        return ModuleDefinition(
+            module_id="test.lifecycle_descendant",
+            version="1.0.0",
+            display_name="Lifecycle descendant",
+            category="input",
+            output_ports=[PortDefinition("text", "text")],
+        )
+
+    def run(
+        self,
+        inputs: dict[str, object],
+        parameters: dict[str, object],
+        context: RunContext,
+    ) -> dict[str, object]:
+        del inputs, parameters, context
+        raise AssertionError("The async worker boundary must be used")
+
+    async def run_async(
+        self,
+        inputs: dict[str, object],
+        parameters: dict[str, object],
+        context: RunContext,
+    ) -> dict[str, object]:
+        del inputs, context
+        descendant_marker = str(parameters["descendant_marker"])
+        started = Path(str(parameters["started_path"]))
+        subprocess.Popen(
+            [
+                sys.executable,
+                "-c",
+                (
+                    "import pathlib, sys, time; "
+                    "time.sleep(0.75); pathlib.Path(sys.argv[1]).touch()"
+                ),
+                descendant_marker,
+            ]
+        )
+        started.touch()
+        if parameters.get("return_immediately"):
+            return {"text": "finished"}
+        await asyncio.Event().wait()
+        return {"text": "unreachable"}
+
+
+class LingeringThreadLifecycleModule(WorkflowModule):
+    @property
+    def definition(self) -> ModuleDefinition:
+        return ModuleDefinition(
+            module_id="test.lifecycle_lingering_thread",
+            version="1.0.0",
+            display_name="Lifecycle lingering thread",
+            category="input",
+            output_ports=[PortDefinition("text", "text")],
+        )
+
+    def run(
+        self,
+        inputs: dict[str, object],
+        parameters: dict[str, object],
+        context: RunContext,
+    ) -> dict[str, object]:
+        del inputs, parameters, context
+        raise AssertionError("The async worker boundary must be used")
+
+    async def run_async(
+        self,
+        inputs: dict[str, object],
+        parameters: dict[str, object],
+        context: RunContext,
+    ) -> dict[str, object]:
+        del inputs, parameters, context
+        threading.Thread(
+            target=time.sleep,
+            args=(30,),
+            daemon=False,
+        ).start()
+        return {"text": "finished"}
 
 
 def _saved_echo_project(client: TestClient, name: str) -> str:
@@ -810,6 +895,131 @@ def test_controllable_async_work_stops_before_cancelled_terminal() -> None:
     assert manifest["status"] == "cancelled"
 
 
+def test_cancellation_kills_descendants_after_cooperative_worker_exit() -> None:
+    control_dir = Path(tempfile.mkdtemp(prefix="descendant-control-"))
+    started = control_dir / "started"
+    descendant_marker = control_dir / "descendant-finished"
+    module = DescendantLifecycleModule()
+    with TestClient(server.app) as client:
+        server.module_registry.register(module.definition)
+        server.register_module_factory(
+            module.definition.module_id,
+            DescendantLifecycleModule,
+        )
+        project_id = client.post(
+            "/api/projects",
+            json={"name": "descendant-cleanup"},
+        ).json()["id"]
+        assert client.put(
+            f"/api/projects/{project_id}/workflow",
+            json={
+                "nodes": [
+                    {
+                        "node_id": "descendant",
+                        "module_id": module.definition.module_id,
+                        "module_version": "1.0.0",
+                        "parameters": {
+                            "started_path": str(started),
+                            "descendant_marker": str(descendant_marker),
+                        },
+                    }
+                ],
+                "edges": [],
+            },
+        ).status_code == 200
+        run_id = client.post(
+            f"/api/projects/{project_id}/run"
+        ).json()["run_id"]
+        assert _wait_for_path(started)
+        assert client.post(
+            f"/api/projects/{project_id}/run/{run_id}/cancel"
+        ).status_code == 200
+        events = _receive_run_events(client, project_id, run_id)
+        time.sleep(1)
+
+    assert events[-1]["type"] == "run_cancelled"
+    assert not descendant_marker.exists()
+
+
+def test_success_does_not_wait_forever_for_lingering_worker_thread() -> None:
+    module = LingeringThreadLifecycleModule()
+    with TestClient(server.app) as client:
+        server.module_registry.register(module.definition)
+        server.register_module_factory(
+            module.definition.module_id,
+            LingeringThreadLifecycleModule,
+        )
+        project_id = client.post(
+            "/api/projects",
+            json={"name": "lingering-thread-cleanup"},
+        ).json()["id"]
+        assert client.put(
+            f"/api/projects/{project_id}/workflow",
+            json={
+                "nodes": [
+                    {
+                        "node_id": "lingering",
+                        "module_id": module.definition.module_id,
+                        "module_version": "1.0.0",
+                    }
+                ],
+                "edges": [],
+            },
+        ).status_code == 200
+        started_at = time.monotonic()
+        run_id = client.post(
+            f"/api/projects/{project_id}/run"
+        ).json()["run_id"]
+        events = _receive_run_events(client, project_id, run_id)
+
+    assert events[-1]["type"] == "run_completed"
+    assert time.monotonic() - started_at < 3
+
+
+def test_success_cleans_residual_worker_descendants() -> None:
+    control_dir = Path(tempfile.mkdtemp(prefix="success-descendant-control-"))
+    started = control_dir / "started"
+    descendant_marker = control_dir / "descendant-finished"
+    module = DescendantLifecycleModule()
+    with TestClient(server.app) as client:
+        server.module_registry.register(module.definition)
+        server.register_module_factory(
+            module.definition.module_id,
+            DescendantLifecycleModule,
+        )
+        project_id = client.post(
+            "/api/projects",
+            json={"name": "success-descendant-cleanup"},
+        ).json()["id"]
+        assert client.put(
+            f"/api/projects/{project_id}/workflow",
+            json={
+                "nodes": [
+                    {
+                        "node_id": "descendant",
+                        "module_id": module.definition.module_id,
+                        "module_version": "1.0.0",
+                        "parameters": {
+                            "started_path": str(started),
+                            "descendant_marker": str(descendant_marker),
+                            "return_immediately": True,
+                        },
+                    }
+                ],
+                "edges": [],
+            },
+        ).status_code == 200
+        run_id = client.post(
+            f"/api/projects/{project_id}/run"
+        ).json()["run_id"]
+        events = _receive_run_events(client, project_id, run_id)
+        time.sleep(1)
+
+    assert events[-1]["type"] == "run_completed"
+    assert started.exists()
+    assert not descendant_marker.exists()
+
+
 def test_cancellation_is_project_scoped_and_rejects_run_id_injection() -> None:
     with TestClient(server.app) as client:
         project_a = _saved_blocking_project(client, "cancel-scope-a")
@@ -853,14 +1063,14 @@ def test_cancellation_is_project_scoped_and_rejects_run_id_injection() -> None:
     assert events[-1]["type"] == "run_cancelled"
 
 
-def test_ephemeral_execute_cannot_claim_a_saved_project_namespace() -> None:
+def test_execute_with_project_scope_is_observable_and_exclusive() -> None:
     with TestClient(server.app) as client:
         _saved_blocking_project(client, "ephemeral-boundary-fixture")
         victim_project = _saved_echo_project(
             client,
             "saved-project-namespace",
         )
-        ephemeral = client.post(
+        execution = client.post(
             "/api/execute",
             json={
                 "project_id": victim_project,
@@ -885,21 +1095,48 @@ def test_ephemeral_execute_cannot_claim_a_saved_project_namespace() -> None:
                 "edges": [],
             },
         )
-        assert ephemeral.status_code == 200
+        assert execution.status_code == 200
+        assert execution.json()["project_id"] == victim_project
         assert _wait_for_path(BlockingLifecycleModule.started)
 
         saved = client.post(f"/api/projects/{victim_project}/run")
-        saved_run_id = saved.json()["run_id"]
-        saved_events = _receive_run_events(
+        assert saved.status_code == 409
+        BlockingLifecycleModule.release.touch()
+        execution_events = _receive_run_events(
             client,
             victim_project,
-            saved_run_id,
+            execution.json()["run_id"],
         )
-        BlockingLifecycleModule.release.touch()
         assert _wait_for_path(BlockingLifecycleModule.finished)
 
-    assert saved.status_code == 200
-    assert saved_events[-1]["type"] == "run_completed"
+    assert execution_events[-1]["type"] == "run_completed"
+
+
+def test_ephemeral_execute_returns_its_observable_project_scope() -> None:
+    with TestClient(server.app) as client:
+        response = client.post(
+            "/api/execute",
+            json={
+                "nodes": [
+                    {
+                        "node_id": "echo",
+                        "module_id": "stub.echo",
+                        "module_version": "1.0.0",
+                    }
+                ],
+                "edges": [],
+            },
+        )
+        project_id = response.json()["project_id"]
+        events = _receive_run_events(
+            client,
+            project_id,
+            response.json()["run_id"],
+        )
+
+    assert response.status_code == 200
+    assert project_id.startswith("ephemeral-")
+    assert events[-1]["type"] == "run_completed"
 
 
 def test_active_run_capacity_bounds_ephemeral_resource_use(

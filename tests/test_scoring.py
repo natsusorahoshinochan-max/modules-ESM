@@ -290,10 +290,10 @@ class TestDSSPModule:
             fake_subprocess,
         )
         monkeypatch.setattr(
-            dssp_module.os,
-            "killpg",
-            lambda pid, sent_signal: process_group_signals.append(
-                (pid, sent_signal)
+            dssp_module,
+            "signal_process_group",
+            lambda pid, sent_signal, **kwargs: (
+                process_group_signals.append((pid, sent_signal))
             ),
         )
 

@@ -4,31 +4,18 @@ Uses async subprocess execution to avoid blocking the event loop.
 """
 
 import asyncio
-import os
 from pathlib import Path
 import signal
 from typing import Any
 
 from core.module_definition import ModuleDefinition
+from core.process_control import signal_process_group
 from core.run_context import RunContext
 from core.workflow_module import WorkflowModule
 from datatypes import ProteinStructure, ResidueTrack
 
 # Reuse the mmCIF parser from the prompt DSSP module
 from modules.compute_secondary_structure.module import _parse_dssp_mmcif
-
-
-def _signal_process_group(
-    process: asyncio.subprocess.Process,
-    process_signal: signal.Signals,
-) -> None:
-    try:
-        os.killpg(process.pid, process_signal)
-    except (ProcessLookupError, PermissionError, OSError):
-        if process_signal == signal.SIGTERM:
-            process.terminate()
-        else:
-            process.kill()
 
 
 class ComputeDSSPModule(WorkflowModule):
@@ -86,15 +73,27 @@ class ComputeDSSPModule(WorkflowModule):
                 )
             except asyncio.CancelledError:
                 if proc.returncode is None:
-                    _signal_process_group(proc, signal.SIGTERM)
+                    signal_process_group(
+                        proc.pid,
+                        signal.SIGTERM,
+                        fallback=proc.terminate,
+                    )
                     try:
                         await asyncio.wait_for(proc.wait(), timeout=1)
                     except asyncio.TimeoutError:
-                        _signal_process_group(proc, signal.SIGKILL)
+                        signal_process_group(
+                            proc.pid,
+                            signal.SIGKILL,
+                            fallback=proc.kill,
+                        )
                         await proc.wait()
                 raise
             except asyncio.TimeoutError:
-                _signal_process_group(proc, signal.SIGKILL)
+                signal_process_group(
+                    proc.pid,
+                    signal.SIGKILL,
+                    fallback=proc.kill,
+                )
                 await proc.wait()
                 raise RuntimeError(
                     f"mkdssp timed out after {timeout}s"

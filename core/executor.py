@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import asyncio
 from contextlib import suppress
-from dataclasses import replace
+from dataclasses import dataclass, replace
 import hashlib
 import multiprocessing
 import os
@@ -17,6 +17,7 @@ from typing import TYPE_CHECKING, Any, Callable
 from core.cache_store import CachePublishStatus, CacheStore
 from core.graph import NodeState, Workflow, WorkflowNode
 from core.lifecycle_events import RunEventType
+from core.process_control import signal_process_group
 from core.run_context import RunContext
 from core.run_manifest import RunManifest, RunManifestStore, canonical_json
 from core.storage import contained_path, validate_identifier
@@ -56,6 +57,35 @@ class _ProcessModuleError(RuntimeError):
         super().__init__(f"Module worker failed ({kind})")
 
 
+@dataclass(frozen=True)
+class _ManifestWorkerMessage:
+    method: str
+    kwargs: dict[str, Any]
+
+
+@dataclass(frozen=True)
+class _ResultWorkerMessage:
+    outputs: dict[str, Any]
+
+
+@dataclass(frozen=True)
+class _CancelledWorkerMessage:
+    pass
+
+
+@dataclass(frozen=True)
+class _ErrorWorkerMessage:
+    kind: str
+
+
+_TerminalWorkerMessage = (
+    _ResultWorkerMessage
+    | _CancelledWorkerMessage
+    | _ErrorWorkerMessage
+)
+_WORKER_EXIT_TIMEOUT_SECONDS = 1.0
+
+
 class _ManifestProcessProxy:
     """Forward child-process RunContext facts to the parent manifest owner."""
 
@@ -63,7 +93,7 @@ class _ManifestProcessProxy:
         self._connection = connection
 
     def _record(self, method: str, kwargs: dict[str, Any]) -> None:
-        self._connection.send(("manifest", method, kwargs))
+        self._connection.send(_ManifestWorkerMessage(method, kwargs))
 
     def record_provider_readiness(self, **kwargs: Any) -> None:
         self._record("record_provider_readiness", kwargs)
@@ -133,18 +163,18 @@ def _module_process_entry(
         ))
     except asyncio.CancelledError:
         with suppress(BrokenPipeError, EOFError, OSError):
-            connection.send(("cancelled",))
+            connection.send(_CancelledWorkerMessage())
     except BaseException as error:
         kind = str(getattr(error, "kind", type(error).__name__))
         with suppress(BrokenPipeError, EOFError, OSError):
-            connection.send(("error", kind))
+            connection.send(_ErrorWorkerMessage(kind))
     else:
         try:
-            connection.send(("result", outputs))
+            connection.send(_ResultWorkerMessage(outputs))
         except BaseException as error:
             kind = f"result_serialization_{type(error).__name__}"
             with suppress(BrokenPipeError, EOFError, OSError):
-                connection.send(("error", kind))
+                connection.send(_ErrorWorkerMessage(kind))
     finally:
         child_context.deactivate(token)
         connection.close()
@@ -152,30 +182,30 @@ def _module_process_entry(
 
 def _receive_module_process(
     connection: Any,
-) -> tuple[list[tuple[str, dict[str, Any]]], tuple[Any, ...]]:
-    manifest_events: list[tuple[str, dict[str, Any]]] = []
+) -> tuple[list[_ManifestWorkerMessage], _TerminalWorkerMessage]:
+    manifest_events: list[_ManifestWorkerMessage] = []
     while True:
         try:
             message = connection.recv()
         except EOFError:
-            return manifest_events, ("error", "worker_channel_closed")
-        if message[0] == "manifest":
-            manifest_events.append((message[1], message[2]))
+            return manifest_events, _ErrorWorkerMessage(
+                "worker_channel_closed"
+            )
+        if isinstance(message, _ManifestWorkerMessage):
+            manifest_events.append(message)
             continue
-        return manifest_events, tuple(message)
-
-
-def _kill_process_group(process: multiprocessing.Process) -> None:
-    if not process.is_alive():
-        return
-    try:
-        process_group = os.getpgid(process.pid)
-        if process_group == os.getpgrp():
-            raise PermissionError
-        os.killpg(process_group, signal.SIGKILL)
-    except (ProcessLookupError, PermissionError, OSError):
-        with suppress(ProcessLookupError):
-            process.kill()
+        if isinstance(
+            message,
+            (
+                _ResultWorkerMessage,
+                _CancelledWorkerMessage,
+                _ErrorWorkerMessage,
+            ),
+        ):
+            return manifest_events, message
+        return manifest_events, _ErrorWorkerMessage(
+            "invalid_worker_message"
+        )
 
 
 class Executor:
@@ -554,21 +584,43 @@ class Executor:
                     parent_connection,
                 )
             )
-            manifest_events: list[tuple[str, dict[str, Any]]] = []
+            manifest_events: list[_ManifestWorkerMessage] = []
 
             def apply_manifest_events() -> None:
-                allowed = {
-                    "record_provider_readiness",
-                    "record_provider_call",
-                    "record_artifact",
+                handlers = {
+                    "record_provider_readiness": (
+                        manifest_store.record_provider_readiness
+                    ),
+                    "record_provider_call": (
+                        manifest_store.record_provider_call
+                    ),
+                    "record_artifact": manifest_store.record_artifact,
                 }
-                for method, kwargs in manifest_events:
-                    if method in allowed:
-                        getattr(manifest_store, method)(**kwargs)
+                for event in manifest_events:
+                    handler = handlers.get(event.method)
+                    if handler is not None:
+                        handler(**event.kwargs)
+
+            def kill_worker_group() -> None:
+                fallback = process.kill if process.is_alive() else None
+                signal_process_group(
+                    process.pid,
+                    signal.SIGKILL,
+                    fallback=fallback,
+                )
 
             try:
                 manifest_events, outcome = await asyncio.shield(receiver)
-                await asyncio.to_thread(process.join)
+                await asyncio.to_thread(
+                    process.join,
+                    _WORKER_EXIT_TIMEOUT_SECONDS,
+                )
+                kill_worker_group()
+                if process.is_alive():
+                    await asyncio.to_thread(
+                        process.join,
+                        _WORKER_EXIT_TIMEOUT_SECONDS,
+                    )
             except asyncio.CancelledError:
                 process_cancellation.set()
                 await asyncio.to_thread(
@@ -576,14 +628,19 @@ class Executor:
                     cancellation_timeout,
                 )
                 timed_out = process.is_alive()
-                if timed_out:
-                    _kill_process_group(process)
-                    await asyncio.to_thread(process.join, 1)
+                kill_worker_group()
                 if process.is_alive():
-                    _kill_process_group(process)
-                    await asyncio.to_thread(process.join)
-                with suppress(Exception):
-                    manifest_events, _ = await asyncio.shield(receiver)
+                    await asyncio.to_thread(
+                        process.join,
+                        _WORKER_EXIT_TIMEOUT_SECONDS,
+                    )
+                try:
+                    manifest_events, _ = await asyncio.wait_for(
+                        asyncio.shield(receiver),
+                        timeout=_WORKER_EXIT_TIMEOUT_SECONDS,
+                    )
+                except Exception:
+                    pass
                 apply_manifest_events()
                 if timed_out:
                     raise _ProcessCancellationTimeout from None
@@ -596,11 +653,11 @@ class Executor:
                     process.close()
 
             apply_manifest_events()
-            if outcome[0] == "result":
-                return outcome[1]
-            if outcome[0] == "cancelled":
+            if isinstance(outcome, _ResultWorkerMessage):
+                return outcome.outputs
+            if isinstance(outcome, _CancelledWorkerMessage):
                 raise asyncio.CancelledError
-            raise _ProcessModuleError(str(outcome[1]))
+            raise _ProcessModuleError(outcome.kind)
 
         async def run_module(
             module: WorkflowModule,
