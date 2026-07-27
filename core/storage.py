@@ -60,9 +60,14 @@ def contained_path(
     *parts: str,
     field: str = "path",
 ) -> Path:
-    """Resolve path parts beneath root, following existing symlinks safely."""
+    """Resolve path parts beneath root without accepting namespace aliases."""
     resolved_root = Path(root).resolve()
-    candidate = resolved_root.joinpath(*parts).resolve()
+    candidate = resolved_root
+    for part in parts:
+        candidate /= part
+        if candidate.is_symlink():
+            raise StoragePathError(field, f"Invalid {field}")
+    candidate = candidate.resolve()
     if not candidate.is_relative_to(resolved_root):
         raise StoragePathError(field, f"Invalid {field}")
     return candidate

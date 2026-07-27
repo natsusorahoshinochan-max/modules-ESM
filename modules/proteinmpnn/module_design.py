@@ -59,6 +59,7 @@ class ProteinMPNNDesignModule(WorkflowModule):
             num_sequences=num_sequences,
             temperature=temperature,
             constraints=constraints,
+            temp_dir=context.temp_dir,
         )
 
         candidates: list[Candidate] = []

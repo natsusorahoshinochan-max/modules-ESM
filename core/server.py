@@ -527,12 +527,15 @@ def create_app() -> FastAPI:
         project_dir = str(project_manager.project_dir(project_id))
         seed = payload.get("seed", 42)
         for node_id in workflow.nodes:
-            project_manager.run_context(
+            context = project_manager.run_context(
                 project_id,
                 run_id,
                 node_id,
                 seed=seed,
             )
+            node = workflow.nodes[node_id]
+            if node.module_id in {"import.sequence", "import.structure"}:
+                context.input_path(node.parameters.get("file_path", ""))
         for node_id in payload.get("force_rerun_nodes", []):
             validate_identifier(node_id, "node_id")
 
@@ -590,8 +593,12 @@ def create_app() -> FastAPI:
         count = 0
         if cache_dir.exists():
             for f in cache_dir.iterdir():
-                f.unlink()
-                count += 1
+                if f.is_symlink() or f.is_file():
+                    f.unlink()
+                    count += 1
+                elif f.is_dir():
+                    count += sum(1 for item in f.rglob("*") if item.is_file())
+                    shutil.rmtree(f)
         return {"status": "cleared", "removed": count}
 
     @app.delete("/api/projects/{project_id}/cache/{node_id}")
@@ -600,14 +607,15 @@ def create_app() -> FastAPI:
         meta = project_manager.load_meta(project_id)
         if meta is None:
             return {"error": "Project not found"}
-        safe_node_id = validate_identifier(node_id, "node_id")
-        cache_dir = project_manager.cache_dir(project_id)
+        cache_node_dir = project_manager.cache_node_dir(project_id, node_id)
         count = 0
-        if cache_dir.exists():
-            for f in cache_dir.iterdir():
-                if f.name.startswith(f"{safe_node_id}_"):
+        if cache_node_dir.exists():
+            for f in cache_node_dir.iterdir():
+                if f.is_file() and f.suffix == ".pkl":
                     f.unlink()
                     count += 1
+            if not any(cache_node_dir.iterdir()):
+                cache_node_dir.rmdir()
         return {"status": "cleared", "removed": count}
 
 
@@ -620,15 +628,18 @@ def create_app() -> FastAPI:
         if meta is None:
             return {"error": "Project not found"}
 
-        safe_node_id = validate_identifier(node_id, "node_id")
-        cache_dir = project_manager.cache_dir(project_id)
-        if not cache_dir.exists():
+        cache_node_dir = project_manager.cache_node_dir(project_id, node_id)
+        if not cache_node_dir.exists():
             return {"error": "No cache for this project"}
 
         import pickle
         structures: list[dict] = []
-        for f in sorted(cache_dir.iterdir(), key=lambda x: x.stat().st_mtime, reverse=True):
-            if f.name.startswith(f"{safe_node_id}_") and f.suffix == ".pkl":
+        for f in sorted(
+            cache_node_dir.iterdir(),
+            key=lambda x: x.stat().st_mtime,
+            reverse=True,
+        ):
+            if f.is_file() and f.suffix == ".pkl":
                 try:
                     with open(f, "rb") as fh:
                         outputs = pickle.load(fh)
@@ -758,7 +769,10 @@ def create_app() -> FastAPI:
         dest.parent.mkdir(parents=True, exist_ok=True)
         with open(dest, "wb") as f:
             shutil.copyfileobj(file.file, f)
-        return {"path": str(dest), "filename": file.filename}
+        return {
+            "path": f"inputs/{uploaded_name}",
+            "filename": file.filename,
+        }
 
     @app.get("/api/projects/{project_id}/outputs/{filename:path}")
     async def download_output(project_id: str, filename: str):

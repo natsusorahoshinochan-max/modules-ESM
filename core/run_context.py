@@ -2,10 +2,12 @@
 
 from dataclasses import dataclass, field
 from pathlib import Path
+import tempfile
 from typing import Optional
 import uuid
 
 from core.storage import (
+    StoragePathError,
     contained_path,
     validate_identifier,
     validate_relative_path,
@@ -75,4 +77,39 @@ class RunContext:
             self.output_dir or "",
             *artifact_parts,
             field="artifact_name",
+        )
+
+    def input_path(self, input_reference: str) -> Path:
+        """Resolve an uploaded input reference beneath this project."""
+        inputs_dir = contained_path(self.project_dir, "inputs")
+        supplied = Path(input_reference)
+        if supplied.is_absolute():
+            resolved = supplied.resolve()
+            if not resolved.is_relative_to(inputs_dir):
+                raise StoragePathError("input_path", "Invalid input_path")
+            relative_parts = resolved.relative_to(inputs_dir).parts
+        else:
+            relative_parts = validate_relative_path(
+                input_reference,
+                "input_path",
+            )
+            if relative_parts[:1] == ("inputs",):
+                relative_parts = relative_parts[1:]
+            if not relative_parts:
+                raise StoragePathError("input_path", "Invalid input_path")
+        return contained_path(
+            inputs_dir,
+            *relative_parts,
+            field="input_path",
+        )
+
+    def temporary_file(self, *, mode: str, suffix: str, delete: bool):
+        """Create a temporary file inside this run and Node namespace."""
+        temp_dir = Path(self.temp_dir or "")
+        temp_dir.mkdir(parents=True, exist_ok=True)
+        return tempfile.NamedTemporaryFile(
+            mode=mode,
+            suffix=suffix,
+            delete=delete,
+            dir=temp_dir,
         )

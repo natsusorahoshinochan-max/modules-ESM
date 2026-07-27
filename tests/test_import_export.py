@@ -27,20 +27,17 @@ YQIPRADKHG"""
 
 class TestImportStructure:
     def test_reads_pdb_produces_structure(self) -> None:
-        with tempfile.NamedTemporaryFile(mode="w", suffix=".pdb", delete=False) as f:
-            f.write(SAMPLE_PDB)
-            path = f.name
-
-        try:
+        with tempfile.TemporaryDirectory() as project_dir:
+            input_path = Path(project_dir) / "inputs" / "source.pdb"
+            input_path.parent.mkdir()
+            input_path.write_text(SAMPLE_PDB)
             mod = ImportStructureModule()
-            ctx = RunContext("/tmp/test", "n1")
-            result = mod.run({}, {"file_path": path}, ctx)
+            ctx = RunContext(project_dir, "n1")
+            result = mod.run({}, {"file_path": str(input_path)}, ctx)
             ps = result["structure"]
             assert isinstance(ps, ProteinStructure)
             assert "ATOM" in ps.pdb_string
             assert "END" in ps.pdb_string
-        finally:
-            Path(path).unlink()
 
     def test_missing_file_path_raises(self) -> None:
         mod = ImportStructureModule()
@@ -54,32 +51,26 @@ class TestImportStructure:
 
 class TestImportSequence:
     def test_reads_fasta_produces_sequence(self) -> None:
-        with tempfile.NamedTemporaryFile(mode="w", suffix=".fasta", delete=False) as f:
-            f.write(SAMPLE_FASTA)
-            path = f.name
-
-        try:
+        with tempfile.TemporaryDirectory() as project_dir:
+            input_path = Path(project_dir) / "inputs" / "source.fasta"
+            input_path.parent.mkdir()
+            input_path.write_text(SAMPLE_FASTA)
             mod = ImportSequenceModule()
-            ctx = RunContext("/tmp/test", "n1")
-            result = mod.run({}, {"file_path": path}, ctx)
+            ctx = RunContext(project_dir, "n1")
+            result = mod.run({}, {"file_path": str(input_path)}, ctx)
             ps = result["sequence"]
             assert isinstance(ps, ProteinSequence)
             assert ps.sequence == "MKFLILFNILVSTLAFLVSSYQIPRADKHG"
-        finally:
-            Path(path).unlink()
 
     def test_ignores_fasta_headers(self) -> None:
-        with tempfile.NamedTemporaryFile(mode="w", suffix=".fasta", delete=False) as f:
-            f.write(">header line\nAAAA\n")
-            path = f.name
-
-        try:
+        with tempfile.TemporaryDirectory() as project_dir:
+            input_path = Path(project_dir) / "inputs" / "source.fasta"
+            input_path.parent.mkdir()
+            input_path.write_text(">header line\nAAAA\n")
             mod = ImportSequenceModule()
-            ctx = RunContext("/tmp/test", "n1")
-            result = mod.run({}, {"file_path": path}, ctx)
+            ctx = RunContext(project_dir, "n1")
+            result = mod.run({}, {"file_path": str(input_path)}, ctx)
             assert result["sequence"].sequence == "AAAA"
-        finally:
-            Path(path).unlink()
 
 
 class TestExportStructure:

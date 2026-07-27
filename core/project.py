@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import json
 import logging
+import shutil
 import uuid
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
@@ -127,8 +128,15 @@ class ProjectManager:
         safe_node_id = validate_identifier(node_id, "node_id")
         safe_cache_key = validate_identifier(cache_key, "cache_key")
         return contained_path(
+            self.cache_node_dir(project_id, safe_node_id),
+            f"{safe_cache_key}.pkl",
+        )
+
+    def cache_node_dir(self, project_id: str, node_id: str) -> Path:
+        """Resolve one Node's unambiguous Cache namespace."""
+        return contained_path(
             self.cache_dir(project_id),
-            f"{safe_node_id}_{safe_cache_key}.pkl",
+            validate_identifier(node_id, "node_id"),
         )
 
     def output_dir(self, project_id: str, run_id: str) -> Path:
@@ -267,8 +275,48 @@ class ProjectManager:
         content_hash = json.dumps(workflow_content, sort_keys=True)
         project_id = str(uuid.uuid5(uuid.NAMESPACE_OID, content_hash))
 
+        seed_inputs: list[tuple[Path, tuple[str, ...]]] = []
+        for node in workflow_content.get("nodes", []):
+            if node.get("module_id") not in {
+                "import.sequence",
+                "import.structure",
+            }:
+                continue
+            input_reference = node.get("parameters", {}).get("file_path", "")
+            try:
+                destination_parts = validate_relative_path(
+                    input_reference,
+                    "input_path",
+                )
+            except StoragePathError as error:
+                _logger.warning("Unsafe seed input reference: %s", error)
+                return None
+            if destination_parts[:1] == ("inputs",):
+                destination_parts = destination_parts[1:]
+            source = Path(input_reference).resolve()
+            if not source.is_file() or not destination_parts:
+                _logger.warning(
+                    "Seed input file not found: %s",
+                    input_reference,
+                )
+                return None
+            seed_inputs.append((source, destination_parts))
+
+        def provision_seed_inputs() -> None:
+            project_dir = self.project_dir(project_id)
+            for source, destination_parts in seed_inputs:
+                destination = contained_path(
+                    project_dir,
+                    "inputs",
+                    *destination_parts,
+                    field="input_path",
+                )
+                destination.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copyfile(source, destination)
+
         # Idempotent: skip if already exists
         if self._project_dir(project_id).exists():
+            provision_seed_inputs()
             return self._load_meta(project_id)
 
         # Validate module_ids
@@ -284,6 +332,7 @@ class ProjectManager:
         # Create project
         meta = ProjectMeta(id=project_id, name=name, seed=True)
         self._ensure_dir(project_id)
+        provision_seed_inputs()
         self._save_meta(meta)
 
         # Copy workflow JSON directly

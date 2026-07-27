@@ -75,7 +75,10 @@ def _load_model(model_name: str = "v_48_020") -> Any:
     return model, device
 
 
-def _parse_structure(pdb_string: str) -> list[dict[str, Any]]:
+def _parse_structure(
+    pdb_string: str,
+    temp_dir: str | Path | None = None,
+) -> list[dict[str, Any]]:
     """Convert a PDB string to ProteinMPNN's pdb_dict_list format."""
     mpnn_path = str(_PROTEINMPNN_DIR)
     if mpnn_path not in sys.path:
@@ -83,8 +86,14 @@ def _parse_structure(pdb_string: str) -> list[dict[str, Any]]:
 
     from protein_mpnn_utils import parse_PDB
 
+    temporary_root = Path(temp_dir) if temp_dir is not None else None
+    if temporary_root is not None:
+        temporary_root.mkdir(parents=True, exist_ok=True)
     with tempfile.NamedTemporaryFile(
-        mode="w", suffix=".pdb", delete=False
+        mode="w",
+        suffix=".pdb",
+        delete=False,
+        dir=temporary_root,
     ) as tmp:
         tmp.write(pdb_string)
         pdb_path = tmp.name
@@ -271,13 +280,14 @@ def design_sequences(
     num_sequences: int = 1,
     temperature: float = 0.1,
     constraints: ProteinMPNNConstraints | None = None,
+    temp_dir: str | Path | None = None,
 ) -> tuple[list[ProteinSequence], float | None]:
     """Run ProteinMPNN design and return generated sequences with score.
 
     Returns (sequences, average_score).
     """
     model, device = _load_model(model_name)
-    pdb_dict_list = _parse_structure(pdb_string)
+    pdb_dict_list = _parse_structure(pdb_string, temp_dir=temp_dir)
 
     if len(pdb_dict_list) == 0:
         raise ValueError("No valid chains found in PDB structure")
@@ -302,10 +312,11 @@ def score_sequence(
     pdb_string: str,
     sequence: str,
     model_name: str = "v_48_020",
+    temp_dir: str | Path | None = None,
 ) -> float:
     """Score how well a sequence fits a structure."""
     model, device = _load_model(model_name)
-    pdb_dict_list = _parse_structure(pdb_string)
+    pdb_dict_list = _parse_structure(pdb_string, temp_dir=temp_dir)
 
     if len(pdb_dict_list) == 0:
         raise ValueError("No valid chains found in PDB structure")

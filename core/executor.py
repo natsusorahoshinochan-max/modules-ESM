@@ -10,6 +10,7 @@ from typing import TYPE_CHECKING, Any, Callable
 
 from core.graph import NodeState, Workflow, WorkflowNode
 from core.run_context import RunContext
+from core.storage import validate_identifier
 from core.workflow_module import WorkflowModule
 
 if TYPE_CHECKING:
@@ -88,9 +89,13 @@ class Executor:
         self, project_dir: str, node_id: str, cache_key: str
     ) -> Path:
         """Get the path to a cache file."""
-        cache_dir = Path(project_dir) / "cache"
+        cache_dir = (
+            Path(project_dir)
+            / "cache"
+            / validate_identifier(node_id, "node_id")
+        )
         cache_dir.mkdir(parents=True, exist_ok=True)
-        return cache_dir / f"{node_id}_{cache_key}.pkl"
+        return cache_dir / f"{validate_identifier(cache_key, 'cache_key')}.pkl"
 
     def _load_from_cache(self, cache_path: Path) -> dict[str, Any] | None:
         """Load cached outputs from a pickle file. Returns None on miss."""

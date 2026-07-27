@@ -24,7 +24,7 @@ class ImportSequenceModule(WorkflowModule):
         file_path = parameters.get("file_path", "")
         if not file_path:
             raise ValueError("file_path parameter is required")
-        text = Path(file_path).read_text()
+        text = context.input_path(file_path).read_text()
         # Parse FASTA: strip header line(s) starting with >
         lines = text.strip().split("\n")
         seq_lines = [l.strip() for l in lines if not l.startswith(">") and l.strip()]

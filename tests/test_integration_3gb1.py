@@ -180,8 +180,14 @@ class Test3GB1Pipeline:
         assert len(weighted_entries) == 10
 
         # ── Mock ProteinMPNN design ──
-        def mock_design_sequences(pdb_string, model_name, num_sequences,
-                                  temperature, constraints=None):
+        def mock_design_sequences(
+            pdb_string,
+            model_name,
+            num_sequences,
+            temperature,
+            constraints=None,
+            temp_dir=None,
+        ):
             n = _ca_count(pdb_string)
             import random
             rng = random.Random(42)
@@ -252,8 +258,14 @@ class Test3GB1Pipeline:
 
         captured_constraints = []
 
-        def capture_design(pdb_string, model_name, num_sequences,
-                           temperature, constraints=None):
+        def capture_design(
+            pdb_string,
+            model_name,
+            num_sequences,
+            temperature,
+            constraints=None,
+            temp_dir=None,
+        ):
             captured_constraints.append(constraints)
             n = _ca_count(pdb_string)
             import random

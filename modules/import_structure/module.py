@@ -23,5 +23,5 @@ class ImportStructureModule(WorkflowModule):
         file_path = parameters.get("file_path", "")
         if not file_path:
             raise ValueError("file_path parameter is required")
-        pdb_text = Path(file_path).read_text()
+        pdb_text = context.input_path(file_path).read_text()
         return {"structure": ProteinStructure(pdb_string=pdb_text)}

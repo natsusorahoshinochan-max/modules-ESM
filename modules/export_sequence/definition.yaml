@@ -18,5 +18,5 @@ parameters:
     type: str
     default: "exported.fasta"
     display_name: Filename
-    description: "Output filename (written under project outputs/)."
+    description: "Output filename (written under the configured run output namespace)."
 module_api: "1.0"
