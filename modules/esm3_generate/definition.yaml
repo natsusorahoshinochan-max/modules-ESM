@@ -1,8 +1,8 @@
 module_id: esm3.generate
-version: 1.0.0
+version: 1.1.0
 display_name: ESM3 Generate
 category: model
-description: "Unified ESM-3 generation: a single API call outputs both sequence and structure candidates with matched indices. pTM and pLDDT scores reference the corresponding sequence candidates."
+description: "Paired ESM-3 generation: each sequence is generated first, then its structure track is sampled without template coordinates. Candidate pairs remain index-matched and confidence metrics reference the sequence Candidate."
 input_ports:
   - name: protein_prompt
     type_id: protein.prompt
@@ -16,11 +16,11 @@ output_ports:
   - name: structure_candidates
     type_id: candidate.collection
     display_name: Structure Candidates
-    description: "Generated structure candidates (item_type: protein.structure)."
+    description: "Sampled structure candidates paired by sample index and lineage to sequence Candidates (item_type: protein.structure)."
   - name: scores
     type_id: score.collection
     display_name: Scores
-    description: "pTM and pLDDT confidence scores referencing sequence candidates."
+    description: "Validated pTM, pLDDT, and optional PAE metrics from sampled structures, referencing sequence Candidates."
 parameters:
   - name: model_name
     type: enum
@@ -55,5 +55,5 @@ parameters:
     default: 1
     min: 1
     display_name: Num Samples
-    description: "Number of joint sequence+structure samples to generate."
+    description: "Number of index-paired sequence-then-structure samples to generate."
 module_api: "1.0"

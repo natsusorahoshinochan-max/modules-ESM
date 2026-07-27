@@ -1,5 +1,5 @@
 module_id: esm3.generate_sequence
-version: 1.0.0
+version: 1.1.0
 display_name: ESM3 Generate Sequence
 category: model
 description: "Generates protein sequences from a ProteinPrompt using ESM3."
@@ -12,11 +12,11 @@ output_ports:
   - name: candidates
     type_id: candidate.collection
     display_name: Candidates
-    description: "Generated sequence candidates."
+    description: "Generated sequence Candidates with provider, model, operation, sample index, and structure-source classification metadata."
   - name: scores
     type_id: score.collection
     display_name: Scores
-    description: "Confidence scores for generated sequences."
+    description: "Provider confidence metrics when the sequence operation returns documented metrics; coordinate-free generation may return an empty collection."
 parameters:
   - name: model_name
     type: enum

@@ -5,13 +5,11 @@ verifies the full pipeline wiring, counts, and output correctness.
 """
 
 import importlib
-import json
 import tempfile
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import torch
-import pytest
 
 from datatypes import (
     Candidate,
@@ -36,16 +34,40 @@ step4_final_fold = _pipeline.step4_final_fold
 # ── Helpers ───────────────────────────────────────────────────────────
 
 AA3 = {
-    "A": "ALA", "C": "CYS", "D": "ASP", "E": "GLU", "F": "PHE",
-    "G": "GLY", "H": "HIS", "I": "ILE", "K": "LYS", "L": "LEU",
-    "M": "MET", "N": "ASN", "P": "PRO", "Q": "GLN", "R": "ARG",
-    "S": "SER", "T": "THR", "V": "VAL", "W": "TRP", "Y": "TYR",
+    "A": "ALA",
+    "C": "CYS",
+    "D": "ASP",
+    "E": "GLU",
+    "F": "PHE",
+    "G": "GLY",
+    "H": "HIS",
+    "I": "ILE",
+    "K": "LYS",
+    "L": "LEU",
+    "M": "MET",
+    "N": "ASN",
+    "P": "PRO",
+    "Q": "GLN",
+    "R": "ARG",
+    "S": "SER",
+    "T": "THR",
+    "V": "VAL",
+    "W": "TRP",
+    "Y": "TYR",
     "_": "ALA",
 }
 
 
-def _pdb_line(serial: int, atom: str, res: str, chain: str,
-              resnum: int, x: float, y: float, z: float) -> str:
+def _pdb_line(
+    serial: int,
+    atom: str,
+    res: str,
+    chain: str,
+    resnum: int,
+    x: float,
+    y: float,
+    z: float,
+) -> str:
     """Build a valid PDB ATOM line with correct column positions."""
     aa3 = AA3.get(res, "ALA")
     return (
@@ -80,8 +102,10 @@ def _make_mock_esm_protein(sequence: str, seed: int = 0) -> MagicMock:
     n = len(sequence)
     mock = MagicMock()
     mock.sequence = sequence
+    mock.coordinates = torch.zeros((n, 37, 3))
     mock.ptm = torch.tensor([0.85 + seed * 0.01])
     mock.plddt = torch.tensor([0.9 - seed * 0.005] * n)
+    mock.pae = None
     mock.to_pdb_string.return_value = _make_mock_pdb(sequence, seed)
     return mock
 
@@ -92,7 +116,8 @@ def _make_mock_fold_result(
     struct = ProteinStructure(pdb_string=pdb_string)
     if plddt_vals is None:
         ca_count = sum(
-            1 for line in pdb_string.splitlines()
+            1
+            for line in pdb_string.splitlines()
             if line.startswith("ATOM") and line[12:16].strip() == "CA"
         )
         plddt_vals = [0.8] * ca_count
@@ -110,12 +135,14 @@ def _make_mock_fold_result(
 
 def _ca_count(pdb_string: str) -> int:
     return sum(
-        1 for line in pdb_string.splitlines()
+        1
+        for line in pdb_string.splitlines()
         if line.startswith("ATOM") and line[12:16].strip() == "CA"
     )
 
 
 # ── Integration Tests ─────────────────────────────────────────────────
+
 
 class Test3GB1Pipeline:
     def test_full_pipeline_mocked(self) -> None:
@@ -139,8 +166,12 @@ class Test3GB1Pipeline:
         # ── Mock ESM-3 generate ──
         num_samples = 10
         mock_eps = [
-            _make_mock_esm_protein("A" * 56 + "G" * 15, seed=i)
+            response
             for i in range(num_samples)
+            for response in (
+                _make_mock_esm_protein("A" * 56 + "G" * 15, seed=i),
+                _make_mock_esm_protein("A" * 56 + "G" * 15, seed=i),
+            )
         ]
 
         mock_esm3_client = MagicMock()
@@ -161,17 +192,13 @@ class Test3GB1Pipeline:
         fold_pdb_56 = _make_mock_pdb("A" * 56)
 
         def mock_fold_sequence(sequence, **kwargs):
-            return _make_mock_fold_result(
-                fold_pdb_56, ptm=0.9, plddt_vals=[0.8] * 56
-            )
+            return _make_mock_fold_result(fold_pdb_56, ptm=0.9, plddt_vals=[0.8] * 56)
 
         with patch(
             "modules.esmfold2_adapter.fold_sequence",
             side_effect=mock_fold_sequence,
         ):
-            top3, rank_scores = step2_fold_and_rank(
-                seq_cands, ref_3gb1, struct_cands
-            )
+            top3, rank_scores = step2_fold_and_rank(seq_cands, ref_3gb1, struct_cands)
 
         assert len(top3) == 3
         weighted_entries = [
@@ -192,6 +219,7 @@ class Test3GB1Pipeline:
         ):
             n = _ca_count(pdb_string)
             import random
+
             rng = random.Random(42)
             aas = "ACDEFGHIKLMNPQRSTVWY"
             sequences = [
@@ -210,6 +238,7 @@ class Test3GB1Pipeline:
 
         # ── Mock final ESMFold2 fold ──
         with tempfile.TemporaryDirectory() as tmpdir:
+
             def mock_final_fold(sequence, **kwargs):
                 return _make_mock_fold_result(
                     fold_pdb_56, ptm=0.85, plddt_vals=[0.7] * 56
@@ -233,7 +262,7 @@ class Test3GB1Pipeline:
         prompt = build_3gb1_prompt(pdb_path)
         ss = prompt.secondary_structure_track
         assert ss is not None
-        for i in range(0, 19):
+        for i in range(19):
             assert ss.values[i] == "E", f"Position {i} should be E"
         for i in range(22, 30):
             assert ss.values[i] == "H", f"Position {i} should be H"
@@ -273,6 +302,7 @@ class Test3GB1Pipeline:
             captured_constraints.append(constraints)
             n = _ca_count(pdb_string)
             import random
+
             rng = random.Random(42)
             aas = "ACDEFGHIKLMNPQRSTVWY"
             sequences = [

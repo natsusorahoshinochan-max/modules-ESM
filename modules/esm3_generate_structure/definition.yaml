@@ -1,5 +1,5 @@
 module_id: esm3.generate_structure
-version: 1.0.0
+version: 1.1.0
 display_name: ESM3 Generate Structure
 category: model
 description: "Generates protein structures from a ProteinPrompt using ESM3."
@@ -12,11 +12,11 @@ output_ports:
   - name: candidates
     type_id: candidate.collection
     display_name: Candidates
-    description: "Generated structure candidates."
+    description: "Generated structure Candidates classified as prompt reconstruction or sampled structure with provider provenance."
   - name: scores
     type_id: score.collection
     display_name: Scores
-    description: "Confidence scores for generated structures."
+    description: "Validated pTM, per-residue pLDDT, and optional PAE metrics for generated structures."
 parameters:
   - name: model_name
     type: enum

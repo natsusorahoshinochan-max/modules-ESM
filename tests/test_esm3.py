@@ -1,14 +1,12 @@
 """Tests for ESM3 generation modules (ticket 06)."""
 
-import json
 from unittest.mock import MagicMock, patch
 
-import torch
 import pytest
+import torch
 
 from core.run_context import RunContext
 from datatypes import (
-    Candidate,
     CandidateCollection,
     FunctionAnnotations,
     ProteinPrompt,
@@ -16,11 +14,11 @@ from datatypes import (
     ProteinStructure,
     ResidueLayout,
     ResidueTrack,
-    Score,
     ScoreCollection,
 )
 
 # ── Shared test data ─────────────────────────────────────────────────
+
 
 def _make_prompt(length: int = 3, with_structure: bool = False) -> ProteinPrompt:
     layout = ResidueLayout(chain_id="A", length=length)
@@ -48,12 +46,15 @@ def _make_prompt(length: int = 3, with_structure: bool = False) -> ProteinPrompt
     )
 
 
-def _make_mock_esm_protein(sequence: str = "AGS", ptm: float = 0.85,
-                            plddt_vals: list[float] | None = None) -> MagicMock:
+def _make_mock_esm_protein(
+    sequence: str = "AGS", ptm: float = 0.85, plddt_vals: list[float] | None = None
+) -> MagicMock:
     """Create a mock ESMProtein with set attributes."""
     mock = MagicMock()
     mock.sequence = sequence
+    mock.coordinates = torch.zeros((len(sequence), 37, 3))
     mock.ptm = torch.tensor([ptm])
+    mock.pae = None
     if plddt_vals is None:
         plddt_vals = [0.9, 0.8, 0.7]
     mock.plddt = torch.tensor(plddt_vals)
@@ -67,9 +68,11 @@ def _make_mock_esm_protein(sequence: str = "AGS", ptm: float = 0.85,
 
 # ── ESM3 Adapter ─────────────────────────────────────────────────────
 
+
 class TestESM3Adapter:
     def test_prompt_to_esm_protein_basic(self) -> None:
         from modules.esm3_adapter import protein_prompt_to_esm_protein
+
         prompt = _make_prompt(3)
         ep = protein_prompt_to_esm_protein(prompt)
         assert ep.sequence == "AGS", (
@@ -155,6 +158,7 @@ class TestESM3Adapter:
 
     def test_prompt_with_coordinates(self) -> None:
         from modules.esm3_adapter import protein_prompt_to_esm_protein
+
         prompt = _make_prompt(3, with_structure=True)
         ep = protein_prompt_to_esm_protein(prompt)
         assert ep.coordinates is not None
@@ -200,12 +204,14 @@ class TestESM3Adapter:
 
     def test_empty_prompt_raises(self) -> None:
         from modules.esm3_adapter import protein_prompt_to_esm_protein
+
         prompt = ProteinPrompt()
         with pytest.raises(ValueError, match="num_residues"):
             protein_prompt_to_esm_protein(prompt)
 
     def test_prompt_with_none_tracks(self) -> None:
         from modules.esm3_adapter import protein_prompt_to_esm_protein
+
         layout = ResidueLayout(chain_id="A", length=2)
         prompt = ProteinPrompt(target_layout=layout)
         ep = protein_prompt_to_esm_protein(prompt)
@@ -215,6 +221,7 @@ class TestESM3Adapter:
 
     def test_esm_protein_to_sequence(self) -> None:
         from modules.esm3_adapter import esm_protein_to_sequence
+
         mock = _make_mock_esm_protein("MKFLIL")
         seq = esm_protein_to_sequence(mock)
         assert isinstance(seq, ProteinSequence)
@@ -222,6 +229,7 @@ class TestESM3Adapter:
 
     def test_esm_protein_to_sequence_missing_raises(self) -> None:
         from modules.esm3_adapter import esm_protein_to_sequence
+
         mock = MagicMock()
         mock.sequence = None
         with pytest.raises(ValueError, match="no sequence"):
@@ -229,6 +237,7 @@ class TestESM3Adapter:
 
     def test_esm_protein_to_structure(self) -> None:
         from modules.esm3_adapter import esm_protein_to_structure
+
         mock = _make_mock_esm_protein()
         struct = esm_protein_to_structure(mock)
         assert isinstance(struct, ProteinStructure)
@@ -236,6 +245,7 @@ class TestESM3Adapter:
 
     def test_esm_protein_to_scores_ptm_normalization(self) -> None:
         from modules.esm3_adapter import esm_protein_to_scores
+
         mock = _make_mock_esm_protein(ptm=0.85)
         scores = esm_protein_to_scores(mock, "test-cid")
         assert isinstance(scores, ScoreCollection)
@@ -245,6 +255,7 @@ class TestESM3Adapter:
 
     def test_esm_protein_to_scores_plddt_mean(self) -> None:
         from modules.esm3_adapter import esm_protein_to_scores
+
         mock = _make_mock_esm_protein(plddt_vals=[0.5, 0.7, 0.9])
         scores = esm_protein_to_scores(mock, "test-cid")
         plddt_entry = [s for s in scores.entries if s.score_id == "plddt"]
@@ -253,6 +264,7 @@ class TestESM3Adapter:
 
     def test_read_biohub_token_found(self) -> None:
         from modules.esm3_adapter import read_biohub_token
+
         token = read_biohub_token()
         assert isinstance(token, str)
         assert len(token) > 0
@@ -260,9 +272,13 @@ class TestESM3Adapter:
 
 # ── Update Prompt Sequence ───────────────────────────────────────────
 
+
 class TestUpdatePromptSequence:
     def test_replaces_sequence_preserves_others(self) -> None:
-        from modules.esm3_update_prompt_sequence.module import UpdatePromptSequenceModule
+        from modules.esm3_update_prompt_sequence.module import (
+            UpdatePromptSequenceModule,
+        )
+
         mod = UpdatePromptSequenceModule()
         ctx = RunContext("/tmp/test", "n1")
         prompt = _make_prompt(3)
@@ -282,7 +298,10 @@ class TestUpdatePromptSequence:
         assert len(updated.function_annotations) == 1
 
     def test_preserves_structure_coordinates(self) -> None:
-        from modules.esm3_update_prompt_sequence.module import UpdatePromptSequenceModule
+        from modules.esm3_update_prompt_sequence.module import (
+            UpdatePromptSequenceModule,
+        )
+
         mod = UpdatePromptSequenceModule()
         ctx = RunContext("/tmp/test", "n1")
         prompt = _make_prompt(3, with_structure=True)
@@ -297,7 +316,10 @@ class TestUpdatePromptSequence:
         assert updated.structure_visibility_track is not None
 
     def test_mismatched_length_raises(self) -> None:
-        from modules.esm3_update_prompt_sequence.module import UpdatePromptSequenceModule
+        from modules.esm3_update_prompt_sequence.module import (
+            UpdatePromptSequenceModule,
+        )
+
         mod = UpdatePromptSequenceModule()
         ctx = RunContext("/tmp/test", "n1")
         prompt = _make_prompt(3)
@@ -310,7 +332,10 @@ class TestUpdatePromptSequence:
             )
 
     def test_missing_prompt_raises(self) -> None:
-        from modules.esm3_update_prompt_sequence.module import UpdatePromptSequenceModule
+        from modules.esm3_update_prompt_sequence.module import (
+            UpdatePromptSequenceModule,
+        )
+
         mod = UpdatePromptSequenceModule()
         ctx = RunContext("/tmp/test", "n1")
         with pytest.raises(ValueError, match="protein_prompt"):
@@ -319,9 +344,11 @@ class TestUpdatePromptSequence:
 
 # ── ESM3 Generate Sequence (mocked) ───────────────────────────────────
 
+
 class TestESM3GenerateSequence:
     def test_generates_candidates(self) -> None:
         from modules.esm3_generate_sequence.module import ESM3GenerateSequenceModule
+
         mock_ep = _make_mock_esm_protein("AGS")
         mock_client = MagicMock()
         mock_client.generate.return_value = mock_ep
@@ -353,6 +380,7 @@ class TestESM3GenerateSequence:
 
     def test_missing_prompt_raises(self) -> None:
         from modules.esm3_generate_sequence.module import ESM3GenerateSequenceModule
+
         mod = ESM3GenerateSequenceModule()
         ctx = RunContext("/tmp/test", "n1")
         with pytest.raises(ValueError, match="protein_prompt"):
@@ -361,9 +389,11 @@ class TestESM3GenerateSequence:
 
 # ── ESM3 Generate Structure (mocked) ──────────────────────────────────
 
+
 class TestESM3GenerateStructure:
     def test_generates_without_template_coords(self) -> None:
         from modules.esm3_generate_structure.module import ESM3GenerateStructureModule
+
         mock_ep = _make_mock_esm_protein()
         mock_client = MagicMock()
         mock_client.generate.return_value = mock_ep
@@ -383,12 +413,13 @@ class TestESM3GenerateStructure:
         candidates = result["candidates"]
         assert len(candidates) == 1
         c = candidates.items[0]
-        assert c.metadata["classification"] == "absent"
+        assert c.metadata["classification"] == "sampled_structure"
         assert isinstance(c.data, ProteinStructure)
         assert "HEADER" in c.data.pdb_string
 
     def test_generates_with_template_coords(self) -> None:
         from modules.esm3_generate_structure.module import ESM3GenerateStructureModule
+
         mock_ep = _make_mock_esm_protein()
         mock_client = MagicMock()
         mock_client.generate.return_value = mock_ep
@@ -410,6 +441,7 @@ class TestESM3GenerateStructure:
 
     def test_missing_prompt_raises(self) -> None:
         from modules.esm3_generate_structure.module import ESM3GenerateStructureModule
+
         mod = ESM3GenerateStructureModule()
         ctx = RunContext("/tmp/test", "n1")
         with pytest.raises(ValueError, match="protein_prompt"):
@@ -418,9 +450,11 @@ class TestESM3GenerateStructure:
 
 # ── Module Discovery ─────────────────────────────────────────────────
 
+
 class TestModuleDiscoveryE2E:
     def test_38_modules_discoverable(self) -> None:
-        from core import TypeRegistry, ModuleRegistry, discover_modules
+        from core import ModuleRegistry, TypeRegistry, discover_modules
+
         tr = TypeRegistry()
         mr = ModuleRegistry(tr)
         discover_modules(mr)
@@ -434,7 +468,8 @@ class TestModuleDiscoveryE2E:
         assert len(mr) == 45
 
     def test_all_types_registered(self) -> None:
-        from core import TypeRegistry, ModuleRegistry, discover_modules
+        from core import ModuleRegistry, TypeRegistry, discover_modules
+
         tr = TypeRegistry()
         mr = ModuleRegistry(tr)
         discover_modules(mr)

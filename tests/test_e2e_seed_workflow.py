@@ -10,37 +10,36 @@ import json
 import shutil
 import tempfile
 from pathlib import Path
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
-import pytest
 import torch
 
-from core.graph import Workflow, WorkflowNode, WorkflowEdge
 from core.executor import Executor
+from core.graph import Workflow, WorkflowEdge, WorkflowNode
 from core.module_registry import ModuleRegistry, TypeRegistry, discover_modules
-
 
 # ── Module instances (reused across tests) ────────────────────────────
 
+
 def _build_modules():
-    from modules.import_structure import ImportStructureModule
-    from modules.build_residue_layout import BuildResidueLayoutModule
     from modules.apply_residue_edits import ApplyResidueEditsModule
-    from modules.override_residue_track import OverrideResidueTrackModule
     from modules.assemble_protein_prompt import AssembleProteinPromptModule
+    from modules.build_residue_layout import BuildResidueLayoutModule
+    from modules.compute_dssp.module import ComputeDSSPModule
     from modules.esm3_generate.module import ESM3GenerateModule
     from modules.esmfold2_fold.module import ESMFold2FoldModule
-    from modules.structure_pairwise_align.module import PairwiseAlignModule
-    from modules.structure_batch_tm_score.module import BatchTMScoreModule
-    from modules.compute_dssp.module import ComputeDSSPModule
+    from modules.import_structure import ImportStructureModule
     from modules.merge_scores.module import MergeScoresModule
-    from modules.top_k.module import TopKModule
-    from modules.weighted_rank.module import WeightedRankModule
-    from modules.prompt_random_mask.module import RandomMaskModule
-    from modules.prompt_random_insert_masked.module import RandomInsertMaskedModule
+    from modules.override_residue_track import OverrideResidueTrackModule
     from modules.prompt_random_fixed_positions.module import RandomFixedPositionsModule
+    from modules.prompt_random_insert_masked.module import RandomInsertMaskedModule
+    from modules.prompt_random_mask.module import RandomMaskModule
     from modules.proteinmpnn.module_design import ProteinMPNNDesignModule
     from modules.selection_concat.module import ConcatCandidatesModule
+    from modules.structure_batch_tm_score.module import BatchTMScoreModule
+    from modules.structure_pairwise_align.module import PairwiseAlignModule
+    from modules.top_k.module import TopKModule
+    from modules.weighted_rank.module import WeightedRankModule
 
     return {
         "import.structure": ImportStructureModule(),
@@ -66,8 +65,33 @@ def _build_modules():
 
 # ── Mock helpers ──────────────────────────────────────────────────────
 
-AA3 = dict(zip("ACDEFGHIKLMNPQRSTVWY",
-    "ALA CYS ASP GLU PHE GLY HIS ILE LYS LEU MET ASN PRO GLN ARG SER THR VAL TRP TYR".split()))
+AA3 = dict(
+    zip(
+        "ACDEFGHIKLMNPQRSTVWY",
+        [
+            "ALA",
+            "CYS",
+            "ASP",
+            "GLU",
+            "PHE",
+            "GLY",
+            "HIS",
+            "ILE",
+            "LYS",
+            "LEU",
+            "MET",
+            "ASN",
+            "PRO",
+            "GLN",
+            "ARG",
+            "SER",
+            "THR",
+            "VAL",
+            "TRP",
+            "TYR",
+        ],
+    )
+)
 AA3["G"] = "GLY"
 
 
@@ -93,21 +117,26 @@ def _make_mock_pdb(sequence, seed=0):
 def _make_mock_esm_protein(sequence, seed=0):
     mock = MagicMock()
     mock.sequence = sequence
+    mock.coordinates = torch.zeros((len(sequence), 37, 3))
     mock.ptm = torch.tensor([0.85 + seed * 0.01])
     mock.plddt = torch.tensor([0.9] * len(sequence))
+    mock.pae = None
     mock.to_pdb_string.return_value = _make_mock_pdb(sequence, seed)
     return mock
 
 
 def _mock_fold(sequence, **kw):
     from datatypes import ProteinStructure, Score, ScoreCollection
+
     seq_str = sequence.sequence if hasattr(sequence, "sequence") else sequence
     n = len(seq_str)
     struct = ProteinStructure(pdb_string=_make_mock_pdb(seq_str))
     entries = [
         Score(score_id="ptm", value=0.9, subjects=["folded"]),
         Score(
-            score_id="plddt", value=0.85, subjects=["folded"],
+            score_id="plddt",
+            value=0.85,
+            subjects=["folded"],
             details={"per_residue": [0.8] * n},
         ),
     ]
@@ -126,10 +155,12 @@ def _mock_design(
 ):
     from datatypes import ProteinSequence
     import random
+
     rng = random.Random(42)
     aas = "ACDEFGHIKLMNPQRSTVWY"
     n = sum(
-        1 for l in pdb_string.splitlines()
+        1
+        for l in pdb_string.splitlines()
         if l.startswith("ATOM") and l[12:16].strip() == "CA"
     )
     sequences = [
@@ -141,6 +172,7 @@ def _mock_design(
 
 # ── Tests ─────────────────────────────────────────────────────────────
 
+
 class TestE2ESeedWorkflow:
     """End-to-end execution of the 3GB1 seed workflow DAG."""
 
@@ -151,10 +183,14 @@ class TestE2ESeedWorkflow:
 
         workflow = Workflow()
         for n in wf_data["nodes"]:
-            workflow.add_node(WorkflowNode(
-                node_id=n["node_id"], module_id=n["module_id"],
-                module_version="1.0.0", parameters=n["parameters"],
-            ))
+            workflow.add_node(
+                WorkflowNode(
+                    node_id=n["node_id"],
+                    module_id=n["module_id"],
+                    module_version="1.0.0",
+                    parameters=n["parameters"],
+                )
+            )
         for e in wf_data["edges"]:
             workflow.add_edge(WorkflowEdge(**e))
 
@@ -171,10 +207,16 @@ class TestE2ESeedWorkflow:
 
         mock_esm3 = MagicMock()
         mock_esm3.generate.side_effect = [
-            _make_mock_esm_protein(seq_71, seed=i) for i in range(N)
+            response
+            for i in range(N)
+            for response in (
+                _make_mock_esm_protein(seq_71, seed=i),
+                _make_mock_esm_protein(seq_71, seed=i),
+            )
         ]
 
         from datatypes import ResidueTrack
+
         mock_ss = ResidueTrack(
             values=["E"] * 10 + ["H"] * 10 + ["E"] * 36, sentinel=None
         )
@@ -186,30 +228,39 @@ class TestE2ESeedWorkflow:
                 Path(__file__).parent.parent / "pdbs" / "3GB1.pdb",
                 seed_input,
             )
-            with patch(
-                "modules.esm3_adapter.create_esm3_client",
-                return_value=mock_esm3,
-            ), patch(
-                "modules.esmfold2_adapter.fold_sequence",
-                side_effect=_mock_fold,
-            ), patch(
-                "modules.proteinmpnn.module_design.design_sequences",
-                side_effect=_mock_design,
-            ), patch.object(
-                dssp_mod, "run",
-                return_value={"secondary_structure_track": mock_ss},
+            with (
+                patch(
+                    "modules.esm3_adapter.create_esm3_client",
+                    return_value=mock_esm3,
+                ),
+                patch(
+                    "modules.esmfold2_adapter.fold_sequence",
+                    side_effect=_mock_fold,
+                ),
+                patch(
+                    "modules.proteinmpnn.module_design.design_sequences",
+                    side_effect=_mock_design,
+                ),
+                patch.object(
+                    dssp_mod,
+                    "run_async",
+                    new=AsyncMock(return_value={"secondary_structure_track": mock_ss}),
+                ),
             ):
                 executor = Executor()
-                result = asyncio.run(executor.execute(
-                    workflow=workflow, modules=mods,
-                    project_dir=tmpdir, run_id="e2e-test", seed=42,
-                ))
+                result = asyncio.run(
+                    executor.execute(
+                        workflow=workflow,
+                        modules=mods,
+                        project_dir=tmpdir,
+                        run_id="e2e-test",
+                        seed=42,
+                    )
+                )
 
         completed = set(result.keys())
         all_nodes = set(workflow.nodes.keys())
-        assert completed == all_nodes, (
-            f"Missing nodes: {all_nodes - completed}"
-        )
+        assert completed == all_nodes, f"Missing nodes: {all_nodes - completed}"
 
     def test_data_flow_counts(self) -> None:
         """Verify output counts at each pipeline stage."""
@@ -218,10 +269,14 @@ class TestE2ESeedWorkflow:
 
         workflow = Workflow()
         for n in wf_data["nodes"]:
-            workflow.add_node(WorkflowNode(
-                node_id=n["node_id"], module_id=n["module_id"],
-                module_version="1.0.0", parameters=n["parameters"],
-            ))
+            workflow.add_node(
+                WorkflowNode(
+                    node_id=n["node_id"],
+                    module_id=n["module_id"],
+                    module_version="1.0.0",
+                    parameters=n["parameters"],
+                )
+            )
         for e in wf_data["edges"]:
             workflow.add_edge(WorkflowEdge(**e))
 
@@ -234,10 +289,16 @@ class TestE2ESeedWorkflow:
 
         mock_esm3 = MagicMock()
         mock_esm3.generate.side_effect = [
-            _make_mock_esm_protein(seq_71, seed=i) for i in range(N)
+            response
+            for i in range(N)
+            for response in (
+                _make_mock_esm_protein(seq_71, seed=i),
+                _make_mock_esm_protein(seq_71, seed=i),
+            )
         ]
 
         from datatypes import ResidueTrack
+
         mock_ss = ResidueTrack(
             values=["E"] * 10 + ["H"] * 10 + ["E"] * 36, sentinel=None
         )
@@ -249,24 +310,35 @@ class TestE2ESeedWorkflow:
                 Path(__file__).parent.parent / "pdbs" / "3GB1.pdb",
                 seed_input,
             )
-            with patch(
-                "modules.esm3_adapter.create_esm3_client",
-                return_value=mock_esm3,
-            ), patch(
-                "modules.esmfold2_adapter.fold_sequence",
-                side_effect=_mock_fold,
-            ), patch(
-                "modules.proteinmpnn.module_design.design_sequences",
-                side_effect=_mock_design,
-            ), patch.object(
-                dssp_mod, "run",
-                return_value={"secondary_structure_track": mock_ss},
+            with (
+                patch(
+                    "modules.esm3_adapter.create_esm3_client",
+                    return_value=mock_esm3,
+                ),
+                patch(
+                    "modules.esmfold2_adapter.fold_sequence",
+                    side_effect=_mock_fold,
+                ),
+                patch(
+                    "modules.proteinmpnn.module_design.design_sequences",
+                    side_effect=_mock_design,
+                ),
+                patch.object(
+                    dssp_mod,
+                    "run_async",
+                    new=AsyncMock(return_value={"secondary_structure_track": mock_ss}),
+                ),
             ):
                 executor = Executor()
-                result = asyncio.run(executor.execute(
-                    workflow=workflow, modules=mods,
-                    project_dir=tmpdir, run_id="e2e-counts", seed=42,
-                ))
+                result = asyncio.run(
+                    executor.execute(
+                        workflow=workflow,
+                        modules=mods,
+                        project_dir=tmpdir,
+                        run_id="e2e-counts",
+                        seed=42,
+                    )
+                )
 
         # Step 1: ESM-3 generation
         assert len(result["esm3_gen"]["sequence_candidates"]) == N

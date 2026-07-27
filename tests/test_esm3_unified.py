@@ -2,7 +2,6 @@
 
 from unittest.mock import MagicMock, patch
 
-import torch
 import pytest
 
 from core.run_context import RunContext
@@ -18,6 +17,7 @@ from tests.test_esm3 import _make_mock_esm_protein, _make_prompt
 class TestESM3UnifiedGenerate:
     def test_outputs_both_sequence_and_structure(self) -> None:
         from modules.esm3_generate.module import ESM3GenerateModule
+
         mock_ep = _make_mock_esm_protein("AGS")
         mock_client = MagicMock()
         mock_client.generate.return_value = mock_ep
@@ -53,6 +53,7 @@ class TestESM3UnifiedGenerate:
 
     def test_candidate_data_types(self) -> None:
         from modules.esm3_generate.module import ESM3GenerateModule
+
         mock_ep = _make_mock_esm_protein("AGS")
         mock_client = MagicMock()
         mock_client.generate.return_value = mock_ep
@@ -77,14 +78,21 @@ class TestESM3UnifiedGenerate:
         assert isinstance(struct_cand.data, ProteinStructure)
         assert "HEADER" in struct_cand.data.pdb_string
 
-    def test_matched_indices_same_generate_call(self) -> None:
-        """Verify that same-index candidates come from the same generate call."""
+    def test_matched_indices_follow_sequence_then_structure_calls(self) -> None:
+        """Verify that each structure is sampled from its same-index sequence."""
         from modules.esm3_generate.module import ESM3GenerateModule
-        # Use different sequences to verify index matching
-        mock_ep1 = _make_mock_esm_protein("ABC")
-        mock_ep2 = _make_mock_esm_protein("XYZ")
+
+        mock_seq1 = _make_mock_esm_protein("ABC")
+        mock_struct1 = _make_mock_esm_protein("ABC")
+        mock_seq2 = _make_mock_esm_protein("XYZ")
+        mock_struct2 = _make_mock_esm_protein("XYZ")
         mock_client = MagicMock()
-        mock_client.generate.side_effect = [mock_ep1, mock_ep2]
+        mock_client.generate.side_effect = [
+            mock_seq1,
+            mock_struct1,
+            mock_seq2,
+            mock_struct2,
+        ]
 
         with (
             patch("modules.esm3_adapter.create_esm3_client", return_value=mock_client),
@@ -112,6 +120,7 @@ class TestESM3UnifiedGenerate:
 
     def test_scores_output(self) -> None:
         from modules.esm3_generate.module import ESM3GenerateModule
+
         mock_ep = _make_mock_esm_protein("AGS", ptm=0.85, plddt_vals=[0.9, 0.8, 0.7])
         mock_client = MagicMock()
         mock_client.generate.return_value = mock_ep
@@ -144,6 +153,7 @@ class TestESM3UnifiedGenerate:
 
     def test_classification_absent_without_template(self) -> None:
         from modules.esm3_generate.module import ESM3GenerateModule
+
         mock_ep = _make_mock_esm_protein()
         mock_client = MagicMock()
         mock_client.generate.return_value = mock_ep
@@ -163,10 +173,11 @@ class TestESM3UnifiedGenerate:
         seq_c = result["sequence_candidates"].items[0]
         struct_c = result["structure_candidates"].items[0]
         assert seq_c.metadata["classification"] == "absent"
-        assert struct_c.metadata["classification"] == "absent"
+        assert struct_c.metadata["classification"] == "sampled_structure"
 
     def test_classification_reconstruction_with_template(self) -> None:
         from modules.esm3_generate.module import ESM3GenerateModule
+
         mock_ep = _make_mock_esm_protein()
         mock_client = MagicMock()
         mock_client.generate.return_value = mock_ep
@@ -186,10 +197,11 @@ class TestESM3UnifiedGenerate:
         seq_c = result["sequence_candidates"].items[0]
         struct_c = result["structure_candidates"].items[0]
         assert seq_c.metadata["classification"] == "prompt_reconstruction"
-        assert struct_c.metadata["classification"] == "prompt_reconstruction"
+        assert struct_c.metadata["classification"] == "sampled_structure"
 
     def test_missing_prompt_raises(self) -> None:
         from modules.esm3_generate.module import ESM3GenerateModule
+
         mod = ESM3GenerateModule()
         ctx = RunContext("/tmp/test", "n1")
         with pytest.raises(ValueError, match="protein_prompt"):
@@ -197,6 +209,7 @@ class TestESM3UnifiedGenerate:
 
     def test_single_sample(self) -> None:
         from modules.esm3_generate.module import ESM3GenerateModule
+
         mock_ep = _make_mock_esm_protein("AGS")
         mock_client = MagicMock()
         mock_client.generate.return_value = mock_ep
