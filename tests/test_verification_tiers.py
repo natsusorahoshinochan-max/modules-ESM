@@ -49,6 +49,8 @@ def test_routine_tier_reports_result_and_preserves_configured_roots(
 
     env = os.environ.copy()
     env.update({name: str(path) for name, path in configured_roots.items()})
+    results_root = tmp_path / "verification-results"
+    env["PROTEIN_WORKBENCH_VERIFICATION_RESULTS_ROOT"] = str(results_root)
     result = _run_verifier(
         "routine",
         "tests/tier_probes/test_isolated_roots.py",
@@ -58,6 +60,9 @@ def test_routine_tier_reports_result_and_preserves_configured_roots(
     assert result.returncode == 0, result.stdout + result.stderr
     assert "BACKEND VERIFICATION TIER: routine" in result.stdout
     assert "BACKEND VERIFICATION RESULT: passed" in result.stdout
+    retained_results = list(results_root.glob("routine/*/pytest.xml"))
+    assert len(retained_results) == 1
+    assert str(retained_results[0].parent) in result.stdout
     for path in configured_roots.values():
         assert [child.name for child in path.iterdir()] == ["production-sentinel"]
         assert (path / "production-sentinel").read_text() == "unchanged"

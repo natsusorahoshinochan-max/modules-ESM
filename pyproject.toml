@@ -1,36 +1,57 @@
 [build-system]
-requires = ["setuptools>=75.0"]
+requires = ["setuptools==83.0.0"]
 build-backend = "setuptools.build_meta"
 
 [project]
 name = "protein-workbench"
 version = "0.1.0"
-requires-python = ">=3.12"
+requires-python = ">=3.12,<3.13"
 dependencies = [
-    "fastapi>=0.115.0",
-    "uvicorn>=0.30.0",
-    "pyyaml>=6.0",
-    "pytest>=8.0",
+    "biopython>=1.85,<2",
+    "fastapi>=0.115,<1",
+    "numpy>=2,<3",
+    "python-multipart>=0.0.20,<1",
+    "pyyaml>=6,<7",
+    "tmtools>=0.3,<0.4",
+    "uvicorn[standard]>=0.30,<1",
 ]
 
 [project.optional-dependencies]
 dev = [
-    "pytest-asyncio>=0.24.0",
-    "httpx>=0.27.0",
+    "build==1.5.0",
+    "esm @ git+https://github.com/Biohub/esm.git@917af90b624535eed1e072d343c717e3ec11fef4",
+    "httpx>=0.27,<1",
+    "pytest>=8,<10",
+    "pytest-asyncio>=0.24,<2",
+    "setuptools==83.0.0",
+    "torch>=2.2,<3",
+    "transformers @ git+https://github.com/Biohub/transformers.git@ef32577f55da19a4989cd7b22e004dc43a4998cb",
+]
+providers = [
+    "esm @ git+https://github.com/Biohub/esm.git@917af90b624535eed1e072d343c717e3ec11fef4",
+    "simplefold @ git+https://github.com/apple/ml-simplefold.git@c7a5570a6be9f5c695126e27c804e77567209934",
+    "torch>=2.2,<3",
+    "transformers @ git+https://github.com/Biohub/transformers.git@ef32577f55da19a4989cd7b22e004dc43a4998cb",
 ]
 
 [tool.setuptools.packages.find]
-include = ["core*", "datatypes*", "modules*"]
+include = ["core*", "datatypes*", "examples*", "modules*", "pdbs*"]
+
+[tool.setuptools.package-data]
+examples = ["*.json"]
+modules = ["**/*.yaml"]
+pdbs = ["3GB1.pdb"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = [
     "--strict-markers",
     "-m",
-    "not acceptance and not live_provider and not local_provider and not slow and not scientific_repro",
+    "not acceptance and not installed_package and not live_provider and not local_provider and not slow and not scientific_repro",
 ]
 markers = [
     "acceptance: tests that exercise real providers, models, or binaries",
+    "installed_package: builds and installs release artifacts in an isolated environment",
     "live_provider: tests that make remote provider calls",
     "local_provider: tests that execute installed local providers or binaries",
     "slow: tests with long or heavy model loading",

@@ -25,7 +25,11 @@ from core.module_definition import (
     ParameterDefinition,
     PortDefinition,
 )
-from core.module_registry import ModuleRegistry, discover_modules
+from core.module_registry import (
+    ModuleDiscoveryError,
+    ModuleRegistry,
+    discover_modules,
+)
 from core.project import ProjectManager, ProjectMeta, UIState
 from core.run_context import RunContext
 from core.run_manifest import RunManifest, RunManifestStore, read_run_manifest
@@ -38,6 +42,7 @@ __all__ = [
     "Executor",
     "InputGroupDefinition",
     "ModuleDefinition",
+    "ModuleDiscoveryError",
     "ModuleRegistry",
     "NodeState",
     "OutputGroupDefinition",

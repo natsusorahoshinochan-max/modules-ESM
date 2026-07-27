@@ -2,15 +2,17 @@
 
 from __future__ import annotations
 
-import sys
+import hashlib
+import importlib.util
+import os
+import subprocess
 import tempfile
 from dataclasses import dataclass
+from functools import lru_cache
 from math import isfinite
 from pathlib import Path
+from types import ModuleType
 from typing import Any, Protocol
-
-import numpy as np
-import torch
 
 from datatypes import (
     ProteinMPNNConstraints,
@@ -18,13 +20,164 @@ from datatypes import (
 )
 from modules.proteinmpnn.constraint_validation import validate_constraints
 
-# Path to ProteinMPNN repository
-_PROTEINMPNN_DIR = Path(__file__).parent.parent.parent / "repositories" / "ProteinMPNN"
-
 _ALPHABET = "ACDEFGHIKLMNPQRSTVWYX"
 _ALPHABET_DICT = dict(zip(_ALPHABET, range(21)))
 _SUPPORTED_MODELS = {"v_48_002", "v_48_010", "v_48_020", "v_48_030"}
 _LOCAL_PROVIDER_IDENTITY = "local-proteinmpnn"
+_PROTEINMPNN_COMMIT = "8907e6671bfbfc92303b5f79c4b5e6ce47cdef57"
+_CHECKPOINT_SHA256 = {
+    "vanilla_model_weights/v_48_002.pt": (
+        "925f2ca1007bf9b02e0e7f420ff00eb91f50fcc2722f64b42e644ae95adaa131"
+    ),
+    "vanilla_model_weights/v_48_010.pt": (
+        "db866fae956a28661f926053d630610c55e9fc4bc03922f2aeeb98a37435ccce"
+    ),
+    "vanilla_model_weights/v_48_020.pt": (
+        "c9cb4a671d79604111231f8dbfc7c590e06f1197453b7a6854ac6661a642f5bd"
+    ),
+    "vanilla_model_weights/v_48_030.pt": (
+        "c34b7bfb38418ea30989fda3314f4781ac4e3920f9825731cf555f1fed44ac66"
+    ),
+    "soluble_model_weights/v_48_002.pt": (
+        "0877f840978fe770be6fcec025784d8f50c438571db3260c05e41aa207a7c448"
+    ),
+    "soluble_model_weights/v_48_010.pt": (
+        "79562f7444f72c84595a1c96010713864865a616f4f3967633493041e169fa6e"
+    ),
+    "soluble_model_weights/v_48_020.pt": (
+        "7af52d090172c230c7f0e9d21e02203f6b3a38b16db58d3c7a3960e0a9a6e31a"
+    ),
+    "soluble_model_weights/v_48_030.pt": (
+        "1dd63f1e9fc68a133cc9ef859edf43b489e5ac581cb5624e0b9ec848ff062421"
+    ),
+}
+
+
+def _run_provider_git(root: Path, *args: str) -> str:
+    try:
+        completed = subprocess.run(
+            ["git", "-C", str(root), *args],
+            check=True,
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+    except (OSError, subprocess.CalledProcessError, subprocess.TimeoutExpired) as exc:
+        raise FileNotFoundError(
+            f"ProteinMPNN provider root is not a usable locked Git checkout: {root}"
+        ) from exc
+    return completed.stdout.strip()
+
+
+def _verify_provider_checkout(root: Path, expected_commit: str) -> None:
+    provider_file = root / "protein_mpnn_utils.py"
+    if provider_file.is_symlink() or not provider_file.is_file():
+        raise FileNotFoundError(
+            "Configured ProteinMPNN provider root must contain a regular, "
+            "non-symlink protein_mpnn_utils.py"
+        )
+    repository_root = Path(
+        _run_provider_git(root, "rev-parse", "--show-toplevel")
+    ).resolve()
+    if repository_root != root:
+        raise RuntimeError("ProteinMPNN provider root must be the Git checkout root")
+    commit = _run_provider_git(root, "rev-parse", "HEAD")
+    if commit != expected_commit:
+        raise RuntimeError(
+            f"ProteinMPNN checkout commit {commit} does not match "
+            f"locked commit {expected_commit}"
+        )
+    if _run_provider_git(root, "status", "--porcelain", "--untracked-files=no"):
+        raise RuntimeError("ProteinMPNN checkout has modified tracked files")
+
+
+def _proteinmpnn_dir() -> Path:
+    """Resolve the explicitly configured, externally managed provider checkout."""
+    configured = os.environ.get("PROTEIN_WORKBENCH_PROTEINMPNN_ROOT")
+    if not configured:
+        raise FileNotFoundError(
+            "ProteinMPNN provider root is not configured; set "
+            "PROTEIN_WORKBENCH_PROTEINMPNN_ROOT to the locked external checkout"
+        )
+    configured_root = Path(configured).expanduser()
+    if configured_root.is_symlink():
+        raise FileNotFoundError(
+            "Configured ProteinMPNN provider root must not be a symlink"
+        )
+    return validate_proteinmpnn_checkout(configured_root, _PROTEINMPNN_COMMIT)
+
+
+@lru_cache(maxsize=None)
+def _load_provider_module(provider_root: Path) -> ModuleType:
+    """Load the external provider from one already-validated checkout."""
+    provider_file = provider_root / "protein_mpnn_utils.py"
+    spec = importlib.util.spec_from_file_location(
+        "_protein_workbench_protein_mpnn_utils",
+        provider_file,
+    )
+    if spec is None or spec.loader is None:
+        raise FileNotFoundError(
+            f"Unable to load ProteinMPNN provider module from {provider_file}"
+        )
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def _provider_module() -> ModuleType:
+    return _load_provider_module(_proteinmpnn_dir())
+
+
+def _sha256_file(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        while chunk := handle.read(1024 * 1024):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+@dataclass(frozen=True)
+class ProteinMPNNReadiness:
+    ready: bool
+    provider_root: Path | None = None
+    checkpoint_path: Path | None = None
+    detail: str | None = None
+
+
+def validate_proteinmpnn_checkout(root: Path, expected_commit: str) -> Path:
+    """Validate one external checkout against an explicit source identity."""
+    if root.expanduser().is_symlink():
+        raise FileNotFoundError(
+            "Configured ProteinMPNN provider root must not be a symlink"
+        )
+    resolved_root = root.expanduser().resolve()
+    _verify_provider_checkout(resolved_root, expected_commit)
+    return resolved_root
+
+
+def validate_proteinmpnn_checkpoint(
+    path: Path,
+    expected_sha256: str,
+) -> Path:
+    """Validate one checkpoint as a regular file with an exact digest."""
+    if path.is_symlink() or not path.is_file():
+        raise RuntimeError(
+            f"ProteinMPNN checkpoint must be a regular non-symlink file: {path}"
+        )
+    digest = _sha256_file(path)
+    if digest != expected_sha256:
+        raise RuntimeError(
+            f"ProteinMPNN checkpoint SHA-256 mismatch for {path.name}: "
+            f"expected {expected_sha256}, got {digest}"
+        )
+    return path
+
+
+def load_proteinmpnn_checkpoint(path: str | Path) -> dict[str, Any]:
+    """Load a validated checkpoint through PyTorch's data-only loader."""
+    import torch
+
+    return torch.load(str(path), map_location="cpu", weights_only=True)
 
 
 @dataclass(frozen=True)
@@ -62,16 +215,39 @@ class ProteinMPNNProvider(Protocol):
 
 def _get_checkpoint_path(model_name: str) -> str:
     """Get the path to a ProteinMPNN model checkpoint."""
-    candidates = [
-        _PROTEINMPNN_DIR / "vanilla_model_weights" / f"{model_name}.pt",
-        _PROTEINMPNN_DIR / "soluble_model_weights" / f"{model_name}.pt",
+    provider_root = _proteinmpnn_dir()
+    candidate_names = [
+        f"vanilla_model_weights/{model_name}.pt",
+        f"soluble_model_weights/{model_name}.pt",
     ]
-    for p in candidates:
-        if p.exists():
-            return str(p)
+    for candidate_name in candidate_names:
+        path = provider_root / candidate_name
+        if not path.is_file():
+            continue
+        validated = validate_proteinmpnn_checkpoint(
+            path,
+            _CHECKPOINT_SHA256[candidate_name],
+        )
+        return str(validated)
     raise FileNotFoundError(
         f"ProteinMPNN checkpoint not found for {model_name}. "
         f"Looked in vanilla_model_weights/ and soluble_model_weights/"
+    )
+
+
+def check_proteinmpnn_readiness(
+    model_name: str = "v_48_020",
+) -> ProteinMPNNReadiness:
+    """Report whether the locked provider and selected checkpoint are usable."""
+    try:
+        provider_root = _proteinmpnn_dir()
+        checkpoint_path = Path(_get_checkpoint_path(model_name))
+    except (FileNotFoundError, RuntimeError) as exc:
+        return ProteinMPNNReadiness(ready=False, detail=str(exc))
+    return ProteinMPNNReadiness(
+        ready=True,
+        provider_root=provider_root,
+        checkpoint_path=checkpoint_path,
     )
 
 
@@ -80,12 +256,9 @@ def _load_model(
     backbone_noise: float = 0.0,
 ) -> Any:
     """Load a ProteinMPNN model from checkpoint."""
-    # Add ProteinMPNN dir to path temporarily for imports
-    mpnn_path = str(_PROTEINMPNN_DIR)
-    if mpnn_path not in sys.path:
-        sys.path.insert(0, mpnn_path)
+    import torch
 
-    from protein_mpnn_utils import ProteinMPNN as MPNNModel
+    MPNNModel = _provider_module().ProteinMPNN
 
     checkpoint_path = _get_checkpoint_path(model_name)
     device = torch.device("cpu")
@@ -102,7 +275,7 @@ def _load_model(
         augment_eps=backbone_noise,
         dropout=0.1,
     )
-    checkpoint = torch.load(checkpoint_path, map_location=device, weights_only=False)
+    checkpoint = load_proteinmpnn_checkpoint(checkpoint_path)
     model.load_state_dict(checkpoint["model_state_dict"])
     model.to(device)
     model.eval()
@@ -114,11 +287,7 @@ def _parse_structure(
     temp_dir: str | Path | None = None,
 ) -> list[dict[str, Any]]:
     """Convert a PDB string to ProteinMPNN's pdb_dict_list format."""
-    mpnn_path = str(_PROTEINMPNN_DIR)
-    if mpnn_path not in sys.path:
-        sys.path.insert(0, mpnn_path)
-
-    from protein_mpnn_utils import parse_PDB
+    parse_PDB = _provider_module().parse_PDB
 
     temporary_root = Path(temp_dir) if temp_dir is not None else None
     if temporary_root is not None:
@@ -147,11 +316,7 @@ def _featurize(
     
     Converts tied_featurize's tuple output to a dict keyed by field name.
     """
-    mpnn_path = str(_PROTEINMPNN_DIR)
-    if mpnn_path not in sys.path:
-        sys.path.insert(0, mpnn_path)
-
-    from protein_mpnn_utils import tied_featurize
+    tied_featurize = _provider_module().tied_featurize
 
     result = tied_featurize(
         request.pdb_dict_list,
@@ -184,11 +349,10 @@ def _run_design(
     omit_amino_acids: list[str],
 ) -> list[ProteinSequence]:
     """Run ProteinMPNN design and return list of ProteinSequence objects."""
-    mpnn_path = str(_PROTEINMPNN_DIR)
-    if mpnn_path not in sys.path:
-        sys.path.insert(0, mpnn_path)
+    import numpy as np
+    import torch
 
-    from protein_mpnn_utils import _S_to_seq
+    _S_to_seq = _provider_module()._S_to_seq
 
     alphabet = "ACDEFGHIKLMNPQRSTVWYX"
     omit_AAs_np = np.array(
@@ -248,11 +412,9 @@ def _compute_score(
     device: torch.device,
 ) -> float:
     """Score a sequence against a structure using ProteinMPNN."""
-    mpnn_path = str(_PROTEINMPNN_DIR)
-    if mpnn_path not in sys.path:
-        sys.path.insert(0, mpnn_path)
+    import torch
 
-    from protein_mpnn_utils import _scores
+    _scores = _provider_module()._scores
 
     alphabet = "ACDEFGHIKLMNPQRSTVWYX"
     alphabet_dict = dict(zip(alphabet, range(21)))
@@ -316,6 +478,8 @@ class _LocalProteinMPNNProvider:
     def design(
         self, request: ProteinMPNNDesignRequest
     ) -> tuple[list[ProteinSequence], list[float]]:
+        import torch
+
         with torch.random.fork_rng():
             torch.manual_seed(request.seed)
             model, device = _load_model(

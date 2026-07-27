@@ -10,6 +10,7 @@ import sys
 import tempfile
 import xml.etree.ElementTree as ET
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from pathlib import Path
 
 
@@ -32,8 +33,14 @@ TIERS = {
     "routine": Tier((
         "tests",
         "-m",
-        "not acceptance and not live_provider and not local_provider "
+        "not acceptance and not installed_package "
+        "and not live_provider and not local_provider "
         "and not slow and not scientific_repro",
+    )),
+    "installed-package": Tier((
+        "tests/test_installable_backend.py",
+        "-m",
+        "installed_package",
     )),
     "scientific-repro": Tier((
         "tests/test_esm3.py::TestESM3Adapter::test_prompt_to_esm_protein_basic",
@@ -94,6 +101,16 @@ def main() -> int:
     tier = TIERS[args.tier]
     print(f"BACKEND VERIFICATION TIER: {args.tier}", flush=True)
     print(f"PROJECT ENVIRONMENT: {sys.executable}", flush=True)
+    results_root = Path(
+        os.environ.get(
+            "PROTEIN_WORKBENCH_VERIFICATION_RESULTS_ROOT",
+            PROJECT_ROOT / "verification-results",
+        )
+    ).expanduser().resolve()
+    run_id = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S.%fZ")
+    result_dir = results_root / args.tier / f"{run_id}-{os.getpid()}"
+    result_dir.mkdir(parents=True)
+    print(f"RETAINED VERIFICATION RESULT: {result_dir}", flush=True)
 
     with tempfile.TemporaryDirectory(
         prefix=f"protein-workbench-{args.tier}-"
@@ -108,7 +125,7 @@ def main() -> int:
         env["PROTEIN_WORKBENCH_TEST_ROOTS_INITIALIZED"] = "1"
         env["PROTEIN_WORKBENCH_VERIFICATION_TIER"] = args.tier
 
-        call_evidence = base / "runs" / "provider-calls.jsonl"
+        call_evidence = result_dir / "provider-calls.jsonl"
         env["PROTEIN_WORKBENCH_PROVIDER_CALL_EVIDENCE"] = str(call_evidence)
         if tier.requires_provider_evidence:
             env["PROTEIN_WORKBENCH_REQUIRE_PROVIDER_CALL"] = "1"
@@ -118,7 +135,7 @@ def main() -> int:
             marker_args = pytest_args[pytest_args.index("-m"):] if "-m" in pytest_args else []
             pytest_args = [*args.pytest_targets, *marker_args]
 
-        junit_path = base / "runs" / "pytest.xml"
+        junit_path = result_dir / "pytest.xml"
         command = [
             sys.executable,
             "-m",
