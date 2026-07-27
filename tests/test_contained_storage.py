@@ -14,7 +14,7 @@ from core.project import ProjectManager
 from core.run_context import RunContext
 from core.server import app
 from core.storage import StoragePathError
-from datatypes import ProteinStructure, ScoreCollection
+from datatypes import ProteinSequence, ProteinStructure, ScoreCollection
 from modules.compute_sasa.module import ComputeSASAModule
 from modules.export_structure.module import ExportStructureModule
 from modules.import_sequence.module import ImportSequenceModule
@@ -557,9 +557,11 @@ def test_proteinmpnn_provider_temp_is_run_scoped(
 ) -> None:
     observed: dict[str, str] = {}
 
-    def fake_design_sequences(**kwargs: object) -> tuple[list, None]:
+    def fake_design_sequences(
+        **kwargs: object,
+    ) -> tuple[list[ProteinSequence], list[float]]:
         observed["temp_dir"] = str(kwargs["temp_dir"])
-        return [], None
+        return [ProteinSequence(sequence="A")], [-1.0]
 
     monkeypatch.setattr(
         "modules.proteinmpnn.module_design.design_sequences",

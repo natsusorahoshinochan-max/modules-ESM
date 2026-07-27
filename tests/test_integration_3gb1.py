@@ -213,8 +213,10 @@ class Test3GB1Pipeline:
             num_sequences,
             temperature,
             backbone_noise=0.0,
+            seed=42,
             constraints=None,
             reference_sequence=None,
+            provider=None,
             temp_dir=None,
         ):
             n = _ca_count(pdb_string)
@@ -226,7 +228,7 @@ class Test3GB1Pipeline:
                 ProteinSequence(sequence="".join(rng.choice(aas) for _ in range(n)))
                 for _ in range(num_sequences)
             ]
-            return sequences, -0.95
+            return sequences, [-0.95] * num_sequences
 
         with patch(
             "modules.proteinmpnn.module_design.design_sequences",
@@ -295,8 +297,10 @@ class Test3GB1Pipeline:
             num_sequences,
             temperature,
             backbone_noise=0.0,
+            seed=42,
             constraints=None,
             reference_sequence=None,
+            provider=None,
             temp_dir=None,
         ):
             captured_constraints.append(constraints)
@@ -309,7 +313,7 @@ class Test3GB1Pipeline:
                 ProteinSequence(sequence="".join(rng.choice(aas) for _ in range(n)))
                 for _ in range(num_sequences)
             ]
-            return sequences, -0.95
+            return sequences, [-0.95] * num_sequences
 
         with patch(
             "modules.proteinmpnn.module_design.design_sequences",

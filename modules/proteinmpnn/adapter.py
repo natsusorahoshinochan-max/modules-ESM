@@ -24,6 +24,7 @@ _PROTEINMPNN_DIR = Path(__file__).parent.parent.parent / "repositories" / "Prote
 _ALPHABET = "ACDEFGHIKLMNPQRSTVWYX"
 _ALPHABET_DICT = dict(zip(_ALPHABET, range(21)))
 _SUPPORTED_MODELS = {"v_48_002", "v_48_010", "v_48_020", "v_48_030"}
+_LOCAL_PROVIDER_IDENTITY = "local-proteinmpnn"
 
 
 @dataclass(frozen=True)
@@ -35,6 +36,8 @@ class ProteinMPNNDesignRequest:
     num_sequences: int
     temperature: float
     backbone_noise: float
+    seed: int
+    target_length: int
     chain_dict: dict[str, tuple[list[str], list[str]]]
     fixed_position_dict: dict[str, dict[str, list[int]]] | None
     tied_positions_dict: dict[str, list[dict[str, list[int]]]] | None
@@ -46,12 +49,14 @@ class ProteinMPNNDesignRequest:
 class ProteinMPNNProvider(Protocol):
     """External provider boundary used by the adapter."""
 
+    provider_identity: str
+
     def parse_structure(self, pdb_string: str) -> list[dict[str, Any]]:
         """Parse a PDB string into ProteinMPNN's structure representation."""
 
     def design(
         self, request: ProteinMPNNDesignRequest
-    ) -> tuple[list[ProteinSequence], float | None]:
+    ) -> tuple[list[ProteinSequence], list[float]]:
         """Execute one already-validated ProteinMPNN request."""
 
 
@@ -275,7 +280,33 @@ def _compute_score(
     return score
 
 
+def _validate_generated_sequences(
+    sequences: list[ProteinSequence],
+    *,
+    expected_count: int,
+    target_length: int,
+) -> None:
+    if len(sequences) != expected_count:
+        raise RuntimeError(
+            "ProteinMPNN provider returned "
+            f"{len(sequences)} sequences; expected {expected_count}"
+        )
+    for sample_index, sequence in enumerate(sequences):
+        if not isinstance(sequence, ProteinSequence):
+            raise RuntimeError(
+                f"ProteinMPNN sample {sample_index} is not a ProteinSequence"
+            )
+        if len(sequence.sequence) != target_length:
+            raise RuntimeError(
+                f"ProteinMPNN sample {sample_index} sequence length "
+                f"{len(sequence.sequence)} does not match target length "
+                f"{target_length}"
+            )
+
+
 class _LocalProteinMPNNProvider:
+    provider_identity = _LOCAL_PROVIDER_IDENTITY
+
     def __init__(self, temp_dir: str | Path | None = None) -> None:
         self._temp_dir = temp_dir
 
@@ -284,40 +315,52 @@ class _LocalProteinMPNNProvider:
 
     def design(
         self, request: ProteinMPNNDesignRequest
-    ) -> tuple[list[ProteinSequence], float | None]:
-        model, device = _load_model(request.model_name, request.backbone_noise)
-        batch = _featurize(request, device)
-        if request.reference_sequences is not None:
-            offset = 0
-            for chain in batch["letter_list_list"][0]:
-                chain_sequence = request.reference_sequences[str(chain)]
-                encoded = torch.tensor(
-                    [_ALPHABET_DICT[amino_acid] for amino_acid in chain_sequence],
-                    dtype=torch.int64,
-                    device=device,
+    ) -> tuple[list[ProteinSequence], list[float]]:
+        with torch.random.fork_rng():
+            torch.manual_seed(request.seed)
+            model, device = _load_model(
+                request.model_name,
+                request.backbone_noise,
+            )
+            batch = _featurize(request, device)
+            if request.reference_sequences is not None:
+                offset = 0
+                for chain in batch["letter_list_list"][0]:
+                    chain_sequence = request.reference_sequences[str(chain)]
+                    encoded = torch.tensor(
+                        [
+                            _ALPHABET_DICT[amino_acid]
+                            for amino_acid in chain_sequence
+                        ],
+                        dtype=torch.int64,
+                        device=device,
+                    )
+                    chain_end = offset + len(chain_sequence)
+                    batch["S"][0, offset:chain_end] = encoded
+                    offset = chain_end
+            sequences = _run_design(
+                model,
+                batch,
+                request.num_sequences,
+                request.temperature,
+                device,
+                request.omit_amino_acids,
+            )
+            _validate_generated_sequences(
+                sequences,
+                expected_count=request.num_sequences,
+                target_length=request.target_length,
+            )
+            scores = [
+                _compute_score(
+                    model,
+                    batch,
+                    sequence.sequence,
+                    device,
                 )
-                chain_end = offset + len(chain_sequence)
-                batch["S"][0, offset:chain_end] = encoded
-                offset = chain_end
-        sequences = _run_design(
-            model,
-            batch,
-            request.num_sequences,
-            request.temperature,
-            device,
-            request.omit_amino_acids,
-        )
-
-        native_seq = request.pdb_dict_list[0].get("seq", "")
-        avg_score = None
-        try:
-            native_score = _compute_score(model, batch, native_seq, device)
-            avg_score = native_score
-        except Exception as e:
-            import warnings
-            warnings.warn(f"ProteinMPNN score computation failed: {e}")
-
-        return sequences, avg_score
+                for sequence in sequences
+            ]
+        return sequences, scores
 
 
 def _chain_sequences(
@@ -354,6 +397,7 @@ def validate_design_parameters(
     num_sequences: int,
     temperature: float,
     backbone_noise: float,
+    seed: int = 42,
 ) -> None:
     """Reject unsupported ProteinMPNN sampling parameters."""
     if model_name not in _SUPPORTED_MODELS:
@@ -368,6 +412,8 @@ def validate_design_parameters(
         raise ValueError("temperature must be a finite number greater than 0")
     if not isfinite(backbone_noise) or backbone_noise < 0:
         raise ValueError("backbone_noise must be a finite number at least 0")
+    if isinstance(seed, bool) or not isinstance(seed, int) or seed < 0:
+        raise ValueError("seed must be a non-negative integer")
 
 
 def _structure_target(
@@ -565,11 +611,12 @@ def _prepare_design_request(
     num_sequences: int,
     temperature: float,
     backbone_noise: float,
+    seed: int,
     constraints: ProteinMPNNConstraints | None,
     reference_sequence: str | None,
 ) -> ProteinMPNNDesignRequest:
     validate_design_parameters(
-        model_name, num_sequences, temperature, backbone_noise
+        model_name, num_sequences, temperature, backbone_noise, seed
     )
     name, chains = _structure_target(pdb_dict_list)
     selected_constraints = (
@@ -588,6 +635,8 @@ def _prepare_design_request(
         num_sequences=num_sequences,
         temperature=temperature,
         backbone_noise=backbone_noise,
+        seed=seed,
+        target_length=sum(len(sequence) for _, sequence in chains),
         chain_dict={name: (designed_chains, fixed_chains)},
         fixed_position_dict=fixed_position_dict,
         tied_positions_dict=_tied_position_payload(
@@ -615,15 +664,13 @@ def design_sequences(
     num_sequences: int = 1,
     temperature: float = 0.1,
     backbone_noise: float = 0.0,
+    seed: int = 42,
     constraints: ProteinMPNNConstraints | None = None,
     reference_sequence: str | None = None,
     provider: ProteinMPNNProvider | None = None,
     temp_dir: str | Path | None = None,
-) -> tuple[list[ProteinSequence], float | None]:
-    """Run ProteinMPNN design and return generated sequences with score.
-
-    Returns (sequences, average_score).
-    """
+) -> tuple[list[ProteinSequence], list[float]]:
+    """Run ProteinMPNN design and return one score per generated sequence."""
     selected_provider = provider or _LocalProteinMPNNProvider(temp_dir=temp_dir)
     pdb_dict_list = selected_provider.parse_structure(pdb_string)
     request = _prepare_design_request(
@@ -632,10 +679,30 @@ def design_sequences(
         num_sequences,
         temperature,
         backbone_noise,
+        seed,
         constraints,
         reference_sequence,
     )
-    return selected_provider.design(request)
+    sequences, scores = selected_provider.design(request)
+    _validate_generated_sequences(
+        sequences,
+        expected_count=num_sequences,
+        target_length=request.target_length,
+    )
+    if len(scores) != len(sequences):
+        raise RuntimeError(
+            "ProteinMPNN provider returned incomplete per-sequence scores"
+        )
+    for sample_index, score in enumerate(scores):
+        if isinstance(score, bool) or not isinstance(score, (int, float)):
+            raise RuntimeError(
+                f"ProteinMPNN sample {sample_index} score is not numeric"
+            )
+        if not isfinite(float(score)):
+            raise RuntimeError(
+                f"ProteinMPNN sample {sample_index} score is not finite"
+            )
+    return sequences, [float(score) for score in scores]
 
 
 def score_sequence(
@@ -657,8 +724,14 @@ def score_sequence(
         1,
         0.1,
         0.0,
+        42,
         None,
         None,
     )
     batch = _featurize(request, device)
+    if len(sequence) != request.target_length:
+        raise ValueError(
+            f"sequence length {len(sequence)} does not match structure length "
+            f"{request.target_length}; padding and truncation are not supported"
+        )
     return _compute_score(model, batch, sequence, device)

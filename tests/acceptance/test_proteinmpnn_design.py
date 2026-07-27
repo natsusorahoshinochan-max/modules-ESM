@@ -15,7 +15,7 @@ class TestProteinMPNNDesign:
 
         from modules.proteinmpnn.adapter import design_sequences
 
-        sequences, avg_score = design_sequences(
+        sequences, scores = design_sequences(
             pdb_string=pdb_3gb1.pdb_string,
             model_name="v_48_020",
             num_sequences=2,
@@ -28,14 +28,15 @@ class TestProteinMPNNDesign:
             assert isinstance(seq, ProteinSequence)
             assert len(seq.sequence) == 56
 
-        assert avg_score is not None
+        assert len(scores) == 2
+        assert all(isinstance(score, float) for score in scores)
 
     def test_design_1pga(self, readiness, pdb_1pga, record_provider_call):
         require_ready("proteinmpnn", readiness)
 
         from modules.proteinmpnn.adapter import design_sequences
 
-        sequences, avg_score = design_sequences(
+        sequences, scores = design_sequences(
             pdb_string=pdb_1pga.pdb_string,
             model_name="v_48_020",
             num_sequences=2,
@@ -48,4 +49,5 @@ class TestProteinMPNNDesign:
             assert isinstance(seq, ProteinSequence)
             assert len(seq.sequence) == 75
 
-        assert avg_score is not None
+        assert len(scores) == 2
+        assert all(isinstance(score, float) for score in scores)
