@@ -619,7 +619,6 @@ def design_sequences(
     reference_sequence: str | None = None,
     provider: ProteinMPNNProvider | None = None,
     temp_dir: str | Path | None = None,
-    context: "RunContext | None" = None,
 ) -> tuple[list[ProteinSequence], float | None]:
     """Run ProteinMPNN design and return generated sequences with score.
 
@@ -636,12 +635,13 @@ def design_sequences(
         constraints,
         reference_sequence,
     )
-    if context is not None:
-        context.record_provider_call(
-            "proteinmpnn",
-            "design_sequences",
-            model=model_name,
-        )
+    from core.run_context import RunContext
+
+    RunContext.record_active_provider_call(
+        "proteinmpnn",
+        "design_sequences",
+        model=model_name,
+    )
     return selected_provider.design(request)
 
 
@@ -650,7 +650,6 @@ def score_sequence(
     sequence: str,
     model_name: str = "v_48_020",
     temp_dir: str | Path | None = None,
-    context: "RunContext | None" = None,
 ) -> float:
     """Score how well a sequence fits a structure."""
     model, device = _load_model(model_name)
@@ -669,10 +668,11 @@ def score_sequence(
         None,
     )
     batch = _featurize(request, device)
-    if context is not None:
-        context.record_provider_call(
-            "proteinmpnn",
-            "score_sequence",
-            model=model_name,
-        )
+    from core.run_context import RunContext
+
+    RunContext.record_active_provider_call(
+        "proteinmpnn",
+        "score_sequence",
+        model=model_name,
+    )
     return _compute_score(model, batch, sequence, device)

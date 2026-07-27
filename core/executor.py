@@ -443,11 +443,15 @@ class Executor:
                                     "Node validation failed"
                                 )
 
-                            outputs = await module.run_async(
-                                inputs,
-                                node.parameters,
-                                context,
-                            )
+                            context_token = context.activate()
+                            try:
+                                outputs = await module.run_async(
+                                    inputs,
+                                    node.parameters,
+                                    context,
+                                )
+                            finally:
+                                context.deactivate(context_token)
                             outputs = self._require_complete_outputs(
                                 module,
                                 outputs,

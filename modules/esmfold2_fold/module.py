@@ -77,7 +77,6 @@ class ESMFold2FoldModule(WorkflowModule):
                 include_pae=include_pae,
                 include_embeddings=include_embeddings,
                 project_dir=context.project_dir,
-                context=context,
             )
 
             cid = f"fold-{context.run_id}-{parent_id}"

@@ -76,7 +76,6 @@ class SimpleFoldFoldModule(WorkflowModule):
                 num_steps=num_steps,
                 num_samples=num_samples,
                 project_dir=context.temp_dir,
-                context=context,
             )
 
             for sample_idx, struct in enumerate(structures):

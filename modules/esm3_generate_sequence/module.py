@@ -79,7 +79,6 @@ class ESM3GenerateSequenceModule(WorkflowModule):
                 esm_protein,
                 config,
                 "generate(track=sequence)",
-                context=context,
                 model_name=model_name,
             )
             seq = esm_protein_to_sequence(result, prompt.num_residues)

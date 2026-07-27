@@ -83,7 +83,6 @@ class ESM3GenerateModule(WorkflowModule):
                 esm_protein,
                 sequence_config,
                 "generate(track=sequence)",
-                context=context,
                 model_name=model_name,
             )
 
@@ -126,7 +125,6 @@ class ESM3GenerateModule(WorkflowModule):
                 sampled_structure_prompt,
                 structure_config,
                 "generate(track=structure)",
-                context=context,
                 model_name=model_name,
             )
             struct = esm_protein_to_structure(

@@ -73,7 +73,6 @@ class ProteinMPNNDesignModule(WorkflowModule):
             constraints=constraints,
             reference_sequence=reference.sequence if reference is not None else None,
             temp_dir=context.temp_dir,
-            context=context,
         )
 
         candidates: list[Candidate] = []

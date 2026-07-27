@@ -1,5 +1,6 @@
 """Run context passed to each module during execution."""
 
+from contextvars import ContextVar, Token
 from dataclasses import dataclass, field
 from pathlib import Path
 import tempfile
@@ -15,6 +16,11 @@ from core.storage import (
 
 if TYPE_CHECKING:
     from core.run_manifest import RunManifestStore
+
+_ACTIVE_RUN_CONTEXT: ContextVar["RunContext | None"] = ContextVar(
+    "protein_workbench_run_context",
+    default=None,
+)
 
 
 @dataclass
@@ -151,6 +157,30 @@ class RunContext:
                 operation=operation,
                 model=model,
                 details=call_details,
+            )
+
+    def activate(self) -> Token["RunContext | None"]:
+        """Make this context visible to nested provider adapters."""
+        return _ACTIVE_RUN_CONTEXT.set(self)
+
+    @staticmethod
+    def deactivate(token: Token["RunContext | None"]) -> None:
+        _ACTIVE_RUN_CONTEXT.reset(token)
+
+    @staticmethod
+    def record_active_provider_call(
+        provider: str,
+        operation: str,
+        *,
+        model: str | None = None,
+    ) -> None:
+        """Record at an adapter boundary without changing adapter signatures."""
+        context = _ACTIVE_RUN_CONTEXT.get()
+        if context is not None:
+            context.record_provider_call(
+                provider,
+                operation,
+                model=model,
             )
 
     def record_artifact(self, artifact: str | Path) -> bool:

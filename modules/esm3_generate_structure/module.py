@@ -80,7 +80,6 @@ class ESM3GenerateStructureModule(WorkflowModule):
                 esm_protein,
                 config,
                 "generate(track=structure)",
-                context=context,
                 model_name=model_name,
             )
             structure = esm_protein_to_structure(

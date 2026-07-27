@@ -49,7 +49,6 @@ def fold_sequence(
     num_steps: int = 50,
     num_samples: int = 1,
     project_dir: str | None = None,
-    context: "RunContext | None" = None,
 ) -> tuple[list[ProteinStructure], ScoreCollection]:
     """Fold a protein sequence using SimpleFold.
 
@@ -137,12 +136,13 @@ def fold_sequence(
         )
 
         # Run inference
-        if context is not None:
-            context.record_provider_call(
-                "simplefold",
-                "fold_sequence",
-                model=model_name,
-            )
+        from core.run_context import RunContext
+
+        RunContext.record_active_provider_call(
+            "simplefold",
+            "fold_sequence",
+            model=model_name,
+        )
         results = inf_wrapper.run_inference(batch, model, plddt_models, device)
 
         sampled_coord = results["sampled_coord"]
@@ -200,7 +200,6 @@ def evaluate_structure(
     structure: ProteinStructure,
     model_name: str = "simplefold_360M",
     project_dir: str | None = None,
-    context: "RunContext | None" = None,
 ) -> ScoreCollection:
     """Evaluate an existing structure to produce pLDDT scores without re-folding.
 
@@ -307,12 +306,13 @@ def evaluate_structure(
         batch_coords = batch["coords"].to(device)
         t = torch.ones(batch_coords.shape[0], device=device)
 
-        if context is not None:
-            context.record_provider_call(
-                "simplefold",
-                "evaluate_structure",
-                model=model_name,
-            )
+        from core.run_context import RunContext
+
+        RunContext.record_active_provider_call(
+            "simplefold",
+            "evaluate_structure",
+            model=model_name,
+        )
         out_feat = plddt_latent_module(batch_coords, t, batch)
         plddt_out_dict = plddt_out_module(out_feat["latent"].detach(), batch)
 
