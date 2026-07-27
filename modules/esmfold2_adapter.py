@@ -53,6 +53,7 @@ def fold_sequence(
     include_pae: bool = False,
     include_embeddings: bool = False,
     project_dir: str | None = None,
+    context: "RunContext | None" = None,
 ) -> tuple[ProteinStructure, ScoreCollection]:
     """Fold a single protein sequence using ESMFold2 via Biohub.
 
@@ -76,6 +77,12 @@ def fold_sequence(
         include_embeddings=include_embeddings,
     )
 
+    if context is not None:
+        context.record_provider_call(
+            "biohub",
+            "fold",
+            model=model_name,
+        )
     result = client.fold(
         sequence=sequence.sequence,
         model_name=model_name,

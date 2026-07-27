@@ -158,6 +158,17 @@ class CandidateCollection:
     def __iter__(self):
         return iter(self.items)
 
+    def manifest_facts(self) -> list[dict[str, object]]:
+        """Describe lineage without requiring the engine to inspect this type."""
+        return [
+            {
+                "kind": "candidate_lineage",
+                "candidate_id": candidate.candidate_id,
+                "parent_ids": list(candidate.parent_ids),
+            }
+            for candidate in self.items
+        ]
+
 
 @dataclass
 class Score:

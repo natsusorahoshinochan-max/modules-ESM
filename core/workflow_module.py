@@ -22,6 +22,8 @@ class WorkflowModule(ABC):
     implementation delegates to run() in a thread pool.
     """
 
+    uses_seed: bool = False
+
     @property
     @abstractmethod
     def definition(self) -> ModuleDefinition:

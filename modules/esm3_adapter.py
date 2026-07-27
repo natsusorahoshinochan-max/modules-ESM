@@ -132,11 +132,22 @@ def call_esm3_provider(
     protein: Any,
     config: Any,
     operation: str,
+    *,
+    context: "RunContext | None" = None,
+    model_name: str | None = None,
 ) -> Any:
     """Execute one ESM3 operation and normalize SDK error signaling."""
     from esm.sdk.api import ESMProteinError
 
     try:
+        if context is not None:
+            context.record_provider_call(
+                "local_open"
+                if model_name == "esm3_sm_open_v1"
+                else "biohub",
+                operation,
+                model=model_name,
+            )
         result = client.generate(protein, config)
     except ESMProteinError as error:
         raise ESM3ProviderOperationError(

@@ -90,6 +90,11 @@ class ComputeSecondaryStructureModule(WorkflowModule):
             pdb_path = tmp.name
 
         try:
+            context.record_provider_call(
+                "mkdssp",
+                "secondary_structure",
+                model=Path(dssp_bin).name,
+            )
             result = subprocess.run(
                 [dssp_bin, pdb_path],
                 capture_output=True, text=True, timeout=30,

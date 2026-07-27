@@ -64,11 +64,6 @@ class ProteinMPNNDesignModule(WorkflowModule):
             model_name, num_sequences, temperature, backbone_noise
         )
 
-        context.record_provider_call(
-            "proteinmpnn",
-            "design_sequences",
-            model=model_name,
-        )
         sequences, native_score = design_sequences(
             pdb_string=structure.pdb_string,
             model_name=model_name,
@@ -78,6 +73,7 @@ class ProteinMPNNDesignModule(WorkflowModule):
             constraints=constraints,
             reference_sequence=reference.sequence if reference is not None else None,
             temp_dir=context.temp_dir,
+            context=context,
         )
 
         candidates: list[Candidate] = []

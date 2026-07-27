@@ -4,13 +4,11 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
-import os
-import pickle
-import stat
+import pickle  # Compatibility seam for existing atomic-Cache tests.
 from pathlib import Path
-import tempfile
 from typing import TYPE_CHECKING, Any, Callable
 
+from core.cache_store import CacheStore
 from core.graph import NodeState, Workflow, WorkflowNode
 from core.run_context import RunContext
 from core.run_manifest import RunManifest, RunManifestStore, canonical_json
@@ -25,35 +23,6 @@ class IncompleteNodeOutputError(RuntimeError):
     """A Module returned without satisfying its declared output Ports."""
 
     kind = "incomplete_node_output"
-
-
-class _SafeCacheUnpickler(pickle.Unpickler):
-    """Deserialize only the workbench's inert data-transfer classes."""
-
-    _DATATYPE_NAMES = {
-        "Candidate",
-        "CandidateCollection",
-        "FunctionAnnotations",
-        "ProteinMPNNConstraints",
-        "ProteinPrompt",
-        "ProteinSequence",
-        "ProteinStructure",
-        "ResidueLayout",
-        "ResidueMap",
-        "ResidueTrack",
-        "Score",
-        "ScoreCollection",
-        "StructureAlignment",
-    }
-
-    def find_class(self, module: str, name: str) -> Any:
-        if module == "datatypes.protein" and name in self._DATATYPE_NAMES:
-            from datatypes import protein
-
-            return getattr(protein, name)
-        raise pickle.UnpicklingError(
-            f"Cache global is not permitted: {module}.{name}"
-        )
 
 
 class Executor:
@@ -106,7 +75,7 @@ class Executor:
         module_version: str,
         inputs: dict[str, Any],
         parameters: dict[str, Any],
-        seed: int,
+        seed: int | None,
     ) -> str:
         """Compute a content-addressed cache key.
 
@@ -117,53 +86,45 @@ class Executor:
         sorted by key for deterministic hashing. Seed is included so
         different stochastic runs produce different cache entries.
         """
-        hasher = hashlib.sha256()
-        hasher.update(module_id.encode())
-        hasher.update(module_version.encode())
-
-        # Hash inputs by their repr
-        for key in sorted(inputs.keys()):
-            hasher.update(key.encode())
-            val = inputs[key]
-            hasher.update(repr(val).encode())
-
-        # Normalize nested parameter dictionaries recursively.
-        hasher.update(canonical_json(parameters))
-
-        hasher.update(str(seed).encode())
-        return hasher.hexdigest()[:32]
+        input_hashes = {
+            key: hashlib.sha256(repr(inputs[key]).encode()).hexdigest()
+            for key in sorted(inputs)
+        }
+        identity = {
+            "module_id": module_id,
+            "module_version": module_version,
+            "input_hashes": input_hashes,
+            "parameters": parameters,
+            "effective_seed": seed,
+        }
+        return hashlib.sha256(canonical_json(identity)).hexdigest()[:32]
 
     def _get_cache_path(
         self, project_dir: str, node_id: str, cache_key: str
     ) -> Path:
         """Get the path to a cache file."""
-        cache_dir = (
-            Path(project_dir)
-            / "cache"
-            / validate_identifier(node_id, "node_id")
-        )
-        cache_dir.mkdir(parents=True, exist_ok=True)
-        return cache_dir / f"{validate_identifier(cache_key, 'cache_key')}.pkl"
+        return self.cache_path(project_dir, node_id, cache_key)
+
+    def cache_path(
+        self,
+        project_dir: str,
+        node_id: str,
+        cache_key: str,
+    ) -> Path:
+        """Return the public location of one direct-execution Cache entry."""
+        with CacheStore(
+            Path(project_dir) / "cache",
+            node_id,
+        ) as cache:
+            return cache.path(cache_key)
 
     def _load_from_cache(self, cache_path: Path) -> dict[str, Any] | None:
         """Load cached outputs from a pickle file. Returns None on miss."""
-        if not cache_path.exists():
-            return None
-        descriptor: int | None = None
-        try:
-            flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0)
-            descriptor = os.open(cache_path, flags)
-            if not stat.S_ISREG(os.fstat(descriptor).st_mode):
-                return None
-            with os.fdopen(descriptor, "rb", closefd=True) as cache_file:
-                descriptor = None
-                cached = _SafeCacheUnpickler(cache_file).load()
-            return cached if isinstance(cached, dict) else None
-        except (OSError, pickle.PickleError, EOFError, AttributeError):
-            return None
-        finally:
-            if descriptor is not None:
-                os.close(descriptor)
+        with CacheStore(
+            cache_path.parents[1],
+            cache_path.parent.name,
+        ) as cache:
+            return cache.load(cache_path.stem)
 
     @staticmethod
     def _require_complete_outputs(
@@ -174,7 +135,11 @@ class Executor:
             port.name for port in module.definition.output_ports
         }
         supplied = set(outputs) if isinstance(outputs, dict) else set()
-        missing = sorted(required - supplied)
+        missing = sorted(
+            port
+            for port in required
+            if port not in supplied or outputs[port] is None
+        )
         if not isinstance(outputs, dict) or missing:
             missing_description = ", ".join(missing or sorted(required))
             raise IncompleteNodeOutputError(
@@ -189,50 +154,25 @@ class Executor:
         outputs: dict[str, Any],
     ) -> bool:
         """Atomically publish one complete immutable cache entry."""
-        temporary_path: Path | None = None
-        try:
-            cache_path.parent.mkdir(parents=True, exist_ok=True)
-            with tempfile.NamedTemporaryFile(
-                mode="wb",
-                prefix=f".{cache_path.name}.",
-                suffix=".tmp",
-                dir=cache_path.parent,
-                delete=False,
-            ) as temporary_file:
-                temporary_path = Path(temporary_file.name)
-                pickle.dump(outputs, temporary_file)
-                temporary_file.flush()
-                os.fsync(temporary_file.fileno())
-            try:
-                os.link(temporary_path, cache_path)
-            except FileExistsError:
-                pass
-        except Exception:
-            return False  # Cache write failure is non-fatal
-        finally:
-            if temporary_path is not None:
-                temporary_path.unlink(missing_ok=True)
-        return cache_path.is_file()
+        with CacheStore(
+            cache_path.parents[1],
+            cache_path.parent.name,
+        ) as cache:
+            return cache.save(cache_path.stem, outputs)
 
     @staticmethod
-    def _has_artifact_reference(value: Any, key: str = "") -> bool:
-        if isinstance(value, dict):
-            return any(
-                Executor._has_artifact_reference(child, str(child_key))
-                for child_key, child in value.items()
-            )
-        if isinstance(value, (list, tuple)):
-            return any(
-                Executor._has_artifact_reference(child, key)
-                for child in value
-            )
-        return (
-            isinstance(value, (str, Path))
-            and key in {
-                "file_path",
-                "artifact_path",
-                "artifact_reference",
-            }
+    def _has_artifact_output(
+        module: WorkflowModule,
+        outputs: dict[str, Any],
+    ) -> bool:
+        artifact_ports = {
+            port.name
+            for port in module.definition.output_ports
+            if port.type_id == "file.path"
+        }
+        return any(
+            output_port in outputs
+            for output_port in artifact_ports
         )
 
     @staticmethod
@@ -240,43 +180,41 @@ class Executor:
         manifest_store: RunManifestStore,
         context: RunContext,
         node_id: str,
+        module: WorkflowModule,
         outputs: dict[str, Any],
     ) -> None:
-        from datatypes import Candidate, CandidateCollection
-
-        def visit(value: Any, output_port: str, key: str = "") -> None:
-            if isinstance(value, CandidateCollection):
-                for candidate in value.items:
-                    visit(candidate, output_port)
-                return
-            if isinstance(value, Candidate):
-                manifest_store.record_candidate_lineage(
-                    node_id=node_id,
-                    output_port=output_port,
-                    candidate_id=value.candidate_id,
-                    parent_ids=value.parent_ids,
-                )
-                return
-            if isinstance(value, dict):
-                for child_key, child in value.items():
-                    visit(child, output_port, str(child_key))
-                return
-            if isinstance(value, (list, tuple)):
-                for child in value:
-                    visit(child, output_port, key)
-                return
+        port_types = {
+            port.name: port.type_id
+            for port in module.definition.output_ports
+        }
+        for output_port, value in outputs.items():
+            describe = getattr(value, "manifest_facts", None)
+            if callable(describe):
+                for fact in describe():
+                    if fact.get("kind") != "candidate_lineage":
+                        continue
+                    candidate_id = fact.get("candidate_id")
+                    parent_ids = fact.get("parent_ids")
+                    if (
+                        not isinstance(candidate_id, str)
+                        or not isinstance(parent_ids, list)
+                        or not all(
+                            isinstance(parent_id, str)
+                            for parent_id in parent_ids
+                        )
+                    ):
+                        continue
+                    manifest_store.record_candidate_lineage(
+                        node_id=node_id,
+                        output_port=output_port,
+                        candidate_id=candidate_id,
+                        parent_ids=parent_ids,
+                    )
             if (
                 isinstance(value, (str, Path))
-                and key in {
-                    "file_path",
-                    "artifact_path",
-                    "artifact_reference",
-                }
+                and port_types.get(output_port) == "file.path"
             ):
                 context.record_artifact(value)
-
-        for output_port, value in outputs.items():
-            visit(value, output_port, output_port)
 
     async def execute(
         self,
@@ -420,111 +358,128 @@ class Executor:
                         context._manifest_store = manifest_store
 
                         # Check cache (skip if force re-run)
+                        effective_seed = seed if module.uses_seed else None
                         cache_key = self._compute_cache_key(
                             node.module_id,
                             module.definition.version,
                             inputs,
                             node.parameters,
-                            seed,
+                            effective_seed,
                         )
                         if project_manager is not None and project_id is not None:
-                            cache_path = project_manager.cache_path(
-                                project_id,
-                                node_id,
-                                cache_key,
-                            )
-                            cache_path.parent.mkdir(parents=True, exist_ok=True)
+                            cache_root = project_manager.cache_dir(project_id)
                         else:
-                            cache_path = self._get_cache_path(
-                                project_dir, node_id, cache_key
-                            )
-
-                        if node_id not in force_rerun_nodes:
-                            cache_existed = cache_path.exists()
-                            cached = self._load_from_cache(cache_path)
-                            if cache_existed and cached is None:
-                                cache_path.unlink(missing_ok=True)
-                            if (
-                                cached is not None
-                                and self._has_artifact_reference(cached)
-                            ):
-                                cache_path.unlink(missing_ok=True)
-                                cached = None
-                            if cached is not None:
-                                try:
-                                    cached = self._require_complete_outputs(
+                            cache_root = Path(project_dir) / "cache"
+                        output_ports = [
+                            {"name": port.name, "type_id": port.type_id}
+                            for port in module.definition.output_ports
+                        ]
+                        with CacheStore(cache_root, node_id) as cache_store:
+                            if node_id not in force_rerun_nodes:
+                                cached = cache_store.load(
+                                    cache_key,
+                                    module_id=node.module_id,
+                                    module_version=module.definition.version,
+                                    output_ports=output_ports,
+                                )
+                                if (
+                                    cached is not None
+                                    and self._has_artifact_output(
                                         module,
                                         cached,
                                     )
-                                except IncompleteNodeOutputError:
-                                    cache_path.unlink(missing_ok=True)
+                                ):
+                                    cache_store.remove(cache_key)
                                     cached = None
-                            if cached is not None:
+                                if cached is not None:
+                                    try:
+                                        cached = self._require_complete_outputs(
+                                            module,
+                                            cached,
+                                        )
+                                    except IncompleteNodeOutputError:
+                                        cache_store.remove(cache_key)
+                                        cached = None
+                                if cached is not None:
+                                    manifest_store.record_cache(
+                                        node_id=node_id,
+                                        cache_key=cache_key,
+                                        outcome="hit",
+                                    )
+                                    node.outputs = cached
+                                    self._record_output_facts(
+                                        manifest_store,
+                                        context,
+                                        node_id,
+                                        module,
+                                        cached,
+                                    )
+                                    self._set_node_state(
+                                        node,
+                                        NodeState.COMPLETED,
+                                        manifest_store,
+                                    )
+                                    continue
+                                cache_store.remove(cache_key)
                                 manifest_store.record_cache(
                                     node_id=node_id,
                                     cache_key=cache_key,
-                                    outcome="hit",
+                                    outcome="miss",
                                 )
-                                node.outputs = cached
-                                self._record_output_facts(
-                                    manifest_store,
-                                    context,
-                                    node_id,
-                                    cached,
+                            else:
+                                manifest_store.record_cache(
+                                    node_id=node_id,
+                                    cache_key=cache_key,
+                                    outcome="bypass",
                                 )
-                                self._set_node_state(
-                                    node,
-                                    NodeState.COMPLETED,
-                                    manifest_store,
-                                )
-                                continue
-                            manifest_store.record_cache(
-                                node_id=node_id,
-                                cache_key=cache_key,
-                                outcome="miss",
-                            )
-                        else:
-                            manifest_store.record_cache(
-                                node_id=node_id,
-                                cache_key=cache_key,
-                                outcome="bypass",
-                            )
 
-                        # Validate first (optional)
-                        issues = module.validate(inputs, node.parameters)
-                        if issues and any("error" in i.lower() for i in issues):
-                            raise RuntimeError(
-                                f"Validation failed: {'; '.join(issues)}"
+                            # Validate first (optional)
+                            issues = module.validate(inputs, node.parameters)
+                            if issues and any(
+                                "error" in issue.lower()
+                                for issue in issues
+                            ):
+                                raise RuntimeError(
+                                    "Node validation failed"
+                                )
+
+                            outputs = await module.run_async(
+                                inputs,
+                                node.parameters,
+                                context,
+                            )
+                            outputs = self._require_complete_outputs(
+                                module,
+                                outputs,
                             )
 
-                        outputs = await module.run_async(
-                            inputs,
-                            node.parameters,
-                            context,
-                        )
-                        outputs = self._require_complete_outputs(
-                            module,
-                            outputs,
-                        )
-
-                        # Store outputs
-                        node.outputs = outputs
-                        self._record_output_facts(
-                            manifest_store,
-                            context,
-                            node_id,
-                            outputs,
-                        )
-
-                        # Save to cache on success
-                        if (
-                            not self._has_artifact_reference(outputs)
-                            and self._save_to_cache(cache_path, outputs)
-                        ):
-                            manifest_store.mark_cache_published(
+                            # Store outputs
+                            node.outputs = outputs
+                            self._record_output_facts(
+                                manifest_store,
+                                context,
                                 node_id,
-                                cache_key,
+                                module,
+                                outputs,
                             )
+
+                            # Save to cache on success
+                            if (
+                                not self._has_artifact_output(module, outputs)
+                                and cache_store.save(
+                                    cache_key,
+                                    outputs,
+                                    module_id=node.module_id,
+                                    module_version=(
+                                        module.definition.version
+                                    ),
+                                    output_ports=output_ports,
+                                )
+                            ):
+                                manifest_store.mark_cache_published(
+                                    node_id,
+                                    cache_key,
+                                )
 
                         self._set_node_state(
                             node,
@@ -551,14 +506,20 @@ class Executor:
                         raise
 
                     except Exception as error:
+                        kind = getattr(
+                            error,
+                            "kind",
+                            type(error).__name__,
+                        )
+                        message = (
+                            str(error)
+                            if isinstance(error, IncompleteNodeOutputError)
+                            else f"Node execution failed ({kind})"
+                        )
                         manifest_store.record_failure(
                             node_id=node_id,
-                            kind=getattr(
-                                error,
-                                "kind",
-                                type(error).__name__,
-                            ),
-                            message=str(error),
+                            kind=kind,
+                            message=message,
                         )
                         self._set_node_state(
                             node,

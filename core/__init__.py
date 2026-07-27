@@ -1,3 +1,4 @@
+from core.cache_store import CacheStore
 from core.executor import Executor
 from core.graph import (
     NodeState,
@@ -17,11 +18,12 @@ from core.module_definition import (
 from core.module_registry import ModuleRegistry, discover_modules
 from core.project import ProjectManager, ProjectMeta, UIState
 from core.run_context import RunContext
-from core.run_manifest import RunManifest, RunManifestStore
+from core.run_manifest import RunManifest, RunManifestStore, read_run_manifest
 from core.type_registry import TypeInfo, TypeRegistry
 from core.workflow_module import WorkflowModule
 
 __all__ = [
+    "CacheStore",
     "Executor",
     "InputGroupDefinition",
     "ModuleDefinition",
@@ -45,4 +47,5 @@ __all__ = [
     "WorkflowValidationErrorKind",
     "WorkflowValidationResult",
     "discover_modules",
+    "read_run_manifest",
 ]

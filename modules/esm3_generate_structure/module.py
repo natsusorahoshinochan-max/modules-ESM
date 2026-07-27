@@ -75,16 +75,13 @@ class ESM3GenerateStructureModule(WorkflowModule):
         all_scores_entries = []
 
         for i in range(num_samples):
-            context.record_provider_call(
-                "local_open" if model_name == "esm3_sm_open_v1" else "biohub",
-                "generate(track=structure)",
-                model=model_name,
-            )
             result = call_esm3_provider(
                 client,
                 esm_protein,
                 config,
                 "generate(track=structure)",
+                context=context,
+                model_name=model_name,
             )
             structure = esm_protein_to_structure(
                 result,

@@ -9,7 +9,16 @@ import subprocess
 from pathlib import Path
 from typing import Any
 
-from core import Executor, Workflow, WorkflowNode
+import pytest
+
+from core import (
+    Executor,
+    RunManifest,
+    RunManifestStore,
+    Workflow,
+    WorkflowNode,
+    read_run_manifest,
+)
 from core.module_definition import ModuleDefinition
 from core.run_context import RunContext
 from core.workflow_module import WorkflowModule
@@ -18,6 +27,8 @@ from datatypes import Candidate, CandidateCollection, ProteinStructure
 
 class ManifestObservingModule(WorkflowModule):
     """A test Module that observes the durable public run namespace."""
+
+    uses_seed = True
 
     def __init__(self, expected_manifest: Path) -> None:
         self.expected_manifest = expected_manifest
@@ -48,8 +59,8 @@ parameters:
         context: RunContext,
     ) -> dict[str, Any]:
         del inputs, parameters, context
-        self.observed_status = json.loads(
-            self.expected_manifest.read_text()
+        self.observed_status = read_run_manifest(
+            self.expected_manifest.parent
         )["status"]
         return {"text": "complete"}
 
@@ -123,6 +134,20 @@ output_ports:
         return {}
 
 
+class NonePartialModule(PartialModule):
+    """A partial Module that names its Port but has no value for it."""
+
+    def run(
+        self,
+        inputs: dict[str, Any],
+        parameters: dict[str, Any],
+        context: RunContext,
+    ) -> dict[str, Any]:
+        del inputs, parameters, context
+        type(self).calls += 1
+        return {"required_output": None}
+
+
 class ProviderModule(WorkflowModule):
     """A Module that records one real provider-boundary call."""
 
@@ -157,7 +182,10 @@ output_ports:
             "fixture-provider",
             "generate",
             model="fixture-model-v3",
-            details={"authorization": "Bearer runtime-placeholder"},
+            details={
+                "authorization": "Basic dXNlcjpwYXNz",
+                "cookie": "session=runtime-placeholder",
+            },
         )
         return {"text": "provider-output"}
 
@@ -304,7 +332,7 @@ def test_executor_persists_source_bound_manifest_before_node_execution(
         )
     )
 
-    manifest = json.loads(manifest_path.read_text())
+    manifest = read_run_manifest(manifest_path.parent)
     assert module.observed_status == "running"
     assert manifest["status"] == "completed"
     assert manifest["project_id"] == "project-11"
@@ -341,6 +369,40 @@ def test_executor_persists_source_bound_manifest_before_node_execution(
         ("observer", "running"),
         ("observer", "completed"),
     ]
+
+
+def test_source_discovery_does_not_execute_repository_fsmonitor(
+    tmp_path: Path,
+) -> None:
+    source = tmp_path / "untrusted-source"
+    source.mkdir()
+    _git(["init", "-b", "main"], source)
+    _git(["config", "user.name", "Manifest Test"], source)
+    _git(["config", "user.email", "manifest@example.invalid"], source)
+    (source / "tracked.txt").write_text("source\n")
+    _git(["add", "tracked.txt"], source)
+    _git(["commit", "-m", "source"], source)
+    fsmonitor = source / "fsmonitor"
+    fsmonitor.write_text(
+        "#!/bin/sh\n"
+        "touch fsmonitor-executed\n"
+        "printf '1\\n'\n"
+    )
+    fsmonitor.chmod(0o700)
+    _git(["config", "core.fsmonitor", "./fsmonitor"], source)
+
+    workflow = Workflow()
+    asyncio.run(
+        Executor().execute(
+            workflow,
+            {},
+            str(tmp_path / "project"),
+            "source-probe",
+            source_dir=source,
+        )
+    )
+
+    assert not (source / "fsmonitor-executed").exists()
 
 
 def test_recursive_parameter_identity_attributes_cache_hit_to_consuming_run(
@@ -402,24 +464,15 @@ def test_recursive_parameter_identity_attributes_cache_hit_to_consuming_run(
         )
     )
 
-    origin_manifest = json.loads(
-        (
-            project_dir
-            / "runs"
-            / "cache-origin"
-            / "manifest.json"
-        ).read_text()
+    origin_manifest = read_run_manifest(
+        project_dir / "runs" / "cache-origin"
     )
-    consumer_manifest = json.loads(
-        (
-            project_dir
-            / "runs"
-            / "cache-consumer"
-            / "manifest.json"
-        ).read_text()
+    consumer_manifest = read_run_manifest(
+        project_dir / "runs" / "cache-consumer"
     )
     assert CountingModule.calls == 1
     assert first_result == second_result == {"count": {"text": "call-1"}}
+    assert origin_manifest["effective_seeds"] == {}
     assert origin_manifest["cache"] == [
         {
             "node_id": "count",
@@ -470,10 +523,8 @@ def test_partial_node_output_fails_structurally_and_is_never_cached(
             )
         ) == {}
 
-        manifest = json.loads(
-            (
-                project_dir / "runs" / run_id / "manifest.json"
-            ).read_text()
+        manifest = read_run_manifest(
+            project_dir / "runs" / run_id
         )
         assert manifest["status"] == "failed"
         assert manifest["failures"] == [
@@ -491,6 +542,63 @@ def test_partial_node_output_fails_structurally_and_is_never_cached(
 
     assert PartialModule.calls == 2
     assert list((project_dir / "cache").rglob("*.pkl")) == []
+
+
+def test_none_valued_required_output_is_partial_and_never_cached(
+    tmp_path: Path,
+) -> None:
+    NonePartialModule.calls = 0
+    project_dir = tmp_path / "project"
+    workflow = Workflow()
+    workflow.add_node(
+        WorkflowNode("partial", "test.partial", "1.0.0")
+    )
+
+    result = asyncio.run(
+        Executor().execute(
+            workflow,
+            {"test.partial": NonePartialModule()},
+            str(project_dir),
+            "none-partial",
+            project_id="project-11",
+        )
+    )
+
+    manifest = read_run_manifest(
+        project_dir / "runs" / "none-partial"
+    )
+    assert result == {}
+    assert manifest["status"] == "failed"
+    assert manifest["failures"][0]["kind"] == "incomplete_node_output"
+    assert manifest["cache"][0]["published"] is False
+    assert list((project_dir / "cache").rglob("*.pkl")) == []
+
+
+def test_cache_publication_rejects_symlinked_node_namespace(
+    tmp_path: Path,
+) -> None:
+    project_dir = tmp_path / "project"
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    cache_root = project_dir / "cache"
+    cache_root.mkdir(parents=True)
+    (cache_root / "count").symlink_to(outside, target_is_directory=True)
+    workflow = Workflow()
+    workflow.add_node(
+        WorkflowNode("count", "test.counting", "1.0.0")
+    )
+
+    asyncio.run(
+        Executor().execute(
+            workflow,
+            {"test.counting": CountingModule()},
+            str(project_dir),
+            "symlink-cache",
+            project_id="project-11",
+        )
+    )
+
+    assert list(outside.iterdir()) == []
 
 
 def test_provider_readiness_is_distinct_from_redacted_actual_calls(
@@ -558,6 +666,7 @@ def test_provider_readiness_is_distinct_from_redacted_actual_calls(
                 "details": {
                     "node_id": "provider",
                     "authorization": "[REDACTED]",
+                    "cookie": "[REDACTED]",
                 },
             }
         ],
@@ -569,6 +678,7 @@ def test_provider_readiness_is_distinct_from_redacted_actual_calls(
     assert cache_hit["cache"][0]["outcome"] == "hit"
     assert "readiness-placeholder-value" not in origin_text + cache_hit_text
     assert "runtime-placeholder" not in origin_text + cache_hit_text
+    assert "dXNlcjpwYXNz" not in origin_text + cache_hit_text
 
 
 def test_candidate_lineage_and_artifact_integrity_are_run_bound(
@@ -594,10 +704,8 @@ def test_candidate_lineage_and_artifact_integrity_are_run_bound(
         )
     )
 
-    manifest = json.loads(
-        (
-            project_dir / "runs" / "artifact-run" / "manifest.json"
-        ).read_text()
+    manifest = read_run_manifest(
+        project_dir / "runs" / "artifact-run"
     )
     assert manifest["candidate_lineage"] == [
         {
@@ -671,7 +779,7 @@ def test_failure_diagnostics_and_environment_are_recursively_redacted(
         {
             "node_id": "provider",
             "kind": "RuntimeError",
-            "message": "provider rejected api_key=[REDACTED]",
+            "message": "Node execution failed (RuntimeError)",
         }
     ]
 
@@ -699,23 +807,115 @@ def test_untrusted_cache_payload_is_a_miss_and_is_not_executed(
         )
 
     run("safe-origin")
-    origin = json.loads(
-        (
-            project_dir / "runs" / "safe-origin" / "manifest.json"
-        ).read_text()
+    origin = read_run_manifest(
+        project_dir / "runs" / "safe-origin"
     )
     cache_key = origin["cache"][0]["cache_key"]
-    cache_path = project_dir / "cache" / "count" / f"{cache_key}.pkl"
+    cache_path = Executor().cache_path(
+        str(project_dir),
+        "count",
+        cache_key,
+    )
     marker = tmp_path / "unsafe-pickle-executed"
     cache_path.write_bytes(pickle.dumps(UntrustedCachePayload(marker)))
 
     run("untrusted-cache")
 
-    manifest = json.loads(
-        (
-            project_dir / "runs" / "untrusted-cache" / "manifest.json"
-        ).read_text()
+    manifest = read_run_manifest(
+        project_dir / "runs" / "untrusted-cache"
     )
     assert not marker.exists()
     assert CountingModule.calls == 2
     assert manifest["cache"][0]["outcome"] == "miss"
+
+    cache_path.write_bytes(pickle.dumps({"text": "forged"}))
+    run("forged-cache")
+    forged_manifest = read_run_manifest(
+        project_dir / "runs" / "forged-cache"
+    )
+    assert CountingModule.calls == 3
+    assert forged_manifest["cache"][0]["outcome"] == "miss"
+
+
+def test_manifest_object_never_retains_raw_credentials(
+    tmp_path: Path,
+) -> None:
+    workflow = Workflow()
+    workflow.add_node(
+        WorkflowNode("count", "test.counting", "1.0.0")
+    )
+    placeholder = "runtime-only-credential-placeholder"
+    manifest = RunManifest.for_execution(
+        project_id="project-11",
+        run_id="repr-redaction",
+        workflow=workflow,
+        modules={"test.counting": CountingModule()},
+        seed=42,
+        source_dir=tmp_path,
+        environment={"api_key": placeholder},
+    )
+
+    assert placeholder not in repr(manifest)
+    assert manifest.environment["api_key"] == "[REDACTED]"
+
+
+def test_scoring_module_model_identity_is_not_category_dependent(
+    tmp_path: Path,
+) -> None:
+    from modules.proteinmpnn.module_score import ProteinMPNNScoreModule
+
+    workflow = Workflow()
+    workflow.add_node(
+        WorkflowNode(
+            "score",
+            "proteinmpnn.score",
+            "1.0.0",
+        )
+    )
+    manifest = RunManifest.for_execution(
+        project_id="project-11",
+        run_id="scoring-model",
+        workflow=workflow,
+        modules={"proteinmpnn.score": ProteinMPNNScoreModule()},
+        seed=42,
+        source_dir=tmp_path,
+    )
+
+    assert manifest.models == [
+        {
+            "node_id": "score",
+            "module_id": "proteinmpnn.score",
+            "version": "1.0.0",
+            "identity": "v_48_020",
+        }
+    ]
+
+
+def test_one_run_namespace_rejects_concurrent_manifest_writers(
+    tmp_path: Path,
+) -> None:
+    workflow = Workflow()
+    manifest = RunManifest.for_execution(
+        project_id="project-11",
+        run_id="exclusive-run",
+        workflow=workflow,
+        modules={},
+        seed=42,
+        source_dir=tmp_path,
+    )
+    run_dir = tmp_path / "runs" / "exclusive-run"
+
+    with RunManifestStore(run_dir, manifest):
+        competing = RunManifest.for_execution(
+            project_id="project-11",
+            run_id="exclusive-run",
+            workflow=workflow,
+            modules={},
+            seed=42,
+            source_dir=tmp_path,
+        )
+        with pytest.raises(
+            RuntimeError,
+            match="already being updated",
+        ):
+            RunManifestStore(run_dir, competing)

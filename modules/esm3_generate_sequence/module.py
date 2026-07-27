@@ -74,16 +74,13 @@ class ESM3GenerateSequenceModule(WorkflowModule):
         all_scores_entries = []
 
         for i in range(num_samples):
-            context.record_provider_call(
-                "local_open" if model_name == "esm3_sm_open_v1" else "biohub",
-                "generate(track=sequence)",
-                model=model_name,
-            )
             result = call_esm3_provider(
                 client,
                 esm_protein,
                 config,
                 "generate(track=sequence)",
+                context=context,
+                model_name=model_name,
             )
             seq = esm_protein_to_sequence(result, prompt.num_residues)
             cid = f"seq-{context.run_id}-{i}"

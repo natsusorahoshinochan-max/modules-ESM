@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+import fcntl
 import json
 import os
 import platform
@@ -49,8 +50,14 @@ _KEY_VALUE = re.compile(
     r"(?i)\b(api[_-]?key|token|password|secret|authorization)"
     r"(\s*[:=]\s*)([^\s,;]+)"
 )
+_HEADER_VALUE = re.compile(
+    r"(?i)\b(authorization|proxy-authorization|cookie|set-cookie)"
+    r"(\s*[:=]\s*)[^\r\n]+"
+)
 _URI_CREDENTIALS = re.compile(r"(://[^:/\s]+:)[^@\s]+(@)")
-_OPAQUE_API_TOKEN = re.compile(r"\b(?:sk|pk)-[A-Za-z0-9_-]{8,}\b")
+_OPAQUE_API_TOKEN = re.compile(
+    r"\b(?:(?:sk|pk)-[A-Za-z0-9_-]{8,}|hf_[A-Za-z0-9_-]{8,})\b"
+)
 
 
 def _secret_values(value: Any, *, sensitive: bool = False) -> set[str]:
@@ -89,10 +96,18 @@ def _redact(value: Any, secret_values: tuple[str, ...]) -> Any:
     redacted = value
     for secret in secret_values:
         redacted = redacted.replace(secret, "[REDACTED]")
+    redacted = _HEADER_VALUE.sub(r"\1\2[REDACTED]", redacted)
     redacted = _BEARER_VALUE.sub(r"\1[REDACTED]", redacted)
     redacted = _KEY_VALUE.sub(r"\1\2[REDACTED]", redacted)
     redacted = _URI_CREDENTIALS.sub(r"\1[REDACTED]\2", redacted)
     return _OPAQUE_API_TOKEN.sub("[REDACTED]", redacted)
+
+
+def _sanitize(value: Any) -> Any:
+    secrets_to_redact = tuple(
+        sorted(_secret_values(value), key=len, reverse=True)
+    )
+    return _redact(value, secrets_to_redact)
 
 
 def canonical_json(value: Any) -> bytes:
@@ -146,14 +161,28 @@ def discover_source(source_dir: str | Path) -> dict[str, Any]:
     directory = Path(source_dir)
 
     def git(*arguments: str) -> subprocess.CompletedProcess[str]:
+        safe_environment = {
+            "PATH": os.environ.get("PATH", "/usr/bin:/bin"),
+            "LC_ALL": "C",
+            "GIT_CONFIG_NOSYSTEM": "1",
+            "GIT_OPTIONAL_LOCKS": "0",
+        }
         return subprocess.run(
-            ["git", *arguments],
+            [
+                "git",
+                "--no-optional-locks",
+                "-c",
+                "core.fsmonitor=false",
+                "-c",
+                "submodule.recurse=false",
+                *arguments,
+            ],
             cwd=directory,
             check=False,
             capture_output=True,
             text=True,
             timeout=10,
-            env={**os.environ, "GIT_OPTIONAL_LOCKS": "0"},
+            env=safe_environment,
         )
 
     try:
@@ -163,7 +192,12 @@ def discover_source(source_dir: str | Path) -> dict[str, Any]:
     if revision.returncode != 0:
         return {"revision": None, "dirty": None}
     try:
-        status = git("status", "--porcelain", "--untracked-files=normal")
+        status = git(
+            "status",
+            "--porcelain",
+            "--untracked-files=normal",
+            "--ignore-submodules=all",
+        )
     except (OSError, subprocess.TimeoutExpired):
         return {"revision": revision.stdout.strip(), "dirty": None}
     return {
@@ -196,10 +230,6 @@ class RunManifest:
     )
     candidate_lineage: list[dict[str, Any]] = field(default_factory=list)
     artifacts: list[dict[str, Any]] = field(default_factory=list)
-    _secret_values: tuple[str, ...] = field(
-        default=(),
-        repr=False,
-    )
 
     @classmethod
     def for_execution(
@@ -219,7 +249,7 @@ class RunManifest:
             "platform": sys.platform,
         }
         if environment:
-            runtime.update(environment)
+            runtime.update(_sanitize(environment))
         module_facts = []
         model_facts = []
         for node in sorted(workflow.nodes.values(), key=lambda item: item.node_id):
@@ -234,34 +264,26 @@ class RunManifest:
                 "module_id": node.module_id,
                 "version": version,
             })
-            if module is not None and module.definition.category == "model":
+            if module is not None:
                 parameter_defaults = {
                     parameter.name: parameter.default
                     for parameter in module.definition.parameters
                 }
-                identity = next(
-                    (
-                        node.parameters.get(key, parameter_defaults.get(key))
-                        for key in ("model_name", "model", "model_id")
-                        if (
-                            key in node.parameters
-                            or parameter_defaults.get(key) is not None
-                        )
-                    ),
-                    node.module_id,
-                )
-                model_facts.append({
-                    "node_id": node.node_id,
-                    "module_id": node.module_id,
-                    "version": version,
-                    "identity": identity,
-                })
-        secrets_to_redact = _secret_values({
-            "parameters": [
-                node.parameters for node in workflow.nodes.values()
-            ],
-            "environment": environment or {},
-        })
+                identity_items = [
+                    node.parameters.get(key, parameter_defaults.get(key))
+                    for key in ("model_name", "model", "model_id")
+                    if (
+                        key in node.parameters
+                        or parameter_defaults.get(key) is not None
+                    )
+                ]
+                if identity_items:
+                    model_facts.append(_sanitize({
+                        "node_id": node.node_id,
+                        "module_id": node.module_id,
+                        "version": version,
+                        "identity": identity_items[0],
+                    }))
         return cls(
             project_id=project_id,
             run_id=run_id,
@@ -269,11 +291,18 @@ class RunManifest:
             workflow={"sha256": workflow_sha256(workflow)},
             modules=module_facts,
             effective_seeds={
-                node_id: seed for node_id in sorted(workflow.nodes)
+                node_id: seed
+                for node_id in sorted(workflow.nodes)
+                if (
+                    modules.get(workflow.nodes[node_id].module_id)
+                    is not None
+                    and modules[
+                        workflow.nodes[node_id].module_id
+                    ].uses_seed
+                )
             },
             environment=runtime,
             models=model_facts,
-            _secret_values=tuple(sorted(secrets_to_redact, key=len, reverse=True)),
         )
 
     def to_dict(self) -> dict[str, Any]:
@@ -298,7 +327,18 @@ class RunManifest:
             "candidate_lineage": self.candidate_lineage,
             "artifacts": self.artifacts,
         }
-        return _redact(result, self._secret_values)
+        return _sanitize(result)
+
+
+def read_run_manifest(run_dir: str | Path) -> dict[str, Any]:
+    """Read the complete durable JSON document for one contained run."""
+    path = Path(run_dir) / "manifest.json"
+    if path.is_symlink():
+        raise StoragePathError("run_id", "Invalid run_id")
+    value = json.loads(path.read_text())
+    if not isinstance(value, dict):
+        raise ValueError("Run manifest must be a JSON object")
+    return value
 
 
 class RunManifestStore:
@@ -312,6 +352,32 @@ class RunManifestStore:
         flags = os.O_RDONLY | getattr(os, "O_DIRECTORY", 0)
         flags |= getattr(os, "O_NOFOLLOW", 0)
         self._directory_fd = os.open(self.run_dir, flags)
+        self._lock_fd = os.open(
+            ".manifest.lock",
+            os.O_RDWR | os.O_CREAT | getattr(os, "O_NOFOLLOW", 0),
+            0o600,
+            dir_fd=self._directory_fd,
+        )
+        try:
+            fcntl.flock(
+                self._lock_fd,
+                fcntl.LOCK_EX | fcntl.LOCK_NB,
+            )
+        except BlockingIOError:
+            os.close(self._lock_fd)
+            os.close(self._directory_fd)
+            raise RuntimeError("Run manifest is already being updated") from None
+        try:
+            os.stat(
+                "manifest.json",
+                dir_fd=self._directory_fd,
+                follow_symlinks=False,
+            )
+        except FileNotFoundError:
+            pass
+        else:
+            self.close()
+            raise FileExistsError("Run manifest already exists")
         self.manifest = manifest
         self.persist()
 
@@ -400,13 +466,6 @@ class RunManifestStore:
         })
         self.persist()
 
-    def remember_secrets(self, value: Any) -> None:
-        combined = set(self.manifest._secret_values)
-        combined.update(_secret_values(value))
-        self.manifest._secret_values = tuple(
-            sorted(combined, key=len, reverse=True)
-        )
-
     def record_provider_readiness(
         self,
         *,
@@ -414,12 +473,11 @@ class RunManifestStore:
         ready: bool,
         details: dict[str, Any] | None = None,
     ) -> None:
-        fact = {
+        fact = _sanitize({
             "provider": provider,
             "ready": bool(ready),
             "details": details or {},
-        }
-        self.remember_secrets(fact)
+        })
         self.manifest.providers["readiness"].append(fact)
         self.persist()
 
@@ -439,8 +497,7 @@ class RunManifestStore:
             fact["model"] = model
         if details:
             fact["details"] = details
-        self.remember_secrets(fact)
-        self.manifest.providers["calls"].append(fact)
+        self.manifest.providers["calls"].append(_sanitize(fact))
         self.persist()
 
     def record_failure(
@@ -450,11 +507,11 @@ class RunManifestStore:
         kind: str,
         message: str,
     ) -> None:
-        self.manifest.failures.append({
+        self.manifest.failures.append(_sanitize({
             "node_id": validate_identifier(node_id, "node_id"),
             "kind": kind,
             "message": message,
-        })
+        }))
         self.persist()
 
     def record_candidate_lineage(
@@ -497,8 +554,8 @@ class RunManifestStore:
         except FileNotFoundError:
             return False
         try:
-            metadata = os.fstat(descriptor)
-            if not stat.S_ISREG(metadata.st_mode):
+            before = os.fstat(descriptor)
+            if not stat.S_ISREG(before.st_mode):
                 raise StoragePathError(
                     "artifact_path",
                     "Invalid artifact_path",
@@ -507,10 +564,17 @@ class RunManifestStore:
             with os.fdopen(descriptor, "rb", closefd=False) as artifact:
                 while chunk := artifact.read(1024 * 1024):
                     digest.update(chunk)
+            after = os.fstat(descriptor)
+            stable_fields = ("st_dev", "st_ino", "st_size", "st_mtime_ns")
+            if any(
+                getattr(before, field_name) != getattr(after, field_name)
+                for field_name in stable_fields
+            ):
+                raise RuntimeError("Artifact changed while hashing")
             self.manifest.artifacts.append({
                 "node_id": validate_identifier(node_id, "node_id"),
                 "reference": resolved.relative_to(output_root).as_posix(),
-                "size": metadata.st_size,
+                "size": after.st_size,
                 "sha256": digest.hexdigest(),
             })
             self.persist()
@@ -529,6 +593,10 @@ class RunManifestStore:
                 return
 
     def close(self) -> None:
+        if getattr(self, "_lock_fd", -1) >= 0:
+            fcntl.flock(self._lock_fd, fcntl.LOCK_UN)
+            os.close(self._lock_fd)
+            self._lock_fd = -1
         if self._directory_fd >= 0:
             os.close(self._directory_fd)
             self._directory_fd = -1

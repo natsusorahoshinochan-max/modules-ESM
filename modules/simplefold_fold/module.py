@@ -70,17 +70,13 @@ class SimpleFoldFoldModule(WorkflowModule):
         all_scores_entries = []
 
         for parent_id, seq in sequences:
-            context.record_provider_call(
-                "simplefold",
-                "fold_sequence",
-                model=model_name,
-            )
             structures, scores = fold_sequence(
                 sequence=seq,
                 model_name=model_name,
                 num_steps=num_steps,
                 num_samples=num_samples,
                 project_dir=context.temp_dir,
+                context=context,
             )
 
             for sample_idx, struct in enumerate(structures):
