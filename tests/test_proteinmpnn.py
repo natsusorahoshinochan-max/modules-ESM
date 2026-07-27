@@ -398,7 +398,7 @@ output_ports:
             result.add_node(WorkflowNode(
                 node_id="design",
                 module_id="proteinmpnn.design",
-                module_version="1.1.0",
+                module_version="1.2.0",
                 parameters={"seed": 123},
             ))
             result.add_edge(WorkflowEdge(
@@ -452,6 +452,11 @@ output_ports:
                 [ProteinSequence(sequence="AGSTW")],
                 [],
                 "incomplete per-sequence scores",
+            ),
+            (
+                [ProteinSequence(sequence="AG")],
+                [-1.0],
+                "sequence length 2 does not match target length 5",
             ),
         ],
     )
@@ -695,7 +700,7 @@ output_ports:
     def test_adapter_translates_designed_and_fixed_chains(self) -> None:
         from modules.proteinmpnn.adapter import design_sequences
 
-        provider = CapturingProteinMPNNProvider(output_sequence="STW")
+        provider = CapturingProteinMPNNProvider(output_sequence="AGSTW")
         design_sequences(
             pdb_string="two-chain-pdb",
             constraints=ProteinMPNNConstraints(

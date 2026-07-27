@@ -1,5 +1,5 @@
 module_id: proteinmpnn.design
-version: 1.1.0
+version: 1.2.0
 display_name: ProteinMPNN Design
 category: model
 description: "Generates protein sequences from a structure using ProteinMPNN."
