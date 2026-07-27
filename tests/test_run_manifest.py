@@ -12,6 +12,8 @@ from typing import Any
 import pytest
 
 from core import (
+    CachePublishStatus,
+    CacheStore,
     Executor,
     RunManifest,
     RunManifestStore,
@@ -21,6 +23,7 @@ from core import (
 )
 from core.module_definition import ModuleDefinition
 from core.run_context import RunContext
+from core.storage import StoragePathError
 from core.workflow_module import WorkflowModule
 from datatypes import Candidate, CandidateCollection, ProteinStructure
 
@@ -914,11 +917,19 @@ def test_manifest_object_never_retains_raw_credentials(
         modules={"test.counting": CountingModule()},
         seed=42,
         source_dir=tmp_path,
-        environment={"api_key": placeholder},
+        environment={
+            "api_key": placeholder,
+            "endpoint": (
+                f"https://{placeholder}@provider.example.invalid"
+            ),
+        },
     )
 
     assert placeholder not in repr(manifest)
     assert manifest.environment["api_key"] == "[REDACTED]"
+    assert manifest.environment["endpoint"] == (
+        "https://[REDACTED]@provider.example.invalid"
+    )
 
 
 def test_scoring_module_model_identity_is_not_category_dependent(
@@ -981,3 +992,38 @@ def test_one_run_namespace_rejects_concurrent_manifest_writers(
             match="already being updated",
         ):
             RunManifestStore(run_dir, competing)
+
+
+def test_cache_rejects_public_integrity_key_and_reports_publish_owner(
+    tmp_path: Path,
+) -> None:
+    unsafe_root = tmp_path / "unsafe-cache"
+    unsafe_node = unsafe_root / "node"
+    unsafe_node.mkdir(parents=True, mode=0o777)
+    unsafe_root.chmod(0o777)
+    unsafe_node.chmod(0o777)
+    integrity_key = unsafe_root / ".integrity-key"
+    integrity_key.write_bytes(b"x" * 32)
+    integrity_key.chmod(0o644)
+
+    with CacheStore(unsafe_root, "node") as unsafe_cache:
+        with pytest.raises(
+            StoragePathError,
+            match="integrity key permissions",
+        ):
+            unsafe_cache.load("unsafe")
+
+    safe_root = tmp_path / "safe-cache"
+    with CacheStore(safe_root, "node") as safe_cache:
+        assert safe_cache.save("key", {"text": "first"}) == (
+            CachePublishStatus.CREATED
+        )
+        assert safe_cache.save("key", {"text": "second"}) == (
+            CachePublishStatus.EXISTING_VALID
+        )
+        garbage = safe_cache.path("garbage")
+        garbage.write_bytes(b"not an authenticated envelope")
+        garbage.chmod(0o600)
+        assert safe_cache.save("garbage", {"text": "value"}) == (
+            CachePublishStatus.FAILED
+        )

@@ -8,7 +8,7 @@ import pickle  # Compatibility seam for existing atomic-Cache tests.
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Callable
 
-from core.cache_store import CacheStore
+from core.cache_store import CachePublishStatus, CacheStore
 from core.graph import NodeState, Workflow, WorkflowNode
 from core.run_context import RunContext
 from core.run_manifest import RunManifest, RunManifestStore, canonical_json
@@ -161,7 +161,10 @@ class Executor:
             cache_path.parents[1],
             cache_path.parent.name,
         ) as cache:
-            return cache.save(cache_path.stem, outputs)
+            return (
+                cache.save(cache_path.stem, outputs)
+                != CachePublishStatus.FAILED
+            )
 
     @staticmethod
     def _has_artifact_output(
@@ -481,6 +484,7 @@ class Executor:
                                     ),
                                     output_ports=output_ports,
                                 )
+                                == CachePublishStatus.CREATED
                             ):
                                 manifest_store.mark_cache_published(
                                     node_id,

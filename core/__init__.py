@@ -1,4 +1,4 @@
-from core.cache_store import CacheStore
+from core.cache_store import CachePublishStatus, CacheStore
 from core.executor import Executor
 from core.graph import (
     NodeState,
@@ -24,6 +24,7 @@ from core.workflow_module import WorkflowModule
 
 __all__ = [
     "CacheStore",
+    "CachePublishStatus",
     "Executor",
     "InputGroupDefinition",
     "ModuleDefinition",

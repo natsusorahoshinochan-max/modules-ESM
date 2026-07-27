@@ -11,6 +11,7 @@ import pickle
 import secrets
 import stat
 from dataclasses import is_dataclass
+from enum import Enum
 import importlib
 from pathlib import Path
 from typing import Any
@@ -40,6 +41,14 @@ class _SafeCacheUnpickler(pickle.Unpickler):
         )
 
 
+class CachePublishStatus(str, Enum):
+    """Outcome of one immutable first-writer Cache publication."""
+
+    CREATED = "created"
+    EXISTING_VALID = "existing_valid"
+    FAILED = "failed"
+
+
 class CacheStore:
     """Operate inside one held, non-symlinked Cache Node namespace."""
 
@@ -51,21 +60,73 @@ class CacheStore:
         directory_flags |= getattr(os, "O_NOFOLLOW", 0)
         self._root_fd = os.open(self.cache_root, directory_flags)
         try:
-            os.mkdir(self.node_id, mode=0o700, dir_fd=self._root_fd)
-        except FileExistsError:
-            pass
+            self._require_private_directory(
+                self._root_fd,
+                "cache_root",
+            )
+            try:
+                os.mkdir(
+                    self.node_id,
+                    mode=0o700,
+                    dir_fd=self._root_fd,
+                )
+            except FileExistsError:
+                pass
+        except Exception:
+            os.close(self._root_fd)
+            self._root_fd = -1
+            raise
         try:
             self._node_fd = os.open(
                 self.node_id,
                 directory_flags,
                 dir_fd=self._root_fd,
             )
-        except OSError as error:
+            self._require_private_directory(
+                self._node_fd,
+                "node_id",
+            )
+        except (OSError, StoragePathError) as error:
+            if getattr(self, "_node_fd", -1) >= 0:
+                os.close(self._node_fd)
+                self._node_fd = -1
             os.close(self._root_fd)
+            self._root_fd = -1
             raise StoragePathError(
                 "node_id",
                 "Invalid Cache Node namespace",
             ) from error
+
+    @staticmethod
+    def _require_private_directory(
+        descriptor: int,
+        field: str,
+    ) -> None:
+        metadata = os.fstat(descriptor)
+        if (
+            not stat.S_ISDIR(metadata.st_mode)
+            or metadata.st_uid != os.getuid()
+        ):
+            raise StoragePathError(
+                field,
+                "Cache namespace permissions are unsafe",
+            )
+        if stat.S_IMODE(metadata.st_mode) != 0o700:
+            os.fchmod(descriptor, 0o700)
+            if stat.S_IMODE(os.fstat(descriptor).st_mode) != 0o700:
+                raise StoragePathError(
+                    field,
+                    "Cache namespace permissions are unsafe",
+                )
+
+    @staticmethod
+    def _is_private_file(metadata: os.stat_result) -> bool:
+        return (
+            stat.S_ISREG(metadata.st_mode)
+            and metadata.st_uid == os.getuid()
+            and metadata.st_nlink == 1
+            and stat.S_IMODE(metadata.st_mode) == 0o600
+        )
 
     def path(self, cache_key: str) -> Path:
         safe_key = validate_identifier(cache_key, "cache_key")
@@ -102,6 +163,12 @@ class CacheStore:
             os.fsync(self._root_fd)
             return key
         with os.fdopen(descriptor, "rb", closefd=True) as key_file:
+            metadata = os.fstat(key_file.fileno())
+            if not self._is_private_file(metadata):
+                raise StoragePathError(
+                    "cache_root",
+                    "Cache integrity key permissions are unsafe",
+                )
             key = key_file.read(64)
         return key if len(key) == 32 else None
 
@@ -148,7 +215,7 @@ class CacheStore:
             )
             metadata = os.fstat(descriptor)
             if (
-                not stat.S_ISREG(metadata.st_mode)
+                not self._is_private_file(metadata)
                 or metadata.st_size > _MAX_ENTRY_BYTES
             ):
                 return None
@@ -207,11 +274,11 @@ class CacheStore:
         module_id: str = "",
         module_version: str = "",
         output_ports: list[dict[str, str]] | None = None,
-    ) -> bool:
+    ) -> CachePublishStatus:
         safe_key = validate_identifier(cache_key, "cache_key")
         key = self._key(create=True)
         if key is None:
-            return False
+            return CachePublishStatus.FAILED
         ports = output_ports or [
             {"name": name, "type_id": ""}
             for name in sorted(outputs)
@@ -248,6 +315,7 @@ class CacheStore:
                     temporary.write(encoded)
                     temporary.flush()
                     os.fsync(temporary.fileno())
+                created = True
                 try:
                     os.link(
                         temporary_name,
@@ -256,7 +324,7 @@ class CacheStore:
                         dst_dir_fd=self._node_fd,
                     )
                 except FileExistsError:
-                    pass
+                    created = False
                 os.fsync(self._node_fd)
             finally:
                 try:
@@ -264,7 +332,19 @@ class CacheStore:
                 except FileNotFoundError:
                     pass
         except (OSError, pickle.PickleError):
-            return False
+            return CachePublishStatus.FAILED
+        if not created:
+            existing = self.load(
+                safe_key,
+                module_id=module_id,
+                module_version=module_version,
+                output_ports=ports,
+            )
+            return (
+                CachePublishStatus.EXISTING_VALID
+                if existing is not None
+                else CachePublishStatus.FAILED
+            )
         try:
             metadata = os.stat(
                 f"{safe_key}.pkl",
@@ -272,8 +352,12 @@ class CacheStore:
                 follow_symlinks=False,
             )
         except FileNotFoundError:
-            return False
-        return stat.S_ISREG(metadata.st_mode)
+            return CachePublishStatus.FAILED
+        return (
+            CachePublishStatus.CREATED
+            if self._is_private_file(metadata)
+            else CachePublishStatus.FAILED
+        )
 
     def remove(self, cache_key: str) -> None:
         safe_key = validate_identifier(cache_key, "cache_key")

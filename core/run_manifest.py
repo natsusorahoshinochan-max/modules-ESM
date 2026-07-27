@@ -54,7 +54,9 @@ _HEADER_VALUE = re.compile(
     r"(?i)\b(authorization|proxy-authorization|cookie|set-cookie)"
     r"(\s*[:=]\s*)[^\r\n]+"
 )
-_URI_CREDENTIALS = re.compile(r"(://[^:/\s]+:)[^@\s]+(@)")
+_URI_USERINFO = re.compile(
+    r"([A-Za-z][A-Za-z0-9+.-]*://)[^/@\s]+@"
+)
 _OPAQUE_API_TOKEN = re.compile(
     r"\b(?:(?:sk|pk)-[A-Za-z0-9_-]{8,}|hf_[A-Za-z0-9_-]{8,})\b"
 )
@@ -99,7 +101,7 @@ def _redact(value: Any, secret_values: tuple[str, ...]) -> Any:
     redacted = _HEADER_VALUE.sub(r"\1\2[REDACTED]", redacted)
     redacted = _BEARER_VALUE.sub(r"\1[REDACTED]", redacted)
     redacted = _KEY_VALUE.sub(r"\1\2[REDACTED]", redacted)
-    redacted = _URI_CREDENTIALS.sub(r"\1[REDACTED]\2", redacted)
+    redacted = _URI_USERINFO.sub(r"\1[REDACTED]@", redacted)
     return _OPAQUE_API_TOKEN.sub("[REDACTED]", redacted)
 
 
@@ -565,7 +567,13 @@ class RunManifestStore:
                 while chunk := artifact.read(1024 * 1024):
                     digest.update(chunk)
             after = os.fstat(descriptor)
-            stable_fields = ("st_dev", "st_ino", "st_size", "st_mtime_ns")
+            stable_fields = (
+                "st_dev",
+                "st_ino",
+                "st_size",
+                "st_mtime_ns",
+                "st_ctime_ns",
+            )
             if any(
                 getattr(before, field_name) != getattr(after, field_name)
                 for field_name in stable_fields
