@@ -1,6 +1,7 @@
 """ESMFold2 Fold: folds protein sequences into 3D structures."""
 
 import uuid
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
@@ -18,9 +19,16 @@ from datatypes import (
 
 
 class ESMFold2FoldModule(WorkflowModule):
-    def __init__(self) -> None:
+    def __init__(
+        self,
+        fold_provider: Callable[..., tuple[
+            ProteinStructure,
+            ScoreCollection,
+        ]] | None = None,
+    ) -> None:
         d = Path(__file__).parent / "definition.yaml"
         self._definition = ModuleDefinition.from_yaml(d)
+        self._fold_provider = fold_provider
 
     @property
     def definition(self) -> ModuleDefinition:
@@ -65,14 +73,18 @@ class ESMFold2FoldModule(WorkflowModule):
         include_pae = bool(parameters.get("include_pae", False))
         include_embeddings = bool(parameters.get("include_embeddings", False))
 
-        from modules.esmfold2_adapter import fold_sequence
+        if self._fold_provider is None:
+            from modules.esmfold2_adapter import fold_sequence
+            fold_provider = fold_sequence
+        else:
+            fold_provider = self._fold_provider
 
         candidates: list[Candidate] = []
         all_scores_entries = []
 
         for parent_id, seq in sequences:
             cid = f"fold-{context.run_id}-{parent_id}"
-            structure, scores = fold_sequence(
+            structure, scores = fold_provider(
                 sequence=seq,
                 model_name=model_name,
                 include_pae=include_pae,

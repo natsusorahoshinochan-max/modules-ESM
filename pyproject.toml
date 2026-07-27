@@ -47,10 +47,11 @@ testpaths = ["tests"]
 addopts = [
     "--strict-markers",
     "-m",
-    "not acceptance and not installed_package and not live_provider and not local_provider and not slow and not scientific_repro",
+    "not acceptance and not installed_package and not deterministic_acceptance and not live_provider and not local_provider and not slow and not scientific_repro",
 ]
 markers = [
     "acceptance: tests that exercise real providers, models, or binaries",
+    "deterministic_acceptance: provider-fixture acceptance through the public backend protocol",
     "installed_package: builds and installs release artifacts in an isolated environment",
     "live_provider: tests that make remote provider calls",
     "local_provider: tests that execute installed local providers or binaries",

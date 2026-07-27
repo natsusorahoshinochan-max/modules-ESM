@@ -7,6 +7,7 @@ from dataclasses import dataclass
 import os
 import uuid
 import shutil
+from collections.abc import Callable, Mapping
 from typing import Any, AsyncGenerator
 
 from contextlib import ExitStack, asynccontextmanager, suppress
@@ -75,7 +76,8 @@ class ActiveRun:
 _active_runs: dict[str, ActiveRun] = {}
 _active_project_runs: dict[str, ActiveRun] = {}
 _cache_mutations: set[str] = set()
-_module_factories: dict[str, type[WorkflowModule]] = {}
+ModuleFactory = Callable[[], WorkflowModule]
+_module_factories: dict[str, ModuleFactory] = {}
 _run_events = RunEventBroker()
 MAX_RUN_NODES = 2048
 MAX_RUN_EDGES = 8192
@@ -96,7 +98,7 @@ def _is_trusted_browser_origin(request: Request | WebSocket) -> bool:
     return origin is None or origin in TRUSTED_BROWSER_ORIGINS
 
 
-def register_module_factory(module_id: str, factory: type[WorkflowModule]) -> None:
+def register_module_factory(module_id: str, factory: ModuleFactory) -> None:
     """Register a factory for instantiating a workflow module."""
     _module_factories[module_id] = factory
 
@@ -371,13 +373,19 @@ def _ui_state_to_dict(ui: UIState) -> dict:
     }
 
 
-def create_app() -> FastAPI:
+def create_app(
+    *,
+    module_factory_overrides: Mapping[str, ModuleFactory] | None = None,
+    runtime_module_allowlist: frozenset[str] | None = None,
+) -> FastAPI:
+    """Create the backend, optionally replacing external-boundary Modules."""
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         global type_registry, module_registry, project_manager
         _run_events.clear()
         _active_runs.clear()
         _active_project_runs.clear()
+        _module_factories.clear()
         type_registry = TypeRegistry()
         module_registry = ModuleRegistry(type_registry)
         discover_modules(module_registry)
@@ -479,6 +487,12 @@ def create_app() -> FastAPI:
         register_module_factory("convert.extract_backbone", ExtractBackboneModule)
         register_module_factory("convert.select_chains", SelectChainsModule)
         register_module_factory("convert.map_track", MapResidueTrackModule)
+        for module_id, factory in (module_factory_overrides or {}).items():
+            if module_registry.get(module_id) is None:
+                raise RuntimeError(
+                    f"Cannot override unknown Module '{module_id}'"
+                )
+            register_module_factory(module_id, factory)
         with ExitStack() as asset_stack:
             workflow_path = os.environ.get(
                 "PROTEIN_WORKBENCH_CANONICAL_WORKFLOW"
@@ -693,6 +707,21 @@ def create_app() -> FastAPI:
         options: dict[str, Any],
         recovery: RecoveryProvenance | None = None,
     ) -> dict[str, Any]:
+        disallowed_modules = sorted({
+            node.module_id
+            for node in workflow.nodes.values()
+            if (
+                runtime_module_allowlist is not None
+                and node.module_id not in runtime_module_allowlist
+            )
+        })
+        if disallowed_modules:
+            raise RunRecoveryError(
+                "module_not_allowed",
+                "Workflow contains a Module disabled by this backend",
+                status_code=422,
+                module_ids=disallowed_modules,
+            )
         if len(_active_runs) >= MAX_ACTIVE_RUNS:
             return JSONResponse(
                 status_code=429,

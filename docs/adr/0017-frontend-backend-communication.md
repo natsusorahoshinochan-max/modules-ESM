@@ -32,7 +32,7 @@ PUT    /api/projects/{project_id}/ui          # Save ui.json
 ### Execution
 ```
 POST   /api/projects/{project_id}/run         # Start workflow execution
-POST   /api/projects/{project_id}/cancel      # Cancel running workflow
+POST   /api/projects/{project_id}/run/{run_id}/cancel # Cancel exact run
 GET    /api/projects/{project_id}/run/{run_id}/status   # Run status
 GET    /api/projects/{project_id}/run/{run_id}/manifest # Durable manifest
 GET    /api/projects/{project_id}/run/{run_id}/outputs   # Output data
