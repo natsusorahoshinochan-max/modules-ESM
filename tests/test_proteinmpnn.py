@@ -524,6 +524,13 @@ class TestProteinMPNNDesign:
                 ),
                 "omit_amino_acids must leave at least one",
             ),
+            (
+                ProteinMPNNConstraints(
+                    omit_amino_acids=["A"],
+                    bias_by_res={0: {"A": 1.0}},
+                ),
+                "bias_by_res position 0 targets globally omitted amino acid A",
+            ),
         ],
     )
     def test_adapter_rejects_invalid_constraints_before_inference(

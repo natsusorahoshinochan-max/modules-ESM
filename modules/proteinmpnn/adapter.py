@@ -548,6 +548,11 @@ def _bias_payload(
                 "position mask"
             )
         for amino_acid, bias in amino_acid_biases.items():
+            if amino_acid in (constraints.omit_amino_acids or []):
+                raise ValueError(
+                    f"bias_by_res position {position} targets globally omitted "
+                    f"amino acid {amino_acid}"
+                )
             if amino_acid not in _ALPHABET_DICT:
                 raise ValueError(
                     f"unsupported amino acid {amino_acid!r} in bias_by_res"
