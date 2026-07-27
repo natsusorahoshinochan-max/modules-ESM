@@ -1,6 +1,14 @@
 from core.cache_store import CachePublishStatus, CacheStore
 from core.executor import Executor
-from core.lifecycle_events import RunEventBroker, RunEventStream
+from core.lifecycle_events import (
+    RunEventBroker,
+    RunCapacityError,
+    RunEventStream,
+    RunEventSubscription,
+    RunEventType,
+    RunLifecycleEvent,
+    SubscriberLimitError,
+)
 from core.graph import (
     NodeState,
     Workflow,
@@ -38,10 +46,15 @@ __all__ = [
     "ProjectManager",
     "ProjectMeta",
     "RunContext",
+    "RunCapacityError",
     "RunEventBroker",
     "RunEventStream",
+    "RunEventSubscription",
+    "RunEventType",
+    "RunLifecycleEvent",
     "RunManifest",
     "RunManifestStore",
+    "SubscriberLimitError",
     "TypeInfo",
     "TypeRegistry",
     "UIState",

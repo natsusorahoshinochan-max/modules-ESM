@@ -8,7 +8,7 @@ import uuid
 import shutil
 from typing import Any, AsyncGenerator
 
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager, suppress
 from fastapi import (
     FastAPI,
     File,
@@ -21,7 +21,12 @@ from fastapi.responses import FileResponse, JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 
 from core.executor import Executor
-from core.lifecycle_events import RunEventBroker
+from core.lifecycle_events import (
+    RunCapacityError,
+    RunEventBroker,
+    RunEventType,
+    SubscriberLimitError,
+)
 from core.graph import (
     Workflow,
     WorkflowEdge,
@@ -50,6 +55,8 @@ project_manager: ProjectManager
 _active_runs: dict[str, asyncio.Task] = {}
 _module_factories: dict[str, type[WorkflowModule]] = {}
 _run_events = RunEventBroker()
+MAX_RUN_NODES = 2048
+MAX_RUN_EDGES = 8192
 
 
 def register_module_factory(module_id: str, factory: type[WorkflowModule]) -> None:
@@ -486,6 +493,28 @@ def create_app() -> FastAPI:
             },
         )
 
+    @app.exception_handler(RunCapacityError)
+    async def run_capacity_error_handler(
+        request: Request,
+        error: RunCapacityError,
+    ) -> JSONResponse:
+        del request
+        return JSONResponse(
+            status_code=422,
+            content={
+                "error": {
+                    "kind": "run_capacity_exceeded",
+                    "message": str(error),
+                    "nodes": error.nodes,
+                    "edges": error.edges,
+                    "limits": {
+                        "nodes": MAX_RUN_NODES,
+                        "edges": MAX_RUN_EDGES,
+                    },
+                },
+            },
+        )
+
     app.add_middleware(
         CORSMiddleware,
         allow_origins=["*"],
@@ -505,6 +534,16 @@ def create_app() -> FastAPI:
         return type_registry.list_all()
 
     # ── execution ────────────────────────────────────────────────────
+
+    def require_run_capacity(workflow: Workflow) -> None:
+        if (
+            len(workflow.nodes) > MAX_RUN_NODES
+            or len(workflow.edges) > MAX_RUN_EDGES
+        ):
+            raise RunCapacityError(
+                nodes=len(workflow.nodes),
+                edges=len(workflow.edges),
+            )
 
     @app.websocket("/ws/execution")
     async def execution_ws(websocket: WebSocket) -> None:
@@ -582,9 +621,29 @@ def create_app() -> FastAPI:
                     project_id=project_id,
                 )
             except asyncio.CancelledError:
+                if not stream.terminal:
+                    stream.publish(
+                        RunEventType.RUN_CANCELLED,
+                        details={
+                            "status": "cancelled",
+                            "duration_ms": stream.elapsed_ms,
+                        },
+                    )
                 raise
             except Exception:
-                pass
+                if not stream.terminal:
+                    stream.publish(
+                        RunEventType.RUN_FAILED,
+                        details={
+                            "status": "failed",
+                            "duration_ms": stream.elapsed_ms,
+                            "error": {
+                                "kind": "run_setup_error",
+                                "message": "Run setup failed",
+                                "retryable": False,
+                            },
+                        },
+                    )
 
         task = asyncio.create_task(run())
         _active_runs[run_id] = task
@@ -593,6 +652,7 @@ def create_app() -> FastAPI:
     @app.post("/api/execute")
     async def execute_workflow(payload: dict) -> Any:
         workflow, construction_errors = _workflow_from_payload(payload)
+        require_run_capacity(workflow)
         semantic_validation = workflow.validate(module_registry)
         validation = WorkflowValidationResult(
             construction_errors + semantic_validation.errors
@@ -624,6 +684,7 @@ def create_app() -> FastAPI:
                 content={"error": "Project not found"},
             )
         workflow = project_manager.load_workflow(project_id)
+        require_run_capacity(workflow)
         validation = workflow.validate(module_registry)
         if not validation.valid:
             return JSONResponse(
@@ -653,24 +714,55 @@ def create_app() -> FastAPI:
             await websocket.close(code=4404)
             return
         await websocket.accept()
-        subscriber = stream.subscribe()
         try:
+            subscription = stream.subscribe()
+        except SubscriberLimitError:
+            await websocket.close(code=4429)
+            return
+        disconnect = asyncio.create_task(websocket.receive())
+
+        async def send(event: dict[str, Any]) -> bool:
+            await asyncio.wait_for(
+                websocket.send_json(event),
+                timeout=5,
+            )
+            return event["type"] in {
+                RunEventType.RUN_COMPLETED.value,
+                RunEventType.RUN_FAILED.value,
+                RunEventType.RUN_CANCELLED.value,
+            }
+
+        try:
+            for event in subscription.replay:
+                if disconnect.done() or await send(event):
+                    return
             while True:
-                event = await subscriber.get()
+                next_event = asyncio.create_task(subscription.live.get())
+                done, _ = await asyncio.wait(
+                    {next_event, disconnect},
+                    return_when=asyncio.FIRST_COMPLETED,
+                )
+                if disconnect in done:
+                    next_event.cancel()
+                    with suppress(asyncio.CancelledError):
+                        await next_event
+                    return
+                event = next_event.result()
                 if event is None:
-                    await websocket.close(code=1013)
+                    await asyncio.wait_for(
+                        websocket.close(code=1013),
+                        timeout=5,
+                    )
                     return
-                await websocket.send_json(event)
-                if event["type"] in {
-                    "run_completed",
-                    "run_failed",
-                    "run_cancelled",
-                }:
+                if await send(event):
                     return
-        except WebSocketDisconnect:
+        except (TimeoutError, WebSocketDisconnect, RuntimeError):
             pass
         finally:
-            stream.unsubscribe(subscriber)
+            disconnect.cancel()
+            with suppress(asyncio.CancelledError):
+                await disconnect
+            stream.unsubscribe(subscription)
 
     @app.post("/api/execute/cancel")
     async def cancel_execution(payload: dict) -> dict:

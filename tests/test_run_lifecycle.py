@@ -10,6 +10,7 @@ from fastapi.testclient import TestClient
 from starlette.websockets import WebSocketDisconnect
 
 import core.server as server
+import core.executor as executor_module
 from core.module_definition import ModuleDefinition, PortDefinition
 from core.run_context import RunContext
 from core.run_manifest import read_run_manifest
@@ -144,6 +145,7 @@ def test_saved_workflow_emits_ordered_run_scoped_success_events() -> None:
     ]
     assert timestamps == sorted(timestamps)
     assert events[-1]["status"] == "completed"
+    assert isinstance(events[-1]["duration_ms"], int)
     assert manifest["status"] == "completed"
     assert manifest["node_states"][-1]["state"] == "completed"
 
@@ -233,6 +235,39 @@ def test_node_terminal_manifest_fact_exists_before_run_terminal_event() -> None:
     assert observed_types[-1] == "run_completed"
 
 
+def test_accepted_run_gets_safe_terminal_event_when_manifest_setup_fails(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def fail_manifest_setup(*args: object, **kwargs: object) -> None:
+        del args, kwargs
+        raise RuntimeError("authorization=Bearer setup-secret")
+
+    with TestClient(server.app) as client:
+        project_id = _saved_echo_project(client, "setup-failure")
+        monkeypatch.setattr(
+            executor_module,
+            "RunManifestStore",
+            fail_manifest_setup,
+        )
+
+        response = client.post(
+            f"/api/projects/{project_id}/run"
+        )
+
+        assert response.status_code == 200
+        run_id = response.json()["run_id"]
+        events = _receive_run_events(client, project_id, run_id)
+
+    assert [event["type"] for event in events] == ["run_failed"]
+    assert events[0]["status"] == "failed"
+    assert events[0]["error"] == {
+        "kind": "run_setup_error",
+        "message": "Run setup failed",
+        "retryable": False,
+    }
+    assert "setup-secret" not in str(events)
+
+
 def test_failure_blocks_dependent_once_and_unrelated_branch_completes() -> None:
     with TestClient(server.app) as client:
         server.module_registry.register(FailingLifecycleModule().definition)
@@ -315,7 +350,7 @@ def test_failure_blocks_dependent_once_and_unrelated_branch_completes() -> None:
     failed = next(
         event for event in events if event["type"] == "node_failed"
     )
-    assert failed["diagnostic"] == {
+    assert failed["error"] == {
         "kind": "RuntimeError",
         "message": "Node execution failed (RuntimeError)",
         "module_id": "test.lifecycle_failure",
@@ -394,6 +429,41 @@ def test_scoped_run_routes_reject_identifier_injection() -> None:
     assert rejected.value.code == 4400
 
 
+def test_oversized_run_is_rejected_before_stream_creation(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(server, "MAX_RUN_NODES", 1)
+    with TestClient(server.app) as client:
+        response = client.post(
+            "/api/execute",
+            json={
+                "nodes": [
+                    {
+                        "node_id": "first",
+                        "module_id": "stub.echo",
+                        "module_version": "1.0.0",
+                    },
+                    {
+                        "node_id": "second",
+                        "module_id": "stub.echo",
+                        "module_version": "1.0.0",
+                    },
+                ],
+                "edges": [],
+            },
+        )
+
+    assert response.status_code == 422
+    assert response.json()["error"] == {
+        "kind": "run_capacity_exceeded",
+        "message": "Workflow exceeds run lifecycle capacity",
+        "nodes": 2,
+        "edges": 0,
+        "limits": {"nodes": 1, "edges": 8192},
+    }
+    assert "run_id" not in response.json()
+
+
 def test_cache_hit_preserves_fresh_run_event_ordering() -> None:
     with TestClient(server.app) as client:
         project_id = _saved_echo_project(client, "cache-parity")
@@ -437,8 +507,14 @@ def test_cache_hit_preserves_fresh_run_event_ordering() -> None:
         for event in cached_events
         if event["type"] == "node_completed"
     )
-    assert fresh_terminal["cache"] == {"outcome": "miss"}
-    assert cached_terminal["cache"] == {"outcome": "hit"}
+    assert fresh_terminal["output_summary"] == {
+        "output_ports": ["text"],
+        "cache": {"outcome": "miss"},
+    }
+    assert cached_terminal["output_summary"] == {
+        "output_ports": ["text"],
+        "cache": {"outcome": "hit"},
+    }
     assert [manifest["status"] for manifest in manifests] == [
         "completed",
         "completed",
@@ -501,3 +577,70 @@ def test_cancelled_run_remains_distinct_from_failed_or_completed() -> None:
     )
     assert manifest["status"] == "cancelled"
     assert manifest["node_states"][-1]["state"] == "cancelled"
+
+
+def test_cancellation_persistence_error_falls_back_to_failed_manifest(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    original_set_status = executor_module.RunManifestStore.set_status
+    cancellation_write_failed = False
+
+    def fail_first_cancel_status(
+        store: executor_module.RunManifestStore,
+        status: str,
+    ) -> None:
+        nonlocal cancellation_write_failed
+        if status == "cancelled" and not cancellation_write_failed:
+            cancellation_write_failed = True
+            raise OSError("transient terminal write failure")
+        original_set_status(store, status)
+
+    monkeypatch.setattr(
+        executor_module.RunManifestStore,
+        "set_status",
+        fail_first_cancel_status,
+    )
+    with TestClient(server.app) as client:
+        server.module_registry.register(SlowLifecycleModule().definition)
+        server.register_module_factory(
+            "test.lifecycle_slow",
+            SlowLifecycleModule,
+        )
+        project_id = client.post(
+            "/api/projects",
+            json={"name": "cancel-persistence-failure"},
+        ).json()["id"]
+        assert client.put(
+            f"/api/projects/{project_id}/workflow",
+            json={
+                "nodes": [
+                    {
+                        "node_id": "slow",
+                        "module_id": "test.lifecycle_slow",
+                        "module_version": "1.0.0",
+                    }
+                ],
+                "edges": [],
+            },
+        ).status_code == 200
+        run_id = client.post(
+            f"/api/projects/{project_id}/run"
+        ).json()["run_id"]
+        events = []
+        with client.websocket_connect(
+            f"/api/projects/{project_id}/run/{run_id}/ws"
+        ) as websocket:
+            events.append(websocket.receive_json())
+            assert client.post(
+                "/api/execute/cancel",
+                json={"run_id": run_id},
+            ).json()["status"] == "cancelled"
+            while events[-1]["type"] != "run_failed":
+                events.append(websocket.receive_json())
+        manifest = read_run_manifest(
+            server.project_manager.run_dir(project_id, run_id)
+        )
+
+    assert cancellation_write_failed is True
+    assert events[-1]["error"]["kind"] == "terminal_persistence_error"
+    assert manifest["status"] == "failed"
