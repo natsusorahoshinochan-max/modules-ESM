@@ -1139,6 +1139,25 @@ def test_ephemeral_execute_returns_its_observable_project_scope() -> None:
     assert events[-1]["type"] == "run_completed"
 
 
+def test_run_websocket_rejects_foreign_browser_origin() -> None:
+    with TestClient(server.app) as client:
+        project_id = _saved_echo_project(
+            client,
+            "foreign-websocket-origin",
+        )
+        run_id = client.post(
+            f"/api/projects/{project_id}/run"
+        ).json()["run_id"]
+        with pytest.raises(WebSocketDisconnect) as rejection:
+            with client.websocket_connect(
+                f"/api/projects/{project_id}/run/{run_id}/ws",
+                headers={"Origin": "https://attacker.example"},
+            ):
+                pass
+
+    assert rejection.value.code == 4403
+
+
 def test_active_run_capacity_bounds_ephemeral_resource_use(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

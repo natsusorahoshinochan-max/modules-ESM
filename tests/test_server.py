@@ -47,6 +47,20 @@ def test_types_returns_json_content_type() -> None:
 
 def test_cors_rejects_foreign_origins_and_allows_local_frontend() -> None:
     with TestClient(app) as client:
+        foreign_execution = client.post(
+            "/api/execute",
+            headers={"Origin": "https://attacker.example"},
+            json={
+                "nodes": [
+                    {
+                        "node_id": "echo",
+                        "module_id": "stub.echo",
+                        "module_version": "1.0.0",
+                    }
+                ],
+                "edges": [],
+            },
+        )
         foreign = client.options(
             "/api/execute",
             headers={
@@ -62,6 +76,8 @@ def test_cors_rejects_foreign_origins_and_allows_local_frontend() -> None:
             },
         )
 
+    assert foreign_execution.status_code == 403
+    assert foreign_execution.json()["error"]["kind"] == "untrusted_origin"
     assert "access-control-allow-origin" not in foreign.headers
     assert local.headers["access-control-allow-origin"] == (
         "http://127.0.0.1:5173"

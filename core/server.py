@@ -70,6 +70,19 @@ MAX_RUN_NODES = 2048
 MAX_RUN_EDGES = 8192
 MAX_ACTIVE_RUNS = 8
 RUN_CANCELLATION_TIMEOUT_SECONDS = 5.0
+TRUSTED_BROWSER_ORIGINS = frozenset(
+    {
+        "http://127.0.0.1:5173",
+        "http://localhost:5173",
+        "http://127.0.0.1:8000",
+        "http://localhost:8000",
+    }
+)
+
+
+def _is_trusted_browser_origin(request: Request | WebSocket) -> bool:
+    origin = request.headers.get("origin")
+    return origin is None or origin in TRUSTED_BROWSER_ORIGINS
 
 
 def register_module_factory(module_id: str, factory: type[WorkflowModule]) -> None:
@@ -482,6 +495,26 @@ def create_app() -> FastAPI:
 
     app = FastAPI(title="Protein Workbench", version="0.1.0", lifespan=lifespan)
 
+    @app.middleware("http")
+    async def enforce_trusted_mutation_origin(
+        request: Request,
+        call_next: Any,
+    ) -> Any:
+        if (
+            request.method not in {"GET", "HEAD", "OPTIONS"}
+            and not _is_trusted_browser_origin(request)
+        ):
+            return JSONResponse(
+                status_code=403,
+                content={
+                    "error": {
+                        "kind": "untrusted_origin",
+                        "message": "Browser origin is not allowed",
+                    }
+                },
+            )
+        return await call_next(request)
+
     @app.exception_handler(StoragePathError)
     async def storage_path_error_handler(
         request: Request,
@@ -539,10 +572,7 @@ def create_app() -> FastAPI:
 
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=[
-            "http://127.0.0.1:5173",
-            "http://localhost:5173",
-        ],
+        allow_origins=list(TRUSTED_BROWSER_ORIGINS),
         allow_credentials=True,
         allow_methods=["*"],
         allow_headers=["*"],
@@ -572,6 +602,9 @@ def create_app() -> FastAPI:
 
     @app.websocket("/ws/execution")
     async def execution_ws(websocket: WebSocket) -> None:
+        if not _is_trusted_browser_origin(websocket):
+            await websocket.close(code=4403)
+            return
         await websocket.accept()
         try:
             while True:
@@ -792,6 +825,9 @@ def create_app() -> FastAPI:
         project_id: str,
         run_id: str,
     ) -> None:
+        if not _is_trusted_browser_origin(websocket):
+            await websocket.close(code=4403)
+            return
         try:
             stream = _run_events.get(project_id, run_id)
         except StoragePathError:
