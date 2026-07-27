@@ -52,6 +52,20 @@ END
 
 def _make_alignment(rmsd: float = 0.5) -> StructureAlignment:
     """Create a test StructureAlignment."""
+    reference_coordinates = [
+        [0.0, 0.0, 0.0],
+        [2.0, 1.0, 0.0],
+        [4.0, 0.0, 1.0],
+    ]
+    mobile_coordinates = (
+        reference_coordinates
+        if rmsd == 0.0
+        else [
+            [0.0, 0.0, 0.0],
+            [2.0 * (1.0 + rmsd), 1.0, 0.0],
+            [4.0 * (1.0 + rmsd), 0.0, 1.0],
+        ]
+    )
     return StructureAlignment(
         residue_map=[("A:1", "A:1"), ("A:2", "A:2"), ("A:3", "A:3")],
         chain_map={"A": "A"},
@@ -59,6 +73,13 @@ def _make_alignment(rmsd: float = 0.5) -> StructureAlignment:
         translation=[0.0, 0.0, 0.0],
         rmsd=rmsd,
         coverage=1.0,
+        reference_length=3,
+        mobile_length=3,
+        aligned_reference_indices=[0, 1, 2],
+        aligned_mobile_indices=[0, 1, 2],
+        aligned_reference_coordinates=reference_coordinates,
+        aligned_mobile_coordinates=mobile_coordinates,
+        aligned_distances=[rmsd, rmsd, rmsd],
     )
 
 

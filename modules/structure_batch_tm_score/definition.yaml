@@ -1,34 +1,18 @@
 module_id: structure.batch_tm_score
-version: 1.0.0
+version: 2.0.0
 display_name: Batch TM-score
 category: scoring
-description: "Batch-align each candidate structure to a reference and compute TM-score. Optionally accepts pre-computed StructureAlignments via the alignments port. Outputs one score entry per candidate with subjects referencing candidate IDs for downstream weighted ranking."
+description: "Compute standard reference-normalized TM-scores from shared sequence-aware StructureAlignments. Outputs one score entry per candidate with subjects referencing candidate IDs."
 input_ports:
-  - name: reference
-    type_id: protein.structure
-    required: false
-    display_name: Reference Structure
-    description: "Reference structure to align candidates against. Ignored when alignments port is provided."
-  - name: candidates
-    type_id: candidate.collection
-    required: false
-    display_name: Candidate Structures
-    description: "Collection of candidate ProteinStructure objects to score. Ignored when alignments port is provided."
   - name: alignments
     type_id: candidate.collection
-    required: false
-    display_name: Pre-computed Alignments
-    description: "Optional collection of StructureAlignment items. When provided, TM-scores are computed directly from alignments; reference and candidates ports are ignored."
-input_groups:
-  - name: scoring_input
-    alternatives:
-      - [reference, candidates]
-      - [alignments]
+    display_name: Alignments
+    description: "Collection of pre-computed StructureAlignment evidence items."
 output_ports:
   - name: scores
     type_id: score.collection
     display_name: Scores
-    description: "ScoreCollection with one score entry per candidate."
+    description: "ScoreCollection with one reference-normalized TM-score entry per candidate."
 parameters:
   - name: score_id
     type: string

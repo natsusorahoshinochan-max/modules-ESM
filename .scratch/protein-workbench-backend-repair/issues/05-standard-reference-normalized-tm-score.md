@@ -4,11 +4,11 @@
 
 **Blocked by:** 04 — Expand StructureAlignment into reproducible correspondence evidence.
 
-**Status:** ready-for-agent
+**Status:** completed
 
-- [ ] TM-score is calculated from aligned per-residue distances rather than from one global RMSD.
-- [ ] The normalization length is explicit, and the 3GB1 objective uses reference normalization.
-- [ ] A perfectly aligned fragment receives credit proportional to reference coverage rather than a perfect full-reference score.
-- [ ] Single and collection scoring paths share the same scientifically valid alignment and TM-score semantics.
-- [ ] Differential tests agree with a trusted structural-alignment implementation for identical structures, outliers, partial coverage, insertions, deletions, renumbering, and chain changes.
-- [ ] RMSD remains derivable from the shared StructureAlignment without independently reconstructing residue correspondence.
+- [x] TM-score is calculated from aligned per-residue distances rather than from one global RMSD.
+- [x] The normalization length is explicit, and the 3GB1 objective uses reference normalization.
+- [x] A perfectly aligned fragment receives credit proportional to reference coverage rather than a perfect full-reference score.
+- [x] Single and collection scoring paths share the same scientifically valid alignment and TM-score semantics.
+- [x] Differential tests agree with a trusted structural-alignment implementation for identical structures, outliers, partial coverage, insertions, deletions, renumbering, and chain changes.
+- [x] RMSD remains derivable from the shared StructureAlignment without independently reconstructing residue correspondence.
