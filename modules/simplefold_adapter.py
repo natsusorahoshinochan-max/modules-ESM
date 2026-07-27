@@ -136,6 +136,13 @@ def fold_sequence(
         )
 
         # Run inference
+        from core.run_context import RunContext
+
+        RunContext.record_active_provider_call(
+            "simplefold",
+            "fold_sequence",
+            model=model_name,
+        )
         results = inf_wrapper.run_inference(batch, model, plddt_models, device)
 
         sampled_coord = results["sampled_coord"]
@@ -299,6 +306,13 @@ def evaluate_structure(
         batch_coords = batch["coords"].to(device)
         t = torch.ones(batch_coords.shape[0], device=device)
 
+        from core.run_context import RunContext
+
+        RunContext.record_active_provider_call(
+            "simplefold",
+            "evaluate_structure",
+            model=model_name,
+        )
         out_feat = plddt_latent_module(batch_coords, t, batch)
         plddt_out_dict = plddt_out_module(out_feat["latent"].detach(), batch)
 

@@ -79,6 +79,7 @@ class ESM3GenerateSequenceModule(WorkflowModule):
                 esm_protein,
                 config,
                 "generate(track=sequence)",
+                model_name=model_name,
             )
             seq = esm_protein_to_sequence(result, prompt.num_residues)
             cid = f"seq-{context.run_id}-{i}"

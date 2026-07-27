@@ -1,9 +1,10 @@
 """Run context passed to each module during execution."""
 
+from contextvars import ContextVar, Token
 from dataclasses import dataclass, field
 from pathlib import Path
 import tempfile
-from typing import Optional
+from typing import TYPE_CHECKING, Any, Optional
 import uuid
 
 from core.storage import (
@@ -11,6 +12,14 @@ from core.storage import (
     contained_path,
     validate_identifier,
     validate_relative_path,
+)
+
+if TYPE_CHECKING:
+    from core.run_manifest import RunManifestStore
+
+_ACTIVE_RUN_CONTEXT: ContextVar["RunContext | None"] = ContextVar(
+    "protein_workbench_run_context",
+    default=None,
 )
 
 
@@ -32,6 +41,10 @@ class RunContext:
     temp_dir: Optional[str] = None
     output_dir: Optional[str] = None
     log_dir: Optional[str] = None
+    _manifest_store: Optional["RunManifestStore"] = field(
+        default=None,
+        repr=False,
+    )
 
     def __post_init__(self) -> None:
         safe_run_id = validate_identifier(self.run_id, "run_id")
@@ -112,4 +125,70 @@ class RunContext:
             suffix=suffix,
             delete=delete,
             dir=temp_dir,
+        )
+
+    def record_provider_readiness(
+        self,
+        provider: str,
+        ready: bool,
+        details: dict[str, Any] | None = None,
+    ) -> None:
+        """Record readiness as a fact distinct from an actual provider call."""
+        if self._manifest_store is not None:
+            self._manifest_store.record_provider_readiness(
+                provider=provider,
+                ready=ready,
+                details=details,
+            )
+
+    def record_provider_call(
+        self,
+        provider: str,
+        operation: str,
+        *,
+        model: str | None = None,
+        details: dict[str, Any] | None = None,
+    ) -> None:
+        """Record an actual external provider operation for this Node."""
+        if self._manifest_store is not None:
+            call_details = {"node_id": self.node_id, **(details or {})}
+            self._manifest_store.record_provider_call(
+                provider=provider,
+                operation=operation,
+                model=model,
+                details=call_details,
+            )
+
+    def activate(self) -> Token["RunContext | None"]:
+        """Make this context visible to nested provider adapters."""
+        return _ACTIVE_RUN_CONTEXT.set(self)
+
+    @staticmethod
+    def deactivate(token: Token["RunContext | None"]) -> None:
+        _ACTIVE_RUN_CONTEXT.reset(token)
+
+    @staticmethod
+    def record_active_provider_call(
+        provider: str,
+        operation: str,
+        *,
+        model: str | None = None,
+    ) -> None:
+        """Record at an adapter boundary without changing adapter signatures."""
+        context = _ACTIVE_RUN_CONTEXT.get()
+        if context is not None:
+            context.record_provider_call(
+                provider,
+                operation,
+                model=model,
+            )
+
+    def record_artifact(self, artifact: str | Path) -> bool:
+        """Record one output artifact by run-relative reference and digest."""
+        if self._manifest_store is None or self.output_dir is None:
+            return False
+        return self._manifest_store.record_artifact(
+            node_id=self.node_id,
+            path=artifact,
+            output_dir=self.output_dir,
         )

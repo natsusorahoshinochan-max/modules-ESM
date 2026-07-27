@@ -76,6 +76,13 @@ def fold_sequence(
         include_embeddings=include_embeddings,
     )
 
+    from core.run_context import RunContext
+
+    RunContext.record_active_provider_call(
+        "biohub",
+        "fold",
+        model=model_name,
+    )
     result = client.fold(
         sequence=sequence.sequence,
         model_name=model_name,

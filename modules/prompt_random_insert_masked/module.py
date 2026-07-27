@@ -11,6 +11,8 @@ from datatypes import ResidueLayout, ResidueTrack
 
 
 class RandomInsertMaskedModule(WorkflowModule):
+    uses_seed = True
+
     def __init__(self) -> None:
         d = Path(__file__).parent / "definition.yaml"
         self._definition = ModuleDefinition.from_yaml(d)

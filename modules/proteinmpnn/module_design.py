@@ -27,6 +27,8 @@ from modules.proteinmpnn.adapter import (
 
 
 class ProteinMPNNDesignModule(WorkflowModule):
+    uses_seed = True
+
     def __init__(self, provider: ProteinMPNNProvider | None = None) -> None:
         d = Path(__file__).parent / "definition_design.yaml"
         self._definition = ModuleDefinition.from_yaml(d)

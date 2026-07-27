@@ -54,6 +54,11 @@ class ComputeDSSPModule(WorkflowModule):
             pdb_path = tmp.name
 
         try:
+            context.record_provider_call(
+                "mkdssp",
+                "secondary_structure",
+                model=Path(dssp_bin).name,
+            )
             proc = await asyncio.create_subprocess_exec(
                 dssp_bin, pdb_path,
                 stdout=asyncio.subprocess.PIPE,

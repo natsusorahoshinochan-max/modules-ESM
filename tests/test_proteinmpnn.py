@@ -360,6 +360,7 @@ class TestProteinMPNNDesign:
         from core.executor import Executor
         from core.graph import Workflow, WorkflowEdge, WorkflowNode
         from core.module_definition import ModuleDefinition
+        from core.run_manifest import read_run_manifest
         from core.workflow_module import WorkflowModule
         from modules.proteinmpnn.module_design import ProteinMPNNDesignModule
 
@@ -422,6 +423,9 @@ output_ports:
             "first-run",
             seed=11,
         ))
+        first_manifest = read_run_manifest(
+            tmp_path / "runs" / "first-run"
+        )
         second_provider = CapturingProteinMPNNProvider()
         second_outputs = asyncio.run(Executor().execute(
             workflow(),
@@ -437,6 +441,15 @@ output_ports:
         ))
 
         assert len(first_provider.requests) == 1
+        assert first_manifest["effective_seeds"] == {"design": 123}
+        assert first_manifest["providers"]["calls"] == [
+            {
+                "provider": "capturing-proteinmpnn",
+                "operation": "design_sequences",
+                "model": "v_48_020",
+                "details": {"node_id": "design"},
+            }
+        ]
         assert second_provider.requests == []
         assert (
             second_outputs["design"]["candidates"].items[0]

@@ -683,6 +683,13 @@ def design_sequences(
         constraints,
         reference_sequence,
     )
+    from core.run_context import RunContext
+
+    RunContext.record_active_provider_call(
+        selected_provider.provider_identity,
+        "design_sequences",
+        model=model_name,
+    )
     sequences, scores = selected_provider.design(request)
     _validate_generated_sequences(
         sequences,
@@ -734,4 +741,11 @@ def score_sequence(
             f"sequence length {len(sequence)} does not match structure length "
             f"{request.target_length}; padding and truncation are not supported"
         )
+    from core.run_context import RunContext
+
+    RunContext.record_active_provider_call(
+        _LOCAL_PROVIDER_IDENTITY,
+        "score_sequence",
+        model=model_name,
+    )
     return _compute_score(model, batch, sequence, device)
