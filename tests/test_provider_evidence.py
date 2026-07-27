@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import base64
 import hashlib
+import importlib
 import json
 import os
 import sys
@@ -391,6 +392,9 @@ def test_simplefold_boundary_records_folding_result_digests(
         "simplefold.utils.datamodule_utils",
         datamodule,
     )
+    runtime_esm_utils = ModuleType("utils.esm_utils")
+    runtime_esm_utils.esm_registry = {}
+    monkeypatch.setitem(sys.modules, "utils.esm_utils", runtime_esm_utils)
     monkeypatch.setattr(
         simplefold_adapter,
         "_setup_simplefold_imports",
@@ -400,6 +404,16 @@ def test_simplefold_boundary_records_folding_result_digests(
         simplefold_adapter,
         "validated_simplefold_model_dir",
         lambda artifacts: artifacts,
+    )
+    monkeypatch.setattr(
+        simplefold_adapter,
+        "validated_simplefold_esm2_runtime",
+        lambda artifacts: (tmp_path, tmp_path),
+    )
+    monkeypatch.setattr(
+        simplefold_adapter,
+        "_bind_simplefold_esm2_source",
+        lambda registry, source_root, model_root: None,
     )
     monkeypatch.setattr(
         simplefold_adapter,
@@ -519,6 +533,16 @@ def test_simplefold_boundary_records_structure_evaluation_result(
     )
     monkeypatch.setattr(
         simplefold_adapter,
+        "validated_simplefold_esm2_runtime",
+        lambda artifacts: (tmp_path, tmp_path),
+    )
+    monkeypatch.setattr(
+        simplefold_adapter,
+        "_bind_simplefold_esm2_source",
+        lambda registry, source_root, model_root: None,
+    )
+    monkeypatch.setattr(
+        simplefold_adapter,
         "_prepare_simplefold_cache",
         lambda model_dir, cache: None,
     )
@@ -561,7 +585,49 @@ def test_simplefold_import_setup_returns_and_switches_from_original_cwd(
         os.chdir(original_cwd)
 
 
-def test_simplefold_disabled_gate_does_not_enter_provider_directory(
+def test_reviewed_simplefold_manifest_is_enabled() -> None:
+    from core.provider_contract import (
+        SIMPLEFOLD_ARTIFACT_SHA256,
+        SIMPLEFOLD_ESM2_ARTIFACT_SHA256,
+        SIMPLEFOLD_ESM2_SOURCE_TREE_SHA256,
+        SIMPLEFOLD_EXECUTION_ENABLED,
+    )
+
+    assert SIMPLEFOLD_EXECUTION_ENABLED is True
+    assert SIMPLEFOLD_ARTIFACT_SHA256 == {
+        "simplefold_100M.ckpt": (
+            "4cd0b8a0b317a6ab8634444fffd78ce84cfd49c20fe927b83c76c36fda5f54bd"
+        ),
+        "simplefold_360M.ckpt": (
+            "517338ec36b10ecc774f36b592ffe0fee6a24fa5c7d2fcfa3e3009282d48a49b"
+        ),
+        "simplefold_1.6B.ckpt": (
+            "aaac2d73dcc59c61153c58a1d56e74a8ada9d6057d67000f7836f3c87325312b"
+        ),
+        "plddt.ckpt": (
+            "cb32fa9cdc9e80406b793a8c09a929077534d9991a1d08f4c159d2e4ed81315f"
+        ),
+        "ccd.pkl": (
+            "2d3b2f03a3c5665944adba51e33263511e51b21c9cd05d902f9c4b7c1e58d2f4"
+        ),
+        "boltz1_conf.ckpt": (
+            "219a73ac67535ad0535b9d3fb11fc7dbbcb7a0b71e4b4bb28f0c50cc2ac7f4ee"
+        ),
+    }
+    assert SIMPLEFOLD_ESM2_ARTIFACT_SHA256 == {
+        "esm2_t36_3B_UR50D.pt": (
+            "7de8b4082ba15891959ab368b77ce3886697af1efb16d3c9e9e7b0c5d3f07500"
+        ),
+        "esm2_t36_3B_UR50D-contact-regression.pt": (
+            "4da500eab246481dc9c8c95bc7b1d02f2803d761c380b0e95186d4a07d0fc84e"
+        ),
+    }
+    assert SIMPLEFOLD_ESM2_SOURCE_TREE_SHA256 == (
+        "da1fd5e94771906950ccc9b4e789d50b0e8f8c4594608898dbcb14f14e3c50ba"
+    )
+
+
+def test_simplefold_invalid_model_root_does_not_enter_provider_directory(
     monkeypatch,
     tmp_path: Path,
 ) -> None:
@@ -578,18 +644,21 @@ def test_simplefold_disabled_gate_does_not_enter_provider_directory(
     setup = MagicMock(side_effect=AssertionError("provider import attempted"))
     monkeypatch.setattr(simplefold_adapter, "_setup_simplefold_imports", setup)
 
-    with pytest.raises(RuntimeError, match="execution remains disabled"):
+    with pytest.raises(FileNotFoundError, match="artifact is missing"):
         simplefold_adapter.fold_sequence(ProteinSequence(sequence="AAA"))
 
     setup.assert_not_called()
     assert os.getcwd() == original_cwd
 
 
-def test_simplefold_size_only_artifacts_fail_closed_without_sha_contract(
+def test_simplefold_size_only_artifacts_fail_closed_on_sha_mismatch(
     monkeypatch,
     tmp_path: Path,
 ) -> None:
-    from core.provider_contract import SIMPLEFOLD_ARTIFACT_IDENTITIES
+    from core.provider_contract import (
+        SIMPLEFOLD_ARTIFACT_IDENTITIES,
+        SIMPLEFOLD_AUXILIARY_ARTIFACTS,
+    )
     from modules.simplefold_adapter import validated_simplefold_model_dir
 
     model_root = tmp_path / "models"
@@ -597,13 +666,319 @@ def test_simplefold_size_only_artifacts_fail_closed_without_sha_contract(
     for name, identity in SIMPLEFOLD_ARTIFACT_IDENTITIES.items():
         with (model_root / name).open("wb") as artifact:
             artifact.truncate(identity["bytes"])
+    for name in SIMPLEFOLD_AUXILIARY_ARTIFACTS:
+        (model_root / name).write_bytes(b"unreviewed-bytes")
     monkeypatch.setenv(
         "PROTEIN_WORKBENCH_SIMPLEFOLD_MODEL_ROOT",
         str(model_root),
     )
 
-    with pytest.raises(RuntimeError, match="execution remains disabled"):
+    with pytest.raises(RuntimeError, match="SHA-256 mismatch"):
         validated_simplefold_model_dir(tmp_path / "working")
+
+
+def test_simplefold_verified_artifacts_are_staged_as_independent_files(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    from modules import simplefold_adapter
+
+    main_names = (
+        "simplefold_100M.ckpt",
+        "simplefold_360M.ckpt",
+        "simplefold_1.6B.ckpt",
+        "plddt.ckpt",
+    )
+    auxiliary_names = ("ccd.pkl", "boltz1_conf.ckpt")
+    artifact_bytes = {
+        name: f"reviewed:{name}".encode()
+        for name in (*main_names, *auxiliary_names)
+    }
+    monkeypatch.setattr(
+        simplefold_adapter,
+        "SIMPLEFOLD_ARTIFACT_IDENTITIES",
+        {
+            name: {"bytes": len(artifact_bytes[name])}
+            for name in main_names
+        },
+    )
+    monkeypatch.setattr(
+        simplefold_adapter,
+        "SIMPLEFOLD_AUXILIARY_ARTIFACTS",
+        auxiliary_names,
+    )
+    monkeypatch.setattr(
+        simplefold_adapter,
+        "SIMPLEFOLD_ARTIFACT_SHA256",
+        {
+            name: hashlib.sha256(content).hexdigest()
+            for name, content in artifact_bytes.items()
+        },
+    )
+    monkeypatch.setattr(
+        simplefold_adapter,
+        "SIMPLEFOLD_EXECUTION_ENABLED",
+        True,
+    )
+    validate_checkout = MagicMock()
+    monkeypatch.setattr(
+        simplefold_adapter,
+        "validate_installed_provider_checkout",
+        validate_checkout,
+    )
+
+    model_root = tmp_path / "reviewed-models"
+    model_root.mkdir()
+    for name, content in artifact_bytes.items():
+        (model_root / name).write_bytes(content)
+    monkeypatch.setenv(
+        "PROTEIN_WORKBENCH_SIMPLEFOLD_MODEL_ROOT",
+        str(model_root),
+    )
+    working_artifacts = tmp_path / "working"
+
+    staged = simplefold_adapter.validated_simplefold_model_dir(
+        working_artifacts
+    )
+
+    validate_checkout.assert_called_once()
+    assert staged == working_artifacts / "verified_provider"
+    assert not staged.is_symlink()
+    for name, content in artifact_bytes.items():
+        source = model_root / name
+        destination = staged / name
+        assert destination.read_bytes() == content
+        assert not destination.is_symlink()
+        assert destination.stat().st_ino != source.stat().st_ino
+        assert destination.stat().st_nlink == 1
+
+
+def test_simplefold_esm2_uses_locked_local_checkout(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    from modules import simplefold_adapter
+
+    source_root = tmp_path / "esm2-source"
+    source_root.mkdir()
+    (source_root / "hubconf.py").write_text("# reviewed hub entrypoint\n")
+    (source_root / "esm").mkdir()
+    (source_root / "esm" / "__init__.py").write_text("# reviewed package\n")
+    monkeypatch.setenv(
+        "PROTEIN_WORKBENCH_SIMPLEFOLD_ESM2_ROOT",
+        str(source_root),
+    )
+    monkeypatch.setattr(
+        simplefold_adapter,
+        "SIMPLEFOLD_ESM2_REVISION",
+        "locked-esm2-revision",
+    )
+
+    def git_result(root: Path, *args: str) -> str:
+        assert root == source_root
+        if args == ("rev-parse", "--show-toplevel"):
+            return str(source_root)
+        if args == ("rev-parse", "HEAD"):
+            return "locked-esm2-revision"
+        if args == ("status", "--porcelain", "--untracked-files=all"):
+            return ""
+        if args == ("ls-files", "--", "hubconf.py", "esm"):
+            return "esm/__init__.py\nhubconf.py"
+        raise AssertionError(args)
+
+    monkeypatch.setattr(
+        simplefold_adapter,
+        "_run_simplefold_esm2_git",
+        git_result,
+    )
+    reviewed_tree = simplefold_adapter._simplefold_esm2_source_tree_sha256([
+        ("esm/__init__.py", source_root / "esm" / "__init__.py"),
+        ("hubconf.py", source_root / "hubconf.py"),
+    ])
+    monkeypatch.setattr(
+        simplefold_adapter,
+        "SIMPLEFOLD_ESM2_SOURCE_TREE_SHA256",
+        reviewed_tree,
+    )
+    loader = MagicMock(return_value=("model", "alphabet"))
+    monkeypatch.setattr(
+        simplefold_adapter,
+        "_load_reviewed_simplefold_esm2",
+        loader,
+    )
+
+    validated = simplefold_adapter.validated_simplefold_esm2_root()
+    staged = simplefold_adapter._stage_simplefold_esm2_source(
+        validated,
+        tmp_path / "working",
+    )
+    model_root = tmp_path / "models"
+    model_root.mkdir()
+    model_path = model_root / "esm2_t36_3B_UR50D.pt"
+    model_path.write_bytes(b"reviewed")
+    registry: dict[str, object] = {}
+    simplefold_adapter._bind_simplefold_esm2_source(
+        registry,
+        staged,
+        model_root,
+    )
+    result = registry["esm2_3B"]()
+
+    assert result == ("model", "alphabet")
+    assert (staged / "hubconf.py").stat().st_ino != (
+        source_root / "hubconf.py"
+    ).stat().st_ino
+    loader.assert_called_once_with(staged, model_path)
+
+
+def test_simplefold_esm2_weights_are_staged_as_independent_files(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    from modules import simplefold_adapter
+
+    artifacts = {
+        "esm2_t36_3B_UR50D.pt": b"reviewed-esm2-model",
+        "esm2_t36_3B_UR50D-contact-regression.pt": b"reviewed-regression",
+    }
+    monkeypatch.setattr(
+        simplefold_adapter,
+        "SIMPLEFOLD_ESM2_ARTIFACT_IDENTITIES",
+        {
+            name: {"bytes": len(content)}
+            for name, content in artifacts.items()
+        },
+    )
+    monkeypatch.setattr(
+        simplefold_adapter,
+        "SIMPLEFOLD_ESM2_ARTIFACT_SHA256",
+        {
+            name: hashlib.sha256(content).hexdigest()
+            for name, content in artifacts.items()
+        },
+    )
+    source_root = tmp_path / "esm2-weights"
+    source_root.mkdir()
+    for name, content in artifacts.items():
+        (source_root / name).write_bytes(content)
+    monkeypatch.setenv(
+        "PROTEIN_WORKBENCH_SIMPLEFOLD_ESM2_MODEL_ROOT",
+        str(source_root),
+    )
+
+    staged = simplefold_adapter.validated_simplefold_esm2_model_dir(
+        tmp_path / "working"
+    )
+
+    for name, content in artifacts.items():
+        source = source_root / name
+        destination = staged / name
+        assert destination.read_bytes() == content
+        assert destination.stat().st_ino != source.stat().st_ino
+        assert destination.stat().st_nlink == 1
+
+
+def test_simplefold_esm2_loader_replaces_incompatible_biohub_namespace(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    from modules import simplefold_adapter
+
+    source_root = tmp_path / "reviewed-esm2-source"
+    package_root = source_root / "esm"
+    package_root.mkdir(parents=True)
+    (package_root / "__init__.py").write_text(
+        "from . import pretrained\n"
+    )
+    (package_root / "pretrained.py").write_text(
+        "import argparse\n"
+        "import torch\n"
+        "\n"
+        "def load_model_and_alphabet_core(name, model_data, regression_data):\n"
+        "    return ('facebook-model', (name, model_data, regression_data))\n"
+    )
+    biohub_esm = ModuleType("esm")
+    biohub_esm.__path__ = []
+    biohub_pretrained = ModuleType("esm.pretrained")
+    biohub_sdk = ModuleType("esm.sdk")
+    biohub_sdk.__path__ = []
+    biohub_sdk_api = ModuleType("esm.sdk.api")
+    monkeypatch.setitem(sys.modules, "esm", biohub_esm)
+    monkeypatch.setitem(sys.modules, "esm.pretrained", biohub_pretrained)
+    monkeypatch.setitem(sys.modules, "esm.sdk", biohub_sdk)
+    monkeypatch.setitem(sys.modules, "esm.sdk.api", biohub_sdk_api)
+    model_path = tmp_path / "esm2_t36_3B_UR50D.pt"
+    model_path.write_bytes(b"staged")
+    regression_path = (
+        tmp_path / "esm2_t36_3B_UR50D-contact-regression.pt"
+    )
+    regression_path.write_bytes(b"staged-regression")
+    load_results = iter(["model-data", "regression-data"])
+
+    def safe_torch_load(*args, **kwargs):
+        import argparse
+        import torch
+
+        assert argparse.Namespace in torch.serialization.get_safe_globals()
+        return next(load_results)
+
+    torch_load = MagicMock(side_effect=safe_torch_load)
+    monkeypatch.setattr(simplefold_adapter.torch, "load", torch_load)
+
+    result = simplefold_adapter._load_reviewed_simplefold_esm2(
+        source_root,
+        model_path,
+    )
+
+    assert result == (
+        "facebook-model",
+        (
+            "esm2_t36_3B_UR50D",
+            "model-data",
+            "regression-data",
+        ),
+    )
+    assert torch_load.call_args_list == [
+        (
+            (str(model_path),),
+            {"map_location": "cpu", "weights_only": True},
+        ),
+        (
+            (str(regression_path),),
+            {"map_location": "cpu", "weights_only": True},
+        ),
+    ]
+    assert sys.modules["esm"] is biohub_esm
+    assert sys.modules["esm.pretrained"] is biohub_pretrained
+    assert importlib.import_module("esm.sdk.api") is biohub_sdk_api
+
+
+def test_simplefold_readiness_requires_locked_esm2_source(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    from modules import simplefold_adapter
+    from tests.acceptance.conftest import _check_simplefold_ready
+
+    monkeypatch.setenv("PROTEIN_WORKBENCH_PROJECT_ROOT", str(tmp_path))
+    monkeypatch.setattr(
+        simplefold_adapter,
+        "validated_simplefold_model_dir",
+        lambda working_artifacts: working_artifacts,
+    )
+    validate_esm2_runtime = MagicMock(
+        side_effect=FileNotFoundError("missing locked ESM2 source")
+    )
+    monkeypatch.setattr(
+        simplefold_adapter,
+        "validated_simplefold_esm2_runtime",
+        validate_esm2_runtime,
+    )
+
+    assert _check_simplefold_ready() is False
+    validate_esm2_runtime.assert_called_once_with(
+        tmp_path / "simplefold_artifacts"
+    )
 
 
 def test_simplefold_gate_models_are_constrained() -> None:

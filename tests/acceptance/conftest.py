@@ -105,11 +105,17 @@ def _check_proteinmpnn_ready() -> bool:
 
 def _check_simplefold_ready() -> bool:
     """Check if SimpleFold and required gate artifacts are installed."""
-    from modules.simplefold_adapter import validated_simplefold_model_dir
+    from modules.simplefold_adapter import (
+        validated_simplefold_esm2_runtime,
+        validated_simplefold_model_dir,
+    )
 
     project_root = Path(os.environ["PROTEIN_WORKBENCH_PROJECT_ROOT"])
     try:
         validated_simplefold_model_dir(
+            project_root / "simplefold_artifacts"
+        )
+        validated_simplefold_esm2_runtime(
             project_root / "simplefold_artifacts"
         )
     except (FileNotFoundError, RuntimeError):

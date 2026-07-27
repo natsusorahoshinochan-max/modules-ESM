@@ -48,29 +48,46 @@ SimpleFold commit `c7a5570a6be9f5c695126e27c804e77567209934` selects the
 following CDN objects. Retain the object ETag and byte count alongside each
 download; these are the upstream object identities because the CDN does not expose
 versioned URLs or published SHA-256 values. The upstream wrapper does not enforce
-these identities, and multipart ETags are not cryptographic content digests.
-Ticket 19 therefore fails closed until maintainers capture and review SHA-256
-values for every deserialized object.
+these identities, and multipart ETags are not cryptographic content digests. The
+Workbench therefore enforces the separately reviewed SHA-256 manifest below:
 
-| Object | Bytes | ETag |
-| --- | ---: | --- |
-| `simplefold_100M.ckpt` | 386772550 | `d3f36328118ca08f0aac3a0e910b6829-23` |
-| `simplefold_360M.ckpt` | 1454881694 | `7c0603668846e72a0bd8a2c8b43b1151-85` |
-| `simplefold_1.6B.ckpt` | 6354525226 | `8547a616a08162144b9591b3e9479b8e-370` |
-| `plddt_module_1.6B.ckpt` | 462812900 | `1ed78d3cf12e8558ec45c596b1197ba9-27` |
+| Upstream object | Runtime filename | Bytes | ETag | SHA-256 |
+| --- | --- | ---: | --- | --- |
+| `simplefold_100M.ckpt` | `simplefold_100M.ckpt` | 386772550 | `d3f36328118ca08f0aac3a0e910b6829-23` | `4cd0b8a0b317a6ab8634444fffd78ce84cfd49c20fe927b83c76c36fda5f54bd` |
+| `simplefold_360M.ckpt` | `simplefold_360M.ckpt` | 1454881694 | `7c0603668846e72a0bd8a2c8b43b1151-85` | `517338ec36b10ecc774f36b592ffe0fee6a24fa5c7d2fcfa3e3009282d48a49b` |
+| `simplefold_1.6B.ckpt` | `simplefold_1.6B.ckpt` | 6354525226 | `8547a616a08162144b9591b3e9479b8e-370` | `aaac2d73dcc59c61153c58a1d56e74a8ada9d6057d67000f7836f3c87325312b` |
+| `plddt_module_1.6B.ckpt` | `plddt.ckpt` | 462812900 | `1ed78d3cf12e8558ec45c596b1197ba9-27` | `cb32fa9cdc9e80406b793a8c09a929077534d9991a1d08f4c159d2e4ed81315f` |
+| `ccd.pkl` | `ccd.pkl` | 345859128 | — | `2d3b2f03a3c5665944adba51e33263511e51b21c9cd05d902f9c4b7c1e58d2f4` |
+| `boltz1_conf.ckpt` | `boltz1_conf.ckpt` | 266338304 | — | `219a73ac67535ad0535b9d3fb11fc7dbbcb7a0b71e4b4bb28f0c50cc2ac7f4ee` |
 
 The SimpleFold ESM2 dependency is recorded as
-`facebookresearch/esm@2b369911bb5b4b0dda914521b9475cad1656b2ac`. The upstream
-wrapper still names the `torch.hub` `main` alias, so a future retained provider gate
-must prove that exact checkout before claiming source-bound evidence.
+`facebookresearch/esm@2b369911bb5b4b0dda914521b9475cad1656b2ac`. Configure a
+clean checkout at that exact commit with
+`PROTEIN_WORKBENCH_SIMPLEFOLD_ESM2_ROOT`. The adapter verifies its Git root, HEAD,
+clean status, and the reviewed 32-file runtime source-tree aggregate
+`da1fd5e94771906950ccc9b4e789d50b0e8f8c4594608898dbcb14f14e3c50ba`.
+It stages and rehashes that exact source subset before import.
 
-SimpleFold's FASTA path also consumes mutable `ccd.pkl` and
-`boltz1_conf.ckpt` objects. A valid real-provider root must eventually contain both
-with reviewed SHA-256 values alongside the four model objects. The Workbench gate
-never invokes the upstream downloader and does not deserialize any of these objects
-while the SHA-256 contract remains incomplete. Even after hashes are added, a
-separate reviewed enable flag is required; enabled execution stages and rehashes
-all inputs in the isolated run root before provider import or use.
+The ESM2 loader also deserializes two separate Facebook checkpoint objects. Place
+these in `PROTEIN_WORKBENCH_SIMPLEFOLD_ESM2_MODEL_ROOT`:
+
+| Runtime filename | Bytes | SHA-256 |
+| --- | ---: | --- |
+| `esm2_t36_3B_UR50D.pt` | 5678116398 | `7de8b4082ba15891959ab368b77ce3886697af1efb16d3c9e9e7b0c5d3f07500` |
+| `esm2_t36_3B_UR50D-contact-regression.pt` | 6759 | `4da500eab246481dc9c8c95bc7b1d02f2803d761c380b0e95186d4a07d0fc84e` |
+
+Both ESM2 objects are copied through no-follow descriptors into the isolated run
+root and rehashed. The adapter removes the incompatible Biohub `esm` namespace,
+imports Facebook ESM only from the staged source, and calls its local-file loader
+with the staged objects using explicit `weights_only=True` deserialization and an
+`argparse.Namespace` safe-global allowlist for the upstream metadata. It never
+invokes the upstream ESM2 network or `TORCH_HOME` checkpoint loader.
+
+A valid real-provider model root contains all six runtime filenames as regular
+non-symlink files. The adapter never invokes the SimpleFold downloader. It hashes
+the configured files, copies them through no-follow file descriptors into the
+isolated run root, rehashes the staged copies, and only then imports or invokes the
+provider.
 
 ## mkdssp
 

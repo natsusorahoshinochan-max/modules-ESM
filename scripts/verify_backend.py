@@ -34,7 +34,9 @@ from core.provider_contract import (
     PROTEINMPNN_REVISION,
     PROTEINMPNN_V_48_020_SHA256,
     SIMPLEFOLD_ARTIFACT_SHA256,
+    SIMPLEFOLD_ESM2_ARTIFACT_SHA256,
     SIMPLEFOLD_ESM2_REVISION,
+    SIMPLEFOLD_ESM2_SOURCE_TREE_SHA256,
     SIMPLEFOLD_REVISION,
     ESM_SDK_REVISION,
 )
@@ -174,6 +176,8 @@ EXPECTED_STATIC_IDENTITIES = {
         "source": "ml-simplefold",
         "source_revision": SIMPLEFOLD_REVISION,
         "esm2_source_revision": SIMPLEFOLD_ESM2_REVISION,
+        "esm2_source_tree_sha256": SIMPLEFOLD_ESM2_SOURCE_TREE_SHA256,
+        "esm2_artifact_sha256": SIMPLEFOLD_ESM2_ARTIFACT_SHA256,
         "artifact_sha256": SIMPLEFOLD_ARTIFACT_SHA256,
     },
     "mkdssp": {"binary": "mkdssp", "required_version": "4.6.1"},
@@ -535,6 +539,8 @@ def _child_environment(tier_name: str, base: Path) -> dict[str, str]:
     if tier_name == "heavy-model":
         for key in (
             "PROTEIN_WORKBENCH_PROTEINMPNN_ROOT",
+            "PROTEIN_WORKBENCH_SIMPLEFOLD_ESM2_MODEL_ROOT",
+            "PROTEIN_WORKBENCH_SIMPLEFOLD_ESM2_ROOT",
             "PROTEIN_WORKBENCH_SIMPLEFOLD_MODEL_ROOT",
             "HF_HOME",
             "HF_HUB_CACHE",
@@ -574,6 +580,35 @@ def _stream_process_output(
             detected = True
         overlap = window[-(len(marker) - 1):]
     return detected
+
+
+def _provider_summary_completion(
+    *,
+    evidence_error: str | None,
+    focused: bool,
+    return_code: int,
+    failures: int,
+    skipped: int,
+    tests: int,
+    resource_cleanup_warning: bool,
+    source_attestation_valid: bool,
+) -> tuple[bool, str | None]:
+    """Report completeness only when the entire provider gate can pass."""
+    if evidence_error is not None:
+        return False, evidence_error
+    if focused:
+        return False, "focused provider diagnostic"
+    if skipped:
+        return False, "provider pytest skipped required tests"
+    if return_code != 0 or failures:
+        return False, "provider pytest failed"
+    if resource_cleanup_warning:
+        return False, "multiprocessing resource cleanup warning"
+    if tests == 0:
+        return False, "no provider tests ran"
+    if not source_attestation_valid:
+        return False, "source attestation changed during provider execution"
+    return True, None
 
 
 def main() -> int:
@@ -773,6 +808,25 @@ def main() -> int:
             )
         if call_evidence.exists():
             call_evidence.chmod(0o600)
+        source_attestation_valid = True
+        if tier.requires_provider_evidence and not args.pytest_targets:
+            try:
+                final_source_attestation = _source_attestation()
+            except (
+                OSError,
+                subprocess.CalledProcessError,
+                subprocess.TimeoutExpired,
+            ):
+                final_source_attestation = (
+                    "unavailable",
+                    True,
+                    "unavailable",
+                )
+            source_attestation_valid = (
+                initial_source_attestation is not None
+                and final_source_attestation == initial_source_attestation
+                and not final_source_attestation[1]
+            )
         evidence_error: str | None = None
         if tier.requires_provider_evidence and not call_evidence.exists():
             evidence_error = "no provider-call evidence was recorded"
@@ -791,6 +845,16 @@ def main() -> int:
                     event for event in evidence
                     if event.get("event_type") == "provider_call"
                 ]
+                complete, incomplete_reason = _provider_summary_completion(
+                    evidence_error=evidence_error,
+                    focused=bool(args.pytest_targets),
+                    return_code=completed.returncode,
+                    failures=failures,
+                    skipped=skipped,
+                    tests=tests,
+                    resource_cleanup_warning=resource_cleanup_warning,
+                    source_attestation_valid=source_attestation_valid,
+                )
                 _write_json(
                     result_dir / "provider-summary.json",
                     {
@@ -798,8 +862,8 @@ def main() -> int:
                         "tier": args.tier,
                         "fresh_gate": True,
                         "historical_cache_allowed": False,
-                        "complete": evidence_error is None,
-                        "incomplete_reason": evidence_error,
+                        "complete": complete,
+                        "incomplete_reason": incomplete_reason,
                         "call_count": len(calls),
                         "readiness": [
                             event for event in evidence
@@ -836,30 +900,13 @@ def main() -> int:
                     flush=True,
                 )
                 return 3
-            if not args.pytest_targets:
-                try:
-                    final_source_attestation = _source_attestation()
-                except (
-                    OSError,
-                    subprocess.CalledProcessError,
-                    subprocess.TimeoutExpired,
-                ):
-                    final_source_attestation = (
-                        "unavailable",
-                        True,
-                        "unavailable",
-                    )
-                if (
-                    initial_source_attestation is None
-                    or final_source_attestation != initial_source_attestation
-                    or final_source_attestation[1]
-                ):
-                    print(
-                        "BACKEND VERIFICATION RESULT: failed "
-                        "(source attestation changed during provider execution)",
-                        flush=True,
-                    )
-                    return 1
+            if not source_attestation_valid:
+                print(
+                    "BACKEND VERIFICATION RESULT: failed "
+                    "(source attestation changed during provider execution)",
+                    flush=True,
+                )
+                return 1
             if args.pytest_targets:
                 print(
                     "BACKEND VERIFICATION RESULT: incomplete "

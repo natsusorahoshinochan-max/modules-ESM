@@ -69,19 +69,23 @@ Use file paths rather than secret values when configuring provider access:
 export PROTEIN_WORKBENCH_BIOHUB_TOKEN_FILE=/secure/path/esmkey.txt
 export PROTEIN_WORKBENCH_PROTEINMPNN_ROOT=/opt/proteinmpnn
 export PROTEIN_WORKBENCH_SIMPLEFOLD_MODEL_ROOT=/opt/simplefold-models
+export PROTEIN_WORKBENCH_SIMPLEFOLD_ESM2_ROOT=/opt/facebookresearch-esm
+export PROTEIN_WORKBENCH_SIMPLEFOLD_ESM2_MODEL_ROOT=/opt/facebookresearch-esm2-models
 ```
 
-The heavy gate currently fails closed at SimpleFold readiness. Its mutable upstream
-URLs and multipart ETags are not safe deserialization identities. Before this gate
-can pass, maintainers must review and pin SHA-256 values in
-`core/provider_contract.py` for the four model objects plus `ccd.pkl` and
-`boltz1_conf.ckpt`, then provision all six as regular non-symlink files in
-`PROTEIN_WORKBENCH_SIMPLEFOLD_MODEL_ROOT`. The adapter does not call the upstream
-downloader; it copies verified auxiliary objects into the fresh isolated Cache.
-All six objects are staged from no-follow regular-file descriptors and rehashed
-before provider use. An explicit execution-enable constant remains false until the
-artifact identities and remaining runtime containment receive review. Byte counts
-or historical PDB outputs alone can never satisfy readiness.
+The SimpleFold model root must contain the six regular non-symlink files and exact
+SHA-256 values listed in `docs/provider-install-contract.md`. The adapter does not
+call the upstream downloader. It stages all six objects from no-follow regular-file
+descriptors into the isolated run root and rehashes them before provider import or
+use. The ESM2 root must be a clean Git checkout at
+`2b369911bb5b4b0dda914521b9475cad1656b2ac`; the adapter stages that checkout's
+reviewed runtime source tree and imports only from the staged copy instead of using
+the upstream mutable `main` alias. The two ESM2 checkpoint objects must also match
+the size and SHA-256
+contract in `docs/provider-install-contract.md`; they are staged and loaded by
+local path without a network or inherited `TORCH_HOME` fallback. Missing files,
+byte-count or digest mismatches, a symlink, an unclean or wrong ESM2 checkout,
+source-tree drift, and historical PDB outputs all fail readiness.
 
 Fresh remote 3GB1 acceptance is intentionally not a placeholder tier here. Its
 command becomes valid only when tickets 18 through 20 add the remaining
@@ -128,7 +132,7 @@ dependencies, ModuleDefinition YAML, and canonical Workflow/UI/PDB assets. Provi
 SDKs and model runtimes are intentionally explicit:
 
 ```bash
-uv sync --frozen --extra providers
+uv sync --frozen --extra dev --extra providers
 ```
 
 That extra pins ESM and SimpleFold to the same upstream commits recorded by this

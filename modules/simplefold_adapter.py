@@ -7,14 +7,17 @@ Evaluate: structure -> pLDDT scores (larger model, no re-folding).
 from __future__ import annotations
 
 import hashlib
+import importlib
 import os
 import shutil
 import stat
+import subprocess
 import sys
 import tempfile
 import uuid
+from argparse import Namespace
 from copy import deepcopy
-from functools import wraps
+from functools import partial, wraps
 from pathlib import Path
 from typing import Any, Callable
 
@@ -31,6 +34,10 @@ from core.provider_contract import (
     SIMPLEFOLD_ARTIFACT_IDENTITIES,
     SIMPLEFOLD_ARTIFACT_SHA256,
     SIMPLEFOLD_AUXILIARY_ARTIFACTS,
+    SIMPLEFOLD_ESM2_ARTIFACT_IDENTITIES,
+    SIMPLEFOLD_ESM2_ARTIFACT_SHA256,
+    SIMPLEFOLD_ESM2_REVISION,
+    SIMPLEFOLD_ESM2_SOURCE_TREE_SHA256,
     SIMPLEFOLD_EXECUTION_ENABLED,
     SIMPLEFOLD_REVISION,
     simplefold_provider_identity,
@@ -129,6 +136,7 @@ def validated_simplefold_model_dir(working_artifacts: Path) -> Path:
                 f"SimpleFold artifact SHA-256 mismatch: {name}"
             )
     validate_installed_provider_checkout("simplefold", SIMPLEFOLD_REVISION)
+    working_artifacts.mkdir(parents=True, mode=0o700, exist_ok=True)
     staged = working_artifacts / "verified_provider"
     staged.mkdir(mode=0o700)
     for name in sorted(required_names):
@@ -175,6 +183,287 @@ def _copy_regular_file(source: Path, destination: Path) -> None:
         os.close(source_descriptor)
 
 
+def _run_simplefold_esm2_git(root: Path, *args: str) -> str:
+    try:
+        completed = subprocess.run(
+            ["git", "-C", str(root), *args],
+            check=True,
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+    except (
+        OSError,
+        subprocess.CalledProcessError,
+        subprocess.TimeoutExpired,
+    ) as exc:
+        raise RuntimeError(
+            "SimpleFold ESM2 source is not a usable locked Git checkout"
+        ) from exc
+    return completed.stdout.strip()
+
+
+def validated_simplefold_esm2_root() -> Path:
+    """Resolve the exact local ESM2 checkout used by SimpleFold."""
+    configured = os.environ.get("PROTEIN_WORKBENCH_SIMPLEFOLD_ESM2_ROOT")
+    if not configured:
+        raise FileNotFoundError(
+            "SimpleFold ESM2 source root is not explicitly configured"
+        )
+    source_root = Path(configured).expanduser()
+    hubconf = source_root / "hubconf.py"
+    if (
+        source_root.is_symlink()
+        or not source_root.is_dir()
+        or hubconf.is_symlink()
+        or not hubconf.is_file()
+    ):
+        raise FileNotFoundError(
+            "SimpleFold ESM2 source root must be a regular Git checkout"
+        )
+    checkout = Path(
+        _run_simplefold_esm2_git(
+            source_root,
+            "rev-parse",
+            "--show-toplevel",
+        )
+    ).resolve()
+    if checkout != source_root.resolve():
+        raise RuntimeError(
+            "SimpleFold ESM2 source root must be the Git checkout root"
+        )
+    if (
+        _run_simplefold_esm2_git(source_root, "rev-parse", "HEAD")
+        != SIMPLEFOLD_ESM2_REVISION
+    ):
+        raise RuntimeError(
+            "SimpleFold ESM2 checkout does not match the locked revision"
+        )
+    if _run_simplefold_esm2_git(
+        source_root,
+        "status",
+        "--porcelain",
+        "--untracked-files=all",
+    ):
+        raise RuntimeError("SimpleFold ESM2 checkout is not clean")
+    runtime_files = _simplefold_esm2_runtime_files(source_root)
+    if (
+        _simplefold_esm2_source_tree_sha256(runtime_files)
+        != SIMPLEFOLD_ESM2_SOURCE_TREE_SHA256
+    ):
+        raise RuntimeError(
+            "SimpleFold ESM2 runtime source does not match the reviewed tree"
+        )
+    return source_root
+
+
+def _simplefold_esm2_runtime_files(
+    source_root: Path,
+) -> list[tuple[str, Path]]:
+    tracked = {
+        relative
+        for relative in _run_simplefold_esm2_git(
+            source_root,
+            "ls-files",
+            "--",
+            "hubconf.py",
+            "esm",
+        ).splitlines()
+        if relative
+    }
+    candidates = [source_root / "hubconf.py", *(source_root / "esm").rglob("*")]
+    actual: dict[str, Path] = {}
+    for path in candidates:
+        if path.is_symlink():
+            raise RuntimeError("SimpleFold ESM2 runtime source contains a symlink")
+        if path.is_file():
+            relative = path.relative_to(source_root).as_posix()
+            actual[relative] = path
+    if not actual or set(actual) != tracked:
+        raise RuntimeError(
+            "SimpleFold ESM2 runtime source inventory does not match Git"
+        )
+    return sorted(actual.items())
+
+
+def _simplefold_esm2_source_tree_sha256(
+    runtime_files: list[tuple[str, Path]],
+) -> str:
+    digest = hashlib.sha256()
+    for relative, path in sorted(runtime_files):
+        digest.update(relative.encode() + b"\0")
+        digest.update(bytes.fromhex(_sha256_regular_file(path)))
+    return digest.hexdigest()
+
+
+def _stage_simplefold_esm2_source(
+    source_root: Path,
+    working_artifacts: Path,
+) -> Path:
+    runtime_files = _simplefold_esm2_runtime_files(source_root)
+    if (
+        _simplefold_esm2_source_tree_sha256(runtime_files)
+        != SIMPLEFOLD_ESM2_SOURCE_TREE_SHA256
+    ):
+        raise RuntimeError(
+            "SimpleFold ESM2 runtime source changed before staging"
+        )
+    working_artifacts.mkdir(parents=True, mode=0o700, exist_ok=True)
+    staged_root = working_artifacts / "verified_esm2_source"
+    staged_root.mkdir(mode=0o700)
+    for relative, source in runtime_files:
+        destination = staged_root / relative
+        destination.parent.mkdir(parents=True, mode=0o700, exist_ok=True)
+        _copy_regular_file(source, destination)
+    staged_files = _simplefold_esm2_runtime_files_without_git(staged_root)
+    if (
+        [relative for relative, _ in staged_files]
+        != [relative for relative, _ in runtime_files]
+        or _simplefold_esm2_source_tree_sha256(staged_files)
+        != SIMPLEFOLD_ESM2_SOURCE_TREE_SHA256
+    ):
+        raise RuntimeError("Staged SimpleFold ESM2 source failed verification")
+    return staged_root
+
+
+def _simplefold_esm2_runtime_files_without_git(
+    source_root: Path,
+) -> list[tuple[str, Path]]:
+    candidates = [source_root / "hubconf.py", *(source_root / "esm").rglob("*")]
+    runtime_files: list[tuple[str, Path]] = []
+    for path in candidates:
+        if path.is_symlink():
+            raise RuntimeError("Staged SimpleFold ESM2 source contains a symlink")
+        if path.is_file():
+            runtime_files.append((
+                path.relative_to(source_root).as_posix(),
+                path,
+            ))
+    return sorted(runtime_files)
+
+
+def validated_simplefold_esm2_model_dir(working_artifacts: Path) -> Path:
+    """Stage only reviewed ESM2 pickle inputs into the isolated run root."""
+    configured = os.environ.get(
+        "PROTEIN_WORKBENCH_SIMPLEFOLD_ESM2_MODEL_ROOT"
+    )
+    if not configured:
+        raise FileNotFoundError(
+            "SimpleFold ESM2 model root is not explicitly configured"
+        )
+    model_root = Path(configured).expanduser()
+    if model_root.is_symlink() or not model_root.is_dir():
+        raise FileNotFoundError(
+            "SimpleFold ESM2 model root is unavailable or is a symlink"
+        )
+    for name, identity in sorted(
+        SIMPLEFOLD_ESM2_ARTIFACT_IDENTITIES.items()
+    ):
+        artifact = model_root / name
+        if artifact.is_symlink() or not artifact.is_file():
+            raise FileNotFoundError(
+                f"SimpleFold ESM2 artifact is missing: {name}"
+            )
+        if _sha256_regular_file(
+            artifact,
+            expected_bytes=identity["bytes"],
+        ) != SIMPLEFOLD_ESM2_ARTIFACT_SHA256[name]:
+            raise RuntimeError(
+                f"SimpleFold ESM2 artifact SHA-256 mismatch: {name}"
+            )
+    working_artifacts.mkdir(parents=True, mode=0o700, exist_ok=True)
+    staged = working_artifacts / "verified_esm2_models"
+    staged.mkdir(mode=0o700)
+    for name, identity in sorted(
+        SIMPLEFOLD_ESM2_ARTIFACT_IDENTITIES.items()
+    ):
+        _copy_regular_file(model_root / name, staged / name)
+        if _sha256_regular_file(
+            staged / name,
+            expected_bytes=identity["bytes"],
+        ) != SIMPLEFOLD_ESM2_ARTIFACT_SHA256[name]:
+            raise RuntimeError(
+                f"Staged SimpleFold ESM2 artifact SHA-256 mismatch: {name}"
+            )
+    return staged
+
+
+def validated_simplefold_esm2_runtime(
+    working_artifacts: Path,
+) -> tuple[Path, Path]:
+    """Stage reviewed ESM2 source and weights before provider import."""
+    source_root = validated_simplefold_esm2_root()
+    staged_source = _stage_simplefold_esm2_source(
+        source_root,
+        working_artifacts,
+    )
+    staged_models = validated_simplefold_esm2_model_dir(working_artifacts)
+    return staged_source, staged_models
+
+
+def _load_reviewed_simplefold_esm2(
+    source_root: Path,
+    model_path: Path,
+) -> tuple[Any, Any]:
+    """Load Facebook ESM2 locally after replacing Biohub's `esm` namespace."""
+    prior_esm_modules = {
+        module_name: module
+        for module_name, module in tuple(sys.modules.items())
+        if module_name == "esm" or module_name.startswith("esm.")
+    }
+    for module_name in prior_esm_modules:
+        sys.modules.pop(module_name, None)
+    source_entry = str(source_root)
+    sys.path.insert(0, source_entry)
+    importlib.invalidate_caches()
+    try:
+        pretrained = importlib.import_module("esm.pretrained")
+        module_path = Path(pretrained.__file__).resolve()
+        if not module_path.is_relative_to(source_root.resolve()):
+            raise RuntimeError(
+                "SimpleFold ESM2 import escaped the staged source tree"
+            )
+        regression_path = model_path.with_name(
+            f"{model_path.stem}-contact-regression.pt"
+        )
+        with torch.serialization.safe_globals([Namespace]):
+            model_data = torch.load(
+                str(model_path),
+                map_location="cpu",
+                weights_only=True,
+            )
+            regression_data = torch.load(
+                str(regression_path),
+                map_location="cpu",
+                weights_only=True,
+            )
+        return pretrained.load_model_and_alphabet_core(
+            model_path.stem,
+            model_data,
+            regression_data,
+        )[:2]
+    finally:
+        if source_entry in sys.path:
+            sys.path.remove(source_entry)
+        for module_name in tuple(sys.modules):
+            if module_name == "esm" or module_name.startswith("esm."):
+                sys.modules.pop(module_name, None)
+        sys.modules.update(prior_esm_modules)
+
+
+def _bind_simplefold_esm2_source(
+    esm_registry: dict[str, Any],
+    source_root: Path,
+    model_dir: Path,
+) -> None:
+    """Replace the mutable upstream loader with staged source and weights."""
+    esm_registry["esm2_3B"] = partial(
+        _load_reviewed_simplefold_esm2,
+        source_root,
+        model_dir / "esm2_t36_3B_UR50D.pt",
+    )
+
+
 def _prepare_simplefold_cache(model_dir: Path, cache: Path) -> None:
     """Populate a fresh cache from verified objects; never invoke a downloader."""
     for name in SIMPLEFOLD_AUXILIARY_ARTIFACTS:
@@ -214,6 +503,9 @@ def fold_sequence(
     num_steps = min(num_steps, 50)
     artifacts = _get_artifact_dir(project_dir)
     model_dir = validated_simplefold_model_dir(artifacts)
+    esm2_source_root, esm2_model_dir = validated_simplefold_esm2_runtime(
+        artifacts
+    )
     old_cwd = _setup_simplefold_imports()
     from simplefold.wrapper import ModelWrapper, InferenceWrapper
     from simplefold.utils.boltz_utils import (
@@ -223,6 +515,16 @@ def fold_sequence(
     )
     from simplefold.utils.fasta_utils import process_fastas
     from simplefold.utils.datamodule_utils import process_one_inference_structure
+
+    runtime_esm_utils = sys.modules.get("utils.esm_utils")
+    runtime_esm_registry = getattr(runtime_esm_utils, "esm_registry", None)
+    if not isinstance(runtime_esm_registry, dict):
+        raise RuntimeError("SimpleFold ESM2 runtime registry is unavailable")
+    _bind_simplefold_esm2_source(
+        runtime_esm_registry,
+        esm2_source_root,
+        esm2_model_dir,
+    )
 
     output_dir = artifacts / "output"
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -394,6 +696,9 @@ def evaluate_structure(
         raise ValueError("SimpleFold evaluation requires simplefold_360M")
     artifacts = _get_artifact_dir(project_dir)
     model_dir = validated_simplefold_model_dir(artifacts)
+    esm2_source_root, esm2_model_dir = validated_simplefold_esm2_runtime(
+        artifacts
+    )
     old_cwd = _setup_simplefold_imports()
     from simplefold.wrapper import ModelWrapper
     from simplefold.utils.fasta_utils import process_fastas
@@ -404,6 +709,12 @@ def evaluate_structure(
     from simplefold.boltz_data_pipeline.feature.featurizer import BoltzFeaturizer
     from simplefold.boltz_data_pipeline.tokenize.boltz_protein import BoltzTokenizer
     from simplefold.model.flow import LinearPath
+
+    _bind_simplefold_esm2_source(
+        esm_registry,
+        esm2_source_root,
+        esm2_model_dir,
+    )
 
     output_dir = artifacts / "eval_output"
     output_dir.mkdir(parents=True, exist_ok=True)

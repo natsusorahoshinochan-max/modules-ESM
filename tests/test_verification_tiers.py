@@ -176,6 +176,32 @@ def test_focused_provider_diagnostics_cannot_satisfy_full_gate() -> None:
     assert "provider call test identity mismatch" in result.stdout
 
 
+def test_provider_summary_completion_requires_overall_full_gate_success() -> None:
+    from scripts.verify_backend import _provider_summary_completion
+
+    passing = {
+        "evidence_error": None,
+        "focused": False,
+        "return_code": 0,
+        "failures": 0,
+        "skipped": 0,
+        "tests": 5,
+        "resource_cleanup_warning": False,
+        "source_attestation_valid": True,
+    }
+
+    assert _provider_summary_completion(**passing) == (True, None)
+    assert _provider_summary_completion(
+        **{**passing, "focused": True}
+    ) == (False, "focused provider diagnostic")
+    assert _provider_summary_completion(
+        **{**passing, "return_code": 1, "failures": 1}
+    ) == (False, "provider pytest failed")
+    assert _provider_summary_completion(
+        **{**passing, "source_attestation_valid": False}
+    ) == (False, "source attestation changed during provider execution")
+
+
 def test_full_provider_gate_rejects_one_missing_required_call(
     tmp_path: Path,
 ) -> None:
