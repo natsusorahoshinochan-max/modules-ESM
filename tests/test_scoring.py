@@ -91,7 +91,7 @@ class TestStructureAlign:
         result = mod.run({"reference": ref, "mobile": mob}, {}, ctx)
         alignment = result["alignment"]
 
-        assert alignment.rmsd > 0.0
+        assert alignment.rmsd == pytest.approx(0.0, abs=0.01)
         assert alignment.coverage == pytest.approx(1.0)
         assert len(alignment.residue_map) == 3
 

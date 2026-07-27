@@ -193,12 +193,24 @@ class ScoreCollection:
 class StructureAlignment:
     """Result of superimposing two protein structures.
 
-    residue_map: list of (ref_residue, mobile_residue) pairs.
+    residue_map: PDB provenance labels for aligned (reference, mobile) residues.
     chain_map: dict mapping reference chain -> mobile chain.
     rotation: 3x3 rotation matrix.
     translation: 3-vector translation.
     rmsd: RMSD in angstroms.
     coverage: fraction of aligned residues (0-1).
+    reference_sequence: one-letter sequence of reference residues with CA atoms.
+    mobile_sequence: one-letter sequence of mobile residues with CA atoms.
+    reference_length: number of reference residues available for alignment.
+    mobile_length: number of mobile residues available for alignment.
+    aligned_reference_indices: zero-based reference indices in correspondence order.
+    aligned_mobile_indices: zero-based mobile indices in correspondence order.
+    aligned_reference_coordinates: reference CA coordinates in correspondence order.
+    aligned_mobile_coordinates: mobile CA coordinates before applying the transform.
+    aligned_distances: per-pair distances after transforming the mobile coordinates.
+
+    The transform follows Bio.SVDSuperimposer's row-vector convention:
+    ``mobile @ rotation + translation``.
     """
 
     residue_map: list[tuple[str, str]] = field(default_factory=list)
@@ -207,6 +219,15 @@ class StructureAlignment:
     translation: list[float] = field(default_factory=list)
     rmsd: float = 0.0
     coverage: float = 0.0
+    reference_sequence: str = ""
+    mobile_sequence: str = ""
+    reference_length: int = 0
+    mobile_length: int = 0
+    aligned_reference_indices: list[int] = field(default_factory=list)
+    aligned_mobile_indices: list[int] = field(default_factory=list)
+    aligned_reference_coordinates: list[list[float]] = field(default_factory=list)
+    aligned_mobile_coordinates: list[list[float]] = field(default_factory=list)
+    aligned_distances: list[float] = field(default_factory=list)
 
 
 @dataclass

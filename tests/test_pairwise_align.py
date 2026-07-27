@@ -240,7 +240,7 @@ class TestPairwiseAlign:
         with pytest.raises(ValueError, match="mobile_candidates"):
             mod.run({"reference_candidates": ref}, {}, ctx)
 
-    def test_different_chain_zero_coverage(self) -> None:
+    def test_different_chain_preserves_sequence_correspondence(self) -> None:
         from modules.structure_pairwise_align.module import PairwiseAlignModule
         mod = PairwiseAlignModule()
         ctx = RunContext("/tmp/test", "n1")
@@ -257,8 +257,13 @@ class TestPairwiseAlign:
         )
         alignment = result["alignments"].items[0].data
 
-        assert alignment.coverage == 0.0
-        assert len(alignment.residue_map) == 0
+        assert alignment.coverage == pytest.approx(1.0)
+        assert alignment.chain_map == {"A": "B"}
+        assert alignment.residue_map == [
+            ("A:1", "B:1"),
+            ("A:2", "B:2"),
+            ("A:3", "B:3"),
+        ]
 
     def test_data_is_structure_alignment(self) -> None:
         from modules.structure_pairwise_align.module import PairwiseAlignModule

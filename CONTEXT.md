@@ -44,9 +44,11 @@ modules and consumed by selection modules.
 _Avoid_: Score set, metric bundle, evaluation result
 
 **StructureAlignment**: The result of superimposing two protein structures: a
-per-residue mapping, a rotation matrix, a translation vector, RMSD, and coverage.
-Produced by structure.align and consumed by TM-score and RMSD modules so that
-multiple scorers reuse the same alignment.
+sequence-aware per-residue mapping with PDB-label provenance, aligned residue
+indices and CA coordinates, per-residue distances, reference/mobile lengths, a
+rotation matrix, a translation vector, RMSD, and coverage. Produced by
+structure.align and consumed by TM-score and RMSD modules so that multiple
+scorers reuse and reproduce the same alignment.
 _Avoid_: Superimposition result, structural match
 
 **DSSP**: Secondary structure assignment program. The workbench calls mkdssp as a
