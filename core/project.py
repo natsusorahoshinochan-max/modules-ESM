@@ -57,6 +57,7 @@ class ProjectMeta:
     module_dependencies: list[str] = field(default_factory=list)
     seed: bool = False
     legacy_seed: bool = False
+    legacy_source_hash: str | None = None
     seed_version: str | None = None
     seed_content_hash: str | None = None
 
@@ -376,6 +377,10 @@ class ProjectManager:
             for node in workflow_content["nodes"]
         })
         project_dir = self.project_dir(project_id)
+        if project_dir.exists() and not project_dir.is_dir():
+            raise CanonicalSeedError(
+                "Canonical project path is not a directory"
+            )
         try:
             existing_meta = self._load_meta(project_id)
         except StoragePathError:
@@ -390,6 +395,7 @@ class ProjectManager:
             and existing_meta.seed is True
             and existing_meta.legacy_seed is False
             and existing_meta.name == name
+            and existing_meta.workflow_version == "1.0"
             and existing_meta.seed_content_hash == expected_hash
             and existing_meta.seed_version == version
             and existing_meta.module_dependencies == expected_dependencies
@@ -399,11 +405,7 @@ class ProjectManager:
             and installed_hash == expected_hash
         ):
             return existing_meta
-        existing_is_clean = (
-            metadata_is_current
-            and installed_hash == expected_hash
-        )
-        if project_dir.exists() and not existing_is_clean:
+        if project_dir.exists():
             self._preserve_legacy_project(project_dir, existing_meta)
 
         def provision_seed_inputs(destination_project_dir: Path) -> None:
@@ -437,13 +439,6 @@ class ProjectManager:
             dir=self.root_dir,
         ))
         try:
-            if project_dir.exists() and existing_is_clean:
-                shutil.copytree(
-                    project_dir,
-                    stage,
-                    dirs_exist_ok=True,
-                    symlinks=True,
-                )
             staged_inputs = stage / "inputs"
             if staged_inputs.exists():
                 if staged_inputs.is_symlink():
@@ -456,6 +451,10 @@ class ProjectManager:
             self._write_json(stage / "project.json", self._meta_data(meta))
             self._write_json(stage / "workflow.json", workflow_content)
             self._write_json(stage / "ui.json", ui_content)
+            if self._installed_content_hash(stage) != expected_hash:
+                raise CanonicalSeedError(
+                    "Canonical content changed while it was staged"
+                )
             self._replace_project_directory(stage, project_dir)
         finally:
             if stage.exists():
@@ -600,10 +599,22 @@ class ProjectManager:
         source_meta: ProjectMeta | None,
     ) -> ProjectMeta:
         identity = self._legacy_identity_hash(source)
-        legacy_id = f"legacy-3gb1-{identity[:24]}"
-        existing = self._load_meta(legacy_id)
-        if existing is not None:
-            return existing
+        legacy_id_base = f"legacy-3gb1-{identity[:24]}"
+        legacy_id = legacy_id_base
+        collision_index = 1
+        while (self.root_dir / legacy_id).exists():
+            try:
+                existing = self._load_meta(legacy_id)
+            except StoragePathError:
+                existing = None
+            if (
+                existing is not None
+                and existing.legacy_seed
+                and existing.legacy_source_hash == identity
+            ):
+                return existing
+            legacy_id = f"{legacy_id_base}-{collision_index}"
+            collision_index += 1
 
         legacy_meta = ProjectMeta(
             id=legacy_id,
@@ -629,6 +640,7 @@ class ProjectManager:
             ),
             seed=False,
             legacy_seed=True,
+            legacy_source_hash=identity,
             seed_version=(
                 source_meta.seed_version
                 if source_meta is not None
@@ -653,8 +665,11 @@ class ProjectManager:
                 symlinks=True,
             )
             staged_meta = stage / "project.json"
-            if staged_meta.is_symlink():
-                staged_meta.unlink()
+            if staged_meta.exists() or staged_meta.is_symlink():
+                os.replace(
+                    staged_meta,
+                    stage / "legacy-project.json",
+                )
             self._write_json(staged_meta, self._meta_data(legacy_meta))
             os.replace(stage, legacy_path)
         finally:
@@ -666,15 +681,21 @@ class ProjectManager:
     def _legacy_identity_hash(project_dir: Path) -> str:
         hasher = hashlib.sha256()
         for path in sorted(project_dir.rglob("*")):
-            relative = path.relative_to(project_dir).as_posix()
-            hasher.update(relative.encode())
+            relative = path.relative_to(project_dir).as_posix().encode()
+            hasher.update(len(relative).to_bytes(8, "big"))
+            hasher.update(relative)
             if path.is_symlink():
-                hasher.update(b"symlink:")
-                hasher.update(os.readlink(path).encode())
+                target = os.readlink(path).encode()
+                hasher.update(b"L")
+                hasher.update(len(target).to_bytes(8, "big"))
+                hasher.update(target)
             elif path.is_file():
-                hasher.update(path.read_bytes())
+                content = path.read_bytes()
+                hasher.update(b"F")
+                hasher.update(len(content).to_bytes(8, "big"))
+                hasher.update(content)
             elif path.is_dir():
-                hasher.update(b"directory")
+                hasher.update(b"D")
         return hasher.hexdigest()
 
     def _demote_noncanonical_seed_claims(self) -> None:
@@ -870,6 +891,7 @@ class ProjectManager:
             "module_dependencies": meta.module_dependencies,
             "seed": meta.seed,
             "legacy_seed": meta.legacy_seed,
+            "legacy_source_hash": meta.legacy_source_hash,
             "seed_version": meta.seed_version,
             "seed_content_hash": meta.seed_content_hash,
         }
@@ -883,7 +905,10 @@ class ProjectManager:
 
     def _load_meta(self, project_id: str) -> ProjectMeta | None:
         raw = self._load_json(project_id, "project.json")
-        if raw is None:
+        if (
+            not isinstance(raw, dict)
+            or not isinstance(raw.get("name"), str)
+        ):
             return None
         raw_id = raw.get("id")
         canonical = (
@@ -903,6 +928,7 @@ class ProjectManager:
             module_dependencies=raw.get("module_dependencies", []),
             seed=canonical,
             legacy_seed=legacy_seed,
+            legacy_source_hash=raw.get("legacy_source_hash"),
             seed_version=raw.get("seed_version"),
             seed_content_hash=raw.get("seed_content_hash"),
         )

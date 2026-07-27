@@ -438,6 +438,188 @@ class TestSeedProject:
         assert not interrupted_backup.exists()
         assert sum(project.seed for project in manager.list_projects()) == 1
 
+    def test_workflow_version_metadata_drift_loses_canonical_status(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        workflow_path = tmp_path / "workflow.json"
+        workflow_path.write_text(SAMPLE_WORKFLOW_JSON)
+
+        from core import TypeRegistry, ModuleRegistry, discover_modules
+        type_registry = TypeRegistry()
+        module_registry = ModuleRegistry(type_registry)
+        discover_modules(module_registry)
+        manager = ProjectManager(
+            root_dir=tmp_path / "projects",
+            module_registry=module_registry,
+        )
+        canonical = manager.ensure_seed_project(workflow_path)
+        metadata_path = manager.project_dir(canonical.id) / "project.json"
+        modified = json.loads(metadata_path.read_text())
+        modified["workflow_version"] = "user-edit"
+        metadata_path.write_text(json.dumps(modified))
+
+        restored = manager.ensure_seed_project(workflow_path)
+
+        assert restored.workflow_version == "1.0"
+        legacy = next(
+            project
+            for project in manager.list_projects()
+            if project.legacy_seed
+        )
+        assert legacy.workflow_version == "user-edit"
+
+    def test_malformed_canonical_metadata_is_preserved_and_restored(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        workflow_path = tmp_path / "workflow.json"
+        workflow_path.write_text(SAMPLE_WORKFLOW_JSON)
+
+        from core import TypeRegistry, ModuleRegistry, discover_modules
+        type_registry = TypeRegistry()
+        module_registry = ModuleRegistry(type_registry)
+        discover_modules(module_registry)
+        manager = ProjectManager(
+            root_dir=tmp_path / "projects",
+            module_registry=module_registry,
+        )
+        canonical = manager.ensure_seed_project(workflow_path)
+        metadata_path = manager.project_dir(canonical.id) / "project.json"
+        metadata_path.write_text("{}")
+
+        restored = manager.ensure_seed_project(workflow_path)
+
+        assert restored.seed is True
+        legacy = next(
+            project
+            for project in manager.list_projects()
+            if project.legacy_seed
+        )
+        assert (
+            manager.project_dir(legacy.id) / "legacy-project.json"
+        ).read_text() == "{}"
+
+    def test_staging_mismatch_never_publishes_canonical(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        source = tmp_path / "pdbs" / "seed.pdb"
+        source.parent.mkdir()
+        source.write_text("EXPECTED\n")
+        workflow_path = tmp_path / "workflow.json"
+        workflow_path.write_text(
+            """
+            {
+              "nodes": [
+                {
+                  "node_id": "import",
+                  "module_id": "import.structure",
+                  "parameters": {"file_path": "pdbs/seed.pdb"}
+                }
+              ],
+              "edges": []
+            }
+            """
+        )
+        monkeypatch.chdir(tmp_path)
+
+        from core import TypeRegistry, ModuleRegistry, discover_modules
+        type_registry = TypeRegistry()
+        module_registry = ModuleRegistry(type_registry)
+        discover_modules(module_registry)
+        manager = ProjectManager(
+            root_dir=tmp_path / "projects",
+            module_registry=module_registry,
+        )
+
+        def copy_changed_content(source_path, destination_path):
+            del source_path
+            Path(destination_path).write_text("CHANGED\n")
+
+        monkeypatch.setattr(
+            "core.project.shutil.copyfile",
+            copy_changed_content,
+        )
+
+        with pytest.raises(CanonicalSeedError, match="changed while"):
+            manager.ensure_seed_project(workflow_path)
+
+        assert manager.list_projects() == []
+
+    def test_regular_file_at_canonical_id_fails_without_data_loss(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        workflow_path = tmp_path / "workflow.json"
+        workflow_path.write_text(SAMPLE_WORKFLOW_JSON)
+
+        from core import TypeRegistry, ModuleRegistry, discover_modules
+        type_registry = TypeRegistry()
+        module_registry = ModuleRegistry(type_registry)
+        discover_modules(module_registry)
+        project_root = tmp_path / "projects"
+        project_root.mkdir()
+        collision = project_root / CANONICAL_3GB1_PROJECT_ID
+        collision.write_text("user collision")
+        manager = ProjectManager(
+            root_dir=project_root,
+            module_registry=module_registry,
+        )
+
+        with pytest.raises(
+            CanonicalSeedError,
+            match="not a directory",
+        ):
+            manager.ensure_seed_project(workflow_path)
+
+        assert collision.read_text() == "user collision"
+
+    def test_distinct_legacy_trees_are_not_deduplicated(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        workflow_path = tmp_path / "workflow.json"
+        workflow_path.write_text(SAMPLE_WORKFLOW_JSON)
+
+        from core import TypeRegistry, ModuleRegistry, discover_modules
+        type_registry = TypeRegistry()
+        module_registry = ModuleRegistry(type_registry)
+        discover_modules(module_registry)
+        manager = ProjectManager(
+            root_dir=tmp_path / "projects",
+            module_registry=module_registry,
+        )
+        canonical = manager.ensure_seed_project(workflow_path)
+        canonical_dir = manager.project_dir(canonical.id)
+        fixed_metadata = (canonical_dir / "project.json").read_text()
+
+        def modify_canonical(output_a: str, output_b: str) -> None:
+            (canonical_dir / "project.json").write_text(fixed_metadata)
+            changed = json.loads(
+                (canonical_dir / "workflow.json").read_text()
+            )
+            changed["nodes"][0]["parameters"] = {"prefix": "user"}
+            (canonical_dir / "workflow.json").write_text(
+                json.dumps(changed)
+            )
+            outputs = canonical_dir / "outputs"
+            for path in outputs.iterdir():
+                path.unlink()
+            (outputs / "a").write_text(output_a)
+            (outputs / "b").write_text(output_b)
+
+        modify_canonical("X", "outputs/bC")
+        manager.ensure_seed_project(workflow_path)
+        modify_canonical("Xoutputs/b", "C")
+        manager.ensure_seed_project(workflow_path)
+
+        assert sum(
+            project.legacy_seed
+            for project in manager.list_projects()
+        ) == 2
+
     def test_canonical_project_id_is_independent_of_workflow_content(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             wf_path_v1 = Path(tmpdir) / "workflow-v1.json"
