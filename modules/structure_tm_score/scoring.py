@@ -1,6 +1,7 @@
 """Standard TM-score calculation from shared StructureAlignment evidence."""
 
 from dataclasses import dataclass
+from importlib.metadata import version
 from math import isfinite
 
 import numpy as np
@@ -176,13 +177,33 @@ def calculate_reference_normalized_tm_score(
             / normalization_length
         )
 
-    return ReferenceNormalizedTMScore(
+    result = ReferenceNormalizedTMScore(
         value=value,
         normalization_length=normalization_length,
         aligned_residues=aligned_residues,
         reference_coverage=aligned_residues / normalization_length,
         d0=d0,
     )
+    if aligned_residues:
+        from core.provider_evidence import record_provider_call_result
+
+        record_provider_call_result(
+            provider="tmtools",
+            operation="tm_score",
+            model="tm_align-fixed-correspondence",
+            provider_identity={"tmtools_version": version("tmtools")},
+            effective_seed=None,
+            seed_control="deterministic_no_rng",
+            result_summary={
+                "value": result.value,
+                "normalization": "reference",
+                "normalization_length": result.normalization_length,
+                "aligned_residues": result.aligned_residues,
+                "reference_coverage": result.reference_coverage,
+                "d0": result.d0,
+            },
+        )
+    return result
 
 
 def score_reference_normalized_alignment(

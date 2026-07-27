@@ -11,7 +11,7 @@ from tests.acceptance.conftest import require_ready
 @pytest.mark.slow
 class TestSimpleFold:
     def test_fold_3gb1(
-        self, readiness, pdb_3gb1, record_provider_call, isolated_project_dir
+        self, readiness, pdb_3gb1, isolated_project_dir
     ):
         require_ready("simplefold", readiness)
 
@@ -28,7 +28,6 @@ class TestSimpleFold:
             num_samples=1,
             project_dir=isolated_project_dir,
         )
-        record_provider_call("simplefold", "fold_sequence")
 
         assert len(structures) == 1
         struct = structures[0]
@@ -41,7 +40,7 @@ class TestSimpleFold:
         assert 0.0 <= plddt_entries[0].value <= 100.0
 
     def test_fold_1pga(
-        self, readiness, pdb_1pga, record_provider_call, isolated_project_dir
+        self, readiness, pdb_1pga, isolated_project_dir
     ):
         require_ready("simplefold", readiness)
 
@@ -58,7 +57,6 @@ class TestSimpleFold:
             num_samples=1,
             project_dir=isolated_project_dir,
         )
-        record_provider_call("simplefold", "fold_sequence")
 
         assert len(structures) == 1
         struct = structures[0]
@@ -71,7 +69,7 @@ class TestSimpleFold:
         assert 0.0 <= plddt_entries[0].value <= 100.0
 
     def test_evaluate_3gb1(
-        self, readiness, pdb_3gb1, record_provider_call, isolated_project_dir
+        self, readiness, pdb_3gb1, isolated_project_dir
     ):
         require_ready("simplefold", readiness)
 
@@ -82,7 +80,6 @@ class TestSimpleFold:
             model_name="simplefold_360M",
             project_dir=isolated_project_dir,
         )
-        record_provider_call("simplefold", "evaluate_structure")
 
         assert isinstance(scores, ScoreCollection)
         plddt_entries = [s for s in scores.entries if s.score_id == "plddt"]
@@ -90,7 +87,7 @@ class TestSimpleFold:
         assert 0.0 <= plddt_entries[0].value <= 100.0
 
     def test_evaluate_1pga(
-        self, readiness, pdb_1pga, record_provider_call, isolated_project_dir
+        self, readiness, pdb_1pga, isolated_project_dir
     ):
         require_ready("simplefold", readiness)
 
@@ -101,7 +98,6 @@ class TestSimpleFold:
             model_name="simplefold_360M",
             project_dir=isolated_project_dir,
         )
-        record_provider_call("simplefold", "evaluate_structure")
 
         assert isinstance(scores, ScoreCollection)
         plddt_entries = [s for s in scores.entries if s.score_id == "plddt"]

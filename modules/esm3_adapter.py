@@ -12,6 +12,13 @@ from typing import Any
 
 import torch
 
+from core.provider_contract import (
+    ESM_SDK_REVISION,
+    esm_provider_identity,
+    read_biohub_token,
+    validate_installed_provider_checkout,
+    validate_local_esm3_snapshot,
+)
 from datatypes import (
     ProteinPrompt,
     ProteinSequence,
@@ -164,7 +171,50 @@ def call_esm3_provider(
             provider_error_code=error.error_code,
             message=error.error_msg,
         ) from error
-    return require_esm3_provider_result(result, operation)
+    result = require_esm3_provider_result(result, operation)
+    from core.provider_evidence import record_provider_call_result
+
+    evidence_operation = {
+        "generate(track=sequence)": "esm3.generate_sequence",
+        "generate(track=structure)": "esm3.generate_structure",
+    }.get(operation, operation)
+    result_summary: dict[str, Any] = {
+        "result_type": type(result).__name__,
+        "has_sequence": getattr(result, "sequence", None) is not None,
+        "has_coordinates": getattr(result, "coordinates", None) is not None,
+    }
+    input_sequence = getattr(protein, "sequence", None)
+    if isinstance(input_sequence, str):
+        result_summary.update({
+            "input_sequence_length": len(input_sequence),
+            "input_sequence_sha256": hashlib.sha256(
+                input_sequence.encode()
+            ).hexdigest(),
+        })
+    output_sequence = getattr(result, "sequence", None)
+    if isinstance(output_sequence, str):
+        result_summary.update({
+            "output_sequence_length": len(output_sequence),
+            "output_sequence_sha256": hashlib.sha256(
+                output_sequence.encode()
+            ).hexdigest(),
+        })
+    record_provider_call_result(
+        provider=(
+            "local_open"
+            if model_name == "esm3_sm_open_v1"
+            else "biohub"
+        ),
+        operation=evidence_operation,
+        model=model_name,
+        provider_identity=esm_provider_identity(
+            local=model_name == "esm3_sm_open_v1"
+        ),
+        effective_seed=effective_seed,
+        seed_control=esm3_seed_control(model_name or ""),
+        result_summary=result_summary,
+    )
+    return result
 
 
 def derive_esm3_call_seed(
@@ -670,41 +720,33 @@ def esm_protein_to_scores(
     )
 
 
-def read_biohub_token(project_dir: str | None = None) -> str:
-    """Read Biohub API token from keys/esmkey.txt."""
-    candidates = [Path("keys/esmkey.txt")]
-    if project_dir:
-        candidates.append(Path(project_dir) / ".." / ".." / "keys" / "esmkey.txt")
-    for p in candidates:
-        if p.exists():
-            return p.read_text().strip()
-    raise FileNotFoundError(
-        "Biohub API key not found. Place your token in keys/esmkey.txt"
-    )
-
-
 def create_esm3_client(model_name: str, project_dir: str | None = None) -> Any:
     """Create an ESM3 inference client.
 
     Routes to Biohub Forge for Biohub models; local open-weight
     models require the huggingface token from keys/huggingfacekey.txt.
     """
-    from esm.sdk import client as esm_client
-
+    validate_installed_provider_checkout("esm", ESM_SDK_REVISION)
     local_models = {"esm3_sm_open_v1"}
     if model_name in local_models:
-        hf_path = Path("keys/huggingfacekey.txt")
-        if project_dir:
-            alt = Path(project_dir) / ".." / ".." / "keys" / "huggingfacekey.txt"
-            if alt.exists():
-                hf_path = alt
-        if not hf_path.exists():
-            raise FileNotFoundError(
-                f"HuggingFace token not found for local model {model_name}. "
-                "Place your token in keys/huggingfacekey.txt"
-            )
-        token = hf_path.read_text().strip()
-        return esm_client(model=model_name, token=token)
+        snapshot = validate_local_esm3_snapshot()
+        from esm.models.esm3 import ESM3
+        import esm.pretrained as esm_pretrained
 
+        original_data_root = esm_pretrained.data_root
+        esm_pretrained.data_root = lambda model: snapshot
+        try:
+            client = ESM3.from_pretrained(
+                model_name,
+                device=torch.device("cpu"),
+            )
+        finally:
+            esm_pretrained.data_root = original_data_root
+        # The published checkpoint contains bfloat16 weights, while the SDK's
+        # CPU feature tensors are float32.  Normalize the local CPU client once
+        # at construction so the provider boundary can execute reproducibly.
+        return client.float()
+
+    from esm.sdk import client as esm_client
     token = read_biohub_token(project_dir)
     return esm_client(model=model_name, token=token)

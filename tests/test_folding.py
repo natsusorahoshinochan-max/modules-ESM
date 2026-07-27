@@ -76,11 +76,21 @@ def _make_mock_sf_eval_result() -> ScoreCollection:
 # ── ESMFold2 Adapter ─────────────────────────────────────────────────
 
 class TestESMFold2Adapter:
-    def test_read_biohub_token_found(self) -> None:
+    def test_read_biohub_token_found(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path,
+    ) -> None:
         from modules.esmfold2_adapter import read_biohub_token
+
+        token_path = tmp_path / "esmkey.txt"
+        token_path.write_text("configured-test-token")
+        monkeypatch.setenv(
+            "PROTEIN_WORKBENCH_BIOHUB_TOKEN_FILE",
+            str(token_path),
+        )
         token = read_biohub_token()
-        assert isinstance(token, str)
-        assert len(token) > 0
+        assert token == "configured-test-token"
 
     def test_esm_protein_to_pdb_string(self) -> None:
         from modules.esmfold2_adapter import _esm_protein_to_pdb_string

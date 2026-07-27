@@ -2,6 +2,7 @@
 
 from collections import Counter
 from dataclasses import dataclass
+from importlib.metadata import version
 
 import numpy as np
 from Bio.Align import PairwiseAligner, substitution_matrices
@@ -37,6 +38,32 @@ _SEQUENCE_GAP_EXTEND_SCORE = -0.5
 _SEQUENCE_END_GAP_OPEN_SCORE = -2.0
 _SEQUENCE_END_GAP_EXTEND_SCORE = -0.5
 _MAX_EXHAUSTIVE_SEQUENCE_ALIGNMENTS = 1024
+
+
+def _record_alignment_evidence(
+    alignment: StructureAlignment,
+) -> StructureAlignment:
+    from core.provider_evidence import record_provider_call_result
+
+    record_provider_call_result(
+        provider="biopython-svd",
+        operation="structure_align",
+        model="PairwiseAligner+SVDSuperimposer",
+        provider_identity={
+            "biopython_version": version("biopython"),
+            "numpy_version": version("numpy"),
+        },
+        effective_seed=None,
+        seed_control="deterministic_no_rng",
+        result_summary={
+            "reference_length": alignment.reference_length,
+            "mobile_length": alignment.mobile_length,
+            "aligned_residues": len(alignment.residue_map),
+            "rmsd": float(alignment.rmsd),
+            "coverage": float(alignment.coverage),
+        },
+    )
+    return alignment
 
 
 @dataclass(frozen=True)
@@ -248,7 +275,7 @@ def align_structures(
         all_mobile_coordinates,
     )
     if not reference_indices:
-        return StructureAlignment(
+        return _record_alignment_evidence(StructureAlignment(
             rotation=[
                 [1.0, 0.0, 0.0],
                 [0.0, 1.0, 0.0],
@@ -259,7 +286,7 @@ def align_structures(
             mobile_sequence=mobile_sequence,
             reference_length=len(reference_residues),
             mobile_length=len(mobile_residues),
-        )
+        ))
 
     reference_coordinates = np.asarray(
         [
@@ -283,7 +310,7 @@ def align_structures(
         axis=1,
     )
 
-    return StructureAlignment(
+    return _record_alignment_evidence(StructureAlignment(
         residue_map=[
             (
                 reference_residues[reference_index].pdb_label,
@@ -316,4 +343,4 @@ def align_structures(
         aligned_reference_coordinates=reference_coordinates.tolist(),
         aligned_mobile_coordinates=mobile_coordinates.tolist(),
         aligned_distances=distances.tolist(),
-    )
+    ))

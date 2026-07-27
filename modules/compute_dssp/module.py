@@ -4,6 +4,7 @@ Uses async subprocess execution to avoid blocking the event loop.
 """
 
 import asyncio
+import hashlib
 from pathlib import Path
 import signal
 from typing import Any
@@ -110,6 +111,25 @@ class ComputeDSSPModule(WorkflowModule):
 
             ss_codes, _ = _parse_dssp_mmcif(stdout.decode())
             track = ResidueTrack(values=ss_codes, sentinel=None)
+            from core.provider_evidence import record_provider_call_result
+
+            record_provider_call_result(
+                provider="mkdssp",
+                operation="secondary_structure",
+                model=Path(dssp_bin).name,
+                provider_identity={
+                    "binary": Path(dssp_bin).name,
+                    "required_version": "4.6.1",
+                },
+                effective_seed=None,
+                seed_control="deterministic_no_rng",
+                result_summary={
+                    "return_code": proc.returncode,
+                    "output_bytes": len(stdout),
+                    "output_sha256": hashlib.sha256(stdout).hexdigest(),
+                    "residue_count": len(ss_codes),
+                },
+            )
             return {"secondary_structure_track": track}
         finally:
             Path(pdb_path).unlink(missing_ok=True)

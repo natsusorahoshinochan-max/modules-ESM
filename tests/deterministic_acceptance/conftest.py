@@ -5,6 +5,7 @@ from __future__ import annotations
 import os
 import socket
 import subprocess
+import sys
 import time
 from collections.abc import Iterator
 from pathlib import Path
@@ -67,7 +68,7 @@ def backend_client(
         env[f"PROTEIN_WORKBENCH_{name}_ROOT"] = str(root)
     process = subprocess.Popen(
         [
-            str(PROJECT_ROOT / ".venv" / "bin" / "python"),
+            sys.executable,
             "-m",
             "uvicorn",
             "tests.fixtures.deterministic_backend:app",

@@ -18,6 +18,12 @@ frozen install inputs. Ticket 17 records them but does not claim the real-provid
 evidence required by tickets 19 and 20; those gates are valid only when they retain
 matching provider identities rather than silently refreshing them.
 
+Before provider import, the gate checks the exact VCS revision and a reviewed
+aggregate SHA-256 over every runtime package file. Editable installs additionally
+require a clean checkout with no untracked files; normal VCS installs require every
+runtime file to carry a SHA-256 `RECORD` entry and to match the same reviewed package
+tree digest.
+
 ## ESM and Biohub models
 
 The canonical local model is the Hugging Face snapshot
@@ -42,8 +48,9 @@ SimpleFold commit `c7a5570a6be9f5c695126e27c804e77567209934` selects the
 following CDN objects. Retain the object ETag and byte count alongside each
 download; these are the upstream object identities because the CDN does not expose
 versioned URLs or published SHA-256 values. The upstream wrapper does not enforce
-these identities, so a later real-provider gate must perform that check before its
-evidence can satisfy tickets 19 or 20.
+these identities, and multipart ETags are not cryptographic content digests.
+Ticket 19 therefore fails closed until maintainers capture and review SHA-256
+values for every deserialized object.
 
 | Object | Bytes | ETag |
 | --- | ---: | --- |
@@ -56,6 +63,14 @@ The SimpleFold ESM2 dependency is recorded as
 `facebookresearch/esm@2b369911bb5b4b0dda914521b9475cad1656b2ac`. The upstream
 wrapper still names the `torch.hub` `main` alias, so a future retained provider gate
 must prove that exact checkout before claiming source-bound evidence.
+
+SimpleFold's FASTA path also consumes mutable `ccd.pkl` and
+`boltz1_conf.ckpt` objects. A valid real-provider root must eventually contain both
+with reviewed SHA-256 values alongside the four model objects. The Workbench gate
+never invokes the upstream downloader and does not deserialize any of these objects
+while the SHA-256 contract remains incomplete. Even after hashes are added, a
+separate reviewed enable flag is required; enabled execution stages and rehashes
+all inputs in the isolated run root before provider import or use.
 
 ## mkdssp
 

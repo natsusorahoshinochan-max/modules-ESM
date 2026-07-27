@@ -1,0 +1,236 @@
+"""Fresh, redacted evidence emitted at real provider call boundaries."""
+
+from __future__ import annotations
+
+import json
+import os
+from datetime import datetime, timezone
+from pathlib import Path
+from typing import Any
+from uuid import uuid4
+
+
+EVIDENCE_VERSION = 1
+_MAX_EVENT_BYTES = 16 * 1024
+_IDENTITY_KEYS = frozenset({
+    "algorithm",
+    "artifact_sha256",
+    "binary",
+    "biopython_version",
+    "checkpoint_sha256",
+    "esm2_source_revision",
+    "numpy_version",
+    "required_version",
+    "sdk",
+    "sdk_source_revision",
+    "service",
+    "snapshot_revision",
+    "source",
+    "source_revision",
+    "tmtools_version",
+    "weight_sha256",
+})
+_READINESS_DETAIL_KEYS = frozenset({
+    "artifact_contract_complete",
+    "checkout_and_checkpoint_validated",
+    "credential_present",
+    "installed",
+    "snapshot_validated",
+    "version_match",
+})
+_RESULT_KEYS = {
+    "esm3.generate_sequence": frozenset({
+        "result_type",
+        "has_sequence",
+        "has_coordinates",
+        "input_sequence_length",
+        "input_sequence_sha256",
+        "output_sequence_length",
+        "output_sequence_sha256",
+    }),
+    "esm3.generate_structure": frozenset({
+        "result_type",
+        "has_sequence",
+        "has_coordinates",
+        "input_sequence_length",
+        "input_sequence_sha256",
+        "output_sequence_length",
+        "output_sequence_sha256",
+    }),
+    "esmfold2.fold": frozenset({
+        "input_sequence_length",
+        "input_sequence_sha256",
+        "pdb_bytes",
+        "pdb_sha256",
+        "score_ids",
+    }),
+    "design_sequences": frozenset({
+        "input_pdb_sha256",
+        "sequence_count",
+        "sequence_lengths",
+        "sequence_sha256",
+        "score_count",
+        "score_min",
+        "score_max",
+    }),
+    "score_sequence": frozenset({
+        "input_pdb_sha256",
+        "input_sequence_sha256",
+        "score",
+        "sequence_length",
+    }),
+    "structure_align": frozenset({
+        "reference_length",
+        "mobile_length",
+        "aligned_residues",
+        "rmsd",
+        "coverage",
+    }),
+    "tm_score": frozenset({
+        "value",
+        "normalization",
+        "normalization_length",
+        "aligned_residues",
+        "reference_coverage",
+        "d0",
+    }),
+    "secondary_structure": frozenset({
+        "return_code",
+        "output_bytes",
+        "output_sha256",
+        "residue_count",
+    }),
+    "fold_sequence": frozenset({
+        "input_sequence_length",
+        "input_sequence_sha256",
+        "structure_count",
+        "pdb_bytes",
+        "pdb_sha256",
+        "score_count",
+        "num_steps",
+    }),
+    "evaluate_structure": frozenset({
+        "input_pdb_sha256",
+        "score_count",
+        "score_ids",
+        "score_values",
+    }),
+}
+
+
+def _bounded(value: Any) -> Any:
+    if value is None or isinstance(value, (bool, int, float)):
+        return value
+    if isinstance(value, str):
+        return value[:512]
+    if isinstance(value, (list, tuple)):
+        return [_bounded(item) for item in value[:128]]
+    if isinstance(value, dict):
+        return {
+            str(key)[:128]: _bounded(item)
+            for key, item in list(value.items())[:128]
+        }
+    return f"<{type(value).__name__}>"
+
+
+def _test_id() -> str | None:
+    current_test = os.environ.get("PYTEST_CURRENT_TEST")
+    if not current_test:
+        return None
+    return current_test.rsplit(" ", 1)[0][:512]
+
+
+def _append_event(event: dict[str, Any]) -> bool:
+    path_value = os.environ.get("PROTEIN_WORKBENCH_PROVIDER_CALL_EVIDENCE")
+    nonce = os.environ.get("PROTEIN_WORKBENCH_REAL_GATE_NONCE")
+    gate = os.environ.get("PROTEIN_WORKBENCH_VERIFICATION_TIER")
+    if not path_value or not nonce or gate not in {
+        "local-provider",
+        "heavy-model",
+        "live-provider",
+    }:
+        return False
+
+    path = Path(path_value)
+    path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+    payload = {
+        "evidence_version": EVIDENCE_VERSION,
+        "run_nonce": nonce,
+        "gate": gate,
+        "recorded_at": datetime.now(timezone.utc).isoformat(),
+        "event_id": str(uuid4()),
+        "test_id": _test_id(),
+        **_bounded(event),
+    }
+    encoded = (json.dumps(payload, sort_keys=True) + "\n").encode()
+    if len(encoded) > _MAX_EVENT_BYTES:
+        raise ValueError("Provider evidence event exceeds the retained size bound")
+    flags = os.O_APPEND | os.O_CREAT | os.O_WRONLY
+    if hasattr(os, "O_NOFOLLOW"):
+        flags |= os.O_NOFOLLOW
+    descriptor = os.open(path, flags, 0o600)
+    try:
+        os.write(descriptor, encoded)
+        os.fsync(descriptor)
+    finally:
+        os.close(descriptor)
+    path.chmod(0o600)
+    return True
+
+
+def record_provider_readiness(
+    *,
+    provider: str,
+    ready: bool,
+    identity: dict[str, Any],
+    details: dict[str, Any] | None = None,
+) -> bool:
+    """Record a readiness observation, never an actual provider call."""
+    unknown_identity = set(identity) - _IDENTITY_KEYS
+    unknown_details = set(details or {}) - _READINESS_DETAIL_KEYS
+    if unknown_identity or unknown_details:
+        raise ValueError("Provider readiness evidence contains non-allowlisted fields")
+    return _append_event({
+        "event_type": "provider_readiness",
+        "provider": provider,
+        "ready": bool(ready),
+        "provider_identity": identity,
+        "details": details or {},
+    })
+
+
+def record_provider_call_result(
+    *,
+    provider: str,
+    operation: str,
+    model: str | None,
+    provider_identity: dict[str, Any],
+    effective_seed: int | None,
+    seed_control: str,
+    result_summary: dict[str, Any],
+) -> bool:
+    """Record one successfully completed real call at its adapter boundary."""
+    allowed_result_keys = _RESULT_KEYS.get(operation)
+    if (
+        allowed_result_keys is None
+        or set(result_summary) - allowed_result_keys
+        or set(provider_identity) - _IDENTITY_KEYS
+    ):
+        raise ValueError("Provider call evidence contains non-allowlisted fields")
+    return _append_event({
+        "event_type": "provider_call",
+        "provider": provider,
+        "operation": operation,
+        "model": model,
+        "provider_identity": provider_identity,
+        "readiness": "ready_at_call_boundary",
+        "actual_call": True,
+        "call_count": 1,
+        "effective_seed": effective_seed,
+        "seed_control": seed_control,
+        "cache_decision": "bypassed_fresh_direct_call",
+        "result": {
+            "status": "succeeded",
+            "summary": result_summary,
+        },
+    })

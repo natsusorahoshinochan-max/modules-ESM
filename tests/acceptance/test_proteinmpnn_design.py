@@ -10,7 +10,7 @@ from tests.acceptance.conftest import require_ready
 @pytest.mark.local_provider
 @pytest.mark.slow
 class TestProteinMPNNDesign:
-    def test_design_3gb1(self, readiness, pdb_3gb1, record_provider_call):
+    def test_design_3gb1(self, readiness, pdb_3gb1):
         require_ready("proteinmpnn", readiness)
 
         from modules.proteinmpnn.adapter import design_sequences
@@ -21,7 +21,6 @@ class TestProteinMPNNDesign:
             num_sequences=2,
             temperature=0.1,
         )
-        record_provider_call("proteinmpnn", "design_sequences")
 
         assert len(sequences) == 2
         for seq in sequences:
@@ -31,7 +30,22 @@ class TestProteinMPNNDesign:
         assert len(scores) == 2
         assert all(isinstance(score, float) for score in scores)
 
-    def test_design_1pga(self, readiness, pdb_1pga, record_provider_call):
+    def test_score_3gb1(self, readiness, pdb_3gb1):
+        require_ready("proteinmpnn", readiness)
+
+        from modules.extract_sequence_from_structure.module import _extract_sequence
+        from modules.proteinmpnn.adapter import score_sequence
+
+        sequence = _extract_sequence(pdb_3gb1.pdb_string)
+        score = score_sequence(
+            pdb_string=pdb_3gb1.pdb_string,
+            sequence=sequence,
+            model_name="v_48_020",
+        )
+
+        assert isinstance(score, float)
+
+    def test_design_1pga(self, readiness, pdb_1pga):
         require_ready("proteinmpnn", readiness)
 
         from modules.proteinmpnn.adapter import design_sequences
@@ -42,7 +56,6 @@ class TestProteinMPNNDesign:
             num_sequences=2,
             temperature=0.1,
         )
-        record_provider_call("proteinmpnn", "design_sequences")
 
         assert len(sequences) == 2
         for seq in sequences:
