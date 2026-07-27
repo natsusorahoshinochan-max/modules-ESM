@@ -561,6 +561,22 @@ class TestProteinMPNNDesign:
             )
         assert provider.inferred is False
 
+    def test_adapter_rejects_falsy_malformed_constraints_before_inference(
+        self,
+    ) -> None:
+        from modules.proteinmpnn.adapter import design_sequences
+
+        provider = CapturingProteinMPNNProvider()
+        with pytest.raises(
+            ValueError, match="constraints must be ProteinMPNNConstraints"
+        ):
+            design_sequences(
+                pdb_string="two-chain-pdb",
+                constraints={},  # type: ignore[arg-type]
+                provider=provider,
+            )
+        assert provider.inferred is False
+
 
 # ── ProteinMPNN Score (mocked adapter) ───────────────────────────────
 

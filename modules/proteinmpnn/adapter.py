@@ -560,7 +560,9 @@ def _prepare_design_request(
         model_name, num_sequences, temperature, backbone_noise
     )
     name, chains = _structure_target(pdb_dict_list)
-    selected_constraints = constraints or ProteinMPNNConstraints()
+    selected_constraints = (
+        ProteinMPNNConstraints() if constraints is None else constraints
+    )
     validate_constraints(selected_constraints)
     designed_chains, fixed_chains = _chain_partition(
         chains, selected_constraints
