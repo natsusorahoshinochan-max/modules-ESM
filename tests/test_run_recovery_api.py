@@ -2,7 +2,13 @@
 
 from __future__ import annotations
 
+import hashlib
+import hmac
+import json
+import os
 from pathlib import Path
+import shutil
+import threading
 import time
 
 from fastapi.testclient import TestClient
@@ -342,6 +348,72 @@ def test_outputs_preserve_candidate_artifact_mapping_and_verified_reference(
     assert compatibility_download.content == b"MODEL 17\n"
 
 
+def test_outputs_reject_manifest_artifacts_without_candidate_port_mapping(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    app = _isolated_app(tmp_path, monkeypatch)
+
+    with TestClient(app) as client:
+        project_id = _saved_echo_project(client, "Incomplete artifact")
+        run_id = _finish_run(client, project_id, seed=17)
+        output_dir = server.project_manager.output_dir(project_id, run_id)
+        output_dir.mkdir(parents=True, exist_ok=True)
+        artifact = output_dir / "unbound.pdb"
+        artifact.write_bytes(b"MODEL\n")
+        manifest_path = (
+            server.project_manager.run_dir(project_id, run_id)
+            / "manifest.json"
+        )
+        manifest = json.loads(manifest_path.read_text())
+        manifest["artifacts"] = [{
+            "node_id": "echo",
+            "reference": "unbound.pdb",
+            "size": 6,
+            "sha256": hashlib.sha256(b"MODEL\n").hexdigest(),
+        }]
+        manifest_path.write_text(json.dumps(manifest))
+
+        response = client.get(
+            f"/api/projects/{project_id}/run/{run_id}/outputs"
+        )
+
+    assert response.status_code == 409
+    assert response.json()["error"]["kind"] == "invalid_run_manifest"
+
+
+def test_outputs_reject_oversized_artifacts_before_opening_them(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    app = _isolated_app(tmp_path, monkeypatch)
+
+    with TestClient(app) as client:
+        project_id = _saved_echo_project(client, "Oversized artifact")
+        run_id = _finish_run(client, project_id, seed=17)
+        manifest_path = (
+            server.project_manager.run_dir(project_id, run_id)
+            / "manifest.json"
+        )
+        manifest = json.loads(manifest_path.read_text())
+        manifest["artifacts"] = [{
+            "node_id": "echo",
+            "output_port": "structures",
+            "candidate_id": "candidate-17",
+            "reference": "missing-large.pdb",
+            "size": 64 * 1024 * 1024 + 1,
+            "sha256": "0" * 64,
+        }]
+        manifest_path.write_text(json.dumps(manifest))
+
+        response = client.get(
+            f"/api/projects/{project_id}/run/{run_id}/outputs"
+        )
+
+    assert response.status_code == 409
+    assert response.json()["error"]["kind"] == "artifact_limit_exceeded"
+
+
 def test_retry_and_force_rerun_use_documented_dependency_cache_semantics(
     tmp_path,
     monkeypatch,
@@ -544,6 +616,100 @@ def test_cache_entries_are_listed_and_cleared_at_node_or_project_scope(
     assert other_project_cache.json()["project_id"] == other_project
 
 
+def test_project_cache_operations_preserve_unrelated_root_files(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    app = _isolated_app(tmp_path, monkeypatch)
+
+    with TestClient(app) as client:
+        project_id = _saved_echo_project(client, "Unrelated Cache file")
+        _finish_run(client, project_id, seed=41)
+        cache_root = server.project_manager.cache_dir(project_id)
+        unrelated = cache_root / "notes"
+        unrelated.write_text("preserve me")
+
+        listed = client.get(f"/api/projects/{project_id}/cache")
+        cleared = client.delete(f"/api/projects/{project_id}/cache")
+
+    assert listed.status_code == 200
+    assert len(listed.json()["entries"]) == 1
+    assert cleared.status_code == 200
+    assert cleared.json()["removed"] == 1
+    assert unrelated.read_text() == "preserve me"
+
+
+def test_cache_listing_ignores_authenticated_non_object_headers(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    app = _isolated_app(tmp_path, monkeypatch)
+
+    with TestClient(app) as client:
+        project_id = _saved_echo_project(client, "Malformed Cache header")
+        cache_root = server.project_manager.cache_dir(project_id)
+        poison_dir = cache_root / "poison"
+        poison_dir.mkdir(mode=0o700, parents=True)
+        cache_root.chmod(0o700)
+        key_path = cache_root / ".integrity-key"
+        if key_path.exists():
+            key = key_path.read_bytes()
+        else:
+            key = b"k" * 32
+            key_path.write_bytes(key)
+            key_path.chmod(0o600)
+        header = b"[]"
+        payload = b""
+        encoded = (
+            b"PWB-CACHE-1\n"
+            + len(header).to_bytes(8, "big")
+            + header
+            + hmac.digest(key, header + payload, "sha256")
+            + payload
+        )
+        poison = poison_dir / "poison.pkl"
+        poison.write_bytes(encoded)
+        poison.chmod(0o600)
+
+        response = client.get(f"/api/projects/{project_id}/cache")
+
+    assert response.status_code == 200
+    assert response.json()["entries"] == []
+
+
+def test_cache_listing_ignores_authenticated_recursive_headers(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    app = _isolated_app(tmp_path, monkeypatch)
+
+    with TestClient(app) as client:
+        project_id = _saved_echo_project(client, "Recursive Cache header")
+        cache_root = server.project_manager.cache_dir(project_id)
+        poison_dir = cache_root / "poison"
+        poison_dir.mkdir(mode=0o700, parents=True)
+        cache_root.chmod(0o700)
+        key_path = cache_root / ".integrity-key"
+        key = b"k" * 32
+        key_path.write_bytes(key)
+        key_path.chmod(0o600)
+        header = b"[" * 10000 + b"0" + b"]" * 10000
+        encoded = (
+            b"PWB-CACHE-1\n"
+            + len(header).to_bytes(8, "big")
+            + header
+            + hmac.digest(key, header, "sha256")
+        )
+        poison = poison_dir / "poison.pkl"
+        poison.write_bytes(encoded)
+        poison.chmod(0o600)
+
+        response = client.get(f"/api/projects/{project_id}/cache")
+
+    assert response.status_code == 200
+    assert response.json()["entries"] == []
+
+
 def test_recovery_apis_reject_unknown_cross_scoped_and_traversal_requests(
     tmp_path,
     monkeypatch,
@@ -619,6 +785,102 @@ def test_recovery_apis_reject_unknown_cross_scoped_and_traversal_requests(
     )
 
 
+def test_recovery_rejects_stale_workflow_before_current_validation(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    app = _isolated_app(tmp_path, monkeypatch)
+
+    with TestClient(app) as client:
+        project_id = _saved_echo_project(client, "Invalid stale Workflow")
+        run_id = _finish_run(client, project_id, seed=43)
+        workflow = client.get(
+            f"/api/projects/{project_id}/workflow"
+        ).json()
+        workflow["nodes"][0]["parameters"]["prefix"] = "changed"
+        workflow["edges"] = [{
+            "source_node_id": "echo",
+            "source_port": "missing",
+            "target_node_id": "echo",
+            "target_port": "missing",
+        }]
+        assert client.put(
+            f"/api/projects/{project_id}/workflow",
+            json=workflow,
+        ).status_code == 200
+
+        response = client.post(
+            f"/api/projects/{project_id}/run/{run_id}"
+            "/nodes/echo/retry"
+        )
+
+    assert response.status_code == 409
+    assert response.json()["error"]["kind"] == "workflow_mismatch"
+
+
+def test_recovery_rejects_invalid_bodies_without_echoing_secrets(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    app = _isolated_app(tmp_path, monkeypatch)
+
+    with TestClient(app) as client:
+        project_id = _saved_echo_project(client, "Safe recovery body")
+        run_id = _finish_run(client, project_id, seed=43)
+        malformed = client.post(
+            f"/api/projects/{project_id}/run/{run_id}"
+            "/nodes/echo/retry",
+            json=[{"password": "TOPSECRET"}],
+        )
+        null_seed = client.post(
+            f"/api/projects/{project_id}/run/{run_id}"
+            "/nodes/echo/retry",
+            json={"seed": None},
+        )
+
+    assert malformed.status_code == 422
+    assert malformed.json()["error"]["kind"] == "invalid_recovery_request"
+    assert "TOPSECRET" not in malformed.text
+    assert null_seed.status_code == 422
+    assert null_seed.json()["error"]["kind"] == "invalid_recovery_seed"
+
+
+def test_recovery_uses_structured_errors_for_invalid_json_and_workflow(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    app = _isolated_app(tmp_path, monkeypatch)
+
+    with TestClient(app) as client:
+        project_id = _saved_echo_project(client, "Malformed recovery")
+        run_id = _finish_run(client, project_id, seed=43)
+        invalid_json = client.post(
+            f"/api/projects/{project_id}/run/{run_id}"
+            "/nodes/echo/retry",
+            content=b'{"seed":',
+            headers={"content-type": "application/json"},
+        )
+        workflow_path = (
+            server.project_manager.project_dir(project_id)
+            / "workflow.json"
+        )
+        workflow_path.write_text("[]")
+        invalid_workflow = client.post(
+            f"/api/projects/{project_id}/run/{run_id}"
+            "/nodes/echo/retry"
+        )
+
+    assert invalid_json.status_code == 422
+    assert invalid_json.json() == {
+        "error": {
+            "kind": "invalid_request_body",
+            "message": "Request body is invalid",
+        }
+    }
+    assert invalid_workflow.status_code == 409
+    assert invalid_workflow.json()["error"]["kind"] == "invalid_workflow"
+
+
 def test_artifact_api_refuses_content_that_no_longer_matches_the_manifest(
     tmp_path,
     monkeypatch,
@@ -668,6 +930,101 @@ def test_artifact_api_refuses_content_that_no_longer_matches_the_manifest(
             "reference": "models/candidate-17.pdb",
         }
     }
+
+
+def test_artifact_api_refuses_hardlinked_files(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    app = _isolated_app(tmp_path, monkeypatch)
+
+    with TestClient(app) as client:
+        module = RecoveryArtifactModule()
+        server.module_registry.register(module.definition)
+        server.register_module_factory(
+            module.definition.module_id,
+            RecoveryArtifactModule,
+        )
+        project_id = client.post(
+            "/api/projects",
+            json={"name": "Hardlinked artifact"},
+        ).json()["id"]
+        assert client.put(
+            f"/api/projects/{project_id}/workflow",
+            json={
+                "nodes": [{
+                    "node_id": "export",
+                    "module_id": module.definition.module_id,
+                    "module_version": module.definition.version,
+                }],
+                "edges": [],
+            },
+        ).status_code == 200
+        run_id = _finish_run(client, project_id, seed=17)
+        artifact = server.project_manager.output_path(
+            project_id,
+            run_id,
+            "models/candidate-17.pdb",
+        )
+        outside = tmp_path / "outside-secret"
+        outside.write_bytes(artifact.read_bytes())
+        artifact.unlink()
+        os.link(outside, artifact)
+
+        response = client.get(
+            f"/api/projects/{project_id}/run/{run_id}"
+            "/artifacts/models/candidate-17.pdb"
+        )
+
+    assert response.status_code == 409
+    assert response.json()["error"]["kind"] == "invalid_artifact"
+
+
+def test_artifact_api_refuses_symlinked_parent_directories(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    app = _isolated_app(tmp_path, monkeypatch)
+
+    with TestClient(app) as client:
+        module = RecoveryArtifactModule()
+        server.module_registry.register(module.definition)
+        server.register_module_factory(
+            module.definition.module_id,
+            RecoveryArtifactModule,
+        )
+        project_id = client.post(
+            "/api/projects",
+            json={"name": "Aliased artifact parent"},
+        ).json()["id"]
+        assert client.put(
+            f"/api/projects/{project_id}/workflow",
+            json={
+                "nodes": [{
+                    "node_id": "export",
+                    "module_id": module.definition.module_id,
+                    "module_version": module.definition.version,
+                }],
+                "edges": [],
+            },
+        ).status_code == 200
+        run_id = _finish_run(client, project_id, seed=17)
+        output_dir = server.project_manager.output_dir(project_id, run_id)
+        models = output_dir / "models"
+        content = (models / "candidate-17.pdb").read_bytes()
+        shutil.rmtree(models)
+        outside = tmp_path / "outside-models"
+        outside.mkdir()
+        (outside / "candidate-17.pdb").write_bytes(content)
+        models.symlink_to(outside, target_is_directory=True)
+
+        response = client.get(
+            f"/api/projects/{project_id}/run/{run_id}"
+            "/artifacts/models/candidate-17.pdb"
+        )
+
+    assert response.status_code == 409
+    assert response.json()["error"]["kind"] == "invalid_artifact"
 
 
 def test_cache_clear_refuses_symlink_entries_without_partial_deletion(
@@ -760,3 +1117,41 @@ def test_cache_clear_is_rejected_while_the_project_has_an_active_run(
     assert response.status_code == 409
     assert response.json()["error"]["kind"] == "active_run_conflict"
     assert response.json()["error"]["active_run_id"] == run_id
+
+
+def test_run_start_is_rejected_while_cache_clear_is_reserved(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    app = _isolated_app(tmp_path, monkeypatch)
+    entered = threading.Event()
+    release = threading.Event()
+    original_clear = server.CacheService.clear
+
+    def blocking_clear(service, project_id, node_id=None):
+        entered.set()
+        assert release.wait(timeout=5)
+        return original_clear(service, project_id, node_id)
+
+    monkeypatch.setattr(server.CacheService, "clear", blocking_clear)
+    with TestClient(app) as client:
+        project_id = _saved_echo_project(client, "Cache reservation")
+        result: dict[str, object] = {}
+
+        def request_clear() -> None:
+            result["response"] = client.delete(
+                f"/api/projects/{project_id}/cache"
+            )
+
+        thread = threading.Thread(target=request_clear)
+        thread.start()
+        assert entered.wait(timeout=5)
+        run = client.post(f"/api/projects/{project_id}/run")
+        release.set()
+        thread.join(timeout=5)
+
+    assert not thread.is_alive()
+    assert run.status_code == 409
+    assert run.json()["error"]["kind"] == "cache_mutation_conflict"
+    clear_response = result["response"]
+    assert clear_response.status_code == 200

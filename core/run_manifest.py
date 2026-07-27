@@ -18,7 +18,13 @@ from pathlib import Path
 from typing import Any
 
 from core.graph import Workflow
-from core.storage import StoragePathError, validate_identifier
+from core.recovery_types import RecoveryProvenance
+from core.storage import (
+    StoragePathError,
+    open_private_regular_file,
+    validate_identifier,
+    validate_relative_path,
+)
 from core.workflow_module import WorkflowModule
 
 
@@ -247,7 +253,7 @@ class RunManifest:
         seed: int,
         source_dir: str | Path,
         environment: dict[str, Any] | None = None,
-        recovery: dict[str, Any] | None = None,
+        recovery: RecoveryProvenance | None = None,
     ) -> "RunManifest":
         runtime = {
             "python": platform.python_version(),
@@ -314,7 +320,11 @@ class RunManifest:
             },
             environment=runtime,
             models=model_facts,
-            recovery=_sanitize(recovery) if recovery is not None else None,
+            recovery=(
+                _sanitize(recovery.to_dict())
+                if recovery is not None
+                else None
+            ),
         )
 
     def to_dict(self) -> dict[str, Any]:
@@ -348,23 +358,14 @@ class RunManifest:
 
 def read_run_manifest(run_dir: str | Path) -> dict[str, Any]:
     """Read the complete durable JSON document for one contained run."""
-    directory_flags = os.O_RDONLY | getattr(os, "O_DIRECTORY", 0)
-    directory_flags |= getattr(os, "O_NOFOLLOW", 0)
-    directory_fd = os.open(Path(run_dir), directory_flags)
-    descriptor: int | None = None
+    descriptor = open_private_regular_file(
+        run_dir,
+        ("manifest.json",),
+        field="run_manifest",
+    )
     try:
-        descriptor = os.open(
-            "manifest.json",
-            os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0),
-            dir_fd=directory_fd,
-        )
         before = os.fstat(descriptor)
-        if (
-            not stat.S_ISREG(before.st_mode)
-            or before.st_uid != os.getuid()
-            or before.st_nlink != 1
-            or before.st_size > 64 * 1024 * 1024
-        ):
+        if before.st_size > 64 * 1024 * 1024:
             raise ValueError("Run manifest must be a bounded regular file")
         with os.fdopen(descriptor, "rb", closefd=False) as manifest_file:
             payload = manifest_file.read()
@@ -382,9 +383,7 @@ def read_run_manifest(run_dir: str | Path) -> dict[str, Any]:
         ):
             raise ValueError("Run manifest changed while reading")
     finally:
-        if descriptor is not None:
-            os.close(descriptor)
-        os.close(directory_fd)
+        os.close(descriptor)
     value = json.loads(payload)
     if not isinstance(value, dict):
         raise ValueError("Run manifest must be a JSON object")
@@ -611,28 +610,37 @@ class RunManifestStore:
         output_port: str | None = None,
     ) -> bool:
         """Hash one regular, non-symlinked artifact inside this run."""
-        output_root = Path(output_dir).resolve()
+        output_root = Path(output_dir).absolute()
         supplied = Path(path)
-        candidate = (
+        candidate = Path(os.path.abspath(
             supplied if supplied.is_absolute() else output_root / supplied
-        )
-        if candidate.is_symlink():
-            raise StoragePathError("artifact_path", "Invalid artifact_path")
-        resolved = candidate.resolve()
-        if not resolved.is_relative_to(output_root):
-            raise StoragePathError("artifact_path", "Invalid artifact_path")
-        flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0)
+        ))
         try:
-            descriptor = os.open(resolved, flags)
+            reference = candidate.relative_to(output_root).as_posix()
+        except ValueError:
+            raise StoragePathError(
+                "artifact_path",
+                "Invalid artifact_path",
+            ) from None
+        reference_parts = validate_relative_path(
+            reference,
+            "artifact_path",
+        )
+        try:
+            descriptor = open_private_regular_file(
+                output_root,
+                reference_parts,
+                field="artifact_path",
+            )
         except FileNotFoundError:
             return False
+        except OSError as error:
+            raise StoragePathError(
+                "artifact_path",
+                "Invalid artifact_path",
+            ) from error
         try:
             before = os.fstat(descriptor)
-            if not stat.S_ISREG(before.st_mode):
-                raise StoragePathError(
-                    "artifact_path",
-                    "Invalid artifact_path",
-                )
             digest = hashlib.sha256()
             with os.fdopen(descriptor, "rb", closefd=False) as artifact:
                 while chunk := artifact.read(1024 * 1024):
@@ -652,7 +660,7 @@ class RunManifestStore:
                 raise RuntimeError("Artifact changed while hashing")
             record: dict[str, Any] = {
                 "node_id": validate_identifier(node_id, "node_id"),
-                "reference": resolved.relative_to(output_root).as_posix(),
+                "reference": reference,
                 "size": after.st_size,
                 "sha256": digest.hexdigest(),
             }

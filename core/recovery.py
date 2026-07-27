@@ -5,15 +5,28 @@ from __future__ import annotations
 from collections.abc import Iterator
 import hashlib
 import os
-import stat
 import tempfile
 from typing import Any, BinaryIO
 
-from core.cache_store import CacheStore
 from core.graph import Workflow
 from core.project import ProjectManager
 from core.run_manifest import read_run_manifest, workflow_sha256
-from core.storage import validate_identifier, validate_relative_path
+from core.recovery_types import (
+    RecoveryAction,
+    RecoveryPlan,
+    RecoveryProvenance,
+)
+from core.storage import (
+    StoragePathError,
+    open_private_regular_file,
+    validate_identifier,
+    validate_relative_path,
+)
+
+
+MAX_PUBLIC_ARTIFACTS = 2048
+MAX_PUBLIC_ARTIFACT_BYTES = 64 * 1024 * 1024
+MAX_PUBLIC_ARTIFACT_TOTAL_BYTES = 256 * 1024 * 1024
 
 
 class RunRecoveryError(RuntimeError):
@@ -79,7 +92,7 @@ class RunRecoveryService:
                 "Run was not found in this project",
                 status_code=404,
             ) from None
-        except (OSError, ValueError):
+        except (OSError, ValueError, RecursionError):
             raise RunRecoveryError(
                 "invalid_run_manifest",
                 "Run manifest is not readable",
@@ -175,20 +188,58 @@ class RunRecoveryService:
             "sha256": digest,
         }
         for field_name in ("output_port", "candidate_id"):
-            value = raw.get(field_name)
-            if value is not None:
-                try:
-                    record[field_name] = validate_identifier(
-                        value,
-                        field_name,
-                    )
-                except (TypeError, ValueError):
-                    raise RunRecoveryError(
-                        "invalid_run_manifest",
-                        "Run manifest contains an invalid artifact",
-                        status_code=409,
-                    ) from None
+            try:
+                record[field_name] = validate_identifier(
+                    raw[field_name],
+                    field_name,
+                )
+            except (KeyError, TypeError, ValueError):
+                raise RunRecoveryError(
+                    "invalid_run_manifest",
+                    "Run manifest contains an invalid artifact",
+                    status_code=409,
+                ) from None
+        if size > MAX_PUBLIC_ARTIFACT_BYTES:
+            raise RunRecoveryError(
+                "artifact_limit_exceeded",
+                "Artifact exceeds the public retrieval limit",
+                status_code=409,
+                reference=reference,
+            )
         return record
+
+    def _artifact_records(
+        self,
+        manifest: dict[str, Any],
+    ) -> list[dict[str, Any]]:
+        raw_artifacts = manifest.get("artifacts", [])
+        if len(raw_artifacts) > MAX_PUBLIC_ARTIFACTS:
+            raise RunRecoveryError(
+                "artifact_limit_exceeded",
+                "Run declares too many public artifacts",
+                status_code=409,
+            )
+        artifacts = [
+            self._artifact_record(raw)
+            for raw in raw_artifacts
+        ]
+        if len({artifact["reference"] for artifact in artifacts}) != len(
+            artifacts
+        ):
+            raise RunRecoveryError(
+                "invalid_run_manifest",
+                "Run manifest contains duplicate artifact references",
+                status_code=409,
+            )
+        if sum(artifact["size"] for artifact in artifacts) > (
+            MAX_PUBLIC_ARTIFACT_TOTAL_BYTES
+        ):
+            raise RunRecoveryError(
+                "artifact_limit_exceeded",
+                "Run artifacts exceed the public retrieval limit",
+                status_code=409,
+            )
+        return artifacts
 
     def _open_verified_artifact(
         self,
@@ -196,21 +247,26 @@ class RunRecoveryService:
         run_id: str,
         record: dict[str, Any],
     ) -> BinaryIO:
-        path = self.project_manager.output_path(
-            project_id,
-            run_id,
-            record["reference"],
-        )
         descriptor: int | None = None
         snapshot: BinaryIO | None = None
         try:
-            descriptor = os.open(
-                path,
-                os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0),
+            reference_parts = validate_relative_path(
+                record["reference"],
+                "artifact_reference",
+            )
+            descriptor = open_private_regular_file(
+                self.project_manager.output_dir(project_id, run_id),
+                reference_parts,
+                field="artifact_reference",
             )
             before = os.fstat(descriptor)
-            if not stat.S_ISREG(before.st_mode):
-                raise OSError
+            if before.st_size != record["size"]:
+                raise RunRecoveryError(
+                    "artifact_integrity_mismatch",
+                    "Artifact does not match its run manifest",
+                    status_code=409,
+                    reference=record["reference"],
+                )
             digest = hashlib.sha256()
             snapshot = tempfile.SpooledTemporaryFile(
                 max_size=8 * 1024 * 1024,
@@ -256,7 +312,7 @@ class RunRecoveryService:
                 status_code=409,
                 reference=record["reference"],
             ) from None
-        except OSError:
+        except (OSError, StoragePathError):
             if descriptor is not None:
                 os.close(descriptor)
             if snapshot is not None:
@@ -276,18 +332,7 @@ class RunRecoveryService:
 
     def outputs(self, project_id: str, run_id: str) -> dict[str, Any]:
         manifest = self.manifest(project_id, run_id)
-        artifacts = [
-            self._artifact_record(raw)
-            for raw in manifest.get("artifacts", [])
-        ]
-        if len({artifact["reference"] for artifact in artifacts}) != len(
-            artifacts
-        ):
-            raise RunRecoveryError(
-                "invalid_run_manifest",
-                "Run manifest contains duplicate artifact references",
-                status_code=409,
-            )
+        artifacts = self._artifact_records(manifest)
         for artifact in artifacts:
             snapshot = self._open_verified_artifact(
                 manifest["project_id"],
@@ -310,10 +355,11 @@ class RunRecoveryService:
     ) -> tuple[dict[str, Any], Iterator[bytes]]:
         manifest = self.manifest(project_id, run_id)
         validate_relative_path(reference, "artifact_reference")
+        artifacts = self._artifact_records(manifest)
         matches = [
-            self._artifact_record(raw)
-            for raw in manifest.get("artifacts", [])
-            if isinstance(raw, dict) and raw.get("reference") == reference
+            artifact
+            for artifact in artifacts
+            if artifact["reference"] == reference
         ]
         if len(matches) != 1:
             raise RunRecoveryError(
@@ -341,10 +387,10 @@ class RunRecoveryService:
         run_id: str,
         node_id: str,
         *,
-        action: str,
+        action: RecoveryAction,
         workflow: Workflow,
         requested_seed: Any = None,
-    ) -> dict[str, Any]:
+    ) -> RecoveryPlan:
         manifest = self.manifest(project_id, run_id)
         safe_node_id = validate_identifier(node_id, "node_id")
         if safe_node_id not in workflow.nodes:
@@ -372,9 +418,6 @@ class RunRecoveryService:
                 "Current Workflow does not match the selected run",
                 status_code=409,
             )
-        if action not in {"retry", "force_rerun"}:
-            raise ValueError("Unsupported recovery action")
-
         seed = manifest.get("run_seed")
         if seed is None:
             effective_seeds = manifest["effective_seeds"]
@@ -421,7 +464,7 @@ class RunRecoveryService:
             )
 
         forced_nodes = {safe_node_id}
-        if action == "force_rerun":
+        if action is RecoveryAction.FORCE_RERUN:
             pending = [safe_node_id]
             while pending:
                 current = pending.pop()
@@ -434,126 +477,14 @@ class RunRecoveryService:
             for candidate in workflow.topological_sort()
             if candidate in forced_nodes
         ]
-        recovery = {
-            "source_run_id": manifest["run_id"],
-            "action": action,
-            "selected_node_id": safe_node_id,
-            "forced_node_ids": forced_node_ids,
-            "dependency_semantics": {
-                "ancestors": "cache_eligible",
-                "selected": "cache_bypassed",
-                "descendants": (
-                    "cache_bypassed"
-                    if action == "force_rerun"
-                    else "cache_eligible"
-                ),
-                "unrelated": "cache_eligible",
-            },
-        }
-        return {
-            "seed": seed,
-            "force_rerun_nodes": forced_node_ids,
-            "recovery": recovery,
-        }
-
-    def _cache_node_ids(self, project_id: str) -> list[str]:
-        safe_project_id = self._require_project(project_id)
-        cache_root = self.project_manager.cache_dir(safe_project_id)
-        if not cache_root.exists():
-            return []
-        node_ids = []
-        for child in sorted(cache_root.iterdir(), key=lambda path: path.name):
-            if child.name == ".integrity-key":
-                continue
-            try:
-                node_id = validate_identifier(child.name, "node_id")
-            except ValueError:
-                continue
-            if child.is_symlink() or not child.is_dir():
-                raise RunRecoveryError(
-                    "invalid_cache_namespace",
-                    "Project Cache contains an unsafe Node namespace",
-                    status_code=409,
-                )
-            node_ids.append(node_id)
-        return node_ids
-
-    def _require_workflow_node(
-        self,
-        project_id: str,
-        node_id: str,
-    ) -> tuple[str, str]:
-        safe_project_id = self._require_project(project_id)
-        safe_node_id = validate_identifier(node_id, "node_id")
-        workflow = self.project_manager.load_workflow(safe_project_id)
-        if safe_node_id not in workflow.nodes:
-            raise RunRecoveryError(
-                "node_not_found",
-                "Node was not found in the current Workflow",
-                status_code=404,
-                node_id=safe_node_id,
-            )
-        return safe_project_id, safe_node_id
-
-    def cache_entries(
-        self,
-        project_id: str,
-        node_id: str | None = None,
-    ) -> dict[str, Any]:
-        if node_id is None:
-            safe_project_id = self._require_project(project_id)
-            node_ids = self._cache_node_ids(safe_project_id)
-        else:
-            safe_project_id, safe_node_id = self._require_workflow_node(
-                project_id,
-                node_id,
-            )
-            node_ids = (
-                [safe_node_id]
-                if safe_node_id in self._cache_node_ids(safe_project_id)
-                else []
-            )
-        cache_root = self.project_manager.cache_dir(safe_project_id)
-        entries = []
-        for cache_node_id in node_ids:
-            with CacheStore(cache_root, cache_node_id) as cache:
-                entries.extend(cache.entries())
-        result: dict[str, Any] = {
-            "project_id": safe_project_id,
-            "entries": entries,
-        }
-        if node_id is not None:
-            result["node_id"] = safe_node_id
-        return result
-
-    def clear_cache(
-        self,
-        project_id: str,
-        node_id: str | None = None,
-    ) -> dict[str, Any]:
-        if node_id is None:
-            safe_project_id = self._require_project(project_id)
-            node_ids = self._cache_node_ids(safe_project_id)
-        else:
-            safe_project_id, safe_node_id = self._require_workflow_node(
-                project_id,
-                node_id,
-            )
-            node_ids = (
-                [safe_node_id]
-                if safe_node_id in self._cache_node_ids(safe_project_id)
-                else []
-            )
-        cache_root = self.project_manager.cache_dir(safe_project_id)
-        removed = 0
-        for cache_node_id in node_ids:
-            with CacheStore(cache_root, cache_node_id) as cache:
-                removed += cache.clear_entries()
-        result: dict[str, Any] = {
-            "project_id": safe_project_id,
-            "status": "cleared",
-            "removed": removed,
-        }
-        if node_id is not None:
-            result["node_id"] = safe_node_id
-        return result
+        forced = tuple(forced_node_ids)
+        return RecoveryPlan(
+            seed=seed,
+            force_rerun_nodes=forced,
+            provenance=RecoveryProvenance(
+                source_run_id=manifest["run_id"],
+                action=action,
+                selected_node_id=safe_node_id,
+                forced_node_ids=forced,
+            ),
+        )

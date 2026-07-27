@@ -227,6 +227,9 @@ class CacheStore:
             pickle.PickleError,
             EOFError,
             AttributeError,
+            ImportError,
+            RecursionError,
+            TypeError,
             ValueError,
         ):
             return None
@@ -272,6 +275,8 @@ class CacheStore:
             ):
                 return None
             header = json.loads(header_bytes)
+            if not isinstance(header, dict):
+                return None
             module_id = header["module_id"]
             module_version = header["module_version"]
             output_ports = header["output_ports"]
@@ -301,7 +306,10 @@ class CacheStore:
         except (
             OSError,
             ValueError,
+            TypeError,
             KeyError,
+            ImportError,
+            RecursionError,
             json.JSONDecodeError,
         ):
             return None

@@ -18,6 +18,7 @@ from core.cache_store import CachePublishStatus, CacheStore
 from core.graph import NodeState, Workflow, WorkflowNode
 from core.lifecycle_events import RunEventType
 from core.process_control import signal_process_group
+from core.recovery_types import RecoveryProvenance
 from core.run_context import RunContext
 from core.run_manifest import RunManifest, RunManifestStore, canonical_json
 from core.storage import contained_path, validate_identifier
@@ -470,6 +471,7 @@ class Executor:
             port.name: port.type_id
             for port in module.definition.output_ports
         }
+        candidate_bindings: list[tuple[str, str]] = []
         for output_port, value in outputs.items():
             describe = getattr(value, "manifest_facts", None)
             if callable(describe):
@@ -493,11 +495,24 @@ class Executor:
                         candidate_id=candidate_id,
                         parent_ids=parent_ids,
                     )
+                    candidate_bindings.append((output_port, candidate_id))
+        artifact_binding = (
+            candidate_bindings[0]
+            if len(candidate_bindings) == 1
+            else None
+        )
+        for output_port, value in outputs.items():
             if (
                 isinstance(value, (str, Path))
                 and port_types.get(output_port) == "file.path"
+                and artifact_binding is not None
             ):
-                context.record_artifact(value)
+                candidate_port, candidate_id = artifact_binding
+                context.record_artifact(
+                    value,
+                    candidate_id=candidate_id,
+                    output_port=candidate_port,
+                )
 
     async def execute(
         self,
@@ -512,7 +527,7 @@ class Executor:
         source_dir: str | Path | None = None,
         environment: dict[str, Any] | None = None,
         provider_readiness: dict[str, Any] | None = None,
-        recovery: dict[str, Any] | None = None,
+        recovery: RecoveryProvenance | None = None,
         cancellation_requested: asyncio.Event | None = None,
         cancellation_timeout: float = 5.0,
     ) -> dict[str, dict[str, Any]]:

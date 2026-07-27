@@ -55,6 +55,10 @@ chooses a run or Cache entry by modification time. Artifact responses expose
 run-relative references and the manifest's Candidate ID, Node ID, output Port,
 size, and SHA-256. A download is served only when the reference is declared by
 the selected manifest and a stable snapshot matches its recorded size and hash.
+Artifacts without both Candidate and output-Port bindings make the public
+manifest invalid. Public retrieval is bounded to 2,048 artifacts, 64 MiB per
+artifact, and 256 MiB in aggregate per run; verification executes on FastAPI's
+worker thread rather than its event loop.
 The older Node-output compatibility route therefore requires an explicit
 `run_id` query parameter, and the hybrid output-download route verifies the
 same manifest contract.
@@ -79,7 +83,11 @@ does not deserialize their payload. Node-scoped operations require a Node in
 the current Workflow. Project clearing is allowed to include stale, valid Node
 names but removes only direct regular `.pkl` Cache entries; it preserves the
 project integrity key and unrelated files. Cache clearing is rejected while
-that project has an active run.
+that project has an active run. A project-scoped mutation reservation is
+registered before deletion moves to a worker thread, so run admission and
+Cache deletion remain mutually exclusive. This exclusion relies on the
+application's documented single-process deployment contract; starting multiple
+backend processes against the same storage roots is unsupported.
 
 Recovery failures use `{error: {kind, message, ...}}` with stable kinds.
 Unknown project/run/Node/artifact scopes return 404, stale Workflow or artifact

@@ -11,6 +11,7 @@ from typing import Any, AsyncGenerator
 
 from contextlib import asynccontextmanager, suppress
 from fastapi import (
+    Body,
     FastAPI,
     File,
     Request,
@@ -20,7 +21,9 @@ from fastapi import (
 )
 from fastapi.responses import JSONResponse, StreamingResponse
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.exceptions import RequestValidationError
 
+from core.cache_operations import CacheService
 from core.executor import Executor
 from core.lifecycle_events import (
     RunCapacityError,
@@ -45,6 +48,7 @@ from core.project import (
     UIState,
 )
 from core.recovery import RunRecoveryError, RunRecoveryService
+from core.recovery_types import RecoveryAction, RecoveryProvenance
 from core.storage import (
     StoragePathError,
     validate_identifier,
@@ -69,6 +73,7 @@ class ActiveRun:
 
 _active_runs: dict[str, ActiveRun] = {}
 _active_project_runs: dict[str, ActiveRun] = {}
+_cache_mutations: set[str] = set()
 _module_factories: dict[str, type[WorkflowModule]] = {}
 _run_events = RunEventBroker()
 MAX_RUN_NODES = 2048
@@ -487,6 +492,7 @@ def create_app() -> FastAPI:
                 "1",
             ),
         )
+        _cache_mutations.clear()
         yield
         for active_run in tuple(_active_runs.values()):
             active_run.cancellation_requested.set()
@@ -586,6 +592,34 @@ def create_app() -> FastAPI:
             content=error.to_dict(),
         )
 
+    @app.exception_handler(RequestValidationError)
+    async def request_validation_error_handler(
+        request: Request,
+        error: RequestValidationError,
+    ) -> JSONResponse:
+        del request
+        body_error = any(
+            item.get("loc", (None,))[0] == "body"
+            for item in error.errors()
+        )
+        return JSONResponse(
+            status_code=422,
+            content={
+                "error": {
+                    "kind": (
+                        "invalid_request_body"
+                        if body_error
+                        else "invalid_request"
+                    ),
+                    "message": (
+                        "Request body is invalid"
+                        if body_error
+                        else "Request is invalid"
+                    ),
+                }
+            },
+        )
+
     app.add_middleware(
         CORSMiddleware,
         allow_origins=list(TRUSTED_BROWSER_ORIGINS),
@@ -636,7 +670,7 @@ def create_app() -> FastAPI:
         workflow: Workflow,
         validation: WorkflowValidationResult,
         options: dict[str, Any],
-        recovery: dict[str, Any] | None = None,
+        recovery: RecoveryProvenance | None = None,
     ) -> dict[str, Any]:
         if len(_active_runs) >= MAX_ACTIVE_RUNS:
             return JSONResponse(
@@ -659,6 +693,17 @@ def create_app() -> FastAPI:
                         "message": "Project already has an active run",
                         "project_id": project_id,
                         "active_run_id": active_run.run_id,
+                    }
+                },
+            )
+        if project_id in _cache_mutations:
+            return JSONResponse(
+                status_code=409,
+                content={
+                    "error": {
+                        "kind": "cache_mutation_conflict",
+                        "message": "Project Cache is being changed",
+                        "project_id": project_id,
                     }
                 },
             )
@@ -1000,21 +1045,21 @@ def create_app() -> FastAPI:
     # ── durable run recovery ─────────────────────────────────────────
 
     @app.get("/api/projects/{project_id}/run/{run_id}/status")
-    async def get_run_status(project_id: str, run_id: str) -> dict[str, Any]:
+    def get_run_status(project_id: str, run_id: str) -> dict[str, Any]:
         return RunRecoveryService(project_manager).status(
             project_id,
             run_id,
         )
 
     @app.get("/api/projects/{project_id}/run/{run_id}/manifest")
-    async def get_run_manifest(project_id: str, run_id: str) -> dict[str, Any]:
+    def get_run_manifest(project_id: str, run_id: str) -> dict[str, Any]:
         return RunRecoveryService(project_manager).manifest(
             project_id,
             run_id,
         )
 
     @app.get("/api/projects/{project_id}/run/{run_id}/outputs")
-    async def get_run_outputs(
+    def get_run_outputs(
         project_id: str,
         run_id: str,
     ) -> dict[str, Any]:
@@ -1027,7 +1072,7 @@ def create_app() -> FastAPI:
         "/api/projects/{project_id}/run/{run_id}"
         "/artifacts/{reference:path}"
     )
-    async def get_run_artifact(
+    def get_run_artifact(
         project_id: str,
         run_id: str,
         reference: str,
@@ -1046,17 +1091,39 @@ def create_app() -> FastAPI:
         run_id: str,
         node_id: str,
         *,
-        action: str,
+        action: RecoveryAction,
         payload: dict[str, Any] | None,
     ) -> Any:
-        workflow = project_manager.load_workflow(project_id)
-        validation = workflow.validate(module_registry)
-        if not validation.valid:
-            return JSONResponse(
+        if payload is not None and not isinstance(payload, dict):
+            raise RunRecoveryError(
+                "invalid_recovery_request",
+                "Recovery request body must be an object",
                 status_code=422,
-                content=validation.to_dict(),
             )
-        plan = RunRecoveryService(project_manager).recovery_plan(
+        if payload is not None and payload.get("seed", ...) is None:
+            raise RunRecoveryError(
+                "invalid_recovery_seed",
+                "Recovery seed must be a non-negative integer",
+                status_code=422,
+            )
+        service = RunRecoveryService(project_manager)
+        service.manifest(project_id, run_id)
+        try:
+            workflow = project_manager.load_workflow(project_id)
+        except (
+            AttributeError,
+            KeyError,
+            OSError,
+            RecursionError,
+            TypeError,
+            ValueError,
+        ):
+            raise RunRecoveryError(
+                "invalid_workflow",
+                "Current Workflow is not readable",
+                status_code=409,
+            ) from None
+        plan = service.recovery_plan(
             project_id,
             run_id,
             node_id,
@@ -1064,15 +1131,21 @@ def create_app() -> FastAPI:
             workflow=workflow,
             requested_seed=(payload or {}).get("seed"),
         )
+        validation = workflow.validate(module_registry)
+        if not validation.valid:
+            return JSONResponse(
+                status_code=422,
+                content=validation.to_dict(),
+            )
         return start_execution(
             project_id=project_id,
             workflow=workflow,
             validation=validation,
             options={
-                "seed": plan["seed"],
-                "force_rerun_nodes": plan["force_rerun_nodes"],
+                "seed": plan.seed,
+                "force_rerun_nodes": list(plan.force_rerun_nodes),
             },
-            recovery=plan["recovery"],
+            recovery=plan.provenance,
         )
 
     @app.post(
@@ -1082,13 +1155,13 @@ def create_app() -> FastAPI:
         project_id: str,
         run_id: str,
         node_id: str,
-        payload: dict[str, Any] | None = None,
+        payload: Any = Body(default=None),
     ) -> Any:
         return recover_node(
             project_id,
             run_id,
             node_id,
-            action="retry",
+            action=RecoveryAction.RETRY,
             payload=payload,
         )
 
@@ -1100,13 +1173,13 @@ def create_app() -> FastAPI:
         project_id: str,
         run_id: str,
         node_id: str,
-        payload: dict[str, Any] | None = None,
+        payload: Any = Body(default=None),
     ) -> Any:
         return recover_node(
             project_id,
             run_id,
             node_id,
-            action="force_rerun",
+            action=RecoveryAction.FORCE_RERUN,
             payload=payload,
         )
 
@@ -1114,15 +1187,15 @@ def create_app() -> FastAPI:
     # ── cache management ────────────────────────────────────────────
 
     @app.get("/api/projects/{project_id}/cache")
-    async def list_project_cache(project_id: str) -> dict[str, Any]:
-        return RunRecoveryService(project_manager).cache_entries(project_id)
+    def list_project_cache(project_id: str) -> dict[str, Any]:
+        return CacheService(project_manager).entries(project_id)
 
     @app.get("/api/projects/{project_id}/cache/{node_id}")
-    async def list_node_cache(
+    def list_node_cache(
         project_id: str,
         node_id: str,
     ) -> dict[str, Any]:
-        return RunRecoveryService(project_manager).cache_entries(
+        return CacheService(project_manager).entries(
             project_id,
             node_id,
         )
@@ -1139,11 +1212,37 @@ def create_app() -> FastAPI:
                 active_run_id=active_run.run_id,
             )
 
+    async def clear_cache(
+        project_id: str,
+        node_id: str | None = None,
+    ) -> dict[str, Any]:
+        safe_project_id = validate_identifier(project_id, "project_id")
+        require_cache_mutation_idle(safe_project_id)
+        if safe_project_id in _cache_mutations:
+            raise RunRecoveryError(
+                "cache_mutation_conflict",
+                "Project Cache is already being changed",
+                status_code=409,
+                project_id=safe_project_id,
+            )
+        _cache_mutations.add(safe_project_id)
+        mutation = asyncio.create_task(asyncio.to_thread(
+            CacheService(project_manager).clear,
+            safe_project_id,
+            node_id,
+        ))
+        try:
+            return await asyncio.shield(mutation)
+        except asyncio.CancelledError:
+            await mutation
+            raise
+        finally:
+            _cache_mutations.discard(safe_project_id)
+
     @app.delete("/api/projects/{project_id}/cache")
     async def clear_project_cache(project_id: str) -> dict[str, Any]:
         """Clear all cached outputs for a project."""
-        require_cache_mutation_idle(project_id)
-        return RunRecoveryService(project_manager).clear_cache(project_id)
+        return await clear_cache(project_id)
 
     @app.delete("/api/projects/{project_id}/cache/{node_id}")
     async def clear_node_cache(
@@ -1151,17 +1250,13 @@ def create_app() -> FastAPI:
         node_id: str,
     ) -> dict[str, Any]:
         """Clear cached outputs for a specific node."""
-        require_cache_mutation_idle(project_id)
-        return RunRecoveryService(project_manager).clear_cache(
-            project_id,
-            node_id,
-        )
+        return await clear_cache(project_id, node_id)
 
 
     # ── node output ─────────────────────────────────────────────────
 
     @app.get("/api/projects/{project_id}/nodes/{node_id}/output")
-    async def get_node_output(
+    def get_node_output(
         project_id: str,
         node_id: str,
         run_id: str | None = None,
@@ -1302,7 +1397,7 @@ def create_app() -> FastAPI:
         }
 
     @app.get("/api/projects/{project_id}/outputs/{filename:path}")
-    async def download_output(project_id: str, filename: str):
+    def download_output(project_id: str, filename: str):
         parts = validate_relative_path(filename, "output_path")
         if len(parts) < 2:
             raise StoragePathError("output_path", "Invalid output_path")
