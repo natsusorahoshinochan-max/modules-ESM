@@ -532,6 +532,37 @@ def test_requested_seed_always_partitions_cache_without_false_effective_seed(
     assert cache_keys[0] != cache_keys[1]
 
 
+def test_state_callback_failure_cannot_leave_manifest_non_terminal(
+    tmp_path: Path,
+) -> None:
+    project_dir = tmp_path / "project"
+    workflow = Workflow()
+    workflow.add_node(
+        WorkflowNode("count", "test.counting", "1.0.0")
+    )
+    executor = Executor()
+
+    def broken_callback(*_: object) -> None:
+        raise RuntimeError("observer failed")
+
+    executor.on_state_change(broken_callback)
+    result = asyncio.run(
+        executor.execute(
+            workflow,
+            {"test.counting": CountingModule()},
+            str(project_dir),
+            "callback-failure",
+            project_id="project-11",
+        )
+    )
+
+    manifest = read_run_manifest(
+        project_dir / "runs" / "callback-failure"
+    )
+    assert result["count"]["text"].startswith("call-")
+    assert manifest["status"] == "completed"
+
+
 def test_partial_node_output_fails_structurally_and_is_never_cached(
     tmp_path: Path,
 ) -> None:

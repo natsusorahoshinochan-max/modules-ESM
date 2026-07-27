@@ -67,7 +67,10 @@ class Executor:
                 new_state.value,
             )
         for cb in self._state_callbacks:
-            cb(node.node_id, old_state, new_state)
+            try:
+                cb(node.node_id, old_state, new_state)
+            except Exception:
+                continue
 
     def _compute_cache_key(
         self,
