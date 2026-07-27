@@ -59,18 +59,34 @@ WS /api/projects/{project_id}/run/{run_id}/ws
 Server pushes JSON messages as execution progresses:
 
 ```json
-{"type": "run_started", "run_id": "...", "node_order": ["node-1", "node-2", ...]}
-{"type": "node_state", "node_id": "node-3", "state": "running"}
-{"type": "node_completed", "node_id": "node-3", "output_summary": {...}}
-{"type": "node_failed", "node_id": "node-3", "error": {...}}
-{"type": "node_blocked", "node_id": "node-4", "reason": "upstream node-3 failed"}
-{"type": "run_completed", "run_id": "...", "duration_ms": 12345}
-{"type": "run_cancelled", "run_id": "..."}
+{"type": "run_started", "project_id": "...", "run_id": "...", "sequence": 1, "timestamp": "...", "node_order": ["node-1", "node-2"]}
+{"type": "node_state", "project_id": "...", "run_id": "...", "sequence": 2, "timestamp": "...", "node_id": "node-1", "state": "running"}
+{"type": "node_completed", "project_id": "...", "run_id": "...", "sequence": 3, "timestamp": "...", "node_id": "node-1", "output_summary": {"output_ports": ["text"], "cache": {"outcome": "miss"}}}
+{"type": "node_failed", "project_id": "...", "run_id": "...", "sequence": 4, "timestamp": "...", "node_id": "node-2", "error": {"kind": "...", "message": "...", "module_id": "...", "retryable": false}}
+{"type": "node_blocked", "project_id": "...", "run_id": "...", "sequence": 5, "timestamp": "...", "node_id": "node-3", "reason": {"kind": "upstream_terminal", "message": "...", "upstream_node_ids": ["node-2"]}}
+{"type": "run_completed", "project_id": "...", "run_id": "...", "sequence": 6, "timestamp": "...", "status": "completed", "duration_ms": 12345}
+{"type": "run_failed", "project_id": "...", "run_id": "...", "sequence": 6, "timestamp": "...", "status": "failed", "duration_ms": 12345, "error": {"kind": "node_failure", "message": "...", "retryable": false}}
+{"type": "run_cancelled", "project_id": "...", "run_id": "...", "sequence": 6, "timestamp": "...", "status": "cancelled", "duration_ms": 12345}
 ```
 
 Node state transitions follow the architecture document section 15.2:
 idle → queued → running → completed / failed / cancelled, with blocked
 as a terminal state for downstream nodes whose upstream dependency failed.
+Events are scoped to exactly one project/run pair and use a contiguous,
+monotonically increasing sequence. The persisted Node terminal fact is written
+before its event, and the persisted run terminal status is written before the
+final run event. If the run namespace itself cannot be created, the broker emits
+one safe `run_failed` setup error without a manifest; this is the sole
+pre-manifest exception because no durable run document exists to order first.
+Once a manifest exists, terminal persistence is attempted before publication,
+including a failed-state fallback after another terminal write fails. Safe
+structured errors never include raw exception text or credentials.
+
+To bound replay and subscriber memory, one executable Workflow is limited to
+2,048 Nodes and 8,192 edges before semantic validation or stream creation.
+Each stream uses a fixed 256-event live queue, admits at most 32 subscribers,
+and keeps an overflowed subscriber counted until its WebSocket handler exits.
+The broker retains the latest 32 completed streams for post-REST replay.
 
 ## Data formats
 

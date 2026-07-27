@@ -8,7 +8,7 @@ import uuid
 import shutil
 from typing import Any, AsyncGenerator
 
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager, suppress
 from fastapi import (
     FastAPI,
     File,
@@ -21,8 +21,13 @@ from fastapi.responses import FileResponse, JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 
 from core.executor import Executor
+from core.lifecycle_events import (
+    RunCapacityError,
+    RunEventBroker,
+    RunEventType,
+    SubscriberLimitError,
+)
 from core.graph import (
-    NodeState,
     Workflow,
     WorkflowEdge,
     WorkflowNode,
@@ -47,10 +52,11 @@ type_registry: TypeRegistry
 module_registry: ModuleRegistry
 project_manager: ProjectManager
 
-# Active WebSocket connections for execution progress
-_active_ws: list[WebSocket] = []
 _active_runs: dict[str, asyncio.Task] = {}
 _module_factories: dict[str, type[WorkflowModule]] = {}
+_run_events = RunEventBroker()
+MAX_RUN_NODES = 2048
+MAX_RUN_EDGES = 8192
 
 
 def register_module_factory(module_id: str, factory: type[WorkflowModule]) -> None:
@@ -328,26 +334,11 @@ def _ui_state_to_dict(ui: UIState) -> dict:
     }
 
 
-async def _broadcast_state(node_id: str, old_state: str, new_state: str) -> None:
-    disconnected = []
-    for ws in _active_ws:
-        try:
-            await ws.send_json({
-                "type": "node_state",
-                "node_id": node_id,
-                "old_state": old_state,
-                "new_state": new_state,
-            })
-        except Exception:
-            disconnected.append(ws)
-    for ws in disconnected:
-        _active_ws.remove(ws)
-
-
 def create_app() -> FastAPI:
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         global type_registry, module_registry, project_manager
+        _run_events.clear()
         type_registry = TypeRegistry()
         module_registry = ModuleRegistry(type_registry)
         discover_modules(module_registry)
@@ -502,6 +493,28 @@ def create_app() -> FastAPI:
             },
         )
 
+    @app.exception_handler(RunCapacityError)
+    async def run_capacity_error_handler(
+        request: Request,
+        error: RunCapacityError,
+    ) -> JSONResponse:
+        del request
+        return JSONResponse(
+            status_code=422,
+            content={
+                "error": {
+                    "kind": "run_capacity_exceeded",
+                    "message": str(error),
+                    "nodes": error.nodes,
+                    "edges": error.edges,
+                    "limits": {
+                        "nodes": MAX_RUN_NODES,
+                        "edges": MAX_RUN_EDGES,
+                    },
+                },
+            },
+        )
+
     app.add_middleware(
         CORSMiddleware,
         allow_origins=["*"],
@@ -522,10 +535,19 @@ def create_app() -> FastAPI:
 
     # ── execution ────────────────────────────────────────────────────
 
+    def require_run_capacity(workflow: Workflow) -> None:
+        if (
+            len(workflow.nodes) > MAX_RUN_NODES
+            or len(workflow.edges) > MAX_RUN_EDGES
+        ):
+            raise RunCapacityError(
+                nodes=len(workflow.nodes),
+                edges=len(workflow.edges),
+            )
+
     @app.websocket("/ws/execution")
     async def execution_ws(websocket: WebSocket) -> None:
         await websocket.accept()
-        _active_ws.append(websocket)
         try:
             while True:
                 await websocket.receive_text()
@@ -533,13 +555,104 @@ def create_app() -> FastAPI:
             pass
         except Exception:
             pass
-        finally:
-            if websocket in _active_ws:
-                _active_ws.remove(websocket)
+
+    def start_execution(
+        *,
+        project_id: str,
+        workflow: Workflow,
+        validation: WorkflowValidationResult,
+        options: dict[str, Any],
+    ) -> dict[str, Any]:
+        modules: dict[str, WorkflowModule] = {}
+        for node in workflow.nodes.values():
+            factory = _module_factories.get(node.module_id)
+            if factory is None:
+                raise RuntimeError(
+                    f"No runtime factory registered for Module '{node.module_id}'"
+                )
+            modules[node.module_id] = factory()
+
+        raw_force_rerun = options.get("force_rerun_nodes", [])
+        if (
+            not isinstance(raw_force_rerun, list)
+            or not all(isinstance(node_id, str) for node_id in raw_force_rerun)
+        ):
+            raise StoragePathError(
+                "force_rerun_nodes",
+                "Invalid force_rerun_nodes",
+            )
+        force_rerun = {
+            validate_identifier(node_id, "node_id")
+            for node_id in raw_force_rerun
+        }
+        seed = options.get("seed", 42)
+        run_id = str(uuid.uuid4())
+        project_dir = str(project_manager.project_dir(project_id))
+        for node_id, node in workflow.nodes.items():
+            context = project_manager.run_context(
+                project_id,
+                run_id,
+                node_id,
+                seed=seed,
+            )
+            if node.module_id in {"import.sequence", "import.structure"}:
+                context.input_path(node.parameters.get("file_path", ""))
+
+        stream = _run_events.create(project_id, run_id)
+        executor = Executor()
+        executor.on_lifecycle_event(
+            lambda event_type, node_id, details: stream.publish(
+                event_type,
+                node_id=node_id,
+                details=details,
+            )
+        )
+
+        async def run() -> None:
+            try:
+                await executor.execute(
+                    workflow=workflow,
+                    modules=modules,
+                    project_dir=project_dir,
+                    run_id=run_id,
+                    seed=seed,
+                    force_rerun_nodes=force_rerun,
+                    project_manager=project_manager,
+                    project_id=project_id,
+                )
+            except asyncio.CancelledError:
+                if not stream.terminal:
+                    stream.publish(
+                        RunEventType.RUN_CANCELLED,
+                        details={
+                            "status": "cancelled",
+                            "duration_ms": stream.elapsed_ms,
+                        },
+                    )
+                raise
+            except Exception:
+                if not stream.terminal:
+                    stream.publish(
+                        RunEventType.RUN_FAILED,
+                        details={
+                            "status": "failed",
+                            "duration_ms": stream.elapsed_ms,
+                            "error": {
+                                "kind": "run_setup_error",
+                                "message": "Run setup failed",
+                                "retryable": False,
+                            },
+                        },
+                    )
+
+        task = asyncio.create_task(run())
+        _active_runs[run_id] = task
+        return {"run_id": run_id, **validation.to_dict()}
 
     @app.post("/api/execute")
     async def execute_workflow(payload: dict) -> Any:
         workflow, construction_errors = _workflow_from_payload(payload)
+        require_run_capacity(workflow)
         semantic_validation = workflow.validate(module_registry)
         validation = WorkflowValidationResult(
             construction_errors + semantic_validation.errors
@@ -550,72 +663,106 @@ def create_app() -> FastAPI:
                 content=validation.to_dict(),
             )
 
-        modules: dict[str, WorkflowModule] = {}
-        for node in workflow.nodes.values():
-            factory = _module_factories.get(node.module_id)
-            # Availability was established by the authoritative validation gate.
-            # A missing runtime factory remains an internal server error.
-            if factory is None:
-                raise RuntimeError(
-                    f"No runtime factory registered for Module '{node.module_id}'"
-                )
-            modules[node.module_id] = factory()
-
-        executor = Executor()
-        executor.on_state_change(
-            lambda nid, old, new: asyncio.create_task(
-                _broadcast_state(nid, old.value, new.value)
-            )
+        ephemeral_id = f"ephemeral-{uuid.uuid4().hex[:8]}"
+        return start_execution(
+            project_id=payload.get("project_id", ephemeral_id),
+            workflow=workflow,
+            validation=validation,
+            options=payload,
         )
 
-        run_id = str(uuid.uuid4())
-        project_id = payload.get("project_id", f"ephemeral-{run_id[:8]}")
-        project_dir = str(project_manager.project_dir(project_id))
-        seed = payload.get("seed", 42)
-        for node_id in workflow.nodes:
-            context = project_manager.run_context(
-                project_id,
-                run_id,
-                node_id,
-                seed=seed,
+    @app.post("/api/projects/{project_id}/run")
+    async def execute_saved_workflow(
+        project_id: str,
+        payload: dict | None = None,
+    ) -> Any:
+        options = payload or {}
+        meta = project_manager.load_meta(project_id)
+        if meta is None:
+            return JSONResponse(
+                status_code=404,
+                content={"error": "Project not found"},
             )
-            node = workflow.nodes[node_id]
-            if node.module_id in {"import.sequence", "import.structure"}:
-                context.input_path(node.parameters.get("file_path", ""))
-        for node_id in payload.get("force_rerun_nodes", []):
-            validate_identifier(node_id, "node_id")
+        workflow = project_manager.load_workflow(project_id)
+        require_run_capacity(workflow)
+        validation = workflow.validate(module_registry)
+        if not validation.valid:
+            return JSONResponse(
+                status_code=422,
+                content=validation.to_dict(),
+            )
 
-        async def _run() -> None:
-            try:
-                force_rerun = set(payload.get("force_rerun_nodes", []))
-                await executor.execute(
-                    workflow=workflow, modules=modules,
-                    project_dir=project_dir, run_id=run_id, seed=seed,
-                    force_rerun_nodes=force_rerun,
-                    project_manager=project_manager,
-                    project_id=project_id,
+        return start_execution(
+            project_id=project_id,
+            workflow=workflow,
+            validation=validation,
+            options=options,
+        )
+
+    @app.websocket("/api/projects/{project_id}/run/{run_id}/ws")
+    async def run_execution_ws(
+        websocket: WebSocket,
+        project_id: str,
+        run_id: str,
+    ) -> None:
+        try:
+            stream = _run_events.get(project_id, run_id)
+        except StoragePathError:
+            await websocket.close(code=4400)
+            return
+        if stream is None:
+            await websocket.close(code=4404)
+            return
+        await websocket.accept()
+        try:
+            subscription = stream.subscribe()
+        except SubscriberLimitError:
+            await websocket.close(code=4429)
+            return
+        disconnect = asyncio.create_task(websocket.receive())
+
+        async def send(event: dict[str, Any]) -> bool:
+            await asyncio.wait_for(
+                websocket.send_json(event),
+                timeout=5,
+            )
+            return event["type"] in {
+                RunEventType.RUN_COMPLETED.value,
+                RunEventType.RUN_FAILED.value,
+                RunEventType.RUN_CANCELLED.value,
+            }
+
+        try:
+            for event in subscription.replay:
+                if disconnect.done() or await send(event):
+                    return
+            while True:
+                next_event = asyncio.create_task(subscription.live.get())
+                done, _ = await asyncio.wait(
+                    {next_event, disconnect},
+                    return_when=asyncio.FIRST_COMPLETED,
                 )
-                for ws in _active_ws:
-                    try:
-                        await ws.send_json({"type": "run_complete", "run_id": run_id})
-                    except Exception:
-                        pass
-            except asyncio.CancelledError:
-                for ws in _active_ws:
-                    try:
-                        await ws.send_json({"type": "run_cancelled", "run_id": run_id})
-                    except Exception:
-                        pass
-            except Exception as e:
-                for ws in _active_ws:
-                    try:
-                        await ws.send_json({"type": "run_error", "run_id": run_id, "error": str(e)})
-                    except Exception:
-                        pass
-
-        task = asyncio.create_task(_run())
-        _active_runs[run_id] = task
-        return {"run_id": run_id, **validation.to_dict()}
+                if disconnect in done:
+                    next_event.cancel()
+                    with suppress(asyncio.CancelledError):
+                        await next_event
+                    return
+                event = next_event.result()
+                if event is None:
+                    await asyncio.wait_for(
+                        websocket.close(code=1013),
+                        timeout=5,
+                    )
+                    return
+                if await send(event):
+                    return
+        except (TimeoutError, WebSocketDisconnect, RuntimeError):
+            pass
+        finally:
+            disconnect.cancel()
+            with suppress(asyncio.CancelledError):
+                await disconnect
+            stream.unsubscribe(subscription)
 
     @app.post("/api/execute/cancel")
     async def cancel_execution(payload: dict) -> dict:

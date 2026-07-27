@@ -226,6 +226,7 @@ class RunManifest:
     updated_at: str = field(default_factory=_timestamp)
     node_states: list[dict[str, Any]] = field(default_factory=list)
     failures: list[dict[str, Any]] = field(default_factory=list)
+    blocking_reasons: list[dict[str, Any]] = field(default_factory=list)
     cache: list[dict[str, Any]] = field(default_factory=list)
     providers: dict[str, list[dict[str, Any]]] = field(
         default_factory=lambda: {"readiness": [], "calls": []}
@@ -329,6 +330,7 @@ class RunManifest:
             "providers": self.providers,
             "node_states": self.node_states,
             "failures": self.failures,
+            "blocking_reasons": self.blocking_reasons,
             "cache": self.cache,
             "candidate_lineage": self.candidate_lineage,
             "artifacts": self.artifacts,
@@ -519,6 +521,27 @@ class RunManifestStore:
             "message": message,
         }))
         self.persist()
+
+    def record_blocked(
+        self,
+        *,
+        node_id: str,
+        upstream_node_ids: list[str],
+    ) -> dict[str, Any]:
+        reason = {
+            "kind": "upstream_terminal",
+            "message": "Required upstream Node did not complete",
+            "upstream_node_ids": [
+                validate_identifier(upstream_id, "node_id")
+                for upstream_id in upstream_node_ids
+            ],
+        }
+        self.manifest.blocking_reasons.append({
+            "node_id": validate_identifier(node_id, "node_id"),
+            "reason": reason,
+        })
+        self.persist()
+        return reason
 
     def record_candidate_lineage(
         self,
