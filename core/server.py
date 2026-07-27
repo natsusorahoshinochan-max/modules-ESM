@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+from dataclasses import dataclass
 import os
 import uuid
 import shutil
@@ -52,14 +53,22 @@ type_registry: TypeRegistry
 module_registry: ModuleRegistry
 project_manager: ProjectManager
 
-_active_runs: dict[str, asyncio.Task] = {}
-_active_project_runs: dict[str, str] = {}
-_run_projects: dict[str, str] = {}
-_cancellation_requests: dict[str, asyncio.Event] = {}
+
+@dataclass
+class ActiveRun:
+    project_id: str
+    run_id: str
+    cancellation_requested: asyncio.Event
+    task: asyncio.Task | None = None
+
+
+_active_runs: dict[str, ActiveRun] = {}
+_active_project_runs: dict[str, ActiveRun] = {}
 _module_factories: dict[str, type[WorkflowModule]] = {}
 _run_events = RunEventBroker()
 MAX_RUN_NODES = 2048
 MAX_RUN_EDGES = 8192
+MAX_ACTIVE_RUNS = 8
 RUN_CANCELLATION_TIMEOUT_SECONDS = 5.0
 
 
@@ -345,8 +354,6 @@ def create_app() -> FastAPI:
         _run_events.clear()
         _active_runs.clear()
         _active_project_runs.clear()
-        _run_projects.clear()
-        _cancellation_requests.clear()
         type_registry = TypeRegistry()
         module_registry = ModuleRegistry(type_registry)
         discover_modules(module_registry)
@@ -463,9 +470,13 @@ def create_app() -> FastAPI:
             ),
         )
         yield
-        for request in tuple(_cancellation_requests.values()):
-            request.set()
-        active_tasks = tuple(_active_runs.values())
+        for active_run in tuple(_active_runs.values()):
+            active_run.cancellation_requested.set()
+        active_tasks = tuple(
+            active_run.task
+            for active_run in _active_runs.values()
+            if active_run.task is not None
+        )
         if active_tasks:
             await asyncio.gather(*active_tasks, return_exceptions=True)
 
@@ -574,8 +585,19 @@ def create_app() -> FastAPI:
         validation: WorkflowValidationResult,
         options: dict[str, Any],
     ) -> dict[str, Any]:
-        active_run_id = _active_project_runs.get(project_id)
-        if active_run_id is not None:
+        if len(_active_runs) >= MAX_ACTIVE_RUNS:
+            return JSONResponse(
+                status_code=429,
+                content={
+                    "error": {
+                        "kind": "active_run_capacity_exceeded",
+                        "message": "Backend has too many active runs",
+                        "limit": MAX_ACTIVE_RUNS,
+                    }
+                },
+            )
+        active_run = _active_project_runs.get(project_id)
+        if active_run is not None:
             return JSONResponse(
                 status_code=409,
                 content={
@@ -583,7 +605,7 @@ def create_app() -> FastAPI:
                         "kind": "active_run_conflict",
                         "message": "Project already has an active run",
                         "project_id": project_id,
-                        "active_run_id": active_run_id,
+                        "active_run_id": active_run.run_id,
                     }
                 },
             )
@@ -624,6 +646,11 @@ def create_app() -> FastAPI:
 
         stream = _run_events.create(project_id, run_id)
         cancellation_requested = asyncio.Event()
+        active_run = ActiveRun(
+            project_id=project_id,
+            run_id=run_id,
+            cancellation_requested=cancellation_requested,
+        )
         executor = Executor()
         executor.on_lifecycle_event(
             lambda event_type, node_id, details: stream.publish(
@@ -634,12 +661,14 @@ def create_app() -> FastAPI:
         )
 
         def cleanup(completed: asyncio.Task | None) -> None:
-            if completed is None or _active_runs.get(run_id) is completed:
+            if (
+                completed is None
+                or _active_runs.get(run_id) is active_run
+                and active_run.task is completed
+            ):
                 _active_runs.pop(run_id, None)
-            if _active_project_runs.get(project_id) == run_id:
+            if _active_project_runs.get(project_id) is active_run:
                 _active_project_runs.pop(project_id, None)
-            _run_projects.pop(run_id, None)
-            _cancellation_requests.pop(run_id, None)
 
         async def run() -> None:
             try:
@@ -683,10 +712,9 @@ def create_app() -> FastAPI:
                 cleanup(asyncio.current_task())
 
         task = asyncio.create_task(run())
-        _active_runs[run_id] = task
-        _active_project_runs[project_id] = run_id
-        _run_projects[run_id] = project_id
-        _cancellation_requests[run_id] = cancellation_requested
+        active_run.task = task
+        _active_runs[run_id] = active_run
+        _active_project_runs[project_id] = active_run
 
         task.add_done_callback(cleanup)
         return {"run_id": run_id, **validation.to_dict()}
@@ -705,9 +733,12 @@ def create_app() -> FastAPI:
                 content=validation.to_dict(),
             )
 
+        supplied_project_id = payload.get("project_id")
+        if supplied_project_id is not None:
+            validate_identifier(supplied_project_id, "project_id")
         ephemeral_id = f"ephemeral-{uuid.uuid4().hex[:8]}"
         return start_execution(
-            project_id=payload.get("project_id", ephemeral_id),
+            project_id=ephemeral_id,
             workflow=workflow,
             validation=validation,
             options=payload,
@@ -809,7 +840,12 @@ def create_app() -> FastAPI:
     @app.post("/api/execute/cancel")
     async def cancel_execution(payload: dict) -> dict:
         run_id = validate_identifier(payload.get("run_id", ""), "run_id")
-        project_id = _run_projects.get(run_id)
+        active_run = _active_runs.get(run_id)
+        project_id = (
+            active_run.project_id
+            if active_run is not None
+            else None
+        )
         supplied_project_id = payload.get("project_id")
         if supplied_project_id is not None:
             supplied_project_id = validate_identifier(
@@ -823,10 +859,12 @@ def create_app() -> FastAPI:
                 "status": "project_scope_required",
                 "run_id": run_id,
             }
-        request = _cancellation_requests.get(run_id)
-        task = _active_runs.get(run_id)
-        if request is not None and task is not None and not task.done():
-            request.set()
+        if (
+            active_run is not None
+            and active_run.task is not None
+            and not active_run.task.done()
+        ):
+            active_run.cancellation_requested.set()
             return {
                 "status": "cancellation_requested",
                 "project_id": project_id,
@@ -841,7 +879,8 @@ def create_app() -> FastAPI:
     ) -> Any:
         safe_project_id = validate_identifier(project_id, "project_id")
         safe_run_id = validate_identifier(run_id, "run_id")
-        if _active_project_runs.get(safe_project_id) != safe_run_id:
+        active_run = _active_project_runs.get(safe_project_id)
+        if active_run is None or active_run.run_id != safe_run_id:
             return JSONResponse(
                 status_code=404,
                 content={
@@ -851,9 +890,7 @@ def create_app() -> FastAPI:
                     }
                 },
             )
-        request = _cancellation_requests.get(safe_run_id)
-        task = _active_runs.get(safe_run_id)
-        if request is None or task is None or task.done():
+        if active_run.task is None or active_run.task.done():
             return JSONResponse(
                 status_code=404,
                 content={
@@ -863,7 +900,7 @@ def create_app() -> FastAPI:
                     }
                 },
             )
-        request.set()
+        active_run.cancellation_requested.set()
         return {
             "status": "cancellation_requested",
             "project_id": safe_project_id,

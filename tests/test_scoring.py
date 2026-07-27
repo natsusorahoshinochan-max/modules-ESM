@@ -245,14 +245,15 @@ class TestDSSPModule:
         self,
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
+        import modules.compute_dssp.module as dssp_module
         from modules.compute_dssp.module import ComputeDSSPModule
 
         class BlockingProcess:
             returncode = None
+            pid = 123
 
             def __init__(self) -> None:
                 self.communicating = asyncio.Event()
-                self.stopped = False
                 self.waited = False
 
             async def communicate(self) -> tuple[bytes, bytes]:
@@ -261,10 +262,10 @@ class TestDSSPModule:
                 return b"", b""
 
             def terminate(self) -> None:
-                self.stopped = True
+                raise AssertionError("The subprocess group must be signalled")
 
             def kill(self) -> None:
-                self.stopped = True
+                raise AssertionError("The subprocess group must be signalled")
 
             async def wait(self) -> int:
                 self.waited = True
@@ -272,18 +273,28 @@ class TestDSSPModule:
                 return self.returncode
 
         process = BlockingProcess()
+        subprocess_options: dict[str, object] = {}
+        process_group_signals: list[tuple[int, object]] = []
 
         async def fake_subprocess(
             *args: object,
             **kwargs: object,
         ) -> BlockingProcess:
-            del args, kwargs
+            del args
+            subprocess_options.update(kwargs)
             return process
 
         monkeypatch.setattr(
             asyncio,
             "create_subprocess_exec",
             fake_subprocess,
+        )
+        monkeypatch.setattr(
+            dssp_module.os,
+            "killpg",
+            lambda pid, sent_signal: process_group_signals.append(
+                (pid, sent_signal)
+            ),
         )
 
         async def exercise() -> None:
@@ -301,7 +312,8 @@ class TestDSSPModule:
 
         asyncio.run(exercise())
 
-        assert process.stopped is True
+        assert subprocess_options["start_new_session"] is True
+        assert process_group_signals == [(123, dssp_module.signal.SIGTERM)]
         assert process.waited is True
 
 

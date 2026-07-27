@@ -4,9 +4,13 @@ from __future__ import annotations
 
 import asyncio
 from contextlib import suppress
+from dataclasses import replace
 import hashlib
+import multiprocessing
+import os
 import pickle  # Compatibility seam for existing atomic-Cache tests.
 from pathlib import Path
+import signal
 import time
 from typing import TYPE_CHECKING, Any, Callable
 
@@ -33,11 +37,145 @@ class CancellationTimeoutError(RuntimeError):
 
     kind = "cancellation_timeout"
 
-    def __init__(self, work: asyncio.Task[dict[str, Any]]) -> None:
-        self.work = work
+    def __init__(self, timeout: float) -> None:
+        self.timeout = timeout
         super().__init__(
             "Active Module work did not stop before cancellation timeout"
         )
+
+
+class _ProcessCancellationTimeout(RuntimeError):
+    """A worker process required forceful termination after cancellation."""
+
+
+class _ProcessModuleError(RuntimeError):
+    """A safe local representation of a Module failure in a worker process."""
+
+    def __init__(self, kind: str) -> None:
+        self.kind = kind
+        super().__init__(f"Module worker failed ({kind})")
+
+
+class _ManifestProcessProxy:
+    """Forward child-process RunContext facts to the parent manifest owner."""
+
+    def __init__(self, connection: Any) -> None:
+        self._connection = connection
+
+    def _record(self, method: str, kwargs: dict[str, Any]) -> None:
+        self._connection.send(("manifest", method, kwargs))
+
+    def record_provider_readiness(self, **kwargs: Any) -> None:
+        self._record("record_provider_readiness", kwargs)
+
+    def record_provider_call(self, **kwargs: Any) -> None:
+        self._record("record_provider_call", kwargs)
+
+    def record_artifact(self, **kwargs: Any) -> bool:
+        self._record("record_artifact", kwargs)
+        return True
+
+
+async def _run_module_worker(
+    module: WorkflowModule,
+    inputs: dict[str, Any],
+    parameters: dict[str, Any],
+    context: RunContext,
+    cancellation_requested: Any,
+) -> dict[str, Any]:
+    async def wait_for_cancellation() -> None:
+        while not cancellation_requested.is_set():
+            await asyncio.sleep(0.01)
+
+    work = asyncio.create_task(
+        module.run_async(inputs, parameters, context)
+    )
+    cancellation_waiter = asyncio.create_task(
+        wait_for_cancellation()
+    )
+    try:
+        done, _ = await asyncio.wait(
+            {work, cancellation_waiter},
+            return_when=asyncio.FIRST_COMPLETED,
+        )
+        if work in done and not cancellation_requested.is_set():
+            return await work
+        work.cancel()
+        return await work
+    finally:
+        cancellation_waiter.cancel()
+        with suppress(asyncio.CancelledError):
+            await cancellation_waiter
+
+
+def _module_process_entry(
+    module: WorkflowModule,
+    inputs: dict[str, Any],
+    parameters: dict[str, Any],
+    context: RunContext,
+    cancellation_requested: Any,
+    connection: Any,
+) -> None:
+    with suppress(OSError):
+        os.setsid()
+    child_context = replace(
+        context,
+        _manifest_store=_ManifestProcessProxy(connection),
+    )
+    token = child_context.activate()
+    try:
+        outputs = asyncio.run(_run_module_worker(
+            module,
+            inputs,
+            parameters,
+            child_context,
+            cancellation_requested,
+        ))
+    except asyncio.CancelledError:
+        with suppress(BrokenPipeError, EOFError, OSError):
+            connection.send(("cancelled",))
+    except BaseException as error:
+        kind = str(getattr(error, "kind", type(error).__name__))
+        with suppress(BrokenPipeError, EOFError, OSError):
+            connection.send(("error", kind))
+    else:
+        try:
+            connection.send(("result", outputs))
+        except BaseException as error:
+            kind = f"result_serialization_{type(error).__name__}"
+            with suppress(BrokenPipeError, EOFError, OSError):
+                connection.send(("error", kind))
+    finally:
+        child_context.deactivate(token)
+        connection.close()
+
+
+def _receive_module_process(
+    connection: Any,
+) -> tuple[list[tuple[str, dict[str, Any]]], tuple[Any, ...]]:
+    manifest_events: list[tuple[str, dict[str, Any]]] = []
+    while True:
+        try:
+            message = connection.recv()
+        except EOFError:
+            return manifest_events, ("error", "worker_channel_closed")
+        if message[0] == "manifest":
+            manifest_events.append((message[1], message[2]))
+            continue
+        return manifest_events, tuple(message)
+
+
+def _kill_process_group(process: multiprocessing.Process) -> None:
+    if not process.is_alive():
+        return
+    try:
+        process_group = os.getpgid(process.pid)
+        if process_group == os.getpgrp():
+            raise PermissionError
+        os.killpg(process_group, signal.SIGKILL)
+    except (ProcessLookupError, PermissionError, OSError):
+        with suppress(ProcessLookupError):
+            process.kill()
 
 
 class Executor:
@@ -385,6 +523,85 @@ class Executor:
             )
             cancellation_observed = True
 
+        async def run_module_process(
+            module: WorkflowModule,
+            inputs: dict[str, Any],
+            parameters: dict[str, Any],
+            context: RunContext,
+            manifest_store: RunManifestStore,
+        ) -> dict[str, Any]:
+            process_context = multiprocessing.get_context("spawn")
+            parent_connection, child_connection = process_context.Pipe(
+                duplex=False
+            )
+            process_cancellation = process_context.Event()
+            process = process_context.Process(
+                target=_module_process_entry,
+                args=(
+                    module,
+                    inputs,
+                    parameters,
+                    replace(context, _manifest_store=None),
+                    process_cancellation,
+                    child_connection,
+                ),
+            )
+            process.start()
+            child_connection.close()
+            receiver = asyncio.create_task(
+                asyncio.to_thread(
+                    _receive_module_process,
+                    parent_connection,
+                )
+            )
+            manifest_events: list[tuple[str, dict[str, Any]]] = []
+
+            def apply_manifest_events() -> None:
+                allowed = {
+                    "record_provider_readiness",
+                    "record_provider_call",
+                    "record_artifact",
+                }
+                for method, kwargs in manifest_events:
+                    if method in allowed:
+                        getattr(manifest_store, method)(**kwargs)
+
+            try:
+                manifest_events, outcome = await asyncio.shield(receiver)
+                await asyncio.to_thread(process.join)
+            except asyncio.CancelledError:
+                process_cancellation.set()
+                await asyncio.to_thread(
+                    process.join,
+                    cancellation_timeout,
+                )
+                timed_out = process.is_alive()
+                if timed_out:
+                    _kill_process_group(process)
+                    await asyncio.to_thread(process.join, 1)
+                if process.is_alive():
+                    _kill_process_group(process)
+                    await asyncio.to_thread(process.join)
+                with suppress(Exception):
+                    manifest_events, _ = await asyncio.shield(receiver)
+                apply_manifest_events()
+                if timed_out:
+                    raise _ProcessCancellationTimeout from None
+                raise
+            finally:
+                parent_connection.close()
+                if not receiver.done():
+                    receiver.cancel()
+                if not process.is_alive():
+                    process.close()
+
+            apply_manifest_events()
+            if outcome[0] == "result":
+                return outcome[1]
+            if outcome[0] == "cancelled":
+                raise asyncio.CancelledError
+            raise _ProcessModuleError(str(outcome[1]))
+
         async def run_module(
             module: WorkflowModule,
             inputs: dict[str, Any],
@@ -392,20 +609,19 @@ class Executor:
             context: RunContext,
             manifest_store: RunManifestStore,
         ) -> dict[str, Any]:
-            run_async_implementation = getattr(
-                type(module),
-                "run_async",
-                None,
-            )
-            controllable = (
-                run_async_implementation is not None
-                and run_async_implementation is not WorkflowModule.run_async
-            )
-            work = asyncio.create_task(
-                module.run_async(inputs, parameters, context)
-            )
             if cancellation_requested is None:
-                return await work
+                return await module.run_async(
+                    inputs,
+                    parameters,
+                    context,
+                )
+            work = asyncio.create_task(run_module_process(
+                module,
+                inputs,
+                parameters,
+                context,
+                manifest_store,
+            ))
 
             request_waiter = asyncio.create_task(
                 cancellation_requested.wait()
@@ -421,20 +637,34 @@ class Executor:
                 ):
                     return await work
 
-                observe_cancellation(manifest_store)
-                if controllable:
-                    work.cancel()
+                work.cancel()
+                observation_error: Exception | None = None
+                try:
+                    observe_cancellation(manifest_store)
+                except Exception as error:
+                    observation_error = error
                 stopped, _ = await asyncio.wait(
                     {work},
-                    timeout=cancellation_timeout,
+                    timeout=cancellation_timeout + 2,
                 )
                 if not stopped:
-                    raise CancellationTimeoutError(work)
-                with suppress(asyncio.CancelledError, Exception):
+                    work.cancel()
+                    with suppress(asyncio.CancelledError, Exception):
+                        await work
+                    raise CancellationTimeoutError(cancellation_timeout)
+                try:
                     await work
+                except _ProcessCancellationTimeout:
+                    raise CancellationTimeoutError(
+                        cancellation_timeout
+                    ) from None
+                except (asyncio.CancelledError, Exception):
+                    pass
+                if observation_error is not None:
+                    raise observation_error
                 raise asyncio.CancelledError
             except asyncio.CancelledError:
-                if controllable and not work.done():
+                if not work.done():
                     work.cancel()
                 with suppress(asyncio.CancelledError, Exception):
                     await asyncio.shield(work)
@@ -445,6 +675,26 @@ class Executor:
                     await request_waiter
 
         order = workflow.topological_sort()
+
+        def cancel_queued_nodes(
+            node_ids: list[str],
+            manifest_store: RunManifestStore,
+        ) -> None:
+            for queued_node_id in node_ids:
+                queued_node = workflow.nodes[queued_node_id]
+                if queued_node.state == NodeState.QUEUED:
+                    self._set_node_state(
+                        queued_node,
+                        NodeState.CANCELLED,
+                        manifest_store,
+                        event_details={
+                            "reason": {
+                                "kind": "run_cancelled",
+                                "message": "Run ended before Node execution",
+                            }
+                        },
+                    )
+
         effective_project_id = project_id or Path(project_dir).resolve().name
         if project_manager is not None and project_id is not None:
             run_dir = project_manager.run_dir(project_id, run_id)
@@ -521,29 +771,17 @@ class Executor:
 
             try:
                 # Phase 2: execute in order
-                for node_id in order:
+                for node_index, node_id in enumerate(order):
                     node = workflow.nodes[node_id]
                     if (
                         cancellation_requested is not None
                         and cancellation_requested.is_set()
                     ):
                         observe_cancellation(manifest_store)
-                        for remaining_id in order[order.index(node_id):]:
-                            remaining = workflow.nodes[remaining_id]
-                            if remaining.state == NodeState.QUEUED:
-                                self._set_node_state(
-                                    remaining,
-                                    NodeState.CANCELLED,
-                                    manifest_store,
-                                    event_details={
-                                        "reason": {
-                                            "kind": "run_cancelled",
-                                            "message": (
-                                                "Run ended before Node execution"
-                                            ),
-                                        }
-                                    },
-                                )
+                        cancel_queued_nodes(
+                            order[node_index:],
+                            manifest_store,
+                        )
                         raise asyncio.CancelledError
 
                     # Check if any upstream node failed -> block this node
@@ -793,22 +1031,10 @@ class Executor:
                         )
                         blocking_nodes.add(node_id)
                         # Mark remaining queued nodes as blocked
-                        for remaining_id in order[order.index(node_id) + 1:]:
-                            remaining = workflow.nodes[remaining_id]
-                            if remaining.state == NodeState.QUEUED:
-                                self._set_node_state(
-                                    remaining,
-                                    NodeState.CANCELLED,
-                                    manifest_store,
-                                    event_details={
-                                        "reason": {
-                                            "kind": "run_cancelled",
-                                            "message": (
-                                                "Run ended before Node execution"
-                                            ),
-                                        }
-                                    },
-                                )
+                        cancel_queued_nodes(
+                            order[node_index + 1:],
+                            manifest_store,
+                        )
                         raise
 
                     except CancellationTimeoutError as error:
@@ -831,27 +1057,18 @@ class Executor:
                                         "Active Module work did not stop before "
                                         "cancellation timeout"
                                     ),
+                                    "timeout_ms": int(
+                                        error.timeout * 1000
+                                    ),
                                     "module_id": node.module_id,
                                     "retryable": False,
                                 }
                             },
                         )
-                        for remaining_id in order[order.index(node_id) + 1:]:
-                            remaining = workflow.nodes[remaining_id]
-                            if remaining.state == NodeState.QUEUED:
-                                self._set_node_state(
-                                    remaining,
-                                    NodeState.CANCELLED,
-                                    manifest_store,
-                                    event_details={
-                                        "reason": {
-                                            "kind": "run_cancelled",
-                                            "message": (
-                                                "Run ended before Node execution"
-                                            ),
-                                        }
-                                    },
-                                )
+                        cancel_queued_nodes(
+                            order[node_index + 1:],
+                            manifest_store,
+                        )
                         raise
 
                     except Exception as error:
@@ -899,11 +1116,10 @@ class Executor:
                             "Active Module work did not stop before "
                             "cancellation timeout"
                         ),
+                        "timeout_ms": int(error.timeout * 1000),
                         "retryable": False,
                     },
                 )
-                with suppress(asyncio.CancelledError, Exception):
-                    await asyncio.shield(error.work)
                 raise
             except asyncio.CancelledError:
                 try:

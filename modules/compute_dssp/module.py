@@ -4,7 +4,9 @@ Uses async subprocess execution to avoid blocking the event loop.
 """
 
 import asyncio
+import os
 from pathlib import Path
+import signal
 from typing import Any
 
 from core.module_definition import ModuleDefinition
@@ -14,6 +16,19 @@ from datatypes import ProteinStructure, ResidueTrack
 
 # Reuse the mmCIF parser from the prompt DSSP module
 from modules.compute_secondary_structure.module import _parse_dssp_mmcif
+
+
+def _signal_process_group(
+    process: asyncio.subprocess.Process,
+    process_signal: signal.Signals,
+) -> None:
+    try:
+        os.killpg(process.pid, process_signal)
+    except (ProcessLookupError, PermissionError, OSError):
+        if process_signal == signal.SIGTERM:
+            process.terminate()
+        else:
+            process.kill()
 
 
 class ComputeDSSPModule(WorkflowModule):
@@ -63,6 +78,7 @@ class ComputeDSSPModule(WorkflowModule):
                 dssp_bin, pdb_path,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
+                start_new_session=True,
             )
             try:
                 stdout, stderr = await asyncio.wait_for(
@@ -70,18 +86,15 @@ class ComputeDSSPModule(WorkflowModule):
                 )
             except asyncio.CancelledError:
                 if proc.returncode is None:
-                    try:
-                        proc.terminate()
-                    except ProcessLookupError:
-                        pass
+                    _signal_process_group(proc, signal.SIGTERM)
                     try:
                         await asyncio.wait_for(proc.wait(), timeout=1)
                     except asyncio.TimeoutError:
-                        proc.kill()
+                        _signal_process_group(proc, signal.SIGKILL)
                         await proc.wait()
                 raise
             except asyncio.TimeoutError:
-                proc.kill()
+                _signal_process_group(proc, signal.SIGKILL)
                 await proc.wait()
                 raise RuntimeError(
                     f"mkdssp timed out after {timeout}s"

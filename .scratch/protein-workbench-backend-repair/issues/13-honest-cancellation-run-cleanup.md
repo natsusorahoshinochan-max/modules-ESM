@@ -12,3 +12,14 @@
 - [ ] Cancelled, failed, and completed runs produce distinct terminal events and manifest states.
 - [ ] Active-run tracking is cleaned up in a guaranteed path after every terminal outcome.
 - [ ] Cancellation and cleanup leave no mutable run state that can affect a later run.
+
+## Cancellation timeout contract
+
+The backend gives active Module work 5,000 ms to stop after a cancellation
+request. The request is immediately observable as `cancellation_requested`,
+which is not terminal. If the isolated worker does not stop within that grace
+period, the backend force-stops its process group and records a failed run with
+`error.kind = "cancellation_timeout"` and `error.timeout_ms = 5000`; it never
+reports that run as cancelled. A terminal run event is published only after the
+worker boundary has stopped and the manifest has reached its matching terminal
+state.

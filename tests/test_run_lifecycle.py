@@ -4,7 +4,8 @@ from __future__ import annotations
 
 import asyncio
 from datetime import datetime
-import threading
+from pathlib import Path
+import tempfile
 import time
 
 import pytest
@@ -63,9 +64,9 @@ class SlowLifecycleModule(WorkflowModule):
 
 
 class BlockingLifecycleModule(WorkflowModule):
-    started = threading.Event()
-    release = threading.Event()
-    finished = threading.Event()
+    started: Path
+    release: Path
+    finished: Path
 
     @property
     def definition(self) -> ModuleDefinition:
@@ -83,18 +84,23 @@ class BlockingLifecycleModule(WorkflowModule):
         parameters: dict[str, object],
         context: RunContext,
     ) -> dict[str, object]:
-        del inputs, parameters, context
-        self.started.set()
+        del inputs, context
+        started = Path(str(parameters["started_path"]))
+        release = Path(str(parameters["release_path"]))
+        finished = Path(str(parameters["finished_path"]))
+        started.touch()
         try:
-            self.release.wait(timeout=5)
+            deadline = time.monotonic() + 5
+            while not release.exists() and time.monotonic() < deadline:
+                time.sleep(0.01)
             return {"text": "finished"}
         finally:
-            self.finished.set()
+            finished.touch()
 
 
 class CancellableAsyncLifecycleModule(WorkflowModule):
-    started = threading.Event()
-    stopped = threading.Event()
+    started: Path
+    stopped: Path
 
     @property
     def definition(self) -> ModuleDefinition:
@@ -121,12 +127,14 @@ class CancellableAsyncLifecycleModule(WorkflowModule):
         parameters: dict[str, object],
         context: RunContext,
     ) -> dict[str, object]:
-        del inputs, parameters, context
-        self.started.set()
+        del inputs, context
+        started = Path(str(parameters["started_path"]))
+        stopped = Path(str(parameters["stopped_path"]))
+        started.touch()
         try:
             await asyncio.Event().wait()
         finally:
-            self.stopped.set()
+            stopped.touch()
 
 
 def _saved_echo_project(client: TestClient, name: str) -> str:
@@ -152,9 +160,10 @@ def _saved_echo_project(client: TestClient, name: str) -> str:
 
 
 def _saved_blocking_project(client: TestClient, name: str) -> str:
-    BlockingLifecycleModule.started.clear()
-    BlockingLifecycleModule.release.clear()
-    BlockingLifecycleModule.finished.clear()
+    control_dir = Path(tempfile.mkdtemp(prefix="blocking-control-"))
+    BlockingLifecycleModule.started = control_dir / "started"
+    BlockingLifecycleModule.release = control_dir / "release"
+    BlockingLifecycleModule.finished = control_dir / "finished"
     server.module_registry.register(BlockingLifecycleModule().definition)
     server.register_module_factory(
         "test.lifecycle_blocking",
@@ -172,6 +181,11 @@ def _saved_blocking_project(client: TestClient, name: str) -> str:
                     "node_id": "blocking",
                     "module_id": "test.lifecycle_blocking",
                     "module_version": "1.0.0",
+                    "parameters": {
+                        "started_path": str(BlockingLifecycleModule.started),
+                        "release_path": str(BlockingLifecycleModule.release),
+                        "finished_path": str(BlockingLifecycleModule.finished),
+                    },
                 }
             ],
             "edges": [],
@@ -184,8 +198,9 @@ def _saved_cancellable_async_project(
     client: TestClient,
     name: str,
 ) -> str:
-    CancellableAsyncLifecycleModule.started.clear()
-    CancellableAsyncLifecycleModule.stopped.clear()
+    control_dir = Path(tempfile.mkdtemp(prefix="async-control-"))
+    CancellableAsyncLifecycleModule.started = control_dir / "started"
+    CancellableAsyncLifecycleModule.stopped = control_dir / "stopped"
     module = CancellableAsyncLifecycleModule()
     server.module_registry.register(module.definition)
     server.register_module_factory(
@@ -204,12 +219,29 @@ def _saved_cancellable_async_project(
                     "node_id": "provider",
                     "module_id": "test.lifecycle_cancellable_async",
                     "module_version": "1.0.0",
+                    "parameters": {
+                        "started_path": str(
+                            CancellableAsyncLifecycleModule.started
+                        ),
+                        "stopped_path": str(
+                            CancellableAsyncLifecycleModule.stopped
+                        ),
+                    },
                 }
             ],
             "edges": [],
         },
     ).status_code == 200
     return project_id
+
+
+def _wait_for_path(path: Path, timeout: float = 2) -> bool:
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        if path.exists():
+            return True
+        time.sleep(0.01)
+    return path.exists()
 
 
 def _receive_run_events(
@@ -289,10 +321,10 @@ def test_project_rejects_second_run_while_first_run_is_active() -> None:
         first = client.post(f"/api/projects/{project_id}/run")
         assert first.status_code == 200
         first_run_id = first.json()["run_id"]
-        assert BlockingLifecycleModule.started.wait(timeout=2)
+        assert _wait_for_path(BlockingLifecycleModule.started)
 
         overlapping = client.post(f"/api/projects/{project_id}/run")
-        BlockingLifecycleModule.release.set()
+        BlockingLifecycleModule.release.touch()
         _receive_run_events(client, project_id, first_run_id)
 
     assert overlapping.status_code == 409
@@ -690,7 +722,7 @@ def test_cancelled_run_remains_distinct_from_failed_or_completed() -> None:
             "cancelled-distinction",
         )
         run_id = client.post(f"/api/projects/{project_id}/run").json()["run_id"]
-        assert BlockingLifecycleModule.started.wait(timeout=2)
+        assert _wait_for_path(BlockingLifecycleModule.started)
         events = []
         with client.websocket_connect(
             f"/api/projects/{project_id}/run/{run_id}/ws"
@@ -709,7 +741,7 @@ def test_cancelled_run_remains_distinct_from_failed_or_completed() -> None:
                 server.project_manager.run_dir(project_id, run_id)
             )
             overlapping = client.post(f"/api/projects/{project_id}/run")
-            BlockingLifecycleModule.release.set()
+            BlockingLifecycleModule.release.touch()
             while events[-1]["type"] != "run_cancelled":
                 events.append(websocket.receive_json())
         manifest = read_run_manifest(
@@ -751,7 +783,7 @@ def test_controllable_async_work_stops_before_cancelled_terminal() -> None:
             "controllable-cancellation",
         )
         run_id = client.post(f"/api/projects/{project_id}/run").json()["run_id"]
-        assert CancellableAsyncLifecycleModule.started.wait(timeout=2)
+        assert _wait_for_path(CancellableAsyncLifecycleModule.started)
         with client.websocket_connect(
             f"/api/projects/{project_id}/run/{run_id}/ws"
         ) as websocket:
@@ -769,7 +801,7 @@ def test_controllable_async_work_stops_before_cancelled_terminal() -> None:
         )
 
     assert response.json()["status"] == "cancellation_requested"
-    assert CancellableAsyncLifecycleModule.stopped.is_set()
+    assert CancellableAsyncLifecycleModule.stopped.exists()
     assert [event["type"] for event in events][-3:] == [
         "run_cancellation_requested",
         "node_cancelled",
@@ -783,7 +815,7 @@ def test_cancellation_is_project_scoped_and_rejects_run_id_injection() -> None:
         project_a = _saved_blocking_project(client, "cancel-scope-a")
         project_b = _saved_echo_project(client, "cancel-scope-b")
         run_a = client.post(f"/api/projects/{project_a}/run").json()["run_id"]
-        assert BlockingLifecycleModule.started.wait(timeout=2)
+        assert _wait_for_path(BlockingLifecycleModule.started)
 
         cross_project = client.post(
             f"/api/projects/{project_b}/run/{run_a}/cancel",
@@ -801,7 +833,7 @@ def test_cancellation_is_project_scoped_and_rejects_run_id_injection() -> None:
         owner = client.post(
             f"/api/projects/{project_a}/run/{run_a}/cancel",
         )
-        BlockingLifecycleModule.release.set()
+        BlockingLifecycleModule.release.touch()
         events = _receive_run_events(client, project_a, run_a)
 
     assert cross_project.status_code == 404
@@ -819,6 +851,113 @@ def test_cancellation_is_project_scoped_and_rejects_run_id_injection() -> None:
     assert manifest_before_owner_request["status"] == "running"
     assert owner.json()["status"] == "cancellation_requested"
     assert events[-1]["type"] == "run_cancelled"
+
+
+def test_ephemeral_execute_cannot_claim_a_saved_project_namespace() -> None:
+    with TestClient(server.app) as client:
+        _saved_blocking_project(client, "ephemeral-boundary-fixture")
+        victim_project = _saved_echo_project(
+            client,
+            "saved-project-namespace",
+        )
+        ephemeral = client.post(
+            "/api/execute",
+            json={
+                "project_id": victim_project,
+                "nodes": [
+                    {
+                        "node_id": "blocking",
+                        "module_id": "test.lifecycle_blocking",
+                        "module_version": "1.0.0",
+                        "parameters": {
+                            "started_path": str(
+                                BlockingLifecycleModule.started
+                            ),
+                            "release_path": str(
+                                BlockingLifecycleModule.release
+                            ),
+                            "finished_path": str(
+                                BlockingLifecycleModule.finished
+                            ),
+                        },
+                    }
+                ],
+                "edges": [],
+            },
+        )
+        assert ephemeral.status_code == 200
+        assert _wait_for_path(BlockingLifecycleModule.started)
+
+        saved = client.post(f"/api/projects/{victim_project}/run")
+        saved_run_id = saved.json()["run_id"]
+        saved_events = _receive_run_events(
+            client,
+            victim_project,
+            saved_run_id,
+        )
+        BlockingLifecycleModule.release.touch()
+        assert _wait_for_path(BlockingLifecycleModule.finished)
+
+    assert saved.status_code == 200
+    assert saved_events[-1]["type"] == "run_completed"
+
+
+def test_active_run_capacity_bounds_ephemeral_resource_use(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(server, "MAX_ACTIVE_RUNS", 1)
+    with TestClient(server.app) as client:
+        _saved_blocking_project(client, "active-capacity-fixture")
+        first = client.post(
+            "/api/execute",
+            json={
+                "nodes": [
+                    {
+                        "node_id": "blocking",
+                        "module_id": "test.lifecycle_blocking",
+                        "module_version": "1.0.0",
+                        "parameters": {
+                            "started_path": str(
+                                BlockingLifecycleModule.started
+                            ),
+                            "release_path": str(
+                                BlockingLifecycleModule.release
+                            ),
+                            "finished_path": str(
+                                BlockingLifecycleModule.finished
+                            ),
+                        },
+                    }
+                ],
+                "edges": [],
+            },
+        )
+        assert first.status_code == 200
+        assert _wait_for_path(BlockingLifecycleModule.started)
+        over_capacity = client.post(
+            "/api/execute",
+            json={
+                "nodes": [
+                    {
+                        "node_id": "echo",
+                        "module_id": "stub.echo",
+                        "module_version": "1.0.0",
+                    }
+                ],
+                "edges": [],
+            },
+        )
+        BlockingLifecycleModule.release.touch()
+        assert _wait_for_path(BlockingLifecycleModule.finished)
+
+    assert over_capacity.status_code == 429
+    assert over_capacity.json() == {
+        "error": {
+            "kind": "active_run_capacity_exceeded",
+            "message": "Backend has too many active runs",
+            "limit": 1,
+        }
+    }
 
 
 def test_cancellation_persistence_error_falls_back_to_failed_manifest(
@@ -887,6 +1026,62 @@ def test_cancellation_persistence_error_falls_back_to_failed_manifest(
     assert manifest["status"] == "failed"
 
 
+def test_cancellation_request_persistence_failure_still_stops_work(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    original_set_status = executor_module.RunManifestStore.set_status
+    request_write_failed = False
+
+    def fail_request_status(
+        store: executor_module.RunManifestStore,
+        status: str,
+    ) -> None:
+        nonlocal request_write_failed
+        if status == "cancellation_requested" and not request_write_failed:
+            request_write_failed = True
+            raise OSError("request status persistence failed")
+        original_set_status(store, status)
+
+    monkeypatch.setattr(
+        executor_module.RunManifestStore,
+        "set_status",
+        fail_request_status,
+    )
+    with TestClient(server.app) as client:
+        project_id = _saved_blocking_project(
+            client,
+            "request-persistence-failure",
+        )
+        run_id = client.post(f"/api/projects/{project_id}/run").json()["run_id"]
+        assert _wait_for_path(BlockingLifecycleModule.started)
+        with client.websocket_connect(
+            f"/api/projects/{project_id}/run/{run_id}/ws"
+        ) as websocket:
+            response = client.post(
+                f"/api/projects/{project_id}/run/{run_id}/cancel",
+            )
+            BlockingLifecycleModule.release.touch()
+            events = []
+            while not (
+                events
+                and events[-1]["type"] == "run_failed"
+            ):
+                events.append(websocket.receive_json())
+        later = client.post(f"/api/projects/{project_id}/run")
+        later_events = _receive_run_events(
+            client,
+            project_id,
+            later.json()["run_id"],
+        )
+
+    assert response.json()["status"] == "cancellation_requested"
+    assert request_write_failed is True
+    assert _wait_for_path(BlockingLifecycleModule.finished)
+    assert events[-1]["status"] == "failed"
+    assert later.status_code == 200
+    assert later_events[-1]["type"] == "run_completed"
+
+
 def test_cancellation_timeout_fails_and_isolates_the_later_run(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -901,7 +1096,7 @@ def test_cancellation_timeout_fails_and_isolates_the_later_run(
             "cancellation-timeout",
         )
         run_id = client.post(f"/api/projects/{project_id}/run").json()["run_id"]
-        assert BlockingLifecycleModule.started.wait(timeout=2)
+        assert _wait_for_path(BlockingLifecycleModule.started)
         with client.websocket_connect(
             f"/api/projects/{project_id}/run/{run_id}/ws"
         ) as websocket:
@@ -917,17 +1112,9 @@ def test_cancellation_timeout_fails_and_isolates_the_later_run(
         timed_out_manifest = read_run_manifest(
             server.project_manager.run_dir(project_id, run_id)
         )
-        still_excluded = client.post(f"/api/projects/{project_id}/run")
-
-        BlockingLifecycleModule.release.set()
-        assert BlockingLifecycleModule.finished.wait(timeout=2)
-        deadline = time.monotonic() + 2
-        while True:
-            later = client.post(f"/api/projects/{project_id}/run")
-            if later.status_code != 409 or time.monotonic() >= deadline:
-                break
-            time.sleep(0.01)
+        later = client.post(f"/api/projects/{project_id}/run")
         later_run_id = later.json()["run_id"]
+        BlockingLifecycleModule.release.touch()
         later_events = _receive_run_events(
             client,
             project_id,
@@ -943,12 +1130,12 @@ def test_cancellation_timeout_fails_and_isolates_the_later_run(
         "message": (
             "Active Module work did not stop before cancellation timeout"
         ),
+        "timeout_ms": 50,
         "retryable": False,
     }
     assert not any(event["type"] == "run_cancelled" for event in events)
     assert timed_out_manifest["status"] == "failed"
     assert timed_out_manifest["failures"][-1]["kind"] == "cancellation_timeout"
-    assert still_excluded.status_code == 409
     assert later.status_code == 200
     assert later_run_id != run_id
     assert later_events[-1]["type"] == "run_completed"
