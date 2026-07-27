@@ -482,6 +482,14 @@ class TestProteinMPNNDesign:
                 ),
                 "tied position group 0 includes fixed position A:1",
             ),
+            (
+                ProteinMPNNConstraints(
+                    designed_chains=["B"],
+                    fixed_chains=["A"],
+                    tied_positions=[[0, 2]],
+                ),
+                "tied position group 0 includes fixed-chain position A:1",
+            ),
         ],
     )
     def test_adapter_rejects_invalid_constraints_before_inference(

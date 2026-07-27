@@ -506,6 +506,12 @@ def _tied_position_payload(
             raise ValueError(
                 f"tied position group {group_index} contains no designable chain"
             )
+        for chain, positions in chain_positions.items():
+            if chain not in designed_chains:
+                raise ValueError(
+                    f"tied position group {group_index} includes fixed-chain "
+                    f"position {chain}:{positions[0]}"
+                )
         tied_groups.append(chain_positions)
     return {name: tied_groups}
 
