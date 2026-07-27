@@ -113,7 +113,15 @@ def _mock_fold(sequence, **kw):
     return struct, ScoreCollection(collection_id="m", entries=entries)
 
 
-def _mock_design(pdb_string, model_name, num_sequences, temperature, constraints=None):
+def _mock_design(
+    pdb_string,
+    model_name,
+    num_sequences,
+    temperature,
+    backbone_noise=0.0,
+    constraints=None,
+    reference_sequence=None,
+):
     from datatypes import ProteinSequence
     import random
     rng = random.Random(42)

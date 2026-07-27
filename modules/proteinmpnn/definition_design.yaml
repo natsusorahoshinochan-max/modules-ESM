@@ -1,5 +1,5 @@
 module_id: proteinmpnn.design
-version: 1.0.0
+version: 1.1.0
 display_name: ProteinMPNN Design
 category: model
 description: "Generates protein sequences from a structure using ProteinMPNN."
@@ -12,7 +12,7 @@ input_ports:
     type_id: protein.sequence
     required: false
     display_name: Reference Sequence
-    description: "Optional reference sequence."
+    description: "Optional reference sequence aligned exactly to the structure target layout."
   - name: constraints
     type_id: proteinmpnn.constraints
     required: false
@@ -47,7 +47,13 @@ parameters:
   - name: temperature
     type: float
     default: 0.1
-    min: 0.0
+    min: 0.000001
     display_name: Temperature
     description: "Sampling temperature."
+  - name: backbone_noise
+    type: float
+    default: 0.0
+    min: 0.0
+    display_name: Backbone Noise
+    description: "Standard deviation in angstroms of Gaussian noise added to backbone atoms."
 module_api: "1.0"

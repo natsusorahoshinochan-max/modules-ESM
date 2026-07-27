@@ -16,7 +16,7 @@ from datatypes import (
     Score,
     ScoreCollection,
 )
-from modules.proteinmpnn.adapter import design_sequences
+from modules.proteinmpnn.adapter import design_sequences, validate_design_parameters
 
 
 class ProteinMPNNDesignModule(WorkflowModule):
@@ -48,17 +48,30 @@ class ProteinMPNNDesignModule(WorkflowModule):
 
 
         constraints: ProteinMPNNConstraints | None = inputs.get("constraints")
+        if constraints is not None and not isinstance(
+            constraints, ProteinMPNNConstraints
+        ):
+            raise ValueError("constraints input must be ProteinMPNNConstraints")
+        reference: ProteinSequence | None = inputs.get("sequence")
+        if reference is not None and not isinstance(reference, ProteinSequence):
+            raise ValueError("sequence input must be a ProteinSequence")
 
         model_name = str(parameters.get("model_name", "v_48_020"))
         num_sequences = int(parameters.get("num_sequences", 1))
         temperature = float(parameters.get("temperature", 0.1))
+        backbone_noise = float(parameters.get("backbone_noise", 0.0))
+        validate_design_parameters(
+            model_name, num_sequences, temperature, backbone_noise
+        )
 
         sequences, native_score = design_sequences(
             pdb_string=structure.pdb_string,
             model_name=model_name,
             num_sequences=num_sequences,
             temperature=temperature,
+            backbone_noise=backbone_noise,
             constraints=constraints,
+            reference_sequence=reference.sequence if reference is not None else None,
         )
 
         candidates: list[Candidate] = []
