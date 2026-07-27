@@ -203,6 +203,39 @@ class CacheStore:
         output_ports: list[dict[str, str]] | None = None,
     ) -> dict[str, Any] | None:
         safe_key = validate_identifier(cache_key, "cache_key")
+        authenticated = self._read_authenticated_entry(safe_key)
+        if authenticated is None:
+            return None
+        header, payload, _ = authenticated
+        expected_ports = (
+            output_ports
+            if output_ports is not None
+            else header["output_ports"]
+        )
+        if header != json.loads(self._header(
+            module_id=module_id,
+            module_version=module_version,
+            cache_key=safe_key,
+            output_ports=expected_ports,
+            payload=payload,
+        )):
+            return None
+        try:
+            cached = _SafeCacheUnpickler(io.BytesIO(payload)).load()
+            return cached if isinstance(cached, dict) else None
+        except (
+            pickle.PickleError,
+            EOFError,
+            AttributeError,
+            ValueError,
+        ):
+            return None
+
+    def _read_authenticated_entry(
+        self,
+        cache_key: str,
+    ) -> tuple[dict[str, Any], bytes, int] | None:
+        safe_key = validate_identifier(cache_key, "cache_key")
         key = self._key(create=False)
         if key is None:
             return None
@@ -239,32 +272,105 @@ class CacheStore:
             ):
                 return None
             header = json.loads(header_bytes)
-            expected_ports = output_ports if output_ports is not None else header[
-                "output_ports"
-            ]
+            module_id = header["module_id"]
+            module_version = header["module_version"]
+            output_ports = header["output_ports"]
+            if (
+                header.get("schema_version") != 1
+                or not isinstance(module_id, str)
+                or not isinstance(module_version, str)
+                or not isinstance(output_ports, list)
+                or not all(
+                    isinstance(port, dict)
+                    and set(port) == {"name", "type_id"}
+                    and isinstance(port["name"], str)
+                    and isinstance(port["type_id"], str)
+                    for port in output_ports
+                )
+            ):
+                return None
             if header != json.loads(self._header(
                 module_id=module_id,
                 module_version=module_version,
                 cache_key=safe_key,
-                output_ports=expected_ports,
+                output_ports=output_ports,
                 payload=payload,
             )):
                 return None
-            cached = _SafeCacheUnpickler(io.BytesIO(payload)).load()
-            return cached if isinstance(cached, dict) else None
+            return header, payload, metadata.st_size
         except (
             OSError,
             ValueError,
             KeyError,
             json.JSONDecodeError,
-            pickle.PickleError,
-            EOFError,
-            AttributeError,
         ):
             return None
         finally:
             if descriptor is not None:
                 os.close(descriptor)
+
+    def entries(self) -> list[dict[str, Any]]:
+        """List authenticated Cache metadata without deserializing payloads."""
+        result = []
+        for filename in sorted(os.listdir(self._node_fd)):
+            if not filename.endswith(".pkl"):
+                continue
+            cache_key = filename.removesuffix(".pkl")
+            try:
+                validate_identifier(cache_key, "cache_key")
+            except StoragePathError:
+                continue
+            authenticated = self._read_authenticated_entry(cache_key)
+            if authenticated is None:
+                continue
+            header, _, size = authenticated
+            result.append({
+                "node_id": self.node_id,
+                "cache_key": cache_key,
+                "module_id": header["module_id"],
+                "module_version": header["module_version"],
+                "output_ports": header["output_ports"],
+                "size": size,
+            })
+        return result
+
+    def clear_entries(self) -> int:
+        """Delete only direct regular Cache entry files in this Node."""
+        removable: list[str] = []
+        for filename in sorted(os.listdir(self._node_fd)):
+            if not filename.endswith(".pkl"):
+                continue
+            cache_key = filename.removesuffix(".pkl")
+            try:
+                validate_identifier(cache_key, "cache_key")
+                metadata = os.stat(
+                    filename,
+                    dir_fd=self._node_fd,
+                    follow_symlinks=False,
+                )
+            except (FileNotFoundError, StoragePathError):
+                continue
+            if not stat.S_ISREG(metadata.st_mode):
+                raise StoragePathError(
+                    "cache_entry",
+                    "Invalid Cache entry",
+                )
+            removable.append(filename)
+        removed = 0
+        for filename in removable:
+            try:
+                os.unlink(filename, dir_fd=self._node_fd)
+            except FileNotFoundError:
+                continue
+            except OSError as error:
+                raise StoragePathError(
+                    "cache_entry",
+                    "Invalid Cache entry",
+                ) from error
+            removed += 1
+        if removed:
+            os.fsync(self._node_fd)
+        return removed
 
     def save(
         self,

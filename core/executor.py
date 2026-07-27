@@ -512,6 +512,7 @@ class Executor:
         source_dir: str | Path | None = None,
         environment: dict[str, Any] | None = None,
         provider_readiness: dict[str, Any] | None = None,
+        recovery: dict[str, Any] | None = None,
         cancellation_requested: asyncio.Event | None = None,
         cancellation_timeout: float = 5.0,
     ) -> dict[str, dict[str, Any]]:
@@ -769,6 +770,7 @@ class Executor:
             seed=seed,
             source_dir=source_dir or Path.cwd(),
             environment=environment,
+            recovery=recovery,
         )
 
         with RunManifestStore(run_dir, manifest) as manifest_store:

@@ -217,6 +217,7 @@ class RunManifest:
     source: dict[str, Any]
     workflow: dict[str, Any]
     modules: list[dict[str, Any]]
+    run_seed: int
     effective_seeds: dict[str, int]
     environment: dict[str, Any]
     models: list[dict[str, Any]]
@@ -233,6 +234,7 @@ class RunManifest:
     )
     candidate_lineage: list[dict[str, Any]] = field(default_factory=list)
     artifacts: list[dict[str, Any]] = field(default_factory=list)
+    recovery: dict[str, Any] | None = None
 
     @classmethod
     def for_execution(
@@ -245,6 +247,7 @@ class RunManifest:
         seed: int,
         source_dir: str | Path,
         environment: dict[str, Any] | None = None,
+        recovery: dict[str, Any] | None = None,
     ) -> "RunManifest":
         runtime = {
             "python": platform.python_version(),
@@ -293,6 +296,7 @@ class RunManifest:
             source=discover_source(source_dir),
             workflow={"sha256": workflow_sha256(workflow)},
             modules=module_facts,
+            run_seed=seed,
             effective_seeds={
                 node_id: (
                     seed
@@ -310,6 +314,7 @@ class RunManifest:
             },
             environment=runtime,
             models=model_facts,
+            recovery=_sanitize(recovery) if recovery is not None else None,
         )
 
     def to_dict(self) -> dict[str, Any]:
@@ -324,6 +329,7 @@ class RunManifest:
             "source": self.source,
             "workflow": self.workflow,
             "modules": self.modules,
+            "run_seed": self.run_seed,
             "effective_seeds": self.effective_seeds,
             "environment": self.environment,
             "models": self.models,
@@ -335,15 +341,51 @@ class RunManifest:
             "candidate_lineage": self.candidate_lineage,
             "artifacts": self.artifacts,
         }
+        if self.recovery is not None:
+            result["recovery"] = self.recovery
         return _sanitize(result)
 
 
 def read_run_manifest(run_dir: str | Path) -> dict[str, Any]:
     """Read the complete durable JSON document for one contained run."""
-    path = Path(run_dir) / "manifest.json"
-    if path.is_symlink():
-        raise StoragePathError("run_id", "Invalid run_id")
-    value = json.loads(path.read_text())
+    directory_flags = os.O_RDONLY | getattr(os, "O_DIRECTORY", 0)
+    directory_flags |= getattr(os, "O_NOFOLLOW", 0)
+    directory_fd = os.open(Path(run_dir), directory_flags)
+    descriptor: int | None = None
+    try:
+        descriptor = os.open(
+            "manifest.json",
+            os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0),
+            dir_fd=directory_fd,
+        )
+        before = os.fstat(descriptor)
+        if (
+            not stat.S_ISREG(before.st_mode)
+            or before.st_uid != os.getuid()
+            or before.st_nlink != 1
+            or before.st_size > 64 * 1024 * 1024
+        ):
+            raise ValueError("Run manifest must be a bounded regular file")
+        with os.fdopen(descriptor, "rb", closefd=False) as manifest_file:
+            payload = manifest_file.read()
+        after = os.fstat(descriptor)
+        stable_fields = (
+            "st_dev",
+            "st_ino",
+            "st_size",
+            "st_mtime_ns",
+            "st_ctime_ns",
+        )
+        if any(
+            getattr(before, field_name) != getattr(after, field_name)
+            for field_name in stable_fields
+        ):
+            raise ValueError("Run manifest changed while reading")
+    finally:
+        if descriptor is not None:
+            os.close(descriptor)
+        os.close(directory_fd)
+    value = json.loads(payload)
     if not isinstance(value, dict):
         raise ValueError("Run manifest must be a JSON object")
     return value
@@ -565,6 +607,8 @@ class RunManifestStore:
         node_id: str,
         path: str | Path,
         output_dir: str | Path,
+        candidate_id: str | None = None,
+        output_port: str | None = None,
     ) -> bool:
         """Hash one regular, non-symlinked artifact inside this run."""
         output_root = Path(output_dir).resolve()
@@ -606,12 +650,53 @@ class RunManifestStore:
                 for field_name in stable_fields
             ):
                 raise RuntimeError("Artifact changed while hashing")
-            self.manifest.artifacts.append({
+            record: dict[str, Any] = {
                 "node_id": validate_identifier(node_id, "node_id"),
                 "reference": resolved.relative_to(output_root).as_posix(),
                 "size": after.st_size,
                 "sha256": digest.hexdigest(),
-            })
+            }
+            if output_port is not None:
+                record["output_port"] = validate_identifier(
+                    output_port,
+                    "output_port",
+                )
+            if candidate_id is not None:
+                record["candidate_id"] = validate_identifier(
+                    candidate_id,
+                    "candidate_id",
+                )
+            existing = next(
+                (
+                    artifact
+                    for artifact in self.manifest.artifacts
+                    if artifact.get("reference") == record["reference"]
+                ),
+                None,
+            )
+            if existing is not None:
+                for field_name in ("node_id", "size", "sha256"):
+                    if existing.get(field_name) != record[field_name]:
+                        raise RuntimeError(
+                            "Artifact reference has conflicting provenance"
+                        )
+                changed = False
+                for field_name in ("output_port", "candidate_id"):
+                    value = record.get(field_name)
+                    if value is None:
+                        continue
+                    current = existing.get(field_name)
+                    if current is not None and current != value:
+                        raise RuntimeError(
+                            "Artifact reference has conflicting provenance"
+                        )
+                    if current is None:
+                        existing[field_name] = value
+                        changed = True
+                if changed:
+                    self.persist()
+                return True
+            self.manifest.artifacts.append(record)
             self.persist()
             return True
         finally:
