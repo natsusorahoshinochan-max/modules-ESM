@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 import os
+import json
 import stat
 import subprocess
 import sys
+from datetime import datetime, timezone
 from pathlib import Path
 
 
@@ -69,11 +71,16 @@ def test_routine_tier_reports_result_and_preserves_configured_roots(
     assert "tests/tier_probes/test_isolated_roots.py" in transcript.read_text()
     assert "return_code=0" in transcript.read_text()
     assert "tests=1 failures=0 skipped=0" in transcript.read_text()
-    assert "$PROJECT_ROOT/.venv/bin/python" in transcript.read_text()
+    assert "$PROJECT_ENV/bin/python" in transcript.read_text()
     assert str(PROJECT_ROOT) not in transcript.read_text()
     assert stat.S_IMODE(transcript.stat().st_mode) == 0o600
     assert stat.S_IMODE(retained_results[0].stat().st_mode) == 0o600
     assert stat.S_IMODE(retained_results[0].parent.stat().st_mode) == 0o700
+    environment = json.loads(
+        (retained_results[0].parent / "environment-summary.json").read_text()
+    )
+    assert environment["interpreter"] == str(Path(sys.executable).resolve())
+    assert len(environment["interpreter_sha256"]) == 64
     unsafe_path = _run_verifier("routine", str(tmp_path / "outside.py"))
     unsafe_secret = _run_verifier("routine", "--token=must-not-retain")
     unsafe_absolute_selector = _run_verifier(
@@ -131,6 +138,118 @@ def test_live_provider_tier_rejects_readiness_without_call_evidence() -> None:
     assert result.returncode != 0
     assert "BACKEND VERIFICATION RESULT: incomplete" in result.stdout
     assert "provider-call evidence" in result.stdout
+
+
+def test_live_provider_tier_rejects_forged_provider_evidence() -> None:
+    result = _run_verifier(
+        "live-provider",
+        "tests/tier_probes/test_live_gate_contract.py::"
+        "test_forged_provider_evidence_probe",
+    )
+
+    assert result.returncode != 0
+    assert "BACKEND VERIFICATION RESULT: incomplete" in result.stdout
+    assert "invalid provider-call evidence" in result.stdout
+
+
+def test_live_provider_tier_rejects_call_without_readiness() -> None:
+    result = _run_verifier(
+        "live-provider",
+        "tests/tier_probes/test_live_gate_contract.py::"
+        "test_call_without_readiness_probe",
+    )
+
+    assert result.returncode != 0
+    assert "BACKEND VERIFICATION RESULT: incomplete" in result.stdout
+    assert "provider call test identity mismatch" in result.stdout
+
+
+def test_focused_provider_diagnostics_cannot_satisfy_full_gate() -> None:
+    result = _run_verifier(
+        "live-provider",
+        "tests/tier_probes/test_live_gate_contract.py::"
+        "test_self_reported_call_and_readiness_probe",
+    )
+
+    assert result.returncode != 0
+    assert "BACKEND VERIFICATION RESULT: incomplete" in result.stdout
+    assert "provider call test identity mismatch" in result.stdout
+
+
+def test_full_provider_gate_rejects_one_missing_required_call(
+    tmp_path: Path,
+) -> None:
+    from core.provider_contract import ESM_SDK_REVISION
+    from scripts.verify_backend import (
+        TIERS,
+        _load_and_validate_provider_evidence,
+    )
+
+    started_at = datetime.now(timezone.utc)
+    identity = {
+        "sdk": "esm",
+        "sdk_source_revision": ESM_SDK_REVISION,
+        "service": "Biohub",
+    }
+    common = {
+        "evidence_version": 1,
+        "run_nonce": "nonce",
+        "gate": "live-provider",
+        "recorded_at": datetime.now(timezone.utc).isoformat(),
+    }
+    events = [
+        {
+            **common,
+            "event_id": "readiness",
+            "test_id": (
+                "tests/acceptance/test_biohub_generation.py::"
+                "TestBiohubGeneration::test_generate_3gb1_sequence"
+            ),
+            "event_type": "provider_readiness",
+            "provider": "biohub",
+            "ready": True,
+            "provider_identity": identity,
+            "details": {"credential_present": True},
+        },
+        {
+            **common,
+            "event_id": "call",
+            "test_id": (
+                "tests/acceptance/test_biohub_generation.py::"
+                "TestBiohubGeneration::test_generate_3gb1_sequence"
+            ),
+            "event_type": "provider_call",
+            "provider": "biohub",
+            "operation": "esm3.generate_sequence",
+            "model": "esm3-medium-2024-08",
+            "provider_identity": identity,
+            "readiness": "ready_at_call_boundary",
+            "actual_call": True,
+            "call_count": 1,
+            "effective_seed": None,
+            "seed_control": "unsupported_by_provider",
+            "cache_decision": "bypassed_fresh_direct_call",
+            "result": {
+                "status": "succeeded",
+                "summary": {"result_type": "ESMProtein"},
+            },
+        },
+    ]
+    evidence_path = tmp_path / "provider-calls.jsonl"
+    evidence_path.write_text(
+        "".join(json.dumps(event) + "\n" for event in events)
+    )
+
+    _, error = _load_and_validate_provider_evidence(
+        evidence_path,
+        tier_name="live-provider",
+        tier=TIERS["live-provider"],
+        nonce="nonce",
+        started_at=started_at,
+        focused=False,
+    )
+
+    assert error == "missing required provider calls: biohub:esmfold2.fold"
 
 
 def test_scientific_reproduction_tier_confirms_sci_001_repair() -> None:

@@ -4,19 +4,41 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
+import importlib.metadata
+import json
 import os
+import platform
 import re
+import secrets
 import shlex
+import signal
 import subprocess
 import sys
 import tempfile
+import threading
 import xml.etree.ElementTree as ET
+from collections import Counter
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 
-
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(PROJECT_ROOT))
+
+from core.provider_contract import (
+    BIOHUB_ESM3_MODEL,
+    BIOHUB_ESMFOLD2_MODEL,
+    LOCAL_ESM3_SNAPSHOT_REVISION,
+    LOCAL_ESM3_WEIGHT_SHA256,
+    PROTEINMPNN_REVISION,
+    PROTEINMPNN_V_48_020_SHA256,
+    SIMPLEFOLD_ARTIFACT_SHA256,
+    SIMPLEFOLD_ESM2_REVISION,
+    SIMPLEFOLD_REVISION,
+    ESM_SDK_REVISION,
+)
+
 ROOT_VARIABLES = (
     "PROTEIN_WORKBENCH_PROJECT_ROOT",
     "PROTEIN_WORKBENCH_CACHE_ROOT",
@@ -27,12 +49,21 @@ RESOURCE_CLEANUP_WARNING = (
     "ResourceTracker called reentrantly for resource cleanup"
 )
 OUTPUT_CHUNK_SIZE = 64 * 1024
+MAX_CONSOLE_BYTES = 16 * 1024 * 1024
+MAX_JUNIT_BYTES = 16 * 1024 * 1024
+TIER_TIMEOUT_SECONDS = 30 * 60
+LIVE_ESM3_TEST = (
+    "tests/acceptance/test_biohub_generation.py::"
+    "TestBiohubGeneration::test_generate_3gb1_sequence"
+)
 
 
 @dataclass(frozen=True)
 class Tier:
     pytest_args: tuple[str, ...]
     requires_provider_evidence: bool = False
+    required_calls: frozenset[tuple[str, str]] = frozenset()
+    expected_test_ids: frozenset[str] = frozenset()
 
 
 TIERS = {
@@ -62,21 +93,102 @@ TIERS = {
         "tests/test_integration_3gb1.py",
     )),
     "local-provider": Tier((
-        "tests/acceptance",
+        "tests/acceptance/test_alignment_tm.py::test_real_alignment_and_tm_score",
+        "tests/acceptance/test_mkdssp.py::TestMKDSSP::test_dssp_3gb1",
         "-m",
         "local_provider and not slow",
-    ), requires_provider_evidence=True),
+    ), requires_provider_evidence=True, required_calls=frozenset({
+        ("mkdssp", "secondary_structure"),
+        ("biopython-svd", "structure_align"),
+        ("tmtools", "tm_score"),
+    }), expected_test_ids=frozenset({
+        "tests/acceptance/test_alignment_tm.py::test_real_alignment_and_tm_score",
+        "tests/acceptance/test_mkdssp.py::TestMKDSSP::test_dssp_3gb1",
+    })),
     "heavy-model": Tier((
-        "tests/acceptance",
+        "tests/acceptance/test_local_esm3.py::test_local_esm3_sequence_boundary",
+        "tests/acceptance/test_proteinmpnn_design.py::TestProteinMPNNDesign::test_design_3gb1",
+        "tests/acceptance/test_proteinmpnn_design.py::TestProteinMPNNDesign::test_score_3gb1",
+        "tests/acceptance/test_simplefold.py::TestSimpleFold::test_fold_3gb1",
+        "tests/acceptance/test_simplefold.py::TestSimpleFold::test_evaluate_3gb1",
         "-m",
         "local_provider and slow",
-    ), requires_provider_evidence=True),
+    ), requires_provider_evidence=True, required_calls=frozenset({
+        ("local_open", "esm3.generate_sequence"),
+        ("local-proteinmpnn", "design_sequences"),
+        ("local-proteinmpnn", "score_sequence"),
+        ("simplefold", "fold_sequence"),
+        ("simplefold", "evaluate_structure"),
+    }), expected_test_ids=frozenset({
+        "tests/acceptance/test_local_esm3.py::test_local_esm3_sequence_boundary",
+        "tests/acceptance/test_proteinmpnn_design.py::TestProteinMPNNDesign::test_design_3gb1",
+        "tests/acceptance/test_proteinmpnn_design.py::TestProteinMPNNDesign::test_score_3gb1",
+        "tests/acceptance/test_simplefold.py::TestSimpleFold::test_fold_3gb1",
+        "tests/acceptance/test_simplefold.py::TestSimpleFold::test_evaluate_3gb1",
+    })),
     "live-provider": Tier((
-        "tests/acceptance",
+        LIVE_ESM3_TEST,
+        "tests/acceptance/test_biohub_folding.py::TestBiohubFolding::test_fold_3gb1[False-False]",
         "-m",
         "live_provider",
-    ), requires_provider_evidence=True),
+    ), requires_provider_evidence=True, required_calls=frozenset({
+        ("biohub", "esm3.generate_sequence"),
+        ("biohub", "esmfold2.fold"),
+    }), expected_test_ids=frozenset({
+        LIVE_ESM3_TEST,
+        "tests/acceptance/test_biohub_folding.py::TestBiohubFolding::test_fold_3gb1[False-False]",
+    })),
 }
+
+EXPECTED_MODELS = {
+    ("local_open", "esm3.generate_sequence"): "esm3_sm_open_v1",
+    ("local-proteinmpnn", "design_sequences"): "v_48_020",
+    ("local-proteinmpnn", "score_sequence"): "v_48_020",
+    ("simplefold", "fold_sequence"): "simplefold_100M",
+    ("simplefold", "evaluate_structure"): "simplefold_360M",
+    ("biohub", "esm3.generate_sequence"): BIOHUB_ESM3_MODEL,
+    ("biohub", "esmfold2.fold"): BIOHUB_ESMFOLD2_MODEL,
+    ("mkdssp", "secondary_structure"): "mkdssp",
+    ("biopython-svd", "structure_align"): "PairwiseAligner+SVDSuperimposer",
+    ("tmtools", "tm_score"): "tm_align-fixed-correspondence",
+}
+EXPECTED_STATIC_IDENTITIES = {
+    "biohub": {
+        "sdk": "esm",
+        "sdk_source_revision": ESM_SDK_REVISION,
+        "service": "Biohub",
+    },
+    "local_open": {
+        "sdk": "esm",
+        "sdk_source_revision": ESM_SDK_REVISION,
+        "service": "local_open",
+        "snapshot_revision": LOCAL_ESM3_SNAPSHOT_REVISION,
+        "weight_sha256": LOCAL_ESM3_WEIGHT_SHA256,
+    },
+    "local-proteinmpnn": {
+        "source": "ProteinMPNN",
+        "source_revision": PROTEINMPNN_REVISION,
+        "checkpoint_sha256": PROTEINMPNN_V_48_020_SHA256,
+    },
+    "simplefold": {
+        "source": "ml-simplefold",
+        "source_revision": SIMPLEFOLD_REVISION,
+        "esm2_source_revision": SIMPLEFOLD_ESM2_REVISION,
+        "artifact_sha256": SIMPLEFOLD_ARTIFACT_SHA256,
+    },
+    "mkdssp": {"binary": "mkdssp", "required_version": "4.6.1"},
+}
+
+
+def _expected_provider_identity(provider: str) -> dict[str, object] | None:
+    if provider == "biopython-svd":
+        return {
+            "biopython_version": importlib.metadata.version("biopython"),
+            "numpy_version": importlib.metadata.version("numpy"),
+        }
+    if provider == "tmtools":
+        return {"tmtools_version": importlib.metadata.version("tmtools")}
+    return EXPECTED_STATIC_IDENTITIES.get(provider)
 
 SAFE_PYTEST_SELECTOR = re.compile(
     r"[A-Za-z_][A-Za-z0-9_]*(?:\[[A-Za-z0-9_.-]+\])?"
@@ -156,6 +268,8 @@ def _junit_counts(path: Path) -> tuple[int, int, int]:
 
 def _sanitize_junit(path: Path) -> None:
     """Retain counts and test identities without failure text or host data."""
+    if path.is_symlink() or not path.is_file() or path.stat().st_size > MAX_JUNIT_BYTES:
+        raise ValueError("JUnit result is not a bounded regular file")
     tree = ET.parse(path)
     root = tree.getroot()
     suites = [root] if root.tag == "testsuite" else list(
@@ -175,6 +289,270 @@ def _sanitize_junit(path: Path) -> None:
     path.chmod(0o600)
 
 
+def _write_json(path: Path, payload: object) -> None:
+    path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n")
+    path.chmod(0o600)
+
+
+def _source_attestation() -> tuple[str, bool, str]:
+    def git(*args: str) -> str:
+        completed = subprocess.run(
+            ["git", *args],
+            cwd=PROJECT_ROOT,
+            text=True,
+            capture_output=True,
+            check=True,
+            timeout=10,
+        )
+        return completed.stdout.strip()
+
+    revision = git("rev-parse", "HEAD")
+    dirty = bool(git("status", "--porcelain"))
+    source_files = git(
+        "ls-files",
+        "--cached",
+        "--others",
+        "--exclude-standard",
+    ).splitlines()
+    source_digest = hashlib.sha256()
+    for relative in sorted(source_files):
+        path = PROJECT_ROOT / relative
+        if path.is_file() and not path.is_symlink():
+            source_digest.update(relative.encode() + b"\0")
+            source_digest.update(path.read_bytes())
+    return revision, dirty, source_digest.hexdigest()
+
+
+def _environment_summary(tier_name: str) -> dict[str, object]:
+    try:
+        revision, dirty, source_tree_sha256 = _source_attestation()
+    except (OSError, subprocess.CalledProcessError, subprocess.TimeoutExpired):
+        revision = "unavailable"
+        dirty = True
+        source_tree_sha256 = "unavailable"
+    package_versions: dict[str, str] = {}
+    for package in (
+        "biopython",
+        "esm",
+        "numpy",
+        "protein-workbench",
+        "simplefold",
+        "tmtools",
+        "torch",
+    ):
+        try:
+            package_versions[package] = importlib.metadata.version(package)
+        except importlib.metadata.PackageNotFoundError:
+            package_versions[package] = "not-installed"
+    interpreter_path = Path(sys.executable).resolve()
+    interpreter_digest = hashlib.sha256()
+    with interpreter_path.open("rb") as interpreter_file:
+        while chunk := interpreter_file.read(1024 * 1024):
+            interpreter_digest.update(chunk)
+    return {
+        "schema_version": 1,
+        "tier": tier_name,
+        "recorded_at": datetime.now(timezone.utc).isoformat(),
+        "project_revision": revision,
+        "project_dirty": dirty,
+        "python": platform.python_version(),
+        "implementation": platform.python_implementation(),
+        "platform": platform.platform(),
+        "package_versions": package_versions,
+        "interpreter": str(interpreter_path),
+        "interpreter_sha256": interpreter_digest.hexdigest(),
+        "source_tree_sha256": source_tree_sha256,
+        "isolated_roots": list(ROOT_VARIABLES),
+        "historical_cache_allowed": False,
+        "secrets_retained": False,
+    }
+
+
+def _load_and_validate_provider_evidence(
+    path: Path,
+    *,
+    tier_name: str,
+    tier: Tier,
+    nonce: str,
+    started_at: datetime,
+    focused: bool,
+) -> tuple[list[dict[str, object]], str | None]:
+    try:
+        if path.is_symlink() or not path.is_file():
+            return [], "provider-call evidence was not a regular file"
+        if path.stat().st_size > 2 * 1024 * 1024:
+            return [], "provider-call evidence exceeded the size bound"
+        lines = path.read_text().splitlines()
+    except OSError:
+        return [], "provider-call evidence was not readable"
+    if not lines:
+        return [], "provider-call evidence was empty"
+
+    events: list[dict[str, object]] = []
+    event_ids: set[str] = set()
+    for line in lines:
+        try:
+            event = json.loads(line)
+        except json.JSONDecodeError:
+            return [], "invalid provider-call evidence JSON"
+        if not isinstance(event, dict):
+            return [], "invalid provider-call evidence event"
+        if (
+            event.get("evidence_version") != 1
+            or event.get("run_nonce") != nonce
+            or event.get("gate") != tier_name
+            or not isinstance(event.get("event_id"), str)
+            or event["event_id"] in event_ids
+        ):
+            return [], "invalid provider-call evidence envelope"
+        event_ids.add(event["event_id"])
+        try:
+            recorded_at = datetime.fromisoformat(str(event["recorded_at"]))
+        except (KeyError, TypeError, ValueError):
+            return [], "invalid provider-call evidence timestamp"
+        if (
+            recorded_at.tzinfo is None
+            or recorded_at < started_at
+            or recorded_at > datetime.now(timezone.utc)
+        ):
+            return [], "stale or future provider-call evidence"
+        events.append(event)
+
+    calls = [event for event in events if event.get("event_type") == "provider_call"]
+    readiness_events = [
+        event
+        for event in events
+        if event.get("event_type") == "provider_readiness"
+    ]
+    if len(calls) + len(readiness_events) != len(events):
+        return [], "invalid provider-call evidence event type"
+    for readiness in readiness_events:
+        if (
+            not isinstance(readiness.get("provider"), str)
+            or not isinstance(readiness.get("ready"), bool)
+            or not isinstance(readiness.get("provider_identity"), dict)
+            or not readiness["provider_identity"]
+        ):
+            return [], "invalid provider readiness evidence contract"
+    for call in calls:
+        result = call.get("result")
+        if (
+            not isinstance(call.get("provider"), str)
+            or not isinstance(call.get("operation"), str)
+            or not isinstance(call.get("provider_identity"), dict)
+            or not call["provider_identity"]
+            or call.get("readiness") != "ready_at_call_boundary"
+            or call.get("actual_call") is not True
+            or call.get("call_count") != 1
+            or "effective_seed" not in call
+            or not isinstance(call.get("seed_control"), str)
+            or not call["seed_control"]
+            or call.get("cache_decision") != "bypassed_fresh_direct_call"
+            or not isinstance(result, dict)
+            or result.get("status") != "succeeded"
+            or not isinstance(result.get("summary"), dict)
+            or not result["summary"]
+        ):
+            return [], "invalid provider-call evidence contract"
+        key = (str(call["provider"]), str(call["operation"]))
+        if key not in tier.required_calls:
+            return [], "unexpected provider call evidence"
+        if call.get("model") != EXPECTED_MODELS[key]:
+            return [], "provider call model identity mismatch"
+        test_id = call.get("test_id")
+        if not isinstance(test_id, str) or test_id not in tier.expected_test_ids:
+            return [], "provider call test identity mismatch"
+        expected_static = _expected_provider_identity(str(call["provider"]))
+        if expected_static is not None and call["provider_identity"] != expected_static:
+            return [], "provider call source identity mismatch"
+    if not calls:
+        return [], "no valid provider-call evidence was recorded"
+
+    observed_calls = {
+        (str(call["provider"]), str(call["operation"]))
+        for call in calls
+    }
+    ready_providers = {
+        str(event["provider"])
+        for event in readiness_events
+        if event.get("ready") is True
+    }
+    called_providers = {provider for provider, _ in observed_calls}
+    missing_readiness = called_providers - ready_providers
+    if missing_readiness:
+        return events, (
+            "missing provider readiness evidence: "
+            + ", ".join(sorted(missing_readiness))
+        )
+    readiness_by_provider = {
+        str(event["provider"]): event["provider_identity"]
+        for event in readiness_events
+        if event.get("ready") is True
+    }
+    for call in calls:
+        if readiness_by_provider[str(call["provider"])] != call["provider_identity"]:
+            return events, "readiness and call provider identities differ"
+    observed_counts = Counter(
+        (str(call["provider"]), str(call["operation"]))
+        for call in calls
+    )
+    if any(count != 1 for count in observed_counts.values()):
+        return events, "provider call count did not match the exact gate contract"
+    missing = tier.required_calls - observed_calls
+    if missing and not focused:
+        formatted = ", ".join(
+            f"{provider}:{operation}"
+            for provider, operation in sorted(missing)
+        )
+        return events, f"missing required provider calls: {formatted}"
+    return events, None
+
+
+def _child_environment(tier_name: str, base: Path) -> dict[str, str]:
+    """Construct a minimum tier-specific environment without ambient credentials."""
+    retained = {
+        "PATH",
+        "LANG",
+        "LC_ALL",
+        "SSL_CERT_FILE",
+        "SSL_CERT_DIR",
+        "NO_PROXY",
+        "OBJC_DISABLE_INITIALIZE_FORK_SAFETY",
+    }
+    env = {key: os.environ[key] for key in retained if key in os.environ}
+    env.update({
+        "HOME": str(base / "home"),
+        "TMPDIR": str(base / "tmp"),
+        "PYTHONHASHSEED": os.environ.get("PYTHONHASHSEED", "0"),
+        "PYTHONPYCACHEPREFIX": str(base / "pycache"),
+    })
+    Path(env["HOME"]).mkdir()
+    Path(env["TMPDIR"]).mkdir()
+    if tier_name == "live-provider":
+        token_file = os.environ.get("PROTEIN_WORKBENCH_BIOHUB_TOKEN_FILE")
+        if token_file:
+            env["PROTEIN_WORKBENCH_BIOHUB_TOKEN_FILE"] = token_file
+    if tier_name == "heavy-model":
+        for key in (
+            "PROTEIN_WORKBENCH_PROTEINMPNN_ROOT",
+            "PROTEIN_WORKBENCH_SIMPLEFOLD_MODEL_ROOT",
+            "HF_HOME",
+            "HF_HUB_CACHE",
+            "TORCH_HOME",
+        ):
+            if key in os.environ:
+                env[key] = os.environ[key]
+        if "HF_HOME" not in env and "HF_HUB_CACHE" not in env:
+            env["HF_HOME"] = str(Path.home() / ".cache" / "huggingface")
+        env["HF_HUB_OFFLINE"] = "1"
+        env["TRANSFORMERS_OFFLINE"] = "1"
+    if tier_name == "routine" and "PROTEIN_WORKBENCH_RESOURCE_WARNING_PROBE" in os.environ:
+        env["PROTEIN_WORKBENCH_RESOURCE_WARNING_PROBE"] = os.environ[
+            "PROTEIN_WORKBENCH_RESOURCE_WARNING_PROBE"
+        ]
+    return env
+
+
 def _stream_process_output(
     process: subprocess.Popen[bytes],
 ) -> bool:
@@ -184,9 +562,13 @@ def _stream_process_output(
     marker = RESOURCE_CLEANUP_WARNING.encode()
     overlap = b""
     detected = False
+    displayed = 0
     while chunk := process.stdout.read1(OUTPUT_CHUNK_SIZE):
-        sys.stdout.buffer.write(chunk)
-        sys.stdout.buffer.flush()
+        if displayed < MAX_CONSOLE_BYTES:
+            retained = chunk[:MAX_CONSOLE_BYTES - displayed]
+            sys.stdout.buffer.write(retained)
+            sys.stdout.buffer.flush()
+            displayed += len(retained)
         window = overlap + chunk
         if marker in window:
             detected = True
@@ -197,6 +579,46 @@ def _stream_process_output(
 def main() -> int:
     args = _parse_args()
     tier = TIERS[args.tier]
+    if sys.prefix == sys.base_prefix:
+        print(
+            "BACKEND VERIFICATION RESULT: failed "
+            "(run from the documented project environment)",
+            flush=True,
+        )
+        return 2
+    try:
+        importlib.metadata.version("protein-workbench")
+    except importlib.metadata.PackageNotFoundError:
+        print(
+            "BACKEND VERIFICATION RESULT: failed "
+            "(protein-workbench is not installed in the project environment)",
+            flush=True,
+        )
+        return 2
+    initial_source_attestation: tuple[str, bool, str] | None = None
+    if tier.requires_provider_evidence and not args.pytest_targets:
+        approved_revision = os.environ.get(
+            "PROTEIN_WORKBENCH_APPROVED_SOURCE_REVISION"
+        )
+        try:
+            initial_source_attestation = _source_attestation()
+        except (
+            OSError,
+            subprocess.CalledProcessError,
+            subprocess.TimeoutExpired,
+        ):
+            initial_source_attestation = ("unavailable", True, "unavailable")
+        if (
+            not approved_revision
+            or initial_source_attestation[0] != approved_revision
+            or initial_source_attestation[1]
+        ):
+            print(
+                "BACKEND VERIFICATION RESULT: failed "
+                "(full provider gates require the clean approved source revision)",
+                flush=True,
+            )
+            return 2
     print(f"BACKEND VERIFICATION TIER: {args.tier}", flush=True)
     print(f"PROJECT ENVIRONMENT: {sys.executable}", flush=True)
     results_root = Path(
@@ -210,12 +632,18 @@ def main() -> int:
     result_dir.mkdir(parents=True, mode=0o700)
     result_dir.chmod(0o700)
     print(f"RETAINED VERIFICATION RESULT: {result_dir}", flush=True)
+    _write_json(
+        result_dir / "environment-summary.json",
+        _environment_summary(args.tier),
+    )
+    gate_started_at = datetime.now(timezone.utc)
+    gate_nonce = secrets.token_urlsafe(32)
 
     with tempfile.TemporaryDirectory(
         prefix=f"protein-workbench-{args.tier}-"
     ) as temporary_root:
         base = Path(temporary_root)
-        env = os.environ.copy()
+        env = _child_environment(args.tier, base)
         for variable in ROOT_VARIABLES:
             name = variable.removeprefix("PROTEIN_WORKBENCH_").removesuffix("_ROOT")
             root = base / name.lower()
@@ -223,6 +651,8 @@ def main() -> int:
             env[variable] = str(root)
         env["PROTEIN_WORKBENCH_TEST_ROOTS_INITIALIZED"] = "1"
         env["PROTEIN_WORKBENCH_VERIFICATION_TIER"] = args.tier
+        env["PROTEIN_WORKBENCH_REAL_GATE_NONCE"] = gate_nonce
+        env["PROTEIN_WORKBENCH_REAL_GATE_FRESH"] = "1"
         if args.tier == "deterministic-acceptance":
             for variable in (
                 "PROTEIN_WORKBENCH_CANONICAL_WORKFLOW",
@@ -265,16 +695,42 @@ def main() -> int:
             env=env,
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
+            start_new_session=True,
         ) as process:
-            resource_cleanup_warning = _stream_process_output(process)
-            return_code = process.wait()
+            timed_out = threading.Event()
+
+            def terminate_timed_out_process() -> None:
+                timed_out.set()
+                try:
+                    os.killpg(process.pid, signal.SIGTERM)
+                except ProcessLookupError:
+                    return
+
+                def kill_process_group() -> None:
+                    try:
+                        os.killpg(process.pid, signal.SIGKILL)
+                    except ProcessLookupError:
+                        pass
+
+                threading.Timer(5, kill_process_group).start()
+
+            timer = threading.Timer(
+                TIER_TIMEOUT_SECONDS,
+                terminate_timed_out_process,
+            )
+            timer.start()
+            try:
+                resource_cleanup_warning = _stream_process_output(process)
+                return_code = process.wait()
+            finally:
+                timer.cancel()
         completed = subprocess.CompletedProcess(
             command,
             return_code,
         )
         transcript_path = result_dir / "command-transcript.txt"
         display_command = [
-            "$PROJECT_ROOT/.venv/bin/python"
+            "$PROJECT_ENV/bin/python"
             if item == sys.executable
             else (
                 "--junitxml=$RESULT_DIR/pytest.xml"
@@ -293,8 +749,21 @@ def main() -> int:
         if not junit_path.exists():
             print("BACKEND VERIFICATION RESULT: failed (no JUnit result)", flush=True)
             return completed.returncode or 1
+        if timed_out.is_set():
+            print(
+                "BACKEND VERIFICATION RESULT: failed (tier timeout)",
+                flush=True,
+            )
+            return 1
 
-        _sanitize_junit(junit_path)
+        try:
+            _sanitize_junit(junit_path)
+        except (OSError, ValueError, ET.ParseError):
+            print(
+                "BACKEND VERIFICATION RESULT: failed (invalid JUnit result)",
+                flush=True,
+            )
+            return 1
         tests, failures, skipped = _junit_counts(junit_path)
         with transcript_path.open("a") as transcript:
             transcript.write(
@@ -304,6 +773,41 @@ def main() -> int:
             )
         if call_evidence.exists():
             call_evidence.chmod(0o600)
+        evidence_error: str | None = None
+        if tier.requires_provider_evidence and not call_evidence.exists():
+            evidence_error = "no provider-call evidence was recorded"
+            evidence: list[dict[str, object]] = []
+        elif tier.requires_provider_evidence:
+            evidence, evidence_error = _load_and_validate_provider_evidence(
+                call_evidence,
+                tier_name=args.tier,
+                tier=tier,
+                nonce=gate_nonce,
+                started_at=gate_started_at,
+                focused=bool(args.pytest_targets),
+            )
+            if evidence:
+                calls = [
+                    event for event in evidence
+                    if event.get("event_type") == "provider_call"
+                ]
+                _write_json(
+                    result_dir / "provider-summary.json",
+                    {
+                        "schema_version": 1,
+                        "tier": args.tier,
+                        "fresh_gate": True,
+                        "historical_cache_allowed": False,
+                        "complete": evidence_error is None,
+                        "incomplete_reason": evidence_error,
+                        "call_count": len(calls),
+                        "readiness": [
+                            event for event in evidence
+                            if event.get("event_type") == "provider_readiness"
+                        ],
+                        "calls": calls,
+                    },
+                )
         if skipped:
             print(
                 "BACKEND VERIFICATION RESULT: incomplete "
@@ -324,15 +828,45 @@ def main() -> int:
         if tests == 0:
             print("BACKEND VERIFICATION RESULT: incomplete (no tests ran)", flush=True)
             return 3
-        if tier.requires_provider_evidence and (
-            not call_evidence.exists() or not call_evidence.read_text().strip()
-        ):
-            print(
-                "BACKEND VERIFICATION RESULT: incomplete "
-                "(no provider-call evidence was recorded)",
-                flush=True,
-            )
-            return 3
+        if tier.requires_provider_evidence:
+            if evidence_error is not None:
+                print(
+                    "BACKEND VERIFICATION RESULT: incomplete "
+                    f"(invalid provider-call evidence: {evidence_error})",
+                    flush=True,
+                )
+                return 3
+            if not args.pytest_targets:
+                try:
+                    final_source_attestation = _source_attestation()
+                except (
+                    OSError,
+                    subprocess.CalledProcessError,
+                    subprocess.TimeoutExpired,
+                ):
+                    final_source_attestation = (
+                        "unavailable",
+                        True,
+                        "unavailable",
+                    )
+                if (
+                    initial_source_attestation is None
+                    or final_source_attestation != initial_source_attestation
+                    or final_source_attestation[1]
+                ):
+                    print(
+                        "BACKEND VERIFICATION RESULT: failed "
+                        "(source attestation changed during provider execution)",
+                        flush=True,
+                    )
+                    return 1
+            if args.pytest_targets:
+                print(
+                    "BACKEND VERIFICATION RESULT: incomplete "
+                    "(focused provider diagnostics cannot satisfy a full gate)",
+                    flush=True,
+                )
+                return 3
 
         print("BACKEND VERIFICATION RESULT: passed", flush=True)
         return 0

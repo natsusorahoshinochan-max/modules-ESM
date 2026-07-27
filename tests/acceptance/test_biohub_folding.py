@@ -1,9 +1,12 @@
 """Acceptance: ESMFold2 folding via Biohub."""
 
+import hashlib
+from pathlib import Path
+
 import pytest
 
 from datatypes import ProteinSequence, ProteinStructure, ScoreCollection
-from tests.acceptance.conftest import require_ready
+from tests.acceptance.conftest import SEQUENCE_3GB1_SHA256, require_ready
 
 
 @pytest.mark.acceptance
@@ -16,7 +19,7 @@ class TestBiohubFolding:
         (True, True),
     ])
     def test_fold_3gb1(
-        self, readiness, include_pae, include_embeddings, record_provider_call
+        self, readiness, include_pae, include_embeddings
     ):
         require_ready("biohub", readiness)
 
@@ -26,6 +29,10 @@ class TestBiohubFolding:
             sequence="MTYKLILNGKTLKGETTTEAVDAATAEKVFKQYANDNGVDGEWTYDDATKTFTVTE"
         )
         assert len(seq) == 56
+        assert (
+            hashlib.sha256(seq.sequence.encode()).hexdigest()
+            == SEQUENCE_3GB1_SHA256
+        )
 
         structure, scores = fold_sequence(
             sequence=seq,
@@ -33,7 +40,6 @@ class TestBiohubFolding:
             include_pae=include_pae,
             include_embeddings=include_embeddings,
         )
-        record_provider_call("biohub", "esmfold2.fold")
 
         assert isinstance(structure, ProteinStructure)
         assert len(structure.pdb_string) > 0
@@ -53,16 +59,19 @@ class TestBiohubFolding:
         (True, False),
     ])
     def test_fold_1pga(
-        self, readiness, include_pae, include_embeddings, record_provider_call
+        self, readiness, include_pae, include_embeddings
     ):
         require_ready("biohub", readiness)
 
         from modules.esmfold2_adapter import fold_sequence
 
         from modules.extract_sequence_from_structure.module import _extract_sequence
-        import os
         seq_str = _extract_sequence(
-            open(os.path.join(os.path.dirname(__file__), "..", "..", "pdbs", "1PGA-75-gen1_0690.pdb")).read()
+            (
+                Path(__file__).parents[2]
+                / "pdbs"
+                / "1PGA-75-gen1_0690.pdb"
+            ).read_text()
         )
 
         seq = ProteinSequence(sequence=seq_str)
@@ -74,7 +83,6 @@ class TestBiohubFolding:
             include_pae=include_pae,
             include_embeddings=include_embeddings,
         )
-        record_provider_call("biohub", "esmfold2.fold")
 
         assert isinstance(structure, ProteinStructure)
         assert any(s.score_id == "ptm" for s in scores.entries)

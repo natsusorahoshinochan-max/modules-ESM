@@ -6,12 +6,18 @@ infer_oxygen() to avoid SDK 3.3.0 to_pdb_string() rendering defect.
 
 from __future__ import annotations
 
+import hashlib
 import uuid
-from pathlib import Path
 from typing import Any
 
 import torch
 
+from core.provider_contract import (
+    ESM_SDK_REVISION,
+    esm_provider_identity,
+    read_biohub_token,
+    validate_installed_provider_checkout,
+)
 from datatypes import (
     Candidate,
     CandidateCollection,
@@ -20,20 +26,6 @@ from datatypes import (
     Score,
     ScoreCollection,
 )
-
-
-def read_biohub_token(project_dir: str | None = None) -> str:
-    """Read Biohub API token from keys/esmkey.txt."""
-    candidates = [Path("keys/esmkey.txt")]
-    if project_dir:
-        candidates.append(Path(project_dir) / ".." / ".." / "keys" / "esmkey.txt")
-    for p in candidates:
-        if p.exists():
-            return p.read_text().strip()
-    raise FileNotFoundError(
-        "Biohub API key not found. Place your token in keys/esmkey.txt"
-    )
-
 
 def _esm_protein_to_pdb_string(esm_protein: Any) -> str:
     """Render ESMProtein to PDB string using single-chain path.
@@ -62,9 +54,9 @@ def fold_sequence(
     Raises FileNotFoundError if the Biohub token is missing.
     Raises ValueError if the fold call fails.
     """
+    validate_installed_provider_checkout("esm", ESM_SDK_REVISION)
     from esm.sdk.forge import SequenceStructureForgeInferenceClient
     from esm.sdk.api import FoldingConfig, ESMProteinError
-
     token = read_biohub_token(project_dir)
 
     client = SequenceStructureForgeInferenceClient(
@@ -101,6 +93,25 @@ def fold_sequence(
     # Extract scores
     cid = str(uuid.uuid4())
     scores = _extract_scores(result, cid)
+    from core.provider_evidence import record_provider_call_result
+
+    record_provider_call_result(
+        provider="biohub",
+        operation="esmfold2.fold",
+        model=model_name,
+        provider_identity=esm_provider_identity(),
+        effective_seed=None,
+        seed_control="unsupported_by_provider",
+        result_summary={
+            "input_sequence_length": len(sequence.sequence),
+            "input_sequence_sha256": hashlib.sha256(
+                sequence.sequence.encode()
+            ).hexdigest(),
+            "pdb_bytes": len(pdb_string.encode()),
+            "pdb_sha256": hashlib.sha256(pdb_string.encode()).hexdigest(),
+            "score_ids": sorted(score.score_id for score in scores.entries),
+        },
+    )
 
     return structure, scores
 

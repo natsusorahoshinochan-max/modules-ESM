@@ -12,7 +12,7 @@ VALID_DSSP_CODES = {"H", "B", "E", "G", "I", "T", "S", "-", " "}
 @pytest.mark.local_provider
 class TestMKDSSP:
     def test_dssp_3gb1(
-        self, readiness, pdb_3gb1, record_provider_call, isolated_project_dir
+        self, readiness, pdb_3gb1, isolated_project_dir
     ):
         require_ready("mkdssp", readiness)
 
@@ -22,7 +22,6 @@ class TestMKDSSP:
         mod = ComputeDSSPModule()
         ctx = RunContext(isolated_project_dir, "n1")
         result = mod.run({"structure": pdb_3gb1}, {}, ctx)
-        record_provider_call("mkdssp", "compute_secondary_structure")
 
         track = result["secondary_structure_track"]
         assert isinstance(track, ResidueTrack)
@@ -31,7 +30,7 @@ class TestMKDSSP:
             assert code in VALID_DSSP_CODES, f"Invalid DSSP code: {code}"
 
     def test_dssp_1pga(
-        self, readiness, pdb_1pga, record_provider_call, isolated_project_dir
+        self, readiness, pdb_1pga, isolated_project_dir
     ):
         require_ready("mkdssp", readiness)
 
@@ -41,7 +40,6 @@ class TestMKDSSP:
         mod = ComputeDSSPModule()
         ctx = RunContext(isolated_project_dir, "n1")
         result = mod.run({"structure": pdb_1pga}, {}, ctx)
-        record_provider_call("mkdssp", "compute_secondary_structure")
 
         track = result["secondary_structure_track"]
         assert isinstance(track, ResidueTrack)

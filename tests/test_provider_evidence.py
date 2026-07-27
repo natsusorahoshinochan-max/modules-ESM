@@ -1,0 +1,761 @@
+"""Provider evidence is emitted only by completed adapter-boundary calls."""
+
+from __future__ import annotations
+
+import asyncio
+import base64
+import hashlib
+import json
+import os
+import sys
+from pathlib import Path
+from types import ModuleType
+from unittest.mock import MagicMock, patch
+
+import pytest
+
+from core.run_context import RunContext
+from datatypes import ProteinSequence, ProteinStructure
+
+
+def _enable_gate(monkeypatch, tmp_path: Path, tier: str) -> Path:
+    evidence_path = tmp_path / "provider-calls.jsonl"
+    monkeypatch.setenv(
+        "PROTEIN_WORKBENCH_PROVIDER_CALL_EVIDENCE",
+        str(evidence_path),
+    )
+    monkeypatch.setenv("PROTEIN_WORKBENCH_REAL_GATE_NONCE", "fresh-test-nonce")
+    monkeypatch.setenv("PROTEIN_WORKBENCH_VERIFICATION_TIER", tier)
+    return evidence_path
+
+
+def _events(path: Path) -> list[dict]:
+    return [json.loads(line) for line in path.read_text().splitlines()]
+
+
+def test_esm3_boundary_records_completed_call_not_prompt_content(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    from modules.esm3_adapter import call_esm3_provider
+
+    evidence_path = _enable_gate(monkeypatch, tmp_path, "live-provider")
+    client = MagicMock()
+    provider_result = MagicMock()
+    provider_result.sequence = "PRIVATESEQUENCE"
+    client.generate.return_value = provider_result
+
+    result = call_esm3_provider(
+        client,
+        MagicMock(),
+        MagicMock(),
+        "esm3.generate_sequence",
+        model_name="esm3-medium-2024-08",
+        effective_seed=None,
+    )
+
+    assert result is provider_result
+    events = _events(evidence_path)
+    assert len(events) == 1
+    assert events[0]["provider"] == "biohub"
+    assert events[0]["operation"] == "esm3.generate_sequence"
+    assert events[0]["result"]["status"] == "succeeded"
+    assert events[0]["result"]["summary"]["output_sequence_length"] == 15
+    assert len(
+        events[0]["result"]["summary"]["output_sequence_sha256"]
+    ) == 64
+    assert "PRIVATESEQUENCE" not in evidence_path.read_text()
+
+
+def test_esmfold_boundary_records_result_digest_without_token(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    from modules.esmfold2_adapter import fold_sequence
+
+    evidence_path = _enable_gate(monkeypatch, tmp_path, "live-provider")
+    provider_result = MagicMock()
+    provider_result.ptm = None
+    provider_result.plddt = None
+    provider_result.pae = None
+    provider_result.output_embedding_pair_pooled = None
+    chain = MagicMock()
+    chain.infer_oxygen.return_value = chain
+    chain.to_pdb_string.return_value = (
+        "ATOM      1  CA  ALA A   1       1.000   2.000   3.000\nEND\n"
+    )
+    provider_result.to_protein_chain.return_value = chain
+    client = MagicMock()
+    client.fold.return_value = provider_result
+
+    with (
+        patch(
+            "modules.esmfold2_adapter.read_biohub_token",
+            return_value="secret-test-token",
+        ),
+        patch(
+            "esm.sdk.forge.SequenceStructureForgeInferenceClient",
+            return_value=client,
+        ),
+    ):
+        fold_sequence(ProteinSequence(sequence="AAA"))
+
+    event = _events(evidence_path)[0]
+    assert event["operation"] == "esmfold2.fold"
+    assert event["result"]["summary"]["input_sequence_length"] == 3
+    assert len(event["result"]["summary"]["input_sequence_sha256"]) == 64
+    assert event["result"]["summary"]["pdb_bytes"] > 0
+    assert len(event["result"]["summary"]["pdb_sha256"]) == 64
+    assert "secret-test-token" not in evidence_path.read_text()
+
+
+def test_proteinmpnn_design_boundary_records_seed_and_result_digests(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    from modules.proteinmpnn.adapter import design_sequences
+
+    class Provider:
+        provider_identity = "local-proteinmpnn"
+
+        def parse_structure(self, pdb_string: str) -> list[dict]:
+            return [{"name": "target", "seq": "AAA", "seq_chain_A": "AAA"}]
+
+        def design(self, request) -> tuple[list[ProteinSequence], list[float]]:
+            return [ProteinSequence(sequence="GAA")], [-1.25]
+
+    evidence_path = _enable_gate(monkeypatch, tmp_path, "heavy-model")
+    sequences, scores = design_sequences(
+        pdb_string="PRIVATE PDB INPUT",
+        num_sequences=1,
+        seed=731,
+        provider=Provider(),
+    )
+
+    assert sequences[0].sequence == "GAA"
+    assert scores == [-1.25]
+    event = _events(evidence_path)[0]
+    assert event["operation"] == "design_sequences"
+    assert event["effective_seed"] == 731
+    assert event["result"]["summary"]["sequence_count"] == 1
+    assert len(event["result"]["summary"]["input_pdb_sha256"]) == 64
+    assert len(event["result"]["summary"]["sequence_sha256"][0]) == 64
+    retained = evidence_path.read_text()
+    assert "PRIVATE PDB INPUT" not in retained
+    assert '"GAA"' not in retained
+
+
+def test_proteinmpnn_scoring_boundary_records_completed_score(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    from modules.proteinmpnn.adapter import score_sequence
+
+    evidence_path = _enable_gate(monkeypatch, tmp_path, "heavy-model")
+    with (
+        patch(
+            "modules.proteinmpnn.adapter._load_model",
+            return_value=(object(), "cpu"),
+        ),
+        patch(
+            "modules.proteinmpnn.adapter._parse_structure",
+            return_value=[
+                {"name": "target", "seq": "AAA", "seq_chain_A": "AAA"}
+            ],
+        ),
+        patch("modules.proteinmpnn.adapter._featurize", return_value=object()),
+        patch("modules.proteinmpnn.adapter._compute_score", return_value=-2.5),
+    ):
+        score = score_sequence(
+            pdb_string="PRIVATE PDB INPUT",
+            sequence="AAA",
+            model_name="v_48_020",
+        )
+
+    assert score == -2.5
+    event = _events(evidence_path)[0]
+    assert event["operation"] == "score_sequence"
+    assert event["effective_seed"] == 42
+    assert event["result"]["summary"] == {
+        "input_pdb_sha256": (
+            "6a16b293eb04c4f0a69b87f5c6b51996b04e35a3976de47522d681aa34fb2660"
+        ),
+        "input_sequence_sha256": (
+            "cb1ad2119d8fafb69566510ee712661f9f14b83385006ef92aec47f523a38358"
+        ),
+        "score": -2.5,
+        "sequence_length": 3,
+    }
+
+
+def test_proteinmpnn_scoring_applies_the_recorded_effective_seed(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    import torch
+    from modules.proteinmpnn.adapter import score_sequence
+
+    _enable_gate(monkeypatch, tmp_path, "heavy-model")
+    with (
+        patch(
+            "modules.proteinmpnn.adapter._load_model",
+            return_value=(object(), "cpu"),
+        ),
+        patch(
+            "modules.proteinmpnn.adapter._parse_structure",
+            return_value=[
+                {"name": "target", "seq": "AAA", "seq_chain_A": "AAA"}
+            ],
+        ),
+        patch("modules.proteinmpnn.adapter._featurize", return_value=object()),
+        patch(
+            "modules.proteinmpnn.adapter._compute_score",
+            side_effect=lambda *args: float(torch.rand(())),
+        ),
+    ):
+        first = score_sequence("PRIVATE", "AAA")
+        second = score_sequence("PRIVATE", "AAA")
+
+    assert first == second
+
+
+def test_structure_alignment_boundary_records_lengths_not_coordinates(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    from modules.structure_alignment import align_structures
+
+    evidence_path = _enable_gate(monkeypatch, tmp_path, "local-provider")
+    project_root = Path(__file__).parent.parent
+    reference = ProteinStructure(
+        pdb_string=(project_root / "pdbs" / "3GB1.pdb").read_text(),
+    )
+    mobile = ProteinStructure(
+        pdb_string=(project_root / "pdbs" / "1PGA-75-gen1_0690.pdb").read_text(),
+    )
+
+    alignment = align_structures(reference, mobile)
+
+    assert len(alignment.residue_map) > 0
+    event = _events(evidence_path)[0]
+    assert event["provider"] == "biopython-svd"
+    assert event["operation"] == "structure_align"
+    assert event["result"]["summary"]["aligned_residues"] > 0
+    assert "aligned_reference_coordinates" not in evidence_path.read_text()
+
+
+def test_tmtools_boundary_records_reference_normalized_score(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    from modules.structure_alignment import align_structures
+    from modules.structure_tm_score.scoring import (
+        calculate_reference_normalized_tm_score,
+    )
+
+    evidence_path = _enable_gate(monkeypatch, tmp_path, "local-provider")
+    project_root = Path(__file__).parent.parent
+    alignment = align_structures(
+        ProteinStructure(
+            pdb_string=(project_root / "pdbs" / "3GB1.pdb").read_text(),
+        ),
+        ProteinStructure(
+            pdb_string=(project_root / "pdbs" / "1PGA-75-gen1_0690.pdb").read_text(),
+        ),
+    )
+
+    score = calculate_reference_normalized_tm_score(alignment)
+
+    assert 0.0 <= score.value <= 1.0
+    tm_event = [
+        event for event in _events(evidence_path)
+        if event["operation"] == "tm_score"
+    ][0]
+    assert tm_event["provider"] == "tmtools"
+    assert tm_event["result"]["summary"]["normalization"] == "reference"
+    assert tm_event["result"]["summary"]["value"] == score.value
+
+
+def test_mkdssp_boundary_records_completed_subprocess_without_input(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    from modules.compute_dssp.module import ComputeDSSPModule
+
+    class Process:
+        returncode = 0
+        pid = 123
+
+        async def communicate(self) -> tuple[bytes, bytes]:
+            return (
+                b"loop_\n"
+                b"_dssp_struct_summary.entry_id\n"
+                b"_dssp_struct_summary.label_asym_id\n"
+                b"_dssp_struct_summary.label_seq_id\n"
+                b"_dssp_struct_summary.label_comp_id\n"
+                b"_dssp_struct_summary.secondary_structure\n"
+                b"_dssp_struct_summary.accessibility\n"
+                b"nohd A 1 ALA H 100\n",
+                b"",
+            )
+
+    async def fake_subprocess(*args, **kwargs) -> Process:
+        return Process()
+
+    evidence_path = _enable_gate(monkeypatch, tmp_path, "local-provider")
+    monkeypatch.setattr(asyncio, "create_subprocess_exec", fake_subprocess)
+
+    result = ComputeDSSPModule().run(
+        {
+            "structure": ProteinStructure(
+                pdb_string="PRIVATE PDB INPUT",
+            )
+        },
+        {"dssp_binary": "/opt/homebrew/bin/mkdssp"},
+        RunContext(str(tmp_path), "dssp", run_id="test-run"),
+    )
+
+    assert result["secondary_structure_track"].values == ["H"]
+    event = _events(evidence_path)[0]
+    assert event["provider"] == "mkdssp"
+    assert event["operation"] == "secondary_structure"
+    assert event["result"]["summary"]["return_code"] == 0
+    assert "PRIVATE PDB INPUT" not in evidence_path.read_text()
+
+
+def test_simplefold_boundary_records_folding_result_digests(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    import torch
+    from modules import simplefold_adapter
+
+    class ModelWrapper:
+        device = "cpu"
+
+        def __init__(self, **kwargs) -> None:
+            pass
+
+        def from_pretrained_folding_model(self):
+            return object()
+
+        def from_pretrained_plddt_model(self):
+            return object()
+
+    class InferenceWrapper:
+        tokenizer = object()
+        featurizer = object()
+        processor = object()
+        esm_model = object()
+        esm_dict = object()
+        af2_to_esm = object()
+
+        def __init__(self, **kwargs) -> None:
+            pass
+
+        def run_inference(self, batch, model, plddt_models, device):
+            return {
+                "sampled_coord": [torch.zeros((1, 3))],
+                "pad_mask": [torch.ones((1,))],
+                "plddts": [torch.tensor([91.0])],
+            }
+
+    wrapper = ModuleType("simplefold.wrapper")
+    wrapper.ModelWrapper = ModelWrapper
+    wrapper.InferenceWrapper = InferenceWrapper
+    boltz = ModuleType("simplefold.utils.boltz_utils")
+    boltz.process_structure = lambda *args, **kwargs: object()
+    boltz.save_structure = lambda *args, **kwargs: None
+    boltz.to_pdb = lambda *args, **kwargs: (
+        "ATOM      1  CA  ALA A   1       1.000   2.000   3.000\nEND\n"
+    )
+    fasta = ModuleType("simplefold.utils.fasta_utils")
+    fasta.download_fasta_utilities = lambda cache: None
+
+    def process_fastas(*, data, out_dir, ccd_path) -> None:
+        (out_dir / "structures").mkdir(parents=True)
+        (out_dir / "records").mkdir(parents=True)
+        (out_dir / "structures" / "input.npz").write_bytes(b"npz")
+        (out_dir / "records" / "input.json").write_text("{}")
+
+    fasta.process_fastas = process_fastas
+    datamodule = ModuleType("simplefold.utils.datamodule_utils")
+    datamodule.process_one_inference_structure = (
+        lambda *args, **kwargs: ({}, object(), {})
+    )
+    monkeypatch.setitem(sys.modules, "simplefold.wrapper", wrapper)
+    monkeypatch.setitem(sys.modules, "simplefold.utils.boltz_utils", boltz)
+    monkeypatch.setitem(sys.modules, "simplefold.utils.fasta_utils", fasta)
+    monkeypatch.setitem(
+        sys.modules,
+        "simplefold.utils.datamodule_utils",
+        datamodule,
+    )
+    monkeypatch.setattr(
+        simplefold_adapter,
+        "_setup_simplefold_imports",
+        lambda: os.getcwd(),
+    )
+    monkeypatch.setattr(
+        simplefold_adapter,
+        "validated_simplefold_model_dir",
+        lambda artifacts: artifacts,
+    )
+    monkeypatch.setattr(
+        simplefold_adapter,
+        "_prepare_simplefold_cache",
+        lambda model_dir, cache: None,
+    )
+    evidence_path = _enable_gate(monkeypatch, tmp_path, "heavy-model")
+
+    structures, scores = simplefold_adapter.fold_sequence(
+        ProteinSequence(sequence="AAA"),
+        num_steps=2,
+        num_samples=1,
+        project_dir=str(tmp_path),
+    )
+
+    assert len(structures) == 1
+    assert len(scores.entries) == 1
+    event = _events(evidence_path)[0]
+    assert event["provider"] == "simplefold"
+    assert event["operation"] == "fold_sequence"
+    assert len(event["result"]["summary"]["input_sequence_sha256"]) == 64
+    assert len(event["result"]["summary"]["pdb_sha256"][0]) == 64
+
+
+def test_simplefold_boundary_records_structure_evaluation_result(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    import torch
+    from modules import simplefold_adapter
+
+    class ModelWrapper:
+        device = "cpu"
+
+        def __init__(self, **kwargs) -> None:
+            pass
+
+        def from_pretrained_folding_model(self):
+            return object()
+
+        def from_pretrained_plddt_model(self):
+            return {
+                "plddt_latent_module": (
+                    lambda coords, time, batch: {"latent": torch.ones((1, 1))}
+                ),
+                "plddt_out_module": (
+                    lambda latent, batch: {"plddt": torch.tensor([0.91])}
+                ),
+            }
+
+    wrapper = ModuleType("simplefold.wrapper")
+    wrapper.ModelWrapper = ModelWrapper
+    fasta = ModuleType("simplefold.utils.fasta_utils")
+    fasta.download_fasta_utilities = lambda cache: None
+
+    def process_fastas(*, data, out_dir, ccd_path) -> None:
+        (out_dir / "structures").mkdir(parents=True)
+        (out_dir / "records").mkdir(parents=True)
+        (out_dir / "structures" / "input.npz").write_bytes(b"npz")
+        (out_dir / "records" / "input.json").write_text("{}")
+
+    fasta.process_fastas = process_fastas
+    datamodule = ModuleType("simplefold.utils.datamodule_utils")
+    datamodule.process_one_inference_structure = (
+        lambda *args, **kwargs: (
+            {"coords": torch.zeros((1, 1, 3))},
+            object(),
+            {},
+        )
+    )
+    boltz = ModuleType("simplefold.utils.boltz_utils")
+    boltz.save_structure = lambda *args, **kwargs: None
+    processor = ModuleType("simplefold.processor.protein_processor")
+    processor.ProteinDataProcessor = lambda **kwargs: object()
+    esm_utils = ModuleType("simplefold.utils.esm_utils")
+
+    class ESMModel:
+        def to(self, device):
+            return self
+
+        def eval(self):
+            return self
+
+    esm_utils.esm_registry = {"esm2_3B": lambda: (ESMModel(), object())}
+    esm_utils._af2_to_esm = lambda esm_dict: torch.tensor([0])
+    featurizer = ModuleType(
+        "simplefold.boltz_data_pipeline.feature.featurizer"
+    )
+    featurizer.BoltzFeaturizer = lambda: object()
+    tokenizer = ModuleType(
+        "simplefold.boltz_data_pipeline.tokenize.boltz_protein"
+    )
+    tokenizer.BoltzTokenizer = lambda: object()
+    flow = ModuleType("simplefold.model.flow")
+    flow.LinearPath = object
+    for name, module in {
+        "simplefold.wrapper": wrapper,
+        "simplefold.utils.fasta_utils": fasta,
+        "simplefold.utils.datamodule_utils": datamodule,
+        "simplefold.utils.boltz_utils": boltz,
+        "simplefold.processor.protein_processor": processor,
+        "simplefold.utils.esm_utils": esm_utils,
+        "simplefold.boltz_data_pipeline.feature.featurizer": featurizer,
+        "simplefold.boltz_data_pipeline.tokenize.boltz_protein": tokenizer,
+        "simplefold.model.flow": flow,
+    }.items():
+        monkeypatch.setitem(sys.modules, name, module)
+    monkeypatch.setattr(
+        simplefold_adapter,
+        "_setup_simplefold_imports",
+        lambda: os.getcwd(),
+    )
+    monkeypatch.setattr(
+        simplefold_adapter,
+        "validated_simplefold_model_dir",
+        lambda artifacts: artifacts,
+    )
+    monkeypatch.setattr(
+        simplefold_adapter,
+        "_prepare_simplefold_cache",
+        lambda model_dir, cache: None,
+    )
+    monkeypatch.setattr(
+        simplefold_adapter,
+        "_extract_sequence_from_pdb",
+        lambda pdb: "AAA",
+    )
+    evidence_path = _enable_gate(monkeypatch, tmp_path, "heavy-model")
+
+    scores = simplefold_adapter.evaluate_structure(
+        ProteinStructure(pdb_string="PRIVATE PDB INPUT"),
+        project_dir=str(tmp_path),
+    )
+
+    assert scores.entries[0].value == 91.0
+    event = _events(evidence_path)[0]
+    assert event["operation"] == "evaluate_structure"
+    assert len(event["result"]["summary"]["input_pdb_sha256"]) == 64
+    assert event["result"]["summary"]["score_count"] == 1
+    assert "PRIVATE PDB INPUT" not in evidence_path.read_text()
+
+
+def test_simplefold_import_setup_returns_and_switches_from_original_cwd(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    from modules.simplefold_adapter import _setup_simplefold_imports
+
+    fake_package = ModuleType("simplefold")
+    fake_package.__file__ = str(tmp_path / "simplefold" / "__init__.py")
+    (tmp_path / "simplefold").mkdir()
+    monkeypatch.setitem(sys.modules, "simplefold", fake_package)
+    original_cwd = os.getcwd()
+    try:
+        returned_cwd = _setup_simplefold_imports()
+        assert returned_cwd == original_cwd
+        assert os.getcwd() == str(tmp_path / "simplefold")
+    finally:
+        os.chdir(original_cwd)
+
+
+def test_simplefold_disabled_gate_does_not_enter_provider_directory(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    from modules import simplefold_adapter
+
+    original_cwd = os.getcwd()
+    model_root = tmp_path / "models"
+    model_root.mkdir()
+    monkeypatch.setenv(
+        "PROTEIN_WORKBENCH_SIMPLEFOLD_MODEL_ROOT",
+        str(model_root),
+    )
+
+    setup = MagicMock(side_effect=AssertionError("provider import attempted"))
+    monkeypatch.setattr(simplefold_adapter, "_setup_simplefold_imports", setup)
+
+    with pytest.raises(RuntimeError, match="execution remains disabled"):
+        simplefold_adapter.fold_sequence(ProteinSequence(sequence="AAA"))
+
+    setup.assert_not_called()
+    assert os.getcwd() == original_cwd
+
+
+def test_simplefold_size_only_artifacts_fail_closed_without_sha_contract(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    from core.provider_contract import SIMPLEFOLD_ARTIFACT_IDENTITIES
+    from modules.simplefold_adapter import validated_simplefold_model_dir
+
+    model_root = tmp_path / "models"
+    model_root.mkdir()
+    for name, identity in SIMPLEFOLD_ARTIFACT_IDENTITIES.items():
+        with (model_root / name).open("wb") as artifact:
+            artifact.truncate(identity["bytes"])
+    monkeypatch.setenv(
+        "PROTEIN_WORKBENCH_SIMPLEFOLD_MODEL_ROOT",
+        str(model_root),
+    )
+
+    with pytest.raises(RuntimeError, match="execution remains disabled"):
+        validated_simplefold_model_dir(tmp_path / "working")
+
+
+def test_simplefold_gate_models_are_constrained() -> None:
+    from modules.simplefold_adapter import evaluate_structure, fold_sequence
+
+    with pytest.raises(ValueError, match="requires simplefold_100M"):
+        fold_sequence(
+            ProteinSequence(sequence="AAA"),
+            model_name="simplefold_1.6B",
+        )
+    with pytest.raises(ValueError, match="requires simplefold_360M"):
+        evaluate_structure(
+            ProteinStructure(pdb_string="PRIVATE"),
+            model_name="simplefold_1.6B",
+        )
+
+
+def test_provider_evidence_rejects_raw_payload_fields(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    from core.provider_evidence import record_provider_call_result
+
+    _enable_gate(monkeypatch, tmp_path, "live-provider")
+    with pytest.raises(ValueError, match="non-allowlisted"):
+        record_provider_call_result(
+            provider="biohub",
+            operation="esm3.generate_sequence",
+            model="esm3-medium-2024-08",
+            provider_identity={
+                "sdk": "esm",
+                "sdk_source_revision": (
+                    "917af90b624535eed1e072d343c717e3ec11fef4"
+                ),
+                "service": "Biohub",
+            },
+            effective_seed=None,
+            seed_control="unsupported_by_provider",
+            result_summary={
+                "result_type": "ESMProtein",
+                "sequence": "PRIVATESEQUENCE",
+            },
+        )
+
+
+def test_required_provider_unavailability_is_a_failure(monkeypatch) -> None:
+    from tests.acceptance.conftest import require_ready
+
+    monkeypatch.setenv("PROTEIN_WORKBENCH_REQUIRE_PROVIDER_CALL", "1")
+    with pytest.raises(pytest.fail.Exception, match="is not available"):
+        require_ready("simplefold", {"simplefold": False})
+
+
+def test_local_esm3_loader_is_bound_to_validated_snapshot(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    import esm.pretrained as esm_pretrained
+    from esm.models.esm3 import ESM3
+    from modules import esm3_adapter
+
+    snapshot = tmp_path / "snapshot"
+    snapshot.mkdir()
+    monkeypatch.setattr(
+        esm3_adapter,
+        "validate_installed_provider_checkout",
+        lambda *args: tmp_path,
+    )
+    monkeypatch.setattr(
+        esm3_adapter,
+        "validate_local_esm3_snapshot",
+        lambda: snapshot,
+    )
+
+    class Client:
+        def float(self):
+            return self
+
+    observed = {}
+
+    def fake_from_pretrained(model_name, device):
+        observed["root"] = esm_pretrained.data_root("esm3")
+        return Client()
+
+    monkeypatch.setattr(ESM3, "from_pretrained", fake_from_pretrained)
+
+    client = esm3_adapter.create_esm3_client("esm3_sm_open_v1")
+
+    assert isinstance(client, Client)
+    assert observed["root"] == snapshot
+
+
+def test_normal_vcs_provider_install_verifies_record_hashes(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    from core import provider_contract
+
+    package_file = tmp_path / "esm" / "__init__.py"
+    package_file.parent.mkdir()
+    package_file.write_text("LOCKED = True\n")
+    digest = hashlib.sha256(package_file.read_bytes()).digest()
+
+    class File:
+        hash = type("Hash", (), {
+            "mode": "sha256",
+            "value": base64.urlsafe_b64encode(digest).decode().rstrip("="),
+        })()
+
+        def __str__(self) -> str:
+            return "esm/__init__.py"
+
+    class Distribution:
+        files = [File()]
+
+        def read_text(self, name: str) -> str:
+            assert name == "direct_url.json"
+            return json.dumps({
+                "url": "https://example.invalid/esm.git",
+                "vcs_info": {
+                    "vcs": "git",
+                    "commit_id": provider_contract.ESM_SDK_REVISION,
+                    "requested_revision": provider_contract.ESM_SDK_REVISION,
+                },
+            })
+
+        def locate_file(self, item) -> Path:
+            return tmp_path / str(item)
+
+    monkeypatch.setattr(
+        provider_contract.importlib.metadata,
+        "distribution",
+        lambda name: Distribution(),
+    )
+    monkeypatch.setitem(
+        provider_contract.PROVIDER_PACKAGE_TREE_SHA256,
+        "esm",
+        provider_contract._package_tree_sha256([
+            ("__init__.py", package_file),
+        ]),
+    )
+
+    resolved = provider_contract.validate_installed_provider_checkout(
+        "esm",
+        provider_contract.ESM_SDK_REVISION,
+    )
+
+    assert resolved == package_file.parent
+
+    (package_file.parent / "injected.py").write_text("raise RuntimeError\n")
+    with pytest.raises(RuntimeError, match="absent from RECORD"):
+        provider_contract.validate_installed_provider_checkout(
+            "esm",
+            provider_contract.ESM_SDK_REVISION,
+        )

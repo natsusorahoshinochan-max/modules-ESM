@@ -262,12 +262,21 @@ class TestESM3Adapter:
         assert len(plddt_entry) == 1
         assert abs(plddt_entry[0].value - 0.7) < 0.01
 
-    def test_read_biohub_token_found(self) -> None:
+    def test_read_biohub_token_found(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path,
+    ) -> None:
         from modules.esm3_adapter import read_biohub_token
 
+        token_path = tmp_path / "esmkey.txt"
+        token_path.write_text("configured-test-token")
+        monkeypatch.setenv(
+            "PROTEIN_WORKBENCH_BIOHUB_TOKEN_FILE",
+            str(token_path),
+        )
         token = read_biohub_token()
-        assert isinstance(token, str)
-        assert len(token) > 0
+        assert token == "configured-test-token"
 
 
 # ── Update Prompt Sequence ───────────────────────────────────────────

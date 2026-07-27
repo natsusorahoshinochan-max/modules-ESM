@@ -14,6 +14,10 @@ from pathlib import Path
 from types import ModuleType
 from typing import Any, Protocol
 
+from core.provider_contract import (
+    PROTEINMPNN_REVISION,
+    proteinmpnn_provider_identity,
+)
 from datatypes import (
     ProteinMPNNConstraints,
     ProteinSequence,
@@ -24,7 +28,7 @@ _ALPHABET = "ACDEFGHIKLMNPQRSTVWYX"
 _ALPHABET_DICT = dict(zip(_ALPHABET, range(21)))
 _SUPPORTED_MODELS = {"v_48_002", "v_48_010", "v_48_020", "v_48_030"}
 _LOCAL_PROVIDER_IDENTITY = "local-proteinmpnn"
-_PROTEINMPNN_COMMIT = "8907e6671bfbfc92303b5f79c4b5e6ce47cdef57"
+_PROTEINMPNN_COMMIT = PROTEINMPNN_REVISION
 _CHECKPOINT_SHA256 = {
     "vanilla_model_weights/v_48_002.pt": (
         "925f2ca1007bf9b02e0e7f420ff00eb91f50fcc2722f64b42e644ae95adaa131"
@@ -216,10 +220,7 @@ class ProteinMPNNProvider(Protocol):
 def _get_checkpoint_path(model_name: str) -> str:
     """Get the path to a ProteinMPNN model checkpoint."""
     provider_root = _proteinmpnn_dir()
-    candidate_names = [
-        f"vanilla_model_weights/{model_name}.pt",
-        f"soluble_model_weights/{model_name}.pt",
-    ]
+    candidate_names = [f"vanilla_model_weights/{model_name}.pt"]
     for candidate_name in candidate_names:
         path = provider_root / candidate_name
         if not path.is_file():
@@ -231,7 +232,7 @@ def _get_checkpoint_path(model_name: str) -> str:
         return str(validated)
     raise FileNotFoundError(
         f"ProteinMPNN checkpoint not found for {model_name}. "
-        f"Looked in vanilla_model_weights/ and soluble_model_weights/"
+        "Looked in vanilla_model_weights/"
     )
 
 
@@ -875,7 +876,32 @@ def design_sequences(
             raise RuntimeError(
                 f"ProteinMPNN sample {sample_index} score is not finite"
             )
-    return sequences, [float(score) for score in scores]
+    numeric_scores = [float(score) for score in scores]
+    from core.provider_evidence import record_provider_call_result
+
+    record_provider_call_result(
+        provider=selected_provider.provider_identity,
+        operation="design_sequences",
+        model=model_name,
+        provider_identity=proteinmpnn_provider_identity(),
+        effective_seed=seed,
+        seed_control="provider_request_seed",
+        result_summary={
+            "input_pdb_sha256": hashlib.sha256(
+                pdb_string.encode()
+            ).hexdigest(),
+            "sequence_count": len(sequences),
+            "sequence_lengths": [len(sequence.sequence) for sequence in sequences],
+            "sequence_sha256": [
+                hashlib.sha256(sequence.sequence.encode()).hexdigest()
+                for sequence in sequences
+            ],
+            "score_count": len(numeric_scores),
+            "score_min": min(numeric_scores),
+            "score_max": max(numeric_scores),
+        },
+    )
+    return sequences, numeric_scores
 
 
 def score_sequence(
@@ -885,7 +911,6 @@ def score_sequence(
     temp_dir: str | Path | None = None,
 ) -> float:
     """Score how well a sequence fits a structure."""
-    model, device = _load_model(model_name)
     pdb_dict_list = _parse_structure(pdb_string, temp_dir=temp_dir)
 
     if len(pdb_dict_list) == 0:
@@ -901,7 +926,6 @@ def score_sequence(
         None,
         None,
     )
-    batch = _featurize(request, device)
     if len(sequence) != request.target_length:
         raise ValueError(
             f"sequence length {len(sequence)} does not match structure length "
@@ -914,4 +938,33 @@ def score_sequence(
         "score_sequence",
         model=model_name,
     )
-    return _compute_score(model, batch, sequence, device)
+    import torch
+
+    with torch.random.fork_rng():
+        torch.manual_seed(42)
+        model, device = _load_model(model_name)
+        batch = _featurize(request, device)
+        score = float(_compute_score(model, batch, sequence, device))
+    if not isfinite(score):
+        raise RuntimeError("ProteinMPNN provider returned a non-finite score")
+    from core.provider_evidence import record_provider_call_result
+
+    record_provider_call_result(
+        provider=_LOCAL_PROVIDER_IDENTITY,
+        operation="score_sequence",
+        model=model_name,
+        provider_identity=proteinmpnn_provider_identity(),
+        effective_seed=42,
+        seed_control="fixed_scoring_seed",
+        result_summary={
+            "input_pdb_sha256": hashlib.sha256(
+                pdb_string.encode()
+            ).hexdigest(),
+            "input_sequence_sha256": hashlib.sha256(
+                sequence.encode()
+            ).hexdigest(),
+            "score": score,
+            "sequence_length": len(sequence),
+        },
+    )
+    return score

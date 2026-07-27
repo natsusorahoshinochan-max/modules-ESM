@@ -6,13 +6,17 @@ Evaluate: structure -> pLDDT scores (larger model, no re-folding).
 
 from __future__ import annotations
 
+import hashlib
 import os
+import shutil
+import stat
 import sys
 import tempfile
 import uuid
 from copy import deepcopy
+from functools import wraps
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 import numpy as np
 import torch
@@ -23,14 +27,26 @@ from datatypes import (
     Score,
     ScoreCollection,
 )
+from core.provider_contract import (
+    SIMPLEFOLD_ARTIFACT_IDENTITIES,
+    SIMPLEFOLD_ARTIFACT_SHA256,
+    SIMPLEFOLD_AUXILIARY_ARTIFACTS,
+    SIMPLEFOLD_EXECUTION_ENABLED,
+    SIMPLEFOLD_REVISION,
+    simplefold_provider_identity,
+    validate_installed_provider_checkout,
+)
 
 
-def _setup_simplefold_imports() -> None:
-    """Ensure simplefold internal absolute imports resolve correctly."""
+def _setup_simplefold_imports() -> str:
+    """Enter the provider package directory and return the prior directory."""
     import simplefold
+    old_cwd = os.getcwd()
     sf_dir = os.path.abspath(os.path.dirname(simplefold.__file__))
     if sf_dir not in sys.path:
         sys.path.insert(0, sf_dir)
+    os.chdir(sf_dir)
+    return old_cwd
 
 def _get_artifact_dir(project_dir: str | None) -> Path:
     """Get or create artifact directory for model checkpoints and outputs."""
@@ -43,6 +59,142 @@ def _get_artifact_dir(project_dir: str | None) -> Path:
     return artifacts
 
 
+def _sha256_regular_file(
+    path: Path,
+    *,
+    expected_bytes: int | None = None,
+) -> str:
+    digest = hashlib.sha256()
+    flags = os.O_RDONLY
+    if hasattr(os, "O_NOFOLLOW"):
+        flags |= os.O_NOFOLLOW
+    descriptor = os.open(path, flags)
+    try:
+        file_stat = os.fstat(descriptor)
+        if not stat.S_ISREG(file_stat.st_mode):
+            raise RuntimeError(
+                f"SimpleFold artifact is not a regular file: {path.name}"
+            )
+        if expected_bytes is not None and file_stat.st_size != expected_bytes:
+            raise RuntimeError(
+                f"SimpleFold artifact byte count mismatch: {path.name}"
+            )
+        with os.fdopen(descriptor, "rb", closefd=False) as handle:
+            while chunk := handle.read(1024 * 1024):
+                digest.update(chunk)
+    finally:
+        os.close(descriptor)
+    return digest.hexdigest()
+
+
+def validated_simplefold_model_dir(working_artifacts: Path) -> Path:
+    """Resolve only immutable, locally provisioned SimpleFold provider objects."""
+    configured = os.environ.get("PROTEIN_WORKBENCH_SIMPLEFOLD_MODEL_ROOT")
+    if not configured:
+        raise FileNotFoundError(
+            "SimpleFold model root is not explicitly configured"
+        )
+    model_dir = Path(configured).expanduser()
+    if model_dir.is_symlink() or not model_dir.is_dir():
+        raise FileNotFoundError(
+            "SimpleFold model root is unavailable or is a symlink"
+        )
+    required_names = {
+        *SIMPLEFOLD_ARTIFACT_IDENTITIES,
+        *SIMPLEFOLD_AUXILIARY_ARTIFACTS,
+    }
+    if not SIMPLEFOLD_EXECUTION_ENABLED:
+        raise RuntimeError(
+            "SimpleFold real-provider execution remains disabled pending "
+            "reviewed artifact and runtime containment"
+        )
+    missing_contract = required_names - SIMPLEFOLD_ARTIFACT_SHA256.keys()
+    if missing_contract:
+        raise RuntimeError(
+            "SimpleFold real-provider SHA-256 contract is incomplete: "
+            + ", ".join(sorted(missing_contract))
+        )
+    for name in sorted(required_names):
+        artifact = model_dir / name
+        expected_bytes = SIMPLEFOLD_ARTIFACT_IDENTITIES.get(name, {}).get("bytes")
+        if artifact.is_symlink() or not artifact.is_file():
+            raise FileNotFoundError(
+                f"SimpleFold model artifact is missing or incomplete: {name}"
+            )
+        if _sha256_regular_file(
+            artifact,
+            expected_bytes=expected_bytes,
+        ) != SIMPLEFOLD_ARTIFACT_SHA256[name]:
+            raise RuntimeError(
+                f"SimpleFold artifact SHA-256 mismatch: {name}"
+            )
+    validate_installed_provider_checkout("simplefold", SIMPLEFOLD_REVISION)
+    staged = working_artifacts / "verified_provider"
+    staged.mkdir(mode=0o700)
+    for name in sorted(required_names):
+        _copy_regular_file(model_dir / name, staged / name)
+        expected_bytes = SIMPLEFOLD_ARTIFACT_IDENTITIES.get(name, {}).get("bytes")
+        if _sha256_regular_file(
+            staged / name,
+            expected_bytes=expected_bytes,
+        ) != SIMPLEFOLD_ARTIFACT_SHA256[name]:
+            raise RuntimeError(
+                f"Staged SimpleFold artifact SHA-256 mismatch: {name}"
+            )
+    return staged
+
+
+def _copy_regular_file(source: Path, destination: Path) -> None:
+    source_flags = os.O_RDONLY
+    destination_flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL
+    if hasattr(os, "O_NOFOLLOW"):
+        source_flags |= os.O_NOFOLLOW
+        destination_flags |= os.O_NOFOLLOW
+    source_descriptor = os.open(source, source_flags)
+    try:
+        if not stat.S_ISREG(os.fstat(source_descriptor).st_mode):
+            raise RuntimeError("SimpleFold source artifact is not regular")
+        destination_descriptor = os.open(
+            destination,
+            destination_flags,
+            0o600,
+        )
+        try:
+            with (
+                os.fdopen(source_descriptor, "rb", closefd=False) as source_file,
+                os.fdopen(
+                    destination_descriptor,
+                    "wb",
+                    closefd=False,
+                ) as destination_file,
+            ):
+                shutil.copyfileobj(source_file, destination_file)
+        finally:
+            os.close(destination_descriptor)
+    finally:
+        os.close(source_descriptor)
+
+
+def _prepare_simplefold_cache(model_dir: Path, cache: Path) -> None:
+    """Populate a fresh cache from verified objects; never invoke a downloader."""
+    for name in SIMPLEFOLD_AUXILIARY_ARTIFACTS:
+        _copy_regular_file(model_dir / name, cache / name)
+
+
+def _restore_process_cwd(function: Callable[..., Any]) -> Callable[..., Any]:
+    """Restore process-global CWD even when the provider raises."""
+    @wraps(function)
+    def wrapped(*args: Any, **kwargs: Any) -> Any:
+        original_cwd = os.getcwd()
+        try:
+            return function(*args, **kwargs)
+        finally:
+            os.chdir(original_cwd)
+
+    return wrapped
+
+
+@_restore_process_cwd
 def fold_sequence(
     sequence: ProteinSequence,
     model_name: str = "simplefold_100M",
@@ -57,6 +209,11 @@ def fold_sequence(
 
     num_steps is capped at 50 per ADR 0013.
     """
+    if model_name != "simplefold_100M":
+        raise ValueError("SimpleFold folding requires simplefold_100M")
+    num_steps = min(num_steps, 50)
+    artifacts = _get_artifact_dir(project_dir)
+    model_dir = validated_simplefold_model_dir(artifacts)
     old_cwd = _setup_simplefold_imports()
     from simplefold.wrapper import ModelWrapper, InferenceWrapper
     from simplefold.utils.boltz_utils import (
@@ -64,14 +221,9 @@ def fold_sequence(
         save_structure,
         to_pdb as sf_to_pdb,
     )
-    from simplefold.utils.fasta_utils import (
-        download_fasta_utilities,
-        process_fastas,
-    )
+    from simplefold.utils.fasta_utils import process_fastas
     from simplefold.utils.datamodule_utils import process_one_inference_structure
 
-    num_steps = min(num_steps, 50)
-    artifacts = _get_artifact_dir(project_dir)
     output_dir = artifacts / "output"
     output_dir.mkdir(parents=True, exist_ok=True)
     cache = artifacts / "cache"
@@ -81,8 +233,7 @@ def fold_sequence(
     fasta_path = cache / "input.fasta"
     fasta_path.write_text(f">A|Protein\n{sequence.sequence}\n")
 
-    # Download FASTA utilities if needed
-    download_fasta_utilities(cache)
+    _prepare_simplefold_cache(model_dir, cache)
 
     # Process FASTA
     process_fastas(
@@ -95,7 +246,7 @@ def fold_sequence(
     model_wrapper = ModelWrapper(
         simplefold_model=model_name,
         plddt=True,
-        ckpt_dir=str(artifacts),
+        ckpt_dir=str(model_dir),
         backend="torch",
     )
     model = model_wrapper.from_pretrained_folding_model()
@@ -122,6 +273,8 @@ def fold_sequence(
         raise ValueError("No structure files generated from FASTA processing")
 
     for struct_file in struct_files:
+        structure_start = len(structures)
+        score_start = len(all_score_entries)
         record_file = output_dir / "records" / f"{struct_file.stem}.json"
 
         batch, structure, record = process_one_inference_structure(
@@ -188,6 +341,35 @@ def fold_sequence(
                         "sample_index": i,
                     },
                 ))
+        from core.provider_evidence import record_provider_call_result
+
+        produced = structures[structure_start:]
+        record_provider_call_result(
+            provider="simplefold",
+            operation="fold_sequence",
+            model=model_name,
+            provider_identity=simplefold_provider_identity(
+                SIMPLEFOLD_ARTIFACT_SHA256
+            ),
+            effective_seed=None,
+            seed_control="unsupported_by_adapter",
+            result_summary={
+                "input_sequence_length": len(sequence.sequence),
+                "input_sequence_sha256": hashlib.sha256(
+                    sequence.sequence.encode()
+                ).hexdigest(),
+                "structure_count": len(produced),
+                "pdb_bytes": [
+                    len(structure.pdb_string.encode()) for structure in produced
+                ],
+                "pdb_sha256": [
+                    hashlib.sha256(structure.pdb_string.encode()).hexdigest()
+                    for structure in produced
+                ],
+                "score_count": len(all_score_entries) - score_start,
+                "num_steps": num_steps,
+            },
+        )
 
     os.chdir(old_cwd)
     return structures, ScoreCollection(
@@ -196,6 +378,7 @@ def fold_sequence(
     )
 
 
+@_restore_process_cwd
 def evaluate_structure(
     structure: ProteinStructure,
     model_name: str = "simplefold_360M",
@@ -207,12 +390,13 @@ def evaluate_structure(
     feeds existing coordinates through the folding model for latent extraction,
     then runs the pLDDT head.
     """
+    if model_name != "simplefold_360M":
+        raise ValueError("SimpleFold evaluation requires simplefold_360M")
+    artifacts = _get_artifact_dir(project_dir)
+    model_dir = validated_simplefold_model_dir(artifacts)
     old_cwd = _setup_simplefold_imports()
     from simplefold.wrapper import ModelWrapper
-    from simplefold.utils.fasta_utils import (
-        download_fasta_utilities,
-        process_fastas,
-    )
+    from simplefold.utils.fasta_utils import process_fastas
     from simplefold.utils.datamodule_utils import process_one_inference_structure
     from simplefold.utils.boltz_utils import save_structure
     from simplefold.processor.protein_processor import ProteinDataProcessor
@@ -221,7 +405,6 @@ def evaluate_structure(
     from simplefold.boltz_data_pipeline.tokenize.boltz_protein import BoltzTokenizer
     from simplefold.model.flow import LinearPath
 
-    artifacts = _get_artifact_dir(project_dir)
     output_dir = artifacts / "eval_output"
     output_dir.mkdir(parents=True, exist_ok=True)
     cache = artifacts / "cache"
@@ -240,8 +423,7 @@ def evaluate_structure(
     fasta_path = cache / "eval.fasta"
     fasta_path.write_text(f">A|Protein\n{seq}\n")
 
-    # Download FASTA utilities if needed
-    download_fasta_utilities(cache)
+    _prepare_simplefold_cache(model_dir, cache)
 
     # Process FASTA through standard pipeline
     process_fastas(
@@ -254,7 +436,7 @@ def evaluate_structure(
     model_wrapper = ModelWrapper(
         simplefold_model=model_name,
         plddt=True,
-        ckpt_dir=str(artifacts),
+        ckpt_dir=str(model_dir),
         backend="torch",
     )
     model = model_wrapper.from_pretrained_folding_model()
@@ -288,6 +470,7 @@ def evaluate_structure(
     entries: list[Score] = []
 
     for struct_file in struct_files:
+        score_start = len(entries)
         record_file = output_dir / "records" / f"{struct_file.stem}.json"
 
         batch, structure_data, record = process_one_inference_structure(
@@ -331,6 +514,31 @@ def evaluate_structure(
                 "model": model_name,
             },
         ))
+        from core.provider_evidence import record_provider_call_result
+
+        produced_scores = entries[score_start:]
+        record_provider_call_result(
+            provider="simplefold",
+            operation="evaluate_structure",
+            model=model_name,
+            provider_identity=simplefold_provider_identity(
+                SIMPLEFOLD_ARTIFACT_SHA256
+            ),
+            effective_seed=None,
+            seed_control="deterministic_existing_coordinates",
+            result_summary={
+                "input_pdb_sha256": hashlib.sha256(
+                    structure.pdb_string.encode()
+                ).hexdigest(),
+                "score_count": len(produced_scores),
+                "score_ids": [
+                    score.score_id for score in produced_scores
+                ],
+                "score_values": [
+                    float(score.value) for score in produced_scores
+                ],
+            },
+        )
 
     os.chdir(old_cwd)
     return ScoreCollection(

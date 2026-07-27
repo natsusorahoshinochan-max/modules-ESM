@@ -1,5 +1,6 @@
 """Acceptance: ESM3 sequence generation via Biohub."""
 
+import hashlib
 import pytest
 
 from core.run_context import RunContext
@@ -10,7 +11,7 @@ from datatypes import (
     ResidueLayout,
     ResidueTrack,
 )
-from tests.acceptance.conftest import require_ready
+from tests.acceptance.conftest import SEQUENCE_3GB1_SHA256, require_ready
 
 
 def _make_prompt(seq_str: str) -> ProteinPrompt:
@@ -28,7 +29,7 @@ def _make_prompt(seq_str: str) -> ProteinPrompt:
 @pytest.mark.live_provider
 class TestBiohubGeneration:
     def test_generate_3gb1_sequence(
-        self, readiness, pdb_3gb1, record_provider_call, isolated_project_dir
+        self, readiness, pdb_3gb1, isolated_project_dir
     ):
         require_ready("biohub", readiness)
 
@@ -36,6 +37,7 @@ class TestBiohubGeneration:
 
         seq_str = _extract_sequence(pdb_3gb1.pdb_string)
         assert len(seq_str) == 56, f"Expected 56 residues, got {len(seq_str)}"
+        assert hashlib.sha256(seq_str.encode()).hexdigest() == SEQUENCE_3GB1_SHA256
 
         prompt = _make_prompt(seq_str)
 
@@ -49,7 +51,6 @@ class TestBiohubGeneration:
              "temperature": 0.7, "num_samples": 1},
             ctx,
         )
-        record_provider_call("biohub", "esm3.generate_sequence")
 
         candidates = result["candidates"]
         assert isinstance(candidates, CandidateCollection)
@@ -65,7 +66,7 @@ class TestBiohubGeneration:
         # verify at minimum that scores is a valid collection
 
     def test_generate_1pga_sequence(
-        self, readiness, pdb_1pga, record_provider_call, isolated_project_dir
+        self, readiness, pdb_1pga, isolated_project_dir
     ):
         require_ready("biohub", readiness)
 
@@ -86,7 +87,6 @@ class TestBiohubGeneration:
              "temperature": 0.7, "num_samples": 1},
             ctx,
         )
-        record_provider_call("biohub", "esm3.generate_sequence")
 
         candidates = result["candidates"]
         assert isinstance(candidates, CandidateCollection)
