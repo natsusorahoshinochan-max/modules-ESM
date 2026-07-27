@@ -11,5 +11,8 @@ error message. Modules must not swallow provider errors and return partial
 data.
 
 This keeps the execution model simple: each node either produces complete,
-valid outputs for all declared output ports, or it fails entirely. There is
-no concept of degraded or partial success.
+valid outputs for every required standalone output port and exactly one
+complete alternative from each declared output group, or it fails entirely.
+Ports belonging to an unselected output alternative are absent by contract;
+they are not partial success. There is no concept of degraded or partial
+success within the selected output contract.

@@ -22,12 +22,19 @@ input_groups:
 output_ports:
   - name: track_output
     type_id: residue.track
+    required: false
     display_name: Track
     description: "Updated residue track with overrides applied."
   - name: secondary_structure_track_output
     type_id: residue.track.secondary_structure
+    required: false
     display_name: Secondary Structure Track
     description: "Updated secondary-structure track with its Port type preserved."
+output_groups:
+  - name: track_output
+    alternatives:
+      - [track_output]
+      - [secondary_structure_track_output]
 parameters:
   - name: overrides
     type: str

@@ -107,6 +107,16 @@ def _module_to_dict(m: ModuleDefinition) -> dict:
             for group in m.input_groups
         ],
         "output_ports": [_port_to_dict(p) for p in m.output_ports],
+        "output_groups": [
+            {
+                "name": group.name,
+                "alternatives": [
+                    list(alternative)
+                    for alternative in group.alternatives
+                ],
+            }
+            for group in m.output_groups
+        ],
         "parameters": [_param_to_dict(p) for p in m.parameters],
         "module_api": m.module_api,
     }

@@ -26,16 +26,23 @@ input_groups:
 output_ports:
   - name: track
     type_id: residue.track
+    required: false
     display_name: Track
     description: "Output residue track with count sentinel values inserted."
   - name: secondary_structure_track
     type_id: residue.track.secondary_structure
+    required: false
     display_name: Secondary Structure Track
     description: "Extended secondary-structure track with its Port type preserved."
   - name: layout
     type_id: residue.layout
     display_name: Layout
     description: "Updated residue layout with length increased by count."
+output_groups:
+  - name: track_output
+    alternatives:
+      - [track]
+      - [secondary_structure_track]
 parameters:
   - name: count
     type: int

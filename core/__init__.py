@@ -12,6 +12,7 @@ from core.graph import (
 from core.module_definition import (
     InputGroupDefinition,
     ModuleDefinition,
+    OutputGroupDefinition,
     ParameterDefinition,
     PortDefinition,
 )
@@ -30,6 +31,7 @@ __all__ = [
     "ModuleDefinition",
     "ModuleRegistry",
     "NodeState",
+    "OutputGroupDefinition",
     "ParameterDefinition",
     "PortDefinition",
     "ProjectManager",
