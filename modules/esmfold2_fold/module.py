@@ -71,6 +71,11 @@ class ESMFold2FoldModule(WorkflowModule):
         all_scores_entries = []
 
         for parent_id, seq in sequences:
+            context.record_provider_call(
+                "biohub",
+                "fold",
+                model=model_name,
+            )
             structure, scores = fold_sequence(
                 sequence=seq,
                 model_name=model_name,

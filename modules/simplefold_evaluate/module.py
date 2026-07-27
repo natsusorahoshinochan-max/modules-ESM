@@ -66,6 +66,11 @@ class SimpleFoldEvaluateModule(WorkflowModule):
         all_scores_entries = []
 
         for parent_id, struct in structures:
+            context.record_provider_call(
+                "simplefold",
+                "evaluate_structure",
+                model=model_name,
+            )
             scores = evaluate_structure(
                 structure=struct,
                 model_name=model_name,

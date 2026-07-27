@@ -64,6 +64,11 @@ class ProteinMPNNDesignModule(WorkflowModule):
             model_name, num_sequences, temperature, backbone_noise
         )
 
+        context.record_provider_call(
+            "proteinmpnn",
+            "design_sequences",
+            model=model_name,
+        )
         sequences, native_score = design_sequences(
             pdb_string=structure.pdb_string,
             model_name=model_name,

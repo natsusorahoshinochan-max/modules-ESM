@@ -35,6 +35,11 @@ class ProteinMPNNScoreModule(WorkflowModule):
 
         model_name = str(parameters.get("model_name", "v_48_020"))
 
+        context.record_provider_call(
+            "proteinmpnn",
+            "score_sequence",
+            model=model_name,
+        )
         score_val = score_sequence(
             pdb_string=structure.pdb_string,
             sequence=sequence.sequence,

@@ -78,6 +78,11 @@ class ESM3GenerateModule(WorkflowModule):
         all_scores_entries = []
 
         for i in range(num_samples):
+            context.record_provider_call(
+                "local_open" if model_name == "esm3_sm_open_v1" else "biohub",
+                "generate(track=sequence)",
+                model=model_name,
+            )
             sequence_result = call_esm3_provider(
                 client,
                 esm_protein,
@@ -118,6 +123,11 @@ class ESM3GenerateModule(WorkflowModule):
             sampled_structure_prompt = structure_sampling_input(
                 sequence_result,
                 esm_protein,
+            )
+            context.record_provider_call(
+                "local_open" if model_name == "esm3_sm_open_v1" else "biohub",
+                "generate(track=structure)",
+                model=model_name,
             )
             structure_result = call_esm3_provider(
                 client,
