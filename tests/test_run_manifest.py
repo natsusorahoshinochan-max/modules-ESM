@@ -501,6 +501,37 @@ def test_recursive_parameter_identity_attributes_cache_hit_to_consuming_run(
     ]
 
 
+def test_requested_seed_always_partitions_cache_without_false_effective_seed(
+    tmp_path: Path,
+) -> None:
+    CountingModule.calls = 0
+    project_dir = tmp_path / "project"
+    cache_keys = []
+    for seed in (11, 12):
+        workflow = Workflow()
+        workflow.add_node(
+            WorkflowNode("count", "test.counting", "1.0.0")
+        )
+        asyncio.run(
+            Executor().execute(
+                workflow,
+                {"test.counting": CountingModule()},
+                str(project_dir),
+                f"seed-{seed}",
+                seed=seed,
+                project_id="project-11",
+            )
+        )
+        manifest = read_run_manifest(
+            project_dir / "runs" / f"seed-{seed}"
+        )
+        assert manifest["effective_seeds"] == {}
+        cache_keys.append(manifest["cache"][0]["cache_key"])
+
+    assert CountingModule.calls == 2
+    assert cache_keys[0] != cache_keys[1]
+
+
 def test_partial_node_output_fails_structurally_and_is_never_cached(
     tmp_path: Path,
 ) -> None:

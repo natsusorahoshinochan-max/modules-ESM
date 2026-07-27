@@ -95,7 +95,7 @@ class Executor:
             "module_version": module_version,
             "input_hashes": input_hashes,
             "parameters": parameters,
-            "effective_seed": seed,
+            "requested_seed": seed,
         }
         return hashlib.sha256(canonical_json(identity)).hexdigest()[:32]
 
@@ -358,13 +358,12 @@ class Executor:
                         context._manifest_store = manifest_store
 
                         # Check cache (skip if force re-run)
-                        effective_seed = seed if module.uses_seed else None
                         cache_key = self._compute_cache_key(
                             node.module_id,
                             module.definition.version,
                             inputs,
                             node.parameters,
-                            effective_seed,
+                            seed,
                         )
                         if project_manager is not None and project_id is not None:
                             cache_root = project_manager.cache_dir(project_id)
