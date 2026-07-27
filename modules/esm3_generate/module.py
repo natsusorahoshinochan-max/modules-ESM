@@ -1,6 +1,7 @@
 """ESM3 Generate: unified generation producing both sequence and structure candidates."""
 
 import uuid
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
@@ -25,9 +26,13 @@ class ESM3GenerateModule(WorkflowModule):
             "esm3-medium-2024-08",
         ) == "esm3_sm_open_v1"
 
-    def __init__(self) -> None:
+    def __init__(
+        self,
+        client_factory: Callable[[str, str], Any] | None = None,
+    ) -> None:
         d = Path(__file__).parent / "definition.yaml"
         self._definition = ModuleDefinition.from_yaml(d)
+        self._client_factory = client_factory
 
     @property
     def definition(self) -> ModuleDefinition:
@@ -51,7 +56,6 @@ class ESM3GenerateModule(WorkflowModule):
 
         from modules.esm3_adapter import (
             call_esm3_provider,
-            create_esm3_client,
             derive_esm3_call_seed,
             esm3_candidate_metadata,
             esm3_seed_control,
@@ -62,13 +66,18 @@ class ESM3GenerateModule(WorkflowModule):
             structure_sampling_input,
             validate_esm3_structure_response,
         )
+        if self._client_factory is None:
+            from modules.esm3_adapter import create_esm3_client
+            client_factory = create_esm3_client
+        else:
+            client_factory = self._client_factory
 
         esm_protein = protein_prompt_to_esm_protein(prompt)
         seed_control = esm3_seed_control(model_name)
         sequence_source_classification = (
             "prompt_reconstruction" if esm_protein.coordinates is not None else "absent"
         )
-        client = create_esm3_client(model_name, context.project_dir)
+        client = client_factory(model_name, context.project_dir)
 
         from esm.sdk.api import GenerationConfig
 

@@ -9,7 +9,8 @@ interpreter, isolated roots, and final result are visible in the transcript:
 
 Every invocation creates temporary, distinct project, Cache, output, and run roots.
 Configured production roots are replaced only in the child verification process and
-are not written. JUnit and provider-call evidence are retained under the ignored
+are not written. JUnit, a sanitized pytest command transcript, and provider-call
+evidence when required are retained under the ignored
 `verification-results/<tier>/<UTC-run-id>/` directory; set
 `PROTEIN_WORKBENCH_VERIFICATION_RESULTS_ROOT` to select a CI artifact directory.
 Plain `.venv/bin/pytest` uses the same isolation policy and defaults to the routine
@@ -20,6 +21,7 @@ marker expression.
 | Tier | Command | Contract |
 | --- | --- | --- |
 | Routine backend regression | `.venv/bin/python scripts/verify_backend.py routine` | Fast deterministic tests only; excludes acceptance, remote providers, local providers, heavy models, and intentionally red reproductions. |
+| Deterministic backend acceptance | `.venv/bin/python scripts/verify_backend.py deterministic-acceptance` | Runs the canonical provider-fixture Workflow and failure variants through a real backend process using only REST, run-scoped WebSocket, manifest, Cache, and artifact APIs. |
 | Installed backend artifact | `.venv/bin/python scripts/verify_backend.py installed-package` | Builds wheel and sdist, checks required YAML and canonical assets, installs the wheel with dependencies into a brand-new venv, then discovers all 45 Modules and starts the API from outside the source checkout. |
 | Scientific reproduction | `.venv/bin/python scripts/verify_backend.py scientific-repro` | Runs the deterministic SCI-001 reproduction and confirms that legal amino-acid symbols reach the ESM3 boundary unchanged. |
 | Mocked Workflow | `.venv/bin/python scripts/verify_backend.py mocked-workflow` | Runs the current deterministic 3GB1 Workflow tests with provider boundaries replaced by fixtures. |
@@ -30,6 +32,26 @@ marker expression.
 Fresh remote 3GB1 acceptance is intentionally not a placeholder tier here. Its
 command becomes valid only when tickets 18 through 20 add the remaining
 deterministic and source-bound evidence contracts.
+
+## Deterministic public-protocol acceptance
+
+The deterministic tier starts a real uvicorn backend process and uses a small
+Python client with no frontend or React dependency. The client submits the
+canonical Workflow through REST, consumes only its project/run WebSocket,
+retrieves the durable manifest and outputs, and downloads every PDB through the
+manifest-bound artifact route. External providers and mkdssp are replaced only
+inside the test-only ASGI fixture module; the production FastAPI application,
+Workflow validation, Execution Engine, Cache, run manifest, and artifact
+retrieval paths remain real.
+
+The tier fixes exact acceptance evidence for ten paired ESM3 sequence/structure
+Candidates, ten initial folds, both TM-score objectives, the weighted top three,
+three ProteinMPNN parents with five children each, fifteen per-sequence scores,
+fifteen final folds, complete lineage, and fifteen literal PDB SHA-256 values.
+It also covers pre-run incompatible-edge and traversal rejection, a structured
+provider failure with an unrelated successful branch, cancellation, same-project
+overlap rejection, Cache replay in a fresh run scope, cross-scope reads, and
+untrusted WebSocket origins. It never calls a real external provider.
 
 ## Reproducible installation
 

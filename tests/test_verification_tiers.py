@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import stat
 import subprocess
 import sys
 from pathlib import Path
@@ -63,6 +64,34 @@ def test_routine_tier_reports_result_and_preserves_configured_roots(
     retained_results = list(results_root.glob("routine/*/pytest.xml"))
     assert len(retained_results) == 1
     assert str(retained_results[0].parent) in result.stdout
+    transcript = retained_results[0].parent / "command-transcript.txt"
+    assert transcript.exists()
+    assert "tests/tier_probes/test_isolated_roots.py" in transcript.read_text()
+    assert "return_code=0" in transcript.read_text()
+    assert "tests=1 failures=0 skipped=0" in transcript.read_text()
+    assert "$PROJECT_ROOT/.venv/bin/python" in transcript.read_text()
+    assert str(PROJECT_ROOT) not in transcript.read_text()
+    assert stat.S_IMODE(transcript.stat().st_mode) == 0o600
+    assert stat.S_IMODE(retained_results[0].stat().st_mode) == 0o600
+    assert stat.S_IMODE(retained_results[0].parent.stat().st_mode) == 0o700
+    unsafe_path = _run_verifier("routine", str(tmp_path / "outside.py"))
+    unsafe_secret = _run_verifier("routine", "--token=must-not-retain")
+    unsafe_absolute_selector = _run_verifier(
+        "routine",
+        "tests/test_server.py::/private/sensitive/absolute-path",
+    )
+    unsafe_parent_selector = _run_verifier(
+        "routine",
+        "tests/test_server.py::../../sensitive-path",
+    )
+    assert unsafe_path.returncode != 0
+    assert unsafe_secret.returncode != 0
+    assert unsafe_absolute_selector.returncode != 0
+    assert unsafe_parent_selector.returncode != 0
+    assert "repo-relative paths beneath tests/" in unsafe_path.stderr
+    assert "must-not-retain" not in unsafe_secret.stderr
+    assert "/private/sensitive/absolute-path" not in unsafe_absolute_selector.stderr
+    assert "../../sensitive-path" not in unsafe_parent_selector.stderr
     for path in configured_roots.values():
         assert [child.name for child in path.iterdir()] == ["production-sentinel"]
         assert (path / "production-sentinel").read_text() == "unchanged"
