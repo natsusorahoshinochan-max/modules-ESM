@@ -1,13 +1,21 @@
 """Tests for seed project mechanism (ticket 18d)."""
 
 import json
+import os
 import tempfile
 import uuid
 from pathlib import Path
 
 import pytest
 
-from core.project import ProjectManager, ProjectMeta
+from core.project import (
+    CANONICAL_3GB1_PROJECT_ID,
+    CanonicalSeedError,
+    ProtectedProjectError,
+    ProjectManager,
+    ProjectMeta,
+    UIState,
+)
 
 
 SAMPLE_WORKFLOW_JSON = """{
@@ -25,6 +33,28 @@ SAMPLE_UI_JSON = """{
 
 
 class TestSeedProject:
+    def test_shipped_canonical_workflow_validates_at_creation(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        from core import TypeRegistry, ModuleRegistry, discover_modules
+
+        type_registry = TypeRegistry()
+        module_registry = ModuleRegistry(type_registry)
+        discover_modules(module_registry)
+        manager = ProjectManager(
+            root_dir=tmp_path / "projects",
+            module_registry=module_registry,
+        )
+
+        project = manager.ensure_seed_project(
+            Path("examples/3gb1_pipeline.json"),
+            Path("examples/3gb1_pipeline_ui.json"),
+        )
+
+        assert project is not None
+        assert project.id == CANONICAL_3GB1_PROJECT_ID
+
     def test_creates_project_on_first_call(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             # Write seed workflow and UI files
@@ -82,10 +112,273 @@ class TestSeedProject:
             assert second is not None
             assert first.id == second.id
 
-    def test_deterministic_project_id(self) -> None:
+    def test_clean_canonical_content_upgrades_without_changing_identity(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        workflow_path = tmp_path / "workflow.json"
+        workflow_path.write_text(SAMPLE_WORKFLOW_JSON)
+
+        from core import TypeRegistry, ModuleRegistry, discover_modules
+        type_registry = TypeRegistry()
+        module_registry = ModuleRegistry(type_registry)
+        discover_modules(module_registry)
+        manager = ProjectManager(
+            root_dir=tmp_path / "projects",
+            module_registry=module_registry,
+        )
+
+        first = manager.ensure_seed_project(
+            workflow_path,
+            name="Seed",
+            version="1",
+        )
+        assert first is not None
+        retained_output = (
+            manager.project_dir(first.id) / "outputs" / "retained.txt"
+        )
+        retained_output.write_text("existing run output")
+
+        workflow_path.write_text(
+            SAMPLE_WORKFLOW_JSON.replace(
+                '"parameters": {}',
+                '"parameters": {"prefix": "upgraded"}',
+            )
+        )
+        upgraded = manager.ensure_seed_project(
+            workflow_path,
+            name="Seed",
+            version="2",
+        )
+
+        assert upgraded is not None
+        assert upgraded.id == first.id == CANONICAL_3GB1_PROJECT_ID
+        assert upgraded.seed_version == "2"
+        assert (
+            manager.load_workflow(upgraded.id)
+            .nodes["n1"]
+            .parameters["prefix"]
+            == "upgraded"
+        )
+        assert retained_output.read_text() == "existing run output"
+        assert [project.id for project in manager.list_projects()] == [
+            CANONICAL_3GB1_PROJECT_ID
+        ]
+
+    def test_user_modified_canonical_is_preserved_as_legacy(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        workflow_path = tmp_path / "workflow.json"
+        workflow_path.write_text(SAMPLE_WORKFLOW_JSON)
+
+        from core import TypeRegistry, ModuleRegistry, discover_modules
+        type_registry = TypeRegistry()
+        module_registry = ModuleRegistry(type_registry)
+        discover_modules(module_registry)
+        manager = ProjectManager(
+            root_dir=tmp_path / "projects",
+            module_registry=module_registry,
+        )
+        created = manager.ensure_seed_project(workflow_path, version="1")
+        assert created is not None
+
+        installed_workflow = (
+            manager.project_dir(created.id) / "workflow.json"
+        )
+        user_modified = json.loads(installed_workflow.read_text())
+        user_modified["nodes"][0]["parameters"] = {"prefix": "user edit"}
+        installed_workflow.write_text(json.dumps(user_modified))
+
+        workflow_path.write_text(
+            SAMPLE_WORKFLOW_JSON.replace(
+                '"parameters": {}',
+                '"parameters": {"prefix": "shipped upgrade"}',
+            )
+        )
+        manager.ensure_seed_project(workflow_path, version="2")
+
+        projects = manager.list_projects()
+        canonical = next(
+            project
+            for project in projects
+            if project.id == CANONICAL_3GB1_PROJECT_ID
+        )
+        legacy = next(project for project in projects if project.legacy_seed)
+        assert canonical.seed is True
+        assert legacy.seed is False
+        assert legacy.id != canonical.id
+        assert (
+            manager.load_workflow(legacy.id)
+            .nodes["n1"]
+            .parameters["prefix"]
+            == "user edit"
+        )
+        assert (
+            manager.load_workflow(canonical.id)
+            .nodes["n1"]
+            .parameters["prefix"]
+            == "shipped upgrade"
+        )
+
+    def test_ordinary_workflow_and_metadata_save_rejects_canonical(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        workflow_path = tmp_path / "workflow.json"
+        workflow_path.write_text(SAMPLE_WORKFLOW_JSON)
+
+        from core import TypeRegistry, ModuleRegistry, discover_modules
+        type_registry = TypeRegistry()
+        module_registry = ModuleRegistry(type_registry)
+        discover_modules(module_registry)
+        manager = ProjectManager(
+            root_dir=tmp_path / "projects",
+            module_registry=module_registry,
+        )
+        canonical = manager.ensure_seed_project(workflow_path)
+        assert canonical is not None
+
+        with pytest.raises(ProtectedProjectError):
+            manager.save(canonical.id, manager.load_workflow(canonical.id), UIState())
+
+        reloaded = manager.load_meta(canonical.id)
+        assert reloaded is not None
+        assert reloaded.modified_at == canonical.modified_at
+
+    def test_noncanonical_seed_claim_is_demoted_and_not_duplicated(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        workflow_path = tmp_path / "workflow.json"
+        workflow_path.write_text(SAMPLE_WORKFLOW_JSON)
+
+        from core import TypeRegistry, ModuleRegistry, discover_modules
+        type_registry = TypeRegistry()
+        module_registry = ModuleRegistry(type_registry)
+        discover_modules(module_registry)
+        manager = ProjectManager(
+            root_dir=tmp_path / "projects",
+            module_registry=module_registry,
+        )
+        spoofed = manager.create("Old seed")
+        spoofed_meta_path = manager.project_dir(spoofed.id) / "project.json"
+        spoofed_meta = json.loads(spoofed_meta_path.read_text())
+        spoofed_meta["seed"] = True
+        spoofed_meta_path.write_text(json.dumps(spoofed_meta))
+
+        manager.ensure_seed_project(workflow_path)
+        manager.ensure_seed_project(workflow_path)
+
+        projects = manager.list_projects()
+        assert sum(project.seed for project in projects) == 1
+        legacy = next(
+            project for project in projects if project.id == spoofed.id
+        )
+        assert legacy.seed is False
+        assert legacy.legacy_seed is True
+
+    def test_failed_atomic_upgrade_leaves_previous_canonical_intact(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        workflow_path = tmp_path / "workflow.json"
+        workflow_path.write_text(SAMPLE_WORKFLOW_JSON)
+
+        from core import TypeRegistry, ModuleRegistry, discover_modules
+        type_registry = TypeRegistry()
+        module_registry = ModuleRegistry(type_registry)
+        discover_modules(module_registry)
+        manager = ProjectManager(
+            root_dir=tmp_path / "projects",
+            module_registry=module_registry,
+        )
+        original = manager.ensure_seed_project(workflow_path, version="1")
+        assert original is not None
+
+        workflow_path.write_text(
+            SAMPLE_WORKFLOW_JSON.replace(
+                '"parameters": {}',
+                '"parameters": {"prefix": "upgrade"}',
+            )
+        )
+        real_replace = os.replace
+
+        def fail_stage_publish(source, destination):
+            if (
+                Path(source).name.startswith("canonical-stage-")
+                and Path(destination).name == CANONICAL_3GB1_PROJECT_ID
+            ):
+                raise OSError("simulated publish failure")
+            return real_replace(source, destination)
+
+        monkeypatch.setattr("core.project.os.replace", fail_stage_publish)
+
+        with pytest.raises(OSError, match="simulated publish failure"):
+            manager.ensure_seed_project(workflow_path, version="2")
+
+        restored = manager.load_meta(CANONICAL_3GB1_PROJECT_ID)
+        assert restored is not None
+        assert restored.seed_version == "1"
+        assert (
+            manager.load_workflow(CANONICAL_3GB1_PROJECT_ID)
+            .nodes["n1"]
+            .parameters
+            == {}
+        )
+
+    def test_canonical_input_symlink_is_rejected(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        outside = tmp_path / "outside"
+        outside.mkdir()
+        (outside / "seed.pdb").write_text("END\n")
+        (tmp_path / "pdbs").symlink_to(outside, target_is_directory=True)
+        workflow_path = tmp_path / "workflow.json"
+        workflow_path.write_text(
+            """
+            {
+              "nodes": [
+                {
+                  "node_id": "import",
+                  "module_id": "import.structure",
+                  "parameters": {"file_path": "pdbs/seed.pdb"}
+                }
+              ],
+              "edges": []
+            }
+            """
+        )
+        monkeypatch.chdir(tmp_path)
+
+        from core import TypeRegistry, ModuleRegistry, discover_modules
+        type_registry = TypeRegistry()
+        module_registry = ModuleRegistry(type_registry)
+        discover_modules(module_registry)
+        manager = ProjectManager(
+            root_dir=tmp_path / "projects",
+            module_registry=module_registry,
+        )
+
+        with pytest.raises(CanonicalSeedError, match="Unsafe canonical input"):
+            manager.ensure_seed_project(workflow_path)
+
+        assert manager.list_projects() == []
+
+    def test_canonical_project_id_is_independent_of_workflow_content(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
-            wf_path = Path(tmpdir) / "workflow.json"
-            wf_path.write_text(SAMPLE_WORKFLOW_JSON)
+            wf_path_v1 = Path(tmpdir) / "workflow-v1.json"
+            wf_path_v2 = Path(tmpdir) / "workflow-v2.json"
+            wf_path_v1.write_text(SAMPLE_WORKFLOW_JSON)
+            wf_path_v2.write_text(
+                SAMPLE_WORKFLOW_JSON.replace(
+                    '"parameters": {}',
+                    '"parameters": {"prefix": "upgraded"}',
+                )
+            )
 
             from core import TypeRegistry, ModuleRegistry, discover_modules
             tr = TypeRegistry()
@@ -98,14 +391,15 @@ class TestSeedProject:
             pm2 = ProjectManager(root_dir=str(Path(tmpdir) / "projects2"),
                                  module_registry=mr)
 
-            r1 = pm1.ensure_seed_project(str(wf_path))
-            r2 = pm2.ensure_seed_project(str(wf_path))
+            r1 = pm1.ensure_seed_project(str(wf_path_v1))
+            r2 = pm2.ensure_seed_project(str(wf_path_v2))
 
             assert r1 is not None
             assert r2 is not None
-            assert r1.id == r2.id, "Same workflow should produce same UUID5"
+            assert r1.id == CANONICAL_3GB1_PROJECT_ID
+            assert r2.id == CANONICAL_3GB1_PROJECT_ID
 
-    def test_returns_none_for_missing_workflow(self) -> None:
+    def test_missing_workflow_fails_visibly(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             from core import TypeRegistry, ModuleRegistry, discover_modules
             tr = TypeRegistry()
@@ -114,12 +408,12 @@ class TestSeedProject:
 
             pm = ProjectManager(root_dir=str(Path(tmpdir) / "projects"),
                                 module_registry=mr)
-            result = pm.ensure_seed_project(
-                str(Path(tmpdir) / "nonexistent.json")
-            )
-            assert result is None
+            with pytest.raises(CanonicalSeedError, match="not found"):
+                pm.ensure_seed_project(
+                    str(Path(tmpdir) / "nonexistent.json")
+                )
 
-    def test_returns_none_for_invalid_json(self) -> None:
+    def test_invalid_json_fails_visibly(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             wf_path = Path(tmpdir) / "bad.json"
             wf_path.write_text("{invalid json")
@@ -131,10 +425,10 @@ class TestSeedProject:
 
             pm = ProjectManager(root_dir=str(Path(tmpdir) / "projects"),
                                 module_registry=mr)
-            result = pm.ensure_seed_project(str(wf_path))
-            assert result is None
+            with pytest.raises(CanonicalSeedError, match="parse"):
+                pm.ensure_seed_project(str(wf_path))
 
-    def test_returns_none_for_unknown_module(self) -> None:
+    def test_unknown_module_fails_visibly(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             bad_wf = """{
               "nodes": [
@@ -152,8 +446,41 @@ class TestSeedProject:
 
             pm = ProjectManager(root_dir=str(Path(tmpdir) / "projects"),
                                 module_registry=mr)
-            result = pm.ensure_seed_project(str(wf_path))
-            assert result is None
+            with pytest.raises(
+                CanonicalSeedError,
+                match="module_unavailable",
+            ):
+                pm.ensure_seed_project(str(wf_path))
+
+    def test_canonical_drift_fails_visibly_with_validation_errors(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            workflow_path = Path(tmpdir) / "workflow.json"
+            workflow_path.write_text(
+                SAMPLE_WORKFLOW_JSON.replace(
+                    '"module_id": "stub.echo"',
+                    (
+                        '"module_id": "stub.echo", '
+                        '"module_version": "outdated"'
+                    ),
+                )
+            )
+
+            from core import TypeRegistry, ModuleRegistry, discover_modules
+            type_registry = TypeRegistry()
+            module_registry = ModuleRegistry(type_registry)
+            discover_modules(module_registry)
+            manager = ProjectManager(
+                root_dir=Path(tmpdir) / "projects",
+                module_registry=module_registry,
+            )
+
+            with pytest.raises(
+                CanonicalSeedError,
+                match="module_version_mismatch",
+            ):
+                manager.ensure_seed_project(workflow_path)
+
+            assert manager.list_projects() == []
 
     def test_seed_project_in_list(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -174,18 +501,17 @@ class TestSeedProject:
             assert projects[0].name == "Seed Example"
             assert projects[0].seed is True
 
-    def test_no_registry_allows_creation(self) -> None:
-        """Without a registry, skip validation and create project."""
+    def test_no_registry_fails_closed(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             wf_path = Path(tmpdir) / "workflow.json"
             wf_path.write_text(SAMPLE_WORKFLOW_JSON)
 
             pm = ProjectManager(root_dir=str(Path(tmpdir) / "projects"))
-            result = pm.ensure_seed_project(str(wf_path), name="No Registry")
-
-            # Without registry, validation is skipped, so project is created
-            assert result is not None
-            assert result.seed is True
+            with pytest.raises(
+                CanonicalSeedError,
+                match="requires a Module Registry",
+            ):
+                pm.ensure_seed_project(str(wf_path), name="No Registry")
 
     def test_load_meta_preserves_seed_flag(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:

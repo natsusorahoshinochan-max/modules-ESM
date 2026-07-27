@@ -1,5 +1,5 @@
 module_id: prompt.assemble_protein_prompt
-version: 1.0.0
+version: 1.1.0
 display_name: Assemble ProteinPrompt
 category: prompt
 description: "Assembles all residue tracks and annotations into a complete ProteinPrompt object."
@@ -24,7 +24,7 @@ input_ports:
     display_name: Visibility Track
     description: "Per-residue structure visibility."
   - name: secondary_structure_track
-    type_id: residue.track.secondary_structure
+    type_id: residue.track
     required: false
     display_name: Secondary Structure Track
     description: "Per-residue DSSP codes."

@@ -156,6 +156,7 @@ def step2_fold_and_rank(
     """Fold 10 sequences with ESMFold2, compute dual TM-scores, rank top 3."""
     from modules.esmfold2_fold.module import ESMFold2FoldModule
     from modules.structure_batch_tm_score.module import BatchTMScoreModule
+    from modules.structure_pairwise_align.module import PairwiseAlignModule
     from modules.weighted_rank.module import WeightedRankModule
 
     # Fold all sequences
@@ -168,55 +169,57 @@ def step2_fold_and_rank(
     )
     fold_structs = fold_result["candidates"]
 
-    # TM-score vs 3GB1
+    align_mod = PairwiseAlignModule()
+
+    # TM-score vs 3GB1 through shared alignment evidence
+    ctx_align_3gb1 = RunContext(
+        str(_project_root),
+        "align_3gb1",
+        seed=42,
+    )
+    align_3gb1 = align_mod.run(
+        {
+            "reference": ref_3gb1,
+            "mobile_candidates": fold_structs,
+        },
+        {},
+        ctx_align_3gb1,
+    )
     tm_mod = BatchTMScoreModule()
     ctx_tm1 = RunContext(str(_project_root), "tm_3gb1", seed=42)
     tm_3gb1_result = tm_mod.run(
-        {"reference": ref_3gb1, "candidates": fold_structs},
-        {},
+        {"alignments": align_3gb1["alignments"]},
+        {"score_id": "tm_vs_3gb1"},
         ctx_tm1,
     )
 
-    # TM-score vs ESM-3 structures (pairwise: fold[i] vs esm3_struct[i])
-    fold_items = list(fold_structs.items)
-    esm3_items = list(esm3_struct_candidates.items)
-    tm_esm3_entries = []
-    for i, (fold_item, esm3_item) in enumerate(zip(fold_items, esm3_items)):
-        esm3_coll = CandidateCollection(
-            collection_id=f"esm3-{i}",
-            item_type="protein.structure",
-            items=[esm3_item],
-        )
-        ctx_tm2 = RunContext(str(_project_root), f"tm_esm3_{i}", seed=42)
-        tm_result = tm_mod.run(
-            {"reference": fold_item.data, "candidates": esm3_coll},
-            {},
-            ctx_tm2,
-        )
-        for entry in tm_result["scores"].entries:
-            entry.subjects = [fold_item.candidate_id]
-        tm_esm3_entries.extend(tm_result["scores"].entries)
-
-    # Rename score_ids for weighted ranking
-    from datatypes import Score
-    tm_3gb1_renamed = [
-        Score(
-            score_id="tm_vs_3gb1", value=e.value,
-            subjects=e.subjects, details=e.details,
-        )
-        for e in tm_3gb1_result["scores"].entries
-    ]
-    tm_esm3_renamed = [
-        Score(
-            score_id="tm_vs_esm3", value=e.value,
-            subjects=e.subjects, details=e.details,
-        )
-        for e in tm_esm3_entries
-    ]
+    # TM-score vs index-paired ESM-3 structures through shared evidence
+    ctx_align_esm3 = RunContext(
+        str(_project_root),
+        "align_esm3",
+        seed=42,
+    )
+    align_esm3 = align_mod.run(
+        {
+            "reference_candidates": fold_structs,
+            "mobile_candidates": esm3_struct_candidates,
+        },
+        {},
+        ctx_align_esm3,
+    )
+    ctx_tm2 = RunContext(str(_project_root), "tm_esm3", seed=42)
+    tm_esm3_result = tm_mod.run(
+        {"alignments": align_esm3["alignments"]},
+        {"score_id": "tm_vs_esm3"},
+        ctx_tm2,
+    )
 
     merged_scores = ScoreCollection(
         collection_id="merged-tm",
-        entries=tm_3gb1_renamed + tm_esm3_renamed,
+        entries=(
+            tm_3gb1_result["scores"].entries
+            + tm_esm3_result["scores"].entries
+        ),
     )
 
     # Weighted rank: 0.7 * tm_vs_3gb1 + 0.3 * tm_vs_esm3

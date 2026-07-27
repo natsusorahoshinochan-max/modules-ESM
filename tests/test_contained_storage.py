@@ -9,6 +9,7 @@ from types import SimpleNamespace
 import pytest
 from fastapi.testclient import TestClient
 
+from core import ModuleRegistry, TypeRegistry, discover_modules
 from core.executor import Executor
 from core.project import ProjectManager
 from core.run_context import RunContext
@@ -605,7 +606,13 @@ def test_seed_project_provisions_relative_imports_under_project_inputs(
         """
     )
     monkeypatch.chdir(tmp_path)
-    manager = ProjectManager(root_dir=tmp_path / "projects")
+    type_registry = TypeRegistry()
+    module_registry = ModuleRegistry(type_registry)
+    discover_modules(module_registry)
+    manager = ProjectManager(
+        root_dir=tmp_path / "projects",
+        module_registry=module_registry,
+    )
 
     project = manager.ensure_seed_project(workflow_path)
 

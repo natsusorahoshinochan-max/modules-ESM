@@ -1,5 +1,5 @@
 module_id: compute.dssp
-version: 1.0.0
+version: 1.1.0
 display_name: DSSP
 category: scoring
 description: "Runs mkdssp on a protein structure to compute per-residue secondary structure codes. Uses async subprocess with configurable timeout."
@@ -10,7 +10,7 @@ input_ports:
     description: "Protein structure to analyze with DSSP."
 output_ports:
   - name: secondary_structure_track
-    type_id: residue.track.secondary_structure
+    type_id: residue.track
     display_name: Secondary Structure
     description: "Per-residue DSSP secondary structure codes."
 parameters:

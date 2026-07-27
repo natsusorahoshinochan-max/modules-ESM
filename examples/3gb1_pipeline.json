@@ -53,6 +53,7 @@
     {
       "node_id": "compute_ss",
       "module_id": "compute.dssp",
+      "module_version": "1.1.0",
       "parameters": {}
     },
     {
@@ -74,6 +75,7 @@
     {
       "node_id": "assemble",
       "module_id": "prompt.assemble_protein_prompt",
+      "module_version": "1.1.0",
       "parameters": {}
     },
     {
@@ -93,6 +95,12 @@
       }
     },
     {
+      "node_id": "align_3gb1",
+      "module_id": "structure.pairwise_align",
+      "module_version": "1.1.0",
+      "parameters": {}
+    },
+    {
       "node_id": "tm_3gb1",
       "module_id": "structure.batch_tm_score",
       "module_version": "2.0.0",
@@ -103,6 +111,7 @@
     {
       "node_id": "align_pw",
       "module_id": "structure.pairwise_align",
+      "module_version": "1.1.0",
       "parameters": {}
     },
     {
@@ -143,9 +152,9 @@
     {
       "node_id": "mpnn_0",
       "module_id": "proteinmpnn.design",
-      "module_version": "1.1.0",
+      "module_version": "1.2.0",
       "parameters": {
-        "num_sequences": 15
+        "num_sequences": 5
       }
     },
     {
@@ -268,14 +277,20 @@
     {
       "source_node_id": "fold_seq",
       "source_port": "candidates",
-      "target_node_id": "tm_3gb1",
-      "target_port": "candidates"
+      "target_node_id": "align_3gb1",
+      "target_port": "mobile_candidates"
     },
     {
       "source_node_id": "import_3gb1",
       "source_port": "structure",
-      "target_node_id": "tm_3gb1",
+      "target_node_id": "align_3gb1",
       "target_port": "reference"
+    },
+    {
+      "source_node_id": "align_3gb1",
+      "source_port": "alignments",
+      "target_node_id": "tm_3gb1",
+      "target_port": "alignments"
     },
     {
       "source_node_id": "fold_seq",
@@ -329,7 +344,7 @@
       "source_node_id": "top3",
       "source_port": "candidates",
       "target_node_id": "mpnn_0",
-      "target_port": "structure"
+      "target_port": "structures"
     },
     {
       "source_node_id": "fixed_0",

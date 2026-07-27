@@ -11,9 +11,12 @@ Directory layout per project:
 
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
+import os
 import shutil
+import tempfile
 import uuid
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
@@ -31,6 +34,16 @@ from core.storage import (
 
 _logger = logging.getLogger(__name__)
 
+CANONICAL_3GB1_PROJECT_ID = "canonical-3gb1"
+
+
+class CanonicalSeedError(RuntimeError):
+    """The shipped canonical project cannot be safely installed."""
+
+
+class ProtectedProjectError(PermissionError):
+    """An ordinary write targeted the protected canonical project."""
+
 
 @dataclass
 class ProjectMeta:
@@ -43,6 +56,9 @@ class ProjectMeta:
     workflow_version: str = "1.0"
     module_dependencies: list[str] = field(default_factory=list)
     seed: bool = False
+    legacy_seed: bool = False
+    seed_version: str | None = None
+    seed_content_hash: str | None = None
 
     def __post_init__(self) -> None:
         now = datetime.now(timezone.utc).isoformat()
@@ -246,6 +262,14 @@ class ProjectManager:
         self._save_ui(project_id, UIState())
         return meta
 
+    def assert_writable(self, project_id: str) -> None:
+        """Reject ordinary content or metadata writes to the canonical ID."""
+        safe_project_id = validate_identifier(project_id, "project_id")
+        if safe_project_id == CANONICAL_3GB1_PROJECT_ID:
+            raise ProtectedProjectError(
+                "The canonical 3GB1 project is read-only"
+            )
+
     # ── seed project ──────────────────────────────────────────────────
 
     def ensure_seed_project(
@@ -253,27 +277,36 @@ class ProjectManager:
         workflow_json_path: str | Path,
         ui_json_path: str | Path | None = None,
         name: str = "3GB1 Design Pipeline",
-    ) -> ProjectMeta | None:
-        """Create a seed project from a workflow JSON if it does not exist.
+        *,
+        version: str = "1",
+    ) -> ProjectMeta:
+        """Install or upgrade the protected canonical 3GB1 project.
 
-        The project ID is deterministic (UUID5 from workflow content hash)
-        so repeated calls are idempotent. Validates all module_ids against
-        the registry; on failure logs a warning and returns None.
+        The project ID is the stable semantic identity ``canonical-3gb1``,
+        independent of serialized Workflow content. The shipped Workflow is
+        validated against the current Module Registry before storage changes.
         """
         wf_path = Path(workflow_json_path)
-        if not wf_path.exists():
-            _logger.warning("Seed workflow JSON not found: %s", wf_path)
-            return None
+        if not wf_path.exists() or wf_path.is_symlink():
+            raise CanonicalSeedError(
+                f"Canonical Workflow JSON not found: {wf_path}"
+            )
+        if not isinstance(version, str) or not version:
+            raise CanonicalSeedError(
+                "Canonical content version must be a non-empty string"
+            )
 
         try:
             workflow_content = json.loads(wf_path.read_text())
-        except (json.JSONDecodeError, Exception) as e:
-            _logger.warning("Failed to parse seed workflow JSON: %s", e)
-            return None
+        except (OSError, json.JSONDecodeError) as error:
+            raise CanonicalSeedError(
+                f"Failed to parse canonical Workflow JSON: {error}"
+            ) from error
 
-        # Deterministic project ID
-        content_hash = json.dumps(workflow_content, sort_keys=True)
-        project_id = str(uuid.uuid5(uuid.NAMESPACE_OID, content_hash))
+        self._validate_canonical_workflow(workflow_content)
+        project_id = CANONICAL_3GB1_PROJECT_ID
+        self.root_dir.mkdir(parents=True, exist_ok=True)
+        self._demote_noncanonical_seed_claims()
 
         seed_inputs: list[tuple[Path, tuple[str, ...]]] = []
         for node in workflow_content.get("nodes", []):
@@ -289,24 +322,84 @@ class ProjectManager:
                     "input_path",
                 )
             except StoragePathError as error:
-                _logger.warning("Unsafe seed input reference: %s", error)
-                return None
+                raise CanonicalSeedError(
+                    f"Unsafe canonical input reference: {error}"
+                ) from error
+            source_parts = destination_parts
             if destination_parts[:1] == ("inputs",):
                 destination_parts = destination_parts[1:]
-            source = Path(input_reference).resolve()
-            if not source.is_file() or not destination_parts:
-                _logger.warning(
-                    "Seed input file not found: %s",
-                    input_reference,
+            try:
+                source = contained_path(
+                    Path.cwd(),
+                    *source_parts,
+                    field="input_path",
                 )
-                return None
+            except StoragePathError as error:
+                raise CanonicalSeedError(
+                    f"Unsafe canonical input reference: {error}"
+                ) from error
+            if not source.is_file() or not destination_parts:
+                raise CanonicalSeedError(
+                    f"Canonical input file not found: {input_reference}"
+                )
             seed_inputs.append((source, destination_parts))
 
-        def provision_seed_inputs() -> None:
-            project_dir = self.project_dir(project_id)
+        ui_content: dict[str, Any]
+        if ui_json_path is not None:
+            ui_path = Path(ui_json_path)
+            if not ui_path.exists() or ui_path.is_symlink():
+                raise CanonicalSeedError(
+                    f"Canonical UI state not found: {ui_path}"
+                )
+            try:
+                loaded_ui = json.loads(ui_path.read_text())
+            except (OSError, json.JSONDecodeError) as error:
+                raise CanonicalSeedError(
+                    f"Failed to parse canonical UI state: {error}"
+                ) from error
+            if not isinstance(loaded_ui, dict):
+                raise CanonicalSeedError(
+                    "Canonical UI state must be a JSON object"
+                )
+            ui_content = loaded_ui
+        else:
+            ui_content = self._ui_data(UIState())
+
+        expected_hash = self._canonical_content_hash(
+            workflow_content,
+            ui_content,
+            seed_inputs,
+        )
+        project_dir = self.project_dir(project_id)
+        try:
+            existing_meta = self._load_meta(project_id)
+        except StoragePathError:
+            existing_meta = None
+        installed_hash = (
+            self._installed_content_hash(project_dir)
+            if project_dir.exists()
+            else None
+        )
+        if (
+            existing_meta is not None
+            and existing_meta.seed_content_hash == expected_hash
+            and existing_meta.seed_version == version
+            and installed_hash == expected_hash
+        ):
+            return existing_meta
+        existing_is_clean = (
+            existing_meta is not None
+            and existing_meta.seed is True
+            and existing_meta.seed_content_hash is not None
+            and existing_meta.seed_content_hash == installed_hash
+        )
+        if project_dir.exists() and not existing_is_clean:
+            self._preserve_legacy_project(project_dir, existing_meta)
+
+        def provision_seed_inputs(destination_project_dir: Path) -> None:
             for source, destination_parts in seed_inputs:
                 destination = contained_path(
-                    project_dir,
+                    destination_project_dir,
                     "inputs",
                     *destination_parts,
                     field="input_path",
@@ -314,47 +407,318 @@ class ProjectManager:
                 destination.parent.mkdir(parents=True, exist_ok=True)
                 shutil.copyfile(source, destination)
 
-        # Idempotent: skip if already exists
-        if self._project_dir(project_id).exists():
-            provision_seed_inputs()
-            return self._load_meta(project_id)
-
-        # Validate module_ids
-        if self.module_registry is not None:
-            for node in workflow_content.get("nodes", []):
-                mid = node.get("module_id", "")
-                if mid not in self.module_registry:
-                    _logger.warning(
-                        "Seed project references unknown module '%s'; skipping creation", mid
-                    )
-                    return None
-
-        # Create project
-        meta = ProjectMeta(id=project_id, name=name, seed=True)
-        self._ensure_dir(project_id)
-        provision_seed_inputs()
-        self._save_meta(meta)
-
-        # Copy workflow JSON directly
-        (self._project_dir(project_id) / "workflow.json").write_text(
-            wf_path.read_text()
+        created_at = (
+            existing_meta.created_at
+            if existing_meta is not None
+            else ""
         )
-
-        # Copy or default UI JSON
-        if ui_json_path and Path(ui_json_path).exists():
-            (self._project_dir(project_id) / "ui.json").write_text(
-                Path(ui_json_path).read_text()
-            )
-        else:
-            self._save_ui(project_id, UIState())
+        meta = ProjectMeta(
+            id=project_id,
+            name=name,
+            created_at=created_at,
+            seed=True,
+            seed_version=version,
+            seed_content_hash=expected_hash,
+            module_dependencies=sorted({
+                node["module_id"]
+                for node in workflow_content["nodes"]
+            }),
+        )
+        self.root_dir.mkdir(parents=True, exist_ok=True)
+        stage = Path(tempfile.mkdtemp(
+            prefix="canonical-stage-",
+            dir=self.root_dir,
+        ))
+        try:
+            if project_dir.exists() and existing_is_clean:
+                shutil.copytree(
+                    project_dir,
+                    stage,
+                    dirs_exist_ok=True,
+                    symlinks=True,
+                )
+            staged_inputs = stage / "inputs"
+            if staged_inputs.exists():
+                if staged_inputs.is_symlink():
+                    staged_inputs.unlink()
+                else:
+                    shutil.rmtree(staged_inputs)
+            staged_inputs.mkdir()
+            (stage / "outputs").mkdir(exist_ok=True)
+            provision_seed_inputs(stage)
+            self._write_json(stage / "project.json", self._meta_data(meta))
+            self._write_json(stage / "workflow.json", workflow_content)
+            self._write_json(stage / "ui.json", ui_content)
+            self._replace_project_directory(stage, project_dir)
+        finally:
+            if stage.exists():
+                shutil.rmtree(stage)
 
         _logger.info("Created seed project '%s' (%s)", name, project_id)
         return meta
+
+    @staticmethod
+    def _write_json(path: Path, data: dict[str, Any]) -> None:
+        if path.is_symlink():
+            path.unlink()
+        path.write_text(json.dumps(data, indent=2))
+
+    @staticmethod
+    def _atomic_write_json(path: Path, data: dict[str, Any]) -> None:
+        fd, temporary_name = tempfile.mkstemp(
+            prefix=f"{path.name}.",
+            suffix=".tmp",
+            dir=path.parent,
+        )
+        temporary = Path(temporary_name)
+        try:
+            with os.fdopen(fd, "w") as handle:
+                json.dump(data, handle, indent=2)
+                handle.flush()
+                os.fsync(handle.fileno())
+            os.replace(temporary, path)
+        finally:
+            if temporary.exists():
+                temporary.unlink()
+
+    @staticmethod
+    def _canonical_content_hash(
+        workflow: dict[str, Any],
+        ui: dict[str, Any],
+        seed_inputs: list[tuple[Path, tuple[str, ...]]],
+    ) -> str:
+        hasher = hashlib.sha256()
+        for label, payload in (("workflow", workflow), ("ui", ui)):
+            hasher.update(label.encode())
+            hasher.update(json.dumps(
+                payload,
+                sort_keys=True,
+                separators=(",", ":"),
+            ).encode())
+        for source, destination_parts in sorted(
+            seed_inputs,
+            key=lambda item: item[1],
+        ):
+            hasher.update("/".join(destination_parts).encode())
+            hasher.update(source.read_bytes())
+        return f"sha256:{hasher.hexdigest()}"
+
+    @staticmethod
+    def _installed_content_hash(project_dir: Path) -> str | None:
+        try:
+            if (
+                (project_dir / "workflow.json").is_symlink()
+                or (project_dir / "ui.json").is_symlink()
+            ):
+                return None
+            workflow = json.loads(
+                (project_dir / "workflow.json").read_text()
+            )
+            ui = json.loads((project_dir / "ui.json").read_text())
+            input_files = []
+            inputs_dir = project_dir / "inputs"
+            if inputs_dir.is_symlink():
+                return None
+            if inputs_dir.exists():
+                for path in sorted(inputs_dir.rglob("*")):
+                    if path.is_symlink() or not path.is_file():
+                        return None
+                    input_files.append((
+                        path,
+                        path.relative_to(inputs_dir).parts,
+                    ))
+            return ProjectManager._canonical_content_hash(
+                workflow,
+                ui,
+                input_files,
+            )
+        except (OSError, json.JSONDecodeError):
+            return None
+
+    @staticmethod
+    def _replace_project_directory(stage: Path, target: Path) -> None:
+        if not target.exists():
+            os.replace(stage, target)
+            return
+        backup = target.with_name(
+            f"canonical-backup-{uuid.uuid4()}"
+        )
+        os.replace(target, backup)
+        try:
+            os.replace(stage, target)
+        except Exception:
+            os.replace(backup, target)
+            raise
+        else:
+            shutil.rmtree(backup)
+
+    def _preserve_legacy_project(
+        self,
+        source: Path,
+        source_meta: ProjectMeta | None,
+    ) -> ProjectMeta:
+        identity = self._legacy_identity_hash(source)
+        legacy_id = f"legacy-3gb1-{identity[:24]}"
+        existing = self._load_meta(legacy_id)
+        if existing is not None:
+            return existing
+
+        legacy_meta = ProjectMeta(
+            id=legacy_id,
+            name=(
+                f"{source_meta.name} (legacy)"
+                if source_meta is not None
+                else "3GB1 project (legacy)"
+            ),
+            created_at=(
+                source_meta.created_at
+                if source_meta is not None
+                else ""
+            ),
+            workflow_version=(
+                source_meta.workflow_version
+                if source_meta is not None
+                else "1.0"
+            ),
+            module_dependencies=(
+                list(source_meta.module_dependencies)
+                if source_meta is not None
+                else []
+            ),
+            seed=False,
+            legacy_seed=True,
+            seed_version=(
+                source_meta.seed_version
+                if source_meta is not None
+                else None
+            ),
+            seed_content_hash=(
+                source_meta.seed_content_hash
+                if source_meta is not None
+                else None
+            ),
+        )
+        stage = Path(tempfile.mkdtemp(
+            prefix="legacy-stage-",
+            dir=self.root_dir,
+        ))
+        legacy_path = self.project_dir(legacy_id)
+        try:
+            shutil.copytree(
+                source,
+                stage,
+                dirs_exist_ok=True,
+                symlinks=True,
+            )
+            staged_meta = stage / "project.json"
+            if staged_meta.is_symlink():
+                staged_meta.unlink()
+            self._write_json(staged_meta, self._meta_data(legacy_meta))
+            os.replace(stage, legacy_path)
+        finally:
+            if stage.exists():
+                shutil.rmtree(stage)
+        return legacy_meta
+
+    @staticmethod
+    def _legacy_identity_hash(project_dir: Path) -> str:
+        hasher = hashlib.sha256()
+        for path in sorted(project_dir.rglob("*")):
+            relative = path.relative_to(project_dir).as_posix()
+            hasher.update(relative.encode())
+            if path.is_symlink():
+                hasher.update(b"symlink:")
+                hasher.update(os.readlink(path).encode())
+            elif path.is_file():
+                hasher.update(path.read_bytes())
+            elif path.is_dir():
+                hasher.update(b"directory")
+        return hasher.hexdigest()
+
+    def _demote_noncanonical_seed_claims(self) -> None:
+        for project_path in self.root_dir.iterdir():
+            if (
+                not project_path.is_dir()
+                or project_path.is_symlink()
+                or project_path.name == CANONICAL_3GB1_PROJECT_ID
+            ):
+                continue
+            meta_path = project_path / "project.json"
+            if not meta_path.is_file() or meta_path.is_symlink():
+                continue
+            try:
+                raw = json.loads(meta_path.read_text())
+            except (OSError, json.JSONDecodeError):
+                continue
+            if not isinstance(raw, dict) or not raw.get("seed", False):
+                continue
+            raw["id"] = project_path.name
+            raw["seed"] = False
+            raw["legacy_seed"] = True
+            self._atomic_write_json(meta_path, raw)
+
+    def _validate_canonical_workflow(
+        self,
+        workflow_content: Any,
+    ) -> Workflow:
+        """Build and authoritatively validate the shipped Workflow."""
+        if self.module_registry is None:
+            raise CanonicalSeedError(
+                "Canonical Workflow validation requires a Module Registry"
+            )
+        if not isinstance(workflow_content, dict):
+            raise CanonicalSeedError(
+                "Canonical Workflow must be a JSON object"
+            )
+        raw_nodes = workflow_content.get("nodes")
+        raw_edges = workflow_content.get("edges")
+        if not isinstance(raw_nodes, list) or not isinstance(raw_edges, list):
+            raise CanonicalSeedError(
+                "Canonical Workflow nodes and edges must be lists"
+            )
+
+        workflow = Workflow()
+        try:
+            for raw_node in raw_nodes:
+                if not isinstance(raw_node, dict):
+                    raise ValueError("Workflow Node must be an object")
+                node = WorkflowNode(
+                    node_id=raw_node["node_id"],
+                    module_id=raw_node["module_id"],
+                    module_version=raw_node.get("module_version", "1.0.0"),
+                    parameters=raw_node.get("parameters", {}),
+                )
+                workflow.add_node(node)
+            for raw_edge in raw_edges:
+                if not isinstance(raw_edge, dict):
+                    raise ValueError("Workflow Edge must be an object")
+                workflow.add_edge(WorkflowEdge(
+                    source_node_id=raw_edge["source_node_id"],
+                    source_port=raw_edge["source_port"],
+                    target_node_id=raw_edge["target_node_id"],
+                    target_port=raw_edge["target_port"],
+                ))
+        except (KeyError, TypeError, ValueError) as error:
+            raise CanonicalSeedError(
+                f"Malformed canonical Workflow: {error}"
+            ) from error
+
+        validation = workflow.validate(self.module_registry)
+        if not validation.valid:
+            details = "; ".join(
+                f"{error.kind.value}: {error.message}"
+                for error in validation.errors
+            )
+            raise CanonicalSeedError(
+                f"Canonical Workflow validation failed: {details}"
+            )
+        return workflow
 
     # ── save ──────────────────────────────────────────────────────────
 
     def save(self, project_id: str, workflow: Workflow, ui: UIState) -> ProjectMeta:
         """Save workflow and UI state to an existing project."""
+        self.assert_writable(project_id)
         meta = self._load_meta(project_id)
         if meta is None:
             raise ValueError(f"Project '{project_id}' not found")
@@ -441,18 +805,21 @@ class ProjectManager:
             return []
         projects = []
         for d in sorted(self.root_dir.iterdir()):
-            if not d.is_dir():
+            if not d.is_dir() or d.is_symlink():
                 continue
-            meta = self._load_meta(d.name)
+            try:
+                meta = self._load_meta(d.name)
+            except StoragePathError:
+                continue
             if meta:
                 projects.append(meta)
         return projects
 
     # ── private helpers ───────────────────────────────────────────────
 
-    def _save_meta(self, meta: ProjectMeta) -> None:
-        self._ensure_dir(meta.id)
-        data = {
+    @staticmethod
+    def _meta_data(meta: ProjectMeta) -> dict[str, Any]:
+        return {
             "id": meta.id,
             "name": meta.name,
             "created_at": meta.created_at,
@@ -460,23 +827,42 @@ class ProjectManager:
             "workflow_version": meta.workflow_version,
             "module_dependencies": meta.module_dependencies,
             "seed": meta.seed,
+            "legacy_seed": meta.legacy_seed,
+            "seed_version": meta.seed_version,
+            "seed_content_hash": meta.seed_content_hash,
         }
-        (self._project_dir(meta.id) / "project.json").write_text(
-            json.dumps(data, indent=2)
+
+    def _save_meta(self, meta: ProjectMeta) -> None:
+        self._ensure_dir(meta.id)
+        self._atomic_write_json(
+            self._project_dir(meta.id) / "project.json",
+            self._meta_data(meta),
         )
 
     def _load_meta(self, project_id: str) -> ProjectMeta | None:
         raw = self._load_json(project_id, "project.json")
         if raw is None:
             return None
+        raw_id = raw.get("id")
+        canonical = (
+            project_id == CANONICAL_3GB1_PROJECT_ID
+            and raw_id == CANONICAL_3GB1_PROJECT_ID
+            and raw.get("seed", False) is True
+        )
+        legacy_seed = bool(raw.get("legacy_seed", False)) or (
+            bool(raw.get("seed", False)) and not canonical
+        )
         return ProjectMeta(
-            id=raw["id"],
+            id=project_id,
             name=raw["name"],
             created_at=raw.get("created_at", ""),
             modified_at=raw.get("modified_at", ""),
             workflow_version=raw.get("workflow_version", "1.0"),
             module_dependencies=raw.get("module_dependencies", []),
-            seed=raw.get("seed", False),
+            seed=canonical,
+            legacy_seed=legacy_seed,
+            seed_version=raw.get("seed_version"),
+            seed_content_hash=raw.get("seed_content_hash"),
         )
 
     def _save_workflow(self, project_id: str, workflow: Workflow) -> None:
@@ -501,13 +887,14 @@ class ProjectManager:
                 for e in workflow.edges
             ],
         }
-        (self._project_dir(project_id) / "workflow.json").write_text(
-            json.dumps(data, indent=2)
+        self._atomic_write_json(
+            self._project_dir(project_id) / "workflow.json",
+            data,
         )
 
-    def _save_ui(self, project_id: str, ui: UIState) -> None:
-        self._ensure_dir(project_id)
-        data = {
+    @staticmethod
+    def _ui_data(ui: UIState) -> dict[str, Any]:
+        return {
             "node_positions": ui.node_positions,
             "node_dimensions": ui.node_dimensions,
             "groupings": ui.groupings,
@@ -516,13 +903,21 @@ class ProjectManager:
             "canvas_zoom": ui.canvas_zoom,
             "viewport": ui.viewport,
         }
-        (self._project_dir(project_id) / "ui.json").write_text(
-            json.dumps(data, indent=2)
+
+    def _save_ui(self, project_id: str, ui: UIState) -> None:
+        self._ensure_dir(project_id)
+        self._atomic_write_json(
+            self._project_dir(project_id) / "ui.json",
+            self._ui_data(ui),
         )
 
     def _load_json(self, project_id: str, filename: str) -> dict | None:
         """Load a JSON file from a project directory. Returns None if missing."""
-        path = self._project_dir(project_id) / filename
+        path = contained_path(
+            self._project_dir(project_id),
+            filename,
+            field="project_file",
+        )
         if not path.exists():
             return None
         try:

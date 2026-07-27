@@ -32,7 +32,12 @@ from core.graph import (
 )
 from core.module_definition import ModuleDefinition, ParameterDefinition, PortDefinition
 from core.module_registry import ModuleRegistry, discover_modules
-from core.project import ProjectManager, ProjectMeta, UIState
+from core.project import (
+    ProjectManager,
+    ProjectMeta,
+    ProtectedProjectError,
+    UIState,
+)
 from core.storage import StoragePathError, validate_identifier
 from core.type_registry import TypeRegistry
 from core.workflow_module import WorkflowModule
@@ -116,6 +121,8 @@ def _project_meta_to_dict(m: ProjectMeta) -> dict:
         "workflow_version": m.workflow_version,
         "module_dependencies": m.module_dependencies,
         "seed": m.seed,
+        "legacy_seed": m.legacy_seed,
+        "seed_version": m.seed_version,
     }
 
 
@@ -432,7 +439,20 @@ def create_app() -> FastAPI:
         register_module_factory("convert.extract_backbone", ExtractBackboneModule)
         register_module_factory("convert.select_chains", SelectChainsModule)
         register_module_factory("convert.map_track", MapResidueTrackModule)
-        project_manager.ensure_seed_project("examples/3gb1_pipeline.json", "examples/3gb1_pipeline_ui.json")
+        project_manager.ensure_seed_project(
+            os.environ.get(
+                "PROTEIN_WORKBENCH_CANONICAL_WORKFLOW",
+                "examples/3gb1_pipeline.json",
+            ),
+            os.environ.get(
+                "PROTEIN_WORKBENCH_CANONICAL_UI",
+                "examples/3gb1_pipeline_ui.json",
+            ),
+            version=os.environ.get(
+                "PROTEIN_WORKBENCH_CANONICAL_VERSION",
+                "1",
+            ),
+        )
         yield
         for task in _active_runs.values():
             task.cancel()
@@ -451,6 +471,22 @@ def create_app() -> FastAPI:
                 "error": {
                     "kind": "invalid_storage_path",
                     "field": error.field,
+                    "message": str(error),
+                },
+            },
+        )
+
+    @app.exception_handler(ProtectedProjectError)
+    async def protected_project_error_handler(
+        request: Request,
+        error: ProtectedProjectError,
+    ) -> JSONResponse:
+        del request
+        return JSONResponse(
+            status_code=403,
+            content={
+                "error": {
+                    "kind": "protected_canonical_project",
                     "message": str(error),
                 },
             },
@@ -764,6 +800,7 @@ def create_app() -> FastAPI:
         meta = project_manager.load_meta(project_id)
         if meta is None:
             return {"error": "Project not found"}
+        project_manager.assert_writable(project_id)
         uploaded_name = file.filename or "uploaded"
         dest = project_manager.input_path(project_id, uploaded_name)
         dest.parent.mkdir(parents=True, exist_ok=True)
