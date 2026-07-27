@@ -41,6 +41,9 @@ class Executor:
 
     def __init__(self) -> None:
         self._state_callbacks: list[Callable[[str, NodeState, NodeState], None]] = []
+        self._lifecycle_callbacks: list[
+            Callable[[str, str | None, dict[str, Any]], None]
+        ] = []
 
     def on_state_change(
         self, callback: Callable[[str, NodeState, NodeState], None]
@@ -51,11 +54,32 @@ class Executor:
         """
         self._state_callbacks.append(callback)
 
+    def on_lifecycle_event(
+        self,
+        callback: Callable[[str, str | None, dict[str, Any]], None],
+    ) -> None:
+        """Register an ordered observer for public run lifecycle facts."""
+        self._lifecycle_callbacks.append(callback)
+
+    def _emit_lifecycle(
+        self,
+        event_type: str,
+        node_id: str | None = None,
+        **details: Any,
+    ) -> None:
+        for callback in self._lifecycle_callbacks:
+            try:
+                callback(event_type, node_id, details)
+            except Exception:
+                continue
+
     def _set_node_state(
         self,
         node: WorkflowNode,
         new_state: NodeState,
         manifest_store: RunManifestStore | None = None,
+        *,
+        event_details: dict[str, Any] | None = None,
     ) -> None:
         """Transition a node to a new state and notify callbacks."""
         old_state = node.state
@@ -71,6 +95,19 @@ class Executor:
                 cb(node.node_id, old_state, new_state)
             except Exception:
                 continue
+        event_type = {
+            NodeState.COMPLETED: "node_completed",
+            NodeState.FAILED: "node_failed",
+            NodeState.BLOCKED: "node_blocked",
+            NodeState.CANCELLED: "node_cancelled",
+        }.get(new_state, "node_state")
+        self._emit_lifecycle(
+            event_type,
+            node.node_id,
+            old_state=old_state.value,
+            state=new_state.value,
+            **(event_details or {}),
+        )
 
     def _compute_cache_key(
         self,
@@ -289,6 +326,11 @@ class Executor:
                     details=details,
                 )
             manifest_store.set_status("running")
+            self._emit_lifecycle(
+                "run_started",
+                status="running",
+                node_order=order,
+            )
 
             # Reset all nodes to IDLE
             for node in workflow.nodes.values():
@@ -314,10 +356,20 @@ class Executor:
                     # Check if any upstream node failed -> block this node
                     upstream = workflow.get_upstream_nodes(node_id)
                     if any(u in failed_nodes for u in upstream):
+                        blocking_upstream = sorted(
+                            upstream_node_id
+                            for upstream_node_id in upstream
+                            if upstream_node_id in failed_nodes
+                        )
+                        reason = manifest_store.record_blocked(
+                            node_id=node_id,
+                            upstream_node_ids=blocking_upstream,
+                        )
                         self._set_node_state(
                             node,
                             NodeState.BLOCKED,
                             manifest_store,
+                            event_details={"reason": reason},
                         )
                         failed_nodes.add(node_id)
                         continue
@@ -346,6 +398,7 @@ class Executor:
                     )
 
                     try:
+                        cache_outcome = "bypass"
                         inputs = workflow.get_inputs_for_node(node_id)
                         configured_seed = node.parameters.get("seed")
                         effective_seed = (
@@ -412,6 +465,7 @@ class Executor:
                                         cache_store.remove(cache_key)
                                         cached = None
                                 if cached is not None:
+                                    cache_outcome = "hit"
                                     manifest_store.record_cache(
                                         node_id=node_id,
                                         cache_key=cache_key,
@@ -429,15 +483,20 @@ class Executor:
                                         node,
                                         NodeState.COMPLETED,
                                         manifest_store,
+                                        event_details={
+                                            "cache": {"outcome": "hit"}
+                                        },
                                     )
                                     continue
                                 cache_store.remove(cache_key)
+                                cache_outcome = "miss"
                                 manifest_store.record_cache(
                                     node_id=node_id,
                                     cache_key=cache_key,
                                     outcome="miss",
                                 )
                             else:
+                                cache_outcome = "bypass"
                                 manifest_store.record_cache(
                                     node_id=node_id,
                                     cache_key=cache_key,
@@ -501,6 +560,9 @@ class Executor:
                             node,
                             NodeState.COMPLETED,
                             manifest_store,
+                            event_details={
+                                "cache": {"outcome": cache_outcome}
+                            },
                         )
 
                     except asyncio.CancelledError:
@@ -508,6 +570,12 @@ class Executor:
                             node,
                             NodeState.CANCELLED,
                             manifest_store,
+                            event_details={
+                                "reason": {
+                                    "kind": "cancellation_requested",
+                                    "message": "Run cancellation was requested",
+                                }
+                            },
                         )
                         failed_nodes.add(node_id)
                         # Mark remaining queued nodes as blocked
@@ -518,6 +586,14 @@ class Executor:
                                     remaining,
                                     NodeState.CANCELLED,
                                     manifest_store,
+                                    event_details={
+                                        "reason": {
+                                            "kind": "run_cancelled",
+                                            "message": (
+                                                "Run ended before Node execution"
+                                            ),
+                                        }
+                                    },
                                 )
                         raise
 
@@ -541,26 +617,31 @@ class Executor:
                             node,
                             NodeState.FAILED,
                             manifest_store,
+                            event_details={
+                                "diagnostic": {
+                                    "kind": kind,
+                                    "message": message,
+                                    "module_id": node.module_id,
+                                    "retryable": False,
+                                }
+                            },
                         )
                         failed_nodes.add(node_id)
-                        # Block direct downstream nodes; unrelated branches continue
-                        for downstream_id in workflow.get_downstream_nodes(node_id):
-                            downstream = workflow.nodes[downstream_id]
-                            if downstream.state not in (
-                                NodeState.COMPLETED,
-                                NodeState.RUNNING,
-                            ):
-                                self._set_node_state(
-                                    downstream,
-                                    NodeState.BLOCKED,
-                                    manifest_store,
-                                )
-                                failed_nodes.add(downstream_id)
             except asyncio.CancelledError:
                 manifest_store.set_status("cancelled")
+                self._emit_lifecycle("run_cancelled", status="cancelled")
                 raise
             except Exception:
                 manifest_store.set_status("failed")
+                self._emit_lifecycle(
+                    "run_failed",
+                    status="failed",
+                    diagnostic={
+                        "kind": "run_execution_error",
+                        "message": "Run execution failed",
+                        "retryable": False,
+                    },
+                )
                 raise
             else:
                 terminal_status = (
@@ -572,6 +653,14 @@ class Executor:
                     else "failed"
                 )
                 manifest_store.set_status(terminal_status)
+                self._emit_lifecycle(
+                    (
+                        "run_completed"
+                        if terminal_status == "completed"
+                        else "run_failed"
+                    ),
+                    status=terminal_status,
+                )
 
             # Return outputs for all completed nodes
             return {

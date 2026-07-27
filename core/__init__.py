@@ -1,5 +1,6 @@
 from core.cache_store import CachePublishStatus, CacheStore
 from core.executor import Executor
+from core.lifecycle_events import RunEventBroker, RunEventStream
 from core.graph import (
     NodeState,
     Workflow,
@@ -35,6 +36,8 @@ __all__ = [
     "ProjectManager",
     "ProjectMeta",
     "RunContext",
+    "RunEventBroker",
+    "RunEventStream",
     "RunManifest",
     "RunManifestStore",
     "TypeInfo",
