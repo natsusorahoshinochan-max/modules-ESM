@@ -17,6 +17,10 @@ class RegisterFn(Protocol):
     def __call__(self, registry: ModuleRegistry) -> None: ...
 
 
+class ModuleDiscoveryError(RuntimeError):
+    """A required Module package could not be imported or registered."""
+
+
 class ModuleRegistry:
     """Registry of all known modules by module ID.
 
@@ -29,6 +33,7 @@ class ModuleRegistry:
     def __init__(self, type_registry: TypeRegistry) -> None:
         self._modules: dict[str, ModuleDefinition] = {}
         self._type_registry = type_registry
+        self._discovered_packages: set[str] = set()
 
     def register(self, definition: ModuleDefinition) -> None:
         """Register a ModuleDefinition. Raises ValueError on duplicate module_id."""
@@ -74,8 +79,9 @@ def discover_modules(registry: ModuleRegistry, modules_package: str = "modules")
     """Import all subpackages under modules/ and call their register().
 
     Each subpackage must export a register(registry: ModuleRegistry) function.
-    Subpackages without register() are silently skipped.
-    Already-registered modules are skipped for idempotency.
+    Every discovered subpackage is required to export register(). Import and
+    registration errors fail startup visibly. Packages already discovered by
+    this registry are skipped so repeating discovery is idempotent.
     """
     package = importlib.import_module(modules_package)
     package_path = Path(package.__path__[0])  # type: ignore[attr-defined]
@@ -83,13 +89,18 @@ def discover_modules(registry: ModuleRegistry, modules_package: str = "modules")
     for _, name, is_pkg in pkgutil.iter_modules([str(package_path)]):
         if not is_pkg:
             continue
+        qualified_name = f"{modules_package}.{name}"
+        if qualified_name in registry._discovered_packages:
+            continue
         try:
-            subpkg = importlib.import_module(f"{modules_package}.{name}")
-            if hasattr(subpkg, "register"):
-                subpkg.register(registry)
-        except ValueError:
-            # Module already registered — skip for idempotency
-            pass
-        except Exception:
-            # Other import/registration failures — skip
-            pass
+            subpkg = importlib.import_module(qualified_name)
+            register = getattr(subpkg, "register", None)
+            if register is None or not callable(register):
+                raise TypeError("required register(registry) function is missing")
+            register(registry)
+        except Exception as error:
+            raise ModuleDiscoveryError(
+                f"Failed to discover required Module package "
+                f"'{qualified_name}': {error}"
+            ) from error
+        registry._discovered_packages.add(qualified_name)

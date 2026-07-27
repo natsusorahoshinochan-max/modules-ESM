@@ -1,7 +1,17 @@
 """Tests for ModuleRegistry and discover_modules()."""
 
+import importlib
+import sys
+from pathlib import Path
+
 import pytest
-from core import ModuleDefinition, ModuleRegistry, TypeRegistry, discover_modules
+from core import (
+    ModuleDefinition,
+    ModuleDiscoveryError,
+    ModuleRegistry,
+    TypeRegistry,
+    discover_modules,
+)
 
 
 STUB_YAML = """
@@ -122,3 +132,38 @@ class TestDiscoverModules:
         # Second discovery should not raise — idempotent
         discover_modules(mr)
         assert "stub.echo" in mr
+
+    def test_registration_failure_is_visible(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        package = tmp_path / "required_modules"
+        package.mkdir()
+        (package / "__init__.py").write_text("")
+        broken = package / "broken_definition"
+        broken.mkdir()
+        (broken / "__init__.py").write_text(
+            "def register(registry):\n"
+            "    raise ValueError('required definition is malformed')\n"
+        )
+        monkeypatch.syspath_prepend(str(tmp_path))
+        importlib.invalidate_caches()
+
+        with pytest.raises(
+            ModuleDiscoveryError,
+            match=(
+                "required_modules\\.broken_definition.*"
+                "required definition is malformed"
+            ),
+        ):
+            discover_modules(
+                ModuleRegistry(TypeRegistry()),
+                "required_modules",
+            )
+
+        for name in tuple(sys.modules):
+            if name == "required_modules" or name.startswith(
+                "required_modules."
+            ):
+                sys.modules.pop(name)

@@ -9,7 +9,8 @@ import uuid
 import shutil
 from typing import Any, AsyncGenerator
 
-from contextlib import asynccontextmanager, suppress
+from contextlib import ExitStack, asynccontextmanager, suppress
+from importlib.resources import as_file, files
 from fastapi import (
     Body,
     FastAPI,
@@ -478,20 +479,40 @@ def create_app() -> FastAPI:
         register_module_factory("convert.extract_backbone", ExtractBackboneModule)
         register_module_factory("convert.select_chains", SelectChainsModule)
         register_module_factory("convert.map_track", MapResidueTrackModule)
-        project_manager.ensure_seed_project(
-            os.environ.get(
-                "PROTEIN_WORKBENCH_CANONICAL_WORKFLOW",
-                "examples/3gb1_pipeline.json",
-            ),
-            os.environ.get(
-                "PROTEIN_WORKBENCH_CANONICAL_UI",
-                "examples/3gb1_pipeline_ui.json",
-            ),
-            version=os.environ.get(
-                "PROTEIN_WORKBENCH_CANONICAL_VERSION",
-                "1",
-            ),
-        )
+        with ExitStack() as asset_stack:
+            workflow_path = os.environ.get(
+                "PROTEIN_WORKBENCH_CANONICAL_WORKFLOW"
+            )
+            packaged_workflow = workflow_path is None
+            if packaged_workflow:
+                workflow_path = str(asset_stack.enter_context(
+                    as_file(files("examples").joinpath("3gb1_pipeline.json"))
+                ))
+            ui_path = os.environ.get("PROTEIN_WORKBENCH_CANONICAL_UI")
+            if ui_path is None:
+                ui_path = str(asset_stack.enter_context(
+                    as_file(
+                        files("examples").joinpath(
+                            "3gb1_pipeline_ui.json"
+                        )
+                    )
+                ))
+            canonical_structure = asset_stack.enter_context(
+                as_file(files("pdbs").joinpath("3GB1.pdb"))
+            )
+            project_manager.ensure_seed_project(
+                workflow_path,
+                ui_path,
+                version=os.environ.get(
+                    "PROTEIN_WORKBENCH_CANONICAL_VERSION",
+                    "1",
+                ),
+                input_sources=(
+                    {"pdbs/3GB1.pdb": canonical_structure}
+                    if packaged_workflow
+                    else None
+                ),
+            )
         _cache_mutations.clear()
         yield
         for active_run in tuple(_active_runs.values()):

@@ -1,7 +1,11 @@
 """Tests for ProteinMPNN modules (ticket 07)."""
 
 import asyncio
+import hashlib
+import subprocess
+import sys
 from pathlib import Path
+from types import ModuleType
 from typing import Any
 from unittest.mock import patch
 
@@ -28,6 +32,119 @@ ATOM      7  C   GLY A   2       3.309   4.309   0.000  1.00  0.00           C
 ATOM      8  O   GLY A   2       2.109   4.409   0.000  1.00  0.00           O
 END
 """
+
+
+def test_proteinmpnn_root_must_be_explicitly_configured(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from modules.proteinmpnn import adapter
+
+    monkeypatch.delenv("PROTEIN_WORKBENCH_PROTEINMPNN_ROOT", raising=False)
+
+    readiness = adapter.check_proteinmpnn_readiness()
+    assert readiness.ready is False
+    assert readiness.detail is not None
+    assert "is not configured" in readiness.detail
+
+    provider_root = tmp_path / "ProteinMPNN"
+    provider_root.mkdir()
+    (provider_root / "protein_mpnn_utils.py").write_text("# provider\n")
+    subprocess.run(["git", "init", "-q", str(provider_root)], check=True)
+    subprocess.run(
+        ["git", "-C", str(provider_root), "add", "protein_mpnn_utils.py"],
+        check=True,
+    )
+    subprocess.run(
+        [
+            "git",
+            "-C",
+            str(provider_root),
+            "-c",
+            "user.name=Protein Workbench Test",
+            "-c",
+            "user.email=test@example.invalid",
+            "commit",
+            "-qm",
+            "provider fixture",
+        ],
+        check=True,
+    )
+    provider_commit = subprocess.run(
+        ["git", "-C", str(provider_root), "rev-parse", "HEAD"],
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout.strip()
+    assert adapter.validate_proteinmpnn_checkout(
+        provider_root,
+        provider_commit,
+    ) == provider_root.resolve()
+
+    (provider_root / "protein_mpnn_utils.py").write_text("# drifted provider\n")
+    with pytest.raises(RuntimeError, match="modified tracked files"):
+        adapter.validate_proteinmpnn_checkout(provider_root, provider_commit)
+
+
+def test_proteinmpnn_checkpoint_rejects_drift_and_symlinks(
+    tmp_path: Path,
+) -> None:
+    from modules.proteinmpnn import adapter
+
+    checkpoint_dir = tmp_path / "vanilla_model_weights"
+    checkpoint_dir.mkdir()
+    checkpoint = checkpoint_dir / "v_48_020.pt"
+    checkpoint.write_bytes(b"locked checkpoint")
+    expected_hash = hashlib.sha256(checkpoint.read_bytes()).hexdigest()
+    assert adapter.validate_proteinmpnn_checkpoint(
+        checkpoint,
+        expected_hash,
+    ) == checkpoint
+
+    checkpoint.write_bytes(b"drifted checkpoint")
+    with pytest.raises(RuntimeError, match="SHA-256 mismatch"):
+        adapter.validate_proteinmpnn_checkpoint(
+            checkpoint,
+            expected_hash,
+        )
+
+    checkpoint.unlink()
+    target = tmp_path / "outside.pt"
+    target.write_bytes(b"locked checkpoint")
+    checkpoint.symlink_to(target)
+    with pytest.raises(RuntimeError, match="regular non-symlink"):
+        adapter.validate_proteinmpnn_checkpoint(
+            checkpoint,
+            expected_hash,
+        )
+
+
+def test_proteinmpnn_checkpoint_uses_safe_torch_loading(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from modules.proteinmpnn.adapter import load_proteinmpnn_checkpoint
+
+    load_calls: list[dict[str, Any]] = []
+    fake_torch = ModuleType("torch")
+
+    def fake_load(path: str, **kwargs: Any) -> dict[str, Any]:
+        load_calls.append({"path": path, **kwargs})
+        return {"model_state_dict": {}}
+
+    fake_torch.load = fake_load
+    monkeypatch.setitem(sys.modules, "torch", fake_torch)
+
+    assert load_proteinmpnn_checkpoint("/locked.pt") == {
+        "model_state_dict": {}
+    }
+    assert load_calls == [
+        {
+            "path": "/locked.pt",
+            "map_location": "cpu",
+            "weights_only": True,
+        }
+    ]
+
 
 PARSED_TWO_CHAIN_STRUCTURE = [{
     "name": "target",

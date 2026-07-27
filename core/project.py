@@ -21,7 +21,7 @@ import uuid
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any
+from typing import Any, Mapping
 
 from core.graph import Workflow, WorkflowEdge, WorkflowNode
 from core.module_registry import ModuleRegistry
@@ -286,6 +286,7 @@ class ProjectManager:
         name: str = "3GB1 Design Pipeline",
         *,
         version: str = "1",
+        input_sources: Mapping[str, str | Path] | None = None,
     ) -> ProjectMeta:
         """Install or upgrade the protected canonical 3GB1 project.
 
@@ -333,20 +334,34 @@ class ProjectManager:
                 raise CanonicalSeedError(
                     f"Unsafe canonical input reference: {error}"
                 ) from error
-            source_parts = destination_parts
             if destination_parts[:1] == ("inputs",):
                 destination_parts = destination_parts[1:]
-            try:
-                source = contained_path(
-                    Path.cwd(),
-                    *source_parts,
-                    field="input_path",
-                )
-            except StoragePathError as error:
-                raise CanonicalSeedError(
-                    f"Unsafe canonical input reference: {error}"
-                ) from error
-            if not source.is_file() or not destination_parts:
+            configured_source = (
+                input_sources.get(input_reference)
+                if input_sources is not None
+                else None
+            )
+            if configured_source is not None:
+                source = Path(configured_source)
+            else:
+                try:
+                    source = contained_path(
+                        Path.cwd(),
+                        *validate_relative_path(
+                            input_reference,
+                            "input_path",
+                        ),
+                        field="input_path",
+                    )
+                except StoragePathError as error:
+                    raise CanonicalSeedError(
+                        f"Unsafe canonical input reference: {error}"
+                    ) from error
+            if (
+                not source.is_file()
+                or source.is_symlink()
+                or not destination_parts
+            ):
                 raise CanonicalSeedError(
                     f"Canonical input file not found: {input_reference}"
                 )

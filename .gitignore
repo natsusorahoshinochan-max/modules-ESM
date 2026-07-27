@@ -8,3 +8,4 @@ frontend/dist/
 __pycache__/
 .pytest_cache/
 projects/
+verification-results/

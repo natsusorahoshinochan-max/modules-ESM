@@ -43,12 +43,9 @@ def _check_mkdssp_ready() -> bool:
 
 def _check_proteinmpnn_ready() -> bool:
     """Check if ProteinMPNN checkpoints exist."""
-    mpnn_dir = PROJECT_ROOT / "repositories" / "ProteinMPNN"
-    if not mpnn_dir.exists():
-        return False
-    v_weights = mpnn_dir / "vanilla_model_weights" / "v_48_020.pt"
-    s_weights = mpnn_dir / "soluble_model_weights" / "v_48_020.pt"
-    return v_weights.exists() or s_weights.exists()
+    from modules.proteinmpnn import check_proteinmpnn_readiness
+
+    return check_proteinmpnn_readiness().ready
 
 
 def _check_simplefold_ready() -> bool:
