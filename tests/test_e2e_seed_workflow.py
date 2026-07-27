@@ -10,6 +10,7 @@ import json
 import shutil
 import tempfile
 from pathlib import Path
+from types import ModuleType, SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import torch
@@ -125,6 +126,29 @@ def _make_mock_esm_protein(sequence, seed=0):
     return mock
 
 
+def _mock_esm_sdk():
+    """Provide the ESM SDK construction surface used before the fake client."""
+    class MockESMProteinError(Exception):
+        pass
+
+    esm_module = ModuleType("esm")
+    sdk_module = ModuleType("esm.sdk")
+    api_module = ModuleType("esm.sdk.api")
+    api_module.ESMProtein = SimpleNamespace
+    api_module.ESMProteinError = MockESMProteinError
+    api_module.GenerationConfig = SimpleNamespace
+    esm_module.sdk = sdk_module
+    sdk_module.api = api_module
+    return patch.dict(
+        "sys.modules",
+        {
+            "esm": esm_module,
+            "esm.sdk": sdk_module,
+            "esm.sdk.api": api_module,
+        },
+    )
+
+
 def _mock_fold(sequence, **kw):
     from datatypes import ProteinStructure, Score, ScoreCollection
 
@@ -176,8 +200,8 @@ def _mock_design(
 class TestE2ESeedWorkflow:
     """End-to-end execution of the 3GB1 seed workflow DAG."""
 
-    def test_all_22_nodes_complete(self) -> None:
-        """Every node in the seed workflow DAG completes without error."""
+    def test_all_22_nodes_complete_with_ss8_provider_payload(self) -> None:
+        """The canonical workflow reaches ESM3 with a legal SS8 payload."""
         wf_path = Path(__file__).parent.parent / "examples" / "3gb1_pipeline.json"
         wf_data = json.loads(wf_path.read_text())
 
@@ -217,11 +241,9 @@ class TestE2ESeedWorkflow:
 
         from datatypes import ResidueTrack
 
-        mock_ss = ResidueTrack(
-            values=["E"] * 10 + ["H"] * 10 + ["E"] * 36, sentinel=None
-        )
+        mock_ss = ResidueTrack(values=["-"] * 56, sentinel=None)
 
-        with tempfile.TemporaryDirectory() as tmpdir:
+        with _mock_esm_sdk(), tempfile.TemporaryDirectory() as tmpdir:
             seed_input = Path(tmpdir) / "inputs" / "pdbs" / "3GB1.pdb"
             seed_input.parent.mkdir(parents=True)
             shutil.copyfile(
@@ -260,7 +282,14 @@ class TestE2ESeedWorkflow:
 
         completed = set(result.keys())
         all_nodes = set(workflow.nodes.keys())
-        assert completed == all_nodes, f"Missing nodes: {all_nodes - completed}"
+        assert completed == all_nodes, (
+            f"Missing nodes: {all_nodes - completed}"
+        )
+        provider_prompt = mock_esm3.generate.call_args.args[0]
+        assert provider_prompt.secondary_structure == (
+            "E_EEEE_E_E_E_EEEEEE_E_EE_EE___HHHHH_HHH_____"
+            "EEE_EEE_EEE_EEEE_EEEEEE_EEE"
+        )
 
     def test_data_flow_counts(self) -> None:
         """Verify output counts at each pipeline stage."""
@@ -303,7 +332,7 @@ class TestE2ESeedWorkflow:
             values=["E"] * 10 + ["H"] * 10 + ["E"] * 36, sentinel=None
         )
 
-        with tempfile.TemporaryDirectory() as tmpdir:
+        with _mock_esm_sdk(), tempfile.TemporaryDirectory() as tmpdir:
             seed_input = Path(tmpdir) / "inputs" / "pdbs" / "3GB1.pdb"
             seed_input.parent.mkdir(parents=True)
             shutil.copyfile(
