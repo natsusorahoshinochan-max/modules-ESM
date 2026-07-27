@@ -1,7 +1,6 @@
 """ProteinMPNN Design: generates sequence candidates from a structure."""
 
 import uuid
-from math import isfinite
 from pathlib import Path
 from typing import Any
 
@@ -17,7 +16,7 @@ from datatypes import (
     Score,
     ScoreCollection,
 )
-from modules.proteinmpnn.adapter import design_sequences
+from modules.proteinmpnn.adapter import design_sequences, validate_design_parameters
 
 
 class ProteinMPNNDesignModule(WorkflowModule):
@@ -61,17 +60,9 @@ class ProteinMPNNDesignModule(WorkflowModule):
         num_sequences = int(parameters.get("num_sequences", 1))
         temperature = float(parameters.get("temperature", 0.1))
         backbone_noise = float(parameters.get("backbone_noise", 0.0))
-        supported_models = {"v_48_002", "v_48_010", "v_48_020", "v_48_030"}
-        if model_name not in supported_models:
-            raise ValueError(
-                f"model_name must be one of {sorted(supported_models)}, got {model_name!r}"
-            )
-        if num_sequences < 1:
-            raise ValueError("num_sequences must be at least 1")
-        if not isfinite(temperature) or temperature <= 0:
-            raise ValueError("temperature must be a finite number greater than 0")
-        if not isfinite(backbone_noise) or backbone_noise < 0:
-            raise ValueError("backbone_noise must be a finite number at least 0")
+        validate_design_parameters(
+            model_name, num_sequences, temperature, backbone_noise
+        )
 
         sequences, native_score = design_sequences(
             pdb_string=structure.pdb_string,

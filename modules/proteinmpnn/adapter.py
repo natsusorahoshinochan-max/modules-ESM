@@ -336,15 +336,13 @@ def _position_to_chain(
     )
 
 
-def _prepare_design_request(
-    pdb_dict_list: list[dict[str, Any]],
+def validate_design_parameters(
     model_name: str,
     num_sequences: int,
     temperature: float,
     backbone_noise: float,
-    constraints: ProteinMPNNConstraints | None,
-    reference_sequence: str | None,
-) -> ProteinMPNNDesignRequest:
+) -> None:
+    """Reject unsupported ProteinMPNN sampling parameters."""
     if model_name not in _SUPPORTED_MODELS:
         raise ValueError(
             f"model_name must be one of {sorted(_SUPPORTED_MODELS)}, got {model_name!r}"
@@ -357,21 +355,27 @@ def _prepare_design_request(
         raise ValueError("temperature must be a finite number greater than 0")
     if not isfinite(backbone_noise) or backbone_noise < 0:
         raise ValueError("backbone_noise must be a finite number at least 0")
+
+
+def _structure_target(
+    pdb_dict_list: list[dict[str, Any]],
+) -> tuple[str, list[tuple[str, str]]]:
     if len(pdb_dict_list) != 1:
-        raise ValueError(
-            "structure must parse to exactly one ProteinMPNN target"
-        )
+        raise ValueError("structure must parse to exactly one ProteinMPNN target")
     pdb_entry = pdb_dict_list[0]
     chains = _chain_sequences(pdb_entry)
     if not chains:
         raise ValueError("No valid chains found in PDB structure")
+    return str(pdb_entry["name"]), chains
 
-    name = str(pdb_entry["name"])
+
+def _chain_partition(
+    chains: list[tuple[str, str]],
+    constraints: ProteinMPNNConstraints,
+) -> tuple[list[str], list[str]]:
     chain_ids = [chain for chain, _ in chains]
-    selected_constraints = constraints or ProteinMPNNConstraints()
-
-    requested_designed = list(selected_constraints.designed_chains or [])
-    requested_fixed = list(selected_constraints.fixed_chains or [])
+    requested_designed = list(constraints.designed_chains or [])
+    requested_fixed = list(constraints.fixed_chains or [])
     if len(set(requested_designed)) != len(requested_designed):
         raise ValueError("designed_chains cannot contain duplicates")
     if len(set(requested_fixed)) != len(requested_fixed):
@@ -391,7 +395,6 @@ def _prepare_design_request(
             + ", ".join(overlapping_chains)
         )
     if requested_designed:
-        designed_chains = requested_designed
         fixed_chains = [
             chain for chain in chain_ids if chain not in set(requested_designed)
         ]
@@ -399,22 +402,27 @@ def _prepare_design_request(
             raise ValueError(
                 "designed_chains and fixed_chains must partition all structure chains"
             )
+        return requested_designed, fixed_chains
     elif requested_fixed:
-        fixed_chains = requested_fixed
         designed_chains = [
             chain for chain in chain_ids if chain not in set(requested_fixed)
         ]
-    else:
-        designed_chains = chain_ids
-        fixed_chains = []
+        return designed_chains, requested_fixed
+    return chain_ids, []
 
-    fixed_position_dict = None
-    raw_fixed_positions = list(selected_constraints.fixed_positions or [])
+
+def _fixed_position_payload(
+    name: str,
+    chains: list[tuple[str, str]],
+    designed_chains: list[str],
+    constraints: ProteinMPNNConstraints,
+) -> dict[str, dict[str, list[int]]] | None:
+    raw_fixed_positions = list(constraints.fixed_positions or [])
     if len(set(raw_fixed_positions)) != len(raw_fixed_positions):
         raise ValueError("fixed_positions cannot contain duplicates")
     fixed_positions = set(raw_fixed_positions)
-    if selected_constraints.designable_positions:
-        raw_designable_positions = list(selected_constraints.designable_positions)
+    if constraints.designable_positions:
+        raw_designable_positions = list(constraints.designable_positions)
         if len(set(raw_designable_positions)) != len(raw_designable_positions):
             raise ValueError("designable_positions cannot contain duplicates")
         designable_positions = set(raw_designable_positions)
@@ -442,113 +450,163 @@ def _prepare_design_request(
                 )
             target_position += len(sequence)
 
-    if fixed_positions:
-        fixed_by_chain = {chain: [] for chain in chain_ids}
-        for position in sorted(fixed_positions):
+    if not fixed_positions:
+        return None
+    fixed_by_chain = {chain: [] for chain, _ in chains}
+    for position in sorted(fixed_positions):
+        chain, local_position = _position_to_chain(position, chains)
+        if chain not in designed_chains:
+            raise ValueError(
+                f"fixed position {position} belongs to already-fixed chain {chain}"
+            )
+        fixed_by_chain[chain].append(local_position + 1)
+    return {name: fixed_by_chain}
+
+
+def _tied_position_payload(
+    name: str,
+    chains: list[tuple[str, str]],
+    designed_chains: list[str],
+    constraints: ProteinMPNNConstraints,
+    fixed_position_dict: dict[str, dict[str, list[int]]] | None,
+) -> dict[str, list[dict[str, list[int]]]] | None:
+    if not constraints.tied_positions:
+        return None
+    tied_groups: list[dict[str, list[int]]] = []
+    seen_tied_positions: set[int] = set()
+    for group_index, group in enumerate(constraints.tied_positions):
+        if len(group) < 2:
+            raise ValueError(
+                f"tied position group {group_index} must contain at least two positions"
+            )
+        if len(set(group)) != len(group):
+            raise ValueError(
+                f"tied position group {group_index} contains duplicate positions"
+            )
+        reused_positions = seen_tied_positions & set(group)
+        if reused_positions:
+            raise ValueError(
+                "tied positions cannot appear in multiple groups: "
+                + ", ".join(str(position) for position in sorted(reused_positions))
+            )
+        seen_tied_positions.update(group)
+        chain_positions: dict[str, list[int]] = {}
+        for position in group:
             chain, local_position = _position_to_chain(position, chains)
-            if chain not in designed_chains:
+            chain_positions.setdefault(chain, []).append(local_position + 1)
+        fixed_positions = (fixed_position_dict or {}).get(name, {})
+        for chain, positions in chain_positions.items():
+            conflict = sorted(set(positions) & set(fixed_positions.get(chain, [])))
+            if conflict:
                 raise ValueError(
-                    f"fixed position {position} belongs to already-fixed chain {chain}"
+                    f"tied position group {group_index} includes fixed position "
+                    f"{chain}:{conflict[0]}"
                 )
-            fixed_by_chain[chain].append(local_position + 1)
-        fixed_position_dict = {name: fixed_by_chain}
+        if not set(chain_positions) & set(designed_chains):
+            raise ValueError(
+                f"tied position group {group_index} contains no designable chain"
+            )
+        tied_groups.append(chain_positions)
+    return {name: tied_groups}
 
-    tied_positions_dict = None
-    if selected_constraints.tied_positions:
-        tied_groups: list[dict[str, list[int]]] = []
-        seen_tied_positions: set[int] = set()
-        for group_index, group in enumerate(selected_constraints.tied_positions):
-            if len(group) < 2:
-                raise ValueError(
-                    f"tied position group {group_index} must contain at least two positions"
-                )
-            if len(set(group)) != len(group):
-                raise ValueError(
-                    f"tied position group {group_index} contains duplicate positions"
-                )
-            reused_positions = seen_tied_positions & set(group)
-            if reused_positions:
-                raise ValueError(
-                    "tied positions cannot appear in multiple groups: "
-                    + ", ".join(
-                        str(position) for position in sorted(reused_positions)
-                    )
-                )
-            seen_tied_positions.update(group)
-            chain_positions: dict[str, list[int]] = {}
-            for position in group:
-                chain, local_position = _position_to_chain(position, chains)
-                chain_positions.setdefault(chain, []).append(local_position + 1)
-            if not set(chain_positions) & set(designed_chains):
-                raise ValueError(
-                    f"tied position group {group_index} contains no designable chain"
-                )
-            tied_groups.append(chain_positions)
-        tied_positions_dict = {name: tied_groups}
 
-    bias_by_res_dict = None
-    if selected_constraints.bias_by_res:
-        bias_by_chain = {
-            chain: [[0.0] * len(_ALPHABET) for _ in sequence]
-            for chain, sequence in chains
-        }
-        for position, amino_acid_biases in selected_constraints.bias_by_res.items():
-            chain, local_position = _position_to_chain(position, chains)
-            if chain not in designed_chains:
+def _bias_payload(
+    name: str,
+    chains: list[tuple[str, str]],
+    designed_chains: list[str],
+    constraints: ProteinMPNNConstraints,
+) -> dict[str, dict[str, list[list[float]]]] | None:
+    if not constraints.bias_by_res:
+        return None
+    bias_by_chain = {
+        chain: [[0.0] * len(_ALPHABET) for _ in sequence]
+        for chain, sequence in chains
+    }
+    for position, amino_acid_biases in constraints.bias_by_res.items():
+        chain, local_position = _position_to_chain(position, chains)
+        if chain not in designed_chains:
+            raise ValueError(
+                f"bias_by_res position {position} belongs to fixed chain {chain}"
+            )
+        for amino_acid, bias in amino_acid_biases.items():
+            if amino_acid not in _ALPHABET_DICT:
                 raise ValueError(
-                    f"bias_by_res position {position} belongs to fixed chain {chain}"
+                    f"unsupported amino acid {amino_acid!r} in bias_by_res"
                 )
-            for amino_acid, bias in amino_acid_biases.items():
-                try:
-                    amino_acid_index = _ALPHABET_DICT[amino_acid]
-                except KeyError as error:
-                    raise ValueError(
-                        f"unsupported amino acid {amino_acid!r} in bias_by_res"
-                    ) from error
-                numeric_bias = float(bias)
-                if not isfinite(numeric_bias):
-                    raise ValueError(
-                        f"bias for position {position} and amino acid "
-                        f"{amino_acid} must be finite"
-                    )
-                bias_by_chain[chain][local_position][amino_acid_index] = numeric_bias
-        bias_by_res_dict = {name: bias_by_chain}
+            numeric_bias = float(bias)
+            if not isfinite(numeric_bias):
+                raise ValueError(
+                    f"bias for position {position} and amino acid "
+                    f"{amino_acid} must be finite"
+                )
+            amino_acid_index = _ALPHABET_DICT[amino_acid]
+            bias_by_chain[chain][local_position][amino_acid_index] = numeric_bias
+    return {name: bias_by_chain}
 
-    unsupported_omissions = sorted(
-        set(selected_constraints.omit_amino_acids or []) - set(_ALPHABET)
-    )
+
+def _omitted_amino_acids(
+    constraints: ProteinMPNNConstraints,
+) -> list[str]:
+    omitted = list(constraints.omit_amino_acids or [])
+    unsupported_omissions = sorted(set(omitted) - set(_ALPHABET))
     if unsupported_omissions:
         raise ValueError(
             "unsupported amino acids in omit_amino_acids: "
             + ", ".join(unsupported_omissions)
         )
-    if len(set(selected_constraints.omit_amino_acids or [])) != len(
-        selected_constraints.omit_amino_acids or []
-    ):
+    if len(set(omitted)) != len(omitted):
         raise ValueError("omit_amino_acids cannot contain duplicates")
+    return omitted
 
-    reference_sequences = None
-    if reference_sequence is not None:
-        structure_length = sum(len(sequence) for _, sequence in chains)
-        if len(reference_sequence) != structure_length:
-            raise ValueError(
-                "reference sequence length "
-                f"{len(reference_sequence)} does not match structure length "
-                f"{structure_length}; padding and truncation are not supported"
-            )
-        unsupported = sorted(set(reference_sequence) - set(_ALPHABET))
-        if unsupported:
-            raise ValueError(
-                "reference sequence contains unsupported amino acids: "
-                + ", ".join(unsupported)
-            )
-        reference_sequences = {}
-        offset = 0
-        for chain, structure_sequence in chains:
-            chain_end = offset + len(structure_sequence)
-            reference_sequences[chain] = reference_sequence[offset:chain_end]
-            offset = chain_end
 
+def _reference_sequences(
+    chains: list[tuple[str, str]],
+    reference_sequence: str | None,
+) -> dict[str, str] | None:
+    if reference_sequence is None:
+        return None
+    structure_length = sum(len(sequence) for _, sequence in chains)
+    if len(reference_sequence) != structure_length:
+        raise ValueError(
+            "reference sequence length "
+            f"{len(reference_sequence)} does not match structure length "
+            f"{structure_length}; padding and truncation are not supported"
+        )
+    unsupported = sorted(set(reference_sequence) - set(_ALPHABET))
+    if unsupported:
+        raise ValueError(
+            "reference sequence contains unsupported amino acids: "
+            + ", ".join(unsupported)
+        )
+    split_reference = {}
+    offset = 0
+    for chain, structure_sequence in chains:
+        chain_end = offset + len(structure_sequence)
+        split_reference[chain] = reference_sequence[offset:chain_end]
+        offset = chain_end
+    return split_reference
+
+
+def _prepare_design_request(
+    pdb_dict_list: list[dict[str, Any]],
+    model_name: str,
+    num_sequences: int,
+    temperature: float,
+    backbone_noise: float,
+    constraints: ProteinMPNNConstraints | None,
+    reference_sequence: str | None,
+) -> ProteinMPNNDesignRequest:
+    validate_design_parameters(
+        model_name, num_sequences, temperature, backbone_noise
+    )
+    name, chains = _structure_target(pdb_dict_list)
+    selected_constraints = constraints or ProteinMPNNConstraints()
+    designed_chains, fixed_chains = _chain_partition(
+        chains, selected_constraints
+    )
+    fixed_position_dict = _fixed_position_payload(
+        name, chains, designed_chains, selected_constraints
+    )
     return ProteinMPNNDesignRequest(
         pdb_dict_list=pdb_dict_list,
         model_name=model_name,
@@ -557,14 +615,18 @@ def _prepare_design_request(
         backbone_noise=backbone_noise,
         chain_dict={name: (designed_chains, fixed_chains)},
         fixed_position_dict=fixed_position_dict,
-        tied_positions_dict=tied_positions_dict,
-        bias_by_res_dict=bias_by_res_dict,
-        omit_amino_acids=(
-            list(selected_constraints.omit_amino_acids)
-            if selected_constraints.omit_amino_acids
-            else []
+        tied_positions_dict=_tied_position_payload(
+            name,
+            chains,
+            designed_chains,
+            selected_constraints,
+            fixed_position_dict,
         ),
-        reference_sequences=reference_sequences,
+        bias_by_res_dict=_bias_payload(
+            name, chains, designed_chains, selected_constraints
+        ),
+        omit_amino_acids=_omitted_amino_acids(selected_constraints),
+        reference_sequences=_reference_sequences(chains, reference_sequence),
     )
 
 

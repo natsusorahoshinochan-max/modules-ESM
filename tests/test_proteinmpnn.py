@@ -475,6 +475,13 @@ class TestProteinMPNNDesign:
                 ),
                 "tied position group 0 contains no designable chain",
             ),
+            (
+                ProteinMPNNConstraints(
+                    fixed_positions=[0],
+                    tied_positions=[[0, 1]],
+                ),
+                "tied position group 0 includes fixed position A:1",
+            ),
         ],
     )
     def test_adapter_rejects_invalid_constraints_before_inference(
