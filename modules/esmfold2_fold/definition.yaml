@@ -6,12 +6,19 @@ description: "Folds protein sequences into 3D structures using ESMFold2 via Bioh
 input_ports:
   - name: sequence
     type_id: protein.sequence
+    required: false
     display_name: Sequence
     description: "Single protein sequence to fold."
   - name: candidates
     type_id: candidate.collection
+    required: false
     display_name: Candidates
     description: "Collection of sequence candidates to fold."
+input_groups:
+  - name: fold_input
+    alternatives:
+      - [sequence]
+      - [candidates]
 output_ports:
   - name: candidates
     type_id: candidate.collection

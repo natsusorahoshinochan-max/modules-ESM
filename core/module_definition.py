@@ -16,6 +16,18 @@ class PortDefinition:
     type_id: str
     display_name: str = ""
     description: str = ""
+    required: bool = True
+    allow_multiple: bool = False
+
+
+@dataclass(frozen=True)
+class InputGroupDefinition:
+    """Alternative sets of input Ports that satisfy one Module input mode."""
+
+    name: str
+    alternatives: tuple[tuple[str, ...], ...]
+    required: bool = True
+    allow_multiple: bool = False
 
 
 @dataclass
@@ -43,6 +55,7 @@ class ModuleDefinition:
         category: UI grouping (input, prompt, model, conversion, scoring, selection, output).
         description: short prose description.
         input_ports: list of named, typed input ports.
+        input_groups: alternative input Port sets with group requirements.
         output_ports: list of named, typed output ports.
         parameters: list of configurable parameters.
         module_api: core-to-module API compatibility version.
@@ -54,6 +67,7 @@ class ModuleDefinition:
     category: str
     description: str = ""
     input_ports: list[PortDefinition] = field(default_factory=list)
+    input_groups: list[InputGroupDefinition] = field(default_factory=list)
     output_ports: list[PortDefinition] = field(default_factory=list)
     parameters: list[ParameterDefinition] = field(default_factory=list)
     module_api: str = "1.0"
@@ -97,6 +111,8 @@ class ModuleDefinition:
                 type_id=p["type_id"],
                 display_name=p.get("display_name", ""),
                 description=p.get("description", ""),
+                required=p.get("required", True),
+                allow_multiple=p.get("allow_multiple", False),
             ))
 
         output_ports = []
@@ -108,6 +124,38 @@ class ModuleDefinition:
                 type_id=p["type_id"],
                 display_name=p.get("display_name", ""),
                 description=p.get("description", ""),
+            ))
+
+        input_port_names = {port.name for port in input_ports}
+        input_groups = []
+        for group in raw.get("input_groups", []):
+            alternatives = tuple(
+                tuple(alternative)
+                for alternative in group.get("alternatives", [])
+            )
+            if (
+                not group.get("name")
+                or not alternatives
+                or any(not alternative for alternative in alternatives)
+            ):
+                raise ValueError(
+                    "Each input group must have 'name' and 'alternatives'"
+                )
+            referenced_ports = {
+                port_name
+                for alternative in alternatives
+                for port_name in alternative
+            }
+            unknown_ports = referenced_ports - input_port_names
+            if unknown_ports:
+                raise ValueError(
+                    f"Input group references unknown Ports: {sorted(unknown_ports)}"
+                )
+            input_groups.append(InputGroupDefinition(
+                name=group["name"],
+                alternatives=alternatives,
+                required=group.get("required", True),
+                allow_multiple=group.get("allow_multiple", False),
             ))
 
         parameters = []
@@ -132,6 +180,7 @@ class ModuleDefinition:
             category=raw["category"],
             description=raw.get("description", ""),
             input_ports=input_ports,
+            input_groups=input_groups,
             output_ports=output_ports,
             parameters=parameters,
             module_api=raw.get("module_api", "1.0"),

@@ -6,6 +6,7 @@ description: "Add named function annotations as residue ranges."
 input_ports:
   - name: existing_annotations
     type_id: function.annotations
+    required: false
     display_name: Existing Annotations
     description: "Existing function annotations to add to (optional)."
 output_ports:

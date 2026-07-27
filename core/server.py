@@ -10,11 +10,19 @@ from typing import Any, AsyncGenerator
 
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, File, UploadFile, WebSocket, WebSocketDisconnect
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 
 from core.executor import Executor
-from core.graph import NodeState, Workflow, WorkflowEdge, WorkflowNode
+from core.graph import (
+    NodeState,
+    Workflow,
+    WorkflowEdge,
+    WorkflowNode,
+    WorkflowValidationError,
+    WorkflowValidationErrorKind,
+    WorkflowValidationResult,
+)
 from core.module_definition import ModuleDefinition, ParameterDefinition, PortDefinition
 from core.module_registry import ModuleRegistry, discover_modules
 from core.project import ProjectManager, ProjectMeta, UIState
@@ -43,6 +51,8 @@ def _port_to_dict(p: PortDefinition) -> dict:
         "type_id": p.type_id,
         "display_name": p.display_name,
         "description": p.description,
+        "required": p.required,
+        "allow_multiple": p.allow_multiple,
     }
 
 
@@ -71,6 +81,18 @@ def _module_to_dict(m: ModuleDefinition) -> dict:
         "category": m.category,
         "description": m.description,
         "input_ports": [_port_to_dict(p) for p in m.input_ports],
+        "input_groups": [
+            {
+                "name": group.name,
+                "alternatives": [
+                    list(alternative)
+                    for alternative in group.alternatives
+                ],
+                "required": group.required,
+                "allow_multiple": group.allow_multiple,
+            }
+            for group in m.input_groups
+        ],
         "output_ports": [_port_to_dict(p) for p in m.output_ports],
         "parameters": [_param_to_dict(p) for p in m.parameters],
         "module_api": m.module_api,
@@ -111,6 +133,162 @@ def _workflow_to_dict(wf: Workflow) -> dict:
             for e in wf.edges
         ],
     }
+
+
+def _workflow_from_payload(
+    payload: dict[str, Any],
+) -> tuple[Workflow, tuple[WorkflowValidationError, ...]]:
+    """Build a Workflow while retaining structural errors for validation."""
+    workflow = Workflow()
+    errors: list[WorkflowValidationError] = []
+    nodes = payload.get("nodes")
+    if not isinstance(nodes, list):
+        return workflow, (
+            WorkflowValidationError(
+                kind=WorkflowValidationErrorKind.MALFORMED_WORKFLOW,
+                message="Workflow 'nodes' must be a list",
+            ),
+        )
+
+    for raw_node in nodes:
+        if not isinstance(raw_node, dict):
+            errors.append(WorkflowValidationError(
+                kind=WorkflowValidationErrorKind.MALFORMED_WORKFLOW,
+                message="Each Workflow Node must be an object",
+            ))
+            continue
+        missing_fields = [
+            field_name
+            for field_name in ("node_id", "module_id")
+            if field_name not in raw_node
+        ]
+        if missing_fields:
+            errors.append(WorkflowValidationError(
+                kind=WorkflowValidationErrorKind.MALFORMED_WORKFLOW,
+                message=(
+                    "Workflow Node is missing required fields: "
+                    f"{', '.join(missing_fields)}"
+                ),
+            ))
+            continue
+        invalid_string_fields = [
+            field_name
+            for field_name in ("node_id", "module_id", "module_version")
+            if not isinstance(
+                raw_node.get(field_name, "1.0.0"),
+                str,
+            )
+        ]
+        if invalid_string_fields:
+            errors.append(WorkflowValidationError(
+                kind=WorkflowValidationErrorKind.MALFORMED_WORKFLOW,
+                message=(
+                    "Workflow Node fields must be strings: "
+                    f"{', '.join(invalid_string_fields)}"
+                ),
+            ))
+            continue
+        if not isinstance(raw_node.get("parameters", {}), dict):
+            errors.append(WorkflowValidationError(
+                kind=WorkflowValidationErrorKind.MALFORMED_WORKFLOW,
+                message="Workflow Node 'parameters' must be an object",
+            ))
+            continue
+        node = WorkflowNode(
+            node_id=raw_node["node_id"],
+            module_id=raw_node["module_id"],
+            module_version=raw_node.get("module_version", "1.0.0"),
+            parameters=raw_node.get("parameters", {}),
+        )
+        if node.node_id in workflow.nodes:
+            errors.append(WorkflowValidationError(
+                kind=WorkflowValidationErrorKind.DUPLICATE_NODE_ID,
+                message=f"Node ID '{node.node_id}' appears more than once",
+                node_id=node.node_id,
+                module_id=node.module_id,
+            ))
+            continue
+        workflow.add_node(node)
+
+    edges = payload.get("edges", [])
+    if not isinstance(edges, list):
+        errors.append(WorkflowValidationError(
+            kind=WorkflowValidationErrorKind.MALFORMED_WORKFLOW,
+            message="Workflow 'edges' must be a list",
+        ))
+        return workflow, tuple(errors)
+
+    for raw_edge in edges:
+        if not isinstance(raw_edge, dict):
+            errors.append(WorkflowValidationError(
+                kind=WorkflowValidationErrorKind.MALFORMED_WORKFLOW,
+                message="Each Workflow Edge must be an object",
+            ))
+            continue
+        required_fields = (
+            "source_node_id",
+            "source_port",
+            "target_node_id",
+            "target_port",
+        )
+        missing_fields = [
+            field_name
+            for field_name in required_fields
+            if field_name not in raw_edge
+        ]
+        if missing_fields:
+            errors.append(WorkflowValidationError(
+                kind=WorkflowValidationErrorKind.MALFORMED_WORKFLOW,
+                message=(
+                    "Workflow Edge is missing required fields: "
+                    f"{', '.join(missing_fields)}"
+                ),
+            ))
+            continue
+        invalid_string_fields = [
+            field_name
+            for field_name in required_fields
+            if not isinstance(raw_edge[field_name], str)
+        ]
+        if invalid_string_fields:
+            errors.append(WorkflowValidationError(
+                kind=WorkflowValidationErrorKind.MALFORMED_WORKFLOW,
+                message=(
+                    "Workflow Edge fields must be strings: "
+                    f"{', '.join(invalid_string_fields)}"
+                ),
+            ))
+            continue
+        edge = WorkflowEdge(
+            source_node_id=raw_edge["source_node_id"],
+            source_port=raw_edge["source_port"],
+            target_node_id=raw_edge["target_node_id"],
+            target_port=raw_edge["target_port"],
+        )
+        edge_has_missing_node = False
+        if edge.source_node_id not in workflow.nodes:
+            errors.append(WorkflowValidationError(
+                kind=WorkflowValidationErrorKind.EDGE_NODE_NOT_FOUND,
+                message=(
+                    f"Source Node '{edge.source_node_id}' is not in the Workflow"
+                ),
+                node_id=edge.source_node_id,
+                port=edge.source_port,
+            ))
+            edge_has_missing_node = True
+        if edge.target_node_id not in workflow.nodes:
+            errors.append(WorkflowValidationError(
+                kind=WorkflowValidationErrorKind.EDGE_NODE_NOT_FOUND,
+                message=(
+                    f"Target Node '{edge.target_node_id}' is not in the Workflow"
+                ),
+                node_id=edge.target_node_id,
+                port=edge.target_port,
+            ))
+            edge_has_missing_node = True
+        if not edge_has_missing_node:
+            workflow.add_edge(edge)
+    return workflow, tuple(errors)
 
 
 def _ui_state_to_dict(ui: UIState) -> dict:
@@ -286,35 +464,27 @@ def create_app() -> FastAPI:
                 _active_ws.remove(websocket)
 
     @app.post("/api/execute")
-    async def execute_workflow(payload: dict) -> dict:
-        workflow = Workflow()
-        for n in payload["nodes"]:
-            node = WorkflowNode(
-                node_id=n["node_id"],
-                module_id=n["module_id"],
-                module_version=n.get("module_version", "1.0.0"),
-                parameters=n.get("parameters", {}),
+    async def execute_workflow(payload: dict) -> Any:
+        workflow, construction_errors = _workflow_from_payload(payload)
+        semantic_validation = workflow.validate(module_registry)
+        validation = WorkflowValidationResult(
+            construction_errors + semantic_validation.errors
+        )
+        if not validation.valid:
+            return JSONResponse(
+                status_code=422,
+                content=validation.to_dict(),
             )
-            workflow.add_node(node)
-
-        for e in payload.get("edges", []):
-            edge = WorkflowEdge(
-                source_node_id=e["source_node_id"],
-                source_port=e["source_port"],
-                target_node_id=e["target_node_id"],
-                target_port=e["target_port"],
-            )
-            workflow.add_edge(edge)
-
-        cycle = workflow.validate_acyclic()
-        if cycle:
-            return {"error": f"Workflow contains a cycle: {cycle}"}
 
         modules: dict[str, WorkflowModule] = {}
         for node in workflow.nodes.values():
             factory = _module_factories.get(node.module_id)
+            # Availability was established by the authoritative validation gate.
+            # A missing runtime factory remains an internal server error.
             if factory is None:
-                return {"error": f"Unknown module: {node.module_id}"}
+                raise RuntimeError(
+                    f"No runtime factory registered for Module '{node.module_id}'"
+                )
             modules[node.module_id] = factory()
 
         executor = Executor()
@@ -357,7 +527,7 @@ def create_app() -> FastAPI:
 
         task = asyncio.create_task(_run())
         _active_runs[run_id] = task
-        return {"run_id": run_id}
+        return {"run_id": run_id, **validation.to_dict()}
 
     @app.post("/api/execute/cancel")
     async def cancel_execution(payload: dict) -> dict:

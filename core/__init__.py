@@ -4,8 +4,12 @@ from core.graph import (
     Workflow,
     WorkflowEdge,
     WorkflowNode,
+    WorkflowValidationError,
+    WorkflowValidationErrorKind,
+    WorkflowValidationResult,
 )
 from core.module_definition import (
+    InputGroupDefinition,
     ModuleDefinition,
     ParameterDefinition,
     PortDefinition,
@@ -18,6 +22,7 @@ from core.workflow_module import WorkflowModule
 
 __all__ = [
     "Executor",
+    "InputGroupDefinition",
     "ModuleDefinition",
     "ModuleRegistry",
     "NodeState",
@@ -33,5 +38,8 @@ __all__ = [
     "WorkflowEdge",
     "WorkflowModule",
     "WorkflowNode",
+    "WorkflowValidationError",
+    "WorkflowValidationErrorKind",
+    "WorkflowValidationResult",
     "discover_modules",
 ]

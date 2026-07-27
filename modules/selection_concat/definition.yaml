@@ -6,16 +6,26 @@ description: "Concatenates up to three CandidateCollections of the same item_typ
 input_ports:
   - name: candidates_a
     type_id: candidate.collection
+    required: false
     display_name: Candidates A
     description: "First CandidateCollection to concatenate."
   - name: candidates_b
     type_id: candidate.collection
+    required: false
     display_name: Candidates B
     description: "Second CandidateCollection to concatenate."
   - name: candidates_c
     type_id: candidate.collection
+    required: false
     display_name: Candidates C
     description: "Third CandidateCollection to concatenate (optional)."
+input_groups:
+  - name: candidate_inputs
+    alternatives:
+      - [candidates_a]
+      - [candidates_b]
+      - [candidates_c]
+    allow_multiple: true
 output_ports:
   - name: candidates
     type_id: candidate.collection

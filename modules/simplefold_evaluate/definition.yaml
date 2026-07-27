@@ -6,12 +6,19 @@ description: "Evaluates existing protein structures to produce pLDDT scores with
 input_ports:
   - name: structure
     type_id: protein.structure
+    required: false
     display_name: Structure
     description: "Single protein structure to evaluate."
   - name: candidates
     type_id: candidate.collection
+    required: false
     display_name: Candidates
     description: "Collection of structure candidates to evaluate."
+input_groups:
+  - name: evaluation_input
+    alternatives:
+      - [structure]
+      - [candidates]
 output_ports:
   - name: scores
     type_id: score.collection

@@ -54,9 +54,11 @@ class TestWebSocketExecution:
         data = resp.json()
         assert "run_id" in data
         assert len(data["run_id"]) > 0
+        assert data["valid"] is True
+        assert data["errors"] == []
 
     def test_execute_rejects_unknown_module(self, client):
-        """Execute returns error for unknown module."""
+        """Execute returns structured validation for an unknown Module."""
         payload = {
             "nodes": [
                 {"node_id": "n1", "module_id": "nonexistent.module",
@@ -65,6 +67,15 @@ class TestWebSocketExecution:
             "edges": [],
         }
         resp = client.post("/api/execute", json=payload)
-        assert resp.status_code == 200
-        data = resp.json()
-        assert "error" in data
+        assert resp.status_code == 422
+        assert resp.json() == {
+            "valid": False,
+            "errors": [
+                {
+                    "kind": "module_unavailable",
+                    "message": "Module 'nonexistent.module' is not available",
+                    "node_id": "n1",
+                    "module_id": "nonexistent.module",
+                }
+            ],
+        }

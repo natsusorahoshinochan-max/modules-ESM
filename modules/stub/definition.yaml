@@ -6,6 +6,7 @@ description: "Stub module that echoes text input. For testing the execution engi
 input_ports:
   - name: text
     type_id: text
+    required: false
     display_name: Input Text
     description: "Any text string."
 output_ports:

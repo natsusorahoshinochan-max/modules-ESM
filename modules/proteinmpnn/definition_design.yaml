@@ -10,10 +10,12 @@ input_ports:
     description: "Input protein structure (PDB)."
   - name: sequence
     type_id: protein.sequence
+    required: false
     display_name: Reference Sequence
     description: "Optional reference sequence."
   - name: constraints
     type_id: proteinmpnn.constraints
+    required: false
     display_name: Constraints
     description: "Optional design constraints."
 output_ports:

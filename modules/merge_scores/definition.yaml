@@ -6,16 +6,26 @@ description: "Merges multiple ScoreCollections into one by concatenating entries
 input_ports:
   - name: scores_a
     type_id: score.collection
+    required: false
     display_name: Scores A
     description: "First ScoreCollection to merge."
   - name: scores_b
     type_id: score.collection
+    required: false
     display_name: Scores B
     description: "Second ScoreCollection to merge."
   - name: scores_c
     type_id: score.collection
+    required: false
     display_name: Scores C
     description: "Third ScoreCollection to merge (optional)."
+input_groups:
+  - name: score_inputs
+    alternatives:
+      - [scores_a]
+      - [scores_b]
+      - [scores_c]
+    allow_multiple: true
 output_ports:
   - name: scores
     type_id: score.collection
