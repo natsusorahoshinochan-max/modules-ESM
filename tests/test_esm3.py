@@ -68,11 +68,14 @@ def _make_mock_esm_protein(sequence: str = "AGS", ptm: float = 0.85,
 # ── ESM3 Adapter ─────────────────────────────────────────────────────
 
 class TestESM3Adapter:
+    @pytest.mark.scientific_repro
     def test_prompt_to_esm_protein_basic(self) -> None:
         from modules.esm3_adapter import protein_prompt_to_esm_protein
         prompt = _make_prompt(3)
         ep = protein_prompt_to_esm_protein(prompt)
-        assert ep.sequence == "AGS"
+        assert ep.sequence == "AGS", (
+            "SCI-001: sequence conversion must not apply the SS8 whitelist"
+        )
         assert ep.secondary_structure == "HE-"
         assert ep.sasa == [50.0, 75.0, 100.0]
         assert ep.function_annotations is not None

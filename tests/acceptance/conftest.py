@@ -76,9 +76,50 @@ def readiness() -> dict:
 
 
 def require_ready(provider: str, readiness: dict) -> None:
-    """Skip the current test if the provider is not ready."""
+    """Require provider readiness, failing explicit provider gates."""
     if not readiness.get(provider, False):
+        if os.environ.get("PROTEIN_WORKBENCH_REQUIRE_PROVIDER_CALL") == "1":
+            pytest.fail(f"Required provider '{provider}' is not available")
         pytest.skip(f"Provider '{provider}' not available")
+
+
+@pytest.fixture(autouse=True)
+def record_provider_call(request: pytest.FixtureRequest):
+    """Record and require post-call evidence for each selected provider test."""
+    recorded = False
+
+    def record(provider: str, operation: str) -> None:
+        nonlocal recorded
+        evidence_path = Path(
+            os.environ.get(
+                "PROTEIN_WORKBENCH_PROVIDER_CALL_EVIDENCE",
+                str(
+                    Path(os.environ["PROTEIN_WORKBENCH_RUN_ROOT"])
+                    / "provider-calls.jsonl"
+                ),
+            )
+        )
+        evidence_path.parent.mkdir(parents=True, exist_ok=True)
+        with evidence_path.open("a") as evidence:
+            evidence.write(json.dumps({
+                "provider": provider,
+                "operation": operation,
+                "test_id": request.node.nodeid,
+            }, sort_keys=True) + "\n")
+        recorded = True
+
+    yield record
+
+    is_provider_test = (
+        request.node.get_closest_marker("live_provider") is not None
+        or request.node.get_closest_marker("local_provider") is not None
+    )
+    if (
+        is_provider_test
+        and os.environ.get("PROTEIN_WORKBENCH_REQUIRE_PROVIDER_CALL") == "1"
+        and not recorded
+    ):
+        pytest.fail("Provider test completed without provider-call evidence")
 
 
 @pytest.fixture(scope="session")
@@ -104,6 +145,12 @@ def run_root() -> str:
     """
     date_str = datetime.now(timezone.utc).strftime("%Y-%m-%d")
     run_id = str(uuid.uuid4())[:8]
-    root = PROJECT_ROOT / "var" / "runs" / "acceptance" / f"{date_str}_{run_id}"
+    configured_root = Path(
+        os.environ.get(
+            "PROTEIN_WORKBENCH_RUN_ROOT",
+            str(PROJECT_ROOT / "var" / "runs"),
+        )
+    )
+    root = configured_root / "acceptance" / f"{date_str}_{run_id}"
     root.mkdir(parents=True, exist_ok=True)
     return str(root)

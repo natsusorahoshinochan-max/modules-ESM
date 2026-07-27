@@ -25,8 +25,11 @@ def _make_prompt(seq_str: str) -> ProteinPrompt:
 
 
 @pytest.mark.acceptance
+@pytest.mark.live_provider
 class TestBiohubGeneration:
-    def test_generate_3gb1_sequence(self, readiness, pdb_3gb1):
+    def test_generate_3gb1_sequence(
+        self, readiness, pdb_3gb1, record_provider_call, isolated_project_dir
+    ):
         require_ready("biohub", readiness)
 
         from modules.extract_sequence_from_structure.module import _extract_sequence
@@ -38,7 +41,7 @@ class TestBiohubGeneration:
 
         from modules.esm3_generate_sequence.module import ESM3GenerateSequenceModule
         mod = ESM3GenerateSequenceModule()
-        ctx = RunContext("/tmp/acceptance-test", "n1", run_id="acc-3gb1")
+        ctx = RunContext(isolated_project_dir, "n1", run_id="acc-3gb1")
 
         result = mod.run(
             {"protein_prompt": prompt},
@@ -46,6 +49,7 @@ class TestBiohubGeneration:
              "temperature": 0.7, "num_samples": 1},
             ctx,
         )
+        record_provider_call("biohub", "esm3.generate_sequence")
 
         candidates = result["candidates"]
         assert isinstance(candidates, CandidateCollection)
@@ -60,7 +64,9 @@ class TestBiohubGeneration:
         # Sequence-only generation may or may not include confidence scores;
         # verify at minimum that scores is a valid collection
 
-    def test_generate_1pga_sequence(self, readiness, pdb_1pga):
+    def test_generate_1pga_sequence(
+        self, readiness, pdb_1pga, record_provider_call, isolated_project_dir
+    ):
         require_ready("biohub", readiness)
 
         from modules.extract_sequence_from_structure.module import _extract_sequence
@@ -72,7 +78,7 @@ class TestBiohubGeneration:
 
         from modules.esm3_generate_sequence.module import ESM3GenerateSequenceModule
         mod = ESM3GenerateSequenceModule()
-        ctx = RunContext("/tmp/acceptance-test", "n1", run_id="acc-1pga")
+        ctx = RunContext(isolated_project_dir, "n1", run_id="acc-1pga")
 
         result = mod.run(
             {"protein_prompt": prompt},
@@ -80,6 +86,7 @@ class TestBiohubGeneration:
              "temperature": 0.7, "num_samples": 1},
             ctx,
         )
+        record_provider_call("biohub", "esm3.generate_sequence")
 
         candidates = result["candidates"]
         assert isinstance(candidates, CandidateCollection)

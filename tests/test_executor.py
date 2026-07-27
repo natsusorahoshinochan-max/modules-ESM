@@ -14,33 +14,33 @@ def make_echo_modules() -> dict[str, WorkflowModule]:
 
 
 class TestExecutorSingleNode:
-    def test_single_node_completes(self) -> None:
+    def test_single_node_completes(self, isolated_project_dir: str) -> None:
         wf = Workflow()
         wf.add_node(WorkflowNode("n1", "stub.echo", "1.0.0", {"repeat": 1}))
         executor = Executor()
         result = asyncio.run(executor.execute(
-            wf, make_echo_modules(), "/tmp/test", "run-1"
+            wf, make_echo_modules(), isolated_project_dir, "run-1"
         ))
         assert "n1" in result
         assert wf.nodes["n1"].state == NodeState.COMPLETED
 
-    def test_single_node_creates_output(self) -> None:
+    def test_single_node_creates_output(self, isolated_project_dir: str) -> None:
         wf = Workflow()
         wf.add_node(WorkflowNode("n1", "stub.echo", "1.0.0", {"repeat": 1}))
         executor = Executor()
         result = asyncio.run(executor.execute(
-            wf, make_echo_modules(), "/tmp/test", "run-2"
+            wf, make_echo_modules(), isolated_project_dir, "run-2"
         ))
         assert result["n1"]["text"] == ""
 
-    def test_state_callbacks_fire(self) -> None:
+    def test_state_callbacks_fire(self, isolated_project_dir: str) -> None:
         wf = Workflow()
         wf.add_node(WorkflowNode("n1", "stub.echo", "1.0.0"))
         executor = Executor()
         states = []
         executor.on_state_change(lambda nid, old, new: states.append((nid, old, new)))
         asyncio.run(executor.execute(
-            wf, make_echo_modules(), "/tmp/test", "run-3"
+            wf, make_echo_modules(), isolated_project_dir, "run-3"
         ))
         # Should see: idle->queued, queued->running, running->completed
         assert len(states) >= 3
@@ -50,7 +50,7 @@ class TestExecutorSingleNode:
 
 
 class TestExecutorLinearChain:
-    def test_three_node_chain(self) -> None:
+    def test_three_node_chain(self, isolated_project_dir: str) -> None:
         wf = Workflow()
         wf.add_node(WorkflowNode("a", "stub.echo", "1.0.0", {"prefix": "A:"}))
         wf.add_node(WorkflowNode("b", "stub.echo", "1.0.0", {"prefix": "B:"}))
@@ -59,7 +59,7 @@ class TestExecutorLinearChain:
         wf.add_edge(WorkflowEdge("b", "text", "c", "text"))
         executor = Executor()
         result = asyncio.run(executor.execute(
-            wf, make_echo_modules(), "/tmp/test", "run-chain"
+            wf, make_echo_modules(), isolated_project_dir, "run-chain"
         ))
         assert result["c"]["text"] == "C:B:A:"
         assert wf.nodes["a"].state == NodeState.COMPLETED
@@ -68,7 +68,7 @@ class TestExecutorLinearChain:
 
 
 class TestExecutorBranch:
-    def test_one_to_two_branch(self) -> None:
+    def test_one_to_two_branch(self, isolated_project_dir: str) -> None:
         wf = Workflow()
         wf.add_node(WorkflowNode("src", "stub.echo", "1.0.0", {"prefix": "S:"}))
         wf.add_node(WorkflowNode("left", "stub.echo", "1.0.0", {"prefix": "L:"}))
@@ -77,14 +77,14 @@ class TestExecutorBranch:
         wf.add_edge(WorkflowEdge("src", "text", "right", "text"))
         executor = Executor()
         result = asyncio.run(executor.execute(
-            wf, make_echo_modules(), "/tmp/test", "run-branch"
+            wf, make_echo_modules(), isolated_project_dir, "run-branch"
         ))
         assert result["left"]["text"] == "L:S:"
         assert result["right"]["text"] == "R:S:"
 
 
 class TestExecutorMerge:
-    def test_two_to_one_merge(self) -> None:
+    def test_two_to_one_merge(self, isolated_project_dir: str) -> None:
         # Two nodes feed into one. The downstream node gets both inputs.
         # Use a different setup: we'll test that the merge node receives
         # the output of whichever upstream node connects to its text port.
@@ -96,7 +96,7 @@ class TestExecutorMerge:
         wf.add_edge(WorkflowEdge("b", "text", "c", "text"))
         executor = Executor()
         result = asyncio.run(executor.execute(
-            wf, make_echo_modules(), "/tmp/test", "run-merge"
+            wf, make_echo_modules(), isolated_project_dir, "run-merge"
         ))
         # Both inputs contribute; the executor collects from all upstream edges.
         # The Echo module only reads 'text' from inputs — the last edge wins
@@ -105,7 +105,9 @@ class TestExecutorMerge:
 
 
 class TestExecutorErrorPropagation:
-    def test_failed_node_blocks_downstream(self) -> None:
+    def test_failed_node_blocks_downstream(
+        self, isolated_project_dir: str
+    ) -> None:
         class FailingModule(WorkflowModule):
             @property
             def definition(self):
@@ -125,14 +127,16 @@ class TestExecutorErrorPropagation:
         modules = {"stub.echo": EchoModule(), "failing": FailingModule()}
         executor = Executor()
         result = asyncio.run(executor.execute(
-            wf, modules, "/tmp/test", "run-fail"
+            wf, modules, isolated_project_dir, "run-fail"
         ))
         assert wf.nodes["a"].state == NodeState.FAILED
         assert wf.nodes["b"].state == NodeState.BLOCKED
         assert "a" not in result
         assert "b" not in result
 
-    def test_unrelated_branch_continues_after_failure(self) -> None:
+    def test_unrelated_branch_continues_after_failure(
+        self, isolated_project_dir: str
+    ) -> None:
         class FailingModule(WorkflowModule):
             @property
             def definition(self):
@@ -152,7 +156,7 @@ class TestExecutorErrorPropagation:
         modules = {"stub.echo": EchoModule(), "failing": FailingModule()}
         executor = Executor()
         result = asyncio.run(executor.execute(
-            wf, modules, "/tmp/test", "run-unrelated"
+            wf, modules, isolated_project_dir, "run-unrelated"
         ))
         assert wf.nodes["fail"].state == NodeState.FAILED
         assert wf.nodes["echo"].state == NodeState.COMPLETED

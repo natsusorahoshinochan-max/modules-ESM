@@ -24,7 +24,15 @@ include = ["core*", "datatypes*", "modules*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+addopts = [
+    "--strict-markers",
+    "-m",
+    "not acceptance and not live_provider and not local_provider and not slow and not scientific_repro",
+]
 markers = [
-    "acceptance: live-provider tests that require real APIs and binaries",
-    "slow: acceptance tests with long model loading times (SimpleFold, ProteinMPNN)",
+    "acceptance: tests that exercise real providers, models, or binaries",
+    "live_provider: tests that make remote provider calls",
+    "local_provider: tests that execute installed local providers or binaries",
+    "slow: tests with long or heavy model loading",
+    "scientific_repro: deterministic reproductions intentionally red until their repair ticket",
 ]

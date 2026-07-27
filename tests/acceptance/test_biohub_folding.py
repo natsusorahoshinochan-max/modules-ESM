@@ -7,6 +7,7 @@ from tests.acceptance.conftest import require_ready
 
 
 @pytest.mark.acceptance
+@pytest.mark.live_provider
 class TestBiohubFolding:
     @pytest.mark.parametrize("include_pae,include_embeddings", [
         (False, False),
@@ -14,7 +15,9 @@ class TestBiohubFolding:
         (False, True),
         (True, True),
     ])
-    def test_fold_3gb1(self, readiness, include_pae, include_embeddings):
+    def test_fold_3gb1(
+        self, readiness, include_pae, include_embeddings, record_provider_call
+    ):
         require_ready("biohub", readiness)
 
         from modules.esmfold2_adapter import fold_sequence
@@ -30,6 +33,7 @@ class TestBiohubFolding:
             include_pae=include_pae,
             include_embeddings=include_embeddings,
         )
+        record_provider_call("biohub", "esmfold2.fold")
 
         assert isinstance(structure, ProteinStructure)
         assert len(structure.pdb_string) > 0
@@ -48,7 +52,9 @@ class TestBiohubFolding:
         (False, False),
         (True, False),
     ])
-    def test_fold_1pga(self, readiness, include_pae, include_embeddings):
+    def test_fold_1pga(
+        self, readiness, include_pae, include_embeddings, record_provider_call
+    ):
         require_ready("biohub", readiness)
 
         from modules.esmfold2_adapter import fold_sequence
@@ -68,6 +74,7 @@ class TestBiohubFolding:
             include_pae=include_pae,
             include_embeddings=include_embeddings,
         )
+        record_provider_call("biohub", "esmfold2.fold")
 
         assert isinstance(structure, ProteinStructure)
         assert any(s.score_id == "ptm" for s in scores.entries)

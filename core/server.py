@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import os
 import uuid
 import shutil
 from typing import Any, AsyncGenerator
@@ -147,7 +148,10 @@ def create_app() -> FastAPI:
         type_registry = TypeRegistry()
         module_registry = ModuleRegistry(type_registry)
         discover_modules(module_registry)
-        project_manager = ProjectManager(module_registry=module_registry)
+        project_manager = ProjectManager(
+            root_dir=os.environ.get("PROTEIN_WORKBENCH_PROJECT_ROOT", "projects"),
+            module_registry=module_registry,
+        )
 
         from modules.stub import EchoModule
         register_module_factory("stub.echo", EchoModule)
