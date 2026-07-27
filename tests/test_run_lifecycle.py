@@ -138,9 +138,99 @@ def test_saved_workflow_emits_ordered_run_scoped_success_events() -> None:
         assert event["project_id"] == project_id
         assert event["run_id"] == run_id
         assert datetime.fromisoformat(str(event["timestamp"])).tzinfo is not None
+    timestamps = [
+        datetime.fromisoformat(str(event["timestamp"]))
+        for event in events
+    ]
+    assert timestamps == sorted(timestamps)
     assert events[-1]["status"] == "completed"
     assert manifest["status"] == "completed"
     assert manifest["node_states"][-1]["state"] == "completed"
+
+
+def test_node_terminal_manifest_fact_exists_before_run_terminal_event() -> None:
+    with TestClient(server.app) as client:
+        server.module_registry.register(SlowLifecycleModule().definition)
+        server.register_module_factory(
+            "test.lifecycle_slow",
+            SlowLifecycleModule,
+        )
+        project_id = client.post(
+            "/api/projects",
+            json={"name": "manifest-before-terminal"},
+        ).json()["id"]
+        assert client.put(
+            f"/api/projects/{project_id}/workflow",
+            json={
+                "nodes": [
+                    {
+                        "node_id": "first",
+                        "module_id": "stub.echo",
+                        "module_version": "1.0.0",
+                    },
+                    {
+                        "node_id": "wait",
+                        "module_id": "test.lifecycle_slow",
+                        "module_version": "1.0.0",
+                    },
+                ],
+                "edges": [],
+            },
+        ).status_code == 200
+        run_id = client.post(
+            f"/api/projects/{project_id}/run"
+        ).json()["run_id"]
+
+        observed_types: list[str] = []
+        with client.websocket_connect(
+            f"/api/projects/{project_id}/run/{run_id}/ws"
+        ) as websocket:
+            while True:
+                event = websocket.receive_json()
+                observed_types.append(event["type"])
+                if (
+                    event["type"] == "node_completed"
+                    and event["node_id"] == "first"
+                ):
+                    in_progress_manifest = read_run_manifest(
+                        server.project_manager.run_dir(project_id, run_id)
+                    )
+                    assert in_progress_manifest["status"] == "running"
+                    persisted_terminal = next(
+                        state
+                        for state in in_progress_manifest["node_states"]
+                        if (
+                            state["node_id"] == "first"
+                            and state["state"] == "completed"
+                        )
+                    )
+                    assert {
+                        key: persisted_terminal[key]
+                        for key in (
+                            "sequence",
+                            "node_id",
+                            "old_state",
+                            "state",
+                        )
+                    } == {
+                        "sequence": 4,
+                        "node_id": "first",
+                        "old_state": "running",
+                        "state": "completed",
+                    }
+                    assert datetime.fromisoformat(
+                        persisted_terminal["timestamp"]
+                    ) <= datetime.fromisoformat(event["timestamp"])
+                    assert not any(
+                        event_type.startswith("run_")
+                        and event_type != "run_started"
+                        for event_type in observed_types
+                    )
+                if event["type"] == "run_completed":
+                    break
+
+    assert "node_completed" in observed_types
+    assert observed_types[-1] == "run_completed"
 
 
 def test_failure_blocks_dependent_once_and_unrelated_branch_completes() -> None:
@@ -277,6 +367,31 @@ def test_run_subscriber_cannot_cross_project_or_run_scope() -> None:
         (event["project_id"], event["run_id"])
         for event in events_b
     } == {(project_b, run_b)}
+
+
+def test_scoped_run_routes_reject_identifier_injection() -> None:
+    with TestClient(server.app) as client:
+        project_id = _saved_echo_project(client, "identifier-injection")
+
+        response = client.post(
+            f"/api/projects/{project_id}/run",
+            json={"force_rerun_nodes": ["../../outside"]},
+        )
+        with pytest.raises(WebSocketDisconnect) as rejected:
+            with client.websocket_connect(
+                f"/api/projects/{project_id}/run/not!valid/ws"
+            ):
+                pass
+
+    assert response.status_code == 422
+    assert response.json() == {
+        "error": {
+            "kind": "invalid_storage_path",
+            "field": "node_id",
+            "message": "Invalid node_id",
+        }
+    }
+    assert rejected.value.code == 4400
 
 
 def test_cache_hit_preserves_fresh_run_event_ordering() -> None:
