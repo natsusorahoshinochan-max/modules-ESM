@@ -324,7 +324,7 @@ def test_project_storage_rejects_existing_symlink_escape(
     assert list(outside.iterdir()) == []
 
 
-def test_download_api_reads_valid_run_scoped_hybrid_output(
+def test_download_api_rejects_unmanifested_run_scoped_hybrid_output(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -348,8 +348,8 @@ def test_download_api_reads_valid_run_scoped_hybrid_output(
             f"/api/projects/{project_id}/outputs/run-a/result.pdb"
         )
 
-    assert response.status_code == 200
-    assert response.text == "END\n"
+    assert response.status_code == 404
+    assert response.json()["error"]["kind"] == "run_not_found"
 
 
 def test_subprocess_temporary_file_uses_run_scoped_node_directory(
@@ -478,6 +478,20 @@ def test_cache_node_namespaces_do_not_overlap_by_prefix(
             "/api/projects",
             json={"name": "Cache containment"},
         ).json()["id"]
+        assert client.put(
+            f"/api/projects/{project_id}/workflow",
+            json={
+                "nodes": [
+                    {
+                        "node_id": node_id,
+                        "module_id": "stub.echo",
+                        "module_version": "1.0.0",
+                    }
+                    for node_id in ("a", "a_b")
+                ],
+                "edges": [],
+            },
+        ).status_code == 200
         first = cache_root / project_id / "a" / f"{'1' * 32}.pkl"
         second = cache_root / project_id / "a_b" / f"{'2' * 32}.pkl"
         first.parent.mkdir(parents=True)
@@ -487,7 +501,12 @@ def test_cache_node_namespaces_do_not_overlap_by_prefix(
 
         response = client.delete(f"/api/projects/{project_id}/cache/a")
 
-    assert response.json() == {"status": "cleared", "removed": 1}
+    assert response.json() == {
+        "project_id": project_id,
+        "node_id": "a",
+        "status": "cleared",
+        "removed": 1,
+    }
     assert not first.exists()
     assert second.read_bytes() == b"second"
 

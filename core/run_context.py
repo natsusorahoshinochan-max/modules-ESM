@@ -183,7 +183,13 @@ class RunContext:
                 model=model,
             )
 
-    def record_artifact(self, artifact: str | Path) -> bool:
+    def record_artifact(
+        self,
+        artifact: str | Path,
+        *,
+        candidate_id: str | None = None,
+        output_port: str | None = None,
+    ) -> bool:
         """Record one output artifact by run-relative reference and digest."""
         if self._manifest_store is None or self.output_dir is None:
             return False
@@ -191,4 +197,6 @@ class RunContext:
             node_id=self.node_id,
             path=artifact,
             output_dir=self.output_dir,
+            candidate_id=candidate_id,
+            output_port=output_port,
         )

@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import os
 import re
+import stat
 from pathlib import Path
 from pathlib import PurePosixPath
 
@@ -71,3 +73,60 @@ def contained_path(
     if not candidate.is_relative_to(resolved_root):
         raise StoragePathError(field, f"Invalid {field}")
     return candidate
+
+
+def open_private_regular_file(
+    root: str | Path,
+    relative_parts: tuple[str, ...],
+    *,
+    field: str,
+) -> int:
+    """Open a contained private file while holding every parent directory.
+
+    Each path component is opened relative to the previously held directory
+    descriptor. This closes the resolve/open race and rejects symlink aliases
+    at every level. The returned descriptor is owned by the caller.
+    """
+    if not relative_parts:
+        raise StoragePathError(field, f"Invalid {field}")
+    absolute_root = Path(root).absolute()
+    if not absolute_root.is_absolute():
+        raise StoragePathError(field, f"Invalid {field}")
+    directory_flags = os.O_RDONLY | getattr(os, "O_DIRECTORY", 0)
+    directory_flags |= getattr(os, "O_NOFOLLOW", 0)
+    current_fd = os.open(absolute_root.anchor, directory_flags)
+    try:
+        for component in absolute_root.parts[1:]:
+            next_fd = os.open(
+                component,
+                directory_flags,
+                dir_fd=current_fd,
+            )
+            os.close(current_fd)
+            current_fd = next_fd
+        for component in relative_parts[:-1]:
+            next_fd = os.open(
+                component,
+                directory_flags,
+                dir_fd=current_fd,
+            )
+            os.close(current_fd)
+            current_fd = next_fd
+        descriptor = os.open(
+            relative_parts[-1],
+            os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0),
+            dir_fd=current_fd,
+        )
+    except OSError:
+        raise
+    finally:
+        os.close(current_fd)
+    metadata = os.fstat(descriptor)
+    if (
+        not stat.S_ISREG(metadata.st_mode)
+        or metadata.st_uid != os.getuid()
+        or metadata.st_nlink != 1
+    ):
+        os.close(descriptor)
+        raise StoragePathError(field, f"Invalid {field}")
+    return descriptor

@@ -34,15 +34,66 @@ PUT    /api/projects/{project_id}/ui          # Save ui.json
 POST   /api/projects/{project_id}/run         # Start workflow execution
 POST   /api/projects/{project_id}/cancel      # Cancel running workflow
 GET    /api/projects/{project_id}/run/{run_id}/status   # Run status
+GET    /api/projects/{project_id}/run/{run_id}/manifest # Durable manifest
 GET    /api/projects/{project_id}/run/{run_id}/outputs   # Output data
+GET    /api/projects/{project_id}/run/{run_id}/artifacts/{reference}
+POST   /api/projects/{project_id}/run/{run_id}/nodes/{node_id}/retry
+POST   /api/projects/{project_id}/run/{run_id}/nodes/{node_id}/force-rerun
 ```
 
 ### Cache
 ```
 GET    /api/projects/{project_id}/cache                # List cache entries
+GET    /api/projects/{project_id}/cache/{node_id}      # List node cache
 DELETE /api/projects/{project_id}/cache/{node_id}      # Clear node cache
 DELETE /api/projects/{project_id}/cache                # Clear all cache
 ```
+
+Run recovery is always explicit about both project ID and run ID. Status,
+manifest, output, and artifact requests read that exact manifest; no endpoint
+chooses a run or Cache entry by modification time. Artifact responses expose
+run-relative references and the manifest's Candidate ID, Node ID, output Port,
+size, and SHA-256. A download is served only when the reference is declared by
+the selected manifest and a stable snapshot matches its recorded size and hash.
+Artifacts without both Candidate and output-Port bindings make the public
+manifest invalid. Public retrieval is bounded to 2,048 artifacts, 64 MiB per
+artifact, and 256 MiB in aggregate per run; verification executes on FastAPI's
+worker thread rather than its event loop.
+The older Node-output compatibility route therefore requires an explicit
+`run_id` query parameter, and the hybrid output-download route verifies the
+same manifest contract.
+
+Both Node recovery actions create a new run and retain the source run. They
+inherit its run seed unless the request supplies a valid replacement:
+
+- `retry` bypasses Cache for the selected Node. Ancestors, descendants, and
+  unrelated branches remain Cache-eligible; a descendant therefore executes
+  only when the selected output changes its content-addressed input identity.
+- `force-rerun` bypasses Cache for the selected Node and every transitive
+  downstream Node. Ancestors and unrelated branches remain Cache-eligible.
+
+The new manifest records the source run, action, selected Node, exact forced
+Node closure, dependency semantics, effective seeds, per-Node Cache outcomes,
+and ordered Node states. Recovery is rejected if the source run is not
+terminal or if the current saved Workflow hash differs from the source
+manifest.
+
+Cache listing returns only entries whose authenticated envelope is valid and
+does not deserialize their payload. Node-scoped operations require a Node in
+the current Workflow. Project clearing is allowed to include stale, valid Node
+names but removes only direct regular `.pkl` Cache entries; it preserves the
+project integrity key and unrelated files. Cache clearing is rejected while
+that project has an active run. A project-scoped mutation reservation is
+registered before deletion moves to a worker thread, so run admission and
+Cache deletion remain mutually exclusive. This exclusion relies on the
+application's documented single-process deployment contract; starting multiple
+backend processes against the same storage roots is unsupported.
+
+Recovery failures use `{error: {kind, message, ...}}` with stable kinds.
+Unknown project/run/Node/artifact scopes return 404, stale Workflow or artifact
+integrity mismatches return 409, and invalid identifiers or traversal-like
+references return 422. Diagnostics never include raw file paths, exception
+text, Cache payloads, or credentials.
 
 ### File I/O
 ```

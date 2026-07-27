@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
 import pickle
 import subprocess
 from pathlib import Path
@@ -964,6 +965,8 @@ def test_candidate_lineage_and_artifact_integrity_are_run_bound(
     assert manifest["artifacts"] == [
         {
             "node_id": "generator",
+            "output_port": "candidates",
+            "candidate_id": "candidate-1",
             "reference": "models/model-1.pdb",
             "size": 6,
             "sha256": (
@@ -975,6 +978,36 @@ def test_candidate_lineage_and_artifact_integrity_are_run_bound(
     assert manifest["cache"][0]["outcome"] == "miss"
     assert manifest["cache"][0]["published"] is False
     assert str(project_dir) not in json.dumps(manifest["artifacts"])
+
+
+def test_manifest_store_refuses_hardlinked_artifacts(
+    tmp_path: Path,
+) -> None:
+    workflow = Workflow()
+    manifest = RunManifest.for_execution(
+        project_id="project-11",
+        run_id="hardlink-run",
+        workflow=workflow,
+        modules={},
+        seed=42,
+        source_dir=tmp_path,
+    )
+    output_dir = tmp_path / "outputs"
+    output_dir.mkdir()
+    outside = tmp_path / "outside-secret"
+    outside.write_bytes(b"SECRET")
+    linked = output_dir / "artifact.bin"
+    os.link(outside, linked)
+
+    with RunManifestStore(tmp_path / "run", manifest) as store:
+        with pytest.raises(StoragePathError):
+            store.record_artifact(
+                node_id="export",
+                path=linked,
+                output_dir=output_dir,
+                candidate_id="candidate-1",
+                output_port="structures",
+            )
 
 
 def test_failure_diagnostics_and_environment_are_recursively_redacted(
