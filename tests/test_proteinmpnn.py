@@ -318,7 +318,7 @@ class TestProteinMPNNDesign:
             "target": {"A": [1], "B": [3]}
         }
 
-    def test_adapter_translates_multichain_ties_omits_and_residue_biases(
+    def test_adapter_translates_multichain_ties_and_omits(
         self,
     ) -> None:
         from modules.proteinmpnn.adapter import design_sequences
@@ -331,7 +331,6 @@ class TestProteinMPNNDesign:
                 fixed_chains=[],
                 omit_amino_acids=["C", "M"],
                 tied_positions=[[0, 4], [1, 2]],
-                bias_by_res={0: {"A": 1.5}, 4: {"G": -0.25}},
             ),
             provider=provider,
         )
@@ -346,6 +345,21 @@ class TestProteinMPNNDesign:
                 {"A": [2], "B": [1]},
             ]
         }
+
+    def test_adapter_translates_multichain_residue_biases(self) -> None:
+        from modules.proteinmpnn.adapter import design_sequences
+
+        provider = CapturingProteinMPNNProvider()
+        design_sequences(
+            pdb_string="two-chain-pdb",
+            constraints=ProteinMPNNConstraints(
+                bias_by_res={0: {"A": 1.5}, 4: {"G": -0.25}},
+            ),
+            provider=provider,
+        )
+
+        request = provider.request
+        assert request is not None
         assert set(request.bias_by_res_dict["target"]) == {"A", "B"}
         assert len(request.bias_by_res_dict["target"]["A"]) == 2
         assert len(request.bias_by_res_dict["target"]["B"]) == 3
@@ -496,6 +510,19 @@ class TestProteinMPNNDesign:
                     bias_by_res={1: {"A": 1.0}},
                 ),
                 "bias_by_res position 1 is fixed by the effective position mask",
+            ),
+            (
+                ProteinMPNNConstraints(
+                    tied_positions=[[0, 4]],
+                    bias_by_res={0: {"A": 1.0}},
+                ),
+                "bias_by_res position 0 belongs to tied position group 0",
+            ),
+            (
+                ProteinMPNNConstraints(
+                    omit_amino_acids=list("ACDEFGHIKLMNPQRSTVWYX"),
+                ),
+                "omit_amino_acids must leave at least one",
             ),
         ],
     )

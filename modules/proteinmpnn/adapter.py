@@ -530,6 +530,12 @@ def _bias_payload(
         for chain, sequence in chains
     }
     for position, amino_acid_biases in constraints.bias_by_res.items():
+        for group_index, group in enumerate(constraints.tied_positions or []):
+            if position in group:
+                raise ValueError(
+                    f"bias_by_res position {position} belongs to tied "
+                    f"position group {group_index}"
+                )
         chain, local_position = _position_to_chain(position, chains)
         if chain not in designed_chains:
             raise ValueError(
@@ -569,6 +575,10 @@ def _omitted_amino_acids(
         )
     if len(set(omitted)) != len(omitted):
         raise ValueError("omit_amino_acids cannot contain duplicates")
+    if len(omitted) == len(_ALPHABET):
+        raise ValueError(
+            "omit_amino_acids must leave at least one amino acid available"
+        )
     return omitted
 
 
