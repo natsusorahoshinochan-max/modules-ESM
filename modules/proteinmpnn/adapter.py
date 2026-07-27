@@ -669,6 +669,7 @@ def design_sequences(
     reference_sequence: str | None = None,
     provider: ProteinMPNNProvider | None = None,
     temp_dir: str | Path | None = None,
+    call_details: dict[str, Any] | None = None,
 ) -> tuple[list[ProteinSequence], list[float]]:
     """Run ProteinMPNN design and return one score per generated sequence."""
     selected_provider = provider or _LocalProteinMPNNProvider(temp_dir=temp_dir)
@@ -689,6 +690,7 @@ def design_sequences(
         selected_provider.provider_identity,
         "design_sequences",
         model=model_name,
+        details=call_details,
     )
     sequences, scores = selected_provider.design(request)
     _validate_generated_sequences(

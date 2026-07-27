@@ -33,6 +33,8 @@ from datatypes import (
     ProteinStructure,
     ResidueLayout,
     ResidueTrack,
+    Score,
+    ScoreCollection,
 )
 from modules.prompt_random_insert_masked import RandomInsertMaskedModule
 
@@ -163,6 +165,45 @@ class MissingSelectedTrackOutputModule(RandomInsertMaskedModule):
         return {"layout": inputs["layout"]}
 
 
+class WorkerArtifactBatchModule(WorkflowModule):
+    """A process-worker Module that emits one batched artifact fact."""
+
+    def __init__(self) -> None:
+        self._definition = ModuleDefinition.from_yaml_string(
+            """
+module_id: test.worker_artifact_batch
+version: 1.0.0
+display_name: Worker artifact batch
+category: output
+output_ports:
+  - name: file_paths
+    type_id: file.path.collection
+"""
+        )
+
+    @property
+    def definition(self) -> ModuleDefinition:
+        return self._definition
+
+    def run(
+        self,
+        inputs: dict[str, Any],
+        parameters: dict[str, Any],
+        context: RunContext,
+    ) -> dict[str, Any]:
+        del inputs, parameters
+        output_dir = Path(context.output_dir or "")
+        output_dir.mkdir(parents=True, exist_ok=True)
+        artifact = output_dir / "worker.pdb"
+        artifact.write_text("MODEL\n")
+        assert context.record_artifacts([{
+            "path": artifact,
+            "candidate_id": "worker-candidate",
+            "output_port": "file_paths",
+        }])
+        return {"file_paths": ["worker.pdb"]}
+
+
 def _typed_output_workflow() -> Workflow:
     workflow = Workflow()
     workflow.add_node(
@@ -287,6 +328,8 @@ category: model
 output_ports:
   - name: candidates
     type_id: protein.structure.collection
+  - name: scores
+    type_id: score.collection
   - name: file_path
     type_id: file.path
 """
@@ -317,7 +360,26 @@ output_ports:
                 )
             ],
         )
-        return {"candidates": candidates, "file_path": str(artifact)}
+        return {
+            "candidates": candidates,
+            "scores": ScoreCollection(
+                collection_id="candidate-scores",
+                entries=[
+                    Score(
+                        score_id="weighted_rank",
+                        value=0.8125,
+                        subjects=["candidate-1"],
+                        details={
+                            "metrics": [
+                                {"score": "tm_vs_3gb1", "weight": 0.7},
+                                {"score": "tm_vs_esm3", "weight": 0.3},
+                            ],
+                        },
+                    )
+                ],
+            ),
+            "file_path": str(artifact),
+        }
 
 
 class FailingProviderModule(WorkflowModule):
@@ -962,6 +1024,21 @@ def test_candidate_lineage_and_artifact_integrity_are_run_bound(
             "parent_ids": ["prompt-7"],
         }
     ]
+    assert manifest["scores"] == [
+        {
+            "node_id": "generator",
+            "output_port": "scores",
+            "score_id": "weighted_rank",
+            "value": 0.8125,
+            "subjects": ["candidate-1"],
+            "details": {
+                "metrics": [
+                    {"score": "tm_vs_3gb1", "weight": 0.7},
+                    {"score": "tm_vs_esm3", "weight": 0.3},
+                ],
+            },
+        }
+    ]
     assert manifest["artifacts"] == [
         {
             "node_id": "generator",
@@ -1008,6 +1085,232 @@ def test_manifest_store_refuses_hardlinked_artifacts(
                 candidate_id="candidate-1",
                 output_port="structures",
             )
+
+
+def test_manifest_rejects_unapproved_score_details_and_subject_fanout(
+    tmp_path: Path,
+) -> None:
+    manifest = RunManifest.for_execution(
+        project_id="project-11",
+        run_id="bounded-scores",
+        workflow=Workflow(),
+        modules={},
+        seed=42,
+        source_dir=tmp_path,
+    )
+
+    with RunManifestStore(tmp_path / "run", manifest) as store:
+        with pytest.raises(ValueError, match="detail"):
+            store.record_score(
+                node_id="scores",
+                output_port="scores",
+                score_id="ptm",
+                value=0.9,
+                subjects=["candidate-1"],
+                details={
+                    "note": (
+                        "Basic Zml4dHVyZS11c2VyOmZpeHR1cmUtcGFzc3dvcmQ="
+                    )
+                },
+            )
+        for credential in (
+            "ASIAIOSFODNN7EXAMPLE",
+            "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY",
+        ):
+            with pytest.raises(ValueError, match="detail"):
+                store.record_score(
+                    node_id="scores",
+                    output_port="scores",
+                    score_id="ptm",
+                    value=0.9,
+                    subjects=["candidate-1"],
+                    details={"model": credential},
+                )
+        with pytest.raises(ValueError, match="subject"):
+            store.record_score(
+                node_id="scores",
+                output_port="scores",
+                score_id="ptm",
+                value=0.9,
+                subjects=[
+                    f"candidate-{index}" for index in range(33)
+                ],
+            )
+        with pytest.raises(StoragePathError):
+            store.record_candidate_lineage(
+                node_id="scores",
+                output_port="candidates",
+                candidate_id="../outside",
+                parent_ids=[],
+            )
+
+    assert read_run_manifest(tmp_path / "run")["scores"] == []
+
+
+def test_manifest_records_a_score_collection_with_one_persist(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    manifest = RunManifest.for_execution(
+        project_id="project-11",
+        run_id="batched-scores",
+        workflow=Workflow(),
+        modules={},
+        seed=42,
+        source_dir=tmp_path,
+    )
+
+    with RunManifestStore(tmp_path / "run", manifest) as store:
+        persist_calls = 0
+
+        def count_persist() -> None:
+            nonlocal persist_calls
+            persist_calls += 1
+
+        monkeypatch.setattr(store, "persist", count_persist)
+        store.record_scores(
+            node_id="scores",
+            output_port="scores",
+            facts=(
+                {
+                    "score_id": "ptm",
+                    "value": index / 256,
+                    "subjects": [f"candidate-{index}"],
+                    "details": {"sample_index": index},
+                }
+                for index in range(256)
+            ),
+        )
+
+        assert persist_calls == 1
+        assert len(store.manifest.scores) == 256
+
+
+def test_artifact_batch_restores_memory_when_persist_fails(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    manifest = RunManifest.for_execution(
+        project_id="project-11",
+        run_id="artifact-persist-failure",
+        workflow=Workflow(),
+        modules={},
+        seed=42,
+        source_dir=tmp_path,
+    )
+    output_dir = tmp_path / "outputs"
+    output_dir.mkdir()
+    artifact = output_dir / "candidate-1.pdb"
+    artifact.write_text("MODEL\n")
+
+    with RunManifestStore(tmp_path / "run", manifest) as store:
+        def fail_persist() -> None:
+            raise OSError("fixture persist failure")
+
+        monkeypatch.setattr(store, "persist", fail_persist)
+        with pytest.raises(OSError, match="fixture persist failure"):
+            store.record_artifacts(
+                node_id="export",
+                output_dir=output_dir,
+                artifacts=[{
+                    "path": artifact,
+                    "candidate_id": "candidate-1",
+                    "output_port": "file_paths",
+                }],
+            )
+        assert store.manifest.artifacts == []
+
+
+def test_process_worker_forwards_artifact_batch_to_parent_manifest(
+    tmp_path: Path,
+) -> None:
+    workflow = Workflow()
+    workflow.add_node(WorkflowNode(
+        "export",
+        "test.worker_artifact_batch",
+        "1.0.0",
+    ))
+
+    asyncio.run(Executor().execute(
+        workflow,
+        {"test.worker_artifact_batch": WorkerArtifactBatchModule()},
+        str(tmp_path / "project"),
+        "worker-artifact-run",
+        project_id="project-11",
+        cancellation_requested=asyncio.Event(),
+    ))
+
+    manifest = read_run_manifest(
+        tmp_path
+        / "project"
+        / "runs"
+        / "worker-artifact-run"
+    )
+    assert manifest["artifacts"] == [{
+        "node_id": "export",
+        "reference": "worker.pdb",
+        "size": 6,
+        "sha256": (
+            "9ebc83e1f0234ba216df410887534d108"
+            "90a4aee0fdae5dbf5a6c770b1642596"
+        ),
+        "output_port": "file_paths",
+        "candidate_id": "worker-candidate",
+    }]
+
+
+@pytest.mark.parametrize("failure_mode", ("incomplete", "persist_error"))
+def test_process_worker_rolls_back_parent_artifact_batch_failure(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    failure_mode: str,
+) -> None:
+    workflow = Workflow()
+    workflow.add_node(WorkflowNode(
+        "export",
+        "test.worker_artifact_batch",
+        "1.0.0",
+    ))
+
+    def fail_record_artifacts(
+        store: RunManifestStore,
+        **kwargs: Any,
+    ) -> bool:
+        del store, kwargs
+        if failure_mode == "persist_error":
+            raise OSError("fixture parent persist failure")
+        return False
+
+    monkeypatch.setattr(
+        RunManifestStore,
+        "record_artifacts",
+        fail_record_artifacts,
+    )
+    outputs = asyncio.run(Executor().execute(
+        workflow,
+        {"test.worker_artifact_batch": WorkerArtifactBatchModule()},
+        str(tmp_path / "project"),
+        "worker-artifact-failure",
+        project_id="project-11",
+        cancellation_requested=asyncio.Event(),
+    ))
+
+    assert outputs == {}
+    assert not (
+        tmp_path
+        / "project"
+        / "outputs"
+        / "worker-artifact-failure"
+        / "worker.pdb"
+    ).exists()
+    manifest = read_run_manifest(
+        tmp_path
+        / "project"
+        / "runs"
+        / "worker-artifact-failure"
+    )
+    assert manifest["artifacts"] == []
+    assert manifest["status"] == "failed"
 
 
 def test_failure_diagnostics_and_environment_are_recursively_redacted(

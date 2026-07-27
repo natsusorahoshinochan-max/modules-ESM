@@ -173,14 +173,16 @@ class RunContext:
         operation: str,
         *,
         model: str | None = None,
+        details: dict[str, Any] | None = None,
     ) -> None:
-        """Record at an adapter boundary without changing adapter signatures."""
+        """Record one adapter-boundary call with Candidate provenance."""
         context = _ACTIVE_RUN_CONTEXT.get()
         if context is not None:
             context.record_provider_call(
                 provider,
                 operation,
                 model=model,
+                details=details,
             )
 
     def record_artifact(
@@ -200,3 +202,21 @@ class RunContext:
             candidate_id=candidate_id,
             output_port=output_port,
         )
+
+    def record_artifacts(
+        self,
+        artifacts: list[dict[str, Any]],
+    ) -> bool:
+        """Record a complete artifact collection with one manifest update."""
+        if self._manifest_store is None or self.output_dir is None:
+            return False
+        return self._manifest_store.record_artifacts(
+            node_id=self.node_id,
+            output_dir=self.output_dir,
+            artifacts=artifacts,
+        )
+
+    @property
+    def records_manifest(self) -> bool:
+        """Whether this context has an in-process or worker manifest sink."""
+        return self._manifest_store is not None

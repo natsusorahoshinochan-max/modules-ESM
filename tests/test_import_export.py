@@ -8,7 +8,12 @@ from modules.import_structure.module import ImportStructureModule
 from modules.import_sequence.module import ImportSequenceModule
 from modules.export_structure.module import ExportStructureModule
 from modules.export_sequence.module import ExportSequenceModule
-from datatypes import ProteinSequence, ProteinStructure
+from datatypes import (
+    Candidate,
+    CandidateCollection,
+    ProteinSequence,
+    ProteinStructure,
+)
 
 
 SAMPLE_PDB = """\
@@ -94,6 +99,49 @@ class TestExportStructure:
             assert False, "should have raised"
         except ValueError as e:
             assert "Missing input" in str(e)
+
+    def test_candidate_collection_materializes_stable_pdb_mapping(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            candidates = CandidateCollection(
+                collection_id="final-folds",
+                item_type="protein.structure",
+                items=[
+                    Candidate(
+                        candidate_id=f"fold-run-mpnn-parent-{index}",
+                        data=ProteinStructure(
+                            pdb_string=SAMPLE_PDB.replace(
+                                "ALA A   1",
+                                f"ALA A{index + 1:4d}",
+                            )
+                        ),
+                    )
+                    for index in range(3)
+                ],
+            )
+
+            result = ExportStructureModule().run(
+                {"structures": candidates},
+                {"directory": "final"},
+                RunContext(tmp, "export-final", run_id="canonical-run"),
+            )
+
+            references = result["file_paths"]
+            assert references == [
+                "final/fold-run-mpnn-parent-0.pdb",
+                "final/fold-run-mpnn-parent-1.pdb",
+                "final/fold-run-mpnn-parent-2.pdb",
+            ]
+            paths = [
+                Path(tmp).resolve() / "outputs" / "canonical-run" / reference
+                for reference in references
+            ]
+            assert [path.name for path in paths] == [
+                "fold-run-mpnn-parent-0.pdb",
+                "fold-run-mpnn-parent-1.pdb",
+                "fold-run-mpnn-parent-2.pdb",
+            ]
+            assert all(path.is_file() and path.stat().st_size > 0 for path in paths)
+            assert all(path.parent.name == "final" for path in paths)
 
 
 class TestExportSequence:

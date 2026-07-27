@@ -100,6 +100,11 @@ class PairwiseAlignModule(WorkflowModule):
                         else ref_item.candidate_id
                     ),
                     data=alignment,
+                    parent_ids=(
+                        []
+                        if ref_item is None
+                        else [mob_item.candidate_id]
+                    ),
                 )
             )
 

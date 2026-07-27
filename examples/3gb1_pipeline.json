@@ -82,10 +82,11 @@
     {
       "node_id": "esm3_gen",
       "module_id": "esm3.generate",
-      "module_version": "1.1.0",
+      "module_version": "1.2.0",
       "parameters": {
         "num_samples": 10,
-        "model_name": "esm3-medium-2024-08"
+        "model_name": "esm3_sm_open_v1",
+        "seed": 1603
       }
     },
     {
@@ -163,6 +164,14 @@
       "module_id": "esmfold2.fold",
       "parameters": {
         "model_name": "esmfold2-fast-2026-05"
+      }
+    },
+    {
+      "node_id": "export_final",
+      "module_id": "export.structure",
+      "module_version": "1.1.0",
+      "parameters": {
+        "directory": "final"
       }
     }
   ],
@@ -358,6 +367,12 @@
       "source_port": "candidates",
       "target_node_id": "final_fold",
       "target_port": "candidates"
+    },
+    {
+      "source_node_id": "final_fold",
+      "source_port": "candidates",
+      "target_node_id": "export_final",
+      "target_port": "structures"
     }
   ]
 }

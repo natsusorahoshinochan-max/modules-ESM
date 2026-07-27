@@ -21,7 +21,12 @@ from core.process_control import signal_process_group
 from core.recovery_types import RecoveryProvenance
 from core.run_context import RunContext
 from core.run_manifest import RunManifest, RunManifestStore, canonical_json
-from core.storage import contained_path, validate_identifier
+from core.storage import (
+    contained_path,
+    remove_private_regular_file,
+    validate_identifier,
+    validate_relative_path,
+)
 from core.workflow_module import WorkflowModule
 
 if TYPE_CHECKING:
@@ -104,6 +109,10 @@ class _ManifestProcessProxy:
 
     def record_artifact(self, **kwargs: Any) -> bool:
         self._record("record_artifact", kwargs)
+        return True
+
+    def record_artifacts(self, **kwargs: Any) -> bool:
+        self._record("record_artifacts", kwargs)
         return True
 
 
@@ -452,7 +461,7 @@ class Executor:
         artifact_ports = {
             port.name
             for port in module.definition.output_ports
-            if port.type_id == "file.path"
+            if port.type_id in {"file.path", "file.path.collection"}
         }
         return any(
             output_port in outputs
@@ -475,27 +484,35 @@ class Executor:
         for output_port, value in outputs.items():
             describe = getattr(value, "manifest_facts", None)
             if callable(describe):
-                for fact in describe():
-                    if fact.get("kind") != "candidate_lineage":
-                        continue
-                    candidate_id = fact.get("candidate_id")
-                    parent_ids = fact.get("parent_ids")
-                    if (
-                        not isinstance(candidate_id, str)
-                        or not isinstance(parent_ids, list)
-                        or not all(
-                            isinstance(parent_id, str)
-                            for parent_id in parent_ids
-                        )
-                    ):
-                        continue
-                    manifest_store.record_candidate_lineage(
+                if port_types.get(output_port) == "score.collection":
+                    manifest_store.record_scores(
                         node_id=node_id,
                         output_port=output_port,
-                        candidate_id=candidate_id,
-                        parent_ids=parent_ids,
+                        facts=describe(),
                     )
-                    candidate_bindings.append((output_port, candidate_id))
+                    continue
+                for fact in describe():
+                    if fact.get("kind") == "candidate_lineage":
+                        candidate_id = fact.get("candidate_id")
+                        parent_ids = fact.get("parent_ids")
+                        if (
+                            not isinstance(candidate_id, str)
+                            or not isinstance(parent_ids, list)
+                            or not all(
+                                isinstance(parent_id, str)
+                                for parent_id in parent_ids
+                            )
+                        ):
+                            continue
+                        manifest_store.record_candidate_lineage(
+                            node_id=node_id,
+                            output_port=output_port,
+                            candidate_id=candidate_id,
+                            parent_ids=parent_ids,
+                        )
+                        candidate_bindings.append(
+                            (output_port, candidate_id)
+                        )
         artifact_binding = (
             candidate_bindings[0]
             if len(candidate_bindings) == 1
@@ -603,6 +620,42 @@ class Executor:
             manifest_events: list[_ManifestWorkerMessage] = []
 
             def apply_manifest_events() -> None:
+                def record_worker_artifacts(**kwargs: Any) -> None:
+                    output_root = Path(kwargs["output_dir"]).absolute()
+
+                    def rollback() -> None:
+                        for artifact in reversed(kwargs["artifacts"]):
+                            supplied = Path(artifact["path"])
+                            candidate = Path(os.path.abspath(
+                                supplied
+                                if supplied.is_absolute()
+                                else output_root / supplied
+                            ))
+                            try:
+                                reference = candidate.relative_to(
+                                    output_root
+                                ).as_posix()
+                            except ValueError:
+                                continue
+                            remove_private_regular_file(
+                                output_root,
+                                validate_relative_path(
+                                    reference,
+                                    "artifact_path",
+                                ),
+                                field="artifact_path",
+                            )
+
+                    try:
+                        recorded = manifest_store.record_artifacts(**kwargs)
+                        if not recorded:
+                            raise RuntimeError(
+                                "Worker artifact batch was incomplete"
+                            )
+                    except Exception:
+                        rollback()
+                        raise
+
                 handlers = {
                     "record_provider_readiness": (
                         manifest_store.record_provider_readiness
@@ -611,6 +664,7 @@ class Executor:
                         manifest_store.record_provider_call
                     ),
                     "record_artifact": manifest_store.record_artifact,
+                    "record_artifacts": record_worker_artifacts,
                 }
                 for event in manifest_events:
                     handler = handlers.get(event.method)

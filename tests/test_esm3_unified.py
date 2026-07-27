@@ -3,6 +3,7 @@
 from unittest.mock import MagicMock, patch
 
 import pytest
+import torch
 
 from core.run_context import RunContext
 from datatypes import (
@@ -15,6 +16,100 @@ from tests.test_esm3 import _make_mock_esm_protein, _make_prompt
 
 
 class TestESM3UnifiedGenerate:
+    def test_effective_seed_controls_each_provider_call_rng(self) -> None:
+        from modules.esm3_generate.module import ESM3GenerateModule
+
+        mock_ep = _make_mock_esm_protein("AGS")
+        def execute() -> tuple[list[float], dict[str, object]]:
+            observed_rng_values: list[float] = []
+            mock_client = MagicMock()
+
+            def generate(protein, config):
+                del protein, config
+                observed_rng_values.append(float(torch.rand(1).item()))
+                return mock_ep
+
+            mock_client.generate.side_effect = generate
+            with patch(
+                "modules.esm3_adapter.create_esm3_client",
+                return_value=mock_client,
+            ):
+                result = ESM3GenerateModule().run(
+                    {"protein_prompt": _make_prompt(3)},
+                    {
+                        "model_name": "esm3_sm_open_v1",
+                        "num_samples": 2,
+                    },
+                    RunContext(
+                        "/tmp/test",
+                        "n1",
+                        run_id="seeded-run",
+                        seed=1603,
+                    ),
+                )
+            return observed_rng_values, result
+
+        first_values, result = execute()
+        second_values, _ = execute()
+        assert first_values == second_values
+        assert len(first_values) == 4
+        assert len(set(first_values)) == 4
+        assert ESM3GenerateModule.uses_seed is True
+        for collection_name in (
+            "sequence_candidates",
+            "structure_candidates",
+        ):
+            metadata = [
+                candidate.metadata
+                for candidate in result[collection_name].items
+            ]
+            assert len({
+                item["effective_seed"] for item in metadata
+            }) == 2
+            assert {
+                item["requested_seed"] for item in metadata
+            } == {1603}
+            assert {
+                item["seed_scope"] for item in metadata
+            } == {"per_sample_track"}
+
+    def test_remote_provider_does_not_claim_effective_seed(self) -> None:
+        from modules.esm3_generate.module import ESM3GenerateModule
+
+        mock_client = MagicMock()
+        mock_client.generate.return_value = _make_mock_esm_protein("AGS")
+        module = ESM3GenerateModule()
+        with patch(
+            "modules.esm3_adapter.create_esm3_client",
+            return_value=mock_client,
+        ):
+            result = module.run(
+                {"protein_prompt": _make_prompt(3)},
+                {
+                    "model_name": "esm3-medium-2024-08",
+                    "num_samples": 1,
+                },
+                RunContext(
+                    "/tmp/test",
+                    "n1",
+                    run_id="remote-run",
+                    seed=1603,
+                ),
+            )
+
+        assert module.uses_seed_for({
+            "model_name": "esm3-medium-2024-08"
+        }) is False
+        for collection_name in (
+            "sequence_candidates",
+            "structure_candidates",
+        ):
+            metadata = result[collection_name].items[0].metadata
+            assert metadata["requested_seed"] == 1603
+            assert metadata["seed_control"] == "unsupported_by_provider"
+            assert "effective_seed" not in metadata
+            assert "seed_scope" not in metadata
+
     def test_outputs_both_sequence_and_structure(self) -> None:
         from modules.esm3_generate.module import ESM3GenerateModule
 

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import math
 import uuid
 from collections.abc import Mapping
@@ -134,8 +135,10 @@ def call_esm3_provider(
     operation: str,
     *,
     model_name: str | None = None,
+    effective_seed: int | None = None,
+    details: dict[str, Any] | None = None,
 ) -> Any:
-    """Execute one ESM3 operation and normalize SDK error signaling."""
+    """Execute one ESM3 operation under the Workbench client RNG seed."""
     from esm.sdk.api import ESMProteinError
 
     try:
@@ -147,8 +150,14 @@ def call_esm3_provider(
             else "biohub",
             operation,
             model=model_name,
+            details=details,
         )
-        result = client.generate(protein, config)
+        if effective_seed is None:
+            result = client.generate(protein, config)
+        else:
+            with torch.random.fork_rng():
+                torch.manual_seed(effective_seed)
+                result = client.generate(protein, config)
     except ESMProteinError as error:
         raise ESM3ProviderOperationError(
             operation=operation,
@@ -158,22 +167,53 @@ def call_esm3_provider(
     return require_esm3_provider_result(result, operation)
 
 
+def derive_esm3_call_seed(
+    node_seed: int,
+    sample_index: int,
+    track: str,
+) -> int:
+    """Derive a stable, distinct Torch seed for one local ESM3 call."""
+    payload = f"{node_seed}:{sample_index}:{track}".encode()
+    digest = hashlib.sha256(payload).digest()
+    return int.from_bytes(digest[:8], "big") % (2**63)
+
+
+def esm3_seed_control(model_name: str) -> str:
+    """Describe the seed capability exposed by the selected SDK client."""
+    if model_name == "esm3_sm_open_v1":
+        return "torch_local"
+    return "unsupported_by_provider"
+
+
 def esm3_candidate_metadata(
     *,
     model_name: str,
     operation: str,
     sample_index: int,
     classification: str,
+    requested_seed: int | None = None,
+    seed_control: str | None = None,
+    effective_seed: int | None = None,
 ) -> dict[str, object]:
     """Build the shared provider provenance carried by every ESM3 Candidate."""
     provider = "local_open" if model_name == "esm3_sm_open_v1" else "biohub"
-    return {
+    metadata: dict[str, object] = {
         "provider": provider,
         "model": model_name,
         "operation": operation,
         "sample_index": sample_index,
         "classification": classification,
     }
+    if requested_seed is not None:
+        metadata["requested_seed"] = requested_seed
+    if seed_control is not None:
+        metadata["seed_control"] = seed_control
+    if effective_seed is not None:
+        metadata.update({
+            "effective_seed": effective_seed,
+            "seed_scope": "per_sample_track",
+        })
+    return metadata
 
 
 def _sequence_track_to_str(track: ResidueTrack | None) -> str | None:

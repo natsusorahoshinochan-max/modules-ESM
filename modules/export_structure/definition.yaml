@@ -1,22 +1,49 @@
 module_id: export.structure
-version: 1.0.0
+version: 1.1.0
 display_name: Export Structure
 category: output
-description: "Writes a ProteinStructure to a PDB file."
+description: "Writes one ProteinStructure or a CandidateCollection of structures to canonical PDB files."
 input_ports:
   - name: structure
     type_id: protein.structure
+    required: false
     display_name: Structure
     description: "The protein structure to export."
+  - name: structures
+    type_id: candidate.collection
+    required: false
+    display_name: Structure Candidates
+    description: "A collection of protein.structure Candidates to export with stable Candidate-bound filenames."
+input_groups:
+  - name: structure_input
+    alternatives:
+      - [structure]
+      - [structures]
 output_ports:
   - name: file_path
-    type_id: text
+    type_id: file.path
+    required: false
     display_name: Output Path
     description: "Path to the exported PDB file."
+  - name: file_paths
+    type_id: file.path.collection
+    required: false
+    display_name: Output Paths
+    description: "Ordered paths for exported Candidate-bound PDB files."
+output_groups:
+  - name: exported_paths
+    alternatives:
+      - [file_path]
+      - [file_paths]
 parameters:
   - name: filename
     type: str
     default: "exported.pdb"
     display_name: Filename
     description: "Output filename (written under the configured run output namespace)."
+  - name: directory
+    type: str
+    default: "structures"
+    display_name: Directory
+    description: "Run-relative directory used when exporting a CandidateCollection."
 module_api: "1.0"
