@@ -11,8 +11,8 @@ from datatypes import (
     Candidate,
     CandidateCollection,
     ProteinPrompt,
-    ProteinSequence,
 )
+
 # adapter functions are imported inside run() for testability
 
 
@@ -42,14 +42,20 @@ class ESM3GenerateSequenceModule(WorkflowModule):
         num_samples = int(parameters.get("num_samples", 1))
 
         from modules.esm3_adapter import (
+            call_esm3_provider,
             create_esm3_client,
-            esm_protein_to_sequence,
+            esm3_candidate_metadata,
             esm_protein_to_scores,
+            esm_protein_to_sequence,
             protein_prompt_to_esm_protein,
+            validate_esm3_structure_response,
         )
 
         # Build ESMProtein
         esm_protein = protein_prompt_to_esm_protein(prompt)
+        source_classification = (
+            "prompt_reconstruction" if esm_protein.coordinates is not None else "absent"
+        )
 
         # Create client
         client = create_esm3_client(model_name, context.project_dir)
@@ -68,25 +74,44 @@ class ESM3GenerateSequenceModule(WorkflowModule):
         all_scores_entries = []
 
         for i in range(num_samples):
-            result = client.generate(esm_protein, config)
-            seq = esm_protein_to_sequence(result)
+            result = call_esm3_provider(
+                client,
+                esm_protein,
+                config,
+                "generate(track=sequence)",
+            )
+            seq = esm_protein_to_sequence(result, prompt.num_residues)
             cid = f"seq-{context.run_id}-{i}"
+            if source_classification == "prompt_reconstruction":
+                validate_esm3_structure_response(
+                    result,
+                    expected_sequence=seq.sequence,
+                    expected_length=prompt.num_residues,
+                )
+            scores = esm_protein_to_scores(
+                result,
+                cid,
+                require_structure_metrics=(
+                    source_classification == "prompt_reconstruction"
+                ),
+            )
             cand = Candidate(
                 candidate_id=cid,
                 data=seq,
                 parent_ids=[context.node_id],
-                metadata={
-                    "model": model_name,
-                    "sample_index": i,
-                    "classification": "absent",
-                },
+                metadata=esm3_candidate_metadata(
+                    model_name=model_name,
+                    operation="generate(track=sequence)",
+                    sample_index=i,
+                    classification=source_classification,
+                ),
             )
             candidates.append(cand)
 
-            scores = esm_protein_to_scores(result, cid)
             all_scores_entries.extend(scores.entries)
 
         from datatypes import ScoreCollection
+
         return {
             "candidates": CandidateCollection(
                 collection_id=str(uuid.uuid4()),

@@ -40,33 +40,34 @@ class ESM3GenerateModule(WorkflowModule):
         top_p = float(parameters.get("top_p", 1.0))
         num_samples = int(parameters.get("num_samples", 1))
 
-        has_template_coords = (
-            prompt.structure_track is not None
-            and any(
-                v is not None
-                for v in prompt.structure_track.values
-                if v is not None
-            )
-        )
-        classification = (
-            "prompt_reconstruction" if has_template_coords else "absent"
-        )
-
         from modules.esm3_adapter import (
+            call_esm3_provider,
             create_esm3_client,
+            esm3_candidate_metadata,
+            esm_protein_to_scores,
             esm_protein_to_sequence,
             esm_protein_to_structure,
-            esm_protein_to_scores,
             protein_prompt_to_esm_protein,
+            structure_sampling_input,
+            validate_esm3_structure_response,
         )
 
         esm_protein = protein_prompt_to_esm_protein(prompt)
+        sequence_source_classification = (
+            "prompt_reconstruction" if esm_protein.coordinates is not None else "absent"
+        )
         client = create_esm3_client(model_name, context.project_dir)
 
         from esm.sdk.api import GenerationConfig
 
-        config = GenerationConfig(
+        sequence_config = GenerationConfig(
             track="sequence",
+            num_steps=num_steps,
+            temperature=temperature,
+            top_p=top_p,
+        )
+        structure_config = GenerationConfig(
+            track="structure",
             num_steps=num_steps,
             temperature=temperature,
             top_p=top_p,
@@ -77,40 +78,77 @@ class ESM3GenerateModule(WorkflowModule):
         all_scores_entries = []
 
         for i in range(num_samples):
-            result = client.generate(esm_protein, config)
+            sequence_result = call_esm3_provider(
+                client,
+                esm_protein,
+                sequence_config,
+                "generate(track=sequence)",
+            )
 
             # Extract sequence
-            seq = esm_protein_to_sequence(result)
+            seq = esm_protein_to_sequence(
+                sequence_result,
+                prompt.num_residues,
+            )
             seq_cid = f"seq-{context.run_id}-{i}"
+            if sequence_source_classification == "prompt_reconstruction":
+                validate_esm3_structure_response(
+                    sequence_result,
+                    expected_sequence=seq.sequence,
+                    expected_length=prompt.num_residues,
+                )
+                esm_protein_to_scores(
+                    sequence_result,
+                    seq_cid,
+                    require_structure_metrics=True,
+                )
             seq_cand = Candidate(
                 candidate_id=seq_cid,
                 data=seq,
                 parent_ids=[context.node_id],
-                metadata={
-                    "model": model_name,
-                    "sample_index": i,
-                    "classification": classification,
-                },
+                metadata=esm3_candidate_metadata(
+                    model_name=model_name,
+                    operation="generate(track=sequence)",
+                    sample_index=i,
+                    classification=sequence_source_classification,
+                ),
             )
             seq_candidates.append(seq_cand)
 
-            # Extract structure (PDB embeds the same sequence)
-            struct = esm_protein_to_structure(result)
+            sampled_structure_prompt = structure_sampling_input(
+                sequence_result,
+                esm_protein,
+            )
+            structure_result = call_esm3_provider(
+                client,
+                sampled_structure_prompt,
+                structure_config,
+                "generate(track=structure)",
+            )
+            struct = esm_protein_to_structure(
+                structure_result,
+                expected_sequence=seq.sequence,
+            )
             struct_cid = f"struct-{context.run_id}-{i}"
             struct_cand = Candidate(
                 candidate_id=struct_cid,
                 data=struct,
-                parent_ids=[context.node_id],
-                metadata={
-                    "model": model_name,
-                    "sample_index": i,
-                    "classification": classification,
-                },
+                parent_ids=[seq_cid],
+                metadata=esm3_candidate_metadata(
+                    model_name=model_name,
+                    operation="generate(track=structure)",
+                    sample_index=i,
+                    classification="sampled_structure",
+                ),
             )
             struct_candidates.append(struct_cand)
 
             # Scores reference the sequence candidate
-            scores = esm_protein_to_scores(result, seq_cid)
+            scores = esm_protein_to_scores(
+                structure_result,
+                seq_cid,
+                require_structure_metrics=True,
+            )
             all_scores_entries.extend(scores.entries)
 
         return {
