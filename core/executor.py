@@ -4,8 +4,10 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
+import os
 import pickle
 from pathlib import Path
+import tempfile
 from typing import TYPE_CHECKING, Any, Callable
 
 from core.graph import NodeState, Workflow, WorkflowNode
@@ -108,12 +110,30 @@ class Executor:
             return None
 
     def _save_to_cache(self, cache_path: Path, outputs: dict[str, Any]) -> None:
-        """Save outputs to a cache pickle file."""
+        """Atomically publish one complete immutable cache entry."""
+        temporary_path: Path | None = None
         try:
-            with open(cache_path, "wb") as f:
-                pickle.dump(outputs, f)
+            cache_path.parent.mkdir(parents=True, exist_ok=True)
+            with tempfile.NamedTemporaryFile(
+                mode="wb",
+                prefix=f".{cache_path.name}.",
+                suffix=".tmp",
+                dir=cache_path.parent,
+                delete=False,
+            ) as temporary_file:
+                temporary_path = Path(temporary_file.name)
+                pickle.dump(outputs, temporary_file)
+                temporary_file.flush()
+                os.fsync(temporary_file.fileno())
+            try:
+                os.link(temporary_path, cache_path)
+            except FileExistsError:
+                pass
         except Exception:
             pass  # Cache write failure is non-fatal
+        finally:
+            if temporary_path is not None:
+                temporary_path.unlink(missing_ok=True)
 
     async def execute(
         self,

@@ -1,11 +1,15 @@
 """Public storage-contract tests for contained project and run paths."""
 
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
+import pickle
+import threading
 from types import SimpleNamespace
 
 import pytest
 from fastapi.testclient import TestClient
 
+from core.executor import Executor
 from core.project import ProjectManager
 from core.run_context import RunContext
 from core.server import app
@@ -483,6 +487,48 @@ def test_cache_node_namespaces_do_not_overlap_by_prefix(
     assert response.json() == {"status": "cleared", "removed": 1}
     assert not first.exists()
     assert second.read_bytes() == b"second"
+
+
+def test_concurrent_cache_writes_publish_one_complete_entry(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    cache_path = tmp_path / "cache" / "node" / "key.pkl"
+    cache_path.parent.mkdir(parents=True)
+    executor = Executor()
+    first_half_written = threading.Event()
+    second_write_finished = threading.Event()
+
+    def interleaved_dump(outputs: dict, destination: object) -> None:
+        payload = pickle.dumps(outputs)
+        if outputs["run"] == "first":
+            split = len(payload) // 2
+            destination.write(payload[:split])
+            destination.flush()
+            first_half_written.set()
+            assert second_write_finished.wait(timeout=2)
+            destination.write(payload[split:])
+            destination.flush()
+            return
+        assert first_half_written.wait(timeout=2)
+        destination.write(payload)
+        destination.flush()
+        second_write_finished.set()
+
+    monkeypatch.setattr("core.executor.pickle.dump", interleaved_dump)
+    first = {"run": "first"}
+    second = {"run": "second", "payload": "x" * 10_000}
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        writes = [
+            pool.submit(executor._save_to_cache, cache_path, outputs)
+            for outputs in (first, second)
+        ]
+        for write in writes:
+            write.result(timeout=3)
+
+    assert executor._load_from_cache(cache_path) in (first, second)
+    assert list(cache_path.parent.iterdir()) == [cache_path]
 
 
 def test_run_namespace_rejects_symlink_alias_to_another_run(
