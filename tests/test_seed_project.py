@@ -538,6 +538,39 @@ class TestSeedProject:
         )
         assert archived["id"] == CANONICAL_3GB1_PROJECT_ID
 
+    def test_missing_metadata_preserves_user_legacy_project_file(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        workflow_path = tmp_path / "workflow.json"
+        workflow_path.write_text(SAMPLE_WORKFLOW_JSON)
+
+        from core import TypeRegistry, ModuleRegistry, discover_modules
+        type_registry = TypeRegistry()
+        module_registry = ModuleRegistry(type_registry)
+        discover_modules(module_registry)
+        manager = ProjectManager(
+            root_dir=tmp_path / "projects",
+            module_registry=module_registry,
+        )
+        canonical = manager.ensure_seed_project(workflow_path)
+        canonical_dir = manager.project_dir(canonical.id)
+        (canonical_dir / "project.json").unlink()
+        sentinel = "user-owned legacy file\n"
+        (canonical_dir / "legacy-project.json").write_text(sentinel)
+
+        restored = manager.ensure_seed_project(workflow_path)
+
+        assert restored.id == CANONICAL_3GB1_PROJECT_ID
+        legacy = next(
+            project
+            for project in manager.list_projects()
+            if project.legacy_seed
+        )
+        legacy_dir = manager.project_dir(legacy.id)
+        assert (legacy_dir / "legacy-project.json").read_text() == sentinel
+        assert legacy.legacy_metadata_archive is None
+
     def test_damaged_legacy_snapshot_does_not_suppress_fresh_preservation(
         self,
         tmp_path: Path,

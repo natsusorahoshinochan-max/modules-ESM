@@ -59,6 +59,11 @@ class ProjectMeta:
     legacy_seed: bool = False
     legacy_source_hash: str | None = None
     legacy_metadata_archive: str | None = None
+    legacy_metadata_archive_recorded: bool = field(
+        default=False,
+        repr=False,
+        compare=False,
+    )
     seed_version: str | None = None
     seed_content_hash: str | None = None
 
@@ -648,6 +653,7 @@ class ProjectManager:
             seed=False,
             legacy_seed=True,
             legacy_source_hash=identity,
+            legacy_metadata_archive_recorded=True,
             seed_version=(
                 source_meta.seed_version
                 if source_meta is not None
@@ -719,7 +725,10 @@ class ProjectManager:
         meta: ProjectMeta,
     ) -> str | None:
         archive_name = meta.legacy_metadata_archive
-        if archive_name is None:
+        if (
+            archive_name is None
+            and not meta.legacy_metadata_archive_recorded
+        ):
             fallback = project_dir / "legacy-project.json"
             if fallback.exists() or fallback.is_symlink():
                 archive_name = fallback.name
@@ -1010,6 +1019,9 @@ class ProjectManager:
             legacy_seed=legacy_seed,
             legacy_source_hash=raw.get("legacy_source_hash"),
             legacy_metadata_archive=raw.get("legacy_metadata_archive"),
+            legacy_metadata_archive_recorded=(
+                "legacy_metadata_archive" in raw
+            ),
             seed_version=raw.get("seed_version"),
             seed_content_hash=raw.get("seed_content_hash"),
         )
