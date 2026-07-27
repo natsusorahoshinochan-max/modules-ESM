@@ -84,9 +84,11 @@ class ComputeSecondaryStructureModule(WorkflowModule):
             raise ValueError("structure input is required")
 
         dssp_bin = str(parameters.get("dssp_binary", "/opt/homebrew/bin/mkdssp"))
+        temp_dir = Path(context.temp_dir or "")
+        temp_dir.mkdir(parents=True, exist_ok=True)
 
         with tempfile.NamedTemporaryFile(
-            mode="w", suffix=".pdb", delete=False
+            mode="w", suffix=".pdb", delete=False, dir=temp_dir
         ) as tmp:
             tmp.write(structure.pdb_string)
             pdb_path = tmp.name

@@ -6,11 +6,14 @@ import asyncio
 import hashlib
 import pickle
 from pathlib import Path
-from typing import Any, Callable
+from typing import TYPE_CHECKING, Any, Callable
 
 from core.graph import NodeState, Workflow, WorkflowNode
 from core.run_context import RunContext
 from core.workflow_module import WorkflowModule
+
+if TYPE_CHECKING:
+    from core.project import ProjectManager
 
 
 class Executor:
@@ -115,6 +118,8 @@ class Executor:
         run_id: str,
         seed: int = 42,
         force_rerun_nodes: set[str] | None = None,
+        project_manager: ProjectManager | None = None,
+        project_id: str | None = None,
     ) -> dict[str, dict[str, Any]]:
         """Execute a workflow and return all node outputs.
 
@@ -168,12 +173,20 @@ class Executor:
 
             try:
                 inputs = workflow.get_inputs_for_node(node_id)
-                context = RunContext(
-                    project_dir=project_dir,
-                    node_id=node_id,
-                    run_id=run_id,
-                    seed=seed,
-                )
+                if project_manager is not None and project_id is not None:
+                    context = project_manager.run_context(
+                        project_id,
+                        run_id,
+                        node_id,
+                        seed=seed,
+                    )
+                else:
+                    context = RunContext(
+                        project_dir=project_dir,
+                        node_id=node_id,
+                        run_id=run_id,
+                        seed=seed,
+                    )
 
                 # Check cache (skip if force re-run)
                 cache_key = self._compute_cache_key(
@@ -183,9 +196,17 @@ class Executor:
                     node.parameters,
                     seed,
                 )
-                cache_path = self._get_cache_path(
-                    project_dir, node_id, cache_key
-                )
+                if project_manager is not None and project_id is not None:
+                    cache_path = project_manager.cache_path(
+                        project_id,
+                        node_id,
+                        cache_key,
+                    )
+                    cache_path.parent.mkdir(parents=True, exist_ok=True)
+                else:
+                    cache_path = self._get_cache_path(
+                        project_dir, node_id, cache_key
+                    )
 
                 if node_id not in force_rerun_nodes:
                     cached = self._load_from_cache(cache_path)

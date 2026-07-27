@@ -9,7 +9,14 @@ import shutil
 from typing import Any, AsyncGenerator
 
 from contextlib import asynccontextmanager
-from fastapi import FastAPI, File, UploadFile, WebSocket, WebSocketDisconnect
+from fastapi import (
+    FastAPI,
+    File,
+    Request,
+    UploadFile,
+    WebSocket,
+    WebSocketDisconnect,
+)
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 
@@ -26,6 +33,7 @@ from core.graph import (
 from core.module_definition import ModuleDefinition, ParameterDefinition, PortDefinition
 from core.module_registry import ModuleRegistry, discover_modules
 from core.project import ProjectManager, ProjectMeta, UIState
+from core.storage import StoragePathError, validate_identifier
 from core.type_registry import TypeRegistry
 from core.workflow_module import WorkflowModule
 
@@ -329,6 +337,9 @@ def create_app() -> FastAPI:
         project_manager = ProjectManager(
             root_dir=os.environ.get("PROTEIN_WORKBENCH_PROJECT_ROOT", "projects"),
             module_registry=module_registry,
+            cache_root=os.environ.get("PROTEIN_WORKBENCH_CACHE_ROOT"),
+            output_root=os.environ.get("PROTEIN_WORKBENCH_OUTPUT_ROOT"),
+            run_root=os.environ.get("PROTEIN_WORKBENCH_RUN_ROOT"),
         )
 
         from modules.stub import EchoModule
@@ -428,6 +439,23 @@ def create_app() -> FastAPI:
 
     app = FastAPI(title="Protein Workbench", version="0.1.0", lifespan=lifespan)
 
+    @app.exception_handler(StoragePathError)
+    async def storage_path_error_handler(
+        request: Request,
+        error: StoragePathError,
+    ) -> JSONResponse:
+        del request
+        return JSONResponse(
+            status_code=422,
+            content={
+                "error": {
+                    "kind": "invalid_storage_path",
+                    "field": error.field,
+                    "message": str(error),
+                },
+            },
+        )
+
     app.add_middleware(
         CORSMiddleware,
         allow_origins=["*"],
@@ -496,8 +524,17 @@ def create_app() -> FastAPI:
 
         run_id = str(uuid.uuid4())
         project_id = payload.get("project_id", f"ephemeral-{run_id[:8]}")
-        project_dir = str(project_manager.root_dir / project_id)
+        project_dir = str(project_manager.project_dir(project_id))
         seed = payload.get("seed", 42)
+        for node_id in workflow.nodes:
+            project_manager.run_context(
+                project_id,
+                run_id,
+                node_id,
+                seed=seed,
+            )
+        for node_id in payload.get("force_rerun_nodes", []):
+            validate_identifier(node_id, "node_id")
 
         async def _run() -> None:
             try:
@@ -506,6 +543,8 @@ def create_app() -> FastAPI:
                     workflow=workflow, modules=modules,
                     project_dir=project_dir, run_id=run_id, seed=seed,
                     force_rerun_nodes=force_rerun,
+                    project_manager=project_manager,
+                    project_id=project_id,
                 )
                 for ws in _active_ws:
                     try:
@@ -547,8 +586,7 @@ def create_app() -> FastAPI:
         meta = project_manager.load_meta(project_id)
         if meta is None:
             return {"error": "Project not found"}
-        project_dir = project_manager._project_dir(project_id)
-        cache_dir = project_dir / "cache"
+        cache_dir = project_manager.cache_dir(project_id)
         count = 0
         if cache_dir.exists():
             for f in cache_dir.iterdir():
@@ -562,12 +600,12 @@ def create_app() -> FastAPI:
         meta = project_manager.load_meta(project_id)
         if meta is None:
             return {"error": "Project not found"}
-        project_dir = project_manager._project_dir(project_id)
-        cache_dir = project_dir / "cache"
+        safe_node_id = validate_identifier(node_id, "node_id")
+        cache_dir = project_manager.cache_dir(project_id)
         count = 0
         if cache_dir.exists():
             for f in cache_dir.iterdir():
-                if f.name.startswith(f"{node_id}_"):
+                if f.name.startswith(f"{safe_node_id}_"):
                     f.unlink()
                     count += 1
         return {"status": "cleared", "removed": count}
@@ -582,15 +620,15 @@ def create_app() -> FastAPI:
         if meta is None:
             return {"error": "Project not found"}
 
-        project_dir = project_manager._project_dir(project_id)
-        cache_dir = project_dir / "cache"
+        safe_node_id = validate_identifier(node_id, "node_id")
+        cache_dir = project_manager.cache_dir(project_id)
         if not cache_dir.exists():
             return {"error": "No cache for this project"}
 
         import pickle
         structures: list[dict] = []
         for f in sorted(cache_dir.iterdir(), key=lambda x: x.stat().st_mtime, reverse=True):
-            if f.name.startswith(f"{node_id}_") and f.suffix == ".pkl":
+            if f.name.startswith(f"{safe_node_id}_") and f.suffix == ".pkl":
                 try:
                     with open(f, "rb") as fh:
                         outputs = pickle.load(fh)
@@ -715,10 +753,9 @@ def create_app() -> FastAPI:
         meta = project_manager.load_meta(project_id)
         if meta is None:
             return {"error": "Project not found"}
-        project_dir = project_manager._project_dir(project_id)
-        inputs_dir = project_dir / "inputs"
-        inputs_dir.mkdir(parents=True, exist_ok=True)
-        dest = inputs_dir / (file.filename or "uploaded")
+        uploaded_name = file.filename or "uploaded"
+        dest = project_manager.input_path(project_id, uploaded_name)
+        dest.parent.mkdir(parents=True, exist_ok=True)
         with open(dest, "wb") as f:
             shutil.copyfileobj(file.file, f)
         return {"path": str(dest), "filename": file.filename}
@@ -728,7 +765,7 @@ def create_app() -> FastAPI:
         meta = project_manager.load_meta(project_id)
         if meta is None:
             return {"error": "Project not found"}
-        file_path = project_manager._project_dir(project_id) / "outputs" / filename
+        file_path = project_manager.output_reference_path(project_id, filename)
         if not file_path.exists():
             return {"error": "File not found"}
         return FileResponse(str(file_path), filename=filename)

@@ -21,6 +21,12 @@ from typing import Any
 
 from core.graph import Workflow, WorkflowEdge, WorkflowNode
 from core.module_registry import ModuleRegistry
+from core.storage import (
+    StoragePathError,
+    contained_path,
+    validate_identifier,
+    validate_relative_path,
+)
 
 _logger = logging.getLogger(__name__)
 
@@ -65,13 +71,153 @@ class ProjectManager:
     Each project is a directory with project.json, workflow.json, ui.json.
     """
 
-    def __init__(self, root_dir: str | Path = "projects",
-                 module_registry: ModuleRegistry | None = None) -> None:
+    def __init__(
+        self,
+        root_dir: str | Path = "projects",
+        module_registry: ModuleRegistry | None = None,
+        *,
+        cache_root: str | Path | None = None,
+        output_root: str | Path | None = None,
+        run_root: str | Path | None = None,
+    ) -> None:
         self.root_dir = Path(root_dir)
         self.module_registry = module_registry
+        self.cache_root = Path(cache_root) if cache_root is not None else None
+        self.output_root = Path(output_root) if output_root is not None else None
+        self.run_root = Path(run_root) if run_root is not None else None
 
     def _project_dir(self, project_id: str) -> Path:
-        return self.root_dir / project_id
+        return self.project_dir(project_id)
+
+    def project_dir(self, project_id: str) -> Path:
+        """Resolve a project directory beneath the configured project root."""
+        safe_project_id = validate_identifier(project_id, "project_id")
+        return contained_path(self.root_dir, safe_project_id)
+
+    def input_path(self, project_id: str, uploaded_name: str) -> Path:
+        """Resolve one uploaded file beneath the project's inputs directory."""
+        name_parts = validate_relative_path(
+            uploaded_name,
+            "uploaded_name",
+            allow_nested=False,
+        )
+        return contained_path(
+            self.project_dir(project_id),
+            "inputs",
+            *name_parts,
+            field="uploaded_name",
+        )
+
+    def cache_dir(self, project_id: str) -> Path:
+        """Resolve the shared content-addressed Cache directory for a project."""
+        if self.cache_root is None:
+            return contained_path(self.project_dir(project_id), "cache")
+        return contained_path(
+            self.cache_root,
+            validate_identifier(project_id, "project_id"),
+        )
+
+    def cache_path(
+        self,
+        project_id: str,
+        node_id: str,
+        cache_key: str,
+    ) -> Path:
+        """Resolve one Node's content-addressed Cache entry."""
+        safe_node_id = validate_identifier(node_id, "node_id")
+        safe_cache_key = validate_identifier(cache_key, "cache_key")
+        return contained_path(
+            self.cache_dir(project_id),
+            f"{safe_node_id}_{safe_cache_key}.pkl",
+        )
+
+    def output_dir(self, project_id: str, run_id: str) -> Path:
+        """Resolve one run's artifact directory."""
+        safe_run_id = validate_identifier(run_id, "run_id")
+        if self.output_root is None:
+            base = contained_path(self.project_dir(project_id), "outputs")
+        else:
+            base = contained_path(
+                self.output_root,
+                validate_identifier(project_id, "project_id"),
+            )
+        return contained_path(base, safe_run_id)
+
+    def output_path(
+        self,
+        project_id: str,
+        run_id: str,
+        artifact_name: str,
+    ) -> Path:
+        """Resolve a requested artifact beneath one run's output namespace."""
+        artifact_parts = validate_relative_path(
+            artifact_name,
+            "artifact_name",
+        )
+        return contained_path(
+            self.output_dir(project_id, run_id),
+            *artifact_parts,
+            field="artifact_name",
+        )
+
+    def output_reference_path(
+        self,
+        project_id: str,
+        output_reference: str,
+    ) -> Path:
+        """Resolve a hybrid ``run_id/artifact`` output reference."""
+        reference_parts = validate_relative_path(
+            output_reference,
+            "output_path",
+        )
+        if len(reference_parts) < 2:
+            raise StoragePathError(
+                "output_path",
+                "Invalid output_path",
+            )
+        run_id, *artifact_parts = reference_parts
+        return self.output_path(
+            project_id,
+            run_id,
+            "/".join(artifact_parts),
+        )
+
+    def run_dir(self, project_id: str, run_id: str) -> Path:
+        """Resolve one run's mutable namespace."""
+        safe_run_id = validate_identifier(run_id, "run_id")
+        if self.run_root is None:
+            base = contained_path(self.project_dir(project_id), "runs")
+        else:
+            base = contained_path(
+                self.run_root,
+                validate_identifier(project_id, "project_id"),
+            )
+        return contained_path(base, safe_run_id)
+
+    def run_context(
+        self,
+        project_id: str,
+        run_id: str,
+        node_id: str,
+        *,
+        seed: int = 42,
+    ) -> "RunContext":
+        """Build a context whose mutable paths are project/run contained."""
+        from core.run_context import RunContext
+
+        safe_node_id = validate_identifier(node_id, "node_id")
+        run_dir = self.run_dir(project_id, run_id)
+        return RunContext(
+            project_dir=str(self.project_dir(project_id)),
+            node_id=safe_node_id,
+            run_id=run_id,
+            seed=seed,
+            temp_dir=str(
+                contained_path(run_dir, "temp", safe_node_id)
+            ),
+            output_dir=str(self.output_dir(project_id, run_id)),
+            log_dir=str(contained_path(run_dir, "logs")),
+        )
 
     def _ensure_dir(self, project_id: str) -> Path:
         d = self._project_dir(project_id)

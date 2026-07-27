@@ -24,8 +24,7 @@ class ExportStructureModule(WorkflowModule):
         if structure is None:
             raise ValueError("Missing input: structure")
         filename = parameters.get("filename", "exported.pdb")
-        out_dir = Path(context.project_dir) / "outputs"
-        out_dir.mkdir(parents=True, exist_ok=True)
-        out_path = out_dir / filename
+        out_path = context.output_path(filename)
+        out_path.parent.mkdir(parents=True, exist_ok=True)
         out_path.write_text(structure.pdb_string)
         return {"file_path": str(out_path)}
