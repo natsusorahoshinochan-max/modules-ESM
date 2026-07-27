@@ -68,6 +68,18 @@ class ComputeDSSPModule(WorkflowModule):
                 stdout, stderr = await asyncio.wait_for(
                     proc.communicate(), timeout=timeout
                 )
+            except asyncio.CancelledError:
+                if proc.returncode is None:
+                    try:
+                        proc.terminate()
+                    except ProcessLookupError:
+                        pass
+                    try:
+                        await asyncio.wait_for(proc.wait(), timeout=1)
+                    except asyncio.TimeoutError:
+                        proc.kill()
+                        await proc.wait()
+                raise
             except asyncio.TimeoutError:
                 proc.kill()
                 await proc.wait()

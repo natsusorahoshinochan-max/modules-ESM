@@ -1,5 +1,6 @@
 """Tests for scoring, alignment, metrics, and DSSP modules (ticket 09)."""
 
+import asyncio
 import uuid
 from unittest.mock import patch
 
@@ -239,6 +240,69 @@ class TestDSSPModule:
         ctx = RunContext("/tmp/test", "n1")
         with pytest.raises(ValueError, match="structure"):
             mod.run({}, {}, ctx)
+
+    def test_cancellation_stops_mkdssp_subprocess_before_returning(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        from modules.compute_dssp.module import ComputeDSSPModule
+
+        class BlockingProcess:
+            returncode = None
+
+            def __init__(self) -> None:
+                self.communicating = asyncio.Event()
+                self.stopped = False
+                self.waited = False
+
+            async def communicate(self) -> tuple[bytes, bytes]:
+                self.communicating.set()
+                await asyncio.Event().wait()
+                return b"", b""
+
+            def terminate(self) -> None:
+                self.stopped = True
+
+            def kill(self) -> None:
+                self.stopped = True
+
+            async def wait(self) -> int:
+                self.waited = True
+                self.returncode = -15
+                return self.returncode
+
+        process = BlockingProcess()
+
+        async def fake_subprocess(
+            *args: object,
+            **kwargs: object,
+        ) -> BlockingProcess:
+            del args, kwargs
+            return process
+
+        monkeypatch.setattr(
+            asyncio,
+            "create_subprocess_exec",
+            fake_subprocess,
+        )
+
+        async def exercise() -> None:
+            module = ComputeDSSPModule()
+            context = RunContext("/tmp/test", "cancel-dssp")
+            work = asyncio.create_task(module.run_async(
+                {"structure": ProteinStructure(pdb_string=SAMPLE_PDB_3RES)},
+                {},
+                context,
+            ))
+            await process.communicating.wait()
+            work.cancel()
+            with pytest.raises(asyncio.CancelledError):
+                await work
+
+        asyncio.run(exercise())
+
+        assert process.stopped is True
+        assert process.waited is True
 
 
 # ── Secondary Structure Agreement Module ─────────────────────────────

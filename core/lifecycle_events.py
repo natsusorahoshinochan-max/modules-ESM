@@ -27,6 +27,7 @@ class RunEventType(str, Enum):
     NODE_FAILED = "node_failed"
     NODE_BLOCKED = "node_blocked"
     NODE_CANCELLED = "node_cancelled"
+    RUN_CANCELLATION_REQUESTED = "run_cancellation_requested"
     RUN_COMPLETED = "run_completed"
     RUN_FAILED = "run_failed"
     RUN_CANCELLED = "run_cancelled"
