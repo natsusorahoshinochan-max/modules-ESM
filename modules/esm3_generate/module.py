@@ -16,6 +16,15 @@ from datatypes import (
 
 
 class ESM3GenerateModule(WorkflowModule):
+    uses_seed = True
+
+    def uses_seed_for(self, parameters: dict[str, Any]) -> bool:
+        """Only the local SDK model exposes a controllable RNG."""
+        return parameters.get(
+            "model_name",
+            "esm3-medium-2024-08",
+        ) == "esm3_sm_open_v1"
+
     def __init__(self) -> None:
         d = Path(__file__).parent / "definition.yaml"
         self._definition = ModuleDefinition.from_yaml(d)
@@ -43,7 +52,9 @@ class ESM3GenerateModule(WorkflowModule):
         from modules.esm3_adapter import (
             call_esm3_provider,
             create_esm3_client,
+            derive_esm3_call_seed,
             esm3_candidate_metadata,
+            esm3_seed_control,
             esm_protein_to_scores,
             esm_protein_to_sequence,
             esm_protein_to_structure,
@@ -53,6 +64,7 @@ class ESM3GenerateModule(WorkflowModule):
         )
 
         esm_protein = protein_prompt_to_esm_protein(prompt)
+        seed_control = esm3_seed_control(model_name)
         sequence_source_classification = (
             "prompt_reconstruction" if esm_protein.coordinates is not None else "absent"
         )
@@ -78,12 +90,33 @@ class ESM3GenerateModule(WorkflowModule):
         all_scores_entries = []
 
         for i in range(num_samples):
+            seq_cid = f"seq-{context.run_id}-{i}"
+            sequence_seed = (
+                derive_esm3_call_seed(context.seed, i, "sequence")
+                if seed_control == "torch_local"
+                else None
+            )
             sequence_result = call_esm3_provider(
                 client,
                 esm_protein,
                 sequence_config,
                 "generate(track=sequence)",
                 model_name=model_name,
+                effective_seed=sequence_seed,
+                details={
+                    "candidate_id": seq_cid,
+                    "sample_index": i,
+                    "requested_seed": context.seed,
+                    "seed_control": seed_control,
+                    **(
+                        {
+                            "effective_seed": sequence_seed,
+                            "seed_scope": "per_sample_track",
+                        }
+                        if sequence_seed is not None
+                        else {}
+                    ),
+                },
             )
 
             # Extract sequence
@@ -91,7 +124,6 @@ class ESM3GenerateModule(WorkflowModule):
                 sequence_result,
                 prompt.num_residues,
             )
-            seq_cid = f"seq-{context.run_id}-{i}"
             if sequence_source_classification == "prompt_reconstruction":
                 validate_esm3_structure_response(
                     sequence_result,
@@ -112,6 +144,9 @@ class ESM3GenerateModule(WorkflowModule):
                     operation="generate(track=sequence)",
                     sample_index=i,
                     classification=sequence_source_classification,
+                    requested_seed=context.seed,
+                    seed_control=seed_control,
+                    effective_seed=sequence_seed,
                 ),
             )
             seq_candidates.append(seq_cand)
@@ -120,18 +155,39 @@ class ESM3GenerateModule(WorkflowModule):
                 sequence_result,
                 esm_protein,
             )
+            struct_cid = f"struct-{context.run_id}-{i}"
+            structure_seed = (
+                derive_esm3_call_seed(context.seed, i, "structure")
+                if seed_control == "torch_local"
+                else None
+            )
             structure_result = call_esm3_provider(
                 client,
                 sampled_structure_prompt,
                 structure_config,
                 "generate(track=structure)",
                 model_name=model_name,
+                effective_seed=structure_seed,
+                details={
+                    "candidate_id": struct_cid,
+                    "parent_candidate_id": seq_cid,
+                    "sample_index": i,
+                    "requested_seed": context.seed,
+                    "seed_control": seed_control,
+                    **(
+                        {
+                            "effective_seed": structure_seed,
+                            "seed_scope": "per_sample_track",
+                        }
+                        if structure_seed is not None
+                        else {}
+                    ),
+                },
             )
             struct = esm_protein_to_structure(
                 structure_result,
                 expected_sequence=seq.sequence,
             )
-            struct_cid = f"struct-{context.run_id}-{i}"
             struct_cand = Candidate(
                 candidate_id=struct_cid,
                 data=struct,
@@ -141,6 +197,9 @@ class ESM3GenerateModule(WorkflowModule):
                     operation="generate(track=structure)",
                     sample_index=i,
                     classification="sampled_structure",
+                    requested_seed=context.seed,
+                    seed_control=seed_control,
+                    effective_seed=structure_seed,
                 ),
             )
             struct_candidates.append(struct_cand)

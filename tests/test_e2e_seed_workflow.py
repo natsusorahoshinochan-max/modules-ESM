@@ -1,6 +1,6 @@
-"""End-to-end integration test: execute 3GB1 seed workflow DAG with mocked APIs.
+"""End-to-end integration test: execute 3GB1 seed workflow DAG with fixtures.
 
-Verifies that all 23 nodes in examples/3gb1_pipeline.json complete successfully
+Verifies that all 24 nodes in examples/3gb1_pipeline.json complete successfully
 and that the complete data flow (prompt → ESM3 → Fold → TM-score → Rank →
 ProteinMPNN → FinalFold) produces expected output counts.
 """
@@ -34,6 +34,7 @@ def _build_modules():
     from modules.compute_dssp.module import ComputeDSSPModule
     from modules.esm3_generate.module import ESM3GenerateModule
     from modules.esmfold2_fold.module import ESMFold2FoldModule
+    from modules.export_structure import ExportStructureModule
     from modules.import_structure import ImportStructureModule
     from modules.merge_scores.module import MergeScoresModule
     from modules.override_residue_track import OverrideResidueTrackModule
@@ -58,6 +59,7 @@ def _build_modules():
         "prompt.assemble_protein_prompt": AssembleProteinPromptModule(),
         "esm3.generate": ESM3GenerateModule(),
         "esmfold2.fold": ESMFold2FoldModule(),
+        "export.structure": ExportStructureModule(),
         "structure.pairwise_align": PairwiseAlignModule(),
         "structure.batch_tm_score": BatchTMScoreModule(),
         "compute.dssp": ComputeDSSPModule(),
@@ -201,6 +203,7 @@ def _mock_design(
     reference_sequence=None,
     provider=None,
     temp_dir=None,
+    call_details=None,
 ):
     from datatypes import ProteinSequence
     import random
@@ -225,13 +228,13 @@ def _mock_design(
 class TestE2ESeedWorkflow:
     """End-to-end execution of the 3GB1 seed workflow DAG."""
 
-    def test_all_23_nodes_complete_with_ss8_provider_payload(self) -> None:
+    def test_all_24_nodes_complete_with_ss8_provider_payload(self) -> None:
         """The canonical workflow reaches ESM3 with a legal SS8 payload."""
         workflow = _load_canonical_workflow()
 
         assert not workflow.validate_acyclic()
-        assert len(workflow.nodes) == 23
-        assert len(workflow.edges) == 32
+        assert len(workflow.nodes) == 24
+        assert len(workflow.edges) == 33
 
         mods = _build_modules()
         dssp_mod = mods["compute.dssp"]
@@ -443,3 +446,20 @@ class TestE2ESeedWorkflow:
             if error.kind is WorkflowValidationErrorKind.MODULE_VERSION_MISMATCH
         ]
         assert version_errors == []
+
+    def test_canonical_workflow_declares_fifteen_candidate_bound_pdbs(
+        self,
+    ) -> None:
+        workflow = _load_canonical_workflow()
+        export_node = workflow.nodes["export_final"]
+
+        assert export_node.module_id == "export.structure"
+        assert export_node.module_version == "1.1.0"
+        assert export_node.parameters == {"directory": "final"}
+        assert any(
+            edge.source_node_id == "final_fold"
+            and edge.source_port == "candidates"
+            and edge.target_node_id == "export_final"
+            and edge.target_port == "structures"
+            for edge in workflow.edges
+        )

@@ -733,7 +733,7 @@ class TestModuleDiscovery:
         }
         assert module_ids == expected
 
-    def test_all_16_types_registered(self) -> None:
+    def test_all_canonical_types_registered(self) -> None:
         from core import TypeRegistry, ModuleRegistry, discover_modules
         tr = TypeRegistry()
         mr = ModuleRegistry(tr)
@@ -748,5 +748,6 @@ class TestModuleDiscovery:
             "candidate.collection", "score.collection",
             "proteinmpnn.constraints",
             "structure.alignment",
+            "file.path", "file.path.collection",
         }
         assert types == expected

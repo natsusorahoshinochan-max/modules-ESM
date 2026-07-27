@@ -24,6 +24,11 @@ class WorkflowModule(ABC):
 
     uses_seed: bool = False
 
+    def uses_seed_for(self, parameters: dict[str, Any]) -> bool:
+        """Return whether the configured provider can honor the Node seed."""
+        del parameters
+        return self.uses_seed
+
     @property
     @abstractmethod
     def definition(self) -> ModuleDefinition:

@@ -447,7 +447,12 @@ output_ports:
                 "provider": "capturing-proteinmpnn",
                 "operation": "design_sequences",
                 "model": "v_48_020",
-                "details": {"node_id": "design"},
+                "details": {
+                    "node_id": "design",
+                    "parent_candidate_id": "design",
+                    "candidate_ids": ["mpnn-first-run-0-0"],
+                    "effective_seed": 123,
+                },
             }
         ]
         assert second_provider.requests == []

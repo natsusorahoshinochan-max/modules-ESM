@@ -125,9 +125,9 @@ def test_execute_rejects_invalid_workflow_before_creating_run(
                 "module_version": "1.0.0",
             },
             {
-                "node_id": "target",
-                "module_id": "esm3.generate",
-                "module_version": "1.1.0",
+                    "node_id": "target",
+                    "module_id": "esm3.generate",
+                    "module_version": "1.2.0",
             },
         ],
         "edges": [

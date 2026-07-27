@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Iterator
 from dataclasses import dataclass, field
 from typing import Optional
 
@@ -198,6 +199,17 @@ class ScoreCollection:
 
     def __iter__(self):
         return iter(self.entries)
+
+    def manifest_facts(self) -> Iterator[dict[str, object]]:
+        """Yield Candidate-bound scores for bounded durable provenance."""
+        for entry in self.entries:
+            yield {
+                "kind": "candidate_score",
+                "score_id": entry.score_id,
+                "value": entry.value,
+                "subjects": list(entry.subjects),
+                "details": dict(entry.details),
+            }
 
 
 @dataclass

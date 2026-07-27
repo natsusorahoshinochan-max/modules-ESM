@@ -71,15 +71,19 @@ class ESMFold2FoldModule(WorkflowModule):
         all_scores_entries = []
 
         for parent_id, seq in sequences:
+            cid = f"fold-{context.run_id}-{parent_id}"
             structure, scores = fold_sequence(
                 sequence=seq,
                 model_name=model_name,
                 include_pae=include_pae,
                 include_embeddings=include_embeddings,
                 project_dir=context.project_dir,
+                call_details={
+                    "parent_candidate_id": parent_id,
+                    "candidate_id": cid,
+                },
             )
 
-            cid = f"fold-{context.run_id}-{parent_id}"
             cand = Candidate(
                 candidate_id=cid,
                 data=structure,

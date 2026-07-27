@@ -91,6 +91,10 @@
     "final_fold": {
       "x": 3690,
       "y": 170
+    },
+    "export_final": {
+      "x": 3970,
+      "y": 170
     }
   },
   "canvas_zoom": 0.6,

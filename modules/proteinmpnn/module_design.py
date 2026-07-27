@@ -124,6 +124,10 @@ class ProteinMPNNDesignModule(WorkflowModule):
         )
 
         for parent_index, (parent_id, parent_structure) in enumerate(parents):
+            candidate_ids = [
+                f"mpnn-{context.run_id}-{parent_index}-{sample_index}"
+                for sample_index in range(num_sequences)
+            ]
             sequences, scores = design_sequences(
                 pdb_string=parent_structure.pdb_string,
                 model_name=model_name,
@@ -137,13 +141,15 @@ class ProteinMPNNDesignModule(WorkflowModule):
                 ),
                 provider=self._provider,
                 temp_dir=context.temp_dir,
+                call_details={
+                    "parent_candidate_id": parent_id,
+                    "candidate_ids": candidate_ids,
+                    "effective_seed": effective_seed,
+                },
             )
-            for sample_index, (sequence, score) in enumerate(
-                zip(sequences, scores)
+            for sample_index, (candidate_id, sequence, score) in enumerate(
+                zip(candidate_ids, sequences, scores, strict=True)
             ):
-                candidate_id = (
-                    f"mpnn-{context.run_id}-{parent_index}-{sample_index}"
-                )
                 candidates.append(Candidate(
                     candidate_id=candidate_id,
                     data=sequence,

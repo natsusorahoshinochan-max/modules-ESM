@@ -218,6 +218,7 @@ class Test3GB1Pipeline:
             reference_sequence=None,
             provider=None,
             temp_dir=None,
+            call_details=None,
         ):
             n = _ca_count(pdb_string)
             import random
@@ -302,6 +303,7 @@ class Test3GB1Pipeline:
             reference_sequence=None,
             provider=None,
             temp_dir=None,
+            call_details=None,
         ):
             captured_constraints.append(constraints)
             n = _ca_count(pdb_string)

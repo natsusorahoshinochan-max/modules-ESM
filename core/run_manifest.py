@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import fcntl
 import json
+import math
 import os
 import platform
 import re
@@ -12,6 +13,7 @@ import secrets
 import stat
 import subprocess
 import sys
+from collections.abc import Iterable
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
@@ -60,12 +62,50 @@ _HEADER_VALUE = re.compile(
     r"(?i)\b(authorization|proxy-authorization|cookie|set-cookie)"
     r"(\s*[:=]\s*)[^\r\n]+"
 )
+_BASIC_VALUE = re.compile(r"(?i)\bbasic\s+[A-Za-z0-9+/=]{8,}")
 _URI_USERINFO = re.compile(
     r"([A-Za-z][A-Za-z0-9+.-]*://)[^/@\s]+@"
 )
 _OPAQUE_API_TOKEN = re.compile(
-    r"\b(?:(?:sk|pk)-[A-Za-z0-9_-]{8,}|hf_[A-Za-z0-9_-]{8,})\b"
+    r"\b(?:"
+    r"(?:sk|pk)-[A-Za-z0-9_-]{8,}|"
+    r"hf_[A-Za-z0-9_-]{8,}|"
+    r"gh[pousr]_[A-Za-z0-9]{20,}|"
+    r"github_pat_[A-Za-z0-9_]{20,}|"
+    r"(?:AKIA|ASIA)[A-Z0-9]{16}"
+    r")\b"
 )
+_OPAQUE_SCORE_SECRET = re.compile(r"[A-Za-z0-9+/=]{32,}\Z")
+_MAX_MANIFEST_SCORES = 4096
+_MAX_SCORE_SUBJECTS = 32
+_MAX_SCORE_DETAILS_BYTES = 512 * 1024
+_MAX_SCORE_DETAILS_TOTAL_BYTES = 8 * 1024 * 1024
+_ALLOWED_SCORE_DETAIL_KEYS = {
+    "aligned_residues",
+    "coarse",
+    "compared",
+    "count",
+    "coverage",
+    "d0",
+    "matched",
+    "matrix",
+    "metrics",
+    "model",
+    "normalization",
+    "normalization_length",
+    "per_residue",
+    "per_residue_count",
+    "per_residue_match",
+    "residue_axes",
+    "rmsd",
+    "sample_index",
+    "score",
+    "shape",
+    "summary",
+    "unit",
+    "units",
+    "weight",
+}
 
 
 def _secret_values(value: Any, *, sensitive: bool = False) -> set[str]:
@@ -106,6 +146,7 @@ def _redact(value: Any, secret_values: tuple[str, ...]) -> Any:
         redacted = redacted.replace(secret, "[REDACTED]")
     redacted = _HEADER_VALUE.sub(r"\1\2[REDACTED]", redacted)
     redacted = _BEARER_VALUE.sub(r"\1[REDACTED]", redacted)
+    redacted = _BASIC_VALUE.sub("Basic [REDACTED]", redacted)
     redacted = _KEY_VALUE.sub(r"\1\2[REDACTED]", redacted)
     redacted = _URI_USERINFO.sub(r"\1[REDACTED]@", redacted)
     return _OPAQUE_API_TOKEN.sub("[REDACTED]", redacted)
@@ -116,6 +157,44 @@ def _sanitize(value: Any) -> Any:
         sorted(_secret_values(value), key=len, reverse=True)
     )
     return _redact(value, secrets_to_redact)
+
+
+def _validate_score_details(value: Any, *, depth: int = 0) -> None:
+    """Accept only bounded scientific JSON values, never opaque objects."""
+    if depth > 12:
+        raise ValueError("Manifest score detail nesting is too deep")
+    if isinstance(value, dict):
+        for key, child in value.items():
+            if (
+                not isinstance(key, str)
+                or key not in _ALLOWED_SCORE_DETAIL_KEYS
+            ):
+                raise ValueError(
+                    "Manifest score detail key is not approved"
+                )
+            _validate_score_details(child, depth=depth + 1)
+        return
+    if isinstance(value, (list, tuple)):
+        for child in value:
+            _validate_score_details(child, depth=depth + 1)
+        return
+    if value is None or isinstance(value, (bool, int)):
+        return
+    if isinstance(value, float):
+        if math.isfinite(value):
+            return
+        raise ValueError("Manifest score detail number must be finite")
+    if isinstance(value, str):
+        if (
+            len(value) > 128
+            or _sanitize(value) != value
+            or _OPAQUE_SCORE_SECRET.fullmatch(value) is not None
+        ):
+            raise ValueError(
+                "Manifest score detail string is unsafe"
+            )
+        return
+    raise ValueError("Manifest score details must be scientific JSON values")
 
 
 def canonical_json(value: Any) -> bytes:
@@ -239,6 +318,7 @@ class RunManifest:
         default_factory=lambda: {"readiness": [], "calls": []}
     )
     candidate_lineage: list[dict[str, Any]] = field(default_factory=list)
+    scores: list[dict[str, Any]] = field(default_factory=list)
     artifacts: list[dict[str, Any]] = field(default_factory=list)
     recovery: dict[str, Any] | None = None
 
@@ -315,7 +395,9 @@ class RunManifest:
                     is not None
                     and modules[
                         workflow.nodes[node_id].module_id
-                    ].uses_seed
+                    ].uses_seed_for(
+                        workflow.nodes[node_id].parameters
+                    )
                 )
             },
             environment=runtime,
@@ -349,6 +431,7 @@ class RunManifest:
             "blocking_reasons": self.blocking_reasons,
             "cache": self.cache,
             "candidate_lineage": self.candidate_lineage,
+            "scores": self.scores,
             "artifacts": self.artifacts,
         }
         if self.recovery is not None:
@@ -428,6 +511,10 @@ class RunManifestStore:
             self.close()
             raise FileExistsError("Run manifest already exists")
         self.manifest = manifest
+        self._score_details_bytes = sum(
+            len(canonical_json(score.get("details", {})))
+            for score in manifest.scores
+        )
         self.persist()
 
     @property
@@ -592,13 +679,138 @@ class RunManifestStore:
         candidate_id: str,
         parent_ids: list[str],
     ) -> None:
+        safe_node_id = validate_identifier(node_id, "node_id")
+        safe_output_port = validate_identifier(
+            output_port,
+            "output_port",
+        )
+        safe_candidate_id = validate_identifier(
+            candidate_id,
+            "candidate_id",
+        )
+        safe_parent_ids = [
+            validate_identifier(parent_id, "parent_id")
+            for parent_id in parent_ids
+        ]
         self.manifest.candidate_lineage.append({
-            "node_id": validate_identifier(node_id, "node_id"),
-            "output_port": output_port,
-            "candidate_id": candidate_id,
-            "parent_ids": list(parent_ids),
+            "node_id": safe_node_id,
+            "output_port": safe_output_port,
+            "candidate_id": safe_candidate_id,
+            "parent_ids": safe_parent_ids,
         })
         self.persist()
+
+    def record_score(
+        self,
+        *,
+        node_id: str,
+        output_port: str,
+        score_id: str,
+        value: float,
+        subjects: list[str],
+        details: dict[str, Any] | None = None,
+    ) -> None:
+        """Record one bounded Candidate-bound scientific score."""
+        self.record_scores(
+            node_id=node_id,
+            output_port=output_port,
+            facts=[{
+                "score_id": score_id,
+                "value": value,
+                "subjects": subjects,
+                "details": details,
+            }],
+        )
+
+    def record_scores(
+        self,
+        *,
+        node_id: str,
+        output_port: str,
+        facts: Iterable[dict[str, Any]],
+    ) -> None:
+        """Validate one ScoreCollection and persist it once."""
+        safe_node_id = validate_identifier(node_id, "node_id")
+        safe_output_port = validate_identifier(
+            output_port,
+            "output_port",
+        )
+        staged: list[dict[str, Any]] = []
+        staged_detail_bytes = 0
+        for fact in facts:
+            if (
+                len(self.manifest.scores) + len(staged)
+                >= _MAX_MANIFEST_SCORES
+            ):
+                raise RuntimeError("Run manifest score limit exceeded")
+            if not isinstance(fact, dict):
+                raise ValueError("Manifest score fact must be an object")
+            record, detail_bytes = self._validated_score(
+                node_id=safe_node_id,
+                output_port=safe_output_port,
+                score_id=fact.get("score_id"),
+                value=fact.get("value"),
+                subjects=fact.get("subjects"),
+                details=fact.get("details"),
+            )
+            if (
+                self._score_details_bytes
+                + staged_detail_bytes
+                + detail_bytes
+                > _MAX_SCORE_DETAILS_TOTAL_BYTES
+            ):
+                raise ValueError(
+                    "Manifest score detail total exceeds size limit"
+                )
+            staged.append(record)
+            staged_detail_bytes += detail_bytes
+        if not staged:
+            return
+        self.manifest.scores.extend(staged)
+        self._score_details_bytes += staged_detail_bytes
+        self.persist()
+
+    @staticmethod
+    def _validated_score(
+        *,
+        node_id: str,
+        output_port: str,
+        score_id: Any,
+        value: Any,
+        subjects: Any,
+        details: Any,
+    ) -> tuple[dict[str, Any], int]:
+        if (
+            isinstance(value, bool)
+            or not isinstance(value, (int, float))
+            or not math.isfinite(float(value))
+        ):
+            raise ValueError("Manifest score value must be finite")
+        if (
+            not isinstance(subjects, list)
+            or len(subjects) > _MAX_SCORE_SUBJECTS
+        ):
+            raise ValueError("Manifest score subject limit exceeded")
+        safe_subjects = [
+            validate_identifier(subject, "score_subject")
+            for subject in subjects
+        ]
+        raw_details = {} if details is None else details
+        if not isinstance(raw_details, dict):
+            raise ValueError("Manifest score details must be an object")
+        _validate_score_details(raw_details)
+        safe_details = _sanitize(raw_details)
+        detail_bytes = len(canonical_json(safe_details))
+        if detail_bytes > _MAX_SCORE_DETAILS_BYTES:
+            raise ValueError("Manifest score details exceed size limit")
+        return ({
+            "node_id": node_id,
+            "output_port": output_port,
+            "score_id": validate_identifier(score_id, "score_id"),
+            "value": float(value),
+            "subjects": safe_subjects,
+            "details": safe_details,
+        }, detail_bytes)
 
     def record_artifact(
         self,
@@ -610,6 +822,96 @@ class RunManifestStore:
         output_port: str | None = None,
     ) -> bool:
         """Hash one regular, non-symlinked artifact inside this run."""
+        return self.record_artifacts(
+            node_id=node_id,
+            output_dir=output_dir,
+            artifacts=[{
+                "path": path,
+                "candidate_id": candidate_id,
+                "output_port": output_port,
+            }],
+        )
+
+    def record_artifacts(
+        self,
+        *,
+        node_id: str,
+        output_dir: str | Path,
+        artifacts: Iterable[dict[str, Any]],
+    ) -> bool:
+        """Hash and bind an artifact collection with one manifest update."""
+        records: list[dict[str, Any]] = []
+        for artifact in artifacts:
+            record = self._artifact_record(
+                node_id=node_id,
+                path=artifact.get("path"),
+                output_dir=output_dir,
+                candidate_id=artifact.get("candidate_id"),
+                output_port=artifact.get("output_port"),
+            )
+            if record is None:
+                return False
+            records.append(record)
+        if not records:
+            return True
+
+        updated = [
+            dict(existing)
+            for existing in self.manifest.artifacts
+        ]
+        for record in records:
+            self._merge_artifact_record(updated, record)
+        previous = self.manifest.artifacts
+        self.manifest.artifacts = updated
+        try:
+            self.persist()
+        except Exception:
+            self.manifest.artifacts = previous
+            raise
+        return True
+
+    @staticmethod
+    def _merge_artifact_record(
+        artifacts: list[dict[str, Any]],
+        record: dict[str, Any],
+    ) -> None:
+        existing = next(
+            (
+                artifact
+                for artifact in artifacts
+                if artifact.get("reference") == record["reference"]
+            ),
+            None,
+        )
+        if existing is None:
+            artifacts.append(record)
+            return
+        for field_name in ("node_id", "size", "sha256"):
+            if existing.get(field_name) != record[field_name]:
+                raise RuntimeError(
+                    "Artifact reference has conflicting provenance"
+                )
+        for field_name in ("output_port", "candidate_id"):
+            value = record.get(field_name)
+            if value is None:
+                continue
+            current = existing.get(field_name)
+            if current is not None and current != value:
+                raise RuntimeError(
+                    "Artifact reference has conflicting provenance"
+                )
+            if current is None:
+                existing[field_name] = value
+
+    @staticmethod
+    def _artifact_record(
+        *,
+        node_id: str,
+        path: str | Path,
+        output_dir: str | Path,
+        candidate_id: str | None,
+        output_port: str | None,
+    ) -> dict[str, Any] | None:
         output_root = Path(output_dir).absolute()
         supplied = Path(path)
         candidate = Path(os.path.abspath(
@@ -633,7 +935,7 @@ class RunManifestStore:
                 field="artifact_path",
             )
         except FileNotFoundError:
-            return False
+            return None
         except OSError as error:
             raise StoragePathError(
                 "artifact_path",
@@ -674,39 +976,7 @@ class RunManifestStore:
                     candidate_id,
                     "candidate_id",
                 )
-            existing = next(
-                (
-                    artifact
-                    for artifact in self.manifest.artifacts
-                    if artifact.get("reference") == record["reference"]
-                ),
-                None,
-            )
-            if existing is not None:
-                for field_name in ("node_id", "size", "sha256"):
-                    if existing.get(field_name) != record[field_name]:
-                        raise RuntimeError(
-                            "Artifact reference has conflicting provenance"
-                        )
-                changed = False
-                for field_name in ("output_port", "candidate_id"):
-                    value = record.get(field_name)
-                    if value is None:
-                        continue
-                    current = existing.get(field_name)
-                    if current is not None and current != value:
-                        raise RuntimeError(
-                            "Artifact reference has conflicting provenance"
-                        )
-                    if current is None:
-                        existing[field_name] = value
-                        changed = True
-                if changed:
-                    self.persist()
-                return True
-            self.manifest.artifacts.append(record)
-            self.persist()
-            return True
+            return record
         finally:
             os.close(descriptor)
 

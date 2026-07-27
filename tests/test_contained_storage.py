@@ -1,6 +1,7 @@
 """Public storage-contract tests for contained project and run paths."""
 
 from concurrent.futures import ThreadPoolExecutor
+import os
 from pathlib import Path
 import pickle
 import threading
@@ -15,7 +16,13 @@ from core.project import ProjectManager
 from core.run_context import RunContext
 from core.server import app
 from core.storage import StoragePathError
-from datatypes import ProteinSequence, ProteinStructure, ScoreCollection
+from datatypes import (
+    Candidate,
+    CandidateCollection,
+    ProteinSequence,
+    ProteinStructure,
+    ScoreCollection,
+)
 from modules.compute_sasa.module import ComputeSASAModule
 from modules.export_structure.module import ExportStructureModule
 from modules.import_sequence.module import ImportSequenceModule
@@ -304,6 +311,131 @@ def test_export_module_rejects_artifact_escape_without_external_write(
         )
 
     assert not (tmp_path / "outside.pdb").exists()
+
+
+def test_export_module_refuses_existing_hardlink_before_writing(
+    tmp_path: Path,
+) -> None:
+    outside = tmp_path / "outside.pdb"
+    outside.write_text("ORIGINAL\n")
+    context = RunContext(
+        str(tmp_path / "project"),
+        "export",
+        run_id="run-a",
+    )
+    destination = (
+        tmp_path / "project" / "outputs" / "run-a" / "result.pdb"
+    )
+    destination.parent.mkdir(parents=True)
+    os.link(outside, destination)
+
+    with pytest.raises((FileExistsError, StoragePathError)):
+        ExportStructureModule().run(
+            {"structure": ProteinStructure(pdb_string="REPLACEMENT\n")},
+            {"filename": "result.pdb"},
+            context,
+        )
+
+    assert outside.read_text() == "ORIGINAL\n"
+
+
+def test_collection_export_rejects_oversized_count_before_first_write(
+    tmp_path: Path,
+) -> None:
+    candidates = CandidateCollection(
+        collection_id="too-many",
+        item_type="protein.structure",
+        items=[
+            Candidate(
+                candidate_id=f"candidate-{index}",
+                data=ProteinStructure(pdb_string="END\n"),
+            )
+            for index in range(2049)
+        ],
+    )
+    context = RunContext(
+        str(tmp_path / "project"),
+        "export",
+        run_id="run-a",
+    )
+
+    with pytest.raises(ValueError, match="too many"):
+        ExportStructureModule().run(
+            {"structures": candidates},
+            {"directory": "final"},
+            context,
+        )
+
+    assert not Path(context.output_dir or "").exists()
+
+
+def test_collection_export_removes_partial_files_when_later_create_fails(
+    tmp_path: Path,
+) -> None:
+    context = RunContext(
+        str(tmp_path / "project"),
+        "export",
+        run_id="run-a",
+    )
+    output_dir = Path(context.output_dir or "")
+    destination = output_dir / "final" / "candidate-2.pdb"
+    destination.parent.mkdir(parents=True)
+    destination.write_text("EXISTING\n")
+    structures = CandidateCollection(
+        collection_id="two",
+        item_type="protein.structure",
+        items=[
+            Candidate(
+                candidate_id=f"candidate-{index}",
+                data=ProteinStructure(pdb_string=f"MODEL {index}\n"),
+            )
+            for index in (1, 2)
+        ],
+    )
+
+    with pytest.raises(FileExistsError):
+        ExportStructureModule().run(
+            {"structures": structures},
+            {"directory": "final"},
+            context,
+        )
+
+    assert not (output_dir / "final" / "candidate-1.pdb").exists()
+    assert destination.read_text() == "EXISTING\n"
+
+
+def test_collection_export_rolls_back_when_manifest_batch_is_incomplete(
+    tmp_path: Path,
+) -> None:
+    context = RunContext(
+        str(tmp_path / "project"),
+        "export",
+        run_id="run-a",
+    )
+    context._manifest_store = SimpleNamespace(
+        record_artifacts=lambda **kwargs: False,
+    )
+    structures = CandidateCollection(
+        collection_id="one",
+        item_type="protein.structure",
+        items=[
+            Candidate(
+                candidate_id="candidate-1",
+                data=ProteinStructure(pdb_string="MODEL 1\n"),
+            )
+        ],
+    )
+
+    with pytest.raises(RuntimeError, match="could not be recorded"):
+        ExportStructureModule().run(
+            {"structures": structures},
+            {"directory": "final"},
+            context,
+        )
+
+    assert not (
+        Path(context.output_dir or "") / "final" / "candidate-1.pdb"
+    ).exists()
 
 
 def test_project_storage_rejects_existing_symlink_escape(
