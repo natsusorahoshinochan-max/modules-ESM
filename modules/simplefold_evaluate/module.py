@@ -69,7 +69,7 @@ class SimpleFoldEvaluateModule(WorkflowModule):
             scores = evaluate_structure(
                 structure=struct,
                 model_name=model_name,
-                project_dir=context.project_dir,
+                project_dir=context.temp_dir,
             )
 
             # Update score subjects to reference the parent candidate

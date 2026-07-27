@@ -72,6 +72,7 @@ class ProteinMPNNDesignModule(WorkflowModule):
             backbone_noise=backbone_noise,
             constraints=constraints,
             reference_sequence=reference.sequence if reference is not None else None,
+            temp_dir=context.temp_dir,
         )
 
         candidates: list[Candidate] = []

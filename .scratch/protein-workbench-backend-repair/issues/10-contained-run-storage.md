@@ -4,10 +4,10 @@
 
 **Blocked by:** 09 — Reject invalid Workflows before creating a run.
 
-**Status:** ready-for-agent
+**Status:** completed
 
-- [ ] Project IDs, run IDs, Node IDs, uploaded names, requested artifact names, and output paths are validated before filesystem access.
-- [ ] Absolute paths and traversal attempts outside configured roots are rejected without creating or modifying external files.
-- [ ] Temporary work, outputs, logs, and other mutable execution state are namespaced by run ID.
-- [ ] Two different runs cannot resolve to the same mutable temporary or output path.
-- [ ] Valid project and run paths remain compatible with the established hybrid project-storage contract.
+- [x] Project IDs, run IDs, Node IDs, uploaded names, requested artifact names, and output paths are validated before filesystem access.
+- [x] Absolute paths and traversal attempts outside configured roots are rejected without creating or modifying external files.
+- [x] Temporary work, outputs, logs, and other mutable execution state are namespaced by run ID.
+- [x] Two different runs cannot resolve to the same mutable temporary or output path.
+- [x] Valid project and run paths remain compatible with the established hybrid project-storage contract.

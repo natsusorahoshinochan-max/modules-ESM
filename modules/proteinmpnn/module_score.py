@@ -39,6 +39,7 @@ class ProteinMPNNScoreModule(WorkflowModule):
             pdb_string=structure.pdb_string,
             sequence=sequence.sequence,
             model_name=model_name,
+            temp_dir=context.temp_dir,
         )
 
         return {

@@ -4,7 +4,6 @@ Uses async subprocess execution to avoid blocking the event loop.
 """
 
 import asyncio
-import tempfile
 from pathlib import Path
 from typing import Any
 
@@ -48,8 +47,7 @@ class ComputeDSSPModule(WorkflowModule):
 
         dssp_bin = str(parameters.get("dssp_binary", "/opt/homebrew/bin/mkdssp"))
         timeout = int(parameters.get("timeout", 30))
-
-        with tempfile.NamedTemporaryFile(
+        with context.temporary_file(
             mode="w", suffix=".pdb", delete=False
         ) as tmp:
             tmp.write(structure.pdb_string)

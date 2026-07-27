@@ -1,7 +1,6 @@
 """Compute SASA: runs mkdssp and produces per-residue solvent accessibility."""
 
 import subprocess
-import tempfile
 from pathlib import Path
 from typing import Any
 
@@ -78,8 +77,7 @@ class ComputeSASAModule(WorkflowModule):
             raise ValueError("structure input is required")
 
         dssp_bin = str(parameters.get("dssp_binary", "/opt/homebrew/bin/mkdssp"))
-
-        with tempfile.NamedTemporaryFile(
+        with context.temporary_file(
             mode="w", suffix=".pdb", delete=False
         ) as tmp:
             tmp.write(structure.pdb_string)

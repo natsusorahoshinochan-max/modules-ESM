@@ -188,6 +188,7 @@ class Test3GB1Pipeline:
             backbone_noise=0.0,
             constraints=None,
             reference_sequence=None,
+            temp_dir=None,
         ):
             n = _ca_count(pdb_string)
             import random
@@ -267,6 +268,7 @@ class Test3GB1Pipeline:
             backbone_noise=0.0,
             constraints=None,
             reference_sequence=None,
+            temp_dir=None,
         ):
             captured_constraints.append(constraints)
             n = _ca_count(pdb_string)

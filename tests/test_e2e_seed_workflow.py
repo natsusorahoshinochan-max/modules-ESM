@@ -7,6 +7,7 @@ ProteinMPNN → FinalFold) produces expected output counts.
 
 import asyncio
 import json
+import shutil
 import tempfile
 from pathlib import Path
 from unittest.mock import MagicMock, patch
@@ -121,6 +122,7 @@ def _mock_design(
     backbone_noise=0.0,
     constraints=None,
     reference_sequence=None,
+    temp_dir=None,
 ):
     from datatypes import ProteinSequence
     import random
@@ -178,6 +180,12 @@ class TestE2ESeedWorkflow:
         )
 
         with tempfile.TemporaryDirectory() as tmpdir:
+            seed_input = Path(tmpdir) / "inputs" / "pdbs" / "3GB1.pdb"
+            seed_input.parent.mkdir(parents=True)
+            shutil.copyfile(
+                Path(__file__).parent.parent / "pdbs" / "3GB1.pdb",
+                seed_input,
+            )
             with patch(
                 "modules.esm3_adapter.create_esm3_client",
                 return_value=mock_esm3,
@@ -235,6 +243,12 @@ class TestE2ESeedWorkflow:
         )
 
         with tempfile.TemporaryDirectory() as tmpdir:
+            seed_input = Path(tmpdir) / "inputs" / "pdbs" / "3GB1.pdb"
+            seed_input.parent.mkdir(parents=True)
+            shutil.copyfile(
+                Path(__file__).parent.parent / "pdbs" / "3GB1.pdb",
+                seed_input,
+            )
             with patch(
                 "modules.esm3_adapter.create_esm3_client",
                 return_value=mock_esm3,
