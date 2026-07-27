@@ -23,6 +23,10 @@ ROOT_VARIABLES = (
     "PROTEIN_WORKBENCH_OUTPUT_ROOT",
     "PROTEIN_WORKBENCH_RUN_ROOT",
 )
+RESOURCE_CLEANUP_WARNING = (
+    "ResourceTracker called reentrantly for resource cleanup"
+)
+OUTPUT_CHUNK_SIZE = 64 * 1024
 
 
 @dataclass(frozen=True)
@@ -171,6 +175,25 @@ def _sanitize_junit(path: Path) -> None:
     path.chmod(0o600)
 
 
+def _stream_process_output(
+    process: subprocess.Popen[bytes],
+) -> bool:
+    """Forward bounded binary chunks and detect cleanup warnings."""
+    if process.stdout is None:
+        raise RuntimeError("pytest output pipe was not created")
+    marker = RESOURCE_CLEANUP_WARNING.encode()
+    overlap = b""
+    detected = False
+    while chunk := process.stdout.read1(OUTPUT_CHUNK_SIZE):
+        sys.stdout.buffer.write(chunk)
+        sys.stdout.buffer.flush()
+        window = overlap + chunk
+        if marker in window:
+            detected = True
+        overlap = window[-(len(marker) - 1):]
+    return detected
+
+
 def main() -> int:
     args = _parse_args()
     tier = TIERS[args.tier]
@@ -235,11 +258,19 @@ def main() -> int:
             f"--junitxml={junit_path}",
             *pytest_args,
         ]
-        completed = subprocess.run(
+        resource_cleanup_warning = False
+        with subprocess.Popen(
             command,
             cwd=PROJECT_ROOT,
             env=env,
-            check=False,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+        ) as process:
+            resource_cleanup_warning = _stream_process_output(process)
+            return_code = process.wait()
+        completed = subprocess.CompletedProcess(
+            command,
+            return_code,
         )
         transcript_path = result_dir / "command-transcript.txt"
         display_command = [
@@ -268,6 +299,8 @@ def main() -> int:
         with transcript_path.open("a") as transcript:
             transcript.write(
                 f"tests={tests} failures={failures} skipped={skipped}\n"
+                "resource_cleanup_warning="
+                f"{str(resource_cleanup_warning).lower()}\n"
             )
         if call_evidence.exists():
             call_evidence.chmod(0o600)
@@ -281,6 +314,13 @@ def main() -> int:
         if completed.returncode != 0 or failures:
             print("BACKEND VERIFICATION RESULT: failed", flush=True)
             return completed.returncode or 1
+        if resource_cleanup_warning:
+            print(
+                "BACKEND VERIFICATION RESULT: failed "
+                "(multiprocessing resource cleanup warning)",
+                flush=True,
+            )
+            return 1
         if tests == 0:
             print("BACKEND VERIFICATION RESULT: incomplete (no tests ran)", flush=True)
             return 3

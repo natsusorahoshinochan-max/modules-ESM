@@ -95,6 +95,19 @@ def test_routine_tier_reports_result_and_preserves_configured_roots(
     for path in configured_roots.values():
         assert [child.name for child in path.iterdir()] == ["production-sentinel"]
         assert (path / "production-sentinel").read_text() == "unchanged"
+    warning_env = env.copy()
+    warning_env["PROTEIN_WORKBENCH_RESOURCE_WARNING_PROBE"] = "1"
+    warning_result = _run_verifier(
+        "routine",
+        "tests/tier_probes/test_isolated_roots.py",
+        env=warning_env,
+    )
+    assert warning_result.returncode != 0
+    assert "BACKEND VERIFICATION RESULT: failed" in warning_result.stdout
+    assert (
+        "multiprocessing resource cleanup warning"
+        in warning_result.stdout
+    )
 
 
 def test_live_provider_tier_rejects_a_skipped_test() -> None:

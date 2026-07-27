@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 from pathlib import Path
+import warnings
 
 
 ROOT_VARIABLES = (
@@ -22,3 +23,10 @@ def test_backend_roots_are_isolated_for_the_verification_process() -> None:
     assert all("protein-workbench-" in str(root) for root in roots)
     for root in roots:
         (root / "probe").write_text("isolated")
+    if os.environ.get("PROTEIN_WORKBENCH_RESOURCE_WARNING_PROBE") == "1":
+        warnings.warn(
+            "ResourceTracker called reentrantly for resource cleanup, "
+            "which is unsupported. "
+            "The semaphore object '/mp-verification-probe' might leak.",
+            UserWarning,
+        )

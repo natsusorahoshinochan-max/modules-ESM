@@ -121,10 +121,10 @@ async def _run_module_worker(
     inputs: dict[str, Any],
     parameters: dict[str, Any],
     context: RunContext,
-    cancellation_requested: Any,
+    cancellation_connection: Any,
 ) -> dict[str, Any]:
     async def wait_for_cancellation() -> None:
-        while not cancellation_requested.is_set():
+        while not cancellation_connection.poll():
             await asyncio.sleep(0.01)
 
     work = asyncio.create_task(
@@ -138,7 +138,7 @@ async def _run_module_worker(
             {work, cancellation_waiter},
             return_when=asyncio.FIRST_COMPLETED,
         )
-        if work in done and not cancellation_requested.is_set():
+        if work in done and not cancellation_connection.poll():
             return await work
         work.cancel()
         return await work
@@ -153,40 +153,43 @@ def _module_process_entry(
     inputs: dict[str, Any],
     parameters: dict[str, Any],
     context: RunContext,
-    cancellation_requested: Any,
+    cancellation_connection: Any,
     connection: Any,
 ) -> None:
     with suppress(OSError):
         os.setsid()
-    child_context = replace(
-        context,
-        _manifest_store=_ManifestProcessProxy(connection),
-    )
-    token = child_context.activate()
     try:
-        outputs = asyncio.run(_run_module_worker(
-            module,
-            inputs,
-            parameters,
-            child_context,
-            cancellation_requested,
-        ))
-    except asyncio.CancelledError:
-        with suppress(BrokenPipeError, EOFError, OSError):
-            connection.send(_CancelledWorkerMessage())
-    except BaseException as error:
-        kind = str(getattr(error, "kind", type(error).__name__))
-        with suppress(BrokenPipeError, EOFError, OSError):
-            connection.send(_ErrorWorkerMessage(kind))
-    else:
+        child_context = replace(
+            context,
+            _manifest_store=_ManifestProcessProxy(connection),
+        )
+        token = child_context.activate()
         try:
-            connection.send(_ResultWorkerMessage(outputs))
+            outputs = asyncio.run(_run_module_worker(
+                module,
+                inputs,
+                parameters,
+                child_context,
+                cancellation_connection,
+            ))
+        except asyncio.CancelledError:
+            with suppress(BrokenPipeError, EOFError, OSError):
+                connection.send(_CancelledWorkerMessage())
         except BaseException as error:
-            kind = f"result_serialization_{type(error).__name__}"
+            kind = str(getattr(error, "kind", type(error).__name__))
             with suppress(BrokenPipeError, EOFError, OSError):
                 connection.send(_ErrorWorkerMessage(kind))
+        else:
+            try:
+                connection.send(_ResultWorkerMessage(outputs))
+            except BaseException as error:
+                kind = f"result_serialization_{type(error).__name__}"
+                with suppress(BrokenPipeError, EOFError, OSError):
+                    connection.send(_ErrorWorkerMessage(kind))
+        finally:
+            child_context.deactivate(token)
     finally:
-        child_context.deactivate(token)
+        cancellation_connection.close()
         connection.close()
 
 
@@ -197,7 +200,7 @@ def _receive_module_process(
     while True:
         try:
             message = connection.recv()
-        except EOFError:
+        except (EOFError, OSError):
             return manifest_events, _ErrorWorkerMessage(
                 "worker_channel_closed"
             )
@@ -597,20 +600,40 @@ class Executor:
             parent_connection, child_connection = process_context.Pipe(
                 duplex=False
             )
-            process_cancellation = process_context.Event()
-            process = process_context.Process(
-                target=_module_process_entry,
-                args=(
-                    module,
-                    inputs,
-                    parameters,
-                    replace(context, _manifest_store=None),
-                    process_cancellation,
-                    child_connection,
-                ),
-            )
-            process.start()
+            cancellation_connection = None
+            cancellation_sender = None
+            process = None
+            try:
+                cancellation_connection, cancellation_sender = (
+                    process_context.Pipe(duplex=False)
+                )
+                process = process_context.Process(
+                    target=_module_process_entry,
+                    args=(
+                        module,
+                        inputs,
+                        parameters,
+                        replace(context, _manifest_store=None),
+                        cancellation_connection,
+                        child_connection,
+                    ),
+                )
+                process.start()
+            except BaseException:
+                parent_connection.close()
+                child_connection.close()
+                if cancellation_connection is not None:
+                    cancellation_connection.close()
+                if cancellation_sender is not None:
+                    cancellation_sender.close()
+                if process is not None:
+                    process.close()
+                raise
+            assert cancellation_connection is not None
+            assert cancellation_sender is not None
+            assert process is not None
             child_connection.close()
+            cancellation_connection.close()
             receiver = asyncio.create_task(
                 asyncio.to_thread(
                     _receive_module_process,
@@ -692,7 +715,8 @@ class Executor:
                         _WORKER_EXIT_TIMEOUT_SECONDS,
                     )
             except asyncio.CancelledError:
-                process_cancellation.set()
+                with suppress(BrokenPipeError, EOFError, OSError):
+                    cancellation_sender.send_bytes(b"\0")
                 await asyncio.to_thread(
                     process.join,
                     cancellation_timeout,
@@ -717,6 +741,7 @@ class Executor:
                 raise
             finally:
                 parent_connection.close()
+                cancellation_sender.close()
                 if not receiver.done():
                     receiver.cancel()
                 if not process.is_alive():
