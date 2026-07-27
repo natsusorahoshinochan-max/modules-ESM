@@ -16,7 +16,12 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import torch
 
 from core.executor import Executor
-from core.graph import Workflow, WorkflowEdge, WorkflowNode
+from core.graph import (
+    Workflow,
+    WorkflowEdge,
+    WorkflowNode,
+    WorkflowValidationErrorKind,
+)
 from core.module_registry import ModuleRegistry, TypeRegistry, discover_modules
 
 # ── Module instances (reused across tests) ────────────────────────────
@@ -62,6 +67,24 @@ def _build_modules():
         "selection.concat": ConcatCandidatesModule(),
         "proteinmpnn.design": ProteinMPNNDesignModule(),
     }
+
+
+def _load_canonical_workflow() -> Workflow:
+    wf_path = Path(__file__).parent.parent / "examples" / "3gb1_pipeline.json"
+    wf_data = json.loads(wf_path.read_text())
+    workflow = Workflow()
+    for node in wf_data["nodes"]:
+        workflow.add_node(
+            WorkflowNode(
+                node_id=node["node_id"],
+                module_id=node["module_id"],
+                module_version=node.get("module_version", "1.0.0"),
+                parameters=node["parameters"],
+            )
+        )
+    for edge in wf_data["edges"]:
+        workflow.add_edge(WorkflowEdge(**edge))
+    return workflow
 
 
 # ── Mock helpers ──────────────────────────────────────────────────────
@@ -202,21 +225,7 @@ class TestE2ESeedWorkflow:
 
     def test_all_22_nodes_complete_with_ss8_provider_payload(self) -> None:
         """The canonical workflow reaches ESM3 with a legal SS8 payload."""
-        wf_path = Path(__file__).parent.parent / "examples" / "3gb1_pipeline.json"
-        wf_data = json.loads(wf_path.read_text())
-
-        workflow = Workflow()
-        for n in wf_data["nodes"]:
-            workflow.add_node(
-                WorkflowNode(
-                    node_id=n["node_id"],
-                    module_id=n["module_id"],
-                    module_version="1.0.0",
-                    parameters=n["parameters"],
-                )
-            )
-        for e in wf_data["edges"]:
-            workflow.add_edge(WorkflowEdge(**e))
+        workflow = _load_canonical_workflow()
 
         assert not workflow.validate_acyclic()
         assert len(workflow.nodes) == 22
@@ -293,21 +302,7 @@ class TestE2ESeedWorkflow:
 
     def test_data_flow_counts(self) -> None:
         """Verify output counts at each pipeline stage."""
-        wf_path = Path(__file__).parent.parent / "examples" / "3gb1_pipeline.json"
-        wf_data = json.loads(wf_path.read_text())
-
-        workflow = Workflow()
-        for n in wf_data["nodes"]:
-            workflow.add_node(
-                WorkflowNode(
-                    node_id=n["node_id"],
-                    module_id=n["module_id"],
-                    module_version="1.0.0",
-                    parameters=n["parameters"],
-                )
-            )
-        for e in wf_data["edges"]:
-            workflow.add_edge(WorkflowEdge(**e))
+        workflow = _load_canonical_workflow()
 
         mods = _build_modules()
         dssp_mod = mods["compute.dssp"]
@@ -431,3 +426,18 @@ class TestE2ESeedWorkflow:
                 f"Edge {edge['target_node_id']}.{edge['target_port']}: "
                 f"port not in {tgt_mod.module_id} inputs {tgt_ports}"
             )
+
+    def test_workflow_json_module_versions_match_registry(self) -> None:
+        """Canonical Node versions match the public Module registry."""
+        tr = TypeRegistry()
+        mr = ModuleRegistry(tr)
+        discover_modules(mr)
+
+        workflow = _load_canonical_workflow()
+
+        version_errors = [
+            error.to_dict()
+            for error in workflow.validate(mr).errors
+            if error.kind is WorkflowValidationErrorKind.MODULE_VERSION_MISMATCH
+        ]
+        assert version_errors == []
