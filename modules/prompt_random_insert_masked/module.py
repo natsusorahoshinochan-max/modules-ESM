@@ -26,10 +26,24 @@ class RandomInsertMaskedModule(WorkflowModule):
         context: RunContext,
     ) -> dict[str, Any]:
         track: ResidueTrack | None = inputs.get("track")
+        secondary_structure_track: ResidueTrack | None = inputs.get(
+            "secondary_structure_track"
+        )
         layout: ResidueLayout | None = inputs.get("layout")
 
-        if track is None:
-            raise ValueError("track input is required")
+        if (track is None) == (secondary_structure_track is None):
+            raise ValueError("exactly one track input is required")
+        output_port = (
+            "track"
+            if track is not None
+            else "secondary_structure_track"
+        )
+        track = (
+            track
+            if track is not None
+            else secondary_structure_track
+        )
+        assert track is not None
         if layout is None:
             raise ValueError("layout input is required")
 
@@ -39,7 +53,7 @@ class RandomInsertMaskedModule(WorkflowModule):
 
         L = len(track)
         if count == 0:
-            return {"track": track, "layout": layout}
+            return {output_port: track, "layout": layout}
 
         # Select insertion positions: each is an index in [0, L] where a
         # sentinel is inserted *before* the element at that index.
@@ -67,4 +81,4 @@ class RandomInsertMaskedModule(WorkflowModule):
             residue_ids=new_residue_ids,
         )
 
-        return {"track": new_track, "layout": new_layout}
+        return {output_port: new_track, "layout": new_layout}

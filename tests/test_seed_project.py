@@ -372,6 +372,72 @@ class TestSeedProject:
 
         assert manager.list_projects() == []
 
+    def test_filesystem_metadata_drift_is_preserved_and_restored(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        workflow_path = tmp_path / "workflow.json"
+        workflow_path.write_text(SAMPLE_WORKFLOW_JSON)
+
+        from core import TypeRegistry, ModuleRegistry, discover_modules
+        type_registry = TypeRegistry()
+        module_registry = ModuleRegistry(type_registry)
+        discover_modules(module_registry)
+        manager = ProjectManager(
+            root_dir=tmp_path / "projects",
+            module_registry=module_registry,
+        )
+        canonical = manager.ensure_seed_project(
+            workflow_path,
+            name="Shipped name",
+        )
+        metadata_path = manager.project_dir(canonical.id) / "project.json"
+        modified = json.loads(metadata_path.read_text())
+        modified["name"] = "User metadata edit"
+        metadata_path.write_text(json.dumps(modified))
+
+        restored = manager.ensure_seed_project(
+            workflow_path,
+            name="Shipped name",
+        )
+
+        assert restored.name == "Shipped name"
+        legacy = next(
+            project
+            for project in manager.list_projects()
+            if project.legacy_seed
+        )
+        assert legacy.name == "User metadata edit (legacy)"
+
+    def test_startup_recovers_interrupted_directory_publish(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        workflow_path = tmp_path / "workflow.json"
+        workflow_path.write_text(SAMPLE_WORKFLOW_JSON)
+
+        from core import TypeRegistry, ModuleRegistry, discover_modules
+        type_registry = TypeRegistry()
+        module_registry = ModuleRegistry(type_registry)
+        discover_modules(module_registry)
+        manager = ProjectManager(
+            root_dir=tmp_path / "projects",
+            module_registry=module_registry,
+        )
+        canonical = manager.ensure_seed_project(workflow_path)
+        canonical_path = manager.project_dir(canonical.id)
+        interrupted_backup = canonical_path.with_name(
+            f"{CANONICAL_3GB1_PROJECT_ID}-backup"
+        )
+        os.replace(canonical_path, interrupted_backup)
+
+        recovered = manager.ensure_seed_project(workflow_path)
+
+        assert recovered.id == CANONICAL_3GB1_PROJECT_ID
+        assert canonical_path.is_dir()
+        assert not interrupted_backup.exists()
+        assert sum(project.seed for project in manager.list_projects()) == 1
+
     def test_canonical_project_id_is_independent_of_workflow_content(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             wf_path_v1 = Path(tmpdir) / "workflow-v1.json"

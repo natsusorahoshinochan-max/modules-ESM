@@ -306,6 +306,7 @@ class ProjectManager:
         self._validate_canonical_workflow(workflow_content)
         project_id = CANONICAL_3GB1_PROJECT_ID
         self.root_dir.mkdir(parents=True, exist_ok=True)
+        self._recover_interrupted_canonical_publish()
         self._demote_noncanonical_seed_claims()
 
         seed_inputs: list[tuple[Path, tuple[str, ...]]] = []
@@ -370,6 +371,10 @@ class ProjectManager:
             ui_content,
             seed_inputs,
         )
+        expected_dependencies = sorted({
+            node["module_id"]
+            for node in workflow_content["nodes"]
+        })
         project_dir = self.project_dir(project_id)
         try:
             existing_meta = self._load_meta(project_id)
@@ -380,16 +385,22 @@ class ProjectManager:
             if project_dir.exists()
             else None
         )
-        if (
+        metadata_is_current = (
             existing_meta is not None
+            and existing_meta.seed is True
+            and existing_meta.legacy_seed is False
+            and existing_meta.name == name
             and existing_meta.seed_content_hash == expected_hash
             and existing_meta.seed_version == version
+            and existing_meta.module_dependencies == expected_dependencies
+        )
+        if (
+            metadata_is_current
             and installed_hash == expected_hash
         ):
             return existing_meta
         existing_is_clean = (
-            existing_meta is not None
-            and existing_meta.seed is True
+            metadata_is_current
             and installed_hash == expected_hash
         )
         if project_dir.exists() and not existing_is_clean:
@@ -418,10 +429,7 @@ class ProjectManager:
             seed=True,
             seed_version=version,
             seed_content_hash=expected_hash,
-            module_dependencies=sorted({
-                node["module_id"]
-                for node in workflow_content["nodes"]
-            }),
+            module_dependencies=expected_dependencies,
         )
         self.root_dir.mkdir(parents=True, exist_ok=True)
         stage = Path(tempfile.mkdtemp(
@@ -544,8 +552,12 @@ class ProjectManager:
             os.replace(stage, target)
             return
         backup = target.with_name(
-            f"canonical-backup-{uuid.uuid4()}"
+            f"{CANONICAL_3GB1_PROJECT_ID}-backup"
         )
+        if backup.exists() or backup.is_symlink():
+            raise CanonicalSeedError(
+                "Interrupted canonical publication requires recovery"
+            )
         os.replace(target, backup)
         try:
             os.replace(stage, target)
@@ -554,6 +566,33 @@ class ProjectManager:
             raise
         else:
             shutil.rmtree(backup)
+
+    def _recover_interrupted_canonical_publish(self) -> None:
+        target = self.root_dir / CANONICAL_3GB1_PROJECT_ID
+        backup = self.root_dir / f"{CANONICAL_3GB1_PROJECT_ID}-backup"
+        if backup.is_symlink():
+            raise CanonicalSeedError(
+                "Unsafe canonical publication backup"
+            )
+        if not backup.exists():
+            return
+        if not backup.is_dir():
+            raise CanonicalSeedError(
+                "Invalid canonical publication backup"
+            )
+        if not target.exists():
+            os.replace(backup, target)
+            return
+        if target.is_symlink() or not target.is_dir():
+            raise CanonicalSeedError(
+                "Invalid canonical project path during recovery"
+            )
+        try:
+            backup_meta = self._load_meta(backup.name)
+        except StoragePathError:
+            backup_meta = None
+        self._preserve_legacy_project(backup, backup_meta)
+        shutil.rmtree(backup)
 
     def _preserve_legacy_project(
         self,
