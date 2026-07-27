@@ -22,6 +22,7 @@ class TestProjectEndpoints:
         for _ in range(2):
             with TestClient(canonical_app) as client:
                 projects = client.get("/api/projects").json()
+                assert len(projects) == 1
                 canonical = [
                     project
                     for project in projects

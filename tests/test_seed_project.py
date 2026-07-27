@@ -160,10 +160,14 @@ class TestSeedProject:
             .parameters["prefix"]
             == "upgraded"
         )
-        assert retained_output.read_text() == "existing run output"
-        assert [project.id for project in manager.list_projects()] == [
-            CANONICAL_3GB1_PROJECT_ID
-        ]
+        projects = manager.list_projects()
+        legacy = next(project for project in projects if project.legacy_seed)
+        assert (
+            manager.project_dir(legacy.id)
+            / "outputs"
+            / "retained.txt"
+        ).read_text() == "existing run output"
+        assert sum(project.seed for project in projects) == 1
 
     def test_user_modified_canonical_is_preserved_as_legacy(
         self,

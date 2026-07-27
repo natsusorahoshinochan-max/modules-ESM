@@ -390,8 +390,7 @@ class ProjectManager:
         existing_is_clean = (
             existing_meta is not None
             and existing_meta.seed is True
-            and existing_meta.seed_content_hash is not None
-            and existing_meta.seed_content_hash == installed_hash
+            and installed_hash == expected_hash
         )
         if project_dir.exists() and not existing_is_clean:
             self._preserve_legacy_project(project_dir, existing_meta)
@@ -521,7 +520,11 @@ class ProjectManager:
                 return None
             if inputs_dir.exists():
                 for path in sorted(inputs_dir.rglob("*")):
-                    if path.is_symlink() or not path.is_file():
+                    if path.is_symlink():
+                        return None
+                    if path.is_dir():
+                        continue
+                    if not path.is_file():
                         return None
                     input_files.append((
                         path,
