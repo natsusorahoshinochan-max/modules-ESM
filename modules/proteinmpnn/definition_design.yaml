@@ -6,8 +6,14 @@ description: "Generates protein sequences from a structure using ProteinMPNN."
 input_ports:
   - name: structure
     type_id: protein.structure
+    required: false
     display_name: Structure
-    description: "Input protein structure (PDB)."
+    description: "Single input protein structure (PDB)."
+  - name: structures
+    type_id: candidate.collection
+    required: false
+    display_name: Structure Candidates
+    description: "Collection of protein.structure Candidates; num_sequences is applied per parent."
   - name: sequence
     type_id: protein.sequence
     required: false
@@ -18,6 +24,11 @@ input_ports:
     required: false
     display_name: Constraints
     description: "Optional design constraints."
+input_groups:
+  - name: design_input
+    alternatives:
+      - [structure]
+      - [structures]
 output_ports:
   - name: candidates
     type_id: candidate.collection
@@ -56,4 +67,9 @@ parameters:
     min: 0.0
     display_name: Backbone Noise
     description: "Standard deviation in angstroms of Gaussian noise added to backbone atoms."
+  - name: seed
+    type: int
+    default: null
+    display_name: Seed
+    description: "Optional Node seed override; when unset, the run seed is used."
 module_api: "1.0"

@@ -196,8 +196,10 @@ def _mock_design(
     num_sequences,
     temperature,
     backbone_noise=0.0,
+    seed=42,
     constraints=None,
     reference_sequence=None,
+    provider=None,
     temp_dir=None,
 ):
     from datatypes import ProteinSequence
@@ -214,7 +216,7 @@ def _mock_design(
         ProteinSequence(sequence="".join(rng.choice(aas) for _ in range(n)))
         for _ in range(num_sequences)
     ]
-    return sequences, -0.95
+    return sequences, [-0.95] * num_sequences
 
 
 # ── Tests ─────────────────────────────────────────────────────────────

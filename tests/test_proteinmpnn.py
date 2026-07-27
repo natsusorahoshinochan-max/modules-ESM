@@ -1,5 +1,7 @@
 """Tests for ProteinMPNN modules (ticket 07)."""
 
+import asyncio
+from pathlib import Path
 from typing import Any
 from unittest.mock import patch
 
@@ -7,6 +9,7 @@ import pytest
 
 from core.run_context import RunContext
 from datatypes import (
+    Candidate,
     CandidateCollection,
     ProteinMPNNConstraints,
     ProteinSequence,
@@ -38,16 +41,35 @@ class CapturingProteinMPNNProvider:
     def __init__(self, output_sequence: str = "AGSTW") -> None:
         self.output_sequence = output_sequence
         self.request: Any | None = None
+        self.requests: list[Any] = []
+        self.parsed_pdb_strings: list[str] = []
         self.inferred = False
+        self.provider_identity = "capturing-proteinmpnn"
 
     def parse_structure(self, pdb_string: str) -> list[dict[str, Any]]:
-        assert pdb_string == "two-chain-pdb"
+        self.parsed_pdb_strings.append(pdb_string)
         return PARSED_TWO_CHAIN_STRUCTURE
 
-    def design(self, request: Any) -> tuple[list[ProteinSequence], float]:
+    def design(
+        self,
+        request: Any,
+    ) -> tuple[list[ProteinSequence], list[float]]:
         self.request = request
+        self.requests.append(request)
         self.inferred = True
-        return [ProteinSequence(sequence=self.output_sequence)], -1.0
+        return (
+            [
+                ProteinSequence(
+                    sequence=self.output_sequence[:-1]
+                    + "ACDEFGHIKLMNPQRSTVWY"[sample_index % 20]
+                )
+                for sample_index in range(request.num_sequences)
+            ],
+            [
+                -float(sample_index + 1)
+                for sample_index in range(request.num_sequences)
+            ],
+        )
 
 
 # ── Constraints Module ───────────────────────────────────────────────
@@ -190,13 +212,296 @@ class TestConstraintsModule:
 # ── ProteinMPNN Design (mocked adapter) ──────────────────────────────
 
 class TestProteinMPNNDesign:
+    def test_definition_declares_exactly_one_structure_input_mode(self) -> None:
+        from modules.proteinmpnn.module_design import ProteinMPNNDesignModule
+
+        definition = ProteinMPNNDesignModule().definition
+        ports = {port.name: port for port in definition.input_ports}
+        assert ports["structure"].type_id == "protein.structure"
+        assert ports["structure"].required is False
+        assert ports["structures"].type_id == "candidate.collection"
+        assert ports["structures"].required is False
+        assert [
+            (group.name, group.alternatives, group.allow_multiple)
+            for group in definition.input_groups
+        ] == [
+            (
+                "design_input",
+                (("structure",), ("structures",)),
+                False,
+            )
+        ]
+
+    @pytest.mark.parametrize(
+        "inputs",
+        [
+            {},
+            {
+                "structure": ProteinStructure(pdb_string=SAMPLE_PDB),
+                "structures": CandidateCollection(
+                    collection_id="parents",
+                    item_type="protein.structure",
+                    items=[],
+                ),
+            },
+        ],
+    )
+    def test_requires_exactly_one_structure_input(self, inputs: dict[str, Any]) -> None:
+        from modules.proteinmpnn.module_design import ProteinMPNNDesignModule
+
+        with pytest.raises(ValueError, match="exactly one"):
+            ProteinMPNNDesignModule().run(
+                inputs,
+                {},
+                RunContext("/tmp/test", "n1", run_id="test-run"),
+            )
+
+    def test_collection_design_produces_five_scored_children_per_actual_parent(
+        self,
+    ) -> None:
+        from modules.proteinmpnn.module_design import ProteinMPNNDesignModule
+
+        parents = CandidateCollection(
+            collection_id="selected-parents",
+            item_type="protein.structure",
+            items=[
+                Candidate(
+                    candidate_id=f"parent-{parent_index}",
+                    data=ProteinStructure(
+                        pdb_string=f"parent-pdb-{parent_index}"
+                    ),
+                )
+                for parent_index in range(3)
+            ],
+        )
+        provider = CapturingProteinMPNNProvider()
+
+        result = ProteinMPNNDesignModule(provider=provider).run(
+            {"structures": parents},
+            {
+                "model_name": "v_48_010",
+                "num_sequences": 5,
+                "temperature": 0.25,
+                "backbone_noise": 0.2,
+            },
+            RunContext("/tmp/test", "mpnn-node", run_id="run-15", seed=77),
+        )
+
+        candidates = result["candidates"]
+        scores = result["scores"]
+        assert len(candidates) == 15
+        assert len(scores) == 15
+        assert provider.parsed_pdb_strings == [
+            "parent-pdb-0",
+            "parent-pdb-1",
+            "parent-pdb-2",
+        ]
+        assert [request.num_sequences for request in provider.requests] == [5, 5, 5]
+        assert [request.seed for request in provider.requests] == [77, 77, 77]
+
+        score_by_subject = {
+            entry.subjects[0]: entry.value
+            for entry in scores
+        }
+        for parent_index in range(3):
+            children = [
+                child
+                for child in candidates
+                if child.parent_ids == [f"parent-{parent_index}"]
+            ]
+            assert [child.metadata["sample_index"] for child in children] == list(
+                range(5)
+            )
+            assert [score_by_subject[child.candidate_id] for child in children] == [
+                -1.0,
+                -2.0,
+                -3.0,
+                -4.0,
+                -5.0,
+            ]
+            assert {
+                child.metadata["effective_seed"]
+                for child in children
+            } == {77}
+            assert {
+                child.metadata["provider"]
+                for child in children
+            } == {"capturing-proteinmpnn"}
+            assert {child.metadata["model"] for child in children} == {"v_48_010"}
+            assert {
+                (
+                    child.metadata["temperature"],
+                    child.metadata["backbone_noise"],
+                )
+                for child in children
+            } == {(0.25, 0.2)}
+            assert all(
+                child.metadata["constraint_identity"].startswith("sha256:")
+                for child in children
+            )
+
+    def test_explicit_node_seed_overrides_run_seed(self) -> None:
+        from modules.proteinmpnn.module_design import ProteinMPNNDesignModule
+
+        provider = CapturingProteinMPNNProvider()
+        result = ProteinMPNNDesignModule(provider=provider).run(
+            {"structure": ProteinStructure(pdb_string="two-chain-pdb")},
+            {"seed": 123},
+            RunContext("/tmp/test", "mpnn-node", run_id="seed-run", seed=77),
+        )
+
+        assert provider.requests[0].seed == 123
+        assert result["candidates"].items[0].metadata["effective_seed"] == 123
+
+    def test_explicit_node_seed_is_the_public_cache_identity(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        from core.executor import Executor
+        from core.graph import Workflow, WorkflowEdge, WorkflowNode
+        from core.module_definition import ModuleDefinition
+        from core.workflow_module import WorkflowModule
+        from modules.proteinmpnn.module_design import ProteinMPNNDesignModule
+
+        class StructureSourceModule(WorkflowModule):
+            @property
+            def definition(self) -> ModuleDefinition:
+                return ModuleDefinition.from_yaml_string(
+                    """
+module_id: test.structure_source
+version: 1.0.0
+display_name: Structure Source
+category: input
+output_ports:
+  - name: structure
+    type_id: protein.structure
+"""
+                )
+
+            def run(
+                self,
+                inputs: dict[str, Any],
+                parameters: dict[str, Any],
+                context: RunContext,
+            ) -> dict[str, Any]:
+                return {
+                    "structure": ProteinStructure(pdb_string="two-chain-pdb")
+                }
+
+        def workflow() -> Workflow:
+            result = Workflow()
+            result.add_node(WorkflowNode(
+                node_id="source",
+                module_id="test.structure_source",
+                module_version="1.0.0",
+            ))
+            result.add_node(WorkflowNode(
+                node_id="design",
+                module_id="proteinmpnn.design",
+                module_version="1.1.0",
+                parameters={"seed": 123},
+            ))
+            result.add_edge(WorkflowEdge(
+                source_node_id="source",
+                source_port="structure",
+                target_node_id="design",
+                target_port="structure",
+            ))
+            return result
+
+        first_provider = CapturingProteinMPNNProvider()
+        asyncio.run(Executor().execute(
+            workflow(),
+            {
+                "test.structure_source": StructureSourceModule(),
+                "proteinmpnn.design": ProteinMPNNDesignModule(
+                    provider=first_provider
+                ),
+            },
+            str(tmp_path),
+            "first-run",
+            seed=11,
+        ))
+        second_provider = CapturingProteinMPNNProvider()
+        second_outputs = asyncio.run(Executor().execute(
+            workflow(),
+            {
+                "test.structure_source": StructureSourceModule(),
+                "proteinmpnn.design": ProteinMPNNDesignModule(
+                    provider=second_provider
+                ),
+            },
+            str(tmp_path),
+            "second-run",
+            seed=22,
+        ))
+
+        assert len(first_provider.requests) == 1
+        assert second_provider.requests == []
+        assert (
+            second_outputs["design"]["candidates"].items[0]
+            .metadata["effective_seed"]
+            == 123
+        )
+
+    @pytest.mark.parametrize(
+        ("sequences", "scores", "message"),
+        [
+            ([], [], "returned 0 sequences; expected 1"),
+            (
+                [ProteinSequence(sequence="AGSTW")],
+                [],
+                "incomplete per-sequence scores",
+            ),
+        ],
+    )
+    def test_incomplete_provider_output_fails_the_node_contract(
+        self,
+        sequences: list[ProteinSequence],
+        scores: list[float],
+        message: str,
+    ) -> None:
+        from modules.proteinmpnn.module_design import ProteinMPNNDesignModule
+
+        class IncompleteProvider(CapturingProteinMPNNProvider):
+            def design(
+                self,
+                request: Any,
+            ) -> tuple[list[ProteinSequence], list[float]]:
+                self.requests.append(request)
+                return sequences, scores
+
+        with pytest.raises(RuntimeError, match=message):
+            ProteinMPNNDesignModule(provider=IncompleteProvider()).run(
+                {"structure": ProteinStructure(pdb_string="two-chain-pdb")},
+                {},
+                RunContext("/tmp/test", "mpnn-node", run_id="incomplete"),
+            )
+
+    def test_provider_scoring_failure_fails_the_node(self) -> None:
+        from modules.proteinmpnn.module_design import ProteinMPNNDesignModule
+
+        class ScoringFailureProvider(CapturingProteinMPNNProvider):
+            def design(
+                self,
+                request: Any,
+            ) -> tuple[list[ProteinSequence], list[float]]:
+                raise RuntimeError("ProteinMPNN score computation failed")
+
+        with pytest.raises(RuntimeError, match="score computation failed"):
+            ProteinMPNNDesignModule(provider=ScoringFailureProvider()).run(
+                {"structure": ProteinStructure(pdb_string="two-chain-pdb")},
+                {},
+                RunContext("/tmp/test", "mpnn-node", run_id="score-failure"),
+            )
+
     def test_design_produces_candidates(self) -> None:
         from modules.proteinmpnn.module_design import ProteinMPNNDesignModule
 
         mock_seq = ProteinSequence(sequence="AGSWFC")
         with patch(
             "modules.proteinmpnn.module_design.design_sequences",
-            return_value=([mock_seq, mock_seq], -1.5),
+            return_value=([mock_seq, mock_seq], [-1.5, -1.25]),
         ):
             mod = ProteinMPNNDesignModule()
             ctx = RunContext("/tmp/test", "n1", run_id="test-run")
@@ -215,8 +520,12 @@ class TestProteinMPNNDesign:
 
         scores = result["scores"]
         assert isinstance(scores, ScoreCollection)
-        assert len(scores.entries) == 1
+        assert len(scores.entries) == 2
         assert scores.entries[0].score_id == "proteinmpnn_score"
+        assert [score.subjects for score in scores] == [
+            [candidates.items[0].candidate_id],
+            [candidates.items[1].candidate_id],
+        ]
 
     def test_passes_constraints(self) -> None:
         from modules.proteinmpnn.module_design import ProteinMPNNDesignModule
@@ -226,7 +535,7 @@ class TestProteinMPNNDesign:
 
         with patch(
             "modules.proteinmpnn.module_design.design_sequences",
-            return_value=([mock_seq], -2.0),
+            return_value=([mock_seq], [-2.0]),
         ) as mock_design:
             mod = ProteinMPNNDesignModule()
             ctx = RunContext("/tmp/test", "n1", run_id="test-run")
@@ -247,7 +556,7 @@ class TestProteinMPNNDesign:
 
         with patch(
             "modules.proteinmpnn.module_design.design_sequences",
-            return_value=([ProteinSequence(sequence="VG")], -2.0),
+            return_value=([ProteinSequence(sequence="VG")], [-2.0]),
         ) as mock_design:
             ProteinMPNNDesignModule().run(
                 {

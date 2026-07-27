@@ -198,19 +198,23 @@ class Executor:
 
             try:
                 inputs = workflow.get_inputs_for_node(node_id)
+                configured_seed = node.parameters.get("seed")
+                effective_seed = (
+                    seed if configured_seed is None else configured_seed
+                )
                 if project_manager is not None and project_id is not None:
                     context = project_manager.run_context(
                         project_id,
                         run_id,
                         node_id,
-                        seed=seed,
+                        seed=effective_seed,
                     )
                 else:
                     context = RunContext(
                         project_dir=project_dir,
                         node_id=node_id,
                         run_id=run_id,
-                        seed=seed,
+                        seed=effective_seed,
                     )
 
                 # Check cache (skip if force re-run)
@@ -219,7 +223,7 @@ class Executor:
                     node.module_version,
                     inputs,
                     node.parameters,
-                    seed,
+                    effective_seed,
                 )
                 if project_manager is not None and project_id is not None:
                     cache_path = project_manager.cache_path(
