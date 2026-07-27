@@ -32,7 +32,14 @@ class OverrideResidueTrackModule(WorkflowModule):
         overrides_raw = str(parameters.get("overrides", "[]"))
         overrides = json.loads(overrides_raw)
 
-        new_values = list(track.values)
+        clear_unmentioned = parameters.get("clear_unmentioned", False)
+        if not isinstance(clear_unmentioned, bool):
+            raise ValueError("clear_unmentioned must be a boolean")
+        new_values = (
+            [track.sentinel] * len(track)
+            if clear_unmentioned
+            else list(track.values)
+        )
         for ov in overrides:
             pos = int(ov["position"])
             val = ov["value"]

@@ -1,5 +1,5 @@
 module_id: prompt.override_residue_track
-version: 1.0.0
+version: 1.1.0
 display_name: Override Residue Track
 category: prompt
 description: "Override individual residue positions in a track with manual values."
@@ -19,4 +19,9 @@ parameters:
     default: "[]"
     display_name: Overrides
     description: "JSON list of overrides."
+  - name: clear_unmentioned
+    type: bool
+    default: false
+    display_name: Clear Unmentioned
+    description: "Set positions not listed in overrides to the track sentinel, so overrides describe the complete final-layout intent."
 module_api: "1.0"

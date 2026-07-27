@@ -86,10 +86,9 @@ def test_live_provider_tier_rejects_readiness_without_call_evidence() -> None:
     assert "provider-call evidence" in result.stdout
 
 
-def test_scientific_reproduction_tier_exposes_sci_001_failure() -> None:
+def test_scientific_reproduction_tier_confirms_sci_001_repair() -> None:
     result = _run_verifier("scientific-repro")
 
-    assert result.returncode != 0
+    assert result.returncode == 0
     assert "BACKEND VERIFICATION TIER: scientific-repro" in result.stdout
-    assert "SCI-001" in result.stdout
-    assert "BACKEND VERIFICATION RESULT: failed" in result.stdout
+    assert "BACKEND VERIFICATION RESULT: passed" in result.stdout

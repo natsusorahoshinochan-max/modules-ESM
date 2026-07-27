@@ -3,6 +3,9 @@
 import json
 import tempfile
 from pathlib import Path
+from unittest.mock import patch
+
+import torch
 
 from core.run_context import RunContext
 from datatypes import (
@@ -103,6 +106,85 @@ class TestApplyResidueEdits:
         assert vis.values == [True, True, True]
         assert rmap.source_layout.length == 3
         assert rmap.target_layout.length == 3
+
+    def test_preserves_template_atoms_for_provider_atom37_layout(self) -> None:
+        from modules.apply_residue_edits.module import ApplyResidueEditsModule
+        from modules.esm3_adapter import protein_prompt_to_esm_protein
+
+        mod = ApplyResidueEditsModule()
+        pdb_with_sidechains = SAMPLE_PDB.replace(
+            "END\n",
+            "ATOM     13  CB  ALA A   1       1.500  -1.000   0.500"
+            "  1.00  0.00           C\n"
+            "ATOM     14  OG  SER A   3       4.500   7.000   0.500"
+            "  1.00  0.00           O\n"
+            "END\n",
+        )
+        result = mod.run(
+            {
+                "template_structure": ProteinStructure(
+                    pdb_string=pdb_with_sidechains
+                ),
+                "target_layout": ResidueLayout(chain_id="A", length=3),
+            },
+            {"edits": "[]"},
+            RunContext("/tmp/test", "n1"),
+        )
+        prompt = ProteinPrompt(
+            target_layout=result["residue_map"].target_layout,
+            sequence_track=result["sequence_track"],
+            structure_track=result["structure_track"],
+            structure_visibility_track=result["visibility_track"],
+        )
+
+        with patch("esm.sdk.api.ESMProtein") as provider_constructor:
+            protein_prompt_to_esm_protein(prompt)
+        coordinates = provider_constructor.call_args.kwargs["coordinates"]
+
+        assert torch.equal(
+            coordinates[0, [0, 1, 2, 3, 4]],
+            torch.tensor(
+                [
+                    [0.0, 0.0, 0.0],
+                    [1.458, 0.0, 0.0],
+                    [2.009, 1.421, 0.0],
+                    [1.5, -1.0, 0.5],
+                    [1.223, 2.371, 0.0],
+                ]
+            ),
+        )
+        assert torch.equal(
+            coordinates[2, 8],
+            torch.tensor([4.5, 7.0, 0.5]),
+        )
+        assert torch.isnan(coordinates[0, 5]).all()
+
+    def test_non_protein_hetatm_records_do_not_create_target_residues(
+        self,
+    ) -> None:
+        from modules.apply_residue_edits.module import ApplyResidueEditsModule
+
+        pdb_with_ligands = SAMPLE_PDB.replace(
+            "END\n",
+            "HETATM   13  O   HOH A 101       8.000   8.000   8.000"
+            "  1.00  0.00           O\n"
+            "HETATM   14  CA  CA  A 102       9.000   9.000   9.000"
+            "  1.00  0.00          CA\n"
+            "END\n",
+        )
+        result = ApplyResidueEditsModule().run(
+            {
+                "template_structure": ProteinStructure(
+                    pdb_string=pdb_with_ligands
+                ),
+                "target_layout": ResidueLayout(chain_id="A", length=5),
+            },
+            {"edits": "[]"},
+            RunContext("/tmp/test", "n1"),
+        )
+
+        assert result["sequence_track"].values == ["A", "G", "S", None, None]
+        assert result["residue_map"].source_layout.length == 3
 
     def test_set_edit_changes_amino_acid(self) -> None:
         from modules.apply_residue_edits.module import ApplyResidueEditsModule
@@ -349,6 +431,68 @@ class TestOverrideResidueTrack:
         result = mod.run({"track_input": track}, {"overrides": overrides}, ctx)
         out = result["track_output"]
         assert out.values == ["A", "X", "C"]
+
+    def test_final_layout_overrides_do_not_inherit_template_assignments(self) -> None:
+        from modules.apply_residue_edits.module import ApplyResidueEditsModule
+        from modules.assemble_protein_prompt.module import AssembleProteinPromptModule
+        from modules.esm3_adapter import protein_prompt_to_esm_protein
+        from modules.map_residue_track.module import MapResidueTrackModule
+        from modules.override_residue_track.module import OverrideResidueTrackModule
+
+        context = RunContext("/tmp/test", "n1")
+        edited = ApplyResidueEditsModule().run(
+            {
+                "template_structure": ProteinStructure(pdb_string=SAMPLE_PDB),
+                "target_layout": ResidueLayout(chain_id="A", length=3),
+            },
+            {
+                "edits": json.dumps(
+                    [{"op": "insert", "position": 1, "value": ""}]
+                )
+            },
+            context,
+        )
+        mapped = MapResidueTrackModule().run(
+            {
+                "track": ResidueTrack(values=["G", "T", "S"]),
+                "residue_map": edited["residue_map"],
+            },
+            {},
+            context,
+        )["track"]
+        final_secondary_structure = OverrideResidueTrackModule().run(
+            {"track_input": mapped},
+            {
+                "overrides": json.dumps(
+                    [
+                        {"position": 0, "value": "E"},
+                        {"position": 3, "value": "H"},
+                    ]
+                ),
+                "clear_unmentioned": True,
+            },
+            context,
+        )["track_output"]
+        prompt = AssembleProteinPromptModule().run(
+            {
+                "layout": edited["residue_map"].target_layout,
+                "sequence_track": edited["sequence_track"],
+                "structure_track": edited["structure_track"],
+                "visibility_track": edited["visibility_track"],
+                "secondary_structure_track": final_secondary_structure,
+            },
+            {},
+            context,
+        )["protein_prompt"]
+
+        with patch("esm.sdk.api.ESMProtein") as provider_constructor:
+            protein_prompt_to_esm_protein(prompt)
+        provider_payload = provider_constructor.call_args.kwargs
+
+        assert prompt.target_layout.length == 4
+        assert provider_payload["sequence"] == "A_GS"
+        assert provider_payload["secondary_structure"] == "E__H"
+        assert final_secondary_structure.values == ["E", None, None, "H"]
 
     def test_override_out_of_range_raises(self) -> None:
         from modules.override_residue_track.module import OverrideResidueTrackModule

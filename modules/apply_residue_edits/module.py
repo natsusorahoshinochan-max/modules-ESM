@@ -1,6 +1,7 @@
 """Apply Residue Edits: maps template structure to target layout with edit operations."""
 
 import json
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
@@ -24,54 +25,67 @@ AA3TO1: dict[str, str] = {
 }
 
 
+AtomCoordinates = tuple[float, float, float]
+
+
+@dataclass
+class _ParsedResidue:
+    chain: str
+    aa1: str
+    resnum: int
+    atom_coordinates: dict[str, AtomCoordinates] = field(default_factory=dict)
+
+
 def _parse_pdb_residues(
     pdb_string: str, target_chain: str = "A"
-) -> list[dict[str, Any]]:
+) -> list[_ParsedResidue]:
     """Parse ATOM records from PDB string into per-residue data.
 
-    Returns list of dicts with keys: chain, aa1, resnum, coords (or None).
-    Only CA atoms contribute coordinates; non-CA residues get None.
+    Coordinates retain every named atom so the provider adapter can construct
+    atom37.
     """
-    residues: list[dict[str, Any]] = []
-    seen: set[tuple[str, int]] = set()
+    residues: list[_ParsedResidue] = []
+    residue_by_key: dict[tuple[str, int, str], _ParsedResidue] = {}
 
     for line in pdb_string.splitlines():
         if not (line.startswith("ATOM") or line.startswith("HETATM")):
             continue
         atom_name = line[12:16].strip()
-        if atom_name != "CA":
-            continue
         chain = line[21:22].strip() if len(line) > 21 else " "
         if chain and chain != target_chain:
             continue
         resname = line[17:20].strip()
+        if line.startswith("HETATM") and resname.upper() not in AA3TO1:
+            continue
         resnum_str = line[22:26].strip()
         try:
             resnum = int(resnum_str)
         except ValueError:
             continue
-        key = (chain, resnum)
-        if key in seen:
-            continue
-        seen.add(key)
+        insertion_code = line[26:27].strip() if len(line) > 26 else ""
+        key = (chain, resnum, insertion_code)
+        residue = residue_by_key.get(key)
+        if residue is None:
+            residue = _ParsedResidue(
+                chain=chain or " ",
+                aa1=AA3TO1.get(resname.upper(), "X"),
+                resnum=resnum,
+            )
+            residue_by_key[key] = residue
+            residues.append(residue)
 
-        aa1 = AA3TO1.get(resname.upper(), "X")
         if len(line) >= 54:
             try:
-                x = float(line[30:38])
-                y = float(line[38:46])
-                z = float(line[46:54])
-                coords = (x, y, z)
+                residue.atom_coordinates.setdefault(
+                    atom_name,
+                    (
+                        float(line[30:38]),
+                        float(line[38:46]),
+                        float(line[46:54]),
+                    ),
+                )
             except ValueError:
-                coords = None
-        else:
-            coords = None
-        residues.append({
-            "chain": chain or " ",
-            "aa1": aa1,
-            "resnum": resnum,
-            "coords": coords,
-        })
+                continue
     return residues
 
 
@@ -109,16 +123,19 @@ class ApplyResidueEditsModule(WorkflowModule):
         # Build initial 1:1 mapping for matching range
         # Each position in target gets: aa (or None for mask), coords (or None), visible
         seq_values: list[str | None] = [None] * target_len
-        coord_values: list[tuple[float, float, float] | None] = [None] * target_len
+        coord_values: list[dict[str, AtomCoordinates] | None] = [
+            None
+        ] * target_len
         vis_values: list[bool] = [False] * target_len
         mappings: list[tuple[int, int, str]] = []
 
         # Match template residues to target positions (1:1 where they overlap)
         for i, tres in enumerate(template_residues):
             if i < target_len:
-                seq_values[i] = tres["aa1"]
-                coord_values[i] = tres["coords"]
-                vis_values[i] = tres["coords"] is not None
+                seq_values[i] = tres.aa1
+                coords = tres.atom_coordinates
+                coord_values[i] = coords if coords else None
+                vis_values[i] = bool(coords)
                 mappings.append((i, i, "match"))
 
         # Remaining target positions are "insert" (no template source)

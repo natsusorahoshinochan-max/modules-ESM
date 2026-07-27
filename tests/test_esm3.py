@@ -33,7 +33,7 @@ def _make_prompt(length: int = 3, with_structure: bool = False) -> ProteinPrompt
             sentinel=None,
         )
         vis = ResidueTrack(values=[True] * length, sentinel=None)
-    ss = ResidueTrack(values=["H", "E", "-"][:length], sentinel=None)
+    ss = ResidueTrack(values=["H", "E", "C"][:length], sentinel=None)
     sasa = ResidueTrack(values=[50.0, 75.0, 100.0][:length], sentinel=None)
     fa = FunctionAnnotations()
     fa.add("active_site", 1, 2)
@@ -68,7 +68,6 @@ def _make_mock_esm_protein(sequence: str = "AGS", ptm: float = 0.85,
 # ── ESM3 Adapter ─────────────────────────────────────────────────────
 
 class TestESM3Adapter:
-    @pytest.mark.scientific_repro
     def test_prompt_to_esm_protein_basic(self) -> None:
         from modules.esm3_adapter import protein_prompt_to_esm_protein
         prompt = _make_prompt(3)
@@ -76,11 +75,83 @@ class TestESM3Adapter:
         assert ep.sequence == "AGS", (
             "SCI-001: sequence conversion must not apply the SS8 whitelist"
         )
-        assert ep.secondary_structure == "HE-"
+        assert ep.secondary_structure == "HEC"
         assert ep.sasa == [50.0, 75.0, 100.0]
         assert ep.function_annotations is not None
         assert len(ep.function_annotations) == 1
         assert ep.coordinates is None  # no structure track
+
+    def test_legal_amino_acids_reach_captured_provider_payload_unchanged(
+        self,
+    ) -> None:
+        from modules.esm3_adapter import protein_prompt_to_esm_protein
+
+        amino_acids = list("ACDEFGHIKLMNPQRSTVWYXBZUO") + [None]
+        prompt = ProteinPrompt(
+            target_layout=ResidueLayout(chain_id="A", length=len(amino_acids)),
+            sequence_track=ResidueTrack(values=amino_acids),
+        )
+
+        with patch("esm.sdk.api.ESMProtein") as provider_constructor:
+            protein_prompt_to_esm_protein(prompt)
+
+        assert (
+            provider_constructor.call_args.kwargs["sequence"]
+            == "ACDEFGHIKLMNPQRSTVWYXBZUO_"
+        )
+
+    def test_rejects_invalid_sequence_symbol(self) -> None:
+        from modules.esm3_adapter import protein_prompt_to_esm_protein
+
+        prompt = ProteinPrompt(
+            target_layout=ResidueLayout(chain_id="A", length=3),
+            sequence_track=ResidueTrack(values=["A", "AA", "G"]),
+        )
+
+        with pytest.raises(ValueError, match=r"sequence_track.*position 1"):
+            protein_prompt_to_esm_protein(prompt)
+
+    def test_rejects_track_not_aligned_to_final_layout(self) -> None:
+        from modules.esm3_adapter import protein_prompt_to_esm_protein
+
+        prompt = ProteinPrompt(
+            target_layout=ResidueLayout(chain_id="A", length=3),
+            sequence_track=ResidueTrack(values=["A", "G"]),
+        )
+
+        with pytest.raises(
+            ValueError,
+            match=r"sequence_track length 2 != target layout length 3",
+        ):
+            protein_prompt_to_esm_protein(prompt)
+
+    def test_rejects_non_ss8_secondary_structure(self) -> None:
+        from modules.esm3_adapter import protein_prompt_to_esm_protein
+
+        prompt = ProteinPrompt(
+            target_layout=ResidueLayout(chain_id="A", length=3),
+            sequence_track=ResidueTrack(values=["A", "G", "S"]),
+            secondary_structure_track=ResidueTrack(values=["H", "-", "E"]),
+        )
+
+        with pytest.raises(ValueError, match=r"secondary_structure_track.*position 1"):
+            protein_prompt_to_esm_protein(prompt)
+
+    def test_sasa_track_uses_its_own_sentinel(self) -> None:
+        from modules.esm3_adapter import protein_prompt_to_esm_protein
+
+        prompt = ProteinPrompt(
+            target_layout=ResidueLayout(chain_id="A", length=2),
+            sasa_track=ResidueTrack(
+                values=[25.0, "MASK"],
+                sentinel="MASK",
+            ),
+        )
+
+        with patch("esm.sdk.api.ESMProtein") as provider_constructor:
+            protein_prompt_to_esm_protein(prompt)
+
+        assert provider_constructor.call_args.kwargs["sasa"] == [25.0, None]
 
     def test_prompt_with_coordinates(self) -> None:
         from modules.esm3_adapter import protein_prompt_to_esm_protein
@@ -90,6 +161,42 @@ class TestESM3Adapter:
         assert ep.coordinates.shape == (3, 37, 3)
         # CA at position 1 in atom37
         assert ep.coordinates[0, 1, 0].item() == 1.0
+
+    def test_hidden_residue_has_no_finite_provider_coordinates(self) -> None:
+        from modules.esm3_adapter import protein_prompt_to_esm_protein
+
+        prompt = _make_prompt(3, with_structure=True)
+        assert prompt.structure_visibility_track is not None
+        prompt.structure_visibility_track.values = [True, False, True]
+
+        with patch("esm.sdk.api.ESMProtein") as provider_constructor:
+            protein_prompt_to_esm_protein(prompt)
+        coordinates = provider_constructor.call_args.kwargs["coordinates"]
+
+        assert torch.isfinite(coordinates[0, 1]).all()
+        assert torch.isnan(coordinates[1]).all()
+        assert torch.isfinite(coordinates[2, 1]).all()
+
+    def test_structure_track_uses_its_own_sentinel(self) -> None:
+        from modules.esm3_adapter import protein_prompt_to_esm_protein
+
+        prompt = ProteinPrompt(
+            target_layout=ResidueLayout(chain_id="A", length=2),
+            structure_track=ResidueTrack(
+                values=[(1.0, 2.0, 3.0), "MASK"],
+                sentinel="MASK",
+            ),
+        )
+
+        with patch("esm.sdk.api.ESMProtein") as provider_constructor:
+            protein_prompt_to_esm_protein(prompt)
+        coordinates = provider_constructor.call_args.kwargs["coordinates"]
+
+        assert torch.equal(
+            coordinates[0, 1],
+            torch.tensor([1.0, 2.0, 3.0]),
+        )
+        assert torch.isnan(coordinates[1]).all()
 
     def test_empty_prompt_raises(self) -> None:
         from modules.esm3_adapter import protein_prompt_to_esm_protein
@@ -169,7 +276,7 @@ class TestUpdatePromptSequence:
         assert isinstance(updated, ProteinPrompt)
         assert updated.sequence_track.values == ["W", "F", "C"]
         # All other tracks preserved
-        assert updated.secondary_structure_track.values == ["H", "E", "-"]
+        assert updated.secondary_structure_track.values == ["H", "E", "C"]
         assert updated.sasa_track.values == [50.0, 75.0, 100.0]
         assert updated.structure_track is None
         assert len(updated.function_annotations) == 1

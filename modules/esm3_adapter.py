@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import uuid
+from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
@@ -21,50 +22,76 @@ from datatypes import (
 )
 
 _MASKED_COORD = float("nan")
+_ATOM37_INDEX = {
+    atom_name: index
+    for index, atom_name in enumerate(
+        (
+            "N", "CA", "C", "CB", "O", "CG", "CG1", "CG2", "OG", "OG1",
+            "SG", "CD", "CD1", "CD2", "ND1", "ND2", "OD1", "OD2", "SD",
+            "CE", "CE1", "CE2", "CE3", "NE", "NE1", "NE2", "OE1", "OE2",
+            "CH2", "NH1", "NH2", "OH", "CZ", "CZ2", "CZ3", "NZ", "OXT",
+        )
+    )
+}
 
-# ESM3 SS8 vocabulary (GHITEBSC). DSSP uses "-" for coil which is not
-# in the SS8 set; any code outside GHITEBSC is mapped to "C".
+# ESM3 SS8 vocabulary. DSSP "-" is not accepted as an ESM3 SS8 symbol;
+# callers must explicitly represent coil as "C".
 _ESM3_SS8 = frozenset("GHITEBSC")
+_ESM3_SEQUENCE_ALPHABET = frozenset("ACDEFGHIKLMNPQRSTVWYXBZUO")
 
 
-def _track_to_str(track: ResidueTrack | None, length: int) -> str | None:
-    """Convert a ResidueTrack to a string, with None sentinels mapped to '_'."""
+def _sequence_track_to_str(track: ResidueTrack | None) -> str | None:
+    """Convert a sequence track without applying another track's vocabulary."""
     if track is None:
         return None
     chars = []
-    for v in track.values:
-        if v is None:
+    for position, value in enumerate(track.values):
+        if value is track.sentinel:
+            chars.append("_")
+            continue
+        symbol = str(value)
+        if symbol not in _ESM3_SEQUENCE_ALPHABET:
+            raise ValueError(
+                "sequence_track has unsupported amino-acid symbol "
+                f"{symbol!r} at position {position}"
+            )
+        chars.append(symbol)
+    return "".join(chars)
+
+
+def _secondary_structure_track_to_str(
+    track: ResidueTrack | None,
+) -> str | None:
+    """Convert an SS8 track, with unspecified positions represented as masks."""
+    if track is None:
+        return None
+    chars = []
+    for position, value in enumerate(track.values):
+        if value is track.sentinel:
             chars.append("_")
         else:
-            s = str(v)
-            if s in _ESM3_SS8:
-                chars.append(s)
-            else:
-                chars.append("C")
-    result = "".join(chars)
-    if len(result) > length:
-        result = result[:length]
-    elif len(result) < length:
-        result = result + "_" * (length - len(result))
-    return result
+            symbol = str(value)
+            if symbol not in _ESM3_SS8:
+                raise ValueError(
+                    "secondary_structure_track has unsupported SS8 symbol "
+                    f"{symbol!r} at position {position}"
+                )
+            chars.append(symbol)
+    return "".join(chars)
 
 
 def _track_to_float_list(
-    track: ResidueTrack | None, length: int
+    track: ResidueTrack | None,
 ) -> list[float | None] | None:
     """Convert a ResidueTrack to a list of floats, with sentinels as None."""
     if track is None:
         return None
     result: list[float | None] = []
     for v in track.values:
-        if v is None:
+        if v is track.sentinel:
             result.append(None)
         else:
             result.append(float(v))
-    if len(result) > length:
-        result = result[:length]
-    elif len(result) < length:
-        result.extend([None] * (length - len(result)))
     return result
 
 
@@ -76,31 +103,68 @@ def protein_prompt_to_esm_protein(prompt: ProteinPrompt) -> Any:
     if n == 0:
         raise ValueError("ProteinPrompt has no target layout (num_residues=0)")
 
-    sequence = _track_to_str(prompt.sequence_track, n)
+    tracks = (
+        ("sequence_track", prompt.sequence_track),
+        ("structure_track", prompt.structure_track),
+        ("structure_visibility_track", prompt.structure_visibility_track),
+        ("secondary_structure_track", prompt.secondary_structure_track),
+        ("sasa_track", prompt.sasa_track),
+    )
+    for track_name, track in tracks:
+        if track is not None and len(track) != n:
+            raise ValueError(
+                f"{track_name} length {len(track)} "
+                f"!= target layout length {n}"
+            )
+
+    sequence = _sequence_track_to_str(prompt.sequence_track)
     if sequence is None:
         sequence = "_" * n
-    secondary_structure = _track_to_str(prompt.secondary_structure_track, n)
-    sasa = _track_to_float_list(prompt.sasa_track, n)
+    secondary_structure = _secondary_structure_track_to_str(
+        prompt.secondary_structure_track
+    )
+    sasa = _track_to_float_list(prompt.sasa_track)
 
-    # Coordinates: place CA at position 1 in atom37 representation
+    # Coordinates: preserve named template atoms in ESM3's atom37 layout.
     coordinates = None
-    if prompt.structure_track is not None:
-        coord_values: list[tuple[float, float, float] | None] = []
-        for v in prompt.structure_track.values:
-            coord_values.append(v if v is not None else None)
-        if len(coord_values) > n:
-            coord_values = coord_values[:n]
-        elif len(coord_values) < n:
-            coord_values.extend([None] * (n - len(coord_values)))
+    structure_track = prompt.structure_track
+    if structure_track is not None:
+        coord_values: list[Any | None] = [
+            None if value is structure_track.sentinel else value
+            for value in structure_track.values
+        ]
 
-        has_coords = any(c is not None for c in coord_values)
+        visible_values = [True] * n
+        visibility_track = prompt.structure_visibility_track
+        if visibility_track is not None:
+            visible_values = [
+                value is not visibility_track.sentinel and bool(value)
+                for value in visibility_track.values
+            ]
+
+        has_coords = any(
+            coord is not None and visible
+            for coord, visible in zip(coord_values, visible_values, strict=True)
+        )
         if has_coords:
             coords_37 = torch.full((n, 37, 3), _MASKED_COORD)
-            for i, c in enumerate(coord_values):
-                if c is not None:
-                    coords_37[i, 1, 0] = float(c[0])
-                    coords_37[i, 1, 1] = float(c[1])
-                    coords_37[i, 1, 2] = float(c[2])
+            for i, (c, visible) in enumerate(
+                zip(coord_values, visible_values, strict=True)
+            ):
+                if c is None or not visible:
+                    continue
+                if isinstance(c, Mapping):
+                    for atom_name, atom_coordinates in c.items():
+                        atom_index = _ATOM37_INDEX.get(str(atom_name))
+                        if atom_index is None:
+                            continue
+                        coords_37[i, atom_index] = torch.tensor(
+                            atom_coordinates, dtype=coords_37.dtype
+                        )
+                else:
+                    coords_37[i, _ATOM37_INDEX["CA"]] = torch.tensor(
+                        c, dtype=coords_37.dtype
+                    )
             coordinates = coords_37
 
     # Function annotations

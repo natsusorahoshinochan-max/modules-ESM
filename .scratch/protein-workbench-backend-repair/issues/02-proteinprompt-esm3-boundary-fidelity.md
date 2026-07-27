@@ -4,11 +4,11 @@
 
 **Blocked by:** 01 — Make backend verification safe, isolated, and tiered.
 
-**Status:** ready-for-agent
+**Status:** completed
 
-- [ ] Legal amino-acid sequence symbols reach ESM3 unchanged except at explicitly masked positions.
-- [ ] Secondary-structure validation accepts only the supported SS8 representation without applying that representation to another track.
-- [ ] Hidden structure residues have no usable coordinates in the outbound provider payload, while visible template residues retain the documented atom representation.
-- [ ] Insertions and residue mapping preserve requested absolute secondary-structure positions in the final target layout.
-- [ ] Positions outside the requested E and H regions remain unspecified rather than inheriting template DSSP assignments.
-- [ ] Captured provider-boundary tests prove sequence, secondary-structure, visibility, and atom fidelity without requiring a live provider call.
+- [x] Legal amino-acid sequence symbols reach ESM3 unchanged except at explicitly masked positions.
+- [x] Secondary-structure validation accepts only the supported SS8 representation without applying that representation to another track.
+- [x] Hidden structure residues have no usable coordinates in the outbound provider payload, while visible template residues retain the documented atom representation.
+- [x] Insertions and residue mapping preserve requested absolute secondary-structure positions in the final target layout.
+- [x] Positions outside the requested E and H regions remain unspecified rather than inheriting template DSSP assignments.
+- [x] Captured provider-boundary tests prove sequence, secondary-structure, visibility, and atom fidelity without requiring a live provider call.
