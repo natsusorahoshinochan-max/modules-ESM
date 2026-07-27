@@ -45,6 +45,45 @@ def test_types_returns_json_content_type() -> None:
         assert "application/json" in resp.headers["content-type"]
 
 
+def test_cors_rejects_foreign_origins_and_allows_local_frontend() -> None:
+    with TestClient(app) as client:
+        foreign_execution = client.post(
+            "/api/execute",
+            headers={"Origin": "https://attacker.example"},
+            json={
+                "nodes": [
+                    {
+                        "node_id": "echo",
+                        "module_id": "stub.echo",
+                        "module_version": "1.0.0",
+                    }
+                ],
+                "edges": [],
+            },
+        )
+        foreign = client.options(
+            "/api/execute",
+            headers={
+                "Origin": "https://attacker.example",
+                "Access-Control-Request-Method": "POST",
+            },
+        )
+        local = client.options(
+            "/api/execute",
+            headers={
+                "Origin": "http://127.0.0.1:5173",
+                "Access-Control-Request-Method": "POST",
+            },
+        )
+
+    assert foreign_execution.status_code == 403
+    assert foreign_execution.json()["error"]["kind"] == "untrusted_origin"
+    assert "access-control-allow-origin" not in foreign.headers
+    assert local.headers["access-control-allow-origin"] == (
+        "http://127.0.0.1:5173"
+    )
+
+
 def test_module_definition_shape() -> None:
     with TestClient(app) as client:
         resp = client.get("/api/modules")

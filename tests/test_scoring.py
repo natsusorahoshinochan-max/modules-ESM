@@ -1,5 +1,6 @@
 """Tests for scoring, alignment, metrics, and DSSP modules (ticket 09)."""
 
+import asyncio
 import uuid
 from unittest.mock import patch
 
@@ -239,6 +240,81 @@ class TestDSSPModule:
         ctx = RunContext("/tmp/test", "n1")
         with pytest.raises(ValueError, match="structure"):
             mod.run({}, {}, ctx)
+
+    def test_cancellation_stops_mkdssp_subprocess_before_returning(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        import modules.compute_dssp.module as dssp_module
+        from modules.compute_dssp.module import ComputeDSSPModule
+
+        class BlockingProcess:
+            returncode = None
+            pid = 123
+
+            def __init__(self) -> None:
+                self.communicating = asyncio.Event()
+                self.waited = False
+
+            async def communicate(self) -> tuple[bytes, bytes]:
+                self.communicating.set()
+                await asyncio.Event().wait()
+                return b"", b""
+
+            def terminate(self) -> None:
+                raise AssertionError("The subprocess group must be signalled")
+
+            def kill(self) -> None:
+                raise AssertionError("The subprocess group must be signalled")
+
+            async def wait(self) -> int:
+                self.waited = True
+                self.returncode = -15
+                return self.returncode
+
+        process = BlockingProcess()
+        subprocess_options: dict[str, object] = {}
+        process_group_signals: list[tuple[int, object]] = []
+
+        async def fake_subprocess(
+            *args: object,
+            **kwargs: object,
+        ) -> BlockingProcess:
+            del args
+            subprocess_options.update(kwargs)
+            return process
+
+        monkeypatch.setattr(
+            asyncio,
+            "create_subprocess_exec",
+            fake_subprocess,
+        )
+        monkeypatch.setattr(
+            dssp_module,
+            "signal_process_group",
+            lambda pid, sent_signal, **kwargs: (
+                process_group_signals.append((pid, sent_signal))
+            ),
+        )
+
+        async def exercise() -> None:
+            module = ComputeDSSPModule()
+            context = RunContext("/tmp/test", "cancel-dssp")
+            work = asyncio.create_task(module.run_async(
+                {"structure": ProteinStructure(pdb_string=SAMPLE_PDB_3RES)},
+                {},
+                context,
+            ))
+            await process.communicating.wait()
+            work.cancel()
+            with pytest.raises(asyncio.CancelledError):
+                await work
+
+        asyncio.run(exercise())
+
+        assert subprocess_options["start_new_session"] is True
+        assert process_group_signals == [(123, dssp_module.signal.SIGTERM)]
+        assert process.waited is True
 
 
 # ── Secondary Structure Agreement Module ─────────────────────────────

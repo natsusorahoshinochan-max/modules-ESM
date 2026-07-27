@@ -5,9 +5,11 @@ Uses async subprocess execution to avoid blocking the event loop.
 
 import asyncio
 from pathlib import Path
+import signal
 from typing import Any
 
 from core.module_definition import ModuleDefinition
+from core.process_control import signal_process_group
 from core.run_context import RunContext
 from core.workflow_module import WorkflowModule
 from datatypes import ProteinStructure, ResidueTrack
@@ -63,13 +65,35 @@ class ComputeDSSPModule(WorkflowModule):
                 dssp_bin, pdb_path,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
+                start_new_session=True,
             )
             try:
                 stdout, stderr = await asyncio.wait_for(
                     proc.communicate(), timeout=timeout
                 )
+            except asyncio.CancelledError:
+                if proc.returncode is None:
+                    signal_process_group(
+                        proc.pid,
+                        signal.SIGTERM,
+                        fallback=proc.terminate,
+                    )
+                    try:
+                        await asyncio.wait_for(proc.wait(), timeout=1)
+                    except asyncio.TimeoutError:
+                        signal_process_group(
+                            proc.pid,
+                            signal.SIGKILL,
+                            fallback=proc.kill,
+                        )
+                        await proc.wait()
+                raise
             except asyncio.TimeoutError:
-                proc.kill()
+                signal_process_group(
+                    proc.pid,
+                    signal.SIGKILL,
+                    fallback=proc.kill,
+                )
                 await proc.wait()
                 raise RuntimeError(
                     f"mkdssp timed out after {timeout}s"

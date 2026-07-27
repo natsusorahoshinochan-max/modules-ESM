@@ -150,7 +150,6 @@ def test_direct_run_context_uses_run_scoped_hybrid_paths(
             "edges": [],
         },
         {
-            "project_id": "ephemeral-safe",
             "nodes": [
                 {
                     "node_id": "../../outside",
@@ -421,7 +420,6 @@ def test_execute_api_rejects_import_path_outside_project_inputs(
     monkeypatch.setenv("PROTEIN_WORKBENCH_OUTPUT_ROOT", str(tmp_path / "outputs"))
     monkeypatch.setenv("PROTEIN_WORKBENCH_RUN_ROOT", str(tmp_path / "runs"))
     payload = {
-        "project_id": "ephemeral-safe",
         "nodes": [
             {
                 "node_id": "reader",
@@ -434,6 +432,10 @@ def test_execute_api_rejects_import_path_outside_project_inputs(
     }
 
     with TestClient(app) as client:
+        payload["project_id"] = client.post(
+            "/api/projects",
+            json={"name": "Contained import"},
+        ).json()["id"]
         response = client.post("/api/execute", json=payload)
 
     assert response.status_code == 422

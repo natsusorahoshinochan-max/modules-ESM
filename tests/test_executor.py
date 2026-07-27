@@ -293,5 +293,8 @@ class TestCancelE2E:
             # Cancel immediately (echo is fast, so it may already be done)
             cancel_resp = client.post("/api/execute/cancel", json={"run_id": run_id})
             assert cancel_resp.status_code == 200
-            # Status can be "cancelled" or "not_found" if already completed
-            assert cancel_resp.json()["status"] in ("cancelled", "not_found")
+            # The request is non-terminal; fast work may already be complete.
+            assert cancel_resp.json()["status"] in (
+                "cancellation_requested",
+                "not_found",
+            )
