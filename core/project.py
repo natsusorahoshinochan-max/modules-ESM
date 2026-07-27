@@ -58,6 +58,7 @@ class ProjectMeta:
     seed: bool = False
     legacy_seed: bool = False
     legacy_source_hash: str | None = None
+    legacy_metadata_archive: str | None = None
     seed_version: str | None = None
     seed_content_hash: str | None = None
 
@@ -602,7 +603,8 @@ class ProjectManager:
         legacy_id_base = f"legacy-3gb1-{identity[:24]}"
         legacy_id = legacy_id_base
         collision_index = 1
-        while (self.root_dir / legacy_id).exists():
+        legacy_path = self.root_dir / legacy_id
+        while legacy_path.exists() or legacy_path.is_symlink():
             try:
                 existing = self._load_meta(legacy_id)
             except StoragePathError:
@@ -611,10 +613,15 @@ class ProjectManager:
                 existing is not None
                 and existing.legacy_seed
                 and existing.legacy_source_hash == identity
+                and self._legacy_snapshot_identity_hash(
+                    legacy_path,
+                    existing,
+                ) == identity
             ):
                 return existing
             legacy_id = f"{legacy_id_base}-{collision_index}"
             collision_index += 1
+            legacy_path = self.root_dir / legacy_id
 
         legacy_meta = ProjectMeta(
             id=legacy_id,
@@ -656,7 +663,6 @@ class ProjectManager:
             prefix="legacy-stage-",
             dir=self.root_dir,
         ))
-        legacy_path = self.project_dir(legacy_id)
         try:
             shutil.copytree(
                 source,
@@ -666,11 +672,33 @@ class ProjectManager:
             )
             staged_meta = stage / "project.json"
             if staged_meta.exists() or staged_meta.is_symlink():
+                archive_index = 0
+                while True:
+                    archive_name = (
+                        "legacy-project.json"
+                        if archive_index == 0
+                        else f"legacy-project-{archive_index}.json"
+                    )
+                    archive_path = stage / archive_name
+                    if (
+                        not archive_path.exists()
+                        and not archive_path.is_symlink()
+                    ):
+                        break
+                    archive_index += 1
                 os.replace(
                     staged_meta,
-                    stage / "legacy-project.json",
+                    archive_path,
                 )
+                legacy_meta.legacy_metadata_archive = archive_name
             self._write_json(staged_meta, self._meta_data(legacy_meta))
+            if (
+                self._legacy_snapshot_identity_hash(stage, legacy_meta)
+                != identity
+            ):
+                raise CanonicalSeedError(
+                    "Legacy project changed while it was staged"
+                )
             os.replace(stage, legacy_path)
         finally:
             if stage.exists():
@@ -679,9 +707,60 @@ class ProjectManager:
 
     @staticmethod
     def _legacy_identity_hash(project_dir: Path) -> str:
+        entries = [
+            (path, path.relative_to(project_dir).parts)
+            for path in project_dir.rglob("*")
+        ]
+        return ProjectManager._legacy_entries_identity_hash(entries)
+
+    @staticmethod
+    def _legacy_snapshot_identity_hash(
+        project_dir: Path,
+        meta: ProjectMeta,
+    ) -> str | None:
+        archive_name = meta.legacy_metadata_archive
+        if archive_name is None:
+            fallback = project_dir / "legacy-project.json"
+            if fallback.exists() or fallback.is_symlink():
+                archive_name = fallback.name
+        if archive_name is not None:
+            try:
+                archive_parts = validate_relative_path(
+                    archive_name,
+                    "legacy_metadata_archive",
+                    allow_nested=False,
+                )
+            except StoragePathError:
+                return None
+            if len(archive_parts) != 1:
+                return None
+        else:
+            archive_parts = None
+
+        entries: list[tuple[Path, tuple[str, ...]]] = []
+        archive_found = archive_parts is None
+        for path in project_dir.rglob("*"):
+            relative_parts = path.relative_to(project_dir).parts
+            if relative_parts == ("project.json",):
+                continue
+            if archive_parts is not None and relative_parts == archive_parts:
+                relative_parts = ("project.json",)
+                archive_found = True
+            entries.append((path, relative_parts))
+        if not archive_found:
+            return None
+        return ProjectManager._legacy_entries_identity_hash(entries)
+
+    @staticmethod
+    def _legacy_entries_identity_hash(
+        entries: list[tuple[Path, tuple[str, ...]]],
+    ) -> str:
         hasher = hashlib.sha256()
-        for path in sorted(project_dir.rglob("*")):
-            relative = path.relative_to(project_dir).as_posix().encode()
+        for path, relative_parts in sorted(
+            entries,
+            key=lambda item: item[1],
+        ):
+            relative = "/".join(relative_parts).encode()
             hasher.update(len(relative).to_bytes(8, "big"))
             hasher.update(relative)
             if path.is_symlink():
@@ -892,6 +971,7 @@ class ProjectManager:
             "seed": meta.seed,
             "legacy_seed": meta.legacy_seed,
             "legacy_source_hash": meta.legacy_source_hash,
+            "legacy_metadata_archive": meta.legacy_metadata_archive,
             "seed_version": meta.seed_version,
             "seed_content_hash": meta.seed_content_hash,
         }
@@ -929,6 +1009,7 @@ class ProjectManager:
             seed=canonical,
             legacy_seed=legacy_seed,
             legacy_source_hash=raw.get("legacy_source_hash"),
+            legacy_metadata_archive=raw.get("legacy_metadata_archive"),
             seed_version=raw.get("seed_version"),
             seed_content_hash=raw.get("seed_content_hash"),
         )

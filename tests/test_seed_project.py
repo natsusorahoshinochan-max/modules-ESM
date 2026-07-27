@@ -500,6 +500,105 @@ class TestSeedProject:
             manager.project_dir(legacy.id) / "legacy-project.json"
         ).read_text() == "{}"
 
+    def test_legacy_preservation_never_overwrites_existing_archive_name(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        workflow_path = tmp_path / "workflow.json"
+        workflow_path.write_text(SAMPLE_WORKFLOW_JSON)
+
+        from core import TypeRegistry, ModuleRegistry, discover_modules
+        type_registry = TypeRegistry()
+        module_registry = ModuleRegistry(type_registry)
+        discover_modules(module_registry)
+        manager = ProjectManager(
+            root_dir=tmp_path / "projects",
+            module_registry=module_registry,
+        )
+        canonical = manager.ensure_seed_project(workflow_path)
+        canonical_dir = manager.project_dir(canonical.id)
+        sentinel = "pre-existing user archive\n"
+        (canonical_dir / "legacy-project.json").write_text(sentinel)
+        changed = json.loads((canonical_dir / "workflow.json").read_text())
+        changed["nodes"][0]["parameters"] = {"prefix": "user edit"}
+        (canonical_dir / "workflow.json").write_text(json.dumps(changed))
+
+        manager.ensure_seed_project(workflow_path)
+
+        legacy = next(
+            project
+            for project in manager.list_projects()
+            if project.legacy_seed
+        )
+        legacy_dir = manager.project_dir(legacy.id)
+        assert (legacy_dir / "legacy-project.json").read_text() == sentinel
+        assert legacy.legacy_metadata_archive == "legacy-project-1.json"
+        archived = json.loads(
+            (legacy_dir / legacy.legacy_metadata_archive).read_text()
+        )
+        assert archived["id"] == CANONICAL_3GB1_PROJECT_ID
+
+    def test_damaged_legacy_snapshot_does_not_suppress_fresh_preservation(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        workflow_path = tmp_path / "workflow.json"
+        workflow_path.write_text(SAMPLE_WORKFLOW_JSON)
+
+        from core import TypeRegistry, ModuleRegistry, discover_modules
+        type_registry = TypeRegistry()
+        module_registry = ModuleRegistry(type_registry)
+        discover_modules(module_registry)
+        manager = ProjectManager(
+            root_dir=tmp_path / "projects",
+            module_registry=module_registry,
+        )
+        canonical = manager.ensure_seed_project(workflow_path)
+        canonical_dir = manager.project_dir(canonical.id)
+        original_metadata = (canonical_dir / "project.json").read_text()
+
+        def make_same_user_edit() -> None:
+            (canonical_dir / "project.json").write_text(original_metadata)
+            changed = json.loads(
+                (canonical_dir / "workflow.json").read_text()
+            )
+            changed["nodes"][0]["parameters"] = {"prefix": "user edit"}
+            (canonical_dir / "workflow.json").write_text(
+                json.dumps(changed)
+            )
+
+        make_same_user_edit()
+        manager.ensure_seed_project(workflow_path)
+        first_legacy = next(
+            project
+            for project in manager.list_projects()
+            if project.legacy_seed
+        )
+        (manager.project_dir(first_legacy.id) / "workflow.json").write_text(
+            '{"damaged": true}'
+        )
+
+        make_same_user_edit()
+        manager.ensure_seed_project(workflow_path)
+
+        legacy_projects = [
+            project
+            for project in manager.list_projects()
+            if project.legacy_seed
+        ]
+        assert len(legacy_projects) == 2
+        intact = next(
+            project
+            for project in legacy_projects
+            if project.id != first_legacy.id
+        )
+        assert (
+            manager.load_workflow(intact.id)
+            .nodes["n1"]
+            .parameters["prefix"]
+            == "user edit"
+        )
+
     def test_staging_mismatch_never_publishes_canonical(
         self,
         tmp_path: Path,
