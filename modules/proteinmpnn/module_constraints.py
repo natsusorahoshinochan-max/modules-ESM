@@ -9,6 +9,7 @@ from core.module_definition import ModuleDefinition
 from core.run_context import RunContext
 from core.workflow_module import WorkflowModule
 from datatypes import ProteinMPNNConstraints
+from modules.proteinmpnn.constraint_validation import validate_constraints
 
 _ALPHABET = set("ACDEFGHIKLMNPQRSTVWYX")
 
@@ -216,4 +217,5 @@ class ProteinMPNNConstraintsModule(WorkflowModule):
             tied_positions=tied_groups,
             bias_by_res=bias_by_res,
         )
+        validate_constraints(constraints)
         return {"constraints": constraints}

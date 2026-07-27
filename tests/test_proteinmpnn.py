@@ -132,7 +132,7 @@ class TestConstraintsModule:
                 "fixed_chains": '["B"]',
                 "omit_amino_acids": '["C", "M"]',
                 "tied_positions": "[[0, 2, 5], [1, 4]]",
-                "bias_by_res": '{"0": {"A": 1.5}, "5": {"G": -0.25}}',
+                "bias_by_res": '{"6": {"A": 1.5}, "7": {"G": -0.25}}',
             },
             RunContext("/tmp/test", "n1"),
         )
@@ -144,7 +144,7 @@ class TestConstraintsModule:
             fixed_chains=["B"],
             omit_amino_acids=["C", "M"],
             tied_positions=[[0, 2, 5], [1, 4]],
-            bias_by_res={0: {"A": 1.5}, 5: {"G": -0.25}},
+            bias_by_res={6: {"A": 1.5}, 7: {"G": -0.25}},
         )
 
     def test_empty_string_yields_none(self) -> None:
@@ -436,7 +436,7 @@ class TestProteinMPNNDesign:
         [
             (
                 ProteinMPNNConstraints(fixed_positions=[-1]),
-                "position -1 must be a non-negative zero-based",
+                "fixed_positions.*non-negative zero-based",
             ),
             (
                 ProteinMPNNConstraints(fixed_positions=[5]),
@@ -455,15 +455,15 @@ class TestProteinMPNNDesign:
             ),
             (
                 ProteinMPNNConstraints(tied_positions=[[0]]),
-                "tied position group.*at least two",
+                "tied_positions group.*at least two",
             ),
             (
                 ProteinMPNNConstraints(omit_amino_acids=["B"]),
-                "unsupported amino acids in omit_amino_acids.*B",
+                "omit_amino_acids.*unsupported amino acids.*B",
             ),
             (
                 ProteinMPNNConstraints(bias_by_res={0: {"B": 1.0}}),
-                "unsupported amino acid 'B' in bias_by_res",
+                "bias_by_res.*unsupported amino acid 'B'",
             ),
             (
                 ProteinMPNNConstraints(
@@ -530,6 +530,18 @@ class TestProteinMPNNDesign:
                     bias_by_res={0: {"A": 1.0}},
                 ),
                 "bias_by_res position 0 targets globally omitted amino acid A",
+            ),
+            (
+                ProteinMPNNConstraints(
+                    bias_by_res={0: {"A": True}},
+                ),
+                "bias_by_res bias for 0/A must be numeric",
+            ),
+            (
+                ProteinMPNNConstraints(
+                    designed_chains=[1],
+                ),
+                "designed_chains entries must be non-empty strings",
             ),
         ],
     )
