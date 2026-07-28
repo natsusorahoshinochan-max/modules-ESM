@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import base64
+from concurrent.futures import ThreadPoolExecutor
 import hashlib
 import importlib
 import json
@@ -15,8 +16,10 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
+from core import Workflow
 from core.run_context import RunContext
-from datatypes import ProteinSequence, ProteinStructure
+from core.run_manifest import RunManifest, RunManifestStore, read_run_manifest
+from datatypes import ProteinSequence, ProteinStructure, StructureAlignment
 
 
 def _enable_gate(monkeypatch, tmp_path: Path, tier: str) -> Path:
@@ -1079,6 +1082,263 @@ def test_fresh_provider_evidence_binds_run_node_and_candidate(
     assert "secret" not in retained
     assert "sequence" not in event
     assert "pdb_string" not in event
+
+
+def test_source_bound_scientific_calls_are_concurrent_run_isolated_and_redacted(
+    tmp_path: Path,
+) -> None:
+    from core.provider_evidence import record_provider_call_result
+
+    def record(run_id: str, candidate_id: str) -> tuple[bool, dict]:
+        run_dir = tmp_path / "runs" / run_id
+        manifest = RunManifest.for_execution(
+            project_id="scientific-project",
+            run_id=run_id,
+            workflow=Workflow(),
+            modules={},
+            seed=42,
+            source_dir=tmp_path,
+        )
+        with RunManifestStore(run_dir, manifest) as store:
+            context = RunContext(
+                str(tmp_path),
+                "align",
+                run_id=run_id,
+                _manifest_store=store,
+            )
+            token = context.activate()
+            try:
+                appended_outer_evidence = record_provider_call_result(
+                    provider="biopython-svd",
+                    operation="structure_align",
+                    model="PairwiseAligner+SVDSuperimposer",
+                    provider_identity={
+                        "algorithm": "sequence-aware-svd",
+                    },
+                    effective_seed=None,
+                    seed_control="deterministic_no_rng",
+                    result_summary={
+                        "reference_length": 56,
+                        "mobile_length": 56,
+                        "aligned_residues": 56,
+                        "rmsd": 0.5,
+                        "coverage": 1.0,
+                    },
+                    manifest_details={
+                        "candidate_id": candidate_id,
+                        "input_identity": {
+                            "reference_pdb_bytes": 80,
+                            "reference_pdb_sha256": "1" * 64,
+                            "mobile_pdb_bytes": 80,
+                            "mobile_pdb_sha256": "2" * 64,
+                        },
+                    },
+                )
+            finally:
+                context.deactivate(token)
+        return appended_outer_evidence, read_run_manifest(run_dir)
+
+    raw_secret = "sk-123456789ABCDE"
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        first = pool.submit(record, "run-a", "candidate-a")
+        second = pool.submit(record, "run-b", raw_secret)
+        first_outer, first_manifest = first.result(timeout=5)
+        second_outer, second_manifest = second.result(timeout=5)
+
+    assert first_outer is second_outer is False
+    assert first_manifest["run_id"] == "run-a"
+    assert second_manifest["run_id"] == "run-b"
+    assert [
+        call["details"]["candidate_id"]
+        for call in first_manifest["providers"]["calls"]
+    ] == ["candidate-a"]
+    assert [
+        call["details"]["candidate_id"]
+        for call in second_manifest["providers"]["calls"]
+    ] == ["[REDACTED]"]
+    assert raw_secret not in json.dumps(second_manifest, sort_keys=True)
+    for manifest in (first_manifest, second_manifest):
+        assert manifest["providers"]["calls"][0]["details"]["result"] == {
+            "status": "succeeded",
+            "summary": {
+                "aligned_residues": 56,
+                "coverage": 1.0,
+                "mobile_length": 56,
+                "reference_length": 56,
+                "rmsd": 0.5,
+            },
+        }
+
+
+def test_ambiguous_alignment_records_tmtools_tiebreak_in_run_manifest(
+    tmp_path: Path,
+) -> None:
+    from modules.structure_align.module import StructureAlignModule
+
+    residue_names = {
+        "A": "ALA",
+        "G": "GLY",
+        "S": "SER",
+        "T": "THR",
+    }
+
+    def repetitive_pdb(sequence: str) -> str:
+        return "\n".join([
+            *[
+                (
+                    f"ATOM  {index:5d}  CA  "
+                    f"{residue_names[amino_acid]} A{index:4d}    "
+                    f"{index * 1.5:8.3f}{index % 3:8.3f}"
+                    f"{index % 2:8.3f}  1.00  0.00           C"
+                )
+                for index, amino_acid in enumerate(sequence, start=1)
+            ],
+            "END",
+            "",
+        ])
+
+    run_dir = tmp_path / "runs" / "ambiguous-alignment"
+    manifest = RunManifest.for_execution(
+        project_id="scientific-project",
+        run_id="ambiguous-alignment",
+        workflow=Workflow(),
+        modules={},
+        seed=42,
+        source_dir=tmp_path,
+    )
+    with RunManifestStore(run_dir, manifest) as store:
+        context = RunContext(
+            str(tmp_path),
+            "align",
+            run_id="ambiguous-alignment",
+            _manifest_store=store,
+        )
+        token = context.activate()
+        try:
+            StructureAlignModule().run(
+                {
+                    "reference": ProteinStructure(
+                        pdb_string=repetitive_pdb(
+                            "GTSAGTATSTSTGGSTGGGAGTAGTSGASGTGGGGSAATS"
+                        ),
+                    ),
+                    "mobile": ProteinStructure(
+                        pdb_string=repetitive_pdb(
+                            "SATS GTTSSASAAGTAAASTTGSTSGSSSGTTTTTASAAGSGSS"
+                            .replace(" ", "")
+                        ),
+                    ),
+                },
+                {},
+                context,
+            )
+        finally:
+            context.deactivate(token)
+
+    persisted = read_run_manifest(run_dir)
+    assert [
+        (call["provider"], call["operation"])
+        for call in persisted["providers"]["calls"]
+    ] == [
+        ("tmtools", "structure_align_tiebreak"),
+        ("biopython-svd", "structure_align"),
+    ]
+
+
+def test_scientific_manifest_details_reject_forged_node_attribution() -> None:
+    from core.provider_evidence import record_provider_call_result
+
+    with pytest.raises(ValueError, match="non-allowlisted"):
+        record_provider_call_result(
+            provider="biopython-svd",
+            operation="structure_align",
+            model="PairwiseAligner+SVDSuperimposer",
+            provider_identity={"algorithm": "sequence-aware-svd"},
+            effective_seed=None,
+            seed_control="deterministic_no_rng",
+            result_summary={
+                "reference_length": 3,
+                "mobile_length": 3,
+                "aligned_residues": 3,
+                "rmsd": 0.0,
+                "coverage": 1.0,
+            },
+            manifest_details={
+                "node_id": "forged-node",
+                "input_identity": {
+                    "reference_pdb_bytes": 80,
+                    "reference_pdb_sha256": "1" * 64,
+                    "mobile_pdb_bytes": 80,
+                    "mobile_pdb_sha256": "2" * 64,
+                },
+            },
+        )
+
+
+def test_tm_manifest_digest_binds_complete_engine_coordinates(
+    tmp_path: Path,
+) -> None:
+    from modules.structure_tm_score.scoring import (
+        calculate_reference_normalized_tm_score,
+    )
+
+    run_dir = tmp_path / "runs" / "tm-input-digests"
+    manifest = RunManifest.for_execution(
+        project_id="scientific-project",
+        run_id="tm-input-digests",
+        workflow=Workflow(),
+        modules={},
+        seed=42,
+        source_dir=tmp_path,
+    )
+    base_coordinates = [
+        [0.0, 0.0, 0.0],
+        [1.0, 0.0, 0.0],
+        [0.0, 1.0, 0.0],
+    ]
+    shifted_coordinates = [
+        [coordinate + 10.0 for coordinate in point]
+        for point in base_coordinates
+    ]
+    with RunManifestStore(run_dir, manifest) as store:
+        context = RunContext(
+            str(tmp_path),
+            "tm-score",
+            run_id="tm-input-digests",
+            _manifest_store=store,
+        )
+        token = context.activate()
+        try:
+            for candidate_id, reference_coordinates in (
+                ("candidate-a", base_coordinates),
+                ("candidate-b", shifted_coordinates),
+            ):
+                calculate_reference_normalized_tm_score(
+                    StructureAlignment(
+                        residue_map=[
+                            ("A:1", "A:1"),
+                            ("A:2", "A:2"),
+                            ("A:3", "A:3"),
+                        ],
+                        reference_length=3,
+                        mobile_length=3,
+                        aligned_reference_indices=[0, 1, 2],
+                        aligned_mobile_indices=[0, 1, 2],
+                        aligned_reference_coordinates=reference_coordinates,
+                        aligned_mobile_coordinates=base_coordinates,
+                        aligned_distances=[0.0, 0.0, 0.0],
+                    ),
+                    call_details={"candidate_id": candidate_id},
+                )
+        finally:
+            context.deactivate(token)
+
+    calls = read_run_manifest(run_dir)["providers"]["calls"]
+    assert len(calls) == 2
+    assert len({
+        call["details"]["input_identity"]["tm_align_input_sha256"]
+        for call in calls
+    }) == 2
 
 
 def test_provider_evidence_redacts_token_shaped_candidate_ids(

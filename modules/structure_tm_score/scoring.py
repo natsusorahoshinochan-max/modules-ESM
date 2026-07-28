@@ -1,8 +1,10 @@
 """Standard TM-score calculation from shared StructureAlignment evidence."""
 
 from dataclasses import dataclass
+import hashlib
 from importlib.metadata import version
 from math import isfinite
+from typing import Any
 
 import numpy as np
 from tmtools import tm_align
@@ -17,6 +19,33 @@ class ReferenceNormalizedTMScore:
     aligned_residues: int
     reference_coverage: float
     d0: float
+
+
+def _tm_align_input_sha256(
+    reference_coordinates: np.ndarray,
+    mobile_coordinates: np.ndarray,
+    reference_sequence: str,
+    mobile_sequence: str,
+    fixed_alignment: tuple[str, str],
+) -> str:
+    digest = hashlib.sha256()
+    for label, coordinates in (
+        (b"reference", reference_coordinates),
+        (b"mobile", mobile_coordinates),
+    ):
+        canonical = np.asarray(coordinates, dtype="<f8", order="C")
+        digest.update(label)
+        digest.update(str(canonical.shape).encode())
+        digest.update(canonical.tobytes(order="C"))
+    for label, value in (
+        (b"reference_sequence", reference_sequence),
+        (b"mobile_sequence", mobile_sequence),
+        (b"fixed_reference_alignment", fixed_alignment[0]),
+        (b"fixed_mobile_alignment", fixed_alignment[1]),
+    ):
+        digest.update(label)
+        digest.update(value.encode())
+    return digest.hexdigest()
 
 
 def _fixed_correspondence_alignment(
@@ -61,6 +90,8 @@ def _fixed_correspondence_alignment(
 
 def calculate_reference_normalized_tm_score(
     alignment: StructureAlignment,
+    *,
+    call_details: dict[str, Any] | None = None,
 ) -> ReferenceNormalizedTMScore:
     """Calculate standard TM-score terms normalized by reference length."""
     normalization_length = alignment.reference_length
@@ -136,6 +167,7 @@ def calculate_reference_normalized_tm_score(
     d0 = max(d0, 0.5)
 
     value = 0.0
+    tm_align_input_sha256: str | None = None
     if aligned_residues:
         full_reference_coordinates = np.zeros(
             (normalization_length, 3),
@@ -157,11 +189,20 @@ def calculate_reference_normalized_tm_score(
             alignment.aligned_reference_indices,
             alignment.aligned_mobile_indices,
         )
+        reference_sequence = "A" * normalization_length
+        mobile_sequence = "A" * alignment.mobile_length
+        tm_align_input_sha256 = _tm_align_input_sha256(
+            full_reference_coordinates,
+            full_mobile_coordinates,
+            reference_sequence,
+            mobile_sequence,
+            fixed_alignment,
+        )
         optimized = tm_align(
             full_reference_coordinates,
             full_mobile_coordinates,
-            "A" * normalization_length,
-            "A" * alignment.mobile_length,
+            reference_sequence,
+            mobile_sequence,
             fixed_alignment,
         )
         transformed_mobile = (
@@ -185,6 +226,7 @@ def calculate_reference_normalized_tm_score(
         d0=d0,
     )
     if aligned_residues:
+        assert tm_align_input_sha256 is not None
         from core.provider_evidence import record_provider_call_result
 
         record_provider_call_result(
@@ -202,6 +244,12 @@ def calculate_reference_normalized_tm_score(
                 "reference_coverage": result.reference_coverage,
                 "d0": result.d0,
             },
+            manifest_details={
+                **(call_details or {}),
+                "input_identity": {
+                    "tm_align_input_sha256": tm_align_input_sha256,
+                },
+            },
         )
     return result
 
@@ -211,9 +259,13 @@ def score_reference_normalized_alignment(
     *,
     score_id: str,
     subjects: list[str],
+    call_details: dict[str, Any] | None = None,
 ) -> Score:
     """Create a Score with explicit reference-normalization semantics."""
-    tm_score = calculate_reference_normalized_tm_score(alignment)
+    tm_score = calculate_reference_normalized_tm_score(
+        alignment,
+        call_details=call_details,
+    )
     return Score(
         score_id=score_id,
         value=round(tm_score.value, 4),

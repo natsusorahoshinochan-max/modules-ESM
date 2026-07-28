@@ -2,7 +2,9 @@
 
 from collections import Counter
 from dataclasses import dataclass
+import hashlib
 from importlib.metadata import version
+from typing import Any
 
 import numpy as np
 from Bio.Align import PairwiseAligner, substitution_matrices
@@ -42,6 +44,9 @@ _MAX_EXHAUSTIVE_SEQUENCE_ALIGNMENTS = 1024
 
 def _record_alignment_evidence(
     alignment: StructureAlignment,
+    *,
+    input_identity: dict[str, Any],
+    call_details: dict[str, Any] | None,
 ) -> StructureAlignment:
     from core.provider_evidence import record_provider_call_result
 
@@ -61,6 +66,10 @@ def _record_alignment_evidence(
             "aligned_residues": len(alignment.residue_map),
             "rmsd": float(alignment.rmsd),
             "coverage": float(alignment.coverage),
+        },
+        manifest_details={
+            **(call_details or {}),
+            "input_identity": input_identity,
         },
     )
     return alignment
@@ -138,6 +147,8 @@ def _sequence_correspondence(
     mobile_sequence: str,
     reference_coordinates: np.ndarray,
     mobile_coordinates: np.ndarray,
+    *,
+    manifest_details: dict[str, Any],
 ) -> tuple[list[int], list[int]]:
     """Return sequence-optimal pairs with structure-aware tie resolution."""
     aligner = PairwiseAligner(mode="global")
@@ -184,6 +195,22 @@ def _sequence_correspondence(
             if reference_amino_acid != "-" and mobile_amino_acid != "-":
                 reference_indices.append(reference_index)
                 mobile_indices.append(mobile_index)
+        from core.provider_evidence import record_provider_call_result
+
+        record_provider_call_result(
+            provider="tmtools",
+            operation="structure_align_tiebreak",
+            model="tm_align-sequence-tiebreak",
+            provider_identity={"tmtools_version": version("tmtools")},
+            effective_seed=None,
+            seed_control="deterministic_no_rng",
+            result_summary={
+                "reference_length": len(reference_sequence),
+                "mobile_length": len(mobile_sequence),
+                "aligned_residues": len(reference_indices),
+            },
+            manifest_details=manifest_details,
+        )
         return reference_indices, mobile_indices
 
     best_correspondence: tuple[list[int], list[int]] | None = None
@@ -246,8 +273,20 @@ def _chain_map(
 def align_structures(
     reference: ProteinStructure,
     mobile: ProteinStructure,
+    *,
+    call_details: dict[str, Any] | None = None,
 ) -> StructureAlignment:
     """Build reproducible sequence correspondence and CA superposition evidence."""
+    input_identity = {
+        "reference_pdb_bytes": len(reference.pdb_string.encode()),
+        "reference_pdb_sha256": hashlib.sha256(
+            reference.pdb_string.encode()
+        ).hexdigest(),
+        "mobile_pdb_bytes": len(mobile.pdb_string.encode()),
+        "mobile_pdb_sha256": hashlib.sha256(
+            mobile.pdb_string.encode()
+        ).hexdigest(),
+    }
     reference_residues = _parse_pdb_ca(reference.pdb_string)
     mobile_residues = _parse_pdb_ca(mobile.pdb_string)
 
@@ -273,20 +312,28 @@ def align_structures(
         mobile_sequence,
         all_reference_coordinates,
         all_mobile_coordinates,
+        manifest_details={
+            **(call_details or {}),
+            "input_identity": input_identity,
+        },
     )
     if not reference_indices:
-        return _record_alignment_evidence(StructureAlignment(
-            rotation=[
-                [1.0, 0.0, 0.0],
-                [0.0, 1.0, 0.0],
-                [0.0, 0.0, 1.0],
-            ],
-            translation=[0.0, 0.0, 0.0],
-            reference_sequence=reference_sequence,
-            mobile_sequence=mobile_sequence,
-            reference_length=len(reference_residues),
-            mobile_length=len(mobile_residues),
-        ))
+        return _record_alignment_evidence(
+            StructureAlignment(
+                rotation=[
+                    [1.0, 0.0, 0.0],
+                    [0.0, 1.0, 0.0],
+                    [0.0, 0.0, 1.0],
+                ],
+                translation=[0.0, 0.0, 0.0],
+                reference_sequence=reference_sequence,
+                mobile_sequence=mobile_sequence,
+                reference_length=len(reference_residues),
+                mobile_length=len(mobile_residues),
+            ),
+            input_identity=input_identity,
+            call_details=call_details,
+        )
 
     reference_coordinates = np.asarray(
         [
@@ -310,37 +357,41 @@ def align_structures(
         axis=1,
     )
 
-    return _record_alignment_evidence(StructureAlignment(
-        residue_map=[
-            (
-                reference_residues[reference_index].pdb_label,
-                mobile_residues[mobile_index].pdb_label,
-            )
-            for reference_index, mobile_index in zip(
+    return _record_alignment_evidence(
+        StructureAlignment(
+            residue_map=[
+                (
+                    reference_residues[reference_index].pdb_label,
+                    mobile_residues[mobile_index].pdb_label,
+                )
+                for reference_index, mobile_index in zip(
+                    reference_indices,
+                    mobile_indices,
+                )
+            ],
+            chain_map=_chain_map(
+                reference_residues,
+                mobile_residues,
                 reference_indices,
                 mobile_indices,
-            )
-        ],
-        chain_map=_chain_map(
-            reference_residues,
-            mobile_residues,
-            reference_indices,
-            mobile_indices,
+            ),
+            rotation=rotation_array.tolist(),
+            translation=translation_array.tolist(),
+            rmsd=float(superimposer.get_rms()),
+            coverage=(
+                len(reference_indices)
+                / max(len(reference_residues), len(mobile_residues))
+            ),
+            reference_sequence=reference_sequence,
+            mobile_sequence=mobile_sequence,
+            reference_length=len(reference_residues),
+            mobile_length=len(mobile_residues),
+            aligned_reference_indices=reference_indices,
+            aligned_mobile_indices=mobile_indices,
+            aligned_reference_coordinates=reference_coordinates.tolist(),
+            aligned_mobile_coordinates=mobile_coordinates.tolist(),
+            aligned_distances=distances.tolist(),
         ),
-        rotation=rotation_array.tolist(),
-        translation=translation_array.tolist(),
-        rmsd=float(superimposer.get_rms()),
-        coverage=(
-            len(reference_indices)
-            / max(len(reference_residues), len(mobile_residues))
-        ),
-        reference_sequence=reference_sequence,
-        mobile_sequence=mobile_sequence,
-        reference_length=len(reference_residues),
-        mobile_length=len(mobile_residues),
-        aligned_reference_indices=reference_indices,
-        aligned_mobile_indices=mobile_indices,
-        aligned_reference_coordinates=reference_coordinates.tolist(),
-        aligned_mobile_coordinates=mobile_coordinates.tolist(),
-        aligned_distances=distances.tolist(),
-    ))
+        input_identity=input_identity,
+        call_details=call_details,
+    )

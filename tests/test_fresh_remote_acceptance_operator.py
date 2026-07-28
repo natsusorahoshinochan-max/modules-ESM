@@ -285,6 +285,34 @@ def _complete_public_run() -> tuple[
             "esmfold2-fast-2026-05",
             15,
         ),
+        (
+            "align_3gb1",
+            "biopython-svd",
+            "structure_align",
+            "PairwiseAligner+SVDSuperimposer",
+            10,
+        ),
+        (
+            "align_pw",
+            "biopython-svd",
+            "structure_align",
+            "PairwiseAligner+SVDSuperimposer",
+            10,
+        ),
+        (
+            "tm_3gb1",
+            "tmtools",
+            "tm_score",
+            "tm_align-fixed-correspondence",
+            10,
+        ),
+        (
+            "tm_esm3",
+            "tmtools",
+            "tm_score",
+            "tm_align-fixed-correspondence",
+            10,
+        ),
     ):
         provider_calls.extend({
             "provider": provider,
@@ -502,6 +530,8 @@ def test_operator_retrieves_exactly_fifteen_run_bound_pdbs_and_seals_bundle(
         ("biohub", "fold"): 25,
         ("local-proteinmpnn", "design_sequences"): 3,
         ("mkdssp", "secondary_structure"): 1,
+        ("biopython-svd", "structure_align"): 20,
+        ("tmtools", "tm_score"): 20,
     })
     assert len(client.requested) == 15
     assert {request[:2] for request in client.requested} == {

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+from collections import Counter
 import json
 import os
 import pickle
@@ -988,6 +989,104 @@ def test_provider_readiness_is_distinct_from_redacted_actual_calls(
     assert "readiness-placeholder-value" not in origin_text + cache_hit_text
     assert "runtime-placeholder" not in origin_text + cache_hit_text
     assert "dXNlcjpwYXNz" not in origin_text + cache_hit_text
+
+
+def test_scientific_engine_calls_are_absent_from_cache_replay_manifest(
+    tmp_path: Path,
+) -> None:
+    from modules.import_structure.module import ImportStructureModule
+    from modules.structure_align.module import StructureAlignModule
+    from modules.structure_tm_score.module import StructureTMScoreModule
+
+    project_dir = tmp_path / "project"
+    inputs = project_dir / "inputs"
+    inputs.mkdir(parents=True)
+    pdb = (
+        Path(__file__).parent.parent / "pdbs" / "3GB1.pdb"
+    ).read_text()
+    (inputs / "reference.pdb").write_text(pdb)
+    (inputs / "mobile.pdb").write_text(pdb)
+
+    workflow = Workflow()
+    workflow.add_node(WorkflowNode(
+        "reference",
+        "import.structure",
+        "1.0.0",
+        {"file_path": "reference.pdb"},
+    ))
+    workflow.add_node(WorkflowNode(
+        "mobile",
+        "import.structure",
+        "1.0.0",
+        {"file_path": "mobile.pdb"},
+    ))
+    workflow.add_node(WorkflowNode(
+        "align",
+        "structure.align",
+        "1.0.0",
+    ))
+    workflow.add_node(WorkflowNode(
+        "score",
+        "structure.tm_score",
+        "2.0.0",
+        {"candidate_id": "candidate-a", "score_id": "tm_score"},
+    ))
+    workflow.add_edge(WorkflowEdge(
+        "reference",
+        "structure",
+        "align",
+        "reference",
+    ))
+    workflow.add_edge(WorkflowEdge(
+        "mobile",
+        "structure",
+        "align",
+        "mobile",
+    ))
+    workflow.add_edge(WorkflowEdge(
+        "align",
+        "alignment",
+        "score",
+        "alignment",
+    ))
+    modules = {
+        "import.structure": ImportStructureModule(),
+        "structure.align": StructureAlignModule(),
+        "structure.tm_score": StructureTMScoreModule(),
+    }
+
+    for run_id in ("scientific-origin", "scientific-cache-hit"):
+        asyncio.run(Executor().execute(
+            workflow,
+            modules,
+            str(project_dir),
+            run_id,
+            project_id="project-11",
+        ))
+
+    origin = read_run_manifest(
+        project_dir / "runs" / "scientific-origin"
+    )
+    cache_hit = read_run_manifest(
+        project_dir / "runs" / "scientific-cache-hit"
+    )
+    assert Counter(
+        (call["provider"], call["operation"])
+        for call in origin["providers"]["calls"]
+    ) == Counter({
+        ("biopython-svd", "structure_align"): 1,
+        ("tmtools", "tm_score"): 1,
+    })
+    assert cache_hit["providers"]["calls"] == []
+    assert {
+        fact["node_id"]: fact["outcome"]
+        for fact in cache_hit["cache"]
+    } == {
+        "reference": "hit",
+        "mobile": "hit",
+        "align": "hit",
+        "score": "hit",
+    }
 
 
 def test_candidate_lineage_and_artifact_integrity_are_run_bound(

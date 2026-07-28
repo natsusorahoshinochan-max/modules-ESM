@@ -59,6 +59,10 @@ class BatchTMScoreModule(WorkflowModule):
                     alignment,
                     score_id=score_id,
                     subjects=[cand.candidate_id],
+                    call_details={
+                        "candidate_id": cand.candidate_id,
+                        "score_id": score_id,
+                    },
                 )
             )
 

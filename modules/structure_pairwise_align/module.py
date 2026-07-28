@@ -90,7 +90,21 @@ class PairwiseAlignModule(WorkflowModule):
                     f"is not a ProteinStructure"
                 )
 
-            alignment = align_structures(ref_struct, mob_struct)
+            alignment = align_structures(
+                ref_struct,
+                mob_struct,
+                call_details={
+                    "candidate_id": (
+                        mob_item.candidate_id
+                        if ref_item is None
+                        else ref_item.candidate_id
+                    ),
+                    "reference_candidate_id": (
+                        None if ref_item is None else ref_item.candidate_id
+                    ),
+                    "mobile_candidate_id": mob_item.candidate_id,
+                },
+            )
 
             alignment_candidates.append(
                 Candidate(

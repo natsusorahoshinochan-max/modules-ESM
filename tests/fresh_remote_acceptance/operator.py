@@ -62,6 +62,8 @@ RUN_PROVIDER_CALL_COUNTS = Counter({
     ("biohub", "fold"): 25,
     ("local-proteinmpnn", "design_sequences"): 3,
     ("mkdssp", "secondary_structure"): 1,
+    ("biopython-svd", "structure_align"): 20,
+    ("tmtools", "tm_score"): 20,
 })
 WEIGHTED_METRICS = [
     {"score": "tm_vs_3gb1", "weight": 0.7},
@@ -590,7 +592,7 @@ def validate_fresh_remote_contract(
         for call in calls
     )
     if provider_call_counts != RUN_PROVIDER_CALL_COUNTS:
-        raise AssertionError("run manifest provider call attempts are incomplete")
+        raise AssertionError("run manifest scientific call facts are incomplete")
     if any(
         not call.get("model")
         or not isinstance(call.get("details"), dict)

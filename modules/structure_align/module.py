@@ -33,4 +33,13 @@ class StructureAlignModule(WorkflowModule):
         if mob_struct is None:
             raise ValueError("mobile input is required")
 
-        return {"alignment": align_structures(ref_struct, mob_struct)}
+        return {
+            "alignment": align_structures(
+                ref_struct,
+                mob_struct,
+                call_details={
+                    "reference_input": "reference",
+                    "mobile_input": "mobile",
+                },
+            )
+        }

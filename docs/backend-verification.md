@@ -109,11 +109,13 @@ The exact successful real-boundary multiplicities are:
 - `biopython-svd:structure_align` × 20;
 - `tmtools:tm_score` × 20.
 
-That is 89 source-bound successful events. The backend run manifest also retains
-the 49 Node-scoped provider call attempts (20 ESM3, 25 ESMFold2, 3 ProteinMPNN,
-and 1 mkdssp). The verifier rejects a missing or extra call, a Cache hit, a dirty
-or changed source, a non-terminal run, incomplete lineage or scoring, a mismatched
-artifact, a skipped test, or a missing evidence file.
+That is 89 source-bound successful events, all retained directly by the backend
+run manifest: 49 existing Node-scoped provider call facts plus 20 alignment and
+20 TM-score engine success facts. The separate gate evidence stream corroborates
+those facts but no longer supplies calls missing from the public manifest. The
+verifier rejects a missing or extra call, a Cache hit, a dirty or changed source,
+a non-terminal run, incomplete lineage or scoring, a mismatched artifact, a
+skipped test, or a missing evidence file.
 
 Use an explicit token path and locked local roots:
 

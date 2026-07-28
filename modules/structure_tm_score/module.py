@@ -41,6 +41,10 @@ class StructureTMScoreModule(WorkflowModule):
                 alignment,
                 score_id=score_id,
                 subjects=[candidate_id],
+                call_details={
+                    "candidate_id": candidate_id,
+                    "score_id": score_id,
+                },
             )
         ]
 

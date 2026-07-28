@@ -263,6 +263,10 @@ def test_canonical_workflow_produces_fifteen_auditable_pdbs(
         "compute_ss": 1,
         "esm3_gen": 20,
         "fold_seq": 10,
+        "align_3gb1": 10,
+        "tm_3gb1": 10,
+        "align_pw": 10,
+        "tm_esm3": 10,
         "mpnn_0": 3,
         "final_fold": 15,
     })
@@ -271,6 +275,34 @@ def test_canonical_workflow_produces_fifteen_auditable_pdbs(
     assert mpnn.parent_calls == 3
 
     provider_calls = manifest["providers"]["calls"]
+    scientific_calls = [
+        call
+        for call in provider_calls
+        if call["provider"] in {"biopython-svd", "tmtools"}
+    ]
+    assert [
+        (
+            call["details"]["node_id"],
+            call["provider"],
+            call["operation"],
+        )
+        for call in scientific_calls
+    ] == [
+        ("align_3gb1", "biopython-svd", "structure_align")
+    ] * 10 + [
+        ("align_pw", "biopython-svd", "structure_align")
+    ] * 10 + [
+        ("tm_3gb1", "tmtools", "tm_score")
+    ] * 10 + [
+        ("tm_esm3", "tmtools", "tm_score")
+    ] * 10
+    assert all(
+        call["details"]["actual_call"] is True
+        and call["details"]["call_count"] == 1
+        and call["details"]["result"]["status"] == "succeeded"
+        and call["details"]["candidate_id"]
+        for call in scientific_calls
+    )
     esm3_calls = [
         call for call in provider_calls
         if call["details"]["node_id"] == "esm3_gen"

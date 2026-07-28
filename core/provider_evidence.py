@@ -10,6 +10,8 @@ from pathlib import Path
 from typing import Any
 from uuid import uuid4
 
+from core.storage import validate_identifier
+
 
 EVIDENCE_VERSION = 1
 _MAX_EVENT_BYTES = 16 * 1024
@@ -98,6 +100,11 @@ _RESULT_KEYS = {
         "rmsd",
         "coverage",
     }),
+    "structure_align_tiebreak": frozenset({
+        "reference_length",
+        "mobile_length",
+        "aligned_residues",
+    }),
     "tm_score": frozenset({
         "value",
         "normalization",
@@ -128,6 +135,47 @@ _RESULT_KEYS = {
         "score_values",
     }),
 }
+_MANIFEST_DETAIL_KEYS = {
+    "structure_align": frozenset({
+        "candidate_id",
+        "reference_candidate_id",
+        "mobile_candidate_id",
+        "reference_input",
+        "mobile_input",
+        "input_identity",
+    }),
+    "structure_align_tiebreak": frozenset({
+        "candidate_id",
+        "reference_candidate_id",
+        "mobile_candidate_id",
+        "reference_input",
+        "mobile_input",
+        "input_identity",
+    }),
+    "tm_score": frozenset({
+        "candidate_id",
+        "score_id",
+        "input_identity",
+    }),
+}
+_INPUT_IDENTITY_KEYS = {
+    "structure_align": {
+        "reference_pdb_bytes": int,
+        "reference_pdb_sha256": str,
+        "mobile_pdb_bytes": int,
+        "mobile_pdb_sha256": str,
+    },
+    "structure_align_tiebreak": {
+        "reference_pdb_bytes": int,
+        "reference_pdb_sha256": str,
+        "mobile_pdb_bytes": int,
+        "mobile_pdb_sha256": str,
+    },
+    "tm_score": {
+        "tm_align_input_sha256": str,
+    },
+}
+_SHA256 = re.compile(r"[0-9a-f]{64}\Z")
 
 
 def _bounded(value: Any) -> Any:
@@ -143,6 +191,58 @@ def _bounded(value: Any) -> Any:
             for key, item in list(value.items())[:128]
         }
     return f"<{type(value).__name__}>"
+
+
+def _validated_manifest_details(
+    operation: str,
+    details: dict[str, Any],
+) -> dict[str, Any]:
+    allowed_keys = _MANIFEST_DETAIL_KEYS.get(operation)
+    identity_schema = _INPUT_IDENTITY_KEYS.get(operation)
+    if (
+        allowed_keys is None
+        or identity_schema is None
+        or set(details) - allowed_keys
+    ):
+        raise ValueError(
+            "Provider call manifest details contain non-allowlisted fields"
+        )
+
+    safe: dict[str, Any] = {}
+    for key in (
+        "candidate_id",
+        "reference_candidate_id",
+        "mobile_candidate_id",
+        "score_id",
+        "reference_input",
+        "mobile_input",
+    ):
+        value = details.get(key)
+        if value is None and key == "reference_candidate_id":
+            safe[key] = None
+        elif value is not None:
+            safe[key] = validate_identifier(value, key)
+
+    input_identity = details.get("input_identity")
+    if (
+        not isinstance(input_identity, dict)
+        or set(input_identity) != set(identity_schema)
+    ):
+        raise ValueError("Provider call input identity is incomplete")
+    safe_identity: dict[str, Any] = {}
+    for key, expected_type in identity_schema.items():
+        value = input_identity[key]
+        if expected_type is int:
+            if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+                raise ValueError("Provider call input byte count is invalid")
+        elif not isinstance(value, str) or _SHA256.fullmatch(value) is None:
+            raise ValueError("Provider call input digest is invalid")
+        safe_identity[key] = value
+    safe["input_identity"] = safe_identity
+
+    bounded = _bounded(safe)
+    assert isinstance(bounded, dict)
+    return bounded
 
 
 def _test_id() -> str | None:
@@ -226,6 +326,7 @@ def record_provider_call_result(
     effective_seed: int | None,
     seed_control: str,
     result_summary: dict[str, Any],
+    manifest_details: dict[str, Any] | None = None,
 ) -> bool:
     """Record one successfully completed real call at its adapter boundary."""
     allowed_result_keys = _RESULT_KEYS.get(operation)
@@ -237,7 +338,7 @@ def record_provider_call_result(
         raise ValueError("Provider call evidence contains non-allowlisted fields")
     from core.run_context import RunContext
 
-    return _append_event({
+    event = {
         "event_type": "provider_call",
         "provider": provider,
         "operation": operation,
@@ -253,5 +354,29 @@ def record_provider_call_result(
             "status": "succeeded",
             "summary": result_summary,
         },
+    }
+    if manifest_details is not None:
+        safe_manifest_details = _validated_manifest_details(
+            operation,
+            manifest_details,
+        )
+        RunContext.record_active_provider_call(
+            provider,
+            operation,
+            model=model,
+            details={
+                **safe_manifest_details,
+                "provider_identity": provider_identity,
+                "readiness": event["readiness"],
+                "actual_call": event["actual_call"],
+                "call_count": event["call_count"],
+                "effective_seed": effective_seed,
+                "seed_control": seed_control,
+                "cache_decision": event["cache_decision"],
+                "result": event["result"],
+            },
+        )
+    return _append_event({
+        **event,
         **RunContext.active_provider_evidence(),
     })

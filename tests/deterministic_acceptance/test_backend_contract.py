@@ -255,6 +255,10 @@ def test_canonical_workflow_is_auditable_through_public_protocol(
         "compute_ss": 1,
         "esm3_gen": 20,
         "fold_seq": 10,
+        "align_3gb1": 10,
+        "align_pw": 10,
+        "tm_3gb1": 10,
+        "tm_esm3": 10,
         "mpnn_0": 3,
         "final_fold": 15,
     })
@@ -465,7 +469,7 @@ def test_repeated_canonical_execution_replays_cache_in_a_fresh_run_scope(
     assert [event["sequence"] for event in replay_events] == list(
         range(1, len(replay_events) + 1)
     )
-    assert len(first_manifest["providers"]["calls"]) == 49
+    assert len(first_manifest["providers"]["calls"]) == 89
     assert replay_manifest["providers"]["calls"] == []
     assert Counter(
         entry["outcome"] for entry in first_manifest["cache"]

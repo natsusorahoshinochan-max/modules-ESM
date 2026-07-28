@@ -447,46 +447,101 @@ def test_simplefold_collection_items_use_independent_staging_namespaces(
     )
 
 
-def test_public_manifest_contains_readiness_and_every_scientific_call(
+def test_public_manifest_contains_every_scientific_call(
     backend_client: BackendAcceptanceClient,
 ) -> None:
-    """The run manifest itself must own all 6 readiness and 89 call facts."""
+    """The run manifest itself must own all 89 scientific call facts."""
     accepted = backend_client.run_saved(PROJECT_ID, seed=4242)
     run_id = accepted["run_id"]
     backend_client.receive_run_events(PROJECT_ID, run_id)
     manifest = backend_client.manifest(PROJECT_ID, run_id)
 
-    providers = manifest["providers"]
-    observed = {
-        "readiness": Counter(
-            record["provider"] for record in providers["readiness"]
-        ),
-        "calls": Counter(
-            (record["provider"], record["operation"])
-            for record in providers["calls"]
-        ),
-    }
-    required = {
-        "readiness": Counter({
-            "biohub": 1,
-            "local_open": 1,
-            "controlled-proteinmpnn": 1,
-            "mkdssp": 1,
-            "biopython-svd": 1,
-            "tmtools": 1,
-        }),
-        "calls": Counter({
-            ("local_open", "generate(track=sequence)"): 10,
-            ("local_open", "generate(track=structure)"): 10,
-            ("biohub", "fold"): 25,
-            ("controlled-proteinmpnn", "design_sequences"): 3,
-            ("mkdssp", "secondary_structure"): 1,
-            ("biopython-svd", "structure_align"): 20,
-            ("tmtools", "tm_score"): 20,
-        }),
-    }
+    observed = Counter(
+        (record["provider"], record["operation"])
+        for record in manifest["providers"]["calls"]
+    )
+    required = Counter({
+        ("local_open", "generate(track=sequence)"): 10,
+        ("local_open", "generate(track=structure)"): 10,
+        ("biohub", "fold"): 25,
+        ("controlled-proteinmpnn", "design_sequences"): 3,
+        ("mkdssp", "secondary_structure"): 1,
+        ("biopython-svd", "structure_align"): 20,
+        ("tmtools", "tm_score"): 20,
+    })
     assert observed == required, (
         "Observed an incomplete public run manifest; repaired behavior must "
-        "source-bind 6 readiness records and all 89 scientific calls without "
-        "an outer acceptance evidence stream."
+        "source-bind all 89 scientific calls without an outer acceptance "
+        "evidence stream."
+    )
+    scientific_calls = [
+        record
+        for record in manifest["providers"]["calls"]
+        if record["provider"] in {"biopython-svd", "tmtools"}
+    ]
+    assert [
+        (
+            record["details"]["node_id"],
+            record["provider"],
+            record["operation"],
+        )
+        for record in scientific_calls
+    ] == [
+        ("align_3gb1", "biopython-svd", "structure_align")
+    ] * 10 + [
+        ("align_pw", "biopython-svd", "structure_align")
+    ] * 10 + [
+        ("tm_3gb1", "tmtools", "tm_score")
+    ] * 10 + [
+        ("tm_esm3", "tmtools", "tm_score")
+    ] * 10
+    assert all(
+        record["details"]["actual_call"] is True
+        and record["details"]["call_count"] == 1
+        and record["details"]["readiness"] == "ready_at_call_boundary"
+        and record["details"]["cache_decision"]
+        == "bypassed_fresh_direct_call"
+        and record["details"]["result"]["status"] == "succeeded"
+        and record["details"]["candidate_id"]
+        for record in scientific_calls
+    )
+    assert all(
+        len(record["details"]["input_identity"].get(
+            "tm_align_input_sha256",
+            record["details"]["input_identity"].get(
+                "reference_pdb_sha256",
+                "",
+            ),
+        )) == 64
+        for record in scientific_calls
+    )
+    manifest_text = json.dumps(manifest, sort_keys=True)
+    assert "authorization" not in manifest_text.lower()
+    assert "cookie" not in manifest_text.lower()
+
+
+def test_public_manifest_contains_every_readiness_fact(
+    backend_client: BackendAcceptanceClient,
+) -> None:
+    """The run manifest itself must own all 6 readiness facts."""
+    accepted = backend_client.run_saved(PROJECT_ID, seed=4242)
+    run_id = accepted["run_id"]
+    backend_client.receive_run_events(PROJECT_ID, run_id)
+    manifest = backend_client.manifest(PROJECT_ID, run_id)
+
+    observed = Counter(
+        record["provider"]
+        for record in manifest["providers"]["readiness"]
+    )
+    required = Counter({
+        "biohub": 1,
+        "local_open": 1,
+        "controlled-proteinmpnn": 1,
+        "mkdssp": 1,
+        "biopython-svd": 1,
+        "tmtools": 1,
+    })
+    assert observed == required, (
+        "Observed an incomplete public run manifest; repaired behavior must "
+        "source-bind all 6 readiness records separately from calls."
     )
