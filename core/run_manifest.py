@@ -17,7 +17,7 @@ from collections.abc import Iterable
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable, Literal
 
 from core.graph import Workflow
 from core.recovery_types import RecoveryProvenance
@@ -80,6 +80,7 @@ _MAX_MANIFEST_SCORES = 4096
 _MAX_SCORE_SUBJECTS = 32
 _MAX_SCORE_DETAILS_BYTES = 512 * 1024
 _MAX_SCORE_DETAILS_TOTAL_BYTES = 8 * 1024 * 1024
+ReadinessStatus = Literal["ready", "unavailable", "failed"]
 _ALLOWED_SCORE_DETAIL_KEYS = {
     "aligned_residues",
     "coarse",
@@ -444,6 +445,31 @@ class RunManifest:
         return _sanitize(result)
 
 
+@dataclass(frozen=True)
+class ResolvedProviderReadiness:
+    """One normalized readiness fact ready for public persistence."""
+
+    provider: str
+    status: ReadinessStatus
+    provider_identity: dict[str, Any]
+    source: dict[str, Any]
+    details: dict[str, Any]
+
+    @property
+    def ready(self) -> bool:
+        return self.status == "ready"
+
+    def to_dict(self) -> dict[str, Any]:
+        return _sanitize({
+            "provider": self.provider,
+            "status": self.status,
+            "ready": self.ready,
+            "provider_identity": self.provider_identity,
+            "source": self.source,
+            "details": self.details,
+        })
+
+
 def read_run_manifest(run_dir: str | Path) -> dict[str, Any]:
     """Read the complete durable JSON document for one contained run."""
     descriptor = open_private_regular_file(
@@ -629,6 +655,13 @@ class RunManifestStore:
         if source is not None:
             fact["source"] = source
         self.manifest.providers["readiness"].append(fact)
+        self.persist()
+
+    def record_resolved_provider_readiness(
+        self,
+        readiness: ResolvedProviderReadiness,
+    ) -> None:
+        self.manifest.providers["readiness"].append(readiness.to_dict())
         self.persist()
 
     def record_provider_call(
@@ -1062,3 +1095,35 @@ class RunManifestStore:
 
     def __exit__(self, *_: object) -> None:
         self.close()
+
+
+def create_run_manifest_store(
+    *,
+    run_dir: str | Path,
+    project_id: str,
+    run_id: str,
+    workflow: Workflow,
+    modules: dict[str, WorkflowModule],
+    seed: int,
+    source_dir: str | Path,
+    environment: dict[str, Any] | None = None,
+    recovery: RecoveryProvenance | None = None,
+    store_factory: Callable[
+        [str | Path, RunManifest],
+        RunManifestStore,
+    ] = RunManifestStore,
+) -> RunManifestStore:
+    """Create the canonical manifest owner for one run."""
+    return store_factory(
+        run_dir,
+        RunManifest.for_execution(
+            project_id=project_id,
+            run_id=run_id,
+            workflow=workflow,
+            modules=modules,
+            seed=seed,
+            source_dir=source_dir,
+            environment=environment,
+            recovery=recovery,
+        ),
+    )

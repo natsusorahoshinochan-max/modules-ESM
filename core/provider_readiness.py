@@ -3,12 +3,17 @@
 from __future__ import annotations
 
 import os
+import selectors
+import signal
+import stat
 import subprocess
+import threading
+import time
 from collections import defaultdict
 from dataclasses import dataclass
 from importlib.metadata import version
 from pathlib import Path
-from typing import Any, Callable, Iterable, Literal, Mapping
+from typing import Any, Callable, Iterable, Mapping
 
 from core.graph import Workflow
 from core.provider_contract import (
@@ -26,10 +31,15 @@ from core.provider_contract import (
     validate_installed_provider_checkout,
     validate_local_esm3_snapshot,
 )
-from core.run_manifest import sanitize_public_value
-
-
-ReadinessStatus = Literal["ready", "unavailable", "failed"]
+from core.run_manifest import (
+    ReadinessStatus,
+    ResolvedProviderReadiness,
+    sanitize_public_value,
+)
+from core.process_control import (
+    signal_process_group,
+    verification_uses_shared_process_group,
+)
 
 
 @dataclass(frozen=True)
@@ -69,23 +79,20 @@ ReadinessResolver = Callable[
 class WorkflowReadiness:
     """Normalized, fail-closed readiness for one submitted Workflow."""
 
-    facts: tuple[dict[str, Any], ...]
+    facts: tuple[ResolvedProviderReadiness, ...]
 
     @property
     def ready(self) -> bool:
-        return all(fact["status"] == "ready" for fact in self.facts)
+        return all(fact.ready for fact in self.facts)
 
-    def executor_payload(self) -> dict[str, dict[str, Any]]:
+    def executor_payload(self) -> dict[str, ResolvedProviderReadiness]:
         return {
-            str(fact["provider"]): {
-                "ready": fact["ready"],
-                "status": fact["status"],
-                "provider_identity": fact["provider_identity"],
-                "source": fact["source"],
-                "details": fact["details"],
-            }
+            fact.provider: fact
             for fact in self.facts
         }
+
+    def public_facts(self) -> list[dict[str, Any]]:
+        return [fact.to_dict() for fact in self.facts]
 
 
 _STATIC_PROVIDER_MODULES: dict[str, tuple[str, ...]] = {
@@ -187,7 +194,7 @@ def workflow_provider_requirements(
 def _normalized_fact(
     requirement: ProviderRequirement,
     fact: ProviderReadinessFact,
-) -> dict[str, Any]:
+) -> ResolvedProviderReadiness:
     status: ReadinessStatus = fact.status
     identity = sanitize_public_value(fact.provider_identity)
     details = sanitize_public_value(fact.details)
@@ -200,14 +207,13 @@ def _normalized_fact(
         status = "failed"
         identity = {"provider": requirement.provider}
         details = {"reason": "missing_provider_identity"}
-    return {
-        "provider": requirement.provider,
-        "status": status,
-        "ready": status == "ready",
-        "provider_identity": identity,
-        "source": requirement.source(),
-        "details": details,
-    }
+    return ResolvedProviderReadiness(
+        provider=requirement.provider,
+        status=status,
+        provider_identity=identity,
+        source=requirement.source(),
+        details=details,
+    )
 
 
 def assess_workflow_readiness(
@@ -244,7 +250,7 @@ def assess_workflow_readiness(
         if isinstance(fact, ProviderReadinessFact):
             by_provider[fact.provider].append(fact)
 
-    normalized: list[dict[str, Any]] = []
+    normalized: list[ResolvedProviderReadiness] = []
     for requirement in requirements:
         matches = by_provider.get(requirement.provider, [])
         if not matches:
@@ -343,27 +349,71 @@ def _probe_proteinmpnn(
 
 def _probe_mkdssp(requirement: ProviderRequirement) -> ProviderReadinessFact:
     binaries = requirement.options or ("/opt/homebrew/bin/mkdssp",)
-    versions: list[str] = []
+    approved_binary = os.environ.get(
+        "PROTEIN_WORKBENCH_MKDSSP_BINARY",
+        "/opt/homebrew/bin/mkdssp",
+    )
+    if any(binary != approved_binary for binary in binaries):
+        return _fact(
+            requirement,
+            status="failed",
+            identity={"binary": "mkdssp", "required_version": "4.6.1"},
+            details={"reason": "unapproved_binary_selection"},
+        )
+    configured_path = Path(approved_binary)
     try:
-        for binary in binaries:
-            completed = subprocess.run(
-                [binary, "--version"],
-                check=True,
-                capture_output=True,
-                text=True,
-                timeout=10,
-            )
-            versions.append(completed.stdout + completed.stderr)
-    except (OSError, subprocess.CalledProcessError, subprocess.TimeoutExpired):
+        approved_path = configured_path.resolve(strict=True)
+        approved_stat = approved_path.stat()
+    except OSError:
+        approved_path = configured_path
+        approved_stat = None
+    if (
+        not configured_path.is_absolute()
+        or approved_stat is None
+        or not stat.S_ISREG(approved_stat.st_mode)
+        or approved_stat.st_uid not in {0, os.geteuid()}
+        or approved_stat.st_mode & (stat.S_IWGRP | stat.S_IWOTH)
+    ):
         return _fact(
             requirement,
             status="unavailable",
             identity={"binary": "mkdssp", "required_version": "4.6.1"},
             details={"version_match": False},
         )
-    version_match = all(
-        "mkdssp version 4.6.1" in output
-        for output in versions
+    process: subprocess.Popen[bytes] | None = None
+    try:
+        process = subprocess.Popen(
+            [str(approved_path), "--version"],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            start_new_session=not verification_uses_shared_process_group(),
+        )
+        return_code, output = _bounded_process_output(
+            process,
+            limit=4096,
+            timeout=10,
+        )
+        version_output = output.decode(
+            "utf-8",
+            errors="replace",
+        )
+    except (OSError, RuntimeError, subprocess.TimeoutExpired):
+        if process is not None and process.poll() is None:
+            signal_process_group(
+                process.pid,
+                signal.SIGKILL,
+                fallback=process.kill,
+            )
+            process.wait()
+        return _fact(
+            requirement,
+            status="unavailable",
+            identity={"binary": "mkdssp", "required_version": "4.6.1"},
+            details={"version_match": False},
+        )
+    version_match = (
+        return_code == 0
+        and "mkdssp version 4.6.1" in version_output
     )
     return _fact(
         requirement,
@@ -371,6 +421,62 @@ def _probe_mkdssp(requirement: ProviderRequirement) -> ProviderReadinessFact:
         identity={"binary": "mkdssp", "required_version": "4.6.1"},
         details={"version_match": version_match},
     )
+
+
+def _bounded_process_output(
+    process: subprocess.Popen[bytes],
+    *,
+    limit: int,
+    timeout: float,
+) -> tuple[int, bytes]:
+    """Read one child pipe with a hard in-memory and write-time bound."""
+    if process.stdout is None:
+        raise RuntimeError("Provider readiness process has no output pipe")
+    descriptor = process.stdout.fileno()
+    os.set_blocking(descriptor, False)
+    selector = selectors.DefaultSelector()
+    selector.register(descriptor, selectors.EVENT_READ)
+    output = bytearray()
+    deadline = time.monotonic() + timeout
+    try:
+        while True:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                raise subprocess.TimeoutExpired(process.args, timeout)
+            events = selector.select(timeout=min(remaining, 0.1))
+            for _, _ in events:
+                chunk = os.read(
+                    descriptor,
+                    min(4096, limit + 1 - len(output)),
+                )
+                if chunk:
+                    output.extend(chunk)
+                    if len(output) > limit:
+                        raise RuntimeError(
+                            "Provider readiness output exceeded limit"
+                        )
+            return_code = process.poll()
+            if return_code is None:
+                continue
+            while len(output) <= limit:
+                try:
+                    chunk = os.read(
+                        descriptor,
+                        min(4096, limit + 1 - len(output)),
+                    )
+                except BlockingIOError:
+                    break
+                if not chunk:
+                    break
+                output.extend(chunk)
+            if len(output) > limit:
+                raise RuntimeError(
+                    "Provider readiness output exceeded limit"
+                )
+            return return_code, bytes(output)
+    finally:
+        selector.close()
+        process.stdout.close()
 
 
 def _probe_biopython(requirement: ProviderRequirement) -> ProviderReadinessFact:
@@ -528,3 +634,22 @@ def resolve_live_provider_readiness(
                 },
             ))
     return tuple(facts)
+
+
+class LiveProviderReadinessResolver:
+    """Serialize expensive live probes without retaining stale green facts."""
+
+    def __init__(self) -> None:
+        self._lock = threading.Lock()
+
+    def __call__(
+        self,
+        requirements: tuple[ProviderRequirement, ...],
+    ) -> tuple[ProviderReadinessFact, ...]:
+        facts: list[ProviderReadinessFact] = []
+        with self._lock:
+            for requirement in requirements:
+                facts.append(
+                    resolve_live_provider_readiness((requirement,))[0]
+                )
+        return tuple(facts)

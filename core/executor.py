@@ -21,7 +21,12 @@ from core.process_control import signal_process_group
 from core.provider_evidence import safe_error_type
 from core.recovery_types import RecoveryProvenance
 from core.run_context import RunContext
-from core.run_manifest import RunManifest, RunManifestStore, canonical_json
+from core.run_manifest import (
+    ResolvedProviderReadiness,
+    RunManifestStore,
+    canonical_json,
+    create_run_manifest_store,
+)
 from core.storage import (
     contained_path,
     remove_private_regular_file,
@@ -998,7 +1003,8 @@ class Executor:
                 "runs",
                 validate_identifier(run_id, "run_id"),
             )
-        manifest = RunManifest.for_execution(
+        with create_run_manifest_store(
+            run_dir=run_dir,
             project_id=effective_project_id,
             run_id=run_id,
             workflow=workflow,
@@ -1007,13 +1013,17 @@ class Executor:
             source_dir=source_dir or Path.cwd(),
             environment=environment,
             recovery=recovery,
-        )
-
-        with RunManifestStore(run_dir, manifest) as manifest_store:
+            store_factory=RunManifestStore,
+        ) as manifest_store:
             try:
                 for provider, readiness in sorted(
                     (provider_readiness or {}).items()
                 ):
+                    if isinstance(readiness, ResolvedProviderReadiness):
+                        manifest_store.record_resolved_provider_readiness(
+                            readiness
+                        )
+                        continue
                     if isinstance(readiness, dict):
                         details = dict(readiness)
                         ready = bool(details.pop("ready", False))

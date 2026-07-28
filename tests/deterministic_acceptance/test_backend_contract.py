@@ -542,7 +542,11 @@ def test_client_readiness_claims_cannot_authorize_an_unready_workflow(
     assert rejected.status_code == 503
     error = rejected.json()["error"]
     assert error["kind"] == "required_provider_unavailable"
-    assert "run_id" not in rejected.json()
+    rejected_run_id = rejected.json()["run_id"]
+    manifest = unavailable_readiness_backend_client.manifest(
+        PROJECT_ID,
+        rejected_run_id,
+    )
     readiness = {
         item["provider"]: item
         for item in error["readiness"]
@@ -555,7 +559,12 @@ def test_client_readiness_claims_cannot_authorize_an_unready_workflow(
         item["source"]["kind"] == "workflow_required_boundary"
         for item in readiness.values()
     )
+    assert manifest["status"] == "failed"
+    assert manifest["providers"]["readiness"] == error["readiness"]
+    assert manifest["providers"]["calls"] == []
+    assert manifest["node_states"] == []
     assert "fixture-secret-must-not-leak" not in rejected.text
+    assert "fixture-secret-must-not-leak" not in str(manifest)
 
 
 def test_traversal_like_project_input_is_rejected_without_run_creation(

@@ -8,6 +8,7 @@ import os
 import uuid
 import shutil
 from collections.abc import Callable, Mapping
+from pathlib import Path
 from typing import Any, AsyncGenerator
 
 from contextlib import ExitStack, asynccontextmanager, suppress
@@ -50,10 +51,11 @@ from core.project import (
     UIState,
 )
 from core.provider_readiness import (
+    LiveProviderReadinessResolver,
     ReadinessResolver,
     assess_workflow_readiness,
-    resolve_live_provider_readiness,
 )
+from core.run_manifest import create_run_manifest_store
 from core.recovery import RunRecoveryError, RunRecoveryService
 from core.recovery_types import RecoveryAction, RecoveryProvenance
 from core.storage import (
@@ -81,6 +83,7 @@ class ActiveRun:
 _active_runs: dict[str, ActiveRun] = {}
 _active_project_runs: dict[str, ActiveRun] = {}
 _cache_mutations: set[str] = set()
+_run_start_reservations: set[str] = set()
 ModuleFactory = Callable[[], WorkflowModule]
 _module_factories: dict[str, ModuleFactory] = {}
 _run_events = RunEventBroker()
@@ -392,7 +395,7 @@ def create_app(
     trusted_readiness_resolver = (
         provider_readiness_resolver
         if provider_readiness_resolver is not None
-        else resolve_live_provider_readiness
+        else LiveProviderReadinessResolver()
     )
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
@@ -400,6 +403,7 @@ def create_app(
         _run_events.clear()
         _active_runs.clear()
         _active_project_runs.clear()
+        _run_start_reservations.clear()
         _module_factories.clear()
         type_registry = TypeRegistry()
         module_registry = ModuleRegistry(type_registry)
@@ -714,7 +718,7 @@ def create_app(
         except Exception:
             pass
 
-    def start_execution(
+    async def start_execution(
         *,
         project_id: str,
         workflow: Workflow,
@@ -737,26 +741,10 @@ def create_app(
                 status_code=422,
                 module_ids=disallowed_modules,
             )
-        readiness = assess_workflow_readiness(
-            workflow,
-            trusted_readiness_resolver,
-            provider_aliases=provider_aliases,
-        )
-        if not readiness.ready:
-            return JSONResponse(
-                status_code=503,
-                content={
-                    "error": {
-                        "kind": "required_provider_unavailable",
-                        "message": (
-                            "Required scientific provider readiness "
-                            "could not be established"
-                        ),
-                        "readiness": list(readiness.facts),
-                    }
-                },
-            )
-        if len(_active_runs) >= MAX_ACTIVE_RUNS:
+        if (
+            len(_active_runs) + len(_run_start_reservations)
+            >= MAX_ACTIVE_RUNS
+        ):
             return JSONResponse(
                 status_code=429,
                 content={
@@ -768,17 +756,22 @@ def create_app(
                 },
             )
         active_run = _active_project_runs.get(project_id)
-        if active_run is not None:
+        if (
+            active_run is not None
+            or project_id in _run_start_reservations
+        ):
+            content: dict[str, Any] = {
+                "error": {
+                    "kind": "active_run_conflict",
+                    "message": "Project already has an active run",
+                    "project_id": project_id,
+                }
+            }
+            if active_run is not None:
+                content["error"]["active_run_id"] = active_run.run_id
             return JSONResponse(
                 status_code=409,
-                content={
-                    "error": {
-                        "kind": "active_run_conflict",
-                        "message": "Project already has an active run",
-                        "project_id": project_id,
-                        "active_run_id": active_run.run_id,
-                    }
-                },
+                content=content,
             )
         if project_id in _cache_mutations:
             return JSONResponse(
@@ -844,6 +837,50 @@ def create_app(
             )
             if node.module_id in {"import.sequence", "import.structure"}:
                 context.input_path(node.parameters.get("file_path", ""))
+
+        _run_start_reservations.add(project_id)
+        readiness_task = asyncio.create_task(asyncio.to_thread(
+            assess_workflow_readiness,
+            workflow,
+            trusted_readiness_resolver,
+            provider_aliases=provider_aliases,
+        ))
+        try:
+            readiness = await asyncio.shield(readiness_task)
+        except asyncio.CancelledError:
+            await readiness_task
+            raise
+        finally:
+            _run_start_reservations.discard(project_id)
+        if not readiness.ready:
+            with create_run_manifest_store(
+                run_dir=project_manager.run_dir(project_id, run_id),
+                project_id=project_id,
+                run_id=run_id,
+                workflow=workflow,
+                modules=modules,
+                seed=seed,
+                source_dir=Path.cwd(),
+                recovery=recovery,
+            ) as manifest_store:
+                for fact in readiness.facts:
+                    manifest_store.record_resolved_provider_readiness(fact)
+                manifest_store.set_status("failed")
+            return JSONResponse(
+                status_code=503,
+                content={
+                    "project_id": project_id,
+                    "run_id": run_id,
+                    "error": {
+                        "kind": "required_provider_unavailable",
+                        "message": (
+                            "Required scientific provider readiness "
+                            "could not be established"
+                        ),
+                        "readiness": readiness.public_facts(),
+                    },
+                },
+            )
 
         stream = _run_events.create(project_id, run_id)
         cancellation_requested = asyncio.Event()
@@ -954,7 +991,7 @@ def create_app(
             execution_project_id = supplied_project_id
         else:
             execution_project_id = f"ephemeral-{uuid.uuid4().hex[:8]}"
-        return start_execution(
+        return await start_execution(
             project_id=execution_project_id,
             workflow=workflow,
             validation=validation,
@@ -982,7 +1019,7 @@ def create_app(
                 content=validation.to_dict(),
             )
 
-        return start_execution(
+        return await start_execution(
             project_id=project_id,
             workflow=workflow,
             validation=validation,
@@ -1171,7 +1208,7 @@ def create_app(
             headers={"content-length": str(record["size"])},
         )
 
-    def recover_node(
+    async def recover_node(
         project_id: str,
         run_id: str,
         node_id: str,
@@ -1222,7 +1259,7 @@ def create_app(
                 status_code=422,
                 content=validation.to_dict(),
             )
-        return start_execution(
+        return await start_execution(
             project_id=project_id,
             workflow=workflow,
             validation=validation,
@@ -1242,7 +1279,7 @@ def create_app(
         node_id: str,
         payload: Any = Body(default=None),
     ) -> Any:
-        return recover_node(
+        return await recover_node(
             project_id,
             run_id,
             node_id,
@@ -1260,7 +1297,7 @@ def create_app(
         node_id: str,
         payload: Any = Body(default=None),
     ) -> Any:
-        return recover_node(
+        return await recover_node(
             project_id,
             run_id,
             node_id,
@@ -1288,13 +1325,20 @@ def create_app(
     def require_cache_mutation_idle(project_id: str) -> None:
         safe_project_id = validate_identifier(project_id, "project_id")
         active_run = _active_project_runs.get(safe_project_id)
-        if active_run is not None:
+        if (
+            active_run is not None
+            or safe_project_id in _run_start_reservations
+        ):
             raise RunRecoveryError(
                 "active_run_conflict",
                 "Cache cannot be cleared while the project is running",
                 status_code=409,
                 project_id=safe_project_id,
-                active_run_id=active_run.run_id,
+                **(
+                    {"active_run_id": active_run.run_id}
+                    if active_run is not None
+                    else {}
+                ),
             )
 
     async def clear_cache(
