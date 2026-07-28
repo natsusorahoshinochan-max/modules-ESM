@@ -22,6 +22,36 @@ from core.run_manifest import RunManifest, RunManifestStore, read_run_manifest
 from datatypes import ProteinSequence, ProteinStructure, StructureAlignment
 
 
+_AMBIGUOUS_REFERENCE_SEQUENCE = (
+    "GTSAGTATSTSTGGSTGGGAGTAGTSGASGTGGGGSAATS"
+)
+_AMBIGUOUS_MOBILE_SEQUENCE = (
+    "SATSGTTSSASAAGTAAASTTGSTSGSSSGTTTTTASAAGSGSS"
+)
+
+
+def _repetitive_alignment_pdb(sequence: str) -> str:
+    residue_names = {
+        "A": "ALA",
+        "G": "GLY",
+        "S": "SER",
+        "T": "THR",
+    }
+    return "\n".join([
+        *[
+            (
+                f"ATOM  {index:5d}  CA  "
+                f"{residue_names[amino_acid]} A{index:4d}    "
+                f"{index * 1.5:8.3f}{index % 3:8.3f}"
+                f"{index % 2:8.3f}  1.00  0.00           C"
+            )
+            for index, amino_acid in enumerate(sequence, start=1)
+        ],
+        "END",
+        "",
+    ])
+
+
 def _enable_gate(monkeypatch, tmp_path: Path, tier: str) -> Path:
     evidence_path = tmp_path / "provider-calls.jsonl"
     monkeypatch.setenv(
@@ -1175,28 +1205,6 @@ def test_ambiguous_alignment_records_tmtools_tiebreak_in_run_manifest(
 ) -> None:
     from modules.structure_align.module import StructureAlignModule
 
-    residue_names = {
-        "A": "ALA",
-        "G": "GLY",
-        "S": "SER",
-        "T": "THR",
-    }
-
-    def repetitive_pdb(sequence: str) -> str:
-        return "\n".join([
-            *[
-                (
-                    f"ATOM  {index:5d}  CA  "
-                    f"{residue_names[amino_acid]} A{index:4d}    "
-                    f"{index * 1.5:8.3f}{index % 3:8.3f}"
-                    f"{index % 2:8.3f}  1.00  0.00           C"
-                )
-                for index, amino_acid in enumerate(sequence, start=1)
-            ],
-            "END",
-            "",
-        ])
-
     run_dir = tmp_path / "runs" / "ambiguous-alignment"
     manifest = RunManifest.for_execution(
         project_id="scientific-project",
@@ -1218,14 +1226,13 @@ def test_ambiguous_alignment_records_tmtools_tiebreak_in_run_manifest(
             StructureAlignModule().run(
                 {
                     "reference": ProteinStructure(
-                        pdb_string=repetitive_pdb(
-                            "GTSAGTATSTSTGGSTGGGAGTAGTSGASGTGGGGSAATS"
+                        pdb_string=_repetitive_alignment_pdb(
+                            _AMBIGUOUS_REFERENCE_SEQUENCE
                         ),
                     ),
                     "mobile": ProteinStructure(
-                        pdb_string=repetitive_pdb(
-                            "SATS GTTSSASAAGTAAASTTGSTSGSSSGTTTTTASAAGSGSS"
-                            .replace(" ", "")
+                        pdb_string=_repetitive_alignment_pdb(
+                            _AMBIGUOUS_MOBILE_SEQUENCE
                         ),
                     ),
                 },
@@ -1243,6 +1250,242 @@ def test_ambiguous_alignment_records_tmtools_tiebreak_in_run_manifest(
         ("tmtools", "structure_align_tiebreak"),
         ("biopython-svd", "structure_align"),
     ]
+
+
+def test_failed_public_svd_alignment_is_manifested_before_node_failure(
+    tmp_path: Path,
+) -> None:
+    from Bio.SVDSuperimposer import SVDSuperimposer
+    from modules.structure_align.module import StructureAlignModule
+
+    class SensitiveEngineError(RuntimeError):
+        pass
+
+    SensitiveEngineError.__name__ = "sk-sensitive-error-token"
+    pdb = (Path(__file__).parent.parent / "pdbs" / "3GB1.pdb").read_text()
+    run_dir = tmp_path / "runs" / "failed-svd"
+    manifest = RunManifest.for_execution(
+        project_id="scientific-project",
+        run_id="failed-svd",
+        workflow=Workflow(),
+        modules={},
+        seed=42,
+        source_dir=tmp_path,
+    )
+    with RunManifestStore(run_dir, manifest) as store:
+        context = RunContext(
+            str(tmp_path),
+            "align",
+            run_id="failed-svd",
+            _manifest_store=store,
+        )
+        token = context.activate()
+        try:
+            with patch.object(
+                SVDSuperimposer,
+                "run",
+                side_effect=SensitiveEngineError(
+                    "Bearer secret-engine-token /private/secret/input.pdb"
+                ),
+            ), pytest.raises(SensitiveEngineError):
+                StructureAlignModule().run(
+                    {
+                        "reference": ProteinStructure(pdb_string=pdb),
+                        "mobile": ProteinStructure(pdb_string=pdb),
+                    },
+                    {},
+                    context,
+                )
+        finally:
+            context.deactivate(token)
+
+        persisted = read_run_manifest(run_dir)
+        assert persisted["failures"] == []
+        assert len(persisted["providers"]["calls"]) == 1
+        failed_call = persisted["providers"]["calls"][0]
+        assert (failed_call["provider"], failed_call["operation"]) == (
+            "biopython-svd",
+            "structure_align",
+        )
+        assert failed_call["details"]["node_id"] == "align"
+        assert failed_call["details"]["result"] == {
+            "status": "failed",
+            "error": {"type": "Exception"},
+        }
+        retained = json.dumps(persisted, sort_keys=True)
+        assert "sk-sensitive-error-token" not in retained
+        assert "secret-engine-token" not in retained
+        assert "/private/secret/input.pdb" not in retained
+        assert len(retained.encode()) < 16 * 1024
+
+
+def test_failed_tmtools_alignment_tiebreak_records_both_terminals(
+    tmp_path: Path,
+) -> None:
+    from modules.structure_align.module import StructureAlignModule
+
+    class SensitiveTiebreakError(RuntimeError):
+        pass
+
+    run_dir = tmp_path / "runs" / "failed-tiebreak"
+    manifest = RunManifest.for_execution(
+        project_id="scientific-project",
+        run_id="failed-tiebreak",
+        workflow=Workflow(),
+        modules={},
+        seed=42,
+        source_dir=tmp_path,
+    )
+    with RunManifestStore(run_dir, manifest) as store:
+        context = RunContext(
+            str(tmp_path),
+            "align",
+            run_id="failed-tiebreak",
+            _manifest_store=store,
+        )
+        token = context.activate()
+        try:
+            with patch(
+                "tmtools.tm_align",
+                side_effect=SensitiveTiebreakError(
+                    "password=secret-tiebreak /private/secret/tie.bin"
+                ),
+            ), pytest.raises(SensitiveTiebreakError):
+                StructureAlignModule().run(
+                    {
+                        "reference": ProteinStructure(
+                            pdb_string=_repetitive_alignment_pdb(
+                                _AMBIGUOUS_REFERENCE_SEQUENCE
+                            ),
+                        ),
+                        "mobile": ProteinStructure(
+                            pdb_string=_repetitive_alignment_pdb(
+                                _AMBIGUOUS_MOBILE_SEQUENCE
+                            ),
+                        ),
+                    },
+                    {},
+                    context,
+                )
+        finally:
+            context.deactivate(token)
+
+        persisted = read_run_manifest(run_dir)
+        assert persisted["failures"] == []
+        calls = persisted["providers"]["calls"]
+        assert [
+            (call["provider"], call["operation"])
+            for call in calls
+        ] == [
+            ("tmtools", "structure_align_tiebreak"),
+            ("biopython-svd", "structure_align"),
+        ]
+        assert [
+            call["details"]["result"]
+            for call in calls
+        ] == [
+            {
+                "status": "failed",
+                "error": {"type": "SensitiveTiebreakError"},
+            },
+            {
+                "status": "failed",
+                "error": {"type": "SensitiveTiebreakError"},
+            },
+        ]
+        retained = json.dumps(persisted, sort_keys=True)
+        assert "secret-tiebreak" not in retained
+        assert "/private/secret/tie.bin" not in retained
+        assert len(retained.encode()) < 24 * 1024
+
+
+def test_failed_public_tm_score_is_manifested_before_node_failure(
+    tmp_path: Path,
+) -> None:
+    from modules.structure_tm_score.module import StructureTMScoreModule
+
+    class SensitiveTMError(RuntimeError):
+        pass
+
+    alignment = StructureAlignment(
+        residue_map=[
+            ("A:1", "A:1"),
+            ("A:2", "A:2"),
+            ("A:3", "A:3"),
+        ],
+        reference_length=3,
+        mobile_length=3,
+        aligned_reference_indices=[0, 1, 2],
+        aligned_mobile_indices=[0, 1, 2],
+        aligned_reference_coordinates=[
+            [0.0, 0.0, 0.0],
+            [1.0, 0.0, 0.0],
+            [0.0, 1.0, 0.0],
+        ],
+        aligned_mobile_coordinates=[
+            [0.0, 0.0, 0.0],
+            [1.0, 0.0, 0.0],
+            [0.0, 1.0, 0.0],
+        ],
+        aligned_distances=[0.0, 0.0, 0.0],
+    )
+    run_dir = tmp_path / "runs" / "failed-tm"
+    manifest = RunManifest.for_execution(
+        project_id="scientific-project",
+        run_id="failed-tm",
+        workflow=Workflow(),
+        modules={},
+        seed=42,
+        source_dir=tmp_path,
+    )
+    with RunManifestStore(run_dir, manifest) as store:
+        context = RunContext(
+            str(tmp_path),
+            "tm-score",
+            run_id="failed-tm",
+            _manifest_store=store,
+        )
+        token = context.activate()
+        try:
+            with patch(
+                "modules.structure_tm_score.scoring.tm_align",
+                side_effect=SensitiveTMError(
+                    "api_key=secret-tm-key /private/secret/alignment.bin"
+                ),
+            ), pytest.raises(SensitiveTMError):
+                StructureTMScoreModule().run(
+                    {"alignment": alignment},
+                    {
+                        "candidate_id": "candidate-a",
+                        "score_id": "tm_score",
+                    },
+                    context,
+                )
+        finally:
+            context.deactivate(token)
+
+        persisted = read_run_manifest(run_dir)
+        assert persisted["failures"] == []
+        assert len(persisted["providers"]["calls"]) == 1
+        failed_call = persisted["providers"]["calls"][0]
+        assert (failed_call["provider"], failed_call["operation"]) == (
+            "tmtools",
+            "tm_score",
+        )
+        assert failed_call["details"]["node_id"] == "tm-score"
+        assert failed_call["details"]["result"] == {
+            "status": "failed",
+            "error": {"type": "SensitiveTMError"},
+        }
+        assert len(
+            failed_call["details"]["input_identity"][
+                "tm_align_input_sha256"
+            ]
+        ) == 64
+        retained = json.dumps(persisted, sort_keys=True)
+        assert "secret-tm-key" not in retained
+        assert "/private/secret/alignment.bin" not in retained
+        assert len(retained.encode()) < 16 * 1024
 
 
 def test_scientific_manifest_details_reject_forged_node_attribution() -> None:

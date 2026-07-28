@@ -245,6 +245,18 @@ def _validated_manifest_details(
     return bounded
 
 
+def _validated_error_type(error_type: str) -> str:
+    if (
+        not isinstance(error_type, str)
+        or _OPAQUE_API_TOKEN.search(error_type) is not None
+    ):
+        return "Exception"
+    try:
+        return validate_identifier(error_type, "error_type")
+    except ValueError:
+        return "Exception"
+
+
 def _test_id() -> str | None:
     current_test = os.environ.get("PYTEST_CURRENT_TEST")
     if not current_test:
@@ -376,6 +388,69 @@ def record_provider_call_result(
                 "result": event["result"],
             },
         )
+    return _append_event({
+        **event,
+        **RunContext.active_provider_evidence(),
+    })
+
+
+def record_provider_call_failure(
+    *,
+    provider: str,
+    operation: str,
+    model: str | None,
+    provider_identity: dict[str, Any],
+    effective_seed: int | None,
+    seed_control: str,
+    error_type: str,
+    manifest_details: dict[str, Any],
+) -> bool:
+    """Record one failed real call without retaining exception content."""
+    if (
+        operation not in _RESULT_KEYS
+        or set(provider_identity) - _IDENTITY_KEYS
+    ):
+        raise ValueError("Provider call evidence contains non-allowlisted fields")
+    safe_error_type = _validated_error_type(error_type)
+    safe_manifest_details = _validated_manifest_details(
+        operation,
+        manifest_details,
+    )
+    from core.run_context import RunContext
+
+    event = {
+        "event_type": "provider_call",
+        "provider": provider,
+        "operation": operation,
+        "model": model,
+        "provider_identity": provider_identity,
+        "readiness": "ready_at_call_boundary",
+        "actual_call": True,
+        "call_count": 1,
+        "effective_seed": effective_seed,
+        "seed_control": seed_control,
+        "cache_decision": "bypassed_fresh_direct_call",
+        "result": {
+            "status": "failed",
+            "error": {"type": safe_error_type},
+        },
+    }
+    RunContext.record_active_provider_call(
+        provider,
+        operation,
+        model=model,
+        details={
+            **safe_manifest_details,
+            "provider_identity": provider_identity,
+            "readiness": event["readiness"],
+            "actual_call": event["actual_call"],
+            "call_count": event["call_count"],
+            "effective_seed": effective_seed,
+            "seed_control": seed_control,
+            "cache_decision": event["cache_decision"],
+            "result": event["result"],
+        },
+    )
     return _append_event({
         **event,
         **RunContext.active_provider_evidence(),

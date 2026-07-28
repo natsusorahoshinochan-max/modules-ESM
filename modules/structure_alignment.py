@@ -75,6 +75,32 @@ def _record_alignment_evidence(
     return alignment
 
 
+def _record_alignment_failure(
+    error: Exception,
+    *,
+    input_identity: dict[str, Any],
+    call_details: dict[str, Any] | None,
+) -> None:
+    from core.provider_evidence import record_provider_call_failure
+
+    record_provider_call_failure(
+        provider="biopython-svd",
+        operation="structure_align",
+        model="PairwiseAligner+SVDSuperimposer",
+        provider_identity={
+            "biopython_version": version("biopython"),
+            "numpy_version": version("numpy"),
+        },
+        effective_seed=None,
+        seed_control="deterministic_no_rng",
+        error_type=type(error).__name__,
+        manifest_details={
+            **(call_details or {}),
+            "input_identity": input_identity,
+        },
+    )
+
+
 @dataclass(frozen=True)
 class _ResidueCA:
     amino_acid: str
@@ -174,12 +200,27 @@ def _sequence_correspondence(
     ):
         from tmtools import tm_align
 
-        structural_alignment = tm_align(
-            reference_coordinates,
-            mobile_coordinates,
-            reference_sequence,
-            mobile_sequence,
-        )
+        try:
+            structural_alignment = tm_align(
+                reference_coordinates,
+                mobile_coordinates,
+                reference_sequence,
+                mobile_sequence,
+            )
+        except Exception as error:
+            from core.provider_evidence import record_provider_call_failure
+
+            record_provider_call_failure(
+                provider="tmtools",
+                operation="structure_align_tiebreak",
+                model="tm_align-sequence-tiebreak",
+                provider_identity={"tmtools_version": version("tmtools")},
+                effective_seed=None,
+                seed_control="deterministic_no_rng",
+                error_type=type(error).__name__,
+                manifest_details=manifest_details,
+            )
+            raise
         reference_indices: list[int] = []
         mobile_indices: list[int] = []
         reference_index = -1
@@ -307,16 +348,24 @@ def align_structures(
         [residue.coordinate for residue in mobile_residues],
         dtype=np.float64,
     )
-    reference_indices, mobile_indices = _sequence_correspondence(
-        reference_sequence,
-        mobile_sequence,
-        all_reference_coordinates,
-        all_mobile_coordinates,
-        manifest_details={
-            **(call_details or {}),
-            "input_identity": input_identity,
-        },
-    )
+    try:
+        reference_indices, mobile_indices = _sequence_correspondence(
+            reference_sequence,
+            mobile_sequence,
+            all_reference_coordinates,
+            all_mobile_coordinates,
+            manifest_details={
+                **(call_details or {}),
+                "input_identity": input_identity,
+            },
+        )
+    except Exception as error:
+        _record_alignment_failure(
+            error,
+            input_identity=input_identity,
+            call_details=call_details,
+        )
+        raise
     if not reference_indices:
         return _record_alignment_evidence(
             StructureAlignment(
@@ -347,7 +396,18 @@ def align_structures(
         dtype=np.float64,
     )
 
-    superimposer = _superimpose(reference_coordinates, mobile_coordinates)
+    try:
+        superimposer = _superimpose(
+            reference_coordinates,
+            mobile_coordinates,
+        )
+    except Exception as error:
+        _record_alignment_failure(
+            error,
+            input_identity=input_identity,
+            call_details=call_details,
+        )
+        raise
     rotation_array, translation_array = superimposer.get_rotran()
     assert rotation_array is not None
     assert translation_array is not None

@@ -198,13 +198,33 @@ def calculate_reference_normalized_tm_score(
             mobile_sequence,
             fixed_alignment,
         )
-        optimized = tm_align(
-            full_reference_coordinates,
-            full_mobile_coordinates,
-            reference_sequence,
-            mobile_sequence,
-            fixed_alignment,
-        )
+        try:
+            optimized = tm_align(
+                full_reference_coordinates,
+                full_mobile_coordinates,
+                reference_sequence,
+                mobile_sequence,
+                fixed_alignment,
+            )
+        except Exception as error:
+            from core.provider_evidence import record_provider_call_failure
+
+            record_provider_call_failure(
+                provider="tmtools",
+                operation="tm_score",
+                model="tm_align-fixed-correspondence",
+                provider_identity={"tmtools_version": version("tmtools")},
+                effective_seed=None,
+                seed_control="deterministic_no_rng",
+                error_type=type(error).__name__,
+                manifest_details={
+                    **(call_details or {}),
+                    "input_identity": {
+                        "tm_align_input_sha256": tm_align_input_sha256,
+                    },
+                },
+            )
+            raise
         transformed_mobile = (
             mobile_coordinates @ np.asarray(optimized.u, dtype=np.float64).T
             + np.asarray(optimized.t, dtype=np.float64)

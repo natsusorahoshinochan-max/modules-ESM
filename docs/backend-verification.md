@@ -52,6 +52,13 @@ terminal summary. Inputs and structures are retained only as lengths and SHA-256
 digests. Tokens, sequences, PDB text, environment values, provider stdout, and
 failure bodies are not retained.
 
+Alignment and TM-score invocations that raise after reaching the scientific
+engine are also retained in the run manifest exactly once per invoked boundary.
+Their terminal result is `failed` and contains only the bounded exception type;
+the exception message, body, paths, coordinates, and credentials are discarded.
+Input-validation failures that occur before an engine invocation are not call
+facts.
+
 The verifier creates a fresh nonce and fresh isolated roots on every invocation.
 Evidence with another nonce, a pre-run or future timestamp, a duplicate event ID,
 an invalid schema, an unexpected test/model/source identity or call count, missing

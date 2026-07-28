@@ -16,10 +16,12 @@
 ## Verification evidence
 
 - `repair-findings`: expected cumulative red, 5 selected / 4 passed / 1 failed; the only failure is the explicitly deferred Ticket 26 readiness manifest check.
-- `routine`: 661 passed / 41 deselected / 0 failed.
+- Focused scientific-call and manifest regression suite: 94 passed / 0 failed.
+- `routine`: 665 passed / 41 deselected / 0 failed.
 - `deterministic-acceptance`: 8 passed / 5 deselected / 0 failed.
 - `installed-package`: 3 passed / 0 failed.
 - Canonical public manifest call distribution: existing provider facts 49, `biopython-svd:structure_align` 20, and `tmtools:tm_score` 20; total 89.
 - Focused evidence covers ordered Node attribution, concurrent run isolation, Cache replay with no repeated calls, successful terminal summaries, complete engine-input digests, token-shaped identity redaction, and the non-canonical tmtools alignment tie-break path.
 - Scientific manifest details use operation-specific bounded schemas; active `node_id` attribution cannot be overridden by worker payloads.
+- Failed SVD alignment, TM-score, and high-ambiguity tmtools tie-break invocations retain exactly one failed terminal per invoked boundary before/with the Node failure; only the bounded exception type is retained.
 - No React frontend source or frontend test was inspected, modified, or executed. Ticket 26 readiness was not implemented.

@@ -1089,6 +1089,99 @@ def test_scientific_engine_calls_are_absent_from_cache_replay_manifest(
     }
 
 
+def test_failed_scientific_call_reaches_manifest_with_worker_node_failure(
+    tmp_path: Path,
+) -> None:
+    from modules.import_structure.module import ImportStructureModule
+    from modules.structure_align.module import StructureAlignModule
+
+    project_dir = tmp_path / "project"
+    inputs = project_dir / "inputs"
+    inputs.mkdir(parents=True)
+    non_finite_pdb = (
+        "ATOM      1  CA  ALA A   1         nan   0.000   0.000"
+        "  1.00  0.00           C\n"
+        "ATOM      2  CA  ALA A   2       1.000   0.000   0.000"
+        "  1.00  0.00           C\n"
+        "ATOM      3  CA  ALA A   3       0.000   1.000   0.000"
+        "  1.00  0.00           C\n"
+        "END\n"
+    )
+    (inputs / "reference.pdb").write_text(non_finite_pdb)
+    (inputs / "mobile.pdb").write_text(non_finite_pdb)
+
+    workflow = Workflow()
+    workflow.add_node(WorkflowNode(
+        "reference",
+        "import.structure",
+        "1.0.0",
+        {"file_path": "reference.pdb"},
+    ))
+    workflow.add_node(WorkflowNode(
+        "mobile",
+        "import.structure",
+        "1.0.0",
+        {"file_path": "mobile.pdb"},
+    ))
+    workflow.add_node(WorkflowNode(
+        "align",
+        "structure.align",
+        "1.0.0",
+    ))
+    workflow.add_edge(WorkflowEdge(
+        "reference",
+        "structure",
+        "align",
+        "reference",
+    ))
+    workflow.add_edge(WorkflowEdge(
+        "mobile",
+        "structure",
+        "align",
+        "mobile",
+    ))
+    modules = {
+        "import.structure": ImportStructureModule(),
+        "structure.align": StructureAlignModule(),
+    }
+
+    asyncio.run(Executor().execute(
+        workflow,
+        modules,
+        str(project_dir),
+        "failed-scientific-worker",
+        project_id="project-11",
+        cancellation_requested=asyncio.Event(),
+    ))
+
+    manifest = read_run_manifest(
+        project_dir / "runs" / "failed-scientific-worker"
+    )
+    assert manifest["status"] == "failed"
+    assert manifest["failures"] == [{
+        "node_id": "align",
+        "kind": "LinAlgError",
+        "message": "Node execution failed (LinAlgError)",
+    }]
+    assert [
+        (
+            call["details"]["node_id"],
+            call["provider"],
+            call["operation"],
+            call["details"]["result"],
+        )
+        for call in manifest["providers"]["calls"]
+    ] == [(
+        "align",
+        "biopython-svd",
+        "structure_align",
+        {
+            "status": "failed",
+            "error": {"type": "LinAlgError"},
+        },
+    )]
+
+
 def test_candidate_lineage_and_artifact_integrity_are_run_bound(
     tmp_path: Path,
 ) -> None:
