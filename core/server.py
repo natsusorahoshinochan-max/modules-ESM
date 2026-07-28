@@ -22,7 +22,7 @@ from fastapi import (
     WebSocket,
     WebSocketDisconnect,
 )
-from fastapi.responses import JSONResponse, StreamingResponse
+from fastapi.responses import JSONResponse, Response, StreamingResponse
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.exceptions import RequestValidationError
 
@@ -65,6 +65,7 @@ from core.storage import (
 )
 from core.type_registry import TypeRegistry
 from core.workflow_module import WorkflowModule
+from protein_workbench_public import bundle_bytes, bundle_digest, load_bundle
 
 # Global registries, initialized at startup
 type_registry: TypeRegistry
@@ -681,6 +682,21 @@ def create_app(
         allow_methods=["*"],
         allow_headers=["*"],
     )
+
+    protocol_discovery = load_bundle()["bundle_discovery"]
+
+    @app.get(
+        protocol_discovery["route"],
+        include_in_schema=False,
+    )
+    async def public_protocol_bundle() -> Response:
+        return Response(
+            content=bundle_bytes(),
+            media_type=protocol_discovery["media_type"],
+            headers={
+                protocol_discovery["digest_header"]: bundle_digest(),
+            },
+        )
 
     # ── modules & types ──────────────────────────────────────────────
 

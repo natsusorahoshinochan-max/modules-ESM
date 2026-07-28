@@ -1,0 +1,1921 @@
+{
+  "$defs": {
+    "ArtifactDescriptor": {
+      "oneOf": [
+        {
+          "$ref": "#/$defs/CandidateArtifactDescriptor"
+        },
+        {
+          "$ref": "#/$defs/StandaloneArtifactDescriptor"
+        }
+      ]
+    },
+    "CandidateArtifactDescriptor": {
+      "additionalProperties": false,
+      "properties": {
+        "artifact_kind": {
+          "const": "candidate"
+        },
+        "artifact_reference": {
+          "$ref": "#/$defs/OpaqueReference"
+        },
+        "candidate_id": {
+          "$ref": "#/$defs/Identifier"
+        },
+        "content_digest": {
+          "$ref": "#/$defs/Digest"
+        },
+        "media_type": {
+          "$ref": "#/$defs/MediaType"
+        },
+        "node_id": {
+          "$ref": "#/$defs/Identifier"
+        },
+        "output_port": {
+          "$ref": "#/$defs/Identifier"
+        },
+        "size": {
+          "maximum": 67108864,
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "artifact_reference",
+        "artifact_kind",
+        "candidate_id",
+        "node_id",
+        "output_port",
+        "media_type",
+        "size",
+        "content_digest"
+      ],
+      "type": "object"
+    },
+    "StandaloneArtifactDescriptor": {
+      "additionalProperties": false,
+      "properties": {
+        "artifact_kind": {
+          "const": "standalone"
+        },
+        "artifact_reference": {
+          "$ref": "#/$defs/OpaqueReference"
+        },
+        "content_digest": {
+          "$ref": "#/$defs/Digest"
+        },
+        "media_type": {
+          "$ref": "#/$defs/MediaType"
+        },
+        "node_id": {
+          "$ref": "#/$defs/Identifier"
+        },
+        "output_port": {
+          "$ref": "#/$defs/Identifier"
+        },
+        "size": {
+          "maximum": 67108864,
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "artifact_reference",
+        "artifact_kind",
+        "node_id",
+        "output_port",
+        "media_type",
+        "size",
+        "content_digest"
+      ],
+      "type": "object"
+    },
+    "ArtifactRetrievalRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "artifact_reference": {
+          "$ref": "#/$defs/OpaqueReference"
+        },
+        "project_id": {
+          "$ref": "#/$defs/Identifier"
+        },
+        "run_id": {
+          "$ref": "#/$defs/Identifier"
+        }
+      },
+      "required": [
+        "project_id",
+        "run_id",
+        "artifact_reference"
+      ],
+      "type": "object"
+    },
+    "ArtifactResponseMetadata": {
+      "additionalProperties": false,
+      "properties": {
+        "artifact": {
+          "$ref": "#/$defs/ArtifactDescriptor"
+        },
+        "content_disposition": {
+          "maxLength": 512,
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "artifact",
+        "content_disposition"
+      ],
+      "type": "object"
+    },
+    "AvailabilitySnapshot": {
+      "additionalProperties": false,
+      "properties": {
+        "available": {
+          "type": "boolean"
+        },
+        "binding": {
+          "$ref": "#/$defs/ContractReference"
+        },
+        "observed_at": {
+          "$ref": "#/$defs/Timestamp"
+        },
+        "reason": {
+          "$ref": "#/$defs/AvailabilityReason"
+        }
+      },
+      "required": [
+        "binding",
+        "observed_at",
+        "available"
+      ],
+      "type": "object"
+    },
+    "AvailabilityReason": {
+      "additionalProperties": false,
+      "properties": {
+        "code": {
+          "$ref": "#/$defs/Identifier"
+        },
+        "message": {
+          "maxLength": 1024,
+          "minLength": 1,
+          "type": "string"
+        },
+        "retryable": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "code",
+        "message",
+        "retryable"
+      ],
+      "type": "object"
+    },
+    "CancelRunReceipt": {
+      "additionalProperties": false,
+      "properties": {
+        "cursor": {
+          "$ref": "#/$defs/OpaqueCursor"
+        },
+        "decision_sequence": {
+          "minimum": 1,
+          "type": "integer"
+        },
+        "outcome": {
+          "enum": [
+            "cancellation_requested",
+            "already_requested",
+            "already_terminal",
+            "completed_before_cancel"
+          ]
+        },
+        "project_id": {
+          "$ref": "#/$defs/Identifier"
+        },
+        "run_id": {
+          "$ref": "#/$defs/Identifier"
+        }
+      },
+      "required": [
+        "project_id",
+        "run_id",
+        "outcome",
+        "decision_sequence",
+        "cursor"
+      ],
+      "type": "object"
+    },
+    "CancelRunRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "after_sequence": {
+          "$ref": "#/$defs/OpaqueCursor"
+        },
+        "project_id": {
+          "$ref": "#/$defs/Identifier"
+        },
+        "reason": {
+          "maxLength": 512,
+          "minLength": 1,
+          "type": "string"
+        },
+        "run_id": {
+          "$ref": "#/$defs/Identifier"
+        }
+      },
+      "required": [
+        "project_id",
+        "run_id"
+      ],
+      "type": "object"
+    },
+    "CatalogSnapshot": {
+      "additionalProperties": false,
+      "properties": {
+        "availability": {
+          "items": {
+            "$ref": "#/$defs/AvailabilitySnapshot"
+          },
+          "maxItems": 4096,
+          "type": "array"
+        },
+        "availability_observed_at": {
+          "$ref": "#/$defs/Timestamp"
+        },
+        "catalog_contract_digest": {
+          "$ref": "#/$defs/Digest"
+        },
+        "contracts": {
+          "items": {
+            "$ref": "#/$defs/PublicContract"
+          },
+          "maxItems": 16384,
+          "type": "array"
+        },
+        "protocol_digest": {
+          "$ref": "#/$defs/Digest"
+        },
+        "schema_namespace": {
+          "const": "protein-workbench-public/v2"
+        }
+      },
+      "required": [
+        "schema_namespace",
+        "protocol_digest",
+        "catalog_contract_digest",
+        "contracts",
+        "availability_observed_at",
+        "availability"
+      ],
+      "type": "object"
+    },
+    "CatalogSnapshotRequest": {
+      "additionalProperties": false,
+      "properties": {},
+      "required": [],
+      "type": "object"
+    },
+    "CompileIssue": {
+      "additionalProperties": false,
+      "properties": {
+        "code": {
+          "$ref": "#/$defs/Identifier"
+        },
+        "field_path": {
+          "items": {
+            "oneOf": [
+              {
+                "type": "string"
+              },
+              {
+                "minimum": 0,
+                "type": "integer"
+              }
+            ]
+          },
+          "maxItems": 32,
+          "type": "array"
+        },
+        "message": {
+          "maxLength": 2048,
+          "minLength": 1,
+          "type": "string"
+        },
+        "node_id": {
+          "$ref": "#/$defs/Identifier"
+        },
+        "severity": {
+          "enum": [
+            "error",
+            "warning"
+          ]
+        }
+      },
+      "required": [
+        "code",
+        "severity",
+        "message",
+        "field_path"
+      ],
+      "type": "object"
+    },
+    "CompileReceipt": {
+      "additionalProperties": false,
+      "properties": {
+        "accepted": {
+          "type": "boolean"
+        },
+        "catalog_contract_digest": {
+          "$ref": "#/$defs/Digest"
+        },
+        "compile_id": {
+          "$ref": "#/$defs/Identifier"
+        },
+        "contract_lock_digest": {
+          "$ref": "#/$defs/Digest"
+        },
+        "execution_plan_digest": {
+          "$ref": "#/$defs/Digest"
+        },
+        "issues": {
+          "items": {
+            "$ref": "#/$defs/CompileIssue"
+          },
+          "maxItems": 4096,
+          "type": "array"
+        },
+        "workflow_digest": {
+          "$ref": "#/$defs/Digest"
+        },
+        "workflow_revision": {
+          "minimum": 1,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "accepted",
+        "compile_id",
+        "workflow_revision",
+        "workflow_digest",
+        "catalog_contract_digest",
+        "contract_lock_digest",
+        "execution_plan_digest",
+        "issues"
+      ],
+      "type": "object"
+    },
+    "ContractLockEntry": {
+      "additionalProperties": false,
+      "properties": {
+        "contract_digest": {
+          "$ref": "#/$defs/Digest"
+        },
+        "contract_id": {
+          "$ref": "#/$defs/Identifier"
+        },
+        "contract_kind": {
+          "enum": [
+            "binding",
+            "method",
+            "metric",
+            "node_type",
+            "port_type",
+            "utility_transform"
+          ]
+        },
+        "contract_version": {
+          "$ref": "#/$defs/SemanticVersion"
+        }
+      },
+      "required": [
+        "contract_kind",
+        "contract_id",
+        "contract_version",
+        "contract_digest"
+      ],
+      "type": "object"
+    },
+    "ContractReference": {
+      "additionalProperties": false,
+      "properties": {
+        "contract_digest": {
+          "$ref": "#/$defs/Digest"
+        },
+        "contract_id": {
+          "$ref": "#/$defs/Identifier"
+        },
+        "contract_kind": {
+          "enum": [
+            "binding",
+            "method",
+            "metric",
+            "node_type",
+            "port_type",
+            "utility_transform"
+          ]
+        },
+        "contract_version": {
+          "$ref": "#/$defs/SemanticVersion"
+        }
+      },
+      "required": [
+        "contract_kind",
+        "contract_id",
+        "contract_version",
+        "contract_digest"
+      ],
+      "type": "object"
+    },
+    "Digest": {
+      "pattern": "^sha256:[0-9a-f]{64}$",
+      "type": "string"
+    },
+    "ArtifactErrorDetails": {
+      "additionalProperties": false,
+      "properties": {
+        "artifact_reference": {
+          "$ref": "#/$defs/OpaqueReference"
+        },
+        "expected_digest": {
+          "$ref": "#/$defs/Digest"
+        },
+        "limit": {
+          "minimum": 0,
+          "type": "integer"
+        },
+        "observed_digest": {
+          "$ref": "#/$defs/Digest"
+        },
+        "observed_size": {
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "artifact_reference"
+      ],
+      "type": "object"
+    },
+    "BindingErrorDetails": {
+      "additionalProperties": false,
+      "properties": {
+        "binding": {
+          "$ref": "#/$defs/ContractReference"
+        },
+        "reason_code": {
+          "$ref": "#/$defs/Identifier"
+        }
+      },
+      "required": [
+        "binding",
+        "reason_code"
+      ],
+      "type": "object"
+    },
+    "CancellationErrorDetails": {
+      "additionalProperties": false,
+      "properties": {
+        "decision_sequence": {
+          "minimum": 1,
+          "type": "integer"
+        },
+        "run_status": {
+          "enum": [
+            "succeeded",
+            "failed",
+            "cancelled",
+            "interrupted"
+          ]
+        }
+      },
+      "required": [
+        "run_status",
+        "decision_sequence"
+      ],
+      "type": "object"
+    },
+    "CompileErrorDetails": {
+      "additionalProperties": false,
+      "properties": {
+        "issues": {
+          "items": {
+            "$ref": "#/$defs/CompileIssue"
+          },
+          "maxItems": 4096,
+          "minItems": 1,
+          "type": "array"
+        }
+      },
+      "required": [
+        "issues"
+      ],
+      "type": "object"
+    },
+    "ContractDigestMismatchDetails": {
+      "additionalProperties": false,
+      "properties": {
+        "contract": {
+          "$ref": "#/$defs/ContractReference"
+        },
+        "expected_digest": {
+          "$ref": "#/$defs/Digest"
+        },
+        "observed_digest": {
+          "$ref": "#/$defs/Digest"
+        }
+      },
+      "required": [
+        "contract",
+        "expected_digest",
+        "observed_digest"
+      ],
+      "type": "object"
+    },
+    "CrossScopeErrorDetails": {
+      "additionalProperties": false,
+      "properties": {
+        "requested_project_id": {
+          "$ref": "#/$defs/Identifier"
+        },
+        "requested_run_id": {
+          "$ref": "#/$defs/Identifier"
+        }
+      },
+      "required": [
+        "requested_project_id"
+      ],
+      "type": "object"
+    },
+    "EmptyErrorDetails": {
+      "additionalProperties": false,
+      "properties": {},
+      "required": [],
+      "type": "object"
+    },
+    "EngineInvocationStartedEvent": {
+      "additionalProperties": false,
+      "properties": {
+        "engine_identity": {
+          "$ref": "#/$defs/Identifier"
+        },
+        "engine_role": {
+          "$ref": "#/$defs/Identifier"
+        },
+        "invocation_id": {
+          "$ref": "#/$defs/Identifier"
+        },
+        "operation_attempt_id": {
+          "$ref": "#/$defs/Identifier"
+        },
+        "type": {
+          "const": "engine_invocation_started"
+        }
+      },
+      "required": [
+        "type",
+        "invocation_id",
+        "operation_attempt_id",
+        "engine_role",
+        "engine_identity"
+      ],
+      "type": "object"
+    },
+    "EngineInvocationTerminalEvent": {
+      "additionalProperties": false,
+      "properties": {
+        "error": {
+          "$ref": "#/$defs/StructuredError"
+        },
+        "invocation_id": {
+          "$ref": "#/$defs/Identifier"
+        },
+        "status": {
+          "$ref": "#/$defs/TerminalAttemptStatus"
+        },
+        "type": {
+          "const": "engine_invocation_terminal"
+        }
+      },
+      "required": [
+        "type",
+        "invocation_id",
+        "status"
+      ],
+      "type": "object"
+    },
+    "EvidenceErrorDetails": {
+      "additionalProperties": false,
+      "properties": {
+        "last_durable_cursor": {
+          "$ref": "#/$defs/OpaqueCursor"
+        }
+      },
+      "required": [
+        "last_durable_cursor"
+      ],
+      "type": "object"
+    },
+    "InternalErrorDetails": {
+      "additionalProperties": false,
+      "properties": {
+        "incident_id": {
+          "$ref": "#/$defs/Identifier"
+        }
+      },
+      "required": [
+        "incident_id"
+      ],
+      "type": "object"
+    },
+    "InvalidCursorErrorDetails": {
+      "additionalProperties": false,
+      "properties": {
+        "after_sequence": {
+          "$ref": "#/$defs/OpaqueCursor"
+        }
+      },
+      "required": [
+        "after_sequence"
+      ],
+      "type": "object"
+    },
+    "Identifier": {
+      "maxLength": 128,
+      "minLength": 1,
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:/+-]*$",
+      "type": "string"
+    },
+    "JsonObject": {
+      "additionalProperties": {
+        "$ref": "#/$defs/JsonValue"
+      },
+      "type": "object",
+      "x-opaque-value": true
+    },
+    "JsonValue": {
+      "anyOf": [
+        {
+          "type": "null"
+        },
+        {
+          "type": "boolean"
+        },
+        {
+          "maximum": 9007199254740991,
+          "minimum": -9007199254740991,
+          "type": "integer"
+        },
+        {
+          "type": "number"
+        },
+        {
+          "type": "string"
+        },
+        {
+          "items": {
+            "$ref": "#/$defs/JsonValue"
+          },
+          "type": "array"
+        },
+        {
+          "$ref": "#/$defs/JsonObject"
+        }
+      ]
+    },
+    "MediaType": {
+      "maxLength": 255,
+      "minLength": 3,
+      "pattern": "^[A-Za-z0-9!#$&^_.+-]+/[A-Za-z0-9!#$&^_.+-]+$",
+      "type": "string"
+    },
+    "MalformedRequestDetails": {
+      "additionalProperties": false,
+      "properties": {
+        "field_path": {
+          "items": {
+            "oneOf": [
+              {
+                "type": "string"
+              },
+              {
+                "minimum": 0,
+                "type": "integer"
+              }
+            ]
+          },
+          "maxItems": 32,
+          "type": "array"
+        }
+      },
+      "required": [
+        "field_path"
+      ],
+      "type": "object"
+    },
+    "NodeAttemptStartedEvent": {
+      "additionalProperties": false,
+      "properties": {
+        "node_attempt_id": {
+          "$ref": "#/$defs/Identifier"
+        },
+        "node_id": {
+          "$ref": "#/$defs/Identifier"
+        },
+        "type": {
+          "const": "node_attempt_started"
+        }
+      },
+      "required": [
+        "type",
+        "node_id",
+        "node_attempt_id"
+      ],
+      "type": "object"
+    },
+    "NodeAttemptTerminalEvent": {
+      "additionalProperties": false,
+      "properties": {
+        "error": {
+          "$ref": "#/$defs/StructuredError"
+        },
+        "node_attempt_id": {
+          "$ref": "#/$defs/Identifier"
+        },
+        "resolution": {
+          "enum": [
+            "executed",
+            "cache_replayed"
+          ]
+        },
+        "status": {
+          "$ref": "#/$defs/TerminalAttemptStatus"
+        },
+        "type": {
+          "const": "node_attempt_terminal"
+        }
+      },
+      "required": [
+        "type",
+        "node_attempt_id",
+        "status",
+        "resolution"
+      ],
+      "type": "object"
+    },
+    "NodeDispositionEvent": {
+      "additionalProperties": false,
+      "properties": {
+        "disposition": {
+          "$ref": "#/$defs/NodeDisposition"
+        },
+        "type": {
+          "const": "node_disposition"
+        }
+      },
+      "required": [
+        "type",
+        "disposition"
+      ],
+      "type": "object"
+    },
+    "NodeDisposition": {
+      "additionalProperties": false,
+      "properties": {
+        "blocked_by": {
+          "items": {
+            "$ref": "#/$defs/Identifier"
+          },
+          "maxItems": 2048,
+          "type": "array"
+        },
+        "node_id": {
+          "$ref": "#/$defs/Identifier"
+        },
+        "outcome": {
+          "enum": [
+            "succeeded",
+            "failed",
+            "blocked",
+            "cancelled",
+            "interrupted"
+          ]
+        },
+        "resolution": {
+          "enum": [
+            "executed",
+            "cache_replayed"
+          ]
+        },
+        "terminal_sequence": {
+          "minimum": 1,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "node_id",
+        "outcome",
+        "terminal_sequence",
+        "blocked_by"
+      ],
+      "type": "object"
+    },
+    "NodeInstance": {
+      "additionalProperties": false,
+      "properties": {
+        "binding_id": {
+          "$ref": "#/$defs/Identifier"
+        },
+        "binding_parameters": {
+          "$ref": "#/$defs/JsonObject"
+        },
+        "binding_version": {
+          "$ref": "#/$defs/SemanticVersion"
+        },
+        "node_id": {
+          "$ref": "#/$defs/Identifier"
+        },
+        "node_parameters": {
+          "$ref": "#/$defs/JsonObject"
+        },
+        "node_type_id": {
+          "$ref": "#/$defs/Identifier"
+        },
+        "node_type_version": {
+          "$ref": "#/$defs/SemanticVersion"
+        }
+      },
+      "required": [
+        "node_id",
+        "node_type_id",
+        "node_type_version",
+        "binding_id",
+        "binding_version",
+        "node_parameters",
+        "binding_parameters"
+      ],
+      "type": "object"
+    },
+    "OpaqueCursor": {
+      "maxLength": 512,
+      "minLength": 1,
+      "type": "string"
+    },
+    "OpaqueReference": {
+      "maxLength": 512,
+      "minLength": 1,
+      "pattern": "^[A-Za-z0-9_-]+$",
+      "type": "string"
+    },
+    "OperationAttemptStartedEvent": {
+      "additionalProperties": false,
+      "properties": {
+        "node_attempt_id": {
+          "$ref": "#/$defs/Identifier"
+        },
+        "operation_attempt_id": {
+          "$ref": "#/$defs/Identifier"
+        },
+        "type": {
+          "const": "operation_attempt_started"
+        }
+      },
+      "required": [
+        "type",
+        "operation_attempt_id",
+        "node_attempt_id"
+      ],
+      "type": "object"
+    },
+    "OperationAttemptTerminalEvent": {
+      "additionalProperties": false,
+      "properties": {
+        "error": {
+          "$ref": "#/$defs/StructuredError"
+        },
+        "operation_attempt_id": {
+          "$ref": "#/$defs/Identifier"
+        },
+        "status": {
+          "$ref": "#/$defs/TerminalAttemptStatus"
+        },
+        "type": {
+          "const": "operation_attempt_terminal"
+        }
+      },
+      "required": [
+        "type",
+        "operation_attempt_id",
+        "status"
+      ],
+      "type": "object"
+    },
+    "ProjectWorkflowSnapshot": {
+      "additionalProperties": false,
+      "properties": {
+        "project_id": {
+          "$ref": "#/$defs/Identifier"
+        },
+        "workflow": {
+          "$ref": "#/$defs/WorkflowDocument"
+        },
+        "workflow_digest": {
+          "$ref": "#/$defs/Digest"
+        },
+        "workflow_revision": {
+          "minimum": 1,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "project_id",
+        "workflow_revision",
+        "workflow_digest",
+        "workflow"
+      ],
+      "type": "object"
+    },
+    "ProjectWorkflowSnapshotRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "project_id": {
+          "$ref": "#/$defs/Identifier"
+        }
+      },
+      "required": [
+        "project_id"
+      ],
+      "type": "object"
+    },
+    "PublicContract": {
+      "additionalProperties": false,
+      "properties": {
+        "descriptor": {
+          "$ref": "#/$defs/JsonObject"
+        },
+        "reference": {
+          "$ref": "#/$defs/ContractReference"
+        }
+      },
+      "required": [
+        "reference",
+        "descriptor"
+      ],
+      "type": "object"
+    },
+    "ProtocolMismatchDetails": {
+      "additionalProperties": false,
+      "properties": {
+        "expected_protocol_digest": {
+          "$ref": "#/$defs/Digest"
+        },
+        "expected_schema_namespace": {
+          "const": "protein-workbench-public/v2"
+        },
+        "received_schema_namespace": {
+          "maxLength": 128,
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "expected_schema_namespace",
+        "expected_protocol_digest"
+      ],
+      "type": "object"
+    },
+    "ReadinessAttestedEvent": {
+      "additionalProperties": false,
+      "properties": {
+        "attestation_digest": {
+          "$ref": "#/$defs/Digest"
+        },
+        "binding": {
+          "$ref": "#/$defs/ContractReference"
+        },
+        "conclusion": {
+          "enum": [
+            "passing",
+            "failing"
+          ]
+        },
+        "observed_at": {
+          "$ref": "#/$defs/Timestamp"
+        },
+        "proof_source": {
+          "$ref": "#/$defs/Identifier"
+        },
+        "type": {
+          "const": "readiness_attested"
+        }
+      },
+      "required": [
+        "type",
+        "binding",
+        "attestation_digest",
+        "observed_at",
+        "conclusion",
+        "proof_source"
+      ],
+      "type": "object"
+    },
+    "ReplayCompleteEvent": {
+      "additionalProperties": false,
+      "properties": {
+        "live_from_cursor": {
+          "$ref": "#/$defs/OpaqueCursor"
+        },
+        "type": {
+          "const": "replay_complete"
+        }
+      },
+      "required": [
+        "type",
+        "live_from_cursor"
+      ],
+      "type": "object"
+    },
+    "ReplayStartedEvent": {
+      "additionalProperties": false,
+      "properties": {
+        "after_sequence": {
+          "$ref": "#/$defs/OpaqueCursor"
+        },
+        "replay_through_cursor": {
+          "$ref": "#/$defs/OpaqueCursor"
+        },
+        "type": {
+          "const": "replay_started"
+        }
+      },
+      "required": [
+        "type",
+        "replay_through_cursor"
+      ],
+      "type": "object"
+    },
+    "ResourceNotFoundDetails": {
+      "additionalProperties": false,
+      "properties": {
+        "resource_id": {
+          "$ref": "#/$defs/Identifier"
+        },
+        "resource_kind": {
+          "enum": [
+            "artifact",
+            "project",
+            "run",
+            "workflow"
+          ]
+        }
+      },
+      "required": [
+        "resource_kind",
+        "resource_id"
+      ],
+      "type": "object"
+    },
+    "RunAdmittedEvent": {
+      "additionalProperties": false,
+      "properties": {
+        "compile_id": {
+          "$ref": "#/$defs/Identifier"
+        },
+        "type": {
+          "const": "run_admitted"
+        },
+        "workflow_revision": {
+          "minimum": 1,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "type",
+        "workflow_revision",
+        "compile_id"
+      ],
+      "type": "object"
+    },
+    "RunEvent": {
+      "oneOf": [
+        {
+          "$ref": "#/$defs/EngineInvocationStartedEvent"
+        },
+        {
+          "$ref": "#/$defs/EngineInvocationTerminalEvent"
+        },
+        {
+          "$ref": "#/$defs/NodeAttemptStartedEvent"
+        },
+        {
+          "$ref": "#/$defs/NodeAttemptTerminalEvent"
+        },
+        {
+          "$ref": "#/$defs/NodeDispositionEvent"
+        },
+        {
+          "$ref": "#/$defs/OperationAttemptStartedEvent"
+        },
+        {
+          "$ref": "#/$defs/OperationAttemptTerminalEvent"
+        },
+        {
+          "$ref": "#/$defs/ReadinessAttestedEvent"
+        },
+        {
+          "$ref": "#/$defs/ReplayCompleteEvent"
+        },
+        {
+          "$ref": "#/$defs/ReplayStartedEvent"
+        },
+        {
+          "$ref": "#/$defs/RunAdmittedEvent"
+        },
+        {
+          "$ref": "#/$defs/RunStartedEvent"
+        },
+        {
+          "$ref": "#/$defs/RunTerminalEvent"
+        }
+      ]
+    },
+    "RunEventEnvelope": {
+      "additionalProperties": false,
+      "properties": {
+        "cursor": {
+          "$ref": "#/$defs/OpaqueCursor"
+        },
+        "emitted_at": {
+          "$ref": "#/$defs/Timestamp"
+        },
+        "event": {
+          "$ref": "#/$defs/RunEvent"
+        },
+        "project_id": {
+          "$ref": "#/$defs/Identifier"
+        },
+        "run_id": {
+          "$ref": "#/$defs/Identifier"
+        },
+        "schema_namespace": {
+          "const": "protein-workbench-public/v2"
+        },
+        "sequence": {
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "schema_namespace",
+        "project_id",
+        "run_id",
+        "sequence",
+        "cursor",
+        "emitted_at",
+        "event"
+      ],
+      "type": "object"
+    },
+    "RunEventStreamMessage": {
+      "oneOf": [
+        {
+          "$ref": "#/$defs/RunEventEnvelope"
+        },
+        {
+          "$ref": "#/$defs/StructuredErrorEnvelope"
+        }
+      ]
+    },
+    "RunEventStreamRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "after_sequence": {
+          "$ref": "#/$defs/OpaqueCursor"
+        },
+        "project_id": {
+          "$ref": "#/$defs/Identifier"
+        },
+        "run_id": {
+          "$ref": "#/$defs/Identifier"
+        }
+      },
+      "required": [
+        "project_id",
+        "run_id"
+      ],
+      "type": "object"
+    },
+    "RunProjection": {
+      "additionalProperties": false,
+      "properties": {
+        "artifact_index": {
+          "items": {
+            "$ref": "#/$defs/ArtifactDescriptor"
+          },
+          "maxItems": 2048,
+          "type": "array"
+        },
+        "compile_id": {
+          "$ref": "#/$defs/Identifier"
+        },
+        "derived_from_run_id": {
+          "$ref": "#/$defs/Identifier"
+        },
+        "ledger_cursor": {
+          "$ref": "#/$defs/OpaqueCursor"
+        },
+        "node_dispositions": {
+          "items": {
+            "$ref": "#/$defs/NodeDisposition"
+          },
+          "maxItems": 2048,
+          "type": "array"
+        },
+        "outputs": {
+          "items": {
+            "$ref": "#/$defs/TypedOutput"
+          },
+          "maxItems": 8192,
+          "type": "array"
+        },
+        "project_id": {
+          "$ref": "#/$defs/Identifier"
+        },
+        "run_id": {
+          "$ref": "#/$defs/Identifier"
+        },
+        "status": {
+          "enum": [
+            "admitted",
+            "running",
+            "succeeded",
+            "failed",
+            "cancelled",
+            "interrupted"
+          ]
+        },
+        "terminal_sequence": {
+          "minimum": 1,
+          "type": "integer"
+        },
+        "workflow_digest": {
+          "$ref": "#/$defs/Digest"
+        },
+        "workflow_revision": {
+          "minimum": 1,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "project_id",
+        "run_id",
+        "workflow_revision",
+        "workflow_digest",
+        "compile_id",
+        "status",
+        "ledger_cursor",
+        "node_dispositions",
+        "outputs",
+        "artifact_index"
+      ],
+      "type": "object"
+    },
+    "RunProjectionRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "project_id": {
+          "$ref": "#/$defs/Identifier"
+        },
+        "run_id": {
+          "$ref": "#/$defs/Identifier"
+        }
+      },
+      "required": [
+        "project_id",
+        "run_id"
+      ],
+      "type": "object"
+    },
+    "RunReceipt": {
+      "additionalProperties": false,
+      "properties": {
+        "admitted_sequence": {
+          "minimum": 1,
+          "type": "integer"
+        },
+        "compile_id": {
+          "$ref": "#/$defs/Identifier"
+        },
+        "event_cursor": {
+          "$ref": "#/$defs/OpaqueCursor"
+        },
+        "project_id": {
+          "$ref": "#/$defs/Identifier"
+        },
+        "run_id": {
+          "$ref": "#/$defs/Identifier"
+        },
+        "workflow_revision": {
+          "minimum": 1,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "project_id",
+        "run_id",
+        "workflow_revision",
+        "compile_id",
+        "admitted_sequence",
+        "event_cursor"
+      ],
+      "type": "object"
+    },
+    "RunStartedEvent": {
+      "additionalProperties": false,
+      "properties": {
+        "started_at": {
+          "$ref": "#/$defs/Timestamp"
+        },
+        "type": {
+          "const": "run_started"
+        }
+      },
+      "required": [
+        "type",
+        "started_at"
+      ],
+      "type": "object"
+    },
+    "RunTerminalEvent": {
+      "additionalProperties": false,
+      "properties": {
+        "status": {
+          "enum": [
+            "succeeded",
+            "failed",
+            "cancelled",
+            "interrupted"
+          ]
+        },
+        "type": {
+          "const": "run_terminal"
+        }
+      },
+      "required": [
+        "type",
+        "status"
+      ],
+      "type": "object"
+    },
+    "SemanticVersion": {
+      "maxLength": 64,
+      "minLength": 5,
+      "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+(?:-[0-9A-Za-z.-]+)?$",
+      "type": "string"
+    },
+    "StartDerivedRunRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "client_request_id": {
+          "$ref": "#/$defs/Identifier"
+        },
+        "compile_id": {
+          "$ref": "#/$defs/Identifier"
+        },
+        "node_ids": {
+          "items": {
+            "$ref": "#/$defs/Identifier"
+          },
+          "maxItems": 2048,
+          "type": "array"
+        },
+        "policy": {
+          "enum": [
+            "retry_failed",
+            "force_selected"
+          ]
+        },
+        "project_id": {
+          "$ref": "#/$defs/Identifier"
+        },
+        "source_run_id": {
+          "$ref": "#/$defs/Identifier"
+        }
+      },
+      "required": [
+        "project_id",
+        "source_run_id",
+        "compile_id",
+        "policy",
+        "node_ids",
+        "client_request_id"
+      ],
+      "type": "object"
+    },
+    "StartRunRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "client_request_id": {
+          "$ref": "#/$defs/Identifier"
+        },
+        "compile_id": {
+          "$ref": "#/$defs/Identifier"
+        },
+        "project_id": {
+          "$ref": "#/$defs/Identifier"
+        },
+        "workflow_revision": {
+          "minimum": 1,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "project_id",
+        "workflow_revision",
+        "compile_id",
+        "client_request_id"
+      ],
+      "type": "object"
+    },
+    "StructuredError": {
+      "additionalProperties": false,
+      "properties": {
+        "code": {
+          "$ref": "#/$defs/Identifier"
+        },
+        "correlation_id": {
+          "$ref": "#/$defs/Identifier"
+        },
+        "details": {
+          "$ref": "#/$defs/JsonObject"
+        },
+        "message": {
+          "maxLength": 2048,
+          "minLength": 1,
+          "type": "string"
+        },
+        "retryable": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "code",
+        "message",
+        "retryable",
+        "correlation_id",
+        "details"
+      ],
+      "type": "object"
+    },
+    "StructuredErrorEnvelope": {
+      "additionalProperties": false,
+      "properties": {
+        "error": {
+          "$ref": "#/$defs/StructuredError"
+        },
+        "schema_namespace": {
+          "const": "protein-workbench-public/v2"
+        }
+      },
+      "required": [
+        "schema_namespace",
+        "error"
+      ],
+      "type": "object"
+    },
+    "TerminalAttemptStatus": {
+      "enum": [
+        "succeeded",
+        "failed",
+        "cancelled",
+        "interrupted",
+        "outcome_unknown"
+      ]
+    },
+    "Timestamp": {
+      "format": "date-time",
+      "maxLength": 64,
+      "minLength": 20,
+      "type": "string"
+    },
+    "TypedOutput": {
+      "additionalProperties": false,
+      "properties": {
+        "content_digest": {
+          "$ref": "#/$defs/Digest"
+        },
+        "node_id": {
+          "$ref": "#/$defs/Identifier"
+        },
+        "output_port": {
+          "$ref": "#/$defs/Identifier"
+        },
+        "port_type": {
+          "$ref": "#/$defs/ContractReference"
+        },
+        "values": {
+          "items": {
+            "$ref": "#/$defs/JsonValue"
+          },
+          "maxItems": 65536,
+          "type": "array"
+        }
+      },
+      "required": [
+        "node_id",
+        "output_port",
+        "port_type",
+        "content_digest",
+        "values"
+      ],
+      "type": "object"
+    },
+    "WorkflowCompileRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "project_id": {
+          "$ref": "#/$defs/Identifier"
+        },
+        "workflow": {
+          "$ref": "#/$defs/WorkflowDocument"
+        },
+        "workflow_revision": {
+          "minimum": 1,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "project_id",
+        "workflow_revision",
+        "workflow"
+      ],
+      "type": "object"
+    },
+    "WorkflowDocument": {
+      "additionalProperties": false,
+      "properties": {
+        "contract_lock": {
+          "items": {
+            "$ref": "#/$defs/ContractLockEntry"
+          },
+          "maxItems": 16384,
+          "type": "array"
+        },
+        "edges": {
+          "items": {
+            "$ref": "#/$defs/WorkflowEdge"
+          },
+          "maxItems": 8192,
+          "type": "array"
+        },
+        "nodes": {
+          "items": {
+            "$ref": "#/$defs/NodeInstance"
+          },
+          "maxItems": 2048,
+          "type": "array"
+        },
+        "schema_version": {
+          "const": "2.0.0"
+        },
+        "workflow_id": {
+          "$ref": "#/$defs/Identifier"
+        }
+      },
+      "required": [
+        "schema_version",
+        "workflow_id",
+        "nodes",
+        "edges",
+        "contract_lock"
+      ],
+      "type": "object"
+    },
+    "WorkflowEdge": {
+      "additionalProperties": false,
+      "properties": {
+        "source_node_id": {
+          "$ref": "#/$defs/Identifier"
+        },
+        "source_port": {
+          "$ref": "#/$defs/Identifier"
+        },
+        "target_node_id": {
+          "$ref": "#/$defs/Identifier"
+        },
+        "target_port": {
+          "$ref": "#/$defs/Identifier"
+        }
+      },
+      "required": [
+        "source_node_id",
+        "source_port",
+        "target_node_id",
+        "target_port"
+      ],
+      "type": "object"
+    }
+  },
+  "bundle_discovery": {
+    "digest_header": "Digest",
+    "media_type": "application/vnd.protein-workbench.protocol+json",
+    "method": "GET",
+    "route": "/api/v2/protocol"
+  },
+  "identity": {
+    "canonicalization": "RFC 8785",
+    "character_encoding": "UTF-8",
+    "digest_algorithm": "SHA-256",
+    "digest_representation": "sha256:<64 lowercase hexadecimal digits>",
+    "value_domain": "I-JSON"
+  },
+  "rest_operations": {
+    "artifact_retrieval": {
+      "method": "GET",
+      "request_schema": "#/$defs/ArtifactRetrievalRequest",
+      "response": {
+        "headers": {
+          "Content-Disposition": "content_disposition",
+          "Content-Length": "artifact.size",
+          "Content-Type": "artifact.media_type",
+          "Digest": "artifact.content_digest"
+        },
+        "kind": "binary",
+        "metadata_schema": "#/$defs/ArtifactResponseMetadata",
+        "success_status": 200
+      },
+      "route": "/api/v2/projects/{project_id}/runs/{run_id}/artifacts/{artifact_reference}",
+      "status_mapping": {
+        "200": "response",
+        "404": "structured_error",
+        "409": "structured_error",
+        "413": "structured_error",
+        "422": "structured_error",
+        "default": "structured_error"
+      }
+    },
+    "cancel_run": {
+      "method": "POST",
+      "request_schema": "#/$defs/CancelRunRequest",
+      "response": {
+        "kind": "json",
+        "schema": "#/$defs/CancelRunReceipt",
+        "success_status": 200
+      },
+      "route": "/api/v2/projects/{project_id}/runs/{run_id}:cancel",
+      "status_mapping": {
+        "200": "response",
+        "404": "structured_error",
+        "409": "structured_error",
+        "422": "structured_error",
+        "default": "structured_error"
+      }
+    },
+    "catalog_snapshot": {
+      "method": "GET",
+      "request_schema": "#/$defs/CatalogSnapshotRequest",
+      "response": {
+        "kind": "json",
+        "schema": "#/$defs/CatalogSnapshot",
+        "success_status": 200
+      },
+      "route": "/api/v2/catalog",
+      "status_mapping": {
+        "200": "response",
+        "503": "structured_error",
+        "default": "structured_error"
+      }
+    },
+    "project_workflow_snapshot": {
+      "method": "GET",
+      "request_schema": "#/$defs/ProjectWorkflowSnapshotRequest",
+      "response": {
+        "kind": "json",
+        "schema": "#/$defs/ProjectWorkflowSnapshot",
+        "success_status": 200
+      },
+      "route": "/api/v2/projects/{project_id}/workflow",
+      "status_mapping": {
+        "200": "response",
+        "404": "structured_error",
+        "default": "structured_error"
+      }
+    },
+    "run_projection": {
+      "method": "GET",
+      "request_schema": "#/$defs/RunProjectionRequest",
+      "response": {
+        "kind": "json",
+        "schema": "#/$defs/RunProjection",
+        "success_status": 200
+      },
+      "route": "/api/v2/projects/{project_id}/runs/{run_id}",
+      "status_mapping": {
+        "200": "response",
+        "404": "structured_error",
+        "409": "structured_error",
+        "503": "structured_error",
+        "default": "structured_error"
+      }
+    },
+    "start_derived_run": {
+      "method": "POST",
+      "request_schema": "#/$defs/StartDerivedRunRequest",
+      "response": {
+        "kind": "json",
+        "schema": "#/$defs/RunReceipt",
+        "success_status": 202
+      },
+      "route": "/api/v2/projects/{project_id}/runs:derive",
+      "status_mapping": {
+        "202": "response",
+        "404": "structured_error",
+        "409": "structured_error",
+        "422": "structured_error",
+        "503": "structured_error",
+        "default": "structured_error"
+      }
+    },
+    "start_run": {
+      "method": "POST",
+      "request_schema": "#/$defs/StartRunRequest",
+      "response": {
+        "kind": "json",
+        "schema": "#/$defs/RunReceipt",
+        "success_status": 202
+      },
+      "route": "/api/v2/projects/{project_id}/runs",
+      "status_mapping": {
+        "202": "response",
+        "404": "structured_error",
+        "409": "structured_error",
+        "422": "structured_error",
+        "503": "structured_error",
+        "default": "structured_error"
+      }
+    },
+    "workflow_compile": {
+      "method": "POST",
+      "request_schema": "#/$defs/WorkflowCompileRequest",
+      "response": {
+        "kind": "json",
+        "schema": "#/$defs/CompileReceipt",
+        "success_status": 200
+      },
+      "route": "/api/v2/projects/{project_id}/workflow:compile",
+      "status_mapping": {
+        "200": "response",
+        "404": "structured_error",
+        "409": "structured_error",
+        "422": "structured_error",
+        "503": "structured_error",
+        "default": "structured_error"
+      }
+    }
+  },
+  "run_event_stream": {
+    "close_behavior": {
+      "1000": "after_run_terminal_or_client_close",
+      "1008": "after_structured_policy_or_cursor_error",
+      "1011": "after_structured_internal_error_when_safe"
+    },
+    "cursor_semantics": {
+      "cursor": "opaque",
+      "delivery": "at-most-once-per-connection",
+      "resume": "exclusive",
+      "source": "durable-ledger-projection",
+      "transition": "replay-then-live-without-gap-or-duplicate"
+    },
+    "event_union": [
+      "engine_invocation_started",
+      "engine_invocation_terminal",
+      "node_attempt_started",
+      "node_attempt_terminal",
+      "node_disposition",
+      "operation_attempt_started",
+      "operation_attempt_terminal",
+      "readiness_attested",
+      "replay_complete",
+      "replay_started",
+      "run_admitted",
+      "run_started",
+      "run_terminal"
+    ],
+    "message_schema": "#/$defs/RunEventStreamMessage",
+    "request_schema": "#/$defs/RunEventStreamRequest",
+    "route": "/api/v2/projects/{project_id}/runs/{run_id}/events?after_sequence={after_sequence}",
+    "transport": "websocket"
+  },
+  "schema_namespace": "protein-workbench-public/v2",
+  "schema_version": "2.0.0",
+  "structured_errors": {
+    "details_max_bytes": 16384,
+    "envelope_schema": "#/$defs/StructuredErrorEnvelope",
+    "vocabulary": {
+      "artifact_integrity_mismatch": {
+        "code": "artifact_integrity_mismatch",
+        "details_schema": "#/$defs/ArtifactErrorDetails",
+        "http_status": 409,
+        "retryable": false
+      },
+      "artifact_limit_exceeded": {
+        "code": "artifact_limit_exceeded",
+        "details_schema": "#/$defs/ArtifactErrorDetails",
+        "http_status": 413,
+        "retryable": false
+      },
+      "artifact_not_found": {
+        "code": "artifact_not_found",
+        "details_schema": "#/$defs/ResourceNotFoundDetails",
+        "http_status": 404,
+        "retryable": false
+      },
+      "binding_unavailable": {
+        "code": "binding_unavailable",
+        "details_schema": "#/$defs/BindingErrorDetails",
+        "http_status": 422,
+        "retryable": false
+      },
+      "cancellation_conflict": {
+        "code": "cancellation_conflict",
+        "details_schema": "#/$defs/CancellationErrorDetails",
+        "http_status": 409,
+        "retryable": false
+      },
+      "compile_rejected": {
+        "code": "compile_rejected",
+        "details_schema": "#/$defs/CompileErrorDetails",
+        "http_status": 422,
+        "retryable": false
+      },
+      "contract_digest_mismatch": {
+        "code": "contract_digest_mismatch",
+        "details_schema": "#/$defs/ContractDigestMismatchDetails",
+        "http_status": 409,
+        "retryable": false
+      },
+      "cross_scope_access_denied": {
+        "code": "cross_scope_access_denied",
+        "details_schema": "#/$defs/CrossScopeErrorDetails",
+        "http_status": 404,
+        "retryable": false
+      },
+      "evidence_unavailable": {
+        "code": "evidence_unavailable",
+        "details_schema": "#/$defs/EvidenceErrorDetails",
+        "http_status": 503,
+        "retryable": true
+      },
+      "internal_error": {
+        "code": "internal_error",
+        "details_schema": "#/$defs/InternalErrorDetails",
+        "http_status": 500,
+        "retryable": false
+      },
+      "invalid_cursor": {
+        "code": "invalid_cursor",
+        "details_schema": "#/$defs/InvalidCursorErrorDetails",
+        "http_status": 400,
+        "retryable": false
+      },
+      "malformed_request": {
+        "code": "malformed_request",
+        "details_schema": "#/$defs/MalformedRequestDetails",
+        "http_status": 400,
+        "retryable": false
+      },
+      "project_not_found": {
+        "code": "project_not_found",
+        "details_schema": "#/$defs/ResourceNotFoundDetails",
+        "http_status": 404,
+        "retryable": false
+      },
+      "protocol_mismatch": {
+        "code": "protocol_mismatch",
+        "details_schema": "#/$defs/ProtocolMismatchDetails",
+        "http_status": 409,
+        "retryable": false
+      },
+      "readiness_rejected": {
+        "code": "readiness_rejected",
+        "details_schema": "#/$defs/BindingErrorDetails",
+        "http_status": 503,
+        "retryable": true
+      },
+      "run_not_found": {
+        "code": "run_not_found",
+        "details_schema": "#/$defs/ResourceNotFoundDetails",
+        "http_status": 404,
+        "retryable": false
+      },
+      "workflow_not_found": {
+        "code": "workflow_not_found",
+        "details_schema": "#/$defs/ResourceNotFoundDetails",
+        "http_status": 404,
+        "retryable": false
+      }
+    },
+    "vocabulary_version": "2.0.0"
+  }
+}

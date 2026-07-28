@@ -174,6 +174,35 @@ SHA-256 of `bundle-checksums.sha256` outside the bundle so later readers can
 detect local bundle replacement. That detached digest is an audit anchor, not a
 cryptographic signature.
 
+## V2 public protocol bundle
+
+The versioned `protein-workbench-public/v2` contract is shipped as
+`protein_workbench_public/resources/v2/bundle.json`. Source and installed
+clients load it through the public `protein_workbench_public` package, which
+returns RFC 8785 canonical UTF-8 bytes and their public `sha256:` digest. A
+running backend serves those exact bytes from `GET /api/v2/protocol`, with the
+same digest in the `Digest` response header.
+
+The bundle is the only payload source for the v2 REST operations, Run Event
+Stream union and replay/close rules, artifact metadata, and structured-error
+vocabulary. The public package supplies request preparation and closed-field
+request, response, event, error, and artifact validation without importing
+`core`. Acceptance clients must use those functions and the operation metadata;
+they must not maintain route or payload fallbacks for v1.
+
+Run the focused source contract and the isolated source-versus-wheel gate with:
+
+```bash
+.venv/bin/pytest -q tests/test_public_protocol_v2.py
+.venv/bin/python scripts/verify_backend.py installed-package
+```
+
+The installed-package gate checks the bundle resource in both wheel and sdist,
+loads it from outside the source checkout, compares canonical bytes and digest
+to the source result, and retrieves the same bytes from the installed backend.
+This protocol freeze does not claim that the subsequent v2 Catalog, Compiler,
+Run, Ledger, or Cache implementations already exist.
+
 ## Deterministic public-protocol acceptance
 
 The deterministic tier starts a real uvicorn backend process and uses a small

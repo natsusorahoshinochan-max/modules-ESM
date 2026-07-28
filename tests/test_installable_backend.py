@@ -17,8 +17,12 @@ from pathlib import Path
 
 import pytest
 
+from protein_workbench_public import bundle_bytes, bundle_digest
+
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
+SOURCE_PROTOCOL_BYTES = bundle_bytes()
+SOURCE_PROTOCOL_DIGEST = bundle_digest()
 EXPECTED_MODULE_IDS = {
     "compute.dssp",
     "convert.extract_backbone",
@@ -106,6 +110,7 @@ def test_built_artifacts_contain_backend_definitions_and_canonical_assets(
         "examples/3gb1_pipeline.json",
         "examples/3gb1_pipeline_ui.json",
         "pdbs/3GB1.pdb",
+        "protein_workbench_public/resources/v2/bundle.json",
     }
     required_names.update(
         path.relative_to(PROJECT_ROOT).as_posix()
@@ -181,10 +186,15 @@ from pathlib import Path
 import core
 import modules
 from core import ModuleRegistry, TypeRegistry, discover_modules
+from protein_workbench_public import bundle_bytes, bundle_digest
+import protein_workbench_public
 
 source_root = Path(__import__("os").environ["PROTEIN_WORKBENCH_SOURCE_ROOT"]).resolve()
 assert source_root not in Path(core.__file__).resolve().parents
 assert source_root not in Path(modules.__file__).resolve().parents
+assert source_root not in Path(protein_workbench_public.__file__).resolve().parents
+assert bundle_bytes().hex() == {SOURCE_PROTOCOL_BYTES.hex()!r}
+assert bundle_digest() == {SOURCE_PROTOCOL_DIGEST!r}
 
 registry = ModuleRegistry(TypeRegistry())
 discover_modules(registry)
@@ -251,6 +261,14 @@ assert sorted(item.module_id for item in registry.list_all()) == {expected}
         ]
         assert len(canonical) == 1
         assert canonical[0]["seed"] is True
+        with urllib.request.urlopen(
+            f"http://127.0.0.1:{port}/api/v2/protocol",
+            timeout=2,
+        ) as response:
+            installed_protocol_bytes = response.read()
+            installed_protocol_digest = response.headers["Digest"]
+        assert installed_protocol_bytes == SOURCE_PROTOCOL_BYTES
+        assert installed_protocol_digest == SOURCE_PROTOCOL_DIGEST
     finally:
         if server.poll() is None:
             server.terminate()
