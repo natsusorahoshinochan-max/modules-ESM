@@ -1,12 +1,17 @@
-# Two-layer type system: string IDs for ports, Python classes for data
+# Two-layer type system: versioned nominal Port Types and runtime values
 
-Port compatibility is checked against string type IDs (e.g., protein.sequence,
-protein.structure). The engine never inspects the internal structure of data
-passing through ports. This keeps the core agnostic to the shape of future types.
+Port compatibility is checked against exact nominal `type_id + version`
+identity, resolved through a Port Type Definition. The core does not hard-code
+the scientific structure of values; it delegates validation, canonical
+encoding, and content-digest calculation to that Definition.
 
-Runtime data is carried by concrete Python classes (dataclasses) in the types/
-package. Each class corresponds to one type ID. Modules read and write these objects
-through the port contract defined in their ModuleDefinition.
+Runtime data may be carried by concrete Python classes or other values accepted
+by the registered validator and codec. Node implementations read and write them
+through the exact Port contract declared by their Node Definition.
 
-New modules can register new type IDs without modifying the core, as long as the
-consumer modules declare matching input ports or the user inserts a conversion node.
+Module Packages can register new Port Type Definitions without modifying
+`core/`. Producer and consumer Ports connect only when both exact identities
+match; scientific conversion uses an explicit Node Type.
+
+ADR-0028 supplies the complete versioned contract, atomic registration, and
+fail-closed unknown-type rules for this decision.

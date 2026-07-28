@@ -1,3 +1,7 @@
+---
+status: superseded by ADR-0031
+---
+
 # Content-addressed cache with manual invalidation
 
 The cache key is a hash of (module_id, module_version, input hashes,

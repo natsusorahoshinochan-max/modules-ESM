@@ -1,3 +1,7 @@
+---
+status: superseded by ADR-0032
+---
+
 # SimpleFold: separate fold and evaluate modules
 
 SimpleFold is exposed as two modules: simplefold.fold (sequence to structures,

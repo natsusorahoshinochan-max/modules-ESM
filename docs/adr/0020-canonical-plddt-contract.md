@@ -19,4 +19,6 @@ the provider-native scale so canonical values are never scaled twice.
 
 The Method records the actual model and confidence-head identity. pTM remains
 on `[0, 1]`, PAE remains measured in angstroms, and classic Meta ESMFold is
-outside the project scope.
+outside the project scope. ADR-0032 fixes the actual SimpleFold evaluation
+Method and removes its misleading mutable `model_name`; this does not change
+the canonical pLDDT scale defined here.

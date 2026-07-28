@@ -1,10 +1,17 @@
-# Frontend-backend communication: FastAPI REST + WebSocket
+# Frontend-backend communication: FastAPI REST + WebSocket (historical v1)
 
-The frontend communicates with the backend through a FastAPI server exposing
-a REST API for CRUD operations and a WebSocket for real-time execution progress.
-The backend has no knowledge of the UI framework; the API is the sole contract.
+This document records the v1 transport. Its endpoint names, payloads, Workflow
+JSON, Type/Module Registry responses, Cache layout, event examples, and
+frontend-facing consequences below are historical and non-normative for v2.
 
-## REST API endpoints
+The retained behavioral baseline is a backend-owned REST interface plus a
+run-scoped WebSocket interface with ordering, Project/Run isolation,
+cancellation, safe error projection, and artifact integrity. A v2 transport
+ticket must restate its exact routes and payloads using the accepted contracts
+in ADR-0022, ADR-0026, ADR-0028, ADR-0029, ADR-0030, and ADR-0031; nothing below
+authorizes a second Registry, manifest writer, Workflow shape, or Cache model.
+
+## Historical v1 REST API endpoints
 
 ### Module registry
 ```
@@ -107,7 +114,7 @@ POST   /api/projects/{project_id}/import    # Import sequence/structure file
 GET    /api/projects/{project_id}/export/{file_id}  # Download output file
 ```
 
-## WebSocket: execution progress
+## Historical v1 WebSocket execution progress
 
 ```
 WS /api/projects/{project_id}/run/{run_id}/ws
@@ -145,7 +152,7 @@ Each stream uses a fixed 256-event live queue, admits at most 32 subscribers,
 and keeps an overflowed subscriber counted until its WebSocket handler exits.
 The broker retains the latest 32 completed streams for post-REST replay.
 
-## Data formats
+## Historical v1 data formats
 
 ### Workflow JSON (workflow.json)
 
@@ -184,7 +191,7 @@ The broker retains the latest 32 completed streams for post-REST replay.
 }
 ```
 
-## Port compatibility check
+## Historical v1 Port compatibility check
 
 Port type compatibility is enforced on both sides:
 
@@ -196,7 +203,7 @@ Port type compatibility is enforced on both sides:
   the workflow, as the authoritative gate. The frontend check is a UX
   convenience, not a security boundary.
 
-## Consequences
+## Historical v1 consequences
 
 - The backend is fully testable without a browser: all endpoints can be
   exercised with pytest + httpx.

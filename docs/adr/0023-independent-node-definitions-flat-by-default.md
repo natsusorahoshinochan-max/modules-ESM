@@ -13,8 +13,10 @@ have a one-to-one mapping, so cohesive implementations and test fixtures may be
 shared by several Node Types.
 
 The Module Package remains the sole startup discovery and atomic registration
-unit. Its unified registration object explicitly binds each Definition to its
-implementation or Adapter, and the Registry loads each Definition once.
+unit. Its unified registration object explicitly lists every Node and Metric
+Definition resource, binds each Node Definition to its Execution Bindings, and
+loads each resource once. Resource globs, recursive scanning, and helper-driven
+automatic enumeration are forbidden. Unknown schema fields fail startup.
 Contract tests are parameterized over the package's Definitions instead of
 requiring repeated per-Node scaffolding. A package-wide YAML that duplicates
 Node contracts and mandatory one-directory-per-Node layouts were rejected:
@@ -25,5 +27,17 @@ This decision supersedes ADR-0009's fixed `definition.yaml`-per-module layout
 while retaining YAML as the only public Node contract. The external precedents
 and trade-offs are recorded in
 [`2026-07-27-module-package-layout-prior-art.md`](../research/2026-07-27-module-package-layout-prior-art.md).
-The registration entry filename and symbol, exact YAML fields, and internal
-implementation/test directory names remain separate decisions.
+ADR-0018 fixes the production registration entry as
+`modules/<package_name>/package.py:MODULE_PACKAGE`. Node Definition YAML owns
+only Node identity, display metadata, Ports and groups, and cross-Binding
+parameters. Metric Definition YAML owns Metric identity, value shape and type,
+unit, direction, canonical range, granularity, aggregation, validity or masking,
+and Observation Context schema. Method, Binding, Port Type, Utility Transform,
+and factory or probe contracts use immutable typed Python registration.
+
+A simple package may use `implementation.py` or `adapters.py` and move to
+`implementations/` or `adapters/` only when several cohesive implementations
+exist. Optional resources and package-local source tests are created only when
+needed; tests are excluded from the production wheel. Directory choice does not
+change the production registration contract. ADR-0028 defines the referenced
+Port Type contracts.
