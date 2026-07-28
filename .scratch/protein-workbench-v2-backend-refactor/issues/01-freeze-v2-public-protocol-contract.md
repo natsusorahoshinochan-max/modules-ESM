@@ -4,7 +4,7 @@
 
 **Blocked by:** None — can start immediately.
 
-**Status:** implementation-complete-awaiting-controller-gate
+**Status:** completed
 
 - [x] The contract bundle is closed-field and defines Catalog Snapshot, Project/Workflow Snapshot, Workflow Compile, Start Run, Start Derived Run, Cancel Run, Run Projection, Run Event Stream, and Artifact Retrieval.
 - [x] One source definition drives backend validation, REST schemas, event and error envelopes, and the acceptance client; no independently maintained payload model is introduced.
@@ -36,3 +36,20 @@ is still required before the next ticket starts.
   Catalog descriptor, and invalid Node Disposition outcome/resolution
   combinations. Both review axes passed their follow-up review with no new hard
   or high findings.
+
+## Controller cumulative acceptance
+
+Before Ticket 02 started, the Controller independently accepted implementation
+commit `18ff60e1a5b5d6c428ab947c7abfc7ed2dd9622a` through the cumulative gate:
+
+- Focused public protocol: `11 passed`.
+- Cumulative routine: `696 passed, 44 deselected`.
+- Deterministic acceptance: `9 passed, 5 deselected`, with retained result
+  `verification-results/deterministic-acceptance/20260728T215340.024060Z-7916-5ec74a43c6e07c78`.
+- Installed artifact: `3 passed`, with retained result
+  `verification-results/installed-package/20260728T215424.928778Z-8019-10d55e06aa5df005`.
+- `git diff --check 21810a4...18ff60e` passed and the worktree was clean before
+  the Controller recorded this acceptance.
+
+No Controller regression was returned to the executor. Ticket 02 may start from
+this accepted state.
