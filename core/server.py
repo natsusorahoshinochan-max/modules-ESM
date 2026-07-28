@@ -49,6 +49,11 @@ from core.project import (
     ProtectedProjectError,
     UIState,
 )
+from core.provider_readiness import (
+    ReadinessResolver,
+    assess_workflow_readiness,
+    resolve_live_provider_readiness,
+)
 from core.recovery import RunRecoveryError, RunRecoveryService
 from core.recovery_types import RecoveryAction, RecoveryProvenance
 from core.storage import (
@@ -380,8 +385,15 @@ def create_app(
     *,
     module_factory_overrides: Mapping[str, ModuleFactory] | None = None,
     runtime_module_allowlist: frozenset[str] | None = None,
+    provider_readiness_resolver: ReadinessResolver | None = None,
+    provider_aliases: Mapping[str, str] | None = None,
 ) -> FastAPI:
     """Create the backend, optionally replacing external-boundary Modules."""
+    trusted_readiness_resolver = (
+        provider_readiness_resolver
+        if provider_readiness_resolver is not None
+        else resolve_live_provider_readiness
+    )
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         global type_registry, module_registry, project_manager
@@ -725,6 +737,25 @@ def create_app(
                 status_code=422,
                 module_ids=disallowed_modules,
             )
+        readiness = assess_workflow_readiness(
+            workflow,
+            trusted_readiness_resolver,
+            provider_aliases=provider_aliases,
+        )
+        if not readiness.ready:
+            return JSONResponse(
+                status_code=503,
+                content={
+                    "error": {
+                        "kind": "required_provider_unavailable",
+                        "message": (
+                            "Required scientific provider readiness "
+                            "could not be established"
+                        ),
+                        "readiness": list(readiness.facts),
+                    }
+                },
+            )
         if len(_active_runs) >= MAX_ACTIVE_RUNS:
             return JSONResponse(
                 status_code=429,
@@ -851,6 +882,7 @@ def create_app(
                     force_rerun_nodes=force_rerun,
                     project_manager=project_manager,
                     project_id=project_id,
+                    provider_readiness=readiness.executor_payload(),
                     recovery=recovery,
                     cancellation_requested=cancellation_requested,
                     cancellation_timeout=RUN_CANCELLATION_TIMEOUT_SECONDS,

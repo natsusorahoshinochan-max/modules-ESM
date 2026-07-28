@@ -159,6 +159,11 @@ def _sanitize(value: Any) -> Any:
     return _redact(value, secrets_to_redact)
 
 
+def sanitize_public_value(value: Any) -> Any:
+    """Return a recursively redacted value safe for public API responses."""
+    return _sanitize(value)
+
+
 def _validate_score_details(value: Any, *, depth: int = 0) -> None:
     """Accept only bounded scientific JSON values, never opaque objects."""
     if depth > 12:
@@ -607,6 +612,9 @@ class RunManifestStore:
         *,
         provider: str,
         ready: bool,
+        status: str | None = None,
+        provider_identity: dict[str, Any] | None = None,
+        source: dict[str, Any] | None = None,
         details: dict[str, Any] | None = None,
     ) -> None:
         fact = _sanitize({
@@ -614,6 +622,12 @@ class RunManifestStore:
             "ready": bool(ready),
             "details": details or {},
         })
+        if status is not None:
+            fact["status"] = status
+        if provider_identity is not None:
+            fact["provider_identity"] = provider_identity
+        if source is not None:
+            fact["source"] = source
         self.manifest.providers["readiness"].append(fact)
         self.persist()
 

@@ -472,6 +472,20 @@ def test_repeated_canonical_execution_replays_cache_in_a_fresh_run_scope(
     assert len(first_manifest["providers"]["calls"]) == 89
     assert replay_manifest["providers"]["calls"] == []
     assert Counter(
+        entry["provider"]
+        for entry in first_manifest["providers"]["readiness"]
+    ) == Counter({
+        "biohub": 1,
+        "local_open": 1,
+        "controlled-proteinmpnn": 1,
+        "mkdssp": 1,
+        "biopython-svd": 1,
+        "tmtools": 1,
+    })
+    assert replay_manifest["providers"]["readiness"] == (
+        first_manifest["providers"]["readiness"]
+    )
+    assert Counter(
         entry["outcome"] for entry in first_manifest["cache"]
     ) == Counter({"miss": 24})
     assert Counter(
@@ -499,6 +513,49 @@ def test_repeated_canonical_execution_replays_cache_in_a_fresh_run_scope(
         assert downloaded.sha256 == artifact["sha256"]
         replay_hashes.append(downloaded.sha256)
     assert replay_hashes == EXPECTED_FINAL_PDB_HASHES
+
+
+def test_client_readiness_claims_cannot_authorize_an_unready_workflow(
+    unavailable_readiness_backend_client: BackendAcceptanceClient,
+) -> None:
+    claimed_ready = {
+        provider: {"ready": True, "status": "ready"}
+        for provider in (
+            "biohub",
+            "local_open",
+            "controlled-proteinmpnn",
+            "mkdssp",
+            "biopython-svd",
+            "tmtools",
+        )
+    }
+
+    rejected = unavailable_readiness_backend_client.run_saved_raw(
+        PROJECT_ID,
+        seed=RUN_SEED,
+        extra_options={
+            "provider_readiness": claimed_ready,
+            "readiness": claimed_ready,
+        },
+    )
+
+    assert rejected.status_code == 503
+    error = rejected.json()["error"]
+    assert error["kind"] == "required_provider_unavailable"
+    assert "run_id" not in rejected.json()
+    readiness = {
+        item["provider"]: item
+        for item in error["readiness"]
+    }
+    assert readiness["local_open"]["status"] == "unavailable"
+    assert readiness["biohub"]["status"] == "failed"
+    assert readiness["biohub"]["details"]["reason"] == "ambiguous_readiness"
+    assert readiness["controlled-proteinmpnn"]["status"] == "failed"
+    assert all(
+        item["source"]["kind"] == "workflow_required_boundary"
+        for item in readiness.values()
+    )
+    assert "fixture-secret-must-not-leak" not in rejected.text
 
 
 def test_traversal_like_project_input_is_rejected_without_run_creation(

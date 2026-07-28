@@ -545,3 +545,13 @@ def test_public_manifest_contains_every_readiness_fact(
         "Observed an incomplete public run manifest; repaired behavior must "
         "source-bind all 6 readiness records separately from calls."
     )
+    assert len(manifest["providers"]["calls"]) == 89
+    assert all(
+        record["status"] == "ready"
+        and record["ready"] is True
+        and record["provider_identity"]
+        and record["source"]["kind"] == "workflow_required_boundary"
+        and record["source"]["node_ids"]
+        and record["source"]["module_ids"]
+        for record in manifest["providers"]["readiness"]
+    )

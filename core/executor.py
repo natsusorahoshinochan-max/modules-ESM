@@ -1017,12 +1017,27 @@ class Executor:
                     if isinstance(readiness, dict):
                         details = dict(readiness)
                         ready = bool(details.pop("ready", False))
+                        status = details.pop("status", None)
+                        provider_identity = details.pop(
+                            "provider_identity",
+                            None,
+                        )
+                        source = details.pop("source", None)
+                        nested_details = details.pop("details", None)
+                        if nested_details is not None:
+                            details = nested_details
                     else:
                         ready = bool(readiness)
                         details = {}
+                        status = None
+                        provider_identity = None
+                        source = None
                     manifest_store.record_provider_readiness(
                         provider=provider,
                         ready=ready,
+                        status=status,
+                        provider_identity=provider_identity,
+                        source=source,
                         details=details,
                     )
                 manifest_store.set_status("running")

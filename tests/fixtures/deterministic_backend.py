@@ -14,6 +14,10 @@ from pathlib import Path
 from typing import Any
 
 from core.run_context import RunContext
+from core.provider_readiness import (
+    ProviderReadinessFact,
+    ProviderRequirement,
+)
 from core.server import create_app
 from datatypes import ProteinSequence, ProteinStructure, ScoreCollection
 from modules.esm3_generate.module import ESM3GenerateModule
@@ -193,13 +197,39 @@ def _proteinmpnn_module() -> ProteinMPNNDesignModule:
     return ProteinMPNNDesignModule(provider=RecordedProteinMPNNProvider())
 
 
+PROVIDER_ALIASES = {
+    "local-proteinmpnn": "controlled-proteinmpnn",
+}
+
+DETERMINISTIC_MODULE_OVERRIDES = {
+    "compute.dssp": RecordedDSSPModule,
+    "esm3.generate": _esm3_module,
+    "esmfold2.fold": _fold_module,
+    "proteinmpnn.design": _proteinmpnn_module,
+    "stub.echo": DeterministicEchoModule,
+}
+
+
+def deterministic_readiness_resolver(
+    requirements: tuple[ProviderRequirement, ...],
+) -> tuple[ProviderReadinessFact, ...]:
+    return tuple(
+        ProviderReadinessFact(
+            provider=requirement.provider,
+            status="ready",
+            provider_identity={
+                "fixture": requirement.provider,
+                "contract": "deterministic-public-backend",
+            },
+            details={"injected_fixture": True},
+        )
+        for requirement in requirements
+    )
+
+
 app = create_app(
-    module_factory_overrides={
-        "compute.dssp": RecordedDSSPModule,
-        "esm3.generate": _esm3_module,
-        "esmfold2.fold": _fold_module,
-        "proteinmpnn.design": _proteinmpnn_module,
-        "stub.echo": DeterministicEchoModule,
-    },
+    module_factory_overrides=DETERMINISTIC_MODULE_OVERRIDES,
     runtime_module_allowlist=ALLOWED_RUNTIME_MODULE_IDS,
+    provider_readiness_resolver=deterministic_readiness_resolver,
+    provider_aliases=PROVIDER_ALIASES,
 )

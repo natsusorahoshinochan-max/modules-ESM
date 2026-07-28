@@ -108,10 +108,13 @@ class BackendAcceptanceClient:
         *,
         seed: int,
         force_rerun_nodes: list[str] | None = None,
+        extra_options: dict[str, Any] | None = None,
     ) -> httpx.Response:
         payload: dict[str, Any] = {"seed": seed}
         if force_rerun_nodes is not None:
             payload["force_rerun_nodes"] = force_rerun_nodes
+        if extra_options is not None:
+            payload.update(extra_options)
         response = self._http.post(
             f"/api/projects/{project_id}/run",
             json=payload,

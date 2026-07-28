@@ -119,3 +119,77 @@ def backend_client(
         except subprocess.TimeoutExpired:
             process.kill()
             process.communicate()
+
+
+@pytest.fixture
+def unavailable_readiness_backend_client(
+    tmp_path: Path,
+    provider_call_probe: ProviderCallProbe,
+    provider_prompt_probe: Path,
+) -> Iterator[BackendAcceptanceClient]:
+    """Yield a backend whose trusted resolver returns fail-closed facts."""
+    port = _unused_local_port()
+    base_url = f"http://127.0.0.1:{port}"
+    env = os.environ.copy()
+    env["PYTHONPATH"] = str(PROJECT_ROOT)
+    env["PROTEIN_WORKBENCH_CANONICAL_WORKFLOW"] = str(
+        PROJECT_ROOT / "examples" / "3gb1_pipeline.json"
+    )
+    env["PROTEIN_WORKBENCH_CANONICAL_UI"] = str(
+        PROJECT_ROOT / "examples" / "3gb1_pipeline_ui.json"
+    )
+    env["PROTEIN_WORKBENCH_CANONICAL_VERSION"] = "18-unavailable-readiness"
+    env["PROTEIN_WORKBENCH_DETERMINISTIC_PROVIDER_CALLS"] = str(
+        provider_call_probe.path
+    )
+    env["PROTEIN_WORKBENCH_DETERMINISTIC_PROVIDER_PROMPTS"] = str(
+        provider_prompt_probe
+    )
+    for name in ("PROJECT", "CACHE", "OUTPUT", "RUN"):
+        root = tmp_path / f"unavailable-{name.lower()}"
+        root.mkdir()
+        env[f"PROTEIN_WORKBENCH_{name}_ROOT"] = str(root)
+    process = subprocess.Popen(
+        [
+            sys.executable,
+            "-m",
+            "uvicorn",
+            "tests.fixtures.unavailable_readiness_backend:app",
+            "--host",
+            "127.0.0.1",
+            "--port",
+            str(port),
+            "--log-level",
+            "warning",
+        ],
+        cwd=PROJECT_ROOT,
+        env=env,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        text=True,
+    )
+    try:
+        deadline = time.monotonic() + 15
+        while time.monotonic() < deadline and process.poll() is None:
+            try:
+                response = httpx.get(f"{base_url}/api/modules", timeout=0.5)
+                if response.status_code == 200:
+                    break
+            except httpx.HTTPError:
+                time.sleep(0.05)
+        else:
+            output = process.communicate(timeout=2)[0]
+            pytest.fail(f"Unavailable readiness backend did not start:\n{output}")
+        client = BackendAcceptanceClient(base_url)
+        try:
+            yield client
+        finally:
+            client.close()
+    finally:
+        if process.poll() is None:
+            process.terminate()
+        try:
+            process.communicate(timeout=5)
+        except subprocess.TimeoutExpired:
+            process.kill()
+            process.communicate()
