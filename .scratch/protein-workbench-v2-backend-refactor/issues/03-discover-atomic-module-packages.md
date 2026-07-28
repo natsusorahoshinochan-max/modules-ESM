@@ -4,7 +4,7 @@
 
 **Blocked by:** 02 — Publish canonical nominal Port Types.
 
-**Status:** implementation-complete-awaiting-controller-gate
+**Status:** completed
 
 - [x] One immutable Module Package registration can explicitly contribute Node and Metric resources, Methods, Bindings, Port Types, Utility Transforms, lazy factories, and Availability/Readiness declarations.
 - [x] Startup discovery reads only first-level Module Packages through their single production registration and does not use recursive Definition scans, globs, helper enumeration, per-Node registration, or import side effects.
@@ -56,3 +56,22 @@ acceptance is still required before Ticket 04 may start.
   no remaining hard/high finding. The Standards reviewer retained only
   non-blocking judgement smells about identity tuples and duplicated
   contract-reference presentation.
+
+## Controller cumulative acceptance
+
+Before Ticket 04 started, the Controller independently accepted implementation
+commit `8b057d6841f2c6238a9656de2cfadc9f8c4fc476` together with the completed
+Tickets 01 and 02 surfaces:
+
+- Joint Ticket 01–03 focused suites: `71 passed`.
+- Cumulative routine: `756 passed, 44 deselected`, with retained result
+  `verification-results/routine/20260728T231815.864784Z-21933-681b4b48b035cd32`.
+- Deterministic acceptance: `9 passed, 5 deselected`, with retained result
+  `verification-results/deterministic-acceptance/20260728T231949.283972Z-22524-4406e827517f30cc`.
+- Installed artifact: `3 passed`, with retained result
+  `verification-results/installed-package/20260728T232043.870161Z-22709-c52d5d98e0a8504c`.
+- `git diff --check 9b7626f...8b057d6` passed and the worktree was clean before
+  the Controller recorded this acceptance.
+
+No Controller regression was returned to the executor. Ticket 04 may start from
+this accepted state.
