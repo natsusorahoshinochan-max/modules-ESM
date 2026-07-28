@@ -51,6 +51,18 @@ modules = ["**/*.yaml"]
 pdbs = ["3GB1.pdb"]
 protein_workbench_public = ["resources/v2/*.json"]
 
+[tool.setuptools.exclude-package-data]
+modules = [
+    "**/fixture/*",
+    "**/fixture/**/*",
+    "**/fixtures/*",
+    "**/fixtures/**/*",
+    "**/test/*",
+    "**/test/**/*",
+    "**/tests/*",
+    "**/tests/**/*",
+]
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = [

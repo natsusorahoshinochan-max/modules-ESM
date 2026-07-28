@@ -17,14 +17,14 @@ from pathlib import Path
 
 import pytest
 
-from core import builtin_frozen_catalog
+from core import build_discovered_frozen_catalog
 from protein_workbench_public import bundle_bytes, bundle_digest
 
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 SOURCE_PROTOCOL_BYTES = bundle_bytes()
 SOURCE_PROTOCOL_DIGEST = bundle_digest()
-SOURCE_PORT_CATALOG = builtin_frozen_catalog()
+SOURCE_PORT_CATALOG = build_discovered_frozen_catalog()
 SOURCE_PORT_CATALOG_BYTES = SOURCE_PORT_CATALOG.catalog_descriptor_bytes
 SOURCE_PORT_CATALOG_DIGEST = SOURCE_PORT_CATALOG.contract_digest
 SOURCE_PORT_TYPE_BYTES = {
@@ -140,6 +140,13 @@ def test_built_artifacts_contain_backend_definitions_and_canonical_assets(
     } <= sdist_names
     assert not any(name.startswith(("keys/", "repositories/")) for name in wheel_names)
     assert not any(name.startswith(("keys/", "repositories/")) for name in sdist_names)
+    assert not any(
+        name.startswith("modules/")
+        and {"test", "tests", "fixture", "fixtures"}.intersection(
+            Path(name).parts
+        )
+        for name in wheel_names
+    )
     assert all(
         not name.startswith("/") and ".." not in Path(name).parts
         for name in wheel_names | sdist_names
@@ -200,7 +207,7 @@ import modules
 from core import (
     ModuleRegistry,
     TypeRegistry,
-    builtin_frozen_catalog,
+    build_discovered_frozen_catalog,
     discover_modules,
 )
 from protein_workbench_public import bundle_bytes, bundle_digest
@@ -212,7 +219,7 @@ assert source_root not in Path(modules.__file__).resolve().parents
 assert source_root not in Path(protein_workbench_public.__file__).resolve().parents
 assert bundle_bytes().hex() == {SOURCE_PROTOCOL_BYTES.hex()!r}
 assert bundle_digest() == {SOURCE_PROTOCOL_DIGEST!r}
-catalog = builtin_frozen_catalog()
+catalog = build_discovered_frozen_catalog()
 assert catalog.catalog_descriptor_bytes.hex() == {SOURCE_PORT_CATALOG_BYTES.hex()!r}
 assert catalog.contract_digest == {SOURCE_PORT_CATALOG_DIGEST!r}
 assert {{

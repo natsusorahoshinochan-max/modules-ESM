@@ -43,8 +43,8 @@ from core.graph import (
     WorkflowValidationResult,
 )
 from core.module_definition import ModuleDefinition, ParameterDefinition, PortDefinition
+from core.module_package import build_discovered_frozen_catalog
 from core.module_registry import ModuleRegistry, discover_modules
-from core.port_types import builtin_frozen_catalog
 from core.project import (
     ProjectManager,
     ProjectMeta,
@@ -397,6 +397,7 @@ def create_app(
     runtime_module_allowlist: frozenset[str] | None = None,
     provider_readiness_resolver: ReadinessResolver | None = None,
     provider_aliases: Mapping[str, str] | None = None,
+    module_packages_package: str = "modules",
 ) -> FastAPI:
     """Create the backend, optionally replacing external-boundary Modules."""
     trusted_readiness_resolver = (
@@ -407,7 +408,9 @@ def create_app(
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         global type_registry, module_registry, project_manager
-        catalog_candidate = builtin_frozen_catalog()
+        catalog_candidate = build_discovered_frozen_catalog(
+            module_packages_package,
+        )
         _run_events.clear()
         _active_runs.clear()
         _active_project_runs.clear()
