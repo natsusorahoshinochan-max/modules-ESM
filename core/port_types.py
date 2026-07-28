@@ -30,6 +30,7 @@ from datatypes import (
     Score,
     ScoreCollection,
     StructureAlignment,
+    validate_proteinmpnn_constraints,
 )
 
 
@@ -519,28 +520,10 @@ def _validate_domain_value(value: Any, *, path: str) -> None:
         return
 
     if type(value) is ProteinMPNNConstraints:
-        position_lists = (
-            value.designable_positions,
-            value.fixed_positions,
-        )
-        if any(
-            position < 0
-            for positions in position_lists
-            if positions is not None
-            for position in positions
-        ):
-            raise PortValueError(f"{path} positions must be non-negative")
-        if value.tied_positions is not None and any(
-            not group or any(position < 0 for position in group)
-            for group in value.tied_positions
-        ):
-            raise PortValueError(
-                f"{path}.tied_positions must contain non-negative groups"
-            )
-        if value.bias_by_res is not None and any(
-            position < 0 for position in value.bias_by_res
-        ):
-            raise PortValueError(f"{path}.bias_by_res keys must be non-negative")
+        try:
+            validate_proteinmpnn_constraints(value)
+        except ValueError as error:
+            raise PortValueError(f"{path} is invalid: {error}") from error
 
 
 def _validate_builtin_semantics(value_kind: str, value: Any) -> None:

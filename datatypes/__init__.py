@@ -12,6 +12,10 @@ from datatypes.protein import (
     ScoreCollection,
     StructureAlignment,
 )
+from datatypes.constraint_validation import (
+    PROTEINMPNN_ALPHABET,
+    validate_proteinmpnn_constraints,
+)
 
 __all__ = [
     "Candidate",
@@ -27,5 +31,7 @@ __all__ = [
     "ScoreCollection",
     "StructureAlignment",
     "ProteinMPNNConstraints",
+    "PROTEINMPNN_ALPHABET",
+    "validate_proteinmpnn_constraints",
 ]
 from datatypes.protein import ProteinMPNNConstraints

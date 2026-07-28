@@ -224,7 +224,7 @@ def test_every_builtin_port_type_round_trips_its_runtime_value() -> None:
             fixed_positions=[0],
             designed_chains=["A"],
             tied_positions=[[0, 1]],
-            bias_by_res={1: {"A": 0.5}},
+            bias_by_res={2: {"A": 0.5}},
         ),
         "residue.layout": layout,
         "residue.map": ResidueMap(
@@ -391,6 +391,44 @@ def test_runtime_validators_recheck_mutable_domain_invariants() -> None:
     for type_id, malformed in malformed_values:
         with pytest.raises(PortValueError):
             catalog.require_port_type(type_id, "2.0.0").encode(malformed)
+
+
+@pytest.mark.parametrize(
+    "constraints",
+    [
+        ProteinMPNNConstraints(tied_positions=[[0]]),
+        ProteinMPNNConstraints(
+            designable_positions=[0],
+            fixed_positions=[0],
+        ),
+        ProteinMPNNConstraints(omit_amino_acids=["B"]),
+        ProteinMPNNConstraints(bias_by_res={0: {"B": 1.0}}),
+    ],
+)
+def test_proteinmpnn_port_reuses_the_authoritative_constraint_contract(
+    constraints: ProteinMPNNConstraints,
+) -> None:
+    definition = builtin_frozen_catalog().require_port_type(
+        "proteinmpnn.constraints",
+        "2.0.0",
+    )
+
+    with pytest.raises(PortValueError):
+        definition.encode(constraints)
+
+
+def test_proteinmpnn_port_rechecks_constraints_after_mutation() -> None:
+    constraints = ProteinMPNNConstraints(tied_positions=[[0, 1]])
+    definition = builtin_frozen_catalog().require_port_type(
+        "proteinmpnn.constraints",
+        "2.0.0",
+    )
+    definition.validate(constraints)
+
+    constraints.tied_positions[0].pop()
+
+    with pytest.raises(PortValueError, match="at least two positions"):
+        definition.encode(constraints)
 
 
 @pytest.mark.parametrize("invalid_value", [-0.0, float("nan"), float("inf")])
