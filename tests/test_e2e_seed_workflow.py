@@ -305,8 +305,8 @@ class TestE2ESeedWorkflow:
         )
         provider_prompt = mock_esm3.generate.call_args.args[0]
         assert provider_prompt.secondary_structure == (
-            "E_EEEE_E_E_E_EEEEEE_E_EE_EE___HHHHH_HHH_____"
-            "EEE_EEE_EEE_EEEE_EEEEEE_EEE"
+            "EEEEEEEEEEEEEEEEEEE___HHHHHHHH____"
+            "EEEEEEEEEEEEEEEEEEEEEE_______________"
         )
 
     def test_data_flow_counts(self) -> None:

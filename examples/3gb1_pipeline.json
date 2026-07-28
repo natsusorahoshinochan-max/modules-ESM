@@ -233,14 +233,14 @@
     {
       "source_node_id": "compute_ss",
       "source_port": "secondary_structure_track",
-      "target_node_id": "override_ss",
-      "target_port": "secondary_structure_track_input"
-    },
-    {
-      "source_node_id": "override_ss",
-      "source_port": "secondary_structure_track_output",
       "target_node_id": "insert_ss",
       "target_port": "secondary_structure_track"
+    },
+    {
+      "source_node_id": "insert_ss",
+      "source_port": "secondary_structure_track",
+      "target_node_id": "override_ss",
+      "target_port": "secondary_structure_track_input"
     },
     {
       "source_node_id": "build_layout",
@@ -267,8 +267,8 @@
       "target_port": "structure_track"
     },
     {
-      "source_node_id": "insert_ss",
-      "source_port": "secondary_structure_track",
+      "source_node_id": "override_ss",
+      "source_port": "secondary_structure_track_output",
       "target_node_id": "assemble",
       "target_port": "secondary_structure_track"
     },
