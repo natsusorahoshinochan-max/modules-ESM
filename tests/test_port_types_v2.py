@@ -250,10 +250,17 @@ def test_every_builtin_port_type_round_trips_its_runtime_value() -> None:
                 [0.0, 1.0, 0.0],
                 [0.0, 0.0, 1.0],
             ],
-            translation=[0.0, 0.0, 0.0],
-            aligned_reference_indices=[0],
-            aligned_mobile_indices=[0],
-        ),
+                translation=[0.0, 0.0, 0.0],
+                reference_sequence="A",
+                mobile_sequence="A",
+                reference_length=1,
+                mobile_length=1,
+                aligned_reference_indices=[0],
+                aligned_mobile_indices=[0],
+                aligned_reference_coordinates=[[0.0, 0.0, 0.0]],
+                aligned_mobile_coordinates=[[0.0, 0.0, 0.0]],
+                aligned_distances=[0.0],
+            ),
         "text": "α-helix",
     }
     catalog = builtin_frozen_catalog()
@@ -335,6 +342,55 @@ def test_runtime_validators_reject_malformed_complete_values(
         match="requires|must|mismatch|does not match",
     ):
         definition.encode(malformed)
+
+
+def test_runtime_validators_recheck_mutable_domain_invariants() -> None:
+    catalog = builtin_frozen_catalog()
+    sequence = ProteinSequence("MA", ["A:1", "A:2"])
+    sequence.residue_ids = ["A:1"]
+    layout = ResidueLayout("A", 1, ["A:1"])
+    layout.length = -1
+    malformed_values = [
+        ("protein.sequence", sequence),
+        ("residue.layout", layout),
+        (
+            "residue.map",
+            ResidueMap(
+                ResidueLayout("A", 1),
+                ResidueLayout("A", 1),
+                [(99, 99, "match")],
+            ),
+        ),
+        (
+            "structure.alignment",
+            StructureAlignment(
+                rotation=[[1.0]],
+                translation=[0.0],
+                coverage=2.0,
+            ),
+        ),
+        (
+            "function.annotations",
+            FunctionAnnotations(
+                [{"label": "site", "start": "zero", "unexpected": True}]
+            ),
+        ),
+        (
+            "protein.prompt",
+            ProteinPrompt(
+                target_layout=ResidueLayout("A", 2),
+                sequence_track=ResidueTrack(["A"]),
+            ),
+        ),
+        (
+            "residue.track.secondary_structure",
+            ResidueTrack(["helix"]),
+        ),
+    ]
+
+    for type_id, malformed in malformed_values:
+        with pytest.raises(PortValueError):
+            catalog.require_port_type(type_id, "2.0.0").encode(malformed)
 
 
 @pytest.mark.parametrize("invalid_value", [-0.0, float("nan"), float("inf")])

@@ -269,11 +269,162 @@ def _validate_dataclass_value(value: Any, *, path: str) -> None:
         )
 
 
-def _validate_builtin_semantics(value_kind: str, value: Any) -> None:
-    if is_dataclass(value):
-        _validate_dataclass_value(value, path="$.value")
+def _validate_domain_value(value: Any, *, path: str) -> None:
+    if type(value) is ProteinSequence:
+        if not value.sequence:
+            raise PortValueError(f"{path}.sequence must not be empty")
+        if value.residue_ids is not None and len(value.residue_ids) != len(
+            value.sequence
+        ):
+            raise PortValueError(
+                f"{path}.residue_ids length must match sequence length"
+            )
+        if any(character.isspace() for character in value.sequence):
+            raise PortValueError(f"{path}.sequence must not contain whitespace")
+        return
 
-    if value_kind == "candidate_collection":
+    if type(value) is ProteinStructure:
+        if not value.pdb_string:
+            raise PortValueError(f"{path}.pdb_string must not be empty")
+        return
+
+    if type(value) is ResidueLayout:
+        if not value.chain_id:
+            raise PortValueError(f"{path}.chain_id must not be empty")
+        if value.length < 0:
+            raise PortValueError(f"{path}.length must be non-negative")
+        if value.residue_ids is not None and len(value.residue_ids) != value.length:
+            raise PortValueError(
+                f"{path}.residue_ids length must match layout length"
+            )
+        return
+
+    if type(value) is ResidueMap:
+        _validate_domain_value(value.source_layout, path=f"{path}.source_layout")
+        _validate_domain_value(value.target_layout, path=f"{path}.target_layout")
+        for index, (source, target, operation) in enumerate(value.mappings):
+            mapping_path = f"{path}.mappings[{index}]"
+            if operation == "match":
+                valid = (
+                    0 <= source < value.source_layout.length
+                    and 0 <= target < value.target_layout.length
+                )
+            elif operation == "insert":
+                valid = (
+                    source == -1
+                    and 0 <= target < value.target_layout.length
+                )
+            elif operation == "delete":
+                valid = (
+                    0 <= source < value.source_layout.length
+                    and target == -1
+                )
+            else:
+                raise PortValueError(
+                    f"{mapping_path} operation must be match, insert, or delete"
+                )
+            if not valid:
+                raise PortValueError(
+                    f"{mapping_path} indices do not match {operation} layouts"
+                )
+        return
+
+    if type(value) is FunctionAnnotations:
+        expected_fields = {"label", "start", "end"}
+        for index, annotation in enumerate(value.annotations):
+            annotation_path = f"{path}.annotations[{index}]"
+            if set(annotation) != expected_fields:
+                raise PortValueError(
+                    f"{annotation_path} must contain label, start, and end"
+                )
+            if type(annotation["label"]) is not str or not annotation["label"]:
+                raise PortValueError(f"{annotation_path}.label must be non-empty text")
+            if (
+                type(annotation["start"]) is not int
+                or type(annotation["end"]) is not int
+                or annotation["start"] < 0
+                or annotation["end"] < annotation["start"]
+            ):
+                raise PortValueError(
+                    f"{annotation_path} range must be ordered non-negative integers"
+                )
+        return
+
+    if type(value) is ProteinPrompt:
+        if value.target_layout is not None:
+            _validate_domain_value(
+                value.target_layout,
+                path=f"{path}.target_layout",
+            )
+            expected_length = value.target_layout.length
+            for field_name in (
+                "sequence_track",
+                "structure_track",
+                "structure_visibility_track",
+                "secondary_structure_track",
+                "sasa_track",
+            ):
+                track = getattr(value, field_name)
+                if track is not None and len(track.values) != expected_length:
+                    raise PortValueError(
+                        f"{path}.{field_name} length must match target_layout"
+                    )
+            for field_name in ("sequence_track", "secondary_structure_track"):
+                track = getattr(value, field_name)
+                if track is None:
+                    continue
+                for index, item in enumerate(track.values):
+                    if item is track.sentinel:
+                        continue
+                    if type(item) is not str or len(item) != 1:
+                        raise PortValueError(
+                            f"{path}.{field_name}.values[{index}] "
+                            "must be one canonical code or the sentinel"
+                        )
+            visibility = value.structure_visibility_track
+            if visibility is not None and any(
+                item is not visibility.sentinel and type(item) is not bool
+                for item in visibility.values
+            ):
+                raise PortValueError(
+                    f"{path}.structure_visibility_track values must be "
+                    "boolean or the sentinel"
+                )
+            sasa = value.sasa_track
+            if sasa is not None:
+                for index, item in enumerate(sasa.values):
+                    if item is sasa.sentinel:
+                        continue
+                    if (
+                        isinstance(item, bool)
+                        or not isinstance(item, (int, float))
+                        or item < 0
+                    ):
+                        raise PortValueError(
+                            f"{path}.sasa_track.values[{index}] "
+                            "must be non-negative numeric or the sentinel"
+                        )
+        _validate_domain_value(
+            value.function_annotations,
+            path=f"{path}.function_annotations",
+        )
+        return
+
+    if type(value) is Candidate:
+        if not value.candidate_id:
+            raise PortValueError(f"{path}.candidate_id must not be empty")
+        if type(value.data) not in (
+            ProteinSequence,
+            ProteinStructure,
+            StructureAlignment,
+        ):
+            raise PortValueError(f"{path}.data must be a registered Candidate value")
+        _validate_domain_value(value.data, path=f"{path}.data")
+        return
+
+    if type(value) is CandidateCollection:
+        if not value.collection_id:
+            raise PortValueError(f"{path}.collection_id must not be empty")
         expected_candidate_types = {
             "protein.sequence": ProteinSequence,
             "protein.structure": ProteinStructure,
@@ -282,14 +433,120 @@ def _validate_builtin_semantics(value_kind: str, value: Any) -> None:
         expected_candidate_type = expected_candidate_types.get(value.item_type)
         if expected_candidate_type is None:
             raise PortValueError(
-                "$.value.item_type must name a supported Candidate data type"
+                f"{path}.item_type must name a supported Candidate data type"
             )
+        candidate_ids: set[str] = set()
         for index, candidate in enumerate(value.items):
+            _validate_domain_value(candidate, path=f"{path}.items[{index}]")
+            if candidate.candidate_id in candidate_ids:
+                raise PortValueError(
+                    f"{path}.items contains duplicate Candidate identities"
+                )
+            candidate_ids.add(candidate.candidate_id)
             if type(candidate.data) is not expected_candidate_type:
                 raise PortValueError(
-                    "$.value.items"
-                    f"[{index}].data mismatches item_type {value.item_type}"
+                    f"{path}.items[{index}].data mismatches "
+                    f"item_type {value.item_type}"
                 )
+        return
+
+    if type(value) is Score:
+        if not value.score_id:
+            raise PortValueError(f"{path}.score_id must not be empty")
+        return
+
+    if type(value) is ScoreCollection:
+        if not value.collection_id:
+            raise PortValueError(f"{path}.collection_id must not be empty")
+        for index, score in enumerate(value.entries):
+            _validate_domain_value(score, path=f"{path}.entries[{index}]")
+        return
+
+    if type(value) is StructureAlignment:
+        if (
+            len(value.rotation) != 3
+            or any(len(row) != 3 for row in value.rotation)
+        ):
+            raise PortValueError(f"{path}.rotation must be a 3x3 matrix")
+        if len(value.translation) != 3:
+            raise PortValueError(f"{path}.translation must be a 3-vector")
+        if value.rmsd < 0:
+            raise PortValueError(f"{path}.rmsd must be non-negative")
+        if not 0 <= value.coverage <= 1:
+            raise PortValueError(f"{path}.coverage must be within [0, 1]")
+        if value.reference_length < 0 or value.mobile_length < 0:
+            raise PortValueError(f"{path} sequence lengths must be non-negative")
+        if len(value.reference_sequence) != value.reference_length:
+            raise PortValueError(
+                f"{path}.reference_sequence length must match reference_length"
+            )
+        if len(value.mobile_sequence) != value.mobile_length:
+            raise PortValueError(
+                f"{path}.mobile_sequence length must match mobile_length"
+            )
+        aligned_count = len(value.residue_map)
+        aligned_fields = (
+            value.aligned_reference_indices,
+            value.aligned_mobile_indices,
+            value.aligned_reference_coordinates,
+            value.aligned_mobile_coordinates,
+            value.aligned_distances,
+        )
+        if any(len(items) != aligned_count for items in aligned_fields):
+            raise PortValueError(
+                f"{path} aligned fields must match residue_map cardinality"
+            )
+        for name, vectors in (
+            ("aligned_reference_coordinates", value.aligned_reference_coordinates),
+            ("aligned_mobile_coordinates", value.aligned_mobile_coordinates),
+        ):
+            if any(len(vector) != 3 for vector in vectors):
+                raise PortValueError(f"{path}.{name} must contain 3-vectors")
+        for index in value.aligned_reference_indices:
+            if not 0 <= index < value.reference_length:
+                raise PortValueError(
+                    f"{path}.aligned_reference_indices exceed reference_length"
+                )
+        for index in value.aligned_mobile_indices:
+            if not 0 <= index < value.mobile_length:
+                raise PortValueError(
+                    f"{path}.aligned_mobile_indices exceed mobile_length"
+                )
+        if any(distance < 0 for distance in value.aligned_distances):
+            raise PortValueError(
+                f"{path}.aligned_distances must be non-negative"
+            )
+        return
+
+    if type(value) is ProteinMPNNConstraints:
+        position_lists = (
+            value.designable_positions,
+            value.fixed_positions,
+        )
+        if any(
+            position < 0
+            for positions in position_lists
+            if positions is not None
+            for position in positions
+        ):
+            raise PortValueError(f"{path} positions must be non-negative")
+        if value.tied_positions is not None and any(
+            not group or any(position < 0 for position in group)
+            for group in value.tied_positions
+        ):
+            raise PortValueError(
+                f"{path}.tied_positions must contain non-negative groups"
+            )
+        if value.bias_by_res is not None and any(
+            position < 0 for position in value.bias_by_res
+        ):
+            raise PortValueError(f"{path}.bias_by_res keys must be non-negative")
+
+
+def _validate_builtin_semantics(value_kind: str, value: Any) -> None:
+    if is_dataclass(value):
+        _validate_dataclass_value(value, path="$.value")
+        _validate_domain_value(value, path="$.value")
 
     if value_kind == "sasa_residue_track":
         for index, item in enumerate(value.values):
@@ -298,6 +555,10 @@ def _validate_builtin_semantics(value_kind: str, value: Any) -> None:
             if isinstance(item, bool) or not isinstance(item, (int, float)):
                 raise PortValueError(
                     f"$.value.values[{index}] must be numeric or the sentinel"
+                )
+            if item < 0:
+                raise PortValueError(
+                    f"$.value.values[{index}] must be non-negative"
                 )
 
     if value_kind == "secondary_structure_residue_track":
@@ -308,31 +569,9 @@ def _validate_builtin_semantics(value_kind: str, value: Any) -> None:
                 raise PortValueError(
                     f"$.value.values[{index}] must be text or the sentinel"
                 )
-
-    if value_kind == "protein_prompt" and value.target_layout is not None:
-        expected_length = value.target_layout.length
-        for field_name in (
-            "sequence_track",
-            "structure_track",
-            "structure_visibility_track",
-            "secondary_structure_track",
-            "sasa_track",
-        ):
-            track = getattr(value, field_name)
-            if track is not None and len(track.values) != expected_length:
+            if len(item) != 1:
                 raise PortValueError(
-                    f"$.value.{field_name} length must match target_layout"
-                )
-
-    if value_kind == "residue_map":
-        for index, (source, target, operation) in enumerate(value.mappings):
-            if source < 0 or target < 0:
-                raise PortValueError(
-                    f"$.value.mappings[{index}] indices must be non-negative"
-                )
-            if operation not in {"match", "insert", "delete"}:
-                raise PortValueError(
-                    f"$.value.mappings[{index}] operation must be declared"
+                    f"$.value.values[{index}] must be one canonical code"
                 )
 
 
