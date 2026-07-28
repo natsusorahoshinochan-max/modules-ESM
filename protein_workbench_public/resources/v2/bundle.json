@@ -547,20 +547,17 @@
     "ContractDigestMismatchDetails": {
       "additionalProperties": false,
       "properties": {
-        "contract": {
-          "$ref": "#/$defs/ContractReference"
-        },
-        "expected_digest": {
-          "$ref": "#/$defs/Digest"
-        },
-        "observed_digest": {
-          "$ref": "#/$defs/Digest"
+        "issues": {
+          "items": {
+            "$ref": "#/$defs/CompileIssue"
+          },
+          "maxItems": 4096,
+          "minItems": 1,
+          "type": "array"
         }
       },
       "required": [
-        "contract",
-        "expected_digest",
-        "observed_digest"
+        "issues"
       ],
       "type": "object"
     },
@@ -1047,6 +1044,44 @@
       },
       "required": [
         "project_id"
+      ],
+      "type": "object"
+    },
+    "RelockProjectWorkflowRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "project_id": {
+          "$ref": "#/$defs/Identifier"
+        },
+        "workflow_revision": {
+          "minimum": 1,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "project_id",
+        "workflow_revision"
+      ],
+      "type": "object"
+    },
+    "SaveProjectWorkflowRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "expected_workflow_revision": {
+          "minimum": 0,
+          "type": "integer"
+        },
+        "project_id": {
+          "$ref": "#/$defs/Identifier"
+        },
+        "workflow": {
+          "$ref": "#/$defs/WorkflowDocument"
+        }
+      },
+      "required": [
+        "project_id",
+        "expected_workflow_revision",
+        "workflow"
       ],
       "type": "object"
     },
@@ -2299,6 +2334,23 @@
         "default": "structured_error"
       }
     },
+    "relock_project_workflow": {
+      "method": "POST",
+      "request_schema": "#/$defs/RelockProjectWorkflowRequest",
+      "response": {
+        "kind": "json",
+        "schema": "#/$defs/ProjectWorkflowSnapshot",
+        "success_status": 200
+      },
+      "route": "/api/v2/projects/{project_id}/workflow:relock",
+      "status_mapping": {
+        "200": "response",
+        "404": "structured_error",
+        "409": "structured_error",
+        "422": "structured_error",
+        "default": "structured_error"
+      }
+    },
     "run_projection": {
       "method": "GET",
       "request_schema": "#/$defs/RunProjectionRequest",
@@ -2313,6 +2365,23 @@
         "404": "structured_error",
         "409": "structured_error",
         "503": "structured_error",
+        "default": "structured_error"
+      }
+    },
+    "save_project_workflow": {
+      "method": "PUT",
+      "request_schema": "#/$defs/SaveProjectWorkflowRequest",
+      "response": {
+        "kind": "json",
+        "schema": "#/$defs/ProjectWorkflowSnapshot",
+        "success_status": 200
+      },
+      "route": "/api/v2/projects/{project_id}/workflow",
+      "status_mapping": {
+        "200": "response",
+        "404": "structured_error",
+        "409": "structured_error",
+        "422": "structured_error",
         "default": "structured_error"
       }
     },

@@ -316,6 +316,74 @@ assert sorted(item.module_id for item in registry.list_all()) == {expected}
             definition.public_contract()
             for definition in SOURCE_PORT_CATALOG.port_types
         ]
+
+        def request_json(
+            method: str,
+            route: str,
+            payload: dict | None = None,
+        ) -> dict:
+            encoded = (
+                json.dumps(payload).encode("utf-8")
+                if payload is not None
+                else None
+            )
+            request = urllib.request.Request(
+                f"http://127.0.0.1:{port}{route}",
+                data=encoded,
+                headers=(
+                    {"Content-Type": "application/json"}
+                    if encoded is not None
+                    else {}
+                ),
+                method=method,
+            )
+            with urllib.request.urlopen(request, timeout=2) as response:
+                return json.load(response)
+
+        project = request_json(
+            "POST",
+            "/api/projects",
+            {"name": "installed v2 authoring"},
+        )
+        project_id = project["id"]
+        workflow = {
+            "schema_version": "2.0.0",
+            "workflow_id": project_id,
+            "nodes": [],
+            "edges": [],
+            "contract_lock": [],
+        }
+        saved = request_json(
+            "PUT",
+            f"/api/v2/projects/{project_id}/workflow",
+            {
+                "expected_workflow_revision": 0,
+                "workflow": workflow,
+            },
+        )
+        loaded = request_json(
+            "GET",
+            f"/api/v2/projects/{project_id}/workflow",
+        )
+        relocked = request_json(
+            "POST",
+            f"/api/v2/projects/{project_id}/workflow:relock",
+            {"workflow_revision": 1},
+        )
+        compiled = request_json(
+            "POST",
+            f"/api/v2/projects/{project_id}/workflow:compile",
+            {
+                "workflow_revision": 2,
+                "workflow": relocked["workflow"],
+            },
+        )
+        assert saved["workflow_revision"] == 1
+        assert loaded == saved
+        assert relocked["workflow_revision"] == 2
+        assert compiled["accepted"] is True
+        assert compiled["workflow_revision"] == 2
+        assert "execution_plan" not in compiled
     finally:
         if server.poll() is None:
             server.terminate()

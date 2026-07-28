@@ -45,6 +45,7 @@ from core.graph import (
 from core.module_definition import ModuleDefinition, ParameterDefinition, PortDefinition
 from core.module_package import build_discovered_frozen_catalog
 from core.module_registry import ModuleRegistry, discover_modules
+from core.port_types import FrozenCatalog
 from core.project import (
     ProjectManager,
     ProjectMeta,
@@ -66,10 +67,22 @@ from core.storage import (
 )
 from core.type_registry import TypeRegistry
 from core.workflow_module import WorkflowModule
+from core.workflow_authoring_v2 import (
+    WorkflowAuthoringError,
+    WorkflowAuthoringService,
+)
+from core.workflow_v2 import (
+    WorkflowCompileError,
+    WorkflowDocumentError,
+    parse_workflow_document,
+)
 from protein_workbench_public import (
+    ProtocolValidationError,
     bundle_bytes,
     bundle_digest,
     load_bundle,
+    validate_error,
+    validate_request,
     validate_response,
 )
 
@@ -398,6 +411,7 @@ def create_app(
     provider_readiness_resolver: ReadinessResolver | None = None,
     provider_aliases: Mapping[str, str] | None = None,
     module_packages_package: str = "modules",
+    frozen_catalog_override: FrozenCatalog | None = None,
 ) -> FastAPI:
     """Create the backend, optionally replacing external-boundary Modules."""
     trusted_readiness_resolver = (
@@ -408,8 +422,10 @@ def create_app(
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         global type_registry, module_registry, project_manager
-        catalog_candidate = build_discovered_frozen_catalog(
-            module_packages_package,
+        catalog_candidate = (
+            frozen_catalog_override
+            if frozen_catalog_override is not None
+            else build_discovered_frozen_catalog(module_packages_package)
         )
         _run_events.clear()
         _active_runs.clear()
@@ -559,6 +575,10 @@ def create_app(
             )
         _cache_mutations.clear()
         app.state.frozen_catalog = catalog_candidate
+        app.state.workflow_authoring_v2 = WorkflowAuthoringService(
+            project_manager,
+            catalog_candidate,
+        )
         yield
         for active_run in tuple(_active_runs.values()):
             active_run.cancellation_requested.set()
@@ -722,6 +742,209 @@ def create_app(
             payload,
         )
         return payload
+
+    def public_error_response(
+        code: str,
+        message: str,
+        details: Mapping[str, Any],
+    ) -> JSONResponse:
+        definition = load_bundle()["structured_errors"]["vocabulary"][code]
+        payload = {
+            "schema_namespace": "protein-workbench-public/v2",
+            "error": {
+                "code": code,
+                "message": message,
+                "retryable": definition["retryable"],
+                "correlation_id": f"error-{uuid.uuid4().hex}",
+                "details": dict(details),
+            },
+        }
+        status = definition["http_status"]
+        validate_error(payload, status=status)
+        return JSONResponse(status_code=status, content=payload)
+
+    def workflow_document_error_response(
+        error: WorkflowDocumentError,
+        payload: Any,
+    ) -> JSONResponse:
+        if error.code == "unsupported_schema_version":
+            received = (
+                payload.get("schema_version", "missing")
+                if isinstance(payload, Mapping)
+                else "invalid"
+            )
+            details: Mapping[str, Any] = {
+                "artifact_kind": "workflow",
+                "expected_schema_version": "2.0.0",
+                "received_schema_version": str(received)[:64] or "missing",
+            }
+        elif error.code == "contract_digest_mismatch":
+            details = {
+                "issues": [
+                    {
+                        "code": error.code,
+                        "severity": "error",
+                        "message": str(error),
+                        "field_path": ["contract_lock"],
+                    }
+                ]
+            }
+        else:
+            details = {"field_path": ["workflow"]}
+        return public_error_response(error.code, str(error), details)
+
+    def authoring_error_response(
+        error: WorkflowAuthoringError,
+    ) -> JSONResponse:
+        return public_error_response(
+            error.code,
+            str(error),
+            error.details,
+        )
+
+    @app.get(
+        "/api/v2/projects/{project_id}/workflow",
+        include_in_schema=False,
+    )
+    async def public_project_workflow_snapshot(
+        request: Request,
+        project_id: str,
+    ) -> Any:
+        try:
+            validate_request(
+                "project_workflow_snapshot",
+                {"project_id": project_id},
+            )
+            payload = request.app.state.workflow_authoring_v2.load(project_id)
+        except ProtocolValidationError as error:
+            return public_error_response(
+                "malformed_request",
+                str(error),
+                {"field_path": ["project_id"]},
+            )
+        except WorkflowAuthoringError as error:
+            return authoring_error_response(error)
+        validate_response("project_workflow_snapshot", 200, payload)
+        return payload
+
+    @app.put(
+        "/api/v2/projects/{project_id}/workflow",
+        include_in_schema=False,
+    )
+    async def public_save_project_workflow(
+        request: Request,
+        project_id: str,
+        payload: Any = Body(...),
+    ) -> Any:
+        workflow_payload = (
+            payload.get("workflow")
+            if isinstance(payload, Mapping)
+            else payload
+        )
+        try:
+            workflow = parse_workflow_document(workflow_payload)
+            combined = {"project_id": project_id, **payload}
+            validate_request("save_project_workflow", combined)
+            snapshot = request.app.state.workflow_authoring_v2.save(
+                project_id,
+                expected_workflow_revision=payload[
+                    "expected_workflow_revision"
+                ],
+                workflow=workflow,
+            )
+        except WorkflowDocumentError as error:
+            return workflow_document_error_response(error, workflow_payload)
+        except ProtocolValidationError as error:
+            return public_error_response(
+                "malformed_request",
+                str(error),
+                {"field_path": []},
+            )
+        except WorkflowAuthoringError as error:
+            return authoring_error_response(error)
+        validate_response("save_project_workflow", 200, snapshot)
+        return snapshot
+
+    @app.post(
+        "/api/v2/projects/{project_id}/workflow:relock",
+        include_in_schema=False,
+    )
+    async def public_relock_project_workflow(
+        request: Request,
+        project_id: str,
+        payload: Any = Body(...),
+    ) -> Any:
+        try:
+            combined = {"project_id": project_id, **payload}
+            validate_request("relock_project_workflow", combined)
+            snapshot = request.app.state.workflow_authoring_v2.relock(
+                project_id,
+                workflow_revision=payload["workflow_revision"],
+            )
+        except (ProtocolValidationError, TypeError) as error:
+            return public_error_response(
+                "malformed_request",
+                str(error),
+                {"field_path": []},
+            )
+        except WorkflowAuthoringError as error:
+            return authoring_error_response(error)
+        except WorkflowCompileError as error:
+            return public_error_response(
+                "contract_digest_mismatch",
+                str(error),
+                {"issues": [error.issue()]},
+            )
+        validate_response("relock_project_workflow", 200, snapshot)
+        return snapshot
+
+    @app.post(
+        "/api/v2/projects/{project_id}/workflow:compile",
+        include_in_schema=False,
+    )
+    async def public_compile_workflow(
+        request: Request,
+        project_id: str,
+        payload: Any = Body(...),
+    ) -> Any:
+        workflow_payload = (
+            payload.get("workflow")
+            if isinstance(payload, Mapping)
+            else payload
+        )
+        try:
+            workflow = parse_workflow_document(workflow_payload)
+            combined = {"project_id": project_id, **payload}
+            validate_request("workflow_compile", combined)
+            compiled = request.app.state.workflow_authoring_v2.compile(
+                project_id,
+                workflow_revision=payload["workflow_revision"],
+                workflow=workflow,
+            )
+        except WorkflowDocumentError as error:
+            return workflow_document_error_response(error, workflow_payload)
+        except ProtocolValidationError as error:
+            return public_error_response(
+                "malformed_request",
+                str(error),
+                {"field_path": []},
+            )
+        except WorkflowAuthoringError as error:
+            return authoring_error_response(error)
+        except WorkflowCompileError as error:
+            code = (
+                "contract_digest_mismatch"
+                if error.code == "contract_digest_mismatch"
+                else "compile_rejected"
+            )
+            return public_error_response(
+                code,
+                str(error),
+                {"issues": [error.issue()]},
+            )
+        receipt = dict(compiled.receipt)
+        validate_response("workflow_compile", 200, receipt)
+        return receipt
 
     # ── modules & types ──────────────────────────────────────────────
 

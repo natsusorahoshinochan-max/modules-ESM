@@ -64,6 +64,23 @@ from core.run_context import RunContext
 from core.run_manifest import RunManifest, RunManifestStore, read_run_manifest
 from core.type_registry import TypeInfo, TypeRegistry
 from core.workflow_module import WorkflowModule
+from core.workflow_authoring_v2 import (
+    WorkflowAuthoringError,
+    WorkflowAuthoringService,
+)
+from core.workflow_v2 import (
+    CompiledWorkflow,
+    ContractLockEntry,
+    ExecutionPlan,
+    ExecutionPlanNode,
+    WorkflowCompileError,
+    WorkflowDocument,
+    WorkflowDocumentError,
+    WorkflowNodeInstance,
+    compile_workflow,
+    parse_workflow_document,
+    relock_workflow,
+)
 
 __all__ = [
     "CacheStore",
@@ -111,8 +128,14 @@ __all__ = [
     "UtilityTransformDefinition",
     "UIState",
     "Workflow",
+    "WorkflowAuthoringError",
+    "WorkflowAuthoringService",
+    "WorkflowCompileError",
+    "WorkflowDocument",
+    "WorkflowDocumentError",
     "WorkflowEdge",
     "WorkflowModule",
+    "WorkflowNodeInstance",
     "WorkflowNode",
     "WorkflowValidationError",
     "WorkflowValidationErrorKind",
@@ -126,4 +149,11 @@ __all__ = [
     "canonical_sha256",
     "read_run_manifest",
     "LazyImplementationFactory",
+    "CompiledWorkflow",
+    "ContractLockEntry",
+    "ExecutionPlan",
+    "ExecutionPlanNode",
+    "compile_workflow",
+    "parse_workflow_document",
+    "relock_workflow",
 ]

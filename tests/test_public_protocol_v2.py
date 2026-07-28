@@ -59,7 +59,9 @@ def test_bundle_closes_every_supported_rest_operation() -> None:
         "cancel_run",
         "catalog_snapshot",
         "project_workflow_snapshot",
+        "relock_project_workflow",
         "run_projection",
+        "save_project_workflow",
         "start_derived_run",
         "start_run",
         "workflow_compile",
@@ -79,9 +81,17 @@ def test_bundle_closes_every_supported_rest_operation() -> None:
             "GET",
             "/api/v2/projects/{project_id}/workflow",
         ),
+        "relock_project_workflow": (
+            "POST",
+            "/api/v2/projects/{project_id}/workflow:relock",
+        ),
         "run_projection": (
             "GET",
             "/api/v2/projects/{project_id}/runs/{run_id}",
+        ),
+        "save_project_workflow": (
+            "PUT",
+            "/api/v2/projects/{project_id}/workflow",
         ),
         "start_derived_run": (
             "POST",
