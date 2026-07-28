@@ -200,7 +200,29 @@ Run the focused source contract and the isolated source-versus-wheel gate with:
 The installed-package gate checks the bundle resource in both wheel and sdist,
 loads it from outside the source checkout, compares canonical bytes and digest
 to the source result, and retrieves the same bytes from the installed backend.
-This protocol freeze does not claim that the subsequent v2 Catalog, Compiler,
+
+The first v2 Catalog slice is available from `GET /api/v2/catalog`. It publishes
+the exact `2.0.0` nominal Port Type contracts used by the backend, including
+stable validator, canonical-codec, and content-identity behavior declarations.
+Private Python callables and source/install paths are not part of those
+descriptors. Runtime Port values are validated, encoded as strict RFC 8785 UTF-8
+bytes, and identified as `sha256:` of those bytes; malformed JSON, non-canonical
+bytes, duplicate object keys, negative zero, NaN, and Infinity fail closed.
+Direct connection compatibility requires the same known Port Type ID and exact
+version, so scientific conversion remains an explicit Node Type.
+
+Run the focused Port Type contract and source-versus-installed Catalog parity
+checks with:
+
+```bash
+.venv/bin/pytest -q tests/test_port_types_v2.py
+.venv/bin/python scripts/verify_backend.py installed-package
+```
+
+The installed-package probe compares Catalog canonical bytes, every Port Type
+descriptor byte sequence, every Port Type digest, and the Catalog digest before
+querying the same public contracts from the installed backend. This Port Type
+slice does not claim that the subsequent Module Package discovery, Compiler,
 Run, Ledger, or Cache implementations already exist.
 
 ## Deterministic public-protocol acceptance

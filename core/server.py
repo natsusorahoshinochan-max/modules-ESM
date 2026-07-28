@@ -44,6 +44,7 @@ from core.graph import (
 )
 from core.module_definition import ModuleDefinition, ParameterDefinition, PortDefinition
 from core.module_registry import ModuleRegistry, discover_modules
+from core.port_types import builtin_frozen_catalog
 from core.project import (
     ProjectManager,
     ProjectMeta,
@@ -65,7 +66,12 @@ from core.storage import (
 )
 from core.type_registry import TypeRegistry
 from core.workflow_module import WorkflowModule
-from protein_workbench_public import bundle_bytes, bundle_digest, load_bundle
+from protein_workbench_public import (
+    bundle_bytes,
+    bundle_digest,
+    load_bundle,
+    validate_response,
+)
 
 # Global registries, initialized at startup
 type_registry: TypeRegistry
@@ -697,6 +703,20 @@ def create_app(
                 protocol_discovery["digest_header"]: bundle_digest(),
             },
         )
+
+    catalog_operation = load_bundle()["rest_operations"]["catalog_snapshot"]
+
+    @app.get(catalog_operation["route"], include_in_schema=False)
+    async def public_catalog_snapshot() -> dict[str, Any]:
+        payload = builtin_frozen_catalog().public_snapshot(
+            protocol_digest=bundle_digest(),
+        )
+        validate_response(
+            "catalog_snapshot",
+            catalog_operation["response"]["success_status"],
+            payload,
+        )
+        return payload
 
     # ── modules & types ──────────────────────────────────────────────
 

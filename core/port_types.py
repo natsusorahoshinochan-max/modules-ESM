@@ -1,0 +1,710 @@
+"""Canonical nominal Port Type contracts for the v2 FrozenCatalog."""
+
+from __future__ import annotations
+
+from collections.abc import Mapping
+from dataclasses import dataclass, field, fields, is_dataclass
+from datetime import datetime, timezone
+from functools import lru_cache
+import hashlib
+import json
+import math
+import re
+from types import MappingProxyType
+from typing import Any, Callable
+
+import rfc8785
+
+from datatypes import (
+    Candidate,
+    CandidateCollection,
+    FunctionAnnotations,
+    ProteinMPNNConstraints,
+    ProteinPrompt,
+    ProteinSequence,
+    ProteinStructure,
+    ResidueLayout,
+    ResidueMap,
+    ResidueTrack,
+    Score,
+    ScoreCollection,
+    StructureAlignment,
+)
+
+
+CONTRACT_NAMESPACE = "protein-workbench-contract/v2"
+CATALOG_NAMESPACE = "protein-workbench-catalog/v2"
+PORT_VALUE_NAMESPACE = "protein-workbench-port-value/v2"
+PORT_TYPE_VERSION = "2.0.0"
+_I_JSON_INTEGER_LIMIT = 9_007_199_254_740_991
+_IDENTIFIER = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.:/+-]*$")
+_SEMANTIC_VERSION = re.compile(
+    r"^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)"
+    r"(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$"
+)
+
+
+class CatalogBuildError(ValueError):
+    """A malformed stable contract prevented atomic Catalog publication."""
+
+
+class UnknownPortTypeError(LookupError):
+    """An exact Port Type identity is not present in the FrozenCatalog."""
+
+
+class PortValueError(ValueError):
+    """A runtime Port value violates its nominal validation or codec contract."""
+
+
+def _validate_identifier(value: str, field_name: str) -> None:
+    if not isinstance(value, str) or _IDENTIFIER.fullmatch(value) is None:
+        raise CatalogBuildError(f"{field_name} must be a versioned identifier")
+
+
+def _validate_version(value: str, field_name: str) -> None:
+    if not isinstance(value, str) or _SEMANTIC_VERSION.fullmatch(value) is None:
+        raise CatalogBuildError(f"{field_name} must be an exact semantic version")
+
+
+def _validate_i_json(value: Any, *, path: str = "$") -> None:
+    if value is None or isinstance(value, (str, bool)):
+        if isinstance(value, str):
+            try:
+                value.encode("utf-8")
+            except UnicodeEncodeError as error:
+                raise CatalogBuildError(
+                    f"{path} contains a non-Unicode scalar value"
+                ) from error
+        return
+    if isinstance(value, int):
+        if not -_I_JSON_INTEGER_LIMIT <= value <= _I_JSON_INTEGER_LIMIT:
+            raise CatalogBuildError(f"{path} is outside the I-JSON integer domain")
+        return
+    if isinstance(value, float):
+        if not math.isfinite(value):
+            raise CatalogBuildError(f"{path} must not contain NaN or Infinity")
+        if value == 0.0 and math.copysign(1.0, value) < 0:
+            raise CatalogBuildError(f"{path} must not contain negative zero")
+        return
+    if isinstance(value, list):
+        for index, item in enumerate(value):
+            _validate_i_json(item, path=f"{path}[{index}]")
+        return
+    if isinstance(value, Mapping):
+        for key, item in value.items():
+            if not isinstance(key, str):
+                raise CatalogBuildError(f"{path} has a non-string object key")
+            _validate_i_json(key, path=f"{path}.<key>")
+            _validate_i_json(item, path=f"{path}.{key}")
+        return
+    raise CatalogBuildError(
+        f"{path} contains a value that cannot be represented in I-JSON"
+    )
+
+
+def canonical_json_bytes(value: Any) -> bytes:
+    """Return RFC 8785 canonical UTF-8 after enforcing Workbench I-JSON."""
+    _validate_i_json(value)
+    try:
+        return rfc8785.dumps(value)
+    except (rfc8785.CanonicalizationError, UnicodeError) as error:
+        raise CatalogBuildError("value cannot be canonicalized with RFC 8785") from error
+
+
+def canonical_sha256(value: Any) -> str:
+    """Return the public digest of canonical I-JSON bytes."""
+    return f"sha256:{hashlib.sha256(canonical_json_bytes(value)).hexdigest()}"
+
+
+def _freeze_i_json(value: Any) -> Any:
+    if isinstance(value, Mapping):
+        return MappingProxyType(
+            {key: _freeze_i_json(item) for key, item in value.items()}
+        )
+    if isinstance(value, list):
+        return tuple(_freeze_i_json(item) for item in value)
+    return value
+
+
+def _thaw_i_json(value: Any) -> Any:
+    if isinstance(value, Mapping):
+        return {key: _thaw_i_json(item) for key, item in value.items()}
+    if isinstance(value, tuple):
+        return [_thaw_i_json(item) for item in value]
+    return value
+
+
+_DATACLASS_BY_TAG = {
+    "candidate": Candidate,
+    "candidate_collection": CandidateCollection,
+    "function_annotations": FunctionAnnotations,
+    "protein_prompt": ProteinPrompt,
+    "protein_sequence": ProteinSequence,
+    "protein_structure": ProteinStructure,
+    "proteinmpnn_constraints": ProteinMPNNConstraints,
+    "residue_layout": ResidueLayout,
+    "residue_map": ResidueMap,
+    "residue_track": ResidueTrack,
+    "score": Score,
+    "score_collection": ScoreCollection,
+    "structure_alignment": StructureAlignment,
+}
+_TAG_BY_DATACLASS = {
+    value_type: tag for tag, value_type in _DATACLASS_BY_TAG.items()
+}
+_VALUE_TYPE_BY_KIND = {
+    "candidate_collection": CandidateCollection,
+    "file_path": str,
+    "file_path_collection": list,
+    "function_annotations": FunctionAnnotations,
+    "protein_prompt": ProteinPrompt,
+    "protein_sequence": ProteinSequence,
+    "protein_structure": ProteinStructure,
+    "proteinmpnn_constraints": ProteinMPNNConstraints,
+    "residue_layout": ResidueLayout,
+    "residue_map": ResidueMap,
+    "residue_track": ResidueTrack,
+    "sasa_residue_track": ResidueTrack,
+    "secondary_structure_residue_track": ResidueTrack,
+    "score_collection": ScoreCollection,
+    "structure_alignment": StructureAlignment,
+    "text": str,
+}
+
+
+def _value_to_wire(value: Any, *, path: str = "$.value") -> Any:
+    if value is None or isinstance(value, (str, bool, int, float)):
+        try:
+            _validate_i_json(value, path=path)
+        except CatalogBuildError as error:
+            raise PortValueError(str(error)) from error
+        return value
+    if isinstance(value, list):
+        return [
+            _value_to_wire(item, path=f"{path}[{index}]")
+            for index, item in enumerate(value)
+        ]
+    if isinstance(value, tuple):
+        return {
+            "$tuple": [
+                _value_to_wire(item, path=f"{path}[{index}]")
+                for index, item in enumerate(value)
+            ]
+        }
+    if isinstance(value, Mapping):
+        entries = [
+            [
+                _value_to_wire(key, path=f"{path}.<key>"),
+                _value_to_wire(item, path=f"{path}[{key!r}]"),
+            ]
+            for key, item in value.items()
+        ]
+        entries.sort(key=lambda entry: canonical_json_bytes(entry[0]))
+        return {"$map": entries}
+    if is_dataclass(value) and not isinstance(value, type):
+        value_type = type(value)
+        tag = _TAG_BY_DATACLASS.get(value_type)
+        if tag is None:
+            raise PortValueError(
+                f"{path} uses an unregistered runtime value class "
+                f"{value_type.__name__}"
+            )
+        return {
+            "$dataclass": tag,
+            "fields": {
+                item.name: _value_to_wire(
+                    getattr(value, item.name),
+                    path=f"{path}.{item.name}",
+                )
+                for item in fields(value)
+            },
+        }
+    raise PortValueError(
+        f"{path} contains an unsupported runtime value "
+        f"{type(value).__name__}"
+    )
+
+
+def _wire_to_value(value: Any, *, path: str = "$.value") -> Any:
+    if value is None or isinstance(value, (str, bool, int, float)):
+        return value
+    if isinstance(value, list):
+        return [
+            _wire_to_value(item, path=f"{path}[{index}]")
+            for index, item in enumerate(value)
+        ]
+    if not isinstance(value, dict):
+        raise PortValueError(f"{path} is not a valid canonical value")
+    if set(value) == {"$tuple"} and isinstance(value["$tuple"], list):
+        return tuple(
+            _wire_to_value(item, path=f"{path}[{index}]")
+            for index, item in enumerate(value["$tuple"])
+        )
+    if set(value) == {"$map"} and isinstance(value["$map"], list):
+        result: dict[Any, Any] = {}
+        encoded_keys: list[bytes] = []
+        for index, entry in enumerate(value["$map"]):
+            if not isinstance(entry, list) or len(entry) != 2:
+                raise PortValueError(f"{path}.$map[{index}] must be a key/value pair")
+            encoded_keys.append(canonical_json_bytes(entry[0]))
+        if encoded_keys != sorted(encoded_keys) or len(encoded_keys) != len(
+            set(encoded_keys)
+        ):
+            raise PortValueError(
+                f"{path}.$map entries are not in unique canonical key order"
+            )
+        for index, entry in enumerate(value["$map"]):
+            key = _wire_to_value(entry[0], path=f"{path}.$map[{index}][0]")
+            item = _wire_to_value(entry[1], path=f"{path}.$map[{index}][1]")
+            try:
+                if key in result:
+                    raise PortValueError(
+                        f"{path}.$map contains a duplicate decoded key"
+                    )
+                result[key] = item
+            except TypeError as error:
+                raise PortValueError(
+                    f"{path}.$map contains an unhashable key"
+                ) from error
+        return result
+    if set(value) == {"$dataclass", "fields"}:
+        tag = value["$dataclass"]
+        raw_fields = value["fields"]
+        value_type = _DATACLASS_BY_TAG.get(tag)
+        if value_type is None or not isinstance(raw_fields, dict):
+            raise PortValueError(f"{path} names an unknown runtime value kind")
+        expected_fields = {item.name for item in fields(value_type)}
+        if set(raw_fields) != expected_fields:
+            raise PortValueError(
+                f"{path} fields do not match the complete {tag} contract"
+            )
+        decoded_fields = {
+            name: _wire_to_value(item, path=f"{path}.{name}")
+            for name, item in raw_fields.items()
+        }
+        try:
+            return value_type(**decoded_fields)
+        except (TypeError, ValueError) as error:
+            raise PortValueError(
+                f"{path} is not a valid {tag} value: {error}"
+            ) from error
+    raise PortValueError(f"{path} contains a malformed canonical value object")
+
+
+def _reject_duplicate_keys(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
+    result: dict[str, Any] = {}
+    for key, value in pairs:
+        if key in result:
+            raise PortValueError(f"duplicate JSON object key {key!r}")
+        result[key] = value
+    return result
+
+
+def _parse_canonical_json(encoded: bytes) -> Any:
+    if not isinstance(encoded, bytes):
+        raise PortValueError("canonical codec input must be bytes")
+    try:
+        payload = json.loads(
+            encoded.decode("utf-8"),
+            object_pairs_hook=_reject_duplicate_keys,
+            parse_constant=lambda value: (_ for _ in ()).throw(
+                PortValueError(f"non-I-JSON numeric value {value}")
+            ),
+        )
+    except (UnicodeDecodeError, json.JSONDecodeError) as error:
+        raise PortValueError("canonical codec input is malformed UTF-8 JSON") from error
+    try:
+        canonical = canonical_json_bytes(payload)
+    except CatalogBuildError as error:
+        raise PortValueError(str(error)) from error
+    if encoded != canonical:
+        raise PortValueError("codec input is valid JSON but not canonical RFC 8785 bytes")
+    return payload
+
+
+@dataclass(frozen=True, slots=True)
+class BehaviorReference:
+    """Stable public identity for one private runtime behavior."""
+
+    behavior_id: str
+    behavior_version: str
+    parameters: Mapping[str, Any] = field(default_factory=dict)
+
+    def __post_init__(self) -> None:
+        _validate_identifier(self.behavior_id, "behavior_id")
+        _validate_version(self.behavior_version, "behavior_version")
+        parameters = dict(self.parameters)
+        canonical_json_bytes(parameters)
+        object.__setattr__(self, "parameters", _freeze_i_json(parameters))
+
+    def descriptor(self) -> dict[str, Any]:
+        """Return the closed public declaration without a Python callable."""
+        return {
+            "behavior_id": self.behavior_id,
+            "behavior_version": self.behavior_version,
+            "parameters": _thaw_i_json(self.parameters),
+        }
+
+
+@dataclass(frozen=True, slots=True)
+class PortTypeDefinition:
+    """One exact nominal Port Type and its stable behavior declarations."""
+
+    type_id: str
+    version: str
+    validator: BehaviorReference
+    codec: BehaviorReference
+    content_identity: BehaviorReference
+    runtime_validator: Callable[[Any], None] | None = field(
+        default=None,
+        repr=False,
+        compare=False,
+    )
+    runtime_to_wire: Callable[[Any], Any] | None = field(
+        default=None,
+        repr=False,
+        compare=False,
+    )
+    runtime_from_wire: Callable[[Any], Any] | None = field(
+        default=None,
+        repr=False,
+        compare=False,
+    )
+
+    def __post_init__(self) -> None:
+        _validate_identifier(self.type_id, "type_id")
+        _validate_version(self.version, "version")
+        canonical_json_bytes(self.descriptor())
+
+    def descriptor(self) -> dict[str, Any]:
+        """Return the canonical closed descriptor used for contract identity."""
+        return {
+            "schema_namespace": CONTRACT_NAMESPACE,
+            "contract_kind": "port_type",
+            "contract_id": self.type_id,
+            "contract_version": self.version,
+            "validator": self.validator.descriptor(),
+            "codec": self.codec.descriptor(),
+            "content_identity": self.content_identity.descriptor(),
+        }
+
+    @property
+    def descriptor_bytes(self) -> bytes:
+        """RFC 8785 canonical UTF-8 descriptor bytes."""
+        return canonical_json_bytes(self.descriptor())
+
+    @property
+    def contract_digest(self) -> str:
+        """SHA-256 identity of this exact canonical descriptor."""
+        return f"sha256:{hashlib.sha256(self.descriptor_bytes).hexdigest()}"
+
+    def public_contract(self) -> dict[str, Any]:
+        """Return the public protocol representation."""
+        return {
+            "reference": {
+                "contract_kind": "port_type",
+                "contract_id": self.type_id,
+                "contract_version": self.version,
+                "contract_digest": self.contract_digest,
+            },
+            "descriptor": self.descriptor(),
+        }
+
+    @property
+    def value_kind(self) -> str:
+        """Return the stable runtime value kind declared by the validator."""
+        value_kind = self.validator.parameters.get("accepted_value_kind")
+        if not isinstance(value_kind, str) or value_kind not in _VALUE_TYPE_BY_KIND:
+            raise PortValueError(
+                f"{self.type_id}@{self.version} has no installed validator behavior"
+            )
+        return value_kind
+
+    def validate_runtime_contract(self) -> None:
+        """Require a complete installed runtime behind stable behavior IDs."""
+        custom_behaviors = (
+            self.runtime_validator,
+            self.runtime_to_wire,
+            self.runtime_from_wire,
+        )
+        if any(behavior is not None for behavior in custom_behaviors):
+            if not all(behavior is not None for behavior in custom_behaviors):
+                raise CatalogBuildError(
+                    f"{self.type_id}@{self.version} has an incomplete runtime "
+                    "validator/codec declaration"
+                )
+            return
+        try:
+            self.value_kind
+        except PortValueError as error:
+            raise CatalogBuildError(str(error)) from error
+
+    def validate(self, value: Any) -> None:
+        """Validate one complete runtime value through this nominal contract."""
+        if self.runtime_validator is not None:
+            try:
+                self.runtime_validator(value)
+            except PortValueError:
+                raise
+            except (TypeError, ValueError) as error:
+                raise PortValueError(
+                    f"{self.type_id}@{self.version} rejected its runtime value: "
+                    f"{error}"
+                ) from error
+            return
+        expected_type = _VALUE_TYPE_BY_KIND[self.value_kind]
+        if type(value) is not expected_type:
+            raise PortValueError(
+                f"{self.type_id}@{self.version} requires "
+                f"{expected_type.__name__}, got {type(value).__name__}"
+            )
+        if self.value_kind == "file_path_collection" and not all(
+            type(item) is str for item in value
+        ):
+            raise PortValueError("file.path.collection requires only string paths")
+        _value_to_wire(value)
+
+    def encode(self, value: Any) -> bytes:
+        """Validate and encode one value as canonical RFC 8785 UTF-8 bytes."""
+        self.validate(value)
+        if self.runtime_to_wire is not None:
+            try:
+                wire_value = self.runtime_to_wire(value)
+            except PortValueError:
+                raise
+            except (TypeError, ValueError) as error:
+                raise PortValueError(
+                    f"{self.type_id}@{self.version} could not encode its value: "
+                    f"{error}"
+                ) from error
+            try:
+                canonical_json_bytes(wire_value)
+            except CatalogBuildError as error:
+                raise PortValueError(str(error)) from error
+        else:
+            wire_value = _value_to_wire(value)
+        return canonical_json_bytes(
+            {
+                "schema_namespace": PORT_VALUE_NAMESPACE,
+                "port_type_id": self.type_id,
+                "port_type_version": self.version,
+                "value": wire_value,
+            }
+        )
+
+    def decode(self, encoded: bytes) -> Any:
+        """Decode canonical bytes, rejecting malformed or non-canonical input."""
+        payload = _parse_canonical_json(encoded)
+        if not isinstance(payload, dict) or set(payload) != {
+            "schema_namespace",
+            "port_type_id",
+            "port_type_version",
+            "value",
+        }:
+            raise PortValueError("canonical Port value envelope is not closed")
+        if payload["schema_namespace"] != PORT_VALUE_NAMESPACE:
+            raise PortValueError("canonical Port value namespace does not match")
+        if (
+            payload["port_type_id"],
+            payload["port_type_version"],
+        ) != (self.type_id, self.version):
+            raise PortValueError("canonical Port value nominal identity does not match")
+        if self.runtime_from_wire is not None:
+            try:
+                value = self.runtime_from_wire(payload["value"])
+            except PortValueError:
+                raise
+            except (TypeError, ValueError) as error:
+                raise PortValueError(
+                    f"{self.type_id}@{self.version} could not decode its value: "
+                    f"{error}"
+                ) from error
+        else:
+            value = _wire_to_value(payload["value"])
+        self.validate(value)
+        return value
+
+    def content_digest(self, value: Any) -> str:
+        """Identify validated content by SHA-256 of canonical codec bytes."""
+        return f"sha256:{hashlib.sha256(self.encode(value)).hexdigest()}"
+
+
+@dataclass(frozen=True, slots=True)
+class FrozenCatalog:
+    """Immutable, atomically validated v2 Catalog view for Port Types."""
+
+    port_types: tuple[PortTypeDefinition, ...]
+    _by_identity: Mapping[tuple[str, str], PortTypeDefinition] = field(
+        init=False,
+        repr=False,
+    )
+
+    def __post_init__(self) -> None:
+        resolved: dict[tuple[str, str], PortTypeDefinition] = {}
+        for definition in self.port_types:
+            definition.validate_runtime_contract()
+            identity = (definition.type_id, definition.version)
+            if identity in resolved:
+                raise CatalogBuildError(
+                    "duplicate Port Type identity "
+                    f"{definition.type_id}@{definition.version}"
+                )
+            resolved[identity] = definition
+        ordered = tuple(
+            sorted(
+                resolved.values(),
+                key=lambda item: (item.type_id, item.version),
+            )
+        )
+        object.__setattr__(self, "port_types", ordered)
+        object.__setattr__(self, "_by_identity", MappingProxyType(resolved))
+        canonical_json_bytes(self.catalog_descriptor())
+
+    def catalog_descriptor(self) -> dict[str, Any]:
+        """Return the stable Catalog identity, excluding observed availability."""
+        return {
+            "schema_namespace": CATALOG_NAMESPACE,
+            "contracts": [
+                definition.public_contract() for definition in self.port_types
+            ],
+        }
+
+    @property
+    def catalog_descriptor_bytes(self) -> bytes:
+        """RFC 8785 canonical stable Catalog descriptor bytes."""
+        return canonical_json_bytes(self.catalog_descriptor())
+
+    @property
+    def contract_digest(self) -> str:
+        """SHA-256 identity of all stable contracts in this Catalog."""
+        return (
+            "sha256:"
+            f"{hashlib.sha256(self.catalog_descriptor_bytes).hexdigest()}"
+        )
+
+    def get_port_type(
+        self,
+        type_id: str,
+        version: str,
+    ) -> PortTypeDefinition | None:
+        """Return one exact Port Type identity, or None when unknown."""
+        return self._by_identity.get((type_id, version))
+
+    def require_port_type(
+        self,
+        type_id: str,
+        version: str,
+    ) -> PortTypeDefinition:
+        """Resolve one exact identity and fail closed when it is unknown."""
+        definition = self.get_port_type(type_id, version)
+        if definition is None:
+            raise UnknownPortTypeError(f"Unknown Port Type {type_id}@{version}")
+        return definition
+
+    def directly_compatible(
+        self,
+        source_type_id: str,
+        source_version: str,
+        target_type_id: str,
+        target_version: str,
+    ) -> bool:
+        """Accept a direct connection only between known exact identities."""
+        source = self.require_port_type(source_type_id, source_version)
+        target = self.require_port_type(target_type_id, target_version)
+        return (source.type_id, source.version) == (
+            target.type_id,
+            target.version,
+        )
+
+    def public_snapshot(
+        self,
+        *,
+        protocol_digest: str,
+        observed_at: datetime | None = None,
+    ) -> dict[str, Any]:
+        """Return a public Catalog Snapshot with no Binding observations yet."""
+        timestamp = observed_at or datetime.now(timezone.utc)
+        return {
+            "schema_namespace": "protein-workbench-public/v2",
+            "protocol_digest": protocol_digest,
+            "catalog_contract_digest": self.contract_digest,
+            "contracts": [
+                definition.public_contract() for definition in self.port_types
+            ],
+            "availability_observed_at": timestamp.isoformat().replace(
+                "+00:00",
+                "Z",
+            ),
+            "availability": [],
+        }
+
+
+_BUILTIN_VALUE_KINDS = (
+    ("candidate.collection", "candidate_collection"),
+    ("file.path", "file_path"),
+    ("file.path.collection", "file_path_collection"),
+    ("function.annotations", "function_annotations"),
+    ("protein.prompt", "protein_prompt"),
+    ("protein.sequence", "protein_sequence"),
+    ("protein.structure", "protein_structure"),
+    ("proteinmpnn.constraints", "proteinmpnn_constraints"),
+    ("residue.layout", "residue_layout"),
+    ("residue.map", "residue_map"),
+    ("residue.track", "residue_track"),
+    ("residue.track.sasa", "sasa_residue_track"),
+    (
+        "residue.track.secondary_structure",
+        "secondary_structure_residue_track",
+    ),
+    ("score.collection", "score_collection"),
+    ("structure.alignment", "structure_alignment"),
+    ("text", "text"),
+)
+
+
+def _builtin_port_type(type_id: str, value_kind: str) -> PortTypeDefinition:
+    behavior_prefix = f"protein-workbench.port-type/{type_id}"
+    return PortTypeDefinition(
+        type_id=type_id,
+        version=PORT_TYPE_VERSION,
+        validator=BehaviorReference(
+            behavior_id=f"{behavior_prefix}/validate",
+            behavior_version=PORT_TYPE_VERSION,
+            parameters={
+                "accepted_value_kind": value_kind,
+                "complete_values_only": True,
+            },
+        ),
+        codec=BehaviorReference(
+            behavior_id=f"{behavior_prefix}/canonical-json-codec",
+            behavior_version=PORT_TYPE_VERSION,
+            parameters={
+                "canonicalization": "RFC 8785",
+                "character_encoding": "UTF-8",
+                "envelope_namespace": PORT_VALUE_NAMESPACE,
+                "value_kind": value_kind,
+            },
+        ),
+        content_identity=BehaviorReference(
+            behavior_id=f"{behavior_prefix}/content-sha256",
+            behavior_version=PORT_TYPE_VERSION,
+            parameters={
+                "digest_algorithm": "SHA-256",
+                "digest_input": "canonical_codec_bytes",
+                "digest_representation": (
+                    "sha256:<64 lowercase hexadecimal digits>"
+                ),
+            },
+        ),
+    )
+
+
+@lru_cache(maxsize=1)
+def builtin_frozen_catalog() -> FrozenCatalog:
+    """Build and cache the repository-owned built-in Port Type Catalog."""
+    return FrozenCatalog(
+        tuple(
+            _builtin_port_type(type_id, value_kind)
+            for type_id, value_kind in _BUILTIN_VALUE_KINDS
+        )
+    )

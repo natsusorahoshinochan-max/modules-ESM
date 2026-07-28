@@ -31,6 +31,17 @@ from core.module_registry import (
     discover_modules,
 )
 from core.project import ProjectManager, ProjectMeta, UIState
+from core.port_types import (
+    BehaviorReference,
+    CatalogBuildError,
+    FrozenCatalog,
+    PortValueError,
+    PortTypeDefinition,
+    UnknownPortTypeError,
+    builtin_frozen_catalog,
+    canonical_json_bytes,
+    canonical_sha256,
+)
 from core.run_context import RunContext
 from core.run_manifest import RunManifest, RunManifestStore, read_run_manifest
 from core.type_registry import TypeInfo, TypeRegistry
@@ -39,7 +50,10 @@ from core.workflow_module import WorkflowModule
 __all__ = [
     "CacheStore",
     "CachePublishStatus",
+    "BehaviorReference",
+    "CatalogBuildError",
     "Executor",
+    "FrozenCatalog",
     "InputGroupDefinition",
     "ModuleDefinition",
     "ModuleDiscoveryError",
@@ -48,6 +62,8 @@ __all__ = [
     "OutputGroupDefinition",
     "ParameterDefinition",
     "PortDefinition",
+    "PortTypeDefinition",
+    "PortValueError",
     "ProjectManager",
     "ProjectMeta",
     "RunContext",
@@ -62,6 +78,7 @@ __all__ = [
     "SubscriberLimitError",
     "TypeInfo",
     "TypeRegistry",
+    "UnknownPortTypeError",
     "UIState",
     "Workflow",
     "WorkflowEdge",
@@ -71,5 +88,8 @@ __all__ = [
     "WorkflowValidationErrorKind",
     "WorkflowValidationResult",
     "discover_modules",
+    "builtin_frozen_catalog",
+    "canonical_json_bytes",
+    "canonical_sha256",
     "read_run_manifest",
 ]

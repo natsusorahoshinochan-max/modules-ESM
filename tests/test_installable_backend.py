@@ -17,12 +17,24 @@ from pathlib import Path
 
 import pytest
 
+from core import builtin_frozen_catalog
 from protein_workbench_public import bundle_bytes, bundle_digest
 
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 SOURCE_PROTOCOL_BYTES = bundle_bytes()
 SOURCE_PROTOCOL_DIGEST = bundle_digest()
+SOURCE_PORT_CATALOG = builtin_frozen_catalog()
+SOURCE_PORT_CATALOG_BYTES = SOURCE_PORT_CATALOG.catalog_descriptor_bytes
+SOURCE_PORT_CATALOG_DIGEST = SOURCE_PORT_CATALOG.contract_digest
+SOURCE_PORT_TYPE_BYTES = {
+    definition.type_id: definition.descriptor_bytes.hex()
+    for definition in SOURCE_PORT_CATALOG.port_types
+}
+SOURCE_PORT_TYPE_DIGESTS = {
+    definition.type_id: definition.contract_digest
+    for definition in SOURCE_PORT_CATALOG.port_types
+}
 EXPECTED_MODULE_IDS = {
     "compute.dssp",
     "convert.extract_backbone",
@@ -185,7 +197,12 @@ def test_wheel_runs_discovery_canonical_validation_and_api_outside_source_tree(
 from pathlib import Path
 import core
 import modules
-from core import ModuleRegistry, TypeRegistry, discover_modules
+from core import (
+    ModuleRegistry,
+    TypeRegistry,
+    builtin_frozen_catalog,
+    discover_modules,
+)
 from protein_workbench_public import bundle_bytes, bundle_digest
 import protein_workbench_public
 
@@ -195,6 +212,17 @@ assert source_root not in Path(modules.__file__).resolve().parents
 assert source_root not in Path(protein_workbench_public.__file__).resolve().parents
 assert bundle_bytes().hex() == {SOURCE_PROTOCOL_BYTES.hex()!r}
 assert bundle_digest() == {SOURCE_PROTOCOL_DIGEST!r}
+catalog = builtin_frozen_catalog()
+assert catalog.catalog_descriptor_bytes.hex() == {SOURCE_PORT_CATALOG_BYTES.hex()!r}
+assert catalog.contract_digest == {SOURCE_PORT_CATALOG_DIGEST!r}
+assert {{
+    definition.type_id: definition.descriptor_bytes.hex()
+    for definition in catalog.port_types
+}} == {SOURCE_PORT_TYPE_BYTES!r}
+assert {{
+    definition.type_id: definition.contract_digest
+    for definition in catalog.port_types
+}} == {SOURCE_PORT_TYPE_DIGESTS!r}
 
 registry = ModuleRegistry(TypeRegistry())
 discover_modules(registry)
@@ -269,6 +297,18 @@ assert sorted(item.module_id for item in registry.list_all()) == {expected}
             installed_protocol_digest = response.headers["Digest"]
         assert installed_protocol_bytes == SOURCE_PROTOCOL_BYTES
         assert installed_protocol_digest == SOURCE_PROTOCOL_DIGEST
+        with urllib.request.urlopen(
+            f"http://127.0.0.1:{port}/api/v2/catalog",
+            timeout=2,
+        ) as response:
+            installed_catalog = json.load(response)
+        assert installed_catalog["catalog_contract_digest"] == (
+            SOURCE_PORT_CATALOG_DIGEST
+        )
+        assert installed_catalog["contracts"] == [
+            definition.public_contract()
+            for definition in SOURCE_PORT_CATALOG.port_types
+        ]
     finally:
         if server.poll() is None:
             server.terminate()
