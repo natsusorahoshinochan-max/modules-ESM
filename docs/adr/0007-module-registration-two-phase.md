@@ -1,4 +1,12 @@
+---
+status: superseded by ADR-0018
+---
+
 # Two-phase module registration: register() function + discover_modules()
+
+ADR-0018 replaces this per-subpackage registration contract with a unified
+Module Package registration boundary. The text below is retained as the
+historical v1 decision.
 
 Each module subpackage (modules/esm3/, modules/proteinmpnn/, etc.) exposes a
 register(registry) function in its __init__.py that explicitly registers all

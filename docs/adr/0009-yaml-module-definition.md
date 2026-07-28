@@ -1,4 +1,12 @@
+---
+status: superseded by ADR-0023
+---
+
 # ModuleDefinition uses YAML files
+
+ADR-0023 retains YAML as the public Node Definition format while replacing the
+v1 `definition.yaml`-per-module layout. The text below is retained as the
+historical v1 decision.
 
 Each module declares its identity, ports, and parameters in a definition.yaml
 file, following the format in the architecture document section 7.2. The module
