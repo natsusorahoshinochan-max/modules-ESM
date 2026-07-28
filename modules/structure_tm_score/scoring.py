@@ -168,6 +168,7 @@ def calculate_reference_normalized_tm_score(
 
     value = 0.0
     tm_align_input_sha256: str | None = None
+    manifest_details: dict[str, Any] | None = None
     if aligned_residues:
         full_reference_coordinates = np.zeros(
             (normalization_length, 3),
@@ -198,6 +199,19 @@ def calculate_reference_normalized_tm_score(
             mobile_sequence,
             fixed_alignment,
         )
+        from core.provider_evidence import (
+            validate_provider_call_manifest_details,
+        )
+
+        manifest_details = validate_provider_call_manifest_details(
+            "tm_score",
+            {
+                **(call_details or {}),
+                "input_identity": {
+                    "tm_align_input_sha256": tm_align_input_sha256,
+                },
+            },
+        )
         try:
             optimized = tm_align(
                 full_reference_coordinates,
@@ -205,6 +219,19 @@ def calculate_reference_normalized_tm_score(
                 reference_sequence,
                 mobile_sequence,
                 fixed_alignment,
+            )
+            transformed_mobile = (
+                mobile_coordinates
+                @ np.asarray(optimized.u, dtype=np.float64).T
+                + np.asarray(optimized.t, dtype=np.float64)
+            )
+            optimized_distances = np.linalg.norm(
+                reference_coordinates - transformed_mobile,
+                axis=1,
+            )
+            value = float(
+                np.sum(1.0 / (1.0 + (optimized_distances / d0) ** 2))
+                / normalization_length
             )
         except Exception as error:
             from core.provider_evidence import record_provider_call_failure
@@ -217,26 +244,9 @@ def calculate_reference_normalized_tm_score(
                 effective_seed=None,
                 seed_control="deterministic_no_rng",
                 error_type=type(error).__name__,
-                manifest_details={
-                    **(call_details or {}),
-                    "input_identity": {
-                        "tm_align_input_sha256": tm_align_input_sha256,
-                    },
-                },
+                manifest_details=manifest_details,
             )
             raise
-        transformed_mobile = (
-            mobile_coordinates @ np.asarray(optimized.u, dtype=np.float64).T
-            + np.asarray(optimized.t, dtype=np.float64)
-        )
-        optimized_distances = np.linalg.norm(
-            reference_coordinates - transformed_mobile,
-            axis=1,
-        )
-        value = float(
-            np.sum(1.0 / (1.0 + (optimized_distances / d0) ** 2))
-            / normalization_length
-        )
 
     result = ReferenceNormalizedTMScore(
         value=value,
@@ -247,6 +257,7 @@ def calculate_reference_normalized_tm_score(
     )
     if aligned_residues:
         assert tm_align_input_sha256 is not None
+        assert manifest_details is not None
         from core.provider_evidence import record_provider_call_result
 
         record_provider_call_result(
@@ -264,12 +275,7 @@ def calculate_reference_normalized_tm_score(
                 "reference_coverage": result.reference_coverage,
                 "d0": result.d0,
             },
-            manifest_details={
-                **(call_details or {}),
-                "input_identity": {
-                    "tm_align_input_sha256": tm_align_input_sha256,
-                },
-            },
+            manifest_details=manifest_details,
         )
     return result
 

@@ -217,6 +217,8 @@ def _validated_manifest_details(
         "reference_input",
         "mobile_input",
     ):
+        if key not in allowed_keys:
+            continue
         value = details.get(key)
         if value is None and key == "reference_candidate_id":
             safe[key] = None
@@ -245,7 +247,16 @@ def _validated_manifest_details(
     return bounded
 
 
-def _validated_error_type(error_type: str) -> str:
+def validate_provider_call_manifest_details(
+    operation: str,
+    details: dict[str, Any],
+) -> dict[str, Any]:
+    """Validate and bound scientific call details before engine invocation."""
+    return _validated_manifest_details(operation, details)
+
+
+def safe_error_type(error_type: Any) -> str:
+    """Return a bounded non-secret exception type for public evidence."""
     if (
         not isinstance(error_type, str)
         or _OPAQUE_API_TOKEN.search(error_type) is not None
@@ -329,7 +340,7 @@ def record_provider_readiness(
     })
 
 
-def record_provider_call_result(
+def _record_provider_call_terminal(
     *,
     provider: str,
     operation: str,
@@ -337,14 +348,12 @@ def record_provider_call_result(
     provider_identity: dict[str, Any],
     effective_seed: int | None,
     seed_control: str,
-    result_summary: dict[str, Any],
+    result: dict[str, Any],
     manifest_details: dict[str, Any] | None = None,
 ) -> bool:
-    """Record one successfully completed real call at its adapter boundary."""
-    allowed_result_keys = _RESULT_KEYS.get(operation)
+    """Record one validated terminal at an actual provider-call boundary."""
     if (
-        allowed_result_keys is None
-        or set(result_summary) - allowed_result_keys
+        operation not in _RESULT_KEYS
         or set(provider_identity) - _IDENTITY_KEYS
     ):
         raise ValueError("Provider call evidence contains non-allowlisted fields")
@@ -362,13 +371,10 @@ def record_provider_call_result(
         "effective_seed": effective_seed,
         "seed_control": seed_control,
         "cache_decision": "bypassed_fresh_direct_call",
-        "result": {
-            "status": "succeeded",
-            "summary": result_summary,
-        },
+        "result": result,
     }
     if manifest_details is not None:
-        safe_manifest_details = _validated_manifest_details(
+        safe_manifest_details = validate_provider_call_manifest_details(
             operation,
             manifest_details,
         )
@@ -394,6 +400,39 @@ def record_provider_call_result(
     })
 
 
+def record_provider_call_result(
+    *,
+    provider: str,
+    operation: str,
+    model: str | None,
+    provider_identity: dict[str, Any],
+    effective_seed: int | None,
+    seed_control: str,
+    result_summary: dict[str, Any],
+    manifest_details: dict[str, Any] | None = None,
+) -> bool:
+    """Record one successfully completed real call at its adapter boundary."""
+    allowed_result_keys = _RESULT_KEYS.get(operation)
+    if (
+        allowed_result_keys is None
+        or set(result_summary) - allowed_result_keys
+    ):
+        raise ValueError("Provider call evidence contains non-allowlisted fields")
+    return _record_provider_call_terminal(
+        provider=provider,
+        operation=operation,
+        model=model,
+        provider_identity=provider_identity,
+        effective_seed=effective_seed,
+        seed_control=seed_control,
+        result={
+            "status": "succeeded",
+            "summary": result_summary,
+        },
+        manifest_details=manifest_details,
+    )
+
+
 def record_provider_call_failure(
     *,
     provider: str,
@@ -406,52 +445,16 @@ def record_provider_call_failure(
     manifest_details: dict[str, Any],
 ) -> bool:
     """Record one failed real call without retaining exception content."""
-    if (
-        operation not in _RESULT_KEYS
-        or set(provider_identity) - _IDENTITY_KEYS
-    ):
-        raise ValueError("Provider call evidence contains non-allowlisted fields")
-    safe_error_type = _validated_error_type(error_type)
-    safe_manifest_details = _validated_manifest_details(
-        operation,
-        manifest_details,
-    )
-    from core.run_context import RunContext
-
-    event = {
-        "event_type": "provider_call",
-        "provider": provider,
-        "operation": operation,
-        "model": model,
-        "provider_identity": provider_identity,
-        "readiness": "ready_at_call_boundary",
-        "actual_call": True,
-        "call_count": 1,
-        "effective_seed": effective_seed,
-        "seed_control": seed_control,
-        "cache_decision": "bypassed_fresh_direct_call",
-        "result": {
-            "status": "failed",
-            "error": {"type": safe_error_type},
-        },
-    }
-    RunContext.record_active_provider_call(
-        provider,
-        operation,
+    return _record_provider_call_terminal(
+        provider=provider,
+        operation=operation,
         model=model,
-        details={
-            **safe_manifest_details,
-            "provider_identity": provider_identity,
-            "readiness": event["readiness"],
-            "actual_call": event["actual_call"],
-            "call_count": event["call_count"],
-            "effective_seed": effective_seed,
-            "seed_control": seed_control,
-            "cache_decision": event["cache_decision"],
-            "result": event["result"],
+        provider_identity=provider_identity,
+        effective_seed=effective_seed,
+        seed_control=seed_control,
+        result={
+            "status": "failed",
+            "error": {"type": safe_error_type(error_type)},
         },
+        manifest_details=manifest_details,
     )
-    return _append_event({
-        **event,
-        **RunContext.active_provider_evidence(),
-    })

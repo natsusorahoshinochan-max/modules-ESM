@@ -45,8 +45,7 @@ _MAX_EXHAUSTIVE_SEQUENCE_ALIGNMENTS = 1024
 def _record_alignment_evidence(
     alignment: StructureAlignment,
     *,
-    input_identity: dict[str, Any],
-    call_details: dict[str, Any] | None,
+    manifest_details: dict[str, Any],
 ) -> StructureAlignment:
     from core.provider_evidence import record_provider_call_result
 
@@ -67,10 +66,7 @@ def _record_alignment_evidence(
             "rmsd": float(alignment.rmsd),
             "coverage": float(alignment.coverage),
         },
-        manifest_details={
-            **(call_details or {}),
-            "input_identity": input_identity,
-        },
+        manifest_details=manifest_details,
     )
     return alignment
 
@@ -78,8 +74,7 @@ def _record_alignment_evidence(
 def _record_alignment_failure(
     error: Exception,
     *,
-    input_identity: dict[str, Any],
-    call_details: dict[str, Any] | None,
+    manifest_details: dict[str, Any],
 ) -> None:
     from core.provider_evidence import record_provider_call_failure
 
@@ -94,11 +89,16 @@ def _record_alignment_failure(
         effective_seed=None,
         seed_control="deterministic_no_rng",
         error_type=type(error).__name__,
-        manifest_details={
-            **(call_details or {}),
-            "input_identity": input_identity,
-        },
+        manifest_details=manifest_details,
     )
+
+
+class _RecordedTiebreakFailure(RuntimeError):
+    """Carry an already-manifested tiebreak failure through the outer boundary."""
+
+    def __init__(self, error: Exception) -> None:
+        self.error = error
+        super().__init__()
 
 
 @dataclass(frozen=True)
@@ -207,6 +207,21 @@ def _sequence_correspondence(
                 reference_sequence,
                 mobile_sequence,
             )
+            reference_indices: list[int] = []
+            mobile_indices: list[int] = []
+            reference_index = -1
+            mobile_index = -1
+            for reference_amino_acid, mobile_amino_acid in zip(
+                structural_alignment.seqxA,
+                structural_alignment.seqyA,
+            ):
+                if reference_amino_acid != "-":
+                    reference_index += 1
+                if mobile_amino_acid != "-":
+                    mobile_index += 1
+                if reference_amino_acid != "-" and mobile_amino_acid != "-":
+                    reference_indices.append(reference_index)
+                    mobile_indices.append(mobile_index)
         except Exception as error:
             from core.provider_evidence import record_provider_call_failure
 
@@ -220,22 +235,7 @@ def _sequence_correspondence(
                 error_type=type(error).__name__,
                 manifest_details=manifest_details,
             )
-            raise
-        reference_indices: list[int] = []
-        mobile_indices: list[int] = []
-        reference_index = -1
-        mobile_index = -1
-        for reference_amino_acid, mobile_amino_acid in zip(
-            structural_alignment.seqxA,
-            structural_alignment.seqyA,
-        ):
-            if reference_amino_acid != "-":
-                reference_index += 1
-            if mobile_amino_acid != "-":
-                mobile_index += 1
-            if reference_amino_acid != "-" and mobile_amino_acid != "-":
-                reference_indices.append(reference_index)
-                mobile_indices.append(mobile_index)
+            raise _RecordedTiebreakFailure(error) from error
         from core.provider_evidence import record_provider_call_result
 
         record_provider_call_result(
@@ -328,6 +328,15 @@ def align_structures(
             mobile.pdb_string.encode()
         ).hexdigest(),
     }
+    from core.provider_evidence import validate_provider_call_manifest_details
+
+    manifest_details = validate_provider_call_manifest_details(
+        "structure_align",
+        {
+            **(call_details or {}),
+            "input_identity": input_identity,
+        },
+    )
     reference_residues = _parse_pdb_ca(reference.pdb_string)
     mobile_residues = _parse_pdb_ca(mobile.pdb_string)
 
@@ -354,16 +363,14 @@ def align_structures(
             mobile_sequence,
             all_reference_coordinates,
             all_mobile_coordinates,
-            manifest_details={
-                **(call_details or {}),
-                "input_identity": input_identity,
-            },
+            manifest_details=manifest_details,
         )
+    except _RecordedTiebreakFailure as recorded:
+        raise recorded.error.with_traceback(recorded.error.__traceback__)
     except Exception as error:
         _record_alignment_failure(
             error,
-            input_identity=input_identity,
-            call_details=call_details,
+            manifest_details=manifest_details,
         )
         raise
     if not reference_indices:
@@ -380,8 +387,7 @@ def align_structures(
                 reference_length=len(reference_residues),
                 mobile_length=len(mobile_residues),
             ),
-            input_identity=input_identity,
-            call_details=call_details,
+            manifest_details=manifest_details,
         )
 
     reference_coordinates = np.asarray(
@@ -401,24 +407,17 @@ def align_structures(
             reference_coordinates,
             mobile_coordinates,
         )
-    except Exception as error:
-        _record_alignment_failure(
-            error,
-            input_identity=input_identity,
-            call_details=call_details,
+        rotation_array, translation_array = superimposer.get_rotran()
+        assert rotation_array is not None
+        assert translation_array is not None
+        transformed_mobile = (
+            np.dot(mobile_coordinates, rotation_array) + translation_array
         )
-        raise
-    rotation_array, translation_array = superimposer.get_rotran()
-    assert rotation_array is not None
-    assert translation_array is not None
-    transformed_mobile = np.dot(mobile_coordinates, rotation_array) + translation_array
-    distances = np.linalg.norm(
-        reference_coordinates - transformed_mobile,
-        axis=1,
-    )
-
-    return _record_alignment_evidence(
-        StructureAlignment(
+        distances = np.linalg.norm(
+            reference_coordinates - transformed_mobile,
+            axis=1,
+        )
+        alignment = StructureAlignment(
             residue_map=[
                 (
                     reference_residues[reference_index].pdb_label,
@@ -451,7 +450,15 @@ def align_structures(
             aligned_reference_coordinates=reference_coordinates.tolist(),
             aligned_mobile_coordinates=mobile_coordinates.tolist(),
             aligned_distances=distances.tolist(),
-        ),
-        input_identity=input_identity,
-        call_details=call_details,
+        )
+    except Exception as error:
+        _record_alignment_failure(
+            error,
+            manifest_details=manifest_details,
+        )
+        raise
+
+    return _record_alignment_evidence(
+        alignment,
+        manifest_details=manifest_details,
     )

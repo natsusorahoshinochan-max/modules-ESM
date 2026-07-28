@@ -413,7 +413,12 @@ parameters:
         context: RunContext,
     ) -> dict[str, Any]:
         del inputs, context
-        raise RuntimeError(
+        error_type = type(
+            "sk-sensitive-worker-error-token",
+            (RuntimeError,),
+            {"kind": "sk-sensitive-worker-kind-token"},
+        )
+        raise error_type(
             f"provider rejected api_key={parameters['api_key']}"
         )
 
@@ -1549,11 +1554,13 @@ def test_failure_diagnostics_and_environment_are_recursively_redacted(
     assert manifest["environment"]["nested"] == {
         "credentials": "[REDACTED]"
     }
+    assert "sk-sensitive-worker-error-token" not in manifest_text
+    assert "sk-sensitive-worker-kind-token" not in manifest_text
     assert manifest["failures"] == [
         {
             "node_id": "provider",
-            "kind": "RuntimeError",
-            "message": "Node execution failed (RuntimeError)",
+            "kind": "Exception",
+            "message": "Node execution failed (Exception)",
         }
     ]
 

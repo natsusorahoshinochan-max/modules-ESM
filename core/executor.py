@@ -18,6 +18,7 @@ from core.cache_store import CachePublishStatus, CacheStore
 from core.graph import NodeState, Workflow, WorkflowNode
 from core.lifecycle_events import RunEventType
 from core.process_control import signal_process_group
+from core.provider_evidence import safe_error_type
 from core.recovery_types import RecoveryProvenance
 from core.run_context import RunContext
 from core.run_manifest import RunManifest, RunManifestStore, canonical_json
@@ -100,6 +101,24 @@ _TerminalWorkerMessage = (
     | _ErrorWorkerMessage
 )
 _WORKER_EXIT_TIMEOUT_SECONDS = 1.0
+
+
+def _safe_error_kind(error: BaseException) -> str:
+    """Return a bounded public failure kind without retaining provider content."""
+    try:
+        candidate = getattr(error, "kind", type(error).__name__)
+    except Exception:
+        return "Exception"
+    return safe_error_type(candidate)
+
+
+def _safe_serialization_error_kind(error: BaseException) -> str:
+    error_type = safe_error_type(type(error).__name__)
+    candidate = f"result_serialization_{error_type}"
+    try:
+        return validate_identifier(candidate, "error_kind")
+    except ValueError:
+        return "result_serialization_Exception"
 
 
 class _ManifestProcessProxy:
@@ -188,14 +207,14 @@ def _module_process_entry(
             with suppress(BrokenPipeError, EOFError, OSError):
                 connection.send(_CancelledWorkerMessage())
         except BaseException as error:
-            kind = str(getattr(error, "kind", type(error).__name__))
+            kind = _safe_error_kind(error)
             with suppress(BrokenPipeError, EOFError, OSError):
                 connection.send(_ErrorWorkerMessage(kind))
         else:
             try:
                 connection.send(_ResultWorkerMessage(outputs))
             except BaseException as error:
-                kind = f"result_serialization_{type(error).__name__}"
+                kind = _safe_serialization_error_kind(error)
                 with suppress(BrokenPipeError, EOFError, OSError):
                     connection.send(_ErrorWorkerMessage(kind))
         finally:
@@ -1356,11 +1375,7 @@ class Executor:
                         raise
 
                     except Exception as error:
-                        kind = getattr(
-                            error,
-                            "kind",
-                            type(error).__name__,
-                        )
+                        kind = _safe_error_kind(error)
                         message = (
                             str(error)
                             if isinstance(error, IncompleteNodeOutputError)

@@ -1319,7 +1319,7 @@ def test_failed_public_svd_alignment_is_manifested_before_node_failure(
         assert len(retained.encode()) < 16 * 1024
 
 
-def test_failed_tmtools_alignment_tiebreak_records_both_terminals(
+def test_failed_tmtools_alignment_tiebreak_records_one_terminal(
     tmp_path: Path,
 ) -> None:
     from modules.structure_align.module import StructureAlignModule
@@ -1378,16 +1378,11 @@ def test_failed_tmtools_alignment_tiebreak_records_both_terminals(
             for call in calls
         ] == [
             ("tmtools", "structure_align_tiebreak"),
-            ("biopython-svd", "structure_align"),
         ]
         assert [
             call["details"]["result"]
             for call in calls
         ] == [
-            {
-                "status": "failed",
-                "error": {"type": "SensitiveTiebreakError"},
-            },
             {
                 "status": "failed",
                 "error": {"type": "SensitiveTiebreakError"},
@@ -1486,6 +1481,273 @@ def test_failed_public_tm_score_is_manifested_before_node_failure(
         assert "secret-tm-key" not in retained
         assert "/private/secret/alignment.bin" not in retained
         assert len(retained.encode()) < 16 * 1024
+
+
+def test_scientific_manifest_details_validate_before_engine_invocation() -> None:
+    from Bio.Align import PairwiseAligner
+    from modules.structure_alignment import align_structures
+    from modules.structure_tm_score.scoring import (
+        calculate_reference_normalized_tm_score,
+    )
+
+    pdb = (Path(__file__).parent.parent / "pdbs" / "3GB1.pdb").read_text()
+    with patch.object(
+        PairwiseAligner,
+        "align",
+        side_effect=AssertionError("alignment engine must not be invoked"),
+    ) as align_engine:
+        with pytest.raises(ValueError, match="Invalid reference_input"):
+            align_structures(
+                ProteinStructure(pdb_string=pdb),
+                ProteinStructure(pdb_string=pdb),
+                call_details={
+                    "reference_input": "/private/reference.pdb",
+                    "mobile_input": "mobile",
+                },
+            )
+    align_engine.assert_not_called()
+
+    alignment = StructureAlignment(
+        residue_map=[("A:1", "A:1")],
+        reference_length=1,
+        mobile_length=1,
+        aligned_reference_indices=[0],
+        aligned_mobile_indices=[0],
+        aligned_reference_coordinates=[[0.0, 0.0, 0.0]],
+        aligned_mobile_coordinates=[[0.0, 0.0, 0.0]],
+        aligned_distances=[0.0],
+    )
+    with patch(
+        "modules.structure_tm_score.scoring.tm_align",
+        side_effect=AssertionError("TM engine must not be invoked"),
+    ) as tm_engine:
+        with pytest.raises(ValueError, match="Invalid candidate_id"):
+            calculate_reference_normalized_tm_score(
+                alignment,
+                call_details={
+                    "candidate_id": "/private/candidate",
+                    "score_id": "tm_score",
+                },
+            )
+    tm_engine.assert_not_called()
+
+
+def test_svd_postprocessing_failure_records_one_terminal(
+    tmp_path: Path,
+) -> None:
+    from Bio.SVDSuperimposer import SVDSuperimposer
+    from modules.structure_align.module import StructureAlignModule
+
+    class SVDResultError(RuntimeError):
+        pass
+
+    pdb = (Path(__file__).parent.parent / "pdbs" / "3GB1.pdb").read_text()
+    run_dir = tmp_path / "runs" / "failed-svd-result"
+    manifest = RunManifest.for_execution(
+        project_id="scientific-project",
+        run_id="failed-svd-result",
+        workflow=Workflow(),
+        modules={},
+        seed=42,
+        source_dir=tmp_path,
+    )
+    with RunManifestStore(run_dir, manifest) as store:
+        context = RunContext(
+            str(tmp_path),
+            "align",
+            run_id="failed-svd-result",
+            _manifest_store=store,
+        )
+        token = context.activate()
+        try:
+            with patch.object(
+                SVDSuperimposer,
+                "get_rotran",
+                side_effect=SVDResultError("private result body"),
+            ), pytest.raises(SVDResultError):
+                StructureAlignModule().run(
+                    {
+                        "reference": ProteinStructure(pdb_string=pdb),
+                        "mobile": ProteinStructure(pdb_string=pdb),
+                    },
+                    {},
+                    context,
+                )
+        finally:
+            context.deactivate(token)
+
+        calls = read_run_manifest(run_dir)["providers"]["calls"]
+        assert len(calls) == 1
+        assert (
+            calls[0]["provider"],
+            calls[0]["operation"],
+            calls[0]["details"]["result"],
+        ) == (
+            "biopython-svd",
+            "structure_align",
+            {
+                "status": "failed",
+                "error": {"type": "SVDResultError"},
+            },
+        )
+
+
+def test_tiebreak_postprocessing_failure_records_one_terminal(
+    tmp_path: Path,
+) -> None:
+    from modules.structure_align.module import StructureAlignModule
+
+    class TiebreakResultError(RuntimeError):
+        pass
+
+    class MalformedTiebreakResult:
+        @property
+        def seqxA(self) -> str:
+            raise TiebreakResultError("private tiebreak result body")
+
+        seqyA = ""
+
+    run_dir = tmp_path / "runs" / "failed-tiebreak-result"
+    manifest = RunManifest.for_execution(
+        project_id="scientific-project",
+        run_id="failed-tiebreak-result",
+        workflow=Workflow(),
+        modules={},
+        seed=42,
+        source_dir=tmp_path,
+    )
+    with RunManifestStore(run_dir, manifest) as store:
+        context = RunContext(
+            str(tmp_path),
+            "align",
+            run_id="failed-tiebreak-result",
+            _manifest_store=store,
+        )
+        token = context.activate()
+        try:
+            with patch(
+                "tmtools.tm_align",
+                return_value=MalformedTiebreakResult(),
+            ), pytest.raises(TiebreakResultError):
+                StructureAlignModule().run(
+                    {
+                        "reference": ProteinStructure(
+                            pdb_string=_repetitive_alignment_pdb(
+                                _AMBIGUOUS_REFERENCE_SEQUENCE
+                            ),
+                        ),
+                        "mobile": ProteinStructure(
+                            pdb_string=_repetitive_alignment_pdb(
+                                _AMBIGUOUS_MOBILE_SEQUENCE
+                            ),
+                        ),
+                    },
+                    {},
+                    context,
+                )
+        finally:
+            context.deactivate(token)
+
+        calls = read_run_manifest(run_dir)["providers"]["calls"]
+        assert len(calls) == 1
+        assert (
+            calls[0]["provider"],
+            calls[0]["operation"],
+            calls[0]["details"]["result"],
+        ) == (
+            "tmtools",
+            "structure_align_tiebreak",
+            {
+                "status": "failed",
+                "error": {"type": "TiebreakResultError"},
+            },
+        )
+
+
+def test_tm_postprocessing_failure_records_one_terminal(
+    tmp_path: Path,
+) -> None:
+    from modules.structure_tm_score.module import StructureTMScoreModule
+
+    class TMResultError(RuntimeError):
+        pass
+
+    class MalformedTMResult:
+        @property
+        def u(self) -> list[list[float]]:
+            raise TMResultError("private TM result body")
+
+        t = [0.0, 0.0, 0.0]
+
+    alignment = StructureAlignment(
+        residue_map=[
+            ("A:1", "A:1"),
+            ("A:2", "A:2"),
+            ("A:3", "A:3"),
+        ],
+        reference_length=3,
+        mobile_length=3,
+        aligned_reference_indices=[0, 1, 2],
+        aligned_mobile_indices=[0, 1, 2],
+        aligned_reference_coordinates=[
+            [0.0, 0.0, 0.0],
+            [1.0, 0.0, 0.0],
+            [0.0, 1.0, 0.0],
+        ],
+        aligned_mobile_coordinates=[
+            [0.0, 0.0, 0.0],
+            [1.0, 0.0, 0.0],
+            [0.0, 1.0, 0.0],
+        ],
+        aligned_distances=[0.0, 0.0, 0.0],
+    )
+    run_dir = tmp_path / "runs" / "failed-tm-result"
+    manifest = RunManifest.for_execution(
+        project_id="scientific-project",
+        run_id="failed-tm-result",
+        workflow=Workflow(),
+        modules={},
+        seed=42,
+        source_dir=tmp_path,
+    )
+    with RunManifestStore(run_dir, manifest) as store:
+        context = RunContext(
+            str(tmp_path),
+            "tm-score",
+            run_id="failed-tm-result",
+            _manifest_store=store,
+        )
+        token = context.activate()
+        try:
+            with patch(
+                "modules.structure_tm_score.scoring.tm_align",
+                return_value=MalformedTMResult(),
+            ), pytest.raises(TMResultError):
+                StructureTMScoreModule().run(
+                    {"alignment": alignment},
+                    {
+                        "candidate_id": "candidate-a",
+                        "score_id": "tm_score",
+                    },
+                    context,
+                )
+        finally:
+            context.deactivate(token)
+
+        calls = read_run_manifest(run_dir)["providers"]["calls"]
+        assert len(calls) == 1
+        assert (
+            calls[0]["provider"],
+            calls[0]["operation"],
+            calls[0]["details"]["result"],
+        ) == (
+            "tmtools",
+            "tm_score",
+            {
+                "status": "failed",
+                "error": {"type": "TMResultError"},
+            },
+        )
 
 
 def test_scientific_manifest_details_reject_forged_node_attribution() -> None:

@@ -58,6 +58,10 @@ Their terminal result is `failed` and contains only the bounded exception type;
 the exception message, body, paths, coordinates, and credentials are discarded.
 Input-validation failures that occur before an engine invocation are not call
 facts.
+Operation-specific manifest details are validated before the engine boundary,
+and failures while decoding an engine result share that invocation's single
+failed terminal. Public Node failure kinds use the same bounded error-type
+normalization.
 
 The verifier creates a fresh nonce and fresh isolated roots on every invocation.
 Evidence with another nonce, a pre-run or future timestamp, a duplicate event ID,
