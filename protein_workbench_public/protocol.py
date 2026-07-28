@@ -137,7 +137,12 @@ def _validate(
             else:
                 matches += 1
         if matches != 1:
-            detail = failures[0].reason if failures else "matched multiple alternatives"
+            if failures:
+                detail = "; ".join(
+                    dict.fromkeys(error.reason for error in failures)
+                )
+            else:
+                detail = "matched multiple alternatives"
             raise ProtocolValidationError(
                 path,
                 f"must match exactly one schema alternative ({detail})",

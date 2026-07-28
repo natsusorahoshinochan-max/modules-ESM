@@ -129,19 +129,26 @@
       "type": "object"
     },
     "AvailabilitySnapshot": {
+      "oneOf": [
+        {
+          "$ref": "#/$defs/AvailableBindingSnapshot"
+        },
+        {
+          "$ref": "#/$defs/UnavailableBindingSnapshot"
+        }
+      ]
+    },
+    "AvailableBindingSnapshot": {
       "additionalProperties": false,
       "properties": {
         "available": {
-          "type": "boolean"
+          "const": true
         },
         "binding": {
           "$ref": "#/$defs/ContractReference"
         },
         "observed_at": {
           "$ref": "#/$defs/Timestamp"
-        },
-        "reason": {
-          "$ref": "#/$defs/AvailabilityReason"
         }
       },
       "required": [
@@ -170,6 +177,30 @@
         "code",
         "message",
         "retryable"
+      ],
+      "type": "object"
+    },
+    "UnavailableBindingSnapshot": {
+      "additionalProperties": false,
+      "properties": {
+        "available": {
+          "const": false
+        },
+        "binding": {
+          "$ref": "#/$defs/ContractReference"
+        },
+        "observed_at": {
+          "$ref": "#/$defs/Timestamp"
+        },
+        "reason": {
+          "$ref": "#/$defs/AvailabilityReason"
+        }
+      },
+      "required": [
+        "binding",
+        "observed_at",
+        "available",
+        "reason"
       ],
       "type": "object"
     },
@@ -781,6 +812,19 @@
       "type": "object"
     },
     "NodeDisposition": {
+      "oneOf": [
+        {
+          "$ref": "#/$defs/SucceededNodeDisposition"
+        },
+        {
+          "$ref": "#/$defs/BlockedNodeDisposition"
+        },
+        {
+          "$ref": "#/$defs/UnsuccessfulNodeDisposition"
+        }
+      ]
+    },
+    "BlockedNodeDisposition": {
       "additionalProperties": false,
       "properties": {
         "blocked_by": {
@@ -788,6 +832,72 @@
             "$ref": "#/$defs/Identifier"
           },
           "maxItems": 2048,
+          "minItems": 1,
+          "type": "array"
+        },
+        "node_id": {
+          "$ref": "#/$defs/Identifier"
+        },
+        "outcome": {
+          "const": "blocked"
+        },
+        "terminal_sequence": {
+          "minimum": 1,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "node_id",
+        "outcome",
+        "terminal_sequence",
+        "blocked_by"
+      ],
+      "type": "object"
+    },
+    "SucceededNodeDisposition": {
+      "additionalProperties": false,
+      "properties": {
+        "blocked_by": {
+          "items": {
+            "$ref": "#/$defs/Identifier"
+          },
+          "maxItems": 0,
+          "type": "array"
+        },
+        "node_id": {
+          "$ref": "#/$defs/Identifier"
+        },
+        "outcome": {
+          "const": "succeeded"
+        },
+        "resolution": {
+          "enum": [
+            "executed",
+            "cache_replayed"
+          ]
+        },
+        "terminal_sequence": {
+          "minimum": 1,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "node_id",
+        "outcome",
+        "resolution",
+        "terminal_sequence",
+        "blocked_by"
+      ],
+      "type": "object"
+    },
+    "UnsuccessfulNodeDisposition": {
+      "additionalProperties": false,
+      "properties": {
+        "blocked_by": {
+          "items": {
+            "$ref": "#/$defs/Identifier"
+          },
+          "maxItems": 0,
           "type": "array"
         },
         "node_id": {
@@ -795,17 +905,9 @@
         },
         "outcome": {
           "enum": [
-            "succeeded",
             "failed",
-            "blocked",
             "cancelled",
             "interrupted"
-          ]
-        },
-        "resolution": {
-          "enum": [
-            "executed",
-            "cache_replayed"
           ]
         },
         "terminal_sequence": {
@@ -948,11 +1050,383 @@
       ],
       "type": "object"
     },
+    "BehaviorReference": {
+      "additionalProperties": false,
+      "properties": {
+        "behavior_id": {
+          "$ref": "#/$defs/Identifier"
+        },
+        "behavior_version": {
+          "$ref": "#/$defs/SemanticVersion"
+        },
+        "parameters": {
+          "$ref": "#/$defs/JsonObject"
+        }
+      },
+      "required": [
+        "behavior_id",
+        "behavior_version",
+        "parameters"
+      ],
+      "type": "object"
+    },
+    "BindingContractDescriptor": {
+      "additionalProperties": false,
+      "properties": {
+        "availability_declaration": {
+          "$ref": "#/$defs/JsonObject"
+        },
+        "binding_parameters": {
+          "$ref": "#/$defs/JsonObject"
+        },
+        "cacheable": {
+          "type": "boolean"
+        },
+        "contract_id": {
+          "$ref": "#/$defs/Identifier"
+        },
+        "contract_kind": {
+          "const": "binding"
+        },
+        "contract_version": {
+          "$ref": "#/$defs/SemanticVersion"
+        },
+        "deterministic": {
+          "type": "boolean"
+        },
+        "execution_route": {
+          "enum": [
+            "adapter",
+            "direct"
+          ]
+        },
+        "implementation_identity": {
+          "$ref": "#/$defs/JsonObject"
+        },
+        "method": {
+          "$ref": "#/$defs/ContractReference"
+        },
+        "node_type": {
+          "$ref": "#/$defs/ContractReference"
+        },
+        "produced_observations": {
+          "items": {
+            "$ref": "#/$defs/ProducedObservationDeclaration"
+          },
+          "maxItems": 4096,
+          "type": "array"
+        },
+        "readiness_declaration": {
+          "$ref": "#/$defs/JsonObject"
+        },
+        "route_behavior": {
+          "$ref": "#/$defs/BehaviorReference"
+        },
+        "schema_namespace": {
+          "const": "protein-workbench-contract/v2"
+        }
+      },
+      "required": [
+        "schema_namespace",
+        "contract_kind",
+        "contract_id",
+        "contract_version",
+        "node_type",
+        "method",
+        "binding_parameters",
+        "execution_route",
+        "route_behavior",
+        "availability_declaration",
+        "readiness_declaration",
+        "deterministic",
+        "cacheable",
+        "implementation_identity",
+        "produced_observations"
+      ],
+      "type": "object"
+    },
+    "MethodContractDescriptor": {
+      "additionalProperties": false,
+      "properties": {
+        "algorithm_identity": {
+          "$ref": "#/$defs/JsonObject"
+        },
+        "checkpoint_identity": {
+          "$ref": "#/$defs/JsonObject"
+        },
+        "contract_id": {
+          "$ref": "#/$defs/Identifier"
+        },
+        "contract_kind": {
+          "const": "method"
+        },
+        "contract_version": {
+          "$ref": "#/$defs/SemanticVersion"
+        },
+        "featurization_identity": {
+          "$ref": "#/$defs/JsonObject"
+        },
+        "model_identity": {
+          "$ref": "#/$defs/JsonObject"
+        },
+        "scale_contract": {
+          "$ref": "#/$defs/JsonObject"
+        },
+        "schema_namespace": {
+          "const": "protein-workbench-contract/v2"
+        },
+        "source_identity": {
+          "$ref": "#/$defs/JsonObject"
+        }
+      },
+      "required": [
+        "schema_namespace",
+        "contract_kind",
+        "contract_id",
+        "contract_version",
+        "algorithm_identity",
+        "model_identity",
+        "checkpoint_identity",
+        "featurization_identity",
+        "source_identity",
+        "scale_contract"
+      ],
+      "type": "object"
+    },
+    "MetricContractDescriptor": {
+      "additionalProperties": false,
+      "properties": {
+        "aggregation_semantics": {
+          "$ref": "#/$defs/JsonObject"
+        },
+        "canonical_range": {
+          "$ref": "#/$defs/JsonObject"
+        },
+        "contract_id": {
+          "$ref": "#/$defs/Identifier"
+        },
+        "contract_kind": {
+          "const": "metric"
+        },
+        "contract_version": {
+          "$ref": "#/$defs/SemanticVersion"
+        },
+        "description": {
+          "maxLength": 4096,
+          "minLength": 1,
+          "type": "string"
+        },
+        "direction": {
+          "enum": [
+            "higher_is_better",
+            "lower_is_better",
+            "none",
+            "target"
+          ]
+        },
+        "granularity": {
+          "$ref": "#/$defs/Identifier"
+        },
+        "observation_context_schema": {
+          "$ref": "#/$defs/JsonObject"
+        },
+        "schema_namespace": {
+          "const": "protein-workbench-contract/v2"
+        },
+        "title": {
+          "maxLength": 256,
+          "minLength": 1,
+          "type": "string"
+        },
+        "unit": {
+          "maxLength": 128,
+          "minLength": 1,
+          "type": "string"
+        },
+        "validation_contract": {
+          "$ref": "#/$defs/JsonObject"
+        },
+        "value_shape": {
+          "$ref": "#/$defs/Identifier"
+        }
+      },
+      "required": [
+        "schema_namespace",
+        "contract_kind",
+        "contract_id",
+        "contract_version",
+        "title",
+        "description",
+        "value_shape",
+        "unit",
+        "direction",
+        "canonical_range",
+        "granularity",
+        "aggregation_semantics",
+        "observation_context_schema",
+        "validation_contract"
+      ],
+      "type": "object"
+    },
+    "NodeTypeContractDescriptor": {
+      "additionalProperties": false,
+      "properties": {
+        "category": {
+          "$ref": "#/$defs/Identifier"
+        },
+        "contract_id": {
+          "$ref": "#/$defs/Identifier"
+        },
+        "contract_kind": {
+          "const": "node_type"
+        },
+        "contract_version": {
+          "$ref": "#/$defs/SemanticVersion"
+        },
+        "inputs": {
+          "items": {
+            "$ref": "#/$defs/PublicPortContract"
+          },
+          "maxItems": 1024,
+          "type": "array"
+        },
+        "node_parameters": {
+          "$ref": "#/$defs/JsonObject"
+        },
+        "outputs": {
+          "items": {
+            "$ref": "#/$defs/PublicPortContract"
+          },
+          "maxItems": 1024,
+          "type": "array"
+        },
+        "schema_namespace": {
+          "const": "protein-workbench-contract/v2"
+        },
+        "summary": {
+          "maxLength": 4096,
+          "minLength": 1,
+          "type": "string"
+        },
+        "title": {
+          "maxLength": 256,
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "schema_namespace",
+        "contract_kind",
+        "contract_id",
+        "contract_version",
+        "title",
+        "summary",
+        "category",
+        "inputs",
+        "outputs",
+        "node_parameters"
+      ],
+      "type": "object"
+    },
+    "PortTypeContractDescriptor": {
+      "additionalProperties": false,
+      "properties": {
+        "codec": {
+          "$ref": "#/$defs/BehaviorReference"
+        },
+        "content_identity": {
+          "$ref": "#/$defs/BehaviorReference"
+        },
+        "contract_id": {
+          "$ref": "#/$defs/Identifier"
+        },
+        "contract_kind": {
+          "const": "port_type"
+        },
+        "contract_version": {
+          "$ref": "#/$defs/SemanticVersion"
+        },
+        "schema_namespace": {
+          "const": "protein-workbench-contract/v2"
+        },
+        "validator": {
+          "$ref": "#/$defs/BehaviorReference"
+        }
+      },
+      "required": [
+        "schema_namespace",
+        "contract_kind",
+        "contract_id",
+        "contract_version",
+        "validator",
+        "codec",
+        "content_identity"
+      ],
+      "type": "object"
+    },
+    "ProducedObservationDeclaration": {
+      "additionalProperties": false,
+      "properties": {
+        "context_profile": {
+          "$ref": "#/$defs/JsonObject"
+        },
+        "guaranteed_multiplicity": {
+          "enum": [
+            "one",
+            "one_or_more",
+            "zero_or_more"
+          ]
+        },
+        "metric": {
+          "$ref": "#/$defs/ContractReference"
+        },
+        "output_port": {
+          "$ref": "#/$defs/Identifier"
+        },
+        "source_role": {
+          "$ref": "#/$defs/Identifier"
+        },
+        "subject_grain": {
+          "$ref": "#/$defs/Identifier"
+        }
+      },
+      "required": [
+        "output_port",
+        "metric",
+        "context_profile",
+        "subject_grain",
+        "source_role",
+        "guaranteed_multiplicity"
+      ],
+      "type": "object"
+    },
+    "PublicContractDescriptor": {
+      "oneOf": [
+        {
+          "$ref": "#/$defs/BindingContractDescriptor"
+        },
+        {
+          "$ref": "#/$defs/MethodContractDescriptor"
+        },
+        {
+          "$ref": "#/$defs/MetricContractDescriptor"
+        },
+        {
+          "$ref": "#/$defs/NodeTypeContractDescriptor"
+        },
+        {
+          "$ref": "#/$defs/PortTypeContractDescriptor"
+        },
+        {
+          "$ref": "#/$defs/UtilityTransformContractDescriptor"
+        }
+      ]
+    },
     "PublicContract": {
       "additionalProperties": false,
       "properties": {
         "descriptor": {
-          "$ref": "#/$defs/JsonObject"
+          "$ref": "#/$defs/PublicContractDescriptor"
         },
         "reference": {
           "$ref": "#/$defs/ContractReference"
@@ -961,6 +1435,39 @@
       "required": [
         "reference",
         "descriptor"
+      ],
+      "type": "object"
+    },
+    "PublicPortContract": {
+      "additionalProperties": false,
+      "properties": {
+        "multiplicity": {
+          "enum": [
+            "many",
+            "one"
+          ]
+        },
+        "name": {
+          "$ref": "#/$defs/Identifier"
+        },
+        "port_type": {
+          "$ref": "#/$defs/ContractReference"
+        },
+        "required": {
+          "type": "boolean"
+        },
+        "scientific_meaning": {
+          "maxLength": 2048,
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "name",
+        "port_type",
+        "required",
+        "multiplicity",
+        "scientific_meaning"
       ],
       "type": "object"
     },
@@ -1531,6 +2038,88 @@
       ],
       "type": "object"
     },
+    "UnitIntervalContract": {
+      "additionalProperties": false,
+      "properties": {
+        "maximum": {
+          "const": 1
+        },
+        "minimum": {
+          "const": 0
+        }
+      },
+      "required": [
+        "minimum",
+        "maximum"
+      ],
+      "type": "object"
+    },
+    "UtilityTransformContractDescriptor": {
+      "additionalProperties": false,
+      "properties": {
+        "behavior": {
+          "$ref": "#/$defs/BehaviorReference"
+        },
+        "compatible_input_contract": {
+          "$ref": "#/$defs/JsonObject"
+        },
+        "contract_id": {
+          "$ref": "#/$defs/Identifier"
+        },
+        "contract_kind": {
+          "const": "utility_transform"
+        },
+        "contract_version": {
+          "$ref": "#/$defs/SemanticVersion"
+        },
+        "output_contract": {
+          "$ref": "#/$defs/UnitIntervalContract"
+        },
+        "parameters": {
+          "$ref": "#/$defs/JsonObject"
+        },
+        "schema_namespace": {
+          "const": "protein-workbench-contract/v2"
+        }
+      },
+      "required": [
+        "schema_namespace",
+        "contract_kind",
+        "contract_id",
+        "contract_version",
+        "compatible_input_contract",
+        "parameters",
+        "behavior",
+        "output_contract"
+      ],
+      "type": "object"
+    },
+    "UnsupportedSchemaVersionDetails": {
+      "additionalProperties": false,
+      "properties": {
+        "artifact_kind": {
+          "enum": [
+            "cache",
+            "manifest",
+            "workflow"
+          ]
+        },
+        "expected_schema_version": {
+          "$ref": "#/$defs/SemanticVersion"
+        },
+        "received_schema_version": {
+          "maxLength": 64,
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "artifact_kind",
+        "expected_schema_version",
+        "received_schema_version"
+      ],
+      "type": "object"
+    },
     "WorkflowCompileRequest": {
       "additionalProperties": false,
       "properties": {
@@ -1784,6 +2373,7 @@
       "cursor": "opaque",
       "delivery": "at-most-once-per-connection",
       "resume": "exclusive",
+      "restart": "rebuild-from-durable-ledger",
       "source": "durable-ledger-projection",
       "transition": "replay-then-live-without-gap-or-duplicate"
     },
@@ -1812,6 +2402,11 @@
   "structured_errors": {
     "details_max_bytes": 16384,
     "envelope_schema": "#/$defs/StructuredErrorEnvelope",
+    "redaction_contract": {
+      "stage": "before_persistence_or_transport",
+      "unknown_details_fields": "reject",
+      "values": "safe_bounded_public_values_only"
+    },
     "vocabulary": {
       "artifact_integrity_mismatch": {
         "code": "artifact_integrity_mismatch",
@@ -1907,6 +2502,12 @@
         "code": "run_not_found",
         "details_schema": "#/$defs/ResourceNotFoundDetails",
         "http_status": 404,
+        "retryable": false
+      },
+      "unsupported_schema_version": {
+        "code": "unsupported_schema_version",
+        "details_schema": "#/$defs/UnsupportedSchemaVersionDetails",
+        "http_status": 400,
         "retryable": false
       },
       "workflow_not_found": {

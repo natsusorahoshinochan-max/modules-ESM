@@ -8,6 +8,7 @@ import re
 
 import pytest
 from fastapi.testclient import TestClient
+import httpx
 
 from core.server import create_app
 from protein_workbench_public import (
@@ -23,6 +24,10 @@ from protein_workbench_public import (
     validate_event,
     validate_request,
     validate_response,
+    validate_schema,
+)
+from tests.public_protocol_acceptance_client import (
+    PublicProtocolAcceptanceClient,
 )
 
 
@@ -138,6 +143,7 @@ def test_bundle_freezes_event_replay_close_and_error_vocabulary() -> None:
         "cursor": "opaque",
         "delivery": "at-most-once-per-connection",
         "resume": "exclusive",
+        "restart": "rebuild-from-durable-ledger",
         "source": "durable-ledger-projection",
         "transition": "replay-then-live-without-gap-or-duplicate",
     }
@@ -151,6 +157,11 @@ def test_bundle_freezes_event_replay_close_and_error_vocabulary() -> None:
     assert errors["vocabulary_version"] == "2.0.0"
     assert errors["envelope_schema"] == "#/$defs/StructuredErrorEnvelope"
     assert errors["details_max_bytes"] == 16384
+    assert errors["redaction_contract"] == {
+        "stage": "before_persistence_or_transport",
+        "unknown_details_fields": "reject",
+        "values": "safe_bounded_public_values_only",
+    }
     assert set(errors["vocabulary"]) == {
         "artifact_integrity_mismatch",
         "artifact_limit_exceeded",
@@ -168,6 +179,7 @@ def test_bundle_freezes_event_replay_close_and_error_vocabulary() -> None:
         "protocol_mismatch",
         "readiness_rejected",
         "run_not_found",
+        "unsupported_schema_version",
         "workflow_not_found",
     }
     for code, definition in errors["vocabulary"].items():
@@ -183,6 +195,121 @@ def test_bundle_freezes_event_replay_close_and_error_vocabulary() -> None:
         }
         assert isinstance(definition["retryable"], bool)
         assert definition["details_schema"].startswith("#/$defs/")
+
+
+def test_availability_and_schema_version_fail_closed() -> None:
+    binding = {
+        "contract_kind": "binding",
+        "contract_id": "folding.simplefold",
+        "contract_version": "2.0.0",
+        "contract_digest": "sha256:" + "1" * 64,
+    }
+    validate_schema(
+        "#/$defs/AvailabilitySnapshot",
+        {
+            "binding": binding,
+            "observed_at": "2026-07-29T12:00:00+00:00",
+            "available": False,
+            "reason": {
+                "code": "missing_checkpoint",
+                "message": "Required checkpoint is absent",
+                "retryable": False,
+            },
+        },
+    )
+    with pytest.raises(ProtocolValidationError, match="reason"):
+        validate_schema(
+            "#/$defs/AvailabilitySnapshot",
+            {
+                "binding": binding,
+                "observed_at": "2026-07-29T12:00:00+00:00",
+                "available": False,
+            },
+        )
+
+    validate_error(
+        {
+            "schema_namespace": "protein-workbench-public/v2",
+            "error": {
+                "code": "unsupported_schema_version",
+                "message": "Only v2 artifacts are supported",
+                "retryable": False,
+                "correlation_id": "incident-version",
+                "details": {
+                    "artifact_kind": "workflow",
+                    "expected_schema_version": "2.0.0",
+                    "received_schema_version": "1.0.0",
+                },
+            },
+        },
+        status=400,
+    )
+
+
+def test_catalog_descriptor_and_node_disposition_are_closed() -> None:
+    port_type = {
+        "contract_kind": "port_type",
+        "contract_id": "protein.pdb_string",
+        "contract_version": "2.0.0",
+        "contract_digest": "sha256:" + "2" * 64,
+    }
+    public_contract = {
+        "reference": port_type,
+        "descriptor": {
+            "schema_namespace": "protein-workbench-contract/v2",
+            "contract_kind": "port_type",
+            "contract_id": "protein.pdb_string",
+            "contract_version": "2.0.0",
+            "validator": {
+                "behavior_id": "pdb.validate",
+                "behavior_version": "2.0.0",
+                "parameters": {},
+            },
+            "codec": {
+                "behavior_id": "pdb.utf8",
+                "behavior_version": "2.0.0",
+                "parameters": {},
+            },
+            "content_identity": {
+                "behavior_id": "pdb.sha256",
+                "behavior_version": "2.0.0",
+                "parameters": {},
+            },
+        },
+    }
+    validate_schema("#/$defs/PublicContract", public_contract)
+    with pytest.raises(ProtocolValidationError, match="unexpected"):
+        validate_schema(
+            "#/$defs/PublicContract",
+            {
+                **public_contract,
+                "descriptor": {
+                    **public_contract["descriptor"],
+                    "private_factory": "modules.pdb:factory",
+                },
+            },
+        )
+
+    validate_schema(
+        "#/$defs/NodeDisposition",
+        {
+            "node_id": "fold",
+            "outcome": "succeeded",
+            "resolution": "executed",
+            "terminal_sequence": 8,
+            "blocked_by": [],
+        },
+    )
+    with pytest.raises(ProtocolValidationError, match="resolution"):
+        validate_schema(
+            "#/$defs/NodeDisposition",
+            {
+                "node_id": "fold",
+                "outcome": "succeeded",
+                "terminal_sequence": 8,
+                "blocked_by": [],
+            },
+        )
 
 
 def test_rest_payloads_are_validated_from_bundle_schemas() -> None:
@@ -349,3 +476,33 @@ def test_acceptance_request_is_derived_from_the_bundle_operation() -> None:
         "start_run",
         request,
     ).route
+
+
+def test_acceptance_client_validates_response_without_backend_imports() -> None:
+    receipt = {
+        "project_id": "project-1",
+        "run_id": "run-7",
+        "workflow_revision": 7,
+        "compile_id": "compile-7",
+        "admitted_sequence": 1,
+        "event_cursor": "cursor-1",
+    }
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert request.method == "POST"
+        assert request.url.path == "/api/v2/projects/project-1/runs"
+        return httpx.Response(202, json=receipt)
+
+    with PublicProtocolAcceptanceClient(
+        "http://backend.invalid",
+        transport=httpx.MockTransport(handler),
+    ) as client:
+        assert client.request(
+            "start_run",
+            {
+                "project_id": "project-1",
+                "workflow_revision": 7,
+                "compile_id": "compile-7",
+                "client_request_id": "request-7",
+            },
+        ) == receipt
