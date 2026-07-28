@@ -4,7 +4,7 @@
 
 **Blocked by:** 01 — Freeze the v2 public protocol contract.
 
-**Status:** implementation-complete-awaiting-controller-gate
+**Status:** completed
 
 - [x] Every Port Type has an exact ID, version, closed canonical descriptor, contract digest, runtime validator, canonical codec, and content-digest procedure.
 - [x] Callable behavior is represented by explicit stable behavior ID/version and immutable declaration parameters, never by object repr, memory address, source path, source text, or bytecode.
@@ -49,3 +49,22 @@ acceptance is still required before Ticket 03 may start.
   Both reviews then passed with no hard finding. Review retained only
   non-blocking design-smell observations about nominal identity data clumps and
   the legacy ProteinMPNN compatibility re-export.
+
+## Controller cumulative acceptance
+
+Before Ticket 03 started, the Controller independently accepted implementation
+commit `6d8b622308cacfc6cf08cf0df790a21cdbb17896` together with the completed
+Ticket 01 surface:
+
+- Joint Ticket 01/02 focused suites: `38 passed`.
+- Cumulative routine: `723 passed, 44 deselected`, with retained result
+  `verification-results/routine/20260728T223610.942795Z-14528-10a856f5a50ba560`.
+- Deterministic acceptance: `9 passed, 5 deselected`, with retained result
+  `verification-results/deterministic-acceptance/20260728T223741.022372Z-15171-8f7de2429fc295c2`.
+- Installed artifact: `3 passed`, with retained result
+  `verification-results/installed-package/20260728T223825.635712Z-15322-93a7d3c945faee71`.
+- `git diff --check 916da90...6d8b622` passed and the worktree was clean before
+  the Controller recorded this acceptance.
+
+No Controller regression was returned to the executor. Ticket 03 may start from
+this accepted state.
