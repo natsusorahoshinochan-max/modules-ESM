@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import replace
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 import importlib
 from pathlib import Path
 import sys
@@ -79,6 +79,8 @@ validation_contract:
 
 
 PACKAGE_REGISTRATION = """\
+import os
+
 from core import (
     AvailabilityDeclaration,
     AvailabilityResult,
@@ -97,7 +99,9 @@ from core import (
 
 
 def _factory():
-    raise AssertionError("Catalog discovery must not construct implementations")
+    if os.environ.get("SYNTHETIC_FACTORY_ALLOWED") != "1":
+        raise AssertionError("Catalog discovery constructed an implementation")
+    return {"implementation": "synthetic.echo"}
 
 def _validate_text(value):
     if type(value) is not str:
@@ -229,7 +233,7 @@ MODULE_PACKAGE = ModulePackageRegistration(
 
 EXPECTED_SYNTHETIC_CONTRACT_DIGESTS = {
     ("binding", "synthetic.echo.direct"): (
-        "sha256:7f1ec396fed336d64eec2ac7500c4f593c654bf7e631b0f9d7000104cba7119c"
+        "sha256:2ebeda294b7a7d70ceea671b21e2dd5b0d2f9271579a6b546fb02cc059682135"
     ),
     ("method", "synthetic.echo"): (
         "sha256:1e44eccb730679996c9c9e2d65c61dc26745a8812c950b62c6c9a5963de2a176"
@@ -238,7 +242,7 @@ EXPECTED_SYNTHETIC_CONTRACT_DIGESTS = {
         "sha256:8b333f26b39be0d8ae55e6e2dffd0241a631d933cd0405f46b7099ab4b6a1770"
     ),
     ("node_type", "synthetic.echo"): (
-        "sha256:d984b617b1d861995dec2da5ad0130a83decdd98bd7aa9afd4c0b21b2854b1a3"
+        "sha256:88c11dca061f9861e7d9266112037f22f438cf165b786ddfe53c437c94c2d44c"
     ),
     ("port_type", "synthetic.text"): (
         "sha256:f0d3dacfc4df11a4cced278907d6d11d0b364674657f0df0a098f943d6366c81"
@@ -268,6 +272,24 @@ def _forget_package(root_name: str) -> None:
         if name == root_name or name.startswith(f"{root_name}."):
             sys.modules.pop(name)
     importlib.invalidate_caches()
+
+
+def _build_synthetic_catalog(
+    tmp_path: Path,
+    monkeypatch,
+    *,
+    observed_at: datetime | None = None,
+):
+    root_name = _write_discovery_root(tmp_path)
+    monkeypatch.syspath_prepend(str(tmp_path))
+    importlib.invalidate_caches()
+    try:
+        return build_discovered_frozen_catalog(
+            root_name,
+            observed_at=observed_at,
+        )
+    finally:
+        _forget_package(root_name)
 
 
 def _method(
@@ -301,90 +323,127 @@ def _registration(
     )
 
 
-def test_first_level_registration_reaches_the_public_catalog_atomically(
+def test_first_level_registration_contributes_every_contract_kind(
     tmp_path: Path,
     monkeypatch,
 ) -> None:
-    root_name = _write_discovery_root(tmp_path)
-    monkeypatch.syspath_prepend(str(tmp_path))
-    importlib.invalidate_caches()
-    observed_at = datetime(2026, 7, 29, 1, 2, 3, tzinfo=timezone.utc)
+    catalog = _build_synthetic_catalog(tmp_path, monkeypatch)
 
-    try:
-        catalog = build_discovered_frozen_catalog(
-            root_name,
-            observed_at=observed_at,
-        )
-    finally:
-        _forget_package(root_name)
+    actual = {
+        (contract.contract_kind, contract.contract_id)
+        for contract in catalog.contracts
+    }
+    actual.update(
+        ("port_type", definition.type_id)
+        for definition in catalog.port_types
+        if definition.type_id.startswith("synthetic.")
+    )
 
-    assert catalog.require_contract(
-        "node_type",
-        "synthetic.echo",
-        "2.0.0",
-    ).descriptor["title"] == "Synthetic Echo"
-    assert catalog.require_contract(
-        "method",
-        "synthetic.echo",
-        "2.0.0",
-    ).descriptor["algorithm_identity"] == {"name": "identity"}
-    assert catalog.require_contract(
-        "metric",
-        "synthetic.identity",
-        "2.0.0",
-    ).descriptor["canonical_range"] == {"minimum": 0, "maximum": 1}
+    assert actual == set(EXPECTED_SYNTHETIC_CONTRACT_DIGESTS)
+
+
+def test_package_owned_port_type_has_one_independent_exact_reference(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    catalog = _build_synthetic_catalog(tmp_path, monkeypatch)
+
     assert catalog.require_contract(
         "port_type",
         "synthetic.text",
         "2.0.0",
-    ).reference() == (
-        catalog.require_contract(
-            "port_type",
-            "synthetic.text",
-            "2.0.0",
-        ).public_contract()["reference"]
-    )
+    ).reference() == {
+        "contract_kind": "port_type",
+        "contract_id": "synthetic.text",
+        "contract_version": "2.0.0",
+        "contract_digest": EXPECTED_SYNTHETIC_CONTRACT_DIGESTS[
+            ("port_type", "synthetic.text")
+        ],
+    }
+
+
+def test_package_owned_port_type_round_trips_a_complete_value(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    catalog = _build_synthetic_catalog(tmp_path, monkeypatch)
     synthetic_text = catalog.require_contract(
         "port_type",
         "synthetic.text",
         "2.0.0",
     )
+
     assert synthetic_text.decode(synthetic_text.encode("MÉTA")) == "MÉTA"
-    utility = catalog.require_contract(
-        "utility_transform",
-        "synthetic.identity",
+
+
+def test_node_descriptor_keeps_parameter_groups_separate(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    catalog = _build_synthetic_catalog(tmp_path, monkeypatch)
+
+    assert catalog.require_contract(
+        "node_type",
+        "synthetic.echo",
         "2.0.0",
-    )
-    assert utility.descriptor["compatible_input_contract"]["metric"][
-        "contract_id"
-    ] == "synthetic.identity"
+    ).descriptor["parameter_groups"] == ()
+
+
+def test_package_owned_utility_runtime_is_resolved_by_exact_identity(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    catalog = _build_synthetic_catalog(tmp_path, monkeypatch)
+
     assert catalog.require_utility_transform(
         "synthetic.identity",
         "2.0.0",
     )(0.75, {}) == 0.75
-    binding = catalog.require_contract(
-        "binding",
-        "synthetic.echo.direct",
-        "2.0.0",
-    )
-    assert binding.descriptor["node_type"]["contract_id"] == "synthetic.echo"
+
+
+def test_binding_keeps_its_factory_lazy_during_catalog_build(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    catalog = _build_synthetic_catalog(tmp_path, monkeypatch)
+
     assert catalog.require_factory(
         "synthetic.echo.direct",
         "2.0.0",
     ).behavior.behavior_id == "synthetic.echo/factory"
 
-    snapshot = catalog.public_snapshot(
-        protocol_digest="sha256:" + ("0" * 64),
+
+def test_binding_availability_is_published_with_the_catalog_observation(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    catalog = _build_synthetic_catalog(
+        tmp_path,
+        monkeypatch,
+        observed_at=datetime(
+            2026,
+            7,
+            29,
+            1,
+            2,
+            3,
+            tzinfo=timezone.utc,
+        ),
     )
-    assert snapshot["availability_observed_at"] == "2026-07-29T01:02:03Z"
-    assert snapshot["availability"] == [
-        {
-            "binding": binding.reference(),
-            "observed_at": "2026-07-29T01:02:03Z",
-            "available": True,
-        }
-    ]
-    assert binding.public_contract() in snapshot["contracts"]
+    assert catalog.public_snapshot(
+        protocol_digest="sha256:" + ("0" * 64),
+    )["availability"] == [{
+        "binding": {
+            "contract_kind": "binding",
+            "contract_id": "synthetic.echo.direct",
+            "contract_version": "2.0.0",
+            "contract_digest": EXPECTED_SYNTHETIC_CONTRACT_DIGESTS[
+                ("binding", "synthetic.echo.direct")
+            ],
+        },
+        "observed_at": "2026-07-29T01:02:03Z",
+        "available": True,
+    }]
 
 
 def test_backend_publishes_the_same_discovered_catalog_snapshot(
@@ -453,6 +512,37 @@ def test_binding_rejects_an_observation_for_an_unknown_output_port(
         _forget_package(root_name)
 
 
+def test_binding_rejects_a_context_profile_outside_the_metric_schema(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    root_name = _write_discovery_root(tmp_path)
+    monkeypatch.syspath_prepend(str(tmp_path))
+    importlib.invalidate_caches()
+
+    try:
+        registration = discover_module_packages(root_name)[0]
+        binding = registration.bindings[0]
+        invalid_binding = replace(
+            binding,
+            produced_observations=(
+                replace(
+                    binding.produced_observations[0],
+                    context_profile={"kind": "pairwise"},
+                ),
+            ),
+        )
+        with pytest.raises(
+            CatalogBuildError,
+            match="does not satisfy Metric observation_context_schema",
+        ):
+            build_frozen_catalog(
+                (replace(registration, bindings=(invalid_binding,)),)
+            )
+    finally:
+        _forget_package(root_name)
+
+
 @pytest.mark.parametrize(
     ("mutation", "message"),
     [
@@ -495,8 +585,9 @@ def test_malformed_or_open_node_definition_fails_catalog_build(
         _forget_package(root_name)
 
 
-def test_duplicate_and_conflicting_contract_identities_fail_closed() -> None:
+def test_duplicate_contract_identity_fails_closed() -> None:
     duplicate = _method("synthetic.duplicate")
+
     with pytest.raises(CatalogBuildError, match="duplicate contract identity"):
         build_frozen_catalog(
             (
@@ -507,6 +598,8 @@ def test_duplicate_and_conflicting_contract_identities_fail_closed() -> None:
             )
         )
 
+
+def test_conflicting_contract_identity_fails_closed() -> None:
     with pytest.raises(CatalogBuildError, match="conflicting contract identity"):
         build_frozen_catalog(
             (
@@ -527,7 +620,7 @@ def test_duplicate_and_conflicting_contract_identities_fail_closed() -> None:
         )
 
 
-def test_dangling_digest_conflict_and_cyclic_references_fail_closed() -> None:
+def test_dangling_contract_reference_fails_closed() -> None:
     dangling = _method(
         "synthetic.dangling",
         algorithm_identity={
@@ -543,16 +636,10 @@ def test_dangling_digest_conflict_and_cyclic_references_fail_closed() -> None:
             (_registration("dangling_owner", methods=(dangling,)),)
         )
 
+
+def test_expected_contract_digest_conflict_fails_closed() -> None:
     target = _method("synthetic.target")
-    target_catalog = build_frozen_catalog(
-        (_registration("target_owner", methods=(target,)),)
-    )
     wrong_digest = "sha256:" + ("f" * 64)
-    assert target_catalog.require_contract(
-        "method",
-        "synthetic.target",
-        "2.0.0",
-    ).contract_digest != wrong_digest
     mismatch = _method(
         "synthetic.mismatch",
         algorithm_identity={
@@ -574,6 +661,8 @@ def test_dangling_digest_conflict_and_cyclic_references_fail_closed() -> None:
             )
         )
 
+
+def test_cyclic_contract_reference_graph_fails_closed() -> None:
     first = _method(
         "synthetic.cycle.first",
         algorithm_identity={
@@ -785,34 +874,48 @@ def test_cross_package_exact_reference_is_order_independent() -> None:
     )
 
 
-def test_definition_resources_are_loaded_once_and_catalog_is_immutable(
+def test_lazy_factory_does_not_reload_definition_resources(
     tmp_path: Path,
     monkeypatch,
 ) -> None:
     root_name = _write_discovery_root(tmp_path)
     monkeypatch.syspath_prepend(str(tmp_path))
     importlib.invalidate_caches()
-    original_read_text = Path.read_text
-    reads: dict[str, int] = {}
-
-    def counting_read_text(path: Path, *args, **kwargs) -> str:
-        if path.name in {"node.yaml", "metric.yaml"}:
-            reads[path.name] = reads.get(path.name, 0) + 1
-        return original_read_text(path, *args, **kwargs)
-
-    monkeypatch.setattr(Path, "read_text", counting_read_text)
     try:
         catalog = build_discovered_frozen_catalog(root_name)
     finally:
         _forget_package(root_name)
+    package_root = tmp_path / root_name / "synthetic"
+    (package_root / "node.yaml").unlink()
+    (package_root / "metric.yaml").unlink()
+    monkeypatch.setenv("SYNTHETIC_FACTORY_ALLOWED", "1")
 
-    assert reads == {"node.yaml": 1, "metric.yaml": 1}
+    assert catalog.require_factory(
+        "synthetic.echo.direct",
+        "2.0.0",
+    ).build() == {"implementation": "synthetic.echo"}
+
+
+def test_frozen_contract_descriptor_is_immutable(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    catalog = _build_synthetic_catalog(tmp_path, monkeypatch)
+
     with pytest.raises(TypeError):
         catalog.require_contract(
             "node_type",
             "synthetic.echo",
             "2.0.0",
         ).descriptor["title"] = "mutated"
+
+
+def test_frozen_runtime_factory_view_is_immutable(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    catalog = _build_synthetic_catalog(tmp_path, monkeypatch)
+
     with pytest.raises(TypeError):
         catalog.factories[("synthetic.echo.direct", "2.0.0")] = object()
 
@@ -894,6 +997,47 @@ def test_observed_availability_never_changes_stable_contract_identity(
     )
 
 
+def test_snapshot_observation_override_updates_every_availability_time(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    catalog = _build_synthetic_catalog(tmp_path, monkeypatch)
+    override = datetime(
+        2026,
+        7,
+        29,
+        10,
+        0,
+        tzinfo=timezone(timedelta(hours=8)),
+    )
+
+    snapshot = catalog.public_snapshot(
+        protocol_digest="sha256:" + ("0" * 64),
+        observed_at=override,
+    )
+
+    assert {
+        snapshot["availability_observed_at"],
+        *(item["observed_at"] for item in snapshot["availability"]),
+    } == {"2026-07-29T02:00:00Z"}
+
+
+def test_snapshot_rejects_a_naive_observation_time(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    catalog = _build_synthetic_catalog(tmp_path, monkeypatch)
+
+    with pytest.raises(
+        CatalogBuildError,
+        match="observation time must be timezone-aware",
+    ):
+        catalog.public_snapshot(
+            protocol_digest="sha256:" + ("0" * 64),
+            observed_at=datetime(2026, 7, 29, 2, 0),
+        )
+
+
 def test_adapter_binding_requires_an_explicit_adapter_behavior(
     tmp_path: Path,
     monkeypatch,
@@ -940,8 +1084,17 @@ def test_all_package_contract_kinds_match_canonical_digest_vectors(
         }
     )
     assert actual == EXPECTED_SYNTHETIC_CONTRACT_DIGESTS
-    for contract in catalog.contracts:
-        encoded = contract.descriptor_bytes
-        assert b"<lambda>" not in encoded
-        assert b"0x" not in encoded
-        assert b"/private/" not in encoded
+
+
+@pytest.mark.parametrize("forbidden", [b"<lambda>", b"0x", b"/private/"])
+def test_canonical_descriptors_exclude_private_python_identity(
+    tmp_path: Path,
+    monkeypatch,
+    forbidden: bytes,
+) -> None:
+    catalog = _build_synthetic_catalog(tmp_path, monkeypatch)
+
+    assert all(
+        forbidden not in contract.descriptor_bytes
+        for contract in catalog.contracts
+    )

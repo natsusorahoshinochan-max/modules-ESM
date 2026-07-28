@@ -576,7 +576,7 @@ class ExecutionBindingDefinition:
 
 
 @dataclass(frozen=True, slots=True)
-class _NodeTypeDefinition:
+class _NodeDefinition:
     node_type_id: str
     version: str
     title: str
@@ -592,14 +592,6 @@ class _NodeTypeDefinition:
         return ContractIdentity("node_type", self.node_type_id, self.version)
 
     def descriptor_template(self) -> dict[str, Any]:
-        parameter_contract = self.node_parameters
-        if self.parameter_groups:
-            parameter_contract = MappingProxyType(
-                {
-                    "definitions": self.node_parameters,
-                    "parameter_groups": self.parameter_groups,
-                }
-            )
         return {
             "schema_namespace": CONTRACT_NAMESPACE,
             "contract_kind": "node_type",
@@ -610,7 +602,8 @@ class _NodeTypeDefinition:
             "category": self.category,
             "inputs": self.inputs,
             "outputs": self.outputs,
-            "node_parameters": parameter_contract,
+            "parameter_groups": self.parameter_groups,
+            "node_parameters": self.node_parameters,
         }
 
 
@@ -653,7 +646,7 @@ class _MetricDefinition:
 
 
 DeclarativeDefinition = (
-    _NodeTypeDefinition
+    _NodeDefinition
     | _MetricDefinition
     | MethodDefinition
     | UtilityTransformDefinition
@@ -850,7 +843,7 @@ def _parse_port(raw: Any, *, resource_name: str) -> Mapping[str, Any]:
     )
 
 
-def _parse_node_definition(raw: Any, resource_name: str) -> _NodeTypeDefinition:
+def _parse_node_definition(raw: Any, resource_name: str) -> _NodeDefinition:
     required = {
         "schema_version",
         "node_type_id",
@@ -898,9 +891,16 @@ def _parse_node_definition(raw: Any, resource_name: str) -> _NodeTypeDefinition:
             raise CatalogBuildError(f"duplicate Node {label} Port name")
     if not isinstance(node["parameter_groups"], list):
         raise CatalogBuildError("parameter_groups must be an array")
+    if not all(
+        isinstance(group, dict)
+        for group in node["parameter_groups"]
+    ):
+        raise CatalogBuildError(
+            "each parameter_groups item must be an object"
+        )
     if not isinstance(node["node_parameters"], dict):
         raise CatalogBuildError("node_parameters must be an object")
-    return _NodeTypeDefinition(
+    return _NodeDefinition(
         node_type_id=node["node_type_id"],
         version=node["version"],
         title=node["title"],
@@ -1049,6 +1049,82 @@ def _utc_timestamp(value: datetime) -> str:
     if value.tzinfo is None or value.utcoffset() is None:
         raise CatalogBuildError("Catalog observation time must be timezone-aware")
     return value.astimezone(timezone.utc).isoformat().replace("+00:00", "Z")
+
+
+def _matches_context_constraint(value: Any, constraint: Any) -> bool:
+    if isinstance(constraint, Mapping):
+        if "const" in constraint:
+            return value == constraint["const"]
+        if "enum" in constraint:
+            enum = constraint["enum"]
+            return isinstance(enum, (list, tuple)) and value in enum
+        if "type" in constraint:
+            expected_type = constraint["type"]
+            return (
+                (expected_type == "string" and isinstance(value, str))
+                or (
+                    expected_type == "number"
+                    and type(value) in {int, float}
+                )
+                or (expected_type == "integer" and type(value) is int)
+                or (expected_type == "boolean" and type(value) is bool)
+                or (expected_type == "object" and isinstance(value, Mapping))
+                or (expected_type == "array" and isinstance(value, (list, tuple)))
+                or (expected_type == "null" and value is None)
+            )
+        if not isinstance(value, Mapping) or set(value) != set(constraint):
+            return False
+        return all(
+            _matches_context_constraint(value[key], item)
+            for key, item in constraint.items()
+        )
+    if isinstance(constraint, tuple):
+        return isinstance(value, (list, tuple)) and tuple(value) == constraint
+    return value == constraint
+
+
+def _validate_observation_context_profile(
+    profile: Mapping[str, Any],
+    schema: Mapping[str, Any],
+    *,
+    binding_id: str,
+) -> None:
+    if (
+        schema.get("type") == "object"
+        and isinstance(schema.get("properties"), Mapping)
+    ):
+        properties = schema["properties"]
+        required = schema.get("required", ())
+        if not isinstance(required, (list, tuple)) or not all(
+            isinstance(name, str)
+            for name in required
+        ):
+            raise CatalogBuildError(
+                "Metric observation_context_schema required must be an array "
+                "of property names"
+            )
+        if schema.get("additionalProperties") is not False:
+            raise CatalogBuildError(
+                "Metric observation_context_schema must be closed"
+            )
+        valid = (
+            set(required) <= set(profile)
+            and set(profile) <= set(properties)
+            and all(
+                _matches_context_constraint(profile[name], properties[name])
+                for name in profile
+            )
+        )
+    else:
+        valid = set(profile) == set(schema) and all(
+            _matches_context_constraint(profile[name], schema[name])
+            for name in profile
+        )
+    if not valid:
+        raise CatalogBuildError(
+            f"Binding {binding_id} Produced Observation context_profile "
+            "does not satisfy Metric observation_context_schema"
+        )
 
 
 def discover_module_packages(
@@ -1283,7 +1359,7 @@ def build_frozen_catalog(
                     f"owned by package {registration.package_id}"
                 )
             _, node_definition = entry_by_key[binding.node_type.key]
-            if not isinstance(node_definition, _NodeTypeDefinition):
+            if not isinstance(node_definition, _NodeDefinition):
                 raise CatalogBuildError(
                     f"Binding {binding.binding_id} does not reference a "
                     "Node Definition"
@@ -1299,6 +1375,20 @@ def build_frozen_catalog(
                         f"references unknown Node output Port "
                         f"{observation.output_port!r}"
                     )
+                metric_entry = entry_by_key.get(observation.metric.key)
+                if metric_entry is None:
+                    continue
+                _, metric_definition = metric_entry
+                if not isinstance(metric_definition, _MetricDefinition):
+                    raise CatalogBuildError(
+                        f"Binding {binding.binding_id} Produced Observation "
+                        "does not reference a Metric Definition"
+                    )
+                _validate_observation_context_profile(
+                    observation.context_profile,
+                    metric_definition.observation_context_schema,
+                    binding_id=binding.binding_id,
+                )
 
     resolved: dict[tuple[str, str, str], CatalogContract] = {}
     resolving: list[tuple[str, str, str]] = []

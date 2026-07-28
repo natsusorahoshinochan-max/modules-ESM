@@ -1208,19 +1208,28 @@ class FrozenCatalog:
     ) -> dict[str, Any]:
         """Return stable contracts plus the startup Binding observations."""
         timestamp = observed_at or self.availability_observed_at
+        if timestamp.tzinfo is None or timestamp.utcoffset() is None:
+            raise CatalogBuildError(
+                "Catalog Snapshot observation time must be timezone-aware"
+            )
+        timestamp = timestamp.astimezone(timezone.utc)
+        timestamp_text = timestamp.isoformat().replace("+00:00", "Z")
+        availability = [
+            _thaw_i_json(snapshot)
+            for snapshot in self.availability
+        ]
+        if observed_at is not None:
+            availability = [
+                {**snapshot, "observed_at": timestamp_text}
+                for snapshot in availability
+            ]
         return {
             "schema_namespace": "protein-workbench-public/v2",
             "protocol_digest": protocol_digest,
             "catalog_contract_digest": self.contract_digest,
             "contracts": self.catalog_descriptor()["contracts"],
-            "availability_observed_at": timestamp.isoformat().replace(
-                "+00:00",
-                "Z",
-            ),
-            "availability": [
-                _thaw_i_json(snapshot)
-                for snapshot in self.availability
-            ],
+            "availability_observed_at": timestamp_text,
+            "availability": availability,
         }
 
 

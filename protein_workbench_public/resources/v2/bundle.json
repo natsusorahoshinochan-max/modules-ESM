@@ -1300,6 +1300,13 @@
           "maxItems": 1024,
           "type": "array"
         },
+        "parameter_groups": {
+          "items": {
+            "$ref": "#/$defs/JsonObject"
+          },
+          "maxItems": 256,
+          "type": "array"
+        },
         "schema_namespace": {
           "const": "protein-workbench-contract/v2"
         },
@@ -1324,6 +1331,7 @@
         "category",
         "inputs",
         "outputs",
+        "parameter_groups",
         "node_parameters"
       ],
       "type": "object"
