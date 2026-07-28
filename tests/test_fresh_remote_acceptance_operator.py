@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+import importlib.metadata
 import json
 from collections import Counter
 from pathlib import Path
@@ -10,7 +11,15 @@ from typing import Any
 
 import pytest
 
-from scripts.verify_backend import seal_bundle_checksums, validate_fresh_bundle
+from scripts.verify_backend import (
+    _publish_fresh_evidence,
+    seal_bundle_checksums,
+    validate_fresh_bundle,
+)
+from core.provider_contract import (
+    esm_provider_identity,
+    proteinmpnn_provider_identity,
+)
 from tests.deterministic_acceptance.backend_client import DownloadedArtifact
 from tests.fresh_remote_acceptance.operator import (
     CANONICAL_MODULE_IDS,
@@ -23,6 +32,106 @@ RUN_ID = "12345678-1234-1234-1234-123456789abc"
 PROJECT_ID = "canonical-3gb1"
 REVISION = "1" * 40
 WORKFLOW_SHA256 = "2" * 64
+REQUIRED_FINAL_SECONDARY_STRUCTURE = (
+    "EEEEEEEEEEEEEEEEEEE___HHHHHHHH____"
+    "EEEEEEEEEEEEEEEEEEEEEE_______________"
+)
+REQUIRED_FINAL_SECONDARY_STRUCTURE_SHA256 = hashlib.sha256(
+    REQUIRED_FINAL_SECONDARY_STRUCTURE.encode()
+).hexdigest()
+
+
+def _required_readiness() -> list[dict[str, Any]]:
+    return [
+        {
+            "provider": "biohub",
+            "status": "ready",
+            "ready": True,
+            "provider_identity": esm_provider_identity(),
+            "source": {
+                "kind": "workflow_required_boundary",
+                "node_ids": ["final_fold", "fold_seq"],
+                "module_ids": ["esmfold2.fold"],
+            },
+            "details": {"access_configured": True},
+        },
+        {
+            "provider": "biopython-svd",
+            "status": "ready",
+            "ready": True,
+            "provider_identity": {
+                "biopython_version": importlib.metadata.version("biopython"),
+                "numpy_version": importlib.metadata.version("numpy"),
+            },
+            "source": {
+                "kind": "workflow_required_boundary",
+                "node_ids": ["align_3gb1", "align_pw"],
+                "module_ids": ["structure.pairwise_align"],
+            },
+            "details": {"installed": True},
+        },
+        {
+            "provider": "local-proteinmpnn",
+            "status": "ready",
+            "ready": True,
+            "provider_identity": proteinmpnn_provider_identity(),
+            "source": {
+                "kind": "workflow_required_boundary",
+                "node_ids": ["mpnn_0"],
+                "module_ids": ["proteinmpnn.design"],
+            },
+            "details": {"checkout_and_checkpoint_validated": True},
+        },
+        {
+            "provider": "local_open",
+            "status": "ready",
+            "ready": True,
+            "provider_identity": esm_provider_identity(local=True),
+            "source": {
+                "kind": "workflow_required_boundary",
+                "node_ids": ["esm3_gen"],
+                "module_ids": ["esm3.generate"],
+            },
+            "details": {"snapshot_validated": True},
+        },
+        {
+            "provider": "mkdssp",
+            "status": "ready",
+            "ready": True,
+            "provider_identity": {
+                "binary": "mkdssp",
+                "required_version": "4.6.1",
+            },
+            "source": {
+                "kind": "workflow_required_boundary",
+                "node_ids": ["compute_ss"],
+                "module_ids": ["compute.dssp"],
+            },
+            "details": {"version_match": True},
+        },
+        {
+            "provider": "tmtools",
+            "status": "ready",
+            "ready": True,
+            "provider_identity": {
+                "tmtools_version": importlib.metadata.version("tmtools"),
+            },
+            "source": {
+                "kind": "workflow_required_boundary",
+                "node_ids": [
+                    "align_3gb1",
+                    "align_pw",
+                    "tm_3gb1",
+                    "tm_esm3",
+                ],
+                "module_ids": [
+                    "structure.batch_tm_score",
+                    "structure.pairwise_align",
+                ],
+            },
+            "details": {"installed": True},
+        },
+    ]
 
 
 class ArtifactClient:
@@ -185,10 +294,10 @@ def _complete_public_run() -> tuple[
         "fixed_0",
         "compute_ss",
         "apply_edits",
-        "override_ss",
+        "insert_ss",
         "mask_seq",
         "mask_struct",
-        "insert_ss",
+        "override_ss",
         "insert_seq",
         "insert_struct",
         "assemble",
@@ -318,7 +427,19 @@ def _complete_public_run() -> tuple[
             "provider": provider,
             "operation": operation,
             "model": model,
-            "details": {"node_id": node_id},
+            "details": {
+                "node_id": node_id,
+                **(
+                    {
+                        "secondary_structure_length": 71,
+                        "secondary_structure_sha256": (
+                            REQUIRED_FINAL_SECONDARY_STRUCTURE_SHA256
+                        ),
+                    }
+                    if provider == "local_open"
+                    else {}
+                ),
+            },
         } for _ in range(count))
 
     manifest = {
@@ -377,7 +498,10 @@ def _complete_public_run() -> tuple[
             }
             for index, node_id in enumerate(node_order)
         ],
-        "providers": {"readiness": [], "calls": provider_calls},
+        "providers": {
+            "readiness": _required_readiness(),
+            "calls": provider_calls,
+        },
         "candidate_lineage": lineage,
         "scores": scores,
         "artifacts": artifacts,
@@ -398,7 +522,16 @@ def _complete_provider_events(
             and entry["output_port"] == output_port
         ]
 
-    events: list[dict[str, Any]] = []
+    events: list[dict[str, Any]] = [
+        {
+            "event_type": "provider_readiness",
+            "provider": fact["provider"],
+            "ready": fact["ready"],
+            "provider_identity": fact["provider_identity"],
+            "details": fact["details"],
+        }
+        for fact in manifest["providers"]["readiness"]
+    ]
     for operation, output_port in (
         ("esm3.generate_sequence", "sequence_candidates"),
         ("esm3.generate_structure", "structure_candidates"),
@@ -416,7 +549,15 @@ def _complete_provider_events(
                     if operation == "esm3.generate_structure"
                     else {}
                 ),
-                "result": {"summary": {"result_type": "ESMProtein"}},
+                "result": {
+                    "summary": {
+                        "result_type": "ESMProtein",
+                        "secondary_structure_length": 71,
+                        "secondary_structure_sha256": (
+                            REQUIRED_FINAL_SECONDARY_STRUCTURE_SHA256
+                        ),
+                    }
+                },
             })
     for node_id in ("fold_seq", "final_fold"):
         artifacts_by_candidate = {
@@ -579,6 +720,50 @@ def test_operator_retrieves_exactly_fifteen_run_bound_pdbs_and_seals_bundle(
     assert sealed_run_id == RUN_ID
 
 
+def test_parent_publishes_child_staged_fresh_evidence_once(
+    tmp_path: Path,
+) -> None:
+    manifest, outputs, events, payloads = _complete_public_run()
+    contract = validate_fresh_remote_contract(
+        manifest=manifest,
+        outputs=outputs,
+        events=events,
+        expected_revision=REVISION,
+        expected_workflow_sha256=WORKFLOW_SHA256,
+        expected_modules={
+            node_id: (module_id, "1")
+            for node_id, module_id in CANONICAL_MODULE_IDS.items()
+        },
+    )
+    staging = tmp_path / "child-staging"
+    seal_fresh_remote_evidence(
+        evidence_root=staging,
+        client=ArtifactClient(payloads),
+        contract=contract,
+        manifest=manifest,
+        events=events,
+        provider_events=_complete_provider_events(manifest),
+    )
+    retained = tmp_path / "retained"
+    retained.mkdir(mode=0o700)
+
+    _publish_fresh_evidence(staging, retained)
+
+    assert {
+        path.name for path in retained.iterdir()
+    } == {
+        "artifact-checksums.sha256",
+        "artifacts",
+        "sealed-manifest.json",
+    }
+    assert len(list((retained / "artifacts").glob("*.pdb"))) == 15
+    retained_manifest = (retained / "sealed-manifest.json").read_bytes()
+    staging_manifest = staging / "sealed-manifest.json"
+    staging_manifest.chmod(0o600)
+    staging_manifest.write_text("{}\n")
+    assert (retained / "sealed-manifest.json").read_bytes() == retained_manifest
+
+
 def test_operator_rejects_any_historical_cache_hit() -> None:
     manifest, outputs, events, _ = _complete_public_run()
     manifest["cache"][3]["outcome"] = "hit"
@@ -586,6 +771,74 @@ def test_operator_rejects_any_historical_cache_hit() -> None:
     with pytest.raises(
         AssertionError,
         match="fresh acceptance cannot use historical Cache entries",
+    ):
+        validate_fresh_remote_contract(
+            manifest=manifest,
+            outputs=outputs,
+            events=events,
+            expected_revision=REVISION,
+            expected_workflow_sha256=WORKFLOW_SHA256,
+            expected_modules={
+                node_id: (module_id, "1")
+                for node_id, module_id in CANONICAL_MODULE_IDS.items()
+            },
+        )
+
+
+def test_operator_rejects_missing_or_duplicate_backend_readiness() -> None:
+    manifest, outputs, events, _ = _complete_public_run()
+    manifest["providers"]["readiness"].pop()
+
+    with pytest.raises(
+        AssertionError,
+        match="backend provider readiness is incomplete",
+    ):
+        validate_fresh_remote_contract(
+            manifest=manifest,
+            outputs=outputs,
+            events=events,
+            expected_revision=REVISION,
+            expected_workflow_sha256=WORKFLOW_SHA256,
+            expected_modules={
+                node_id: (module_id, "1")
+                for node_id, module_id in CANONICAL_MODULE_IDS.items()
+            },
+        )
+
+    manifest, outputs, events, _ = _complete_public_run()
+    manifest["providers"]["readiness"].append(
+        dict(manifest["providers"]["readiness"][0])
+    )
+
+    with pytest.raises(
+        AssertionError,
+        match="backend provider readiness is incomplete",
+    ):
+        validate_fresh_remote_contract(
+            manifest=manifest,
+            outputs=outputs,
+            events=events,
+            expected_revision=REVISION,
+            expected_workflow_sha256=WORKFLOW_SHA256,
+            expected_modules={
+                node_id: (module_id, "1")
+                for node_id, module_id in CANONICAL_MODULE_IDS.items()
+            },
+        )
+
+
+def test_operator_rejects_provider_secondary_structure_layout_drift() -> None:
+    manifest, outputs, events, _ = _complete_public_run()
+    local_call = next(
+        call
+        for call in manifest["providers"]["calls"]
+        if call["provider"] == "local_open"
+    )
+    local_call["details"]["secondary_structure_sha256"] = "0" * 64
+
+    with pytest.raises(
+        AssertionError,
+        match="provider-bound secondary-structure layout changed",
     ):
         validate_fresh_remote_contract(
             manifest=manifest,
@@ -720,7 +973,13 @@ def test_bundle_rejects_wrong_provider_node_and_tm_result(
         )
         sealed_manifest_path.chmod(0o400)
 
-    provider_events[0]["node_id"] = "fold_seq"
+    esm3_event = next(
+        event
+        for event in provider_events
+        if event.get("event_type") == "provider_call"
+        and event.get("operation") == "esm3.generate_sequence"
+    )
+    esm3_event["node_id"] = "fold_seq"
     replace_sealed_provider_events()
 
     _, error = validate_fresh_bundle(
@@ -731,11 +990,11 @@ def test_bundle_rejects_wrong_provider_node_and_tm_result(
 
     assert error == "provider evidence was not bound to the fresh run"
 
-    provider_events[0]["node_id"] = "esm3_gen"
+    esm3_event["node_id"] = "esm3_gen"
     tm_event = next(
         event
         for event in provider_events
-        if event["operation"] == "tm_score"
+        if event.get("operation") == "tm_score"
     )
     tm_event["result"]["summary"]["value"] = 0.1234
     replace_sealed_provider_events()
@@ -747,6 +1006,377 @@ def test_bundle_rejects_wrong_provider_node_and_tm_result(
     )
 
     assert error == "TM provider results did not match manifest scores"
+
+
+def test_bundle_rejects_backend_readiness_that_differs_from_wrapper(
+    tmp_path: Path,
+) -> None:
+    manifest, outputs, events, payloads = _complete_public_run()
+    client = ArtifactClient(payloads)
+    contract = validate_fresh_remote_contract(
+        manifest=manifest,
+        outputs=outputs,
+        events=events,
+        expected_revision=REVISION,
+        expected_workflow_sha256=WORKFLOW_SHA256,
+        expected_modules={
+            node_id: (module_id, "1")
+            for node_id, module_id in CANONICAL_MODULE_IDS.items()
+        },
+    )
+    provider_events = _complete_provider_events(manifest)
+    seal_fresh_remote_evidence(
+        evidence_root=tmp_path,
+        client=client,
+        contract=contract,
+        manifest=manifest,
+        events=events,
+        provider_events=provider_events,
+    )
+    for name in (
+        "command-transcript.txt",
+        "environment-summary.json",
+        "provider-calls.jsonl",
+        "provider-summary.json",
+        "pytest.xml",
+    ):
+        path = tmp_path / name
+        path.write_text("{}\n")
+        path.chmod(0o600)
+    wrapper_readiness = next(
+        event
+        for event in provider_events
+        if event["event_type"] == "provider_readiness"
+        and event["provider"] == "mkdssp"
+    )
+    wrapper_readiness["provider_identity"] = {
+        "binary": "mkdssp",
+        "required_version": "drifted",
+    }
+    sealed_manifest_path = tmp_path / "sealed-manifest.json"
+    sealed_manifest = json.loads(sealed_manifest_path.read_text())
+    sealed_manifest["providers"]["validated_real_events"] = provider_events
+    sealed_manifest_path.chmod(0o600)
+    sealed_manifest_path.write_text(
+        json.dumps(sealed_manifest, sort_keys=True) + "\n"
+    )
+    sealed_manifest_path.chmod(0o400)
+
+    _, error = validate_fresh_bundle(
+        tmp_path,
+        expected_revision=REVISION,
+        provider_events=provider_events,
+    )
+
+    assert error == "backend and wrapper readiness identities differ"
+
+
+def test_bundle_rejects_unexpected_sensitive_backend_manifest_field(
+    tmp_path: Path,
+) -> None:
+    manifest, outputs, events, payloads = _complete_public_run()
+    contract = validate_fresh_remote_contract(
+        manifest=manifest,
+        outputs=outputs,
+        events=events,
+        expected_revision=REVISION,
+        expected_workflow_sha256=WORKFLOW_SHA256,
+        expected_modules={
+            node_id: (module_id, "1")
+            for node_id, module_id in CANONICAL_MODULE_IDS.items()
+        },
+    )
+    provider_events = _complete_provider_events(manifest)
+    seal_fresh_remote_evidence(
+        evidence_root=tmp_path,
+        client=ArtifactClient(payloads),
+        contract=contract,
+        manifest=manifest,
+        events=events,
+        provider_events=provider_events,
+    )
+    for name in (
+        "command-transcript.txt",
+        "environment-summary.json",
+        "provider-calls.jsonl",
+        "provider-summary.json",
+        "pytest.xml",
+    ):
+        path = tmp_path / name
+        path.write_text("{}\n")
+        path.chmod(0o600)
+    sealed_path = tmp_path / "sealed-manifest.json"
+    sealed = json.loads(sealed_path.read_text())
+    sealed["backend_manifest"]["token"] = "sk-private-provider-token"
+    sealed["backend_manifest_sha256"] = hashlib.sha256(
+        json.dumps(
+            sealed["backend_manifest"],
+            sort_keys=True,
+            separators=(",", ":"),
+            ensure_ascii=False,
+        ).encode()
+    ).hexdigest()
+    sealed_path.chmod(0o600)
+    sealed_path.write_text(json.dumps(sealed, sort_keys=True) + "\n")
+    sealed_path.chmod(0o400)
+
+    _, error = validate_fresh_bundle(
+        tmp_path,
+        expected_revision=REVISION,
+        provider_events=provider_events,
+    )
+
+    assert error == "sealed backend manifest schema was not closed"
+
+    sealed["backend_manifest"].pop("token")
+    failed_result = {
+        "status": "failed",
+        "error": {"type": "sk-private-provider-token"},
+    }
+    sealed["backend_manifest"]["providers"]["calls"][0]["details"][
+        "result"
+    ] = failed_result
+    sealed["providers"]["run_call_attempts"][0]["details"][
+        "result"
+    ] = failed_result
+    sealed["backend_manifest_sha256"] = hashlib.sha256(
+        json.dumps(
+            sealed["backend_manifest"],
+            sort_keys=True,
+            separators=(",", ":"),
+            ensure_ascii=False,
+        ).encode()
+    ).hexdigest()
+    sealed_path.chmod(0o600)
+    sealed_path.write_text(json.dumps(sealed, sort_keys=True) + "\n")
+    sealed_path.chmod(0o400)
+
+    _, error = validate_fresh_bundle(
+        tmp_path,
+        expected_revision=REVISION,
+        provider_events=provider_events,
+    )
+
+    assert error == "sealed backend provider result schema was not closed"
+
+
+def test_bundle_rejects_sensitive_allowed_environment_value(
+    tmp_path: Path,
+) -> None:
+    manifest, outputs, events, payloads = _complete_public_run()
+    contract = validate_fresh_remote_contract(
+        manifest=manifest,
+        outputs=outputs,
+        events=events,
+        expected_revision=REVISION,
+        expected_workflow_sha256=WORKFLOW_SHA256,
+        expected_modules={
+            node_id: (module_id, "1")
+            for node_id, module_id in CANONICAL_MODULE_IDS.items()
+        },
+    )
+    provider_events = _complete_provider_events(manifest)
+    seal_fresh_remote_evidence(
+        evidence_root=tmp_path,
+        client=ArtifactClient(payloads),
+        contract=contract,
+        manifest=manifest,
+        events=events,
+        provider_events=provider_events,
+    )
+    for name in (
+        "command-transcript.txt",
+        "environment-summary.json",
+        "provider-calls.jsonl",
+        "provider-summary.json",
+        "pytest.xml",
+    ):
+        path = tmp_path / name
+        path.write_text("{}\n")
+        path.chmod(0o600)
+    sealed_path = tmp_path / "sealed-manifest.json"
+    sealed = json.loads(sealed_path.read_text())
+    token = "sk-private-provider-token"
+    sealed["environment"]["platform"] = token
+    sealed["backend_manifest"]["environment"]["platform"] = token
+    sealed["backend_manifest_sha256"] = hashlib.sha256(
+        json.dumps(
+            sealed["backend_manifest"],
+            sort_keys=True,
+            separators=(",", ":"),
+            ensure_ascii=False,
+        ).encode()
+    ).hexdigest()
+    sealed_path.chmod(0o600)
+    sealed_path.write_text(json.dumps(sealed, sort_keys=True) + "\n")
+    sealed_path.chmod(0o400)
+
+    _, error = validate_fresh_bundle(
+        tmp_path,
+        expected_revision=REVISION,
+        provider_events=provider_events,
+    )
+
+    assert error == "sealed backend identity values were invalid"
+
+
+def test_bundle_accepts_production_manifest_and_event_shapes(
+    tmp_path: Path,
+) -> None:
+    from core import RunEventType, RunLifecycleEvent, RunManifest
+
+    manifest, outputs, events, payloads = _complete_public_run()
+    timestamp = "2026-07-28T00:00:00+00:00"
+    production_manifest = RunManifest(
+        project_id=manifest["project_id"],
+        run_id=manifest["run_id"],
+        source=manifest["source"],
+        workflow=manifest["workflow"],
+        modules=manifest["modules"],
+        run_seed=4242,
+        effective_seeds=manifest["effective_seeds"],
+        environment=manifest["environment"],
+        models=[
+            {
+                "node_id": "esm3_gen",
+                "module_id": "esm3.generate",
+                "version": "1",
+                "identity": "esm3_sm_open_v1",
+            }
+        ],
+        status="completed",
+        node_states=[
+            {**node_state, "timestamp": timestamp}
+            for node_state in manifest["node_states"]
+        ],
+        providers=manifest["providers"],
+        cache=manifest["cache"],
+        candidate_lineage=manifest["candidate_lineage"],
+        scores=manifest["scores"],
+        artifacts=manifest["artifacts"],
+    ).to_dict()
+    for call_index, call in enumerate(
+        production_manifest["providers"]["calls"]
+    ):
+        if call["operation"] == "structure_align":
+            call["details"]["input_identity"] = {
+                "reference_pdb_bytes": 85,
+                "reference_pdb_sha256": "a" * 64,
+                "mobile_pdb_bytes": 85,
+                "mobile_pdb_sha256": "b" * 64,
+            }
+        elif call["operation"] == "tm_score":
+            call["details"]["input_identity"] = {
+                "tm_align_input_sha256": "c" * 64,
+            }
+        elif call["operation"].startswith("generate(track="):
+            call["details"].update({
+                "candidate_id": f"esm3-candidate-{call_index}",
+                "effective_seed": 1603 + call_index,
+                "requested_seed": 1603,
+                "sample_index": call_index % 10,
+                "seed_control": "torch_local",
+                "seed_scope": "per_sample_track",
+            })
+            if call["operation"] == "generate(track=structure)":
+                call["details"]["parent_candidate_id"] = (
+                    f"esm3-parent-{call_index}"
+                )
+        elif call["operation"] == "fold":
+            call["details"].update({
+                "candidate_id": f"fold-candidate-{call_index}",
+                "parent_candidate_id": f"fold-parent-{call_index}",
+            })
+        elif call["operation"] == "design_sequences":
+            call["details"].update({
+                "candidate_ids": [
+                    f"mpnn-candidate-{call_index}-{sample_index}"
+                    for sample_index in range(5)
+                ],
+                "effective_seed": 4242,
+                "parent_candidate_id": f"mpnn-parent-{call_index}",
+            })
+    production_events = []
+    reserved = {
+        "node_id",
+        "project_id",
+        "run_id",
+        "sequence",
+        "type",
+    }
+    for event in events:
+        details = {
+            key: value
+            for key, value in event.items()
+            if key not in reserved
+        }
+        if event["type"] == "run_started":
+            details["status"] = "running"
+        elif event["type"] == "node_state":
+            details["old_state"] = (
+                "idle" if event["state"] == "queued" else "queued"
+            )
+        elif event["type"] == "node_completed":
+            details.update({
+                "old_state": "running",
+                "state": "completed",
+                "output_summary": {
+                    "output_ports": ["output"],
+                    "cache": {"outcome": "bypass"},
+                },
+            })
+        elif event["type"] == "run_completed":
+            details.update({"status": "completed", "duration_ms": 1})
+        production_events.append(
+            RunLifecycleEvent(
+                event_type=RunEventType(event["type"]),
+                project_id=event["project_id"],
+                run_id=event["run_id"],
+                sequence=event["sequence"],
+                timestamp=timestamp,
+                node_id=event.get("node_id"),
+                details=details,
+            ).to_dict()
+        )
+    contract = validate_fresh_remote_contract(
+        manifest=production_manifest,
+        outputs=outputs,
+        events=production_events,
+        expected_revision=REVISION,
+        expected_workflow_sha256=WORKFLOW_SHA256,
+        expected_modules={
+            node_id: (module_id, "1")
+            for node_id, module_id in CANONICAL_MODULE_IDS.items()
+        },
+    )
+    provider_events = _complete_provider_events(production_manifest)
+    seal_fresh_remote_evidence(
+        evidence_root=tmp_path,
+        client=ArtifactClient(payloads),
+        contract=contract,
+        manifest=production_manifest,
+        events=production_events,
+        provider_events=provider_events,
+    )
+    for name in (
+        "command-transcript.txt",
+        "environment-summary.json",
+        "provider-calls.jsonl",
+        "provider-summary.json",
+        "pytest.xml",
+    ):
+        path = tmp_path / name
+        path.write_text("{}\n")
+        path.chmod(0o600)
+
+    validated_run_id, error = validate_fresh_bundle(
+        tmp_path,
+        expected_revision=REVISION,
+        provider_events=provider_events,
+    )
+
+    assert error is None
+    assert validated_run_id == RUN_ID
 
 
 def test_operator_rejects_module_version_drift() -> None:

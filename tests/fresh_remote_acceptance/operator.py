@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+import importlib.metadata
 import json
 import math
 import os
@@ -12,6 +13,10 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Protocol
 
+from core.provider_contract import (
+    esm_provider_identity,
+    proteinmpnn_provider_identity,
+)
 from tests.deterministic_acceptance.backend_client import DownloadedArtifact
 
 
@@ -22,10 +27,10 @@ CANONICAL_MODULE_CONTRACT = (
     ("fixed_0", "prompt.random_fixed_positions"),
     ("compute_ss", "compute.dssp"),
     ("apply_edits", "prompt.apply_residue_edits"),
-    ("override_ss", "prompt.override_residue_track"),
+    ("insert_ss", "prompt.random_insert_masked"),
     ("mask_seq", "prompt.random_mask"),
     ("mask_struct", "prompt.random_mask"),
-    ("insert_ss", "prompt.random_insert_masked"),
+    ("override_ss", "prompt.override_residue_track"),
     ("insert_seq", "prompt.random_insert_masked"),
     ("insert_struct", "prompt.random_insert_masked"),
     ("assemble", "prompt.assemble_protein_prompt"),
@@ -65,10 +70,105 @@ RUN_PROVIDER_CALL_COUNTS = Counter({
     ("biopython-svd", "structure_align"): 20,
     ("tmtools", "tm_score"): 20,
 })
+RUN_PROVIDER_CALL_NODE_COUNTS = Counter({
+    ("local_open", "generate(track=sequence)", "esm3_gen"): 10,
+    ("local_open", "generate(track=structure)", "esm3_gen"): 10,
+    ("biohub", "fold", "fold_seq"): 10,
+    ("biohub", "fold", "final_fold"): 15,
+    ("local-proteinmpnn", "design_sequences", "mpnn_0"): 3,
+    ("mkdssp", "secondary_structure", "compute_ss"): 1,
+    ("biopython-svd", "structure_align", "align_3gb1"): 10,
+    ("biopython-svd", "structure_align", "align_pw"): 10,
+    ("tmtools", "tm_score", "tm_3gb1"): 10,
+    ("tmtools", "tm_score", "tm_esm3"): 10,
+})
 WEIGHTED_METRICS = [
     {"score": "tm_vs_3gb1", "weight": 0.7},
     {"score": "tm_vs_esm3", "weight": 0.3},
 ]
+REQUIRED_FINAL_SECONDARY_STRUCTURE = (
+    "EEEEEEEEEEEEEEEEEEE___HHHHHHHH____"
+    "EEEEEEEEEEEEEEEEEEEEEE_______________"
+)
+REQUIRED_FINAL_SECONDARY_STRUCTURE_SHA256 = hashlib.sha256(
+    REQUIRED_FINAL_SECONDARY_STRUCTURE.encode()
+).hexdigest()
+
+
+def _required_backend_readiness() -> dict[str, dict[str, Any]]:
+    """Return the exact six production facts required by the canonical DAG."""
+    return {
+        "biohub": {
+            "provider_identity": esm_provider_identity(),
+            "source": {
+                "kind": "workflow_required_boundary",
+                "node_ids": ["final_fold", "fold_seq"],
+                "module_ids": ["esmfold2.fold"],
+            },
+            "details": {"access_configured": True},
+        },
+        "biopython-svd": {
+            "provider_identity": {
+                "biopython_version": importlib.metadata.version("biopython"),
+                "numpy_version": importlib.metadata.version("numpy"),
+            },
+            "source": {
+                "kind": "workflow_required_boundary",
+                "node_ids": ["align_3gb1", "align_pw"],
+                "module_ids": ["structure.pairwise_align"],
+            },
+            "details": {"installed": True},
+        },
+        "local-proteinmpnn": {
+            "provider_identity": proteinmpnn_provider_identity(),
+            "source": {
+                "kind": "workflow_required_boundary",
+                "node_ids": ["mpnn_0"],
+                "module_ids": ["proteinmpnn.design"],
+            },
+            "details": {"checkout_and_checkpoint_validated": True},
+        },
+        "local_open": {
+            "provider_identity": esm_provider_identity(local=True),
+            "source": {
+                "kind": "workflow_required_boundary",
+                "node_ids": ["esm3_gen"],
+                "module_ids": ["esm3.generate"],
+            },
+            "details": {"snapshot_validated": True},
+        },
+        "mkdssp": {
+            "provider_identity": {
+                "binary": "mkdssp",
+                "required_version": "4.6.1",
+            },
+            "source": {
+                "kind": "workflow_required_boundary",
+                "node_ids": ["compute_ss"],
+                "module_ids": ["compute.dssp"],
+            },
+            "details": {"version_match": True},
+        },
+        "tmtools": {
+            "provider_identity": {
+                "tmtools_version": importlib.metadata.version("tmtools"),
+            },
+            "source": {
+                "kind": "workflow_required_boundary",
+                "node_ids": [
+                    "align_3gb1",
+                    "align_pw",
+                    "tm_3gb1",
+                    "tm_esm3",
+                ],
+                "module_ids": [
+                    "structure.batch_tm_score",
+                    "structure.pairwise_align",
+                ],
+            },
+            "details": {"installed": True},
+        },
+    }
 
 
 class ArtifactAPI(Protocol):
@@ -294,6 +394,36 @@ def validate_fresh_remote_contract(
         raise AssertionError("run manifest ModuleDefinition identity changed")
     if manifest.get("effective_seeds") != CANONICAL_EFFECTIVE_SEEDS:
         raise AssertionError("run manifest effective seeds changed")
+    providers = manifest.get("providers")
+    readiness = (
+        providers.get("readiness")
+        if isinstance(providers, dict)
+        else None
+    )
+    expected_readiness = _required_backend_readiness()
+    if not isinstance(readiness, list) or len(readiness) != len(
+        expected_readiness
+    ):
+        raise AssertionError("backend provider readiness is incomplete")
+    readiness_by_provider = {
+        str(fact.get("provider")): fact
+        for fact in readiness
+        if isinstance(fact, dict)
+    }
+    if (
+        len(readiness_by_provider) != len(readiness)
+        or set(readiness_by_provider) != set(expected_readiness)
+        or any(
+            readiness_by_provider[provider] != {
+                "provider": provider,
+                "status": "ready",
+                "ready": True,
+                **expected,
+            }
+            for provider, expected in expected_readiness.items()
+        )
+    ):
+        raise AssertionError("backend provider readiness is incomplete")
 
     if not events:
         raise AssertionError("run-scoped WebSocket produced no events")
@@ -591,7 +721,18 @@ def validate_fresh_remote_contract(
         (str(call.get("provider")), str(call.get("operation")))
         for call in calls
     )
-    if provider_call_counts != RUN_PROVIDER_CALL_COUNTS:
+    provider_call_node_counts = Counter(
+        (
+            str(call.get("provider")),
+            str(call.get("operation")),
+            str(call.get("details", {}).get("node_id")),
+        )
+        for call in calls
+    )
+    if (
+        provider_call_counts != RUN_PROVIDER_CALL_COUNTS
+        or provider_call_node_counts != RUN_PROVIDER_CALL_NODE_COUNTS
+    ):
         raise AssertionError("run manifest scientific call facts are incomplete")
     if any(
         not call.get("model")
@@ -600,6 +741,22 @@ def validate_fresh_remote_contract(
         for call in calls
     ):
         raise AssertionError("run manifest provider call identity is incomplete")
+    local_esm3_calls = [
+        call for call in calls
+        if call.get("provider") == "local_open"
+    ]
+    if (
+        len(local_esm3_calls) != 20
+        or any(
+            call["details"].get("secondary_structure_length") != 71
+            or call["details"].get("secondary_structure_sha256")
+            != REQUIRED_FINAL_SECONDARY_STRUCTURE_SHA256
+            for call in local_esm3_calls
+        )
+    ):
+        raise AssertionError(
+            "provider-bound secondary-structure layout changed"
+        )
 
     return FreshRemoteContract(
         project_id=PROJECT_ID,

@@ -105,6 +105,54 @@ def test_identical_structures_expose_complete_reproducible_evidence() -> None:
     assert alignment.coverage == pytest.approx(1.0)
 
 
+def test_pairwise_batch_preserves_scalar_tiebreak_scientific_result(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    reference_sequence = "GTSAGTATSTSTGGSTGGGAGTAGTSGASGTGGGGSAATS"
+    mobile_sequence = "SATSGTTSSASAAGTAAASTTGSTSGSSSGTTTTTASAAGSGSS"
+    reference_coordinates = [
+        (index * 1.5, float(index % 3), float(index % 2))
+        for index in range(len(reference_sequence))
+    ]
+    mobile_coordinates = [
+        (index * 1.4, float((index + 1) % 3), float(index % 2))
+        for index in range(len(mobile_sequence))
+    ]
+
+    from tmtools import tm_align as real_tm_align
+
+    calls = 0
+
+    def counted_tm_align(*args: object, **kwargs: object) -> object:
+        nonlocal calls
+        calls += 1
+        return real_tm_align(*args, **kwargs)
+
+    monkeypatch.setattr("tmtools.tm_align", counted_tm_align)
+
+    reference_pdb = _pdb(reference_sequence, reference_coordinates)
+    mobile_pdb = _pdb(mobile_sequence, mobile_coordinates)
+    pairwise_alignment = _pairwise_align(reference_pdb, mobile_pdb)
+    scalar_alignment = _align(reference_pdb, mobile_pdb)
+
+    assert calls == 2
+    assert pairwise_alignment.residue_map == scalar_alignment.residue_map
+    assert (
+        pairwise_alignment.aligned_reference_indices
+        == scalar_alignment.aligned_reference_indices
+    )
+    assert (
+        pairwise_alignment.aligned_mobile_indices
+        == scalar_alignment.aligned_mobile_indices
+    )
+    assert pairwise_alignment.rmsd == pytest.approx(scalar_alignment.rmsd)
+    assert pairwise_alignment.coverage == pytest.approx(
+        scalar_alignment.coverage
+    )
+    assert pairwise_alignment.reference_length == len(reference_sequence)
+    assert pairwise_alignment.mobile_length == len(mobile_sequence)
+
+
 def test_chain_label_change_preserves_sequence_correspondence_and_provenance() -> None:
     coordinates = [(0.0, 0.0, 0.0), (2.0, 1.0, 0.0), (4.0, 0.0, 1.0)]
 

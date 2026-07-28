@@ -7,6 +7,7 @@ import argparse
 import hashlib
 import importlib.metadata
 import json
+import math
 import os
 import platform
 import re
@@ -43,6 +44,14 @@ from core.provider_contract import (
     SIMPLEFOLD_REVISION,
     ESM_SDK_REVISION,
 )
+from core.provider_evidence import (
+    _IDENTITY_KEYS,
+    _MANIFEST_DETAIL_KEYS,
+    _READINESS_DETAIL_KEYS,
+    _RESULT_KEYS,
+    validate_provider_call_manifest_details,
+)
+from core.run_manifest import _validate_score_details, sanitize_public_value
 
 ROOT_VARIABLES = (
     "PROTEIN_WORKBENCH_PROJECT_ROOT",
@@ -62,6 +71,255 @@ LIVE_ESM3_TEST = (
     "TestBiohubGeneration::test_generate_3gb1_sequence"
 )
 PROCESS_SUPERVISOR_FLAG = "--verification-process-supervisor"
+TRUSTED_PS = "/bin/ps"
+TRUSTED_GIT = "/usr/bin/git"
+
+_SEALED_FRESH_KEYS = frozenset({
+    "artifacts",
+    "backend_manifest",
+    "backend_manifest_sha256",
+    "cache",
+    "candidate_lineage",
+    "effective_seeds",
+    "environment",
+    "fresh_run",
+    "historical_cache_allowed",
+    "modules",
+    "ordered_node_outcomes",
+    "project_id",
+    "providers",
+    "run_id",
+    "schema_version",
+    "scores",
+    "secrets_retained",
+    "source",
+    "websocket_events",
+    "workflow",
+})
+_BACKEND_FRESH_KEYS = frozenset({
+    "artifacts",
+    "blocking_reasons",
+    "cache",
+    "candidate_lineage",
+    "created_at",
+    "effective_seeds",
+    "environment",
+    "failures",
+    "models",
+    "modules",
+    "node_states",
+    "project_id",
+    "providers",
+    "run_id",
+    "run_seed",
+    "schema_version",
+    "scores",
+    "source",
+    "status",
+    "updated_at",
+    "workflow",
+})
+_BACKEND_FRESH_REQUIRED_KEYS = _BACKEND_FRESH_KEYS - {
+    "created_at",
+    "run_seed",
+    "updated_at",
+}
+_CALL_DETAIL_KEYS = frozenset({
+    "actual_call",
+    "cache_decision",
+    "call_count",
+    "candidate_ids",
+    "effective_seed",
+    "node_id",
+    "parent_candidate_id",
+    "provider_identity",
+    "readiness",
+    "requested_seed",
+    "result",
+    "sample_index",
+    "secondary_structure_length",
+    "secondary_structure_sha256",
+    "seed_control",
+    "seed_scope",
+    *set().union(*_MANIFEST_DETAIL_KEYS.values()),
+})
+
+
+def _safe_public_string(value: object, *, maximum: int = 512) -> bool:
+    return (
+        isinstance(value, str)
+        and 0 < len(value) <= maximum
+        and sanitize_public_value(value) == value
+    )
+
+
+def _safe_identifier(value: object) -> bool:
+    return (
+        _safe_public_string(value, maximum=128)
+        and re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.:/+-]*", value) is not None
+    )
+
+
+def _safe_identifier_list(value: object) -> bool:
+    return (
+        isinstance(value, list)
+        and len(value) <= 256
+        and all(_safe_identifier(item) for item in value)
+    )
+
+
+def _digest_value_is_valid(value: object) -> bool:
+    if isinstance(value, str):
+        return re.fullmatch(r"[0-9a-f]{64}", value) is not None
+    if isinstance(value, list):
+        return len(value) <= 128 and all(
+            _digest_value_is_valid(item) for item in value
+        )
+    if isinstance(value, dict):
+        return len(value) <= 128 and all(
+            _safe_public_string(key)
+            and _digest_value_is_valid(item)
+            for key, item in value.items()
+        )
+    return False
+
+
+def _provider_identity_values_are_valid(identity: object) -> bool:
+    if not isinstance(identity, dict) or set(identity) - _IDENTITY_KEYS:
+        return False
+    for key, value in identity.items():
+        if key.endswith("sha256"):
+            if not _digest_value_is_valid(value):
+                return False
+        elif key.endswith("revision"):
+            if (
+                not isinstance(value, str)
+                or re.fullmatch(r"[0-9a-f]{40}", value) is None
+            ):
+                return False
+        elif not _safe_public_string(value):
+            return False
+    return True
+
+
+def _provider_summary_values_are_valid(
+    operation: str,
+    summary: object,
+) -> bool:
+    if (
+        not isinstance(summary, dict)
+        or operation not in _RESULT_KEYS
+        or set(summary) - _RESULT_KEYS[operation]
+    ):
+        return False
+    boolean_fields = {"has_coordinates", "has_sequence"}
+    numeric_fields = {
+        "coverage",
+        "d0",
+        "normalization_length",
+        "reference_coverage",
+        "rmsd",
+        "score",
+        "score_max",
+        "score_min",
+        "value",
+    }
+    integer_fields = {
+        "aligned_residues",
+        "input_sequence_length",
+        "mobile_length",
+        "num_steps",
+        "output_bytes",
+        "output_sequence_length",
+        "pdb_bytes",
+        "reference_length",
+        "residue_count",
+        "return_code",
+        "score_count",
+        "sequence_count",
+        "sequence_length",
+        "structure_count",
+    }
+    for key, value in summary.items():
+        if key.endswith("sha256"):
+            if not _digest_value_is_valid(value):
+                return False
+        elif key in boolean_fields:
+            if not isinstance(value, bool):
+                return False
+        elif key == "pdb_bytes":
+            scalar_is_valid = (
+                not isinstance(value, bool)
+                and isinstance(value, int)
+                and value >= 0
+            )
+            list_is_valid = (
+                isinstance(value, list)
+                and len(value) <= 128
+                and all(
+                    not isinstance(item, bool)
+                    and isinstance(item, int)
+                    and item >= 0
+                    for item in value
+                )
+            )
+            if (
+                operation == "esmfold2.fold"
+                and not scalar_is_valid
+                or operation == "fold_sequence"
+                and not list_is_valid
+                or operation not in {"esmfold2.fold", "fold_sequence"}
+            ):
+                return False
+        elif key in integer_fields or key.endswith("_length"):
+            if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+                return False
+        elif key in numeric_fields:
+            if (
+                isinstance(value, bool)
+                or not isinstance(value, (int, float))
+                or not math.isfinite(float(value))
+            ):
+                return False
+        elif key == "sequence_lengths":
+            if (
+                not isinstance(value, list)
+                or len(value) > 128
+                or any(
+                    isinstance(item, bool)
+                    or not isinstance(item, int)
+                    or item < 0
+                    for item in value
+                )
+            ):
+                return False
+        elif key in {"score_ids", "score_values"}:
+            if not isinstance(value, list) or len(value) > 128:
+                return False
+            if key == "score_ids" and any(
+                not _safe_public_string(item) for item in value
+            ):
+                return False
+            if key == "score_values" and any(
+                isinstance(item, bool)
+                or not isinstance(item, (int, float))
+                or not math.isfinite(float(item))
+                for item in value
+            ):
+                return False
+        elif not _safe_public_string(value):
+            return False
+    return True
+
+
+def _timezone_aware_iso_timestamp(value: object) -> bool:
+    if not isinstance(value, str) or len(value) > 64:
+        return False
+    try:
+        parsed = datetime.fromisoformat(value)
+    except ValueError:
+        return False
+    return parsed.tzinfo is not None
 
 
 @dataclass(frozen=True)
@@ -108,6 +366,21 @@ FRESH_CALL_NODE_COUNT_MAP = Counter({
     (provider, operation, node_id): count
     for provider, operation, node_id, count in FRESH_CALL_NODE_COUNTS
 })
+EXPECTED_SEED_CONTROLS = {
+    ("biohub", "esm3.generate_sequence"): "unsupported_by_provider",
+    ("biohub", "esmfold2.fold"): "unsupported_by_provider",
+    ("biopython-svd", "structure_align"): "deterministic_no_rng",
+    ("local-proteinmpnn", "design_sequences"): "provider_request_seed",
+    ("local-proteinmpnn", "score_sequence"): "fixed_scoring_seed",
+    ("local_open", "esm3.generate_sequence"): "torch_local",
+    ("local_open", "esm3.generate_structure"): "torch_local",
+    ("mkdssp", "secondary_structure"): "deterministic_no_rng",
+    ("simplefold", "evaluate_structure"): (
+        "deterministic_existing_coordinates"
+    ),
+    ("simplefold", "fold_sequence"): "unsupported_by_adapter",
+    ("tmtools", "tm_score"): "deterministic_no_rng",
+}
 
 
 TIERS = {
@@ -331,7 +604,7 @@ def _parse_args() -> argparse.Namespace:
 def _process_group_members(process_group: int) -> set[int]:
     """Return current members while the supervisor keeps the PGID alive."""
     completed = subprocess.run(
-        ["ps", "-axo", "pid=,pgid="],
+        [TRUSTED_PS, "-axo", "pid=,pgid="],
         check=True,
         capture_output=True,
         text=True,
@@ -542,15 +815,143 @@ def _sanitize_junit(path: Path) -> None:
     path.chmod(0o600)
 
 
-def _write_json(path: Path, payload: object) -> None:
-    path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n")
-    path.chmod(0o600)
+def _write_private_file_once(
+    path: Path,
+    payload: bytes,
+    *,
+    mode: int = 0o600,
+) -> None:
+    """Publish one parent-owned evidence file without following links."""
+    flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL
+    if hasattr(os, "O_NOFOLLOW"):
+        flags |= os.O_NOFOLLOW
+    descriptor = os.open(path, flags, mode)
+    try:
+        written = 0
+        while written < len(payload):
+            count = os.write(descriptor, payload[written:])
+            if count <= 0:
+                raise OSError("evidence publication made no progress")
+            written += count
+        os.fsync(descriptor)
+    finally:
+        os.close(descriptor)
+    path.chmod(mode)
+
+
+def _write_json_once(path: Path, payload: object) -> None:
+    _write_private_file_once(
+        path,
+        (json.dumps(payload, indent=2, sort_keys=True) + "\n").encode(),
+    )
+
+
+def _publish_private_file(
+    source: Path,
+    destination: Path,
+    *,
+    maximum_bytes: int,
+) -> None:
+    payload = _read_stable_private_file(
+        source,
+        maximum_bytes=maximum_bytes,
+    )
+    _write_private_file_once(destination, payload)
+
+
+def _publish_provider_events(
+    destination: Path,
+    events: list[dict[str, object]],
+) -> None:
+    """Retain only events that the parent verifier already validated."""
+    payload = "".join(
+        json.dumps(event, sort_keys=True) + "\n"
+        for event in events
+    ).encode()
+    if len(payload) > 2 * 1024 * 1024:
+        raise ValueError("validated provider evidence exceeded the size bound")
+    _write_private_file_once(destination, payload)
+
+
+def _publish_fresh_evidence(
+    staging_root: Path,
+    result_dir: Path,
+) -> None:
+    """Copy the child-produced bundle into parent-owned retained storage."""
+    if staging_root.is_symlink() or not staging_root.is_dir():
+        raise ValueError("fresh evidence staging root was unsafe")
+    root_entries = {path.name: path for path in staging_root.iterdir()}
+    if set(root_entries) != {
+        "artifact-checksums.sha256",
+        "artifacts",
+        "sealed-manifest.json",
+    }:
+        raise ValueError("fresh evidence staging inventory was incomplete")
+    artifact_source = root_entries["artifacts"]
+    if artifact_source.is_symlink() or not artifact_source.is_dir():
+        raise ValueError("fresh evidence artifact staging was unsafe")
+    source_artifacts = sorted(artifact_source.iterdir())
+    if (
+        len(source_artifacts) != 15
+        or any(
+            artifact.is_symlink()
+            or not artifact.is_file()
+            or artifact.suffix != ".pdb"
+            for artifact in source_artifacts
+        )
+    ):
+        raise ValueError("fresh evidence artifact staging was incomplete")
+    artifact_destination = result_dir / "artifacts"
+    artifact_destination.mkdir(mode=0o700)
+    artifact_destination.chmod(0o700)
+    for artifact in source_artifacts:
+        _publish_private_file(
+            artifact,
+            artifact_destination / artifact.name,
+            maximum_bytes=16 * 1024 * 1024,
+        )
+    for name, maximum_bytes in (
+        ("artifact-checksums.sha256", 64 * 1024),
+        ("sealed-manifest.json", 16 * 1024 * 1024),
+    ):
+        _publish_private_file(
+            root_entries[name],
+            result_dir / name,
+            maximum_bytes=maximum_bytes,
+        )
+
+
+def _publish_validated_fresh_bundle(
+    quarantine_root: Path,
+    result_dir: Path,
+) -> None:
+    """Publish only a parent-validated, sealed fresh bundle."""
+    artifact_source = quarantine_root / "artifacts"
+    artifact_destination = result_dir / "artifacts"
+    artifact_destination.mkdir(mode=0o700)
+    artifact_destination.chmod(0o700)
+    for artifact in sorted(artifact_source.iterdir()):
+        _publish_private_file(
+            artifact,
+            artifact_destination / artifact.name,
+            maximum_bytes=16 * 1024 * 1024,
+        )
+    for name, maximum_bytes in (
+        ("artifact-checksums.sha256", 64 * 1024),
+        ("sealed-manifest.json", 16 * 1024 * 1024),
+        ("bundle-checksums.sha256", 64 * 1024),
+    ):
+        _publish_private_file(
+            quarantine_root / name,
+            result_dir / name,
+            maximum_bytes=maximum_bytes,
+        )
 
 
 def _source_attestation() -> tuple[str, bool, str]:
     def git(*args: str) -> str:
         completed = subprocess.run(
-            ["git", *args],
+            [TRUSTED_GIT, *args],
             cwd=PROJECT_ROOT,
             text=True,
             capture_output=True,
@@ -643,6 +1044,41 @@ def validate_provider_evidence(
 
     events: list[dict[str, object]] = []
     event_ids: set[str] = set()
+    envelope_keys = {
+        "evidence_version",
+        "event_id",
+        "event_type",
+        "gate",
+        "recorded_at",
+        "run_nonce",
+        "test_id",
+    }
+    readiness_keys = envelope_keys | {
+        "details",
+        "provider",
+        "provider_identity",
+        "ready",
+    }
+    call_keys = envelope_keys | {
+        "actual_call",
+        "cache_decision",
+        "call_count",
+        "effective_seed",
+        "model",
+        "operation",
+        "provider",
+        "provider_identity",
+        "readiness",
+        "result",
+        "seed_control",
+    }
+    call_lineage_keys = {
+        "candidate_id",
+        "candidate_ids",
+        "node_id",
+        "parent_candidate_id",
+        "run_id",
+    }
     for line in lines:
         try:
             event = json.loads(line)
@@ -655,7 +1091,14 @@ def validate_provider_evidence(
             or event.get("run_nonce") != nonce
             or event.get("gate") != tier_name
             or not isinstance(event.get("event_id"), str)
+            or re.fullmatch(
+                r"[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-"
+                r"[89ab][0-9a-f]{3}-[0-9a-f]{12}",
+                event["event_id"],
+            )
+            is None
             or event["event_id"] in event_ids
+            or not _safe_public_string(event.get("test_id"))
         ):
             return [], "invalid provider-call evidence envelope"
         event_ids.add(event["event_id"])
@@ -669,7 +1112,94 @@ def validate_provider_evidence(
             or recorded_at > datetime.now(timezone.utc)
         ):
             return [], "stale or future provider-call evidence"
-        events.append(event)
+        event_type = event.get("event_type")
+        if event_type == "provider_readiness":
+            readiness_provider = event.get("provider")
+            expected_identity = (
+                _expected_provider_identity(readiness_provider)
+                if isinstance(readiness_provider, str)
+                else None
+            )
+            if (
+                set(event) != readiness_keys
+                or not _safe_identifier(readiness_provider)
+                or readiness_provider
+                not in {
+                    provider
+                    for provider, _operation in tier.expected_call_counts
+                }
+                or event.get("test_id") not in tier.expected_test_ids
+                or not _provider_identity_values_are_valid(
+                    event.get("provider_identity")
+                )
+                or expected_identity is None
+                or event.get("provider_identity") != expected_identity
+                or not isinstance(event.get("details"), dict)
+                or set(event["details"]) - _READINESS_DETAIL_KEYS
+                or any(
+                    not isinstance(value, bool)
+                    for value in event["details"].values()
+                )
+                or event.get("ready") is not True
+            ):
+                return [], "invalid provider readiness evidence schema"
+        elif event_type == "provider_call":
+            key = (str(event.get("provider")), str(event.get("operation")))
+            if (
+                not call_keys.issubset(event)
+                or set(event) - call_keys - call_lineage_keys
+                or not _provider_identity_values_are_valid(
+                    event.get("provider_identity")
+                )
+                or event.get("seed_control")
+                != EXPECTED_SEED_CONTROLS.get(key)
+                or (
+                    event.get("effective_seed") is not None
+                    and (
+                        isinstance(event["effective_seed"], bool)
+                        or not isinstance(event["effective_seed"], int)
+                    )
+                )
+            ):
+                return [], "invalid provider call evidence schema"
+            result = event.get("result")
+            operation = event.get("operation")
+            if (
+                not isinstance(result, dict)
+                or set(result) != {"status", "summary"}
+                or not isinstance(operation, str)
+                or not _provider_summary_values_are_valid(
+                    operation,
+                    result.get("summary"),
+                )
+            ):
+                return [], "invalid provider call result schema"
+            for lineage_key in call_lineage_keys:
+                if lineage_key not in event:
+                    continue
+                lineage_value = event[lineage_key]
+                if lineage_key == "candidate_ids":
+                    if (
+                        not isinstance(lineage_value, list)
+                        or len(lineage_value) > 128
+                        or any(
+                            not _safe_public_string(item)
+                            for item in lineage_value
+                        )
+                    ):
+                        return [], "invalid provider call lineage schema"
+                elif not _safe_public_string(lineage_value):
+                    return [], "invalid provider call lineage schema"
+        else:
+            return [], "invalid provider-call evidence event type"
+        events.append({
+            key: event[key]
+            for key in (
+                readiness_keys
+                if event_type == "provider_readiness"
+                else call_keys | (set(event) & call_lineage_keys)
+            )
+        })
 
     calls = [event for event in events if event.get("event_type") == "provider_call"]
     readiness_events = [
@@ -720,6 +1250,19 @@ def validate_provider_evidence(
             return [], "provider call source identity mismatch"
     if not calls:
         return [], "no valid provider-call evidence was recorded"
+    expected_readiness_providers = {
+        provider for provider, _operation in tier.expected_call_counts
+    }
+    observed_readiness_providers = [
+        str(event["provider"]) for event in readiness_events
+    ]
+    if (
+        len(observed_readiness_providers)
+        != len(set(observed_readiness_providers))
+        or set(observed_readiness_providers)
+        != expected_readiness_providers
+    ):
+        return [], "provider readiness inventory mismatch"
 
     observed_calls = {
         (str(call["provider"]), str(call["operation"]))
@@ -922,6 +1465,587 @@ def _read_stable_private_file(
         os.close(descriptor)
 
 
+def _fresh_manifest_schema_error(sealed: object) -> str | None:
+    """Reject any retained field outside the canonical public schema."""
+    if not isinstance(sealed, dict) or set(sealed) != _SEALED_FRESH_KEYS:
+        return "sealed manifest schema was not closed"
+    backend = sealed.get("backend_manifest")
+    if (
+        not isinstance(backend, dict)
+        or not _BACKEND_FRESH_REQUIRED_KEYS.issubset(backend)
+        or set(backend) - _BACKEND_FRESH_KEYS
+    ):
+        return "sealed backend manifest schema was not closed"
+    backend_source = backend.get("source")
+    backend_workflow = backend.get("workflow")
+    backend_environment = backend.get("environment")
+    backend_providers = backend.get("providers")
+    sealed_providers = sealed.get("providers")
+    if (
+        not isinstance(backend_source, dict)
+        or set(backend_source) != {"revision", "dirty"}
+        or not isinstance(backend_workflow, dict)
+        or set(backend_workflow) != {"sha256"}
+        or not isinstance(backend_environment, dict)
+        or set(backend_environment)
+        != {"implementation", "platform", "python"}
+        or backend.get("failures") != []
+        or backend.get("blocking_reasons") != []
+        or not isinstance(backend_providers, dict)
+        or set(backend_providers) != {"calls", "readiness"}
+        or not isinstance(sealed_providers, dict)
+        or set(sealed_providers)
+        != {"run_call_attempts", "validated_real_events"}
+    ):
+        return "sealed backend manifest shape was not canonical"
+    if (
+        backend.get("schema_version") != 1
+        or backend.get("status") != "completed"
+        or backend.get("project_id") != sealed.get("project_id")
+        or backend.get("run_id") != sealed.get("run_id")
+        or not _safe_identifier(backend.get("project_id"))
+        or not _safe_identifier(backend.get("run_id"))
+        or not isinstance(backend_workflow.get("sha256"), str)
+        or re.fullmatch(
+            r"[0-9a-f]{64}",
+            backend_workflow["sha256"],
+        )
+        is None
+    ):
+        return "sealed backend root values were invalid"
+    for timestamp_field in ("created_at", "updated_at"):
+        if (
+            timestamp_field in backend
+            and not _timezone_aware_iso_timestamp(backend[timestamp_field])
+        ):
+            return "sealed backend timestamp was invalid"
+    if "run_seed" in backend and (
+        isinstance(backend["run_seed"], bool)
+        or not isinstance(backend["run_seed"], int)
+    ):
+        return "sealed backend run seed was invalid"
+    duplicated_fields = {
+        "workflow": "workflow",
+        "modules": "modules",
+        "environment": "environment",
+        "effective_seeds": "effective_seeds",
+        "cache": "cache",
+        "ordered_node_outcomes": "node_states",
+        "candidate_lineage": "candidate_lineage",
+        "scores": "scores",
+    }
+    if any(
+        sealed.get(sealed_key) != backend.get(backend_key)
+        for sealed_key, backend_key in duplicated_fields.items()
+    ):
+        return "sealed manifest duplicated facts differed from backend"
+    if sealed_providers.get("run_call_attempts") != backend_providers.get(
+        "calls"
+    ):
+        return "sealed provider call facts differed from backend"
+
+    record_schemas = (
+        ("modules", {"module_id", "node_id", "version"}),
+        (
+            "cache",
+            {"cache_key", "consumer", "node_id", "outcome", "published"},
+        ),
+        (
+            "candidate_lineage",
+            {"candidate_id", "node_id", "output_port", "parent_ids"},
+        ),
+        (
+            "scores",
+            {
+                "details",
+                "node_id",
+                "output_port",
+                "score_id",
+                "subjects",
+                "value",
+            },
+        ),
+        (
+            "artifacts",
+            {
+                "candidate_id",
+                "node_id",
+                "output_port",
+                "reference",
+                "sha256",
+                "size",
+            },
+        ),
+    )
+    for field, expected_keys in record_schemas:
+        records = backend.get(field)
+        if (
+            not isinstance(records, list)
+            or any(
+                not isinstance(record, dict)
+                or set(record) != expected_keys
+                for record in records
+            )
+        ):
+            return f"sealed backend {field} schema was not closed"
+    models = backend.get("models")
+    if (
+        not isinstance(models, list)
+        or any(
+            not isinstance(model, dict)
+            or set(model) != {"identity", "module_id", "node_id", "version"}
+            or not all(
+                _safe_public_string(model[field])
+                for field in ("identity", "module_id", "node_id", "version")
+            )
+            for model in models
+        )
+    ):
+        return "sealed backend models schema was not closed"
+    node_states = backend.get("node_states")
+    if (
+        not isinstance(node_states, list)
+        or any(
+            not isinstance(node_state, dict)
+            or set(node_state)
+            not in (
+                {"node_id", "old_state", "sequence", "state"},
+                {"node_id", "old_state", "sequence", "state", "timestamp"},
+            )
+            or (
+                "timestamp" in node_state
+                and not _timezone_aware_iso_timestamp(
+                    node_state["timestamp"]
+                )
+            )
+            for node_state in node_states
+        )
+    ):
+        return "sealed backend node_states schema was not closed"
+    if any(
+        not isinstance(cache.get("consumer"), dict)
+        or set(cache["consumer"]) != {"node_id", "project_id", "run_id"}
+        for cache in backend["cache"]
+    ):
+        return "sealed backend cache consumer schema was not closed"
+    if (
+        any(
+            not _safe_public_string(backend_environment[field])
+            for field in ("implementation", "platform", "python")
+        )
+        or not isinstance(backend.get("effective_seeds"), dict)
+        or any(
+            not _safe_identifier(node_id)
+            or isinstance(seed, bool)
+            or not isinstance(seed, int)
+            for node_id, seed in backend["effective_seeds"].items()
+        )
+        or any(
+            not all(
+                _safe_identifier(module[field])
+                for field in ("module_id", "node_id", "version")
+            )
+            for module in backend["modules"]
+        )
+    ):
+        return "sealed backend identity values were invalid"
+    allowed_states = {
+        "blocked",
+        "cancelled",
+        "completed",
+        "failed",
+        "idle",
+        "queued",
+        "running",
+    }
+    for node_state in backend["node_states"]:
+        if (
+            not _safe_identifier(node_state["node_id"])
+            or isinstance(node_state["sequence"], bool)
+            or not isinstance(node_state["sequence"], int)
+            or node_state["sequence"] < 1
+            or node_state["old_state"] not in allowed_states
+            or node_state["state"] not in allowed_states
+        ):
+            return "sealed backend Node state values were invalid"
+    for cache in backend["cache"]:
+        consumer = cache["consumer"]
+        if (
+            not _safe_identifier(cache["cache_key"])
+            or not _safe_identifier(cache["node_id"])
+            or cache["outcome"] not in {"bypass", "hit", "miss"}
+            or not isinstance(cache["published"], bool)
+            or not all(
+                _safe_identifier(consumer[field])
+                for field in ("node_id", "project_id", "run_id")
+            )
+        ):
+            return "sealed backend Cache values were invalid"
+    for lineage in backend["candidate_lineage"]:
+        if (
+            not all(
+                _safe_identifier(lineage[field])
+                for field in ("candidate_id", "node_id", "output_port")
+            )
+            or not _safe_identifier_list(lineage["parent_ids"])
+        ):
+            return "sealed backend lineage values were invalid"
+    for score in backend["scores"]:
+        if (
+            not all(
+                _safe_identifier(score[field])
+                for field in ("node_id", "output_port", "score_id")
+            )
+            or isinstance(score["value"], bool)
+            or not isinstance(score["value"], (int, float))
+            or not math.isfinite(float(score["value"]))
+            or not _safe_identifier_list(score["subjects"])
+        ):
+            return "sealed backend score values were invalid"
+    for artifact in backend["artifacts"]:
+        if (
+            not all(
+                _safe_identifier(artifact[field])
+                for field in ("candidate_id", "node_id", "output_port")
+            )
+            or not _safe_public_string(artifact["reference"])
+            or Path(artifact["reference"]).is_absolute()
+            or ".." in Path(artifact["reference"]).parts
+            or not isinstance(artifact["size"], int)
+            or isinstance(artifact["size"], bool)
+            or artifact["size"] <= 0
+            or not isinstance(artifact["sha256"], str)
+            or re.fullmatch(r"[0-9a-f]{64}", artifact["sha256"]) is None
+        ):
+            return "sealed backend artifact values were invalid"
+    try:
+        for score in backend["scores"]:
+            if not isinstance(score.get("details"), dict):
+                return "sealed backend score details were invalid"
+            _validate_score_details(score["details"])
+    except ValueError:
+        return "sealed backend score details were invalid"
+
+    readiness = backend_providers.get("readiness")
+    calls = backend_providers.get("calls")
+    if (
+        not isinstance(readiness, list)
+        or any(
+            not isinstance(fact, dict)
+            or set(fact)
+            != {
+                "details",
+                "provider",
+                "provider_identity",
+                "ready",
+                "source",
+                "status",
+            }
+            or not isinstance(fact.get("details"), dict)
+            or set(fact["details"])
+            - (_READINESS_DETAIL_KEYS | {"access_configured"})
+            or any(
+                not isinstance(value, bool)
+                for value in fact["details"].values()
+            )
+            or not _provider_identity_values_are_valid(
+                fact.get("provider_identity")
+            )
+            or not isinstance(fact.get("source"), dict)
+            or set(fact["source"]) != {"kind", "module_ids", "node_ids"}
+            for fact in readiness
+        )
+        or not isinstance(calls, list)
+    ):
+        return "sealed backend provider readiness schema was not closed"
+    if any(
+        not _safe_identifier(fact["provider"])
+        or fact["ready"] is not True
+        or fact["status"] != "ready"
+        or fact["source"]["kind"] != "workflow_required_boundary"
+        or not _safe_identifier_list(fact["source"]["module_ids"])
+        or not _safe_identifier_list(fact["source"]["node_ids"])
+        for fact in readiness
+    ):
+        return "sealed backend provider readiness values were invalid"
+    for call in calls:
+        if (
+            not isinstance(call, dict)
+            or set(call) != {"details", "model", "operation", "provider"}
+            or not isinstance(call.get("details"), dict)
+            or set(call["details"]) - _CALL_DETAIL_KEYS
+        ):
+            return "sealed backend provider call schema was not closed"
+        if not all(
+            _safe_public_string(call[field], maximum=128)
+            for field in ("model", "operation", "provider")
+        ):
+            return "sealed backend provider call values were invalid"
+        details = call["details"]
+        for detail_key in (
+            "candidate_id",
+            "mobile_candidate_id",
+            "node_id",
+            "parent_candidate_id",
+            "reference_input",
+            "reference_candidate_id",
+            "score_id",
+            "mobile_input",
+        ):
+            detail_value = details.get(detail_key)
+            if detail_value is not None and not _safe_identifier(detail_value):
+                return "sealed backend provider call values were invalid"
+        if "candidate_ids" in details and not _safe_identifier_list(
+            details["candidate_ids"]
+        ):
+            return "sealed backend provider call values were invalid"
+        for detail_key in ("requested_seed", "sample_index"):
+            if detail_key in details and (
+                isinstance(details[detail_key], bool)
+                or not isinstance(details[detail_key], int)
+                or details[detail_key] < 0
+            ):
+                return "sealed backend provider call values were invalid"
+        if (
+            "seed_scope" in details
+            and details["seed_scope"] != "per_sample_track"
+        ):
+            return "sealed backend provider call values were invalid"
+        if "secondary_structure_length" in details and (
+            isinstance(details["secondary_structure_length"], bool)
+            or not isinstance(details["secondary_structure_length"], int)
+            or details["secondary_structure_length"] < 0
+        ):
+            return "sealed backend provider call values were invalid"
+        if "secondary_structure_sha256" in details and not _digest_value_is_valid(
+            details["secondary_structure_sha256"]
+        ):
+            return "sealed backend provider call values were invalid"
+        if "actual_call" in details and details["actual_call"] is not True:
+            return "sealed backend provider call values were invalid"
+        if "call_count" in details and details["call_count"] != 1:
+            return "sealed backend provider call values were invalid"
+        if (
+            "readiness" in details
+            and details["readiness"] != "ready_at_call_boundary"
+        ):
+            return "sealed backend provider call values were invalid"
+        if (
+            "cache_decision" in details
+            and details["cache_decision"] != "bypassed_fresh_direct_call"
+        ):
+            return "sealed backend provider call values were invalid"
+        if (
+            "effective_seed" in details
+            and details["effective_seed"] is not None
+            and (
+                isinstance(details["effective_seed"], bool)
+                or not isinstance(details["effective_seed"], int)
+            )
+        ):
+            return "sealed backend provider call values were invalid"
+        if (
+            "seed_control" in details
+            and not _safe_public_string(details["seed_control"])
+        ):
+            return "sealed backend provider call values were invalid"
+        identity = details.get("provider_identity")
+        if (
+            identity is not None
+            and not _provider_identity_values_are_valid(identity)
+        ):
+            return "sealed backend provider identity schema was not closed"
+        result = details.get("result")
+        if result is not None:
+            if (
+                not isinstance(result, dict)
+                or set(result) != {"status", "summary"}
+                or result.get("status") != "succeeded"
+                or not isinstance(result.get("summary"), dict)
+                or not result["summary"]
+            ):
+                return "sealed backend provider result schema was not closed"
+            summary = result.get("summary")
+            operation = call.get("operation")
+            if (
+                summary is not None
+                and (
+                    not isinstance(operation, str)
+                    or not _provider_summary_values_are_valid(
+                        operation,
+                        summary,
+                    )
+                )
+            ):
+                return "sealed backend provider summary schema was not closed"
+        tiebreak = details.get("correspondence_tiebreak")
+        if tiebreak is not None and (
+            not isinstance(tiebreak, dict)
+            or set(tiebreak) != {"model", "provider", "tmtools_version"}
+            or tiebreak.get("provider") != "tmtools"
+            or tiebreak.get("model") != "tm_align-sequence-tiebreak"
+            or not _safe_public_string(tiebreak.get("tmtools_version"))
+        ):
+            return "sealed backend tiebreak schema was not closed"
+        operation = call.get("operation")
+        production_manifest = "created_at" in backend
+        if (
+            production_manifest
+            and operation in _MANIFEST_DETAIL_KEYS
+            and "input_identity" not in details
+        ):
+            return "sealed backend scientific input schema was not closed"
+        if (
+            isinstance(operation, str)
+            and operation in _MANIFEST_DETAIL_KEYS
+            and "input_identity" in details
+        ):
+            try:
+                validate_provider_call_manifest_details(
+                    str(operation),
+                    {
+                        key: value
+                        for key, value in details.items()
+                        if key in _MANIFEST_DETAIL_KEYS[str(operation)]
+                    },
+                )
+            except ValueError:
+                return "sealed backend scientific input schema was not closed"
+
+    reduced_event_schemas = {
+        "run_started": {"node_order", "project_id", "run_id", "sequence", "type"},
+        "node_state": {
+            "node_id",
+            "project_id",
+            "run_id",
+            "sequence",
+            "state",
+            "type",
+        },
+        "node_completed": {
+            "node_id",
+            "project_id",
+            "run_id",
+            "sequence",
+            "type",
+        },
+        "run_completed": {"project_id", "run_id", "sequence", "type"},
+    }
+    production_event_schemas = {
+        "run_started": reduced_event_schemas["run_started"]
+        | {"status", "timestamp"},
+        "node_state": reduced_event_schemas["node_state"]
+        | {"old_state", "timestamp"},
+        "node_completed": reduced_event_schemas["node_completed"]
+        | {"old_state", "output_summary", "state", "timestamp"},
+        "run_completed": reduced_event_schemas["run_completed"]
+        | {"duration_ms", "status", "timestamp"},
+    }
+    events = sealed.get("websocket_events")
+    if (
+        not isinstance(events, list)
+        or any(
+            not isinstance(event, dict)
+            or not isinstance(event.get("type"), str)
+            or event["type"] not in reduced_event_schemas
+            or set(event)
+            not in (
+                reduced_event_schemas[event["type"]],
+                production_event_schemas[event["type"]],
+            )
+            for event in events
+        )
+    ):
+        return "sealed WebSocket event schema was not closed"
+    for event in events:
+        if (
+            not _safe_identifier(event.get("project_id"))
+            or not _safe_identifier(event.get("run_id"))
+            or isinstance(event.get("sequence"), bool)
+            or not isinstance(event.get("sequence"), int)
+            or event["sequence"] < 1
+            or (
+                "node_id" in event
+                and not _safe_identifier(event["node_id"])
+            )
+            or (
+                "node_order" in event
+                and not _safe_identifier_list(event["node_order"])
+            )
+        ):
+            return "sealed WebSocket event values were invalid"
+        if "timestamp" in event and not _timezone_aware_iso_timestamp(
+            event["timestamp"]
+        ):
+            return "sealed WebSocket timestamp was invalid"
+        if event["type"] == "run_started" and "status" in event:
+            if event["status"] != "running":
+                return "sealed run-start status was invalid"
+        if event["type"] == "run_completed" and "status" in event:
+            if (
+                event["status"] != "completed"
+                or isinstance(event["duration_ms"], bool)
+                or not isinstance(event["duration_ms"], int)
+                or event["duration_ms"] < 0
+            ):
+                return "sealed run-completion details were invalid"
+        if event["type"] in {"node_state", "node_completed"}:
+            if (
+                "old_state" in event
+                and not _safe_public_string(event["old_state"])
+            ) or (
+                "state" in event
+                and not _safe_public_string(event["state"])
+            ):
+                return "sealed Node state details were invalid"
+        output_summary = event.get("output_summary")
+        if output_summary is not None and (
+            not isinstance(output_summary, dict)
+            or set(output_summary) != {"cache", "output_ports"}
+            or not isinstance(output_summary.get("cache"), dict)
+            or set(output_summary["cache"]) != {"outcome"}
+            or output_summary["cache"]["outcome"]
+            not in {"bypass", "hit", "miss"}
+            or not isinstance(output_summary.get("output_ports"), list)
+            or len(output_summary["output_ports"]) > 128
+            or any(
+                not _safe_public_string(port)
+                for port in output_summary["output_ports"]
+            )
+        ):
+            return "sealed Node output summary was invalid"
+    retained_artifacts = sealed.get("artifacts")
+    if (
+        not isinstance(retained_artifacts, list)
+        or any(
+            not isinstance(artifact, dict)
+            or set(artifact)
+            != {
+                "candidate_id",
+                "reference",
+                "retained_path",
+                "sha256",
+                "size",
+            }
+            for artifact in retained_artifacts
+        )
+    ):
+        return "sealed retained artifact schema was not closed"
+    if any(
+        not _safe_identifier(artifact["candidate_id"])
+        or not _safe_public_string(artifact["reference"])
+        or not _safe_public_string(artifact["retained_path"])
+        or isinstance(artifact["size"], bool)
+        or not isinstance(artifact["size"], int)
+        or artifact["size"] <= 0
+        or not isinstance(artifact["sha256"], str)
+        or re.fullmatch(r"[0-9a-f]{64}", artifact["sha256"]) is None
+        for artifact in retained_artifacts
+    ):
+        return "sealed retained artifact values were invalid"
+    return None
+
+
 def validate_fresh_bundle(
     result_dir: Path,
     *,
@@ -941,6 +2065,9 @@ def validate_fresh_bundle(
         if not manifest_path.exists():
             return None, "sealed manifest was not a bounded regular file"
         return None, "sealed manifest was not readable JSON"
+    schema_error = _fresh_manifest_schema_error(sealed)
+    if schema_error is not None:
+        return None, schema_error
     if (
         not isinstance(sealed, dict)
         or sealed.get("schema_version") != 1
@@ -976,6 +2103,38 @@ def validate_fresh_bundle(
         or backend_manifest.get("source") != sealed.get("source")
     ):
         return None, "sealed backend manifest digest did not match"
+    backend_readiness = backend_manifest.get("providers", {}).get(
+        "readiness"
+    )
+    wrapper_readiness = [
+        event
+        for event in provider_events
+        if event.get("event_type") == "provider_readiness"
+    ]
+    if not isinstance(backend_readiness, list):
+        return None, "sealed backend readiness was missing"
+    backend_readiness_by_provider = {
+        str(fact.get("provider")): (
+            fact.get("ready"),
+            fact.get("provider_identity"),
+        )
+        for fact in backend_readiness
+        if isinstance(fact, dict)
+    }
+    wrapper_readiness_by_provider = {
+        str(fact.get("provider")): (
+            fact.get("ready"),
+            fact.get("provider_identity"),
+        )
+        for fact in wrapper_readiness
+        if isinstance(fact, dict)
+    }
+    if (
+        len(backend_readiness_by_provider) != len(backend_readiness)
+        or len(wrapper_readiness_by_provider) != len(wrapper_readiness)
+        or backend_readiness_by_provider != wrapper_readiness_by_provider
+    ):
+        return None, "backend and wrapper readiness identities differ"
     artifacts = sealed.get("artifacts")
     artifact_root = result_dir / "artifacts"
     checksum_path = result_dir / "artifact-checksums.sha256"
@@ -1122,6 +2281,28 @@ def validate_fresh_bundle(
         )
     ):
         return None, "provider evidence was not bound to the fresh run"
+    manifest_operation_to_evidence = {
+        ("local_open", "generate(track=sequence)"): "esm3.generate_sequence",
+        ("local_open", "generate(track=structure)"): "esm3.generate_structure",
+        ("biohub", "fold"): "esmfold2.fold",
+    }
+    backend_call_nodes = Counter(
+        (
+            str(call.get("provider")),
+            manifest_operation_to_evidence.get(
+                (
+                    str(call.get("provider")),
+                    str(call.get("operation")),
+                ),
+                str(call.get("operation")),
+            ),
+            str(call.get("details", {}).get("node_id")),
+        )
+        for call in backend_manifest.get("providers", {}).get("calls", [])
+        if isinstance(call, dict)
+    )
+    if backend_call_nodes != observed_call_nodes:
+        return None, "backend and wrapper scientific calls differ"
 
     lineage = backend_manifest.get("candidate_lineage")
     scores = backend_manifest.get("scores")
@@ -1333,6 +2514,18 @@ def validate_fresh_bundle(
     return run_id, None
 
 
+def _freeze_bundle_permissions(result_dir: Path) -> None:
+    files = sorted(path for path in result_dir.rglob("*") if path.is_file())
+    for path in files:
+        path.chmod(0o400)
+    for path in sorted(
+        (candidate for candidate in result_dir.rglob("*") if candidate.is_dir()),
+        reverse=True,
+    ):
+        path.chmod(0o500)
+    result_dir.chmod(0o500)
+
+
 def seal_bundle_checksums(result_dir: Path) -> Path:
     """Hash every retained evidence file after all writers are finished."""
     checksum_path = result_dir / "bundle-checksums.sha256"
@@ -1376,15 +2569,7 @@ def seal_bundle_checksums(result_dir: Path) -> Path:
         maximum_bytes=64 * 1024,
     ) != payload:
         raise ValueError("bundle checksum seal failed verification")
-    checksum_path.chmod(0o400)
-    for path in files:
-        path.chmod(0o400)
-    for path in sorted(
-        (candidate for candidate in result_dir.rglob("*") if candidate.is_dir()),
-        reverse=True,
-    ):
-        path.chmod(0o500)
-    result_dir.chmod(0o500)
+    _freeze_bundle_permissions(result_dir)
     return checksum_path
 
 
@@ -1451,14 +2636,12 @@ def main() -> int:
         )
     ).expanduser().resolve()
     run_id = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S.%fZ")
-    result_dir = results_root / args.tier / f"{run_id}-{os.getpid()}"
-    result_dir.mkdir(parents=True, mode=0o700)
-    result_dir.chmod(0o700)
-    print(f"RETAINED VERIFICATION RESULT: {result_dir}", flush=True)
-    _write_json(
-        result_dir / "environment-summary.json",
-        _environment_summary(args.tier),
+    result_dir = (
+        results_root
+        / args.tier
+        / f"{run_id}-{os.getpid()}-{secrets.token_hex(8)}"
     )
+    environment_summary = _environment_summary(args.tier)
     gate_started_at = datetime.now(timezone.utc)
     gate_nonce = secrets.token_urlsafe(32)
 
@@ -1496,11 +2679,14 @@ def main() -> int:
             ):
                 env.pop(variable, None)
 
-        call_evidence = result_dir / "provider-calls.jsonl"
+        evidence_staging_root = base / "evidence-staging"
+        evidence_staging_root.mkdir(mode=0o700)
+        call_evidence = evidence_staging_root / "provider-calls.jsonl"
         env["PROTEIN_WORKBENCH_PROVIDER_CALL_EVIDENCE"] = str(call_evidence)
+        fresh_evidence_staging = evidence_staging_root / "fresh-bundle"
         if tier.requires_fresh_bundle:
             env["PROTEIN_WORKBENCH_ACCEPTANCE_EVIDENCE_ROOT"] = str(
-                result_dir
+                fresh_evidence_staging
             )
         if tier.requires_provider_evidence:
             env["PROTEIN_WORKBENCH_REQUIRE_PROVIDER_CALL"] = "1"
@@ -1514,7 +2700,7 @@ def main() -> int:
             )
             pytest_args = [*args.pytest_targets, *marker_args]
 
-        junit_path = result_dir / "pytest.xml"
+        junit_path = base / "pytest.xml"
         command = [
             sys.executable,
             "-m",
@@ -1671,6 +2857,15 @@ def main() -> int:
             command,
             return_code,
         )
+        result_dir.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+        result_dir.parent.chmod(0o700)
+        result_dir.mkdir(mode=0o700)
+        result_dir.chmod(0o700)
+        print(f"RETAINED VERIFICATION RESULT: {result_dir}", flush=True)
+        _write_json_once(
+            result_dir / "environment-summary.json",
+            environment_summary,
+        )
         transcript_path = result_dir / "command-transcript.txt"
         display_command = [
             "$PROJECT_ENV/bin/python"
@@ -1682,40 +2877,65 @@ def main() -> int:
             )
             for item in command
         ]
-        transcript_path.write_text(
+        transcript_header = (
             "cwd=$PROJECT_ROOT\n"
             f"$ {shlex.join(display_command)}\n"
             f"return_code={completed.returncode}\n"
         )
-        transcript_path.chmod(0o600)
 
         if timed_out.is_set():
+            _write_private_file_once(
+                transcript_path,
+                transcript_header.encode(),
+            )
             print(
                 "BACKEND VERIFICATION RESULT: failed (tier timeout)",
                 flush=True,
             )
             return 1
         if not junit_path.exists():
+            _write_private_file_once(
+                transcript_path,
+                transcript_header.encode(),
+            )
             print("BACKEND VERIFICATION RESULT: failed (no JUnit result)", flush=True)
             return completed.returncode or 1
 
         try:
             _sanitize_junit(junit_path)
         except (OSError, ValueError, ET.ParseError):
+            _write_private_file_once(
+                transcript_path,
+                transcript_header.encode(),
+            )
             print(
                 "BACKEND VERIFICATION RESULT: failed (invalid JUnit result)",
                 flush=True,
             )
             return 1
         tests, failures, skipped = _junit_counts(junit_path)
-        with transcript_path.open("a") as transcript:
-            transcript.write(
-                f"tests={tests} failures={failures} skipped={skipped}\n"
-                "resource_cleanup_warning="
-                f"{str(resource_cleanup_warning).lower()}\n"
+        _write_private_file_once(
+            transcript_path,
+            (
+                transcript_header
+                + f"tests={tests} failures={failures} skipped={skipped}\n"
+                + "resource_cleanup_warning="
+                + f"{str(resource_cleanup_warning).lower()}\n"
+            ).encode(),
+        )
+        try:
+            _publish_private_file(
+                junit_path,
+                result_dir / "pytest.xml",
+                maximum_bytes=MAX_JUNIT_BYTES,
             )
-        if call_evidence.exists():
-            call_evidence.chmod(0o600)
+        except (OSError, ValueError):
+            print(
+                "BACKEND VERIFICATION RESULT: failed "
+                "(sanitized JUnit publication failed)",
+                flush=True,
+            )
+            return 1
         source_attestation_valid = True
         if tier.requires_provider_evidence and not args.pytest_targets:
             try:
@@ -1749,6 +2969,15 @@ def main() -> int:
                 focused=bool(args.pytest_targets),
             )
             if evidence:
+                try:
+                    _publish_provider_events(
+                        result_dir / "provider-calls.jsonl",
+                        evidence,
+                    )
+                except (OSError, ValueError):
+                    evidence_error = (
+                        "validated provider evidence publication failed"
+                    )
                 calls = [
                     event for event in evidence
                     if event.get("event_type") == "provider_call"
@@ -1763,7 +2992,7 @@ def main() -> int:
                     resource_cleanup_warning=resource_cleanup_warning,
                     source_attestation_valid=source_attestation_valid,
                 )
-                _write_json(
+                _write_json_once(
                     result_dir / "provider-summary.json",
                     {
                         "schema_version": 1,
@@ -1823,8 +3052,37 @@ def main() -> int:
                 )
                 return 3
         if tier.requires_fresh_bundle:
+            try:
+                fresh_quarantine = Path(tempfile.mkdtemp(
+                    prefix="parent-fresh-quarantine-",
+                    dir=base,
+                ))
+                fresh_quarantine.chmod(0o700)
+                for name, maximum_bytes in (
+                    ("command-transcript.txt", 64 * 1024),
+                    ("environment-summary.json", 64 * 1024),
+                    ("provider-calls.jsonl", 2 * 1024 * 1024),
+                    ("provider-summary.json", 2 * 1024 * 1024),
+                    ("pytest.xml", MAX_JUNIT_BYTES),
+                ):
+                    _publish_private_file(
+                        result_dir / name,
+                        fresh_quarantine / name,
+                        maximum_bytes=maximum_bytes,
+                    )
+                _publish_fresh_evidence(
+                    fresh_evidence_staging,
+                    fresh_quarantine,
+                )
+            except (OSError, ValueError):
+                print(
+                    "BACKEND VERIFICATION RESULT: failed "
+                    "(fresh evidence publication failed)",
+                    flush=True,
+                )
+                return 1
             run_id, bundle_error = validate_fresh_bundle(
-                result_dir,
+                fresh_quarantine,
                 expected_revision=initial_source_attestation[0],
                 provider_events=evidence,
             )
@@ -1835,9 +3093,9 @@ def main() -> int:
                     flush=True,
                 )
                 return 1
-            seal_bundle_checksums(result_dir)
+            seal_bundle_checksums(fresh_quarantine)
             sealed_run_id, sealed_bundle_error = validate_fresh_bundle(
-                result_dir,
+                fresh_quarantine,
                 expected_revision=initial_source_attestation[0],
                 provider_events=evidence,
             )
@@ -1848,6 +3106,34 @@ def main() -> int:
                     flush=True,
                 )
                 return 1
+            try:
+                _publish_validated_fresh_bundle(
+                    fresh_quarantine,
+                    result_dir,
+                )
+            except (OSError, ValueError):
+                print(
+                    "BACKEND VERIFICATION RESULT: failed "
+                    "(validated fresh evidence publication failed)",
+                    flush=True,
+                )
+                return 1
+            retained_run_id, retained_bundle_error = validate_fresh_bundle(
+                result_dir,
+                expected_revision=initial_source_attestation[0],
+                provider_events=evidence,
+            )
+            if (
+                retained_bundle_error is not None
+                or retained_run_id != run_id
+            ):
+                print(
+                    "BACKEND VERIFICATION RESULT: failed "
+                    "(retained bundle verification failed)",
+                    flush=True,
+                )
+                return 1
+            _freeze_bundle_permissions(result_dir)
             print(f"FRESH REMOTE RUN ID: {run_id}", flush=True)
             print(f"SEALED EVIDENCE BUNDLE: {result_dir}", flush=True)
 

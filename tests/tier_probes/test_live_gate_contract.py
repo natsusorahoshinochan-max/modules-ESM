@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import os
+import time
 from pathlib import Path
 
 import pytest
@@ -26,6 +27,21 @@ def test_forged_provider_evidence_probe() -> None:
         "provider": "biohub",
         "operation": "esm3.generate_sequence",
     }) + "\n")
+
+
+@pytest.mark.live_provider
+def test_provider_evidence_uses_parent_private_staging_probe() -> None:
+    evidence_path = Path(
+        os.environ["PROTEIN_WORKBENCH_PROVIDER_CALL_EVIDENCE"]
+    ).resolve()
+    temporary_parent = Path(os.environ["TMPDIR"]).resolve().parent
+
+    assert evidence_path.is_relative_to(temporary_parent)
+
+
+@pytest.mark.live_provider
+def test_delayed_retained_directory_probe() -> None:
+    time.sleep(2)
 
 
 @pytest.mark.live_provider

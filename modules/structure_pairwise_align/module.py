@@ -104,6 +104,7 @@ class PairwiseAlignModule(WorkflowModule):
                     ),
                     "mobile_candidate_id": mob_item.candidate_id,
                 },
+                separate_tiebreak_evidence=False,
             )
 
             alignment_candidates.append(

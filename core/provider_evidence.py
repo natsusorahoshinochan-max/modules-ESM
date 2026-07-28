@@ -59,6 +59,8 @@ _RESULT_KEYS = {
         "has_coordinates",
         "input_sequence_length",
         "input_sequence_sha256",
+        "secondary_structure_length",
+        "secondary_structure_sha256",
         "output_sequence_length",
         "output_sequence_sha256",
     }),
@@ -68,6 +70,8 @@ _RESULT_KEYS = {
         "has_coordinates",
         "input_sequence_length",
         "input_sequence_sha256",
+        "secondary_structure_length",
+        "secondary_structure_sha256",
         "output_sequence_length",
         "output_sequence_sha256",
     }),
@@ -138,6 +142,7 @@ _RESULT_KEYS = {
 _MANIFEST_DETAIL_KEYS = {
     "structure_align": frozenset({
         "candidate_id",
+        "correspondence_tiebreak",
         "reference_candidate_id",
         "mobile_candidate_id",
         "reference_input",
@@ -224,6 +229,32 @@ def _validated_manifest_details(
             safe[key] = None
         elif value is not None:
             safe[key] = validate_identifier(value, key)
+
+    correspondence_tiebreak = details.get("correspondence_tiebreak")
+    if correspondence_tiebreak is not None:
+        if (
+            not isinstance(correspondence_tiebreak, dict)
+            or set(correspondence_tiebreak) != {
+                "model",
+                "provider",
+                "tmtools_version",
+            }
+            or correspondence_tiebreak.get("provider") != "tmtools"
+            or correspondence_tiebreak.get("model")
+            != "tm_align-sequence-tiebreak"
+        ):
+            raise ValueError("Structure alignment tiebreak identity is invalid")
+        tmtools_version = correspondence_tiebreak.get("tmtools_version")
+        if (
+            not isinstance(tmtools_version, str)
+            or not re.fullmatch(r"[0-9A-Za-z.+_-]{1,64}", tmtools_version)
+        ):
+            raise ValueError("Structure alignment tiebreak version is invalid")
+        safe["correspondence_tiebreak"] = {
+            "provider": "tmtools",
+            "model": "tm_align-sequence-tiebreak",
+            "tmtools_version": tmtools_version,
+        }
 
     input_identity = details.get("input_identity")
     if (

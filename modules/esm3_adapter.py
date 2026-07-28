@@ -148,6 +148,19 @@ def call_esm3_provider(
     """Execute one ESM3 operation under the Workbench client RNG seed."""
     from esm.sdk.api import ESMProteinError
 
+    provider_secondary_structure = getattr(
+        protein,
+        "secondary_structure",
+        None,
+    )
+    provider_track_identity: dict[str, Any] = {}
+    if isinstance(provider_secondary_structure, str):
+        provider_track_identity = {
+            "secondary_structure_length": len(provider_secondary_structure),
+            "secondary_structure_sha256": hashlib.sha256(
+                provider_secondary_structure.encode()
+            ).hexdigest(),
+        }
     try:
         from core.run_context import RunContext
 
@@ -157,7 +170,10 @@ def call_esm3_provider(
             else "biohub",
             operation,
             model=model_name,
-            details=details,
+            details={
+                **(details or {}),
+                **provider_track_identity,
+            },
         )
         if effective_seed is None:
             result = client.generate(protein, config)
@@ -191,6 +207,7 @@ def call_esm3_provider(
                 input_sequence.encode()
             ).hexdigest(),
         })
+    result_summary.update(provider_track_identity)
     output_sequence = getattr(result, "sequence", None)
     if isinstance(output_sequence, str):
         result_summary.update({

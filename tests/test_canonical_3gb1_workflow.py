@@ -307,6 +307,22 @@ def test_canonical_workflow_produces_fifteen_auditable_pdbs(
         call for call in provider_calls
         if call["details"]["node_id"] == "esm3_gen"
     ]
+    required_secondary_structure = (
+        "EEEEEEEEEEEEEEEEEEE___HHHHHHHH____"
+        "EEEEEEEEEEEEEEEEEEEEEE_______________"
+    )
+    assert {
+        (
+            call["details"]["secondary_structure_length"],
+            call["details"]["secondary_structure_sha256"],
+        )
+        for call in esm3_calls
+    } == {
+        (
+            71,
+            hashlib.sha256(required_secondary_structure.encode()).hexdigest(),
+        )
+    }
     expected_esm3_seeds = {
         derive_esm3_call_seed(1603, sample_index, track)
         for sample_index in range(10)

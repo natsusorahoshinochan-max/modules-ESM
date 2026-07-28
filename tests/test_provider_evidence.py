@@ -78,10 +78,16 @@ def test_esm3_boundary_records_completed_call_not_prompt_content(
     provider_result = MagicMock()
     provider_result.sequence = "PRIVATESEQUENCE"
     client.generate.return_value = provider_result
+    provider_input = MagicMock()
+    provider_input.sequence = "_" * 71
+    provider_input.secondary_structure = (
+        "EEEEEEEEEEEEEEEEEEE___HHHHHHHH____"
+        "EEEEEEEEEEEEEEEEEEEEEE_______________"
+    )
 
     result = call_esm3_provider(
         client,
-        MagicMock(),
+        provider_input,
         MagicMock(),
         "esm3.generate_sequence",
         model_name="esm3-medium-2024-08",
@@ -98,7 +104,16 @@ def test_esm3_boundary_records_completed_call_not_prompt_content(
     assert len(
         events[0]["result"]["summary"]["output_sequence_sha256"]
     ) == 64
+    assert events[0]["result"]["summary"][
+        "secondary_structure_length"
+    ] == 71
+    assert events[0]["result"]["summary"][
+        "secondary_structure_sha256"
+    ] == hashlib.sha256(
+        provider_input.secondary_structure.encode()
+    ).hexdigest()
     assert "PRIVATESEQUENCE" not in evidence_path.read_text()
+    assert provider_input.secondary_structure not in evidence_path.read_text()
 
 
 def test_esmfold_boundary_records_result_digest_without_token(
@@ -1250,6 +1265,165 @@ def test_ambiguous_alignment_records_tmtools_tiebreak_in_run_manifest(
         ("tmtools", "structure_align_tiebreak"),
         ("biopython-svd", "structure_align"),
     ]
+
+
+def test_pairwise_ambiguous_alignment_keeps_one_public_call_fact(
+    tmp_path: Path,
+) -> None:
+    from datatypes import Candidate, CandidateCollection
+    from modules.structure_pairwise_align.module import PairwiseAlignModule
+
+    run_dir = tmp_path / "runs" / "pairwise-ambiguous-alignment"
+    manifest = RunManifest.for_execution(
+        project_id="scientific-project",
+        run_id="pairwise-ambiguous-alignment",
+        workflow=Workflow(),
+        modules={},
+        seed=42,
+        source_dir=tmp_path,
+    )
+    with RunManifestStore(run_dir, manifest) as store:
+        context = RunContext(
+            str(tmp_path),
+            "pairwise-align",
+            run_id="pairwise-ambiguous-alignment",
+            _manifest_store=store,
+        )
+        token = context.activate()
+        try:
+            PairwiseAlignModule().run(
+                {
+                    "reference_candidates": CandidateCollection(
+                        collection_id="references",
+                        item_type="protein.structure",
+                        items=[
+                            Candidate(
+                                candidate_id="reference",
+                                data=ProteinStructure(
+                                    pdb_string=_repetitive_alignment_pdb(
+                                        _AMBIGUOUS_REFERENCE_SEQUENCE
+                                    )
+                                ),
+                            )
+                        ],
+                    ),
+                    "mobile_candidates": CandidateCollection(
+                        collection_id="mobiles",
+                        item_type="protein.structure",
+                        items=[
+                            Candidate(
+                                candidate_id="mobile",
+                                data=ProteinStructure(
+                                    pdb_string=_repetitive_alignment_pdb(
+                                        _AMBIGUOUS_MOBILE_SEQUENCE
+                                    )
+                                ),
+                            )
+                        ],
+                    ),
+                },
+                {},
+                context,
+            )
+        finally:
+            context.deactivate(token)
+
+    persisted = read_run_manifest(run_dir)
+    calls = persisted["providers"]["calls"]
+    assert [
+        (call["provider"], call["operation"])
+        for call in calls
+    ] == [
+        ("biopython-svd", "structure_align"),
+    ]
+    assert calls[0]["details"]["correspondence_tiebreak"] == {
+        "model": "tm_align-sequence-tiebreak",
+        "provider": "tmtools",
+        "tmtools_version": importlib.metadata.version("tmtools"),
+    }
+
+
+def test_pairwise_tiebreak_failure_keeps_nested_engine_identity(
+    tmp_path: Path,
+) -> None:
+    from datatypes import Candidate, CandidateCollection
+    from modules.structure_pairwise_align.module import PairwiseAlignModule
+
+    run_dir = tmp_path / "runs" / "failed-pairwise-tiebreak"
+    manifest = RunManifest.for_execution(
+        project_id="scientific-project",
+        run_id="failed-pairwise-tiebreak",
+        workflow=Workflow(),
+        modules={},
+        seed=42,
+        source_dir=tmp_path,
+    )
+    with RunManifestStore(run_dir, manifest) as store:
+        context = RunContext(
+            str(tmp_path),
+            "pairwise-align",
+            run_id="failed-pairwise-tiebreak",
+            _manifest_store=store,
+        )
+        token = context.activate()
+        try:
+            with patch(
+                "tmtools.tm_align",
+                side_effect=RuntimeError("private tiebreak body"),
+            ), pytest.raises(RuntimeError):
+                PairwiseAlignModule().run(
+                    {
+                        "reference_candidates": CandidateCollection(
+                            collection_id="references",
+                            item_type="protein.structure",
+                            items=[
+                                Candidate(
+                                    candidate_id="reference",
+                                    data=ProteinStructure(
+                                        pdb_string=_repetitive_alignment_pdb(
+                                            _AMBIGUOUS_REFERENCE_SEQUENCE
+                                        )
+                                    ),
+                                )
+                            ],
+                        ),
+                        "mobile_candidates": CandidateCollection(
+                            collection_id="mobiles",
+                            item_type="protein.structure",
+                            items=[
+                                Candidate(
+                                    candidate_id="mobile",
+                                    data=ProteinStructure(
+                                        pdb_string=_repetitive_alignment_pdb(
+                                            _AMBIGUOUS_MOBILE_SEQUENCE
+                                        )
+                                    ),
+                                )
+                            ],
+                        ),
+                    },
+                    {},
+                    context,
+                )
+        finally:
+            context.deactivate(token)
+
+    calls = read_run_manifest(run_dir)["providers"]["calls"]
+    assert len(calls) == 1
+    assert (calls[0]["provider"], calls[0]["operation"]) == (
+        "biopython-svd",
+        "structure_align",
+    )
+    assert calls[0]["details"]["correspondence_tiebreak"] == {
+        "model": "tm_align-sequence-tiebreak",
+        "provider": "tmtools",
+        "tmtools_version": importlib.metadata.version("tmtools"),
+    }
+    assert calls[0]["details"]["result"] == {
+        "status": "failed",
+        "error": {"type": "RuntimeError"},
+    }
+    assert "private tiebreak body" not in json.dumps(calls, sort_keys=True)
 
 
 def test_failed_public_svd_alignment_is_manifested_before_node_failure(

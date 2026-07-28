@@ -175,6 +175,7 @@ def _sequence_correspondence(
     mobile_coordinates: np.ndarray,
     *,
     manifest_details: dict[str, Any],
+    separate_tiebreak_evidence: bool,
 ) -> tuple[list[int], list[int]]:
     """Return sequence-optimal pairs with structure-aware tie resolution."""
     aligner = PairwiseAligner(mode="global")
@@ -200,6 +201,12 @@ def _sequence_correspondence(
     ):
         from tmtools import tm_align
 
+        if not separate_tiebreak_evidence:
+            manifest_details["correspondence_tiebreak"] = {
+                "provider": "tmtools",
+                "model": "tm_align-sequence-tiebreak",
+                "tmtools_version": version("tmtools"),
+            }
         try:
             structural_alignment = tm_align(
                 reference_coordinates,
@@ -223,35 +230,38 @@ def _sequence_correspondence(
                     reference_indices.append(reference_index)
                     mobile_indices.append(mobile_index)
         except Exception as error:
-            from core.provider_evidence import record_provider_call_failure
+            if separate_tiebreak_evidence:
+                from core.provider_evidence import record_provider_call_failure
 
-            record_provider_call_failure(
+                record_provider_call_failure(
+                    provider="tmtools",
+                    operation="structure_align_tiebreak",
+                    model="tm_align-sequence-tiebreak",
+                    provider_identity={"tmtools_version": version("tmtools")},
+                    effective_seed=None,
+                    seed_control="deterministic_no_rng",
+                    error_type=type(error).__name__,
+                    manifest_details=manifest_details,
+                )
+                raise _RecordedTiebreakFailure(error) from error
+            raise
+        if separate_tiebreak_evidence:
+            from core.provider_evidence import record_provider_call_result
+
+            record_provider_call_result(
                 provider="tmtools",
                 operation="structure_align_tiebreak",
                 model="tm_align-sequence-tiebreak",
                 provider_identity={"tmtools_version": version("tmtools")},
                 effective_seed=None,
                 seed_control="deterministic_no_rng",
-                error_type=type(error).__name__,
+                result_summary={
+                    "reference_length": len(reference_sequence),
+                    "mobile_length": len(mobile_sequence),
+                    "aligned_residues": len(reference_indices),
+                },
                 manifest_details=manifest_details,
             )
-            raise _RecordedTiebreakFailure(error) from error
-        from core.provider_evidence import record_provider_call_result
-
-        record_provider_call_result(
-            provider="tmtools",
-            operation="structure_align_tiebreak",
-            model="tm_align-sequence-tiebreak",
-            provider_identity={"tmtools_version": version("tmtools")},
-            effective_seed=None,
-            seed_control="deterministic_no_rng",
-            result_summary={
-                "reference_length": len(reference_sequence),
-                "mobile_length": len(mobile_sequence),
-                "aligned_residues": len(reference_indices),
-            },
-            manifest_details=manifest_details,
-        )
         return reference_indices, mobile_indices
 
     best_correspondence: tuple[list[int], list[int]] | None = None
@@ -316,6 +326,7 @@ def align_structures(
     mobile: ProteinStructure,
     *,
     call_details: dict[str, Any] | None = None,
+    separate_tiebreak_evidence: bool = True,
 ) -> StructureAlignment:
     """Build reproducible sequence correspondence and CA superposition evidence."""
     input_identity = {
@@ -364,6 +375,7 @@ def align_structures(
             all_reference_coordinates,
             all_mobile_coordinates,
             manifest_details=manifest_details,
+            separate_tiebreak_evidence=separate_tiebreak_evidence,
         )
     except _RecordedTiebreakFailure as recorded:
         raise recorded.error.with_traceback(recorded.error.__traceback__)

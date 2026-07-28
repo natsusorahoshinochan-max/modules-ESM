@@ -10,13 +10,22 @@ export PROTEIN_WORKBENCH_APPROVED_SOURCE_REVISION="$(git rev-parse HEAD)"
 
 Every invocation creates temporary, distinct project, Cache, output, and run roots.
 Configured production roots are replaced only in the child verification process and
-are not written. JUnit, a sanitized pytest command transcript, an environment
-summary, raw redacted provider events, and a validated provider summary when required
-are written with mode `0600` under the ignored
-`verification-results/<tier>/<UTC-run-id>/` directory; set
+are not written. Raw JUnit, provider events, and fresh artifacts are first written
+beneath the verifier's private temporary staging root; the outer verifier keeps
+its environment summary in memory and derives the sanitized transcript and
+validated provider summary itself. After
+the complete child process group exits, the outer verifier creates the
+unpredictably named retained directory, validates child-produced fresh evidence
+in a parent-only quarantine, and publishes only bounded, redacted evidence with
+mode `0600` under the ignored
+`verification-results/<tier>/<UTC-run-id>/` directory; the retained directory
+is never exposed to pytest, uvicorn, or provider code. Set
 `PROTEIN_WORKBENCH_VERIFICATION_RESULTS_ROOT` to select a CI artifact directory.
 After a successful fresh canonical tier, every retained file is frozen to `0400`
 and every evidence directory to `0500`; other tiers retain their files at `0600`.
+These local permission bits prevent accidental writes, while
+`bundle-checksums.sha256` detects drift relative to a separately recorded bundle
+digest. They are not a signature against a malicious filesystem owner.
 Plain `.venv/bin/pytest` uses the same isolation policy and defaults to the routine
 marker expression.
 
@@ -124,6 +133,12 @@ That is 89 source-bound successful events, all retained directly by the backend
 run manifest: 49 existing Node-scoped provider call facts plus 20 alignment and
 20 TM-score engine success facts. The separate gate evidence stream corroborates
 those facts but no longer supplies calls missing from the public manifest. The
+pairwise alignment adapter preserves the same sequence-tie resolution used by
+scalar alignment, including its internal tmtools structural resolution when
+needed, while recording one terminal `biopython-svd:structure_align` fact for
+the single public adapter invocation rather than double-counting that nested
+engine step as another Node call. That outer fact includes the nested tmtools
+method and version on both success and failure. The
 verifier rejects a missing or extra call, a Cache hit, a dirty or changed source,
 a non-terminal run, incomplete lineage or scoring, a mismatched artifact, a
 skipped test, or a missing evidence file.
@@ -147,6 +162,17 @@ effective seeds, Cache bypasses, ordered Node and WebSocket outcomes, Candidate
 lineage, scores, actual calls, and independently retrieved artifacts. Credential
 contents, sequences, input PDB text, provider stdout, and failure bodies are not
 retained.
+
+The provider-event file and fresh artifacts are child-staged and become retained
+evidence only after the parent verifier has revalidated and copied them through
+no-follow, exclusive-create file descriptors. Provider events and the sealed
+manifest must also pass closed key and value schemas; unexpected fields,
+unrecognized providers, sensitive allowed-field values, malformed digests,
+noncanonical successful-call facts, or malformed lifecycle records are rejected
+before publication. Completion reports must record the
+SHA-256 of `bundle-checksums.sha256` outside the bundle so later readers can
+detect local bundle replacement. That detached digest is an audit anchor, not a
+cryptographic signature.
 
 ## Deterministic public-protocol acceptance
 

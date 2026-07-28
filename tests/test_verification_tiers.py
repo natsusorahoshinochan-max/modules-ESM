@@ -10,6 +10,7 @@ import stat
 import subprocess
 import sys
 import time
+from uuid import uuid4
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -186,6 +187,53 @@ def test_live_provider_tier_rejects_forged_provider_evidence() -> None:
     assert "invalid provider-call evidence" in result.stdout
 
 
+def test_provider_evidence_is_staged_outside_retained_results() -> None:
+    result = _run_verifier(
+        "live-provider",
+        "tests/tier_probes/test_live_gate_contract.py::"
+        "test_provider_evidence_uses_parent_private_staging_probe",
+    )
+
+    assert "1 passed" in result.stdout
+    assert "1 failed" not in result.stdout
+    assert "BACKEND VERIFICATION RESULT: incomplete" in result.stdout
+
+
+def test_retained_directory_is_created_only_after_child_exit(
+    tmp_path: Path,
+) -> None:
+    results_root = tmp_path / "verification-results"
+    env = os.environ.copy()
+    env["PROTEIN_WORKBENCH_VERIFICATION_RESULTS_ROOT"] = str(results_root)
+    process = subprocess.Popen(
+        [
+            sys.executable,
+            str(VERIFY_COMMAND),
+            "live-provider",
+            "--",
+            "tests/tier_probes/test_live_gate_contract.py::"
+            "test_delayed_retained_directory_probe",
+        ],
+        cwd=PROJECT_ROOT,
+        env=env,
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+    )
+    assert process.stdout is not None
+    assert process.stdout.readline().startswith("BACKEND VERIFICATION TIER:")
+    assert process.stdout.readline().startswith("PROJECT ENVIRONMENT:")
+    time.sleep(0.5)
+
+    assert process.poll() is None
+    assert not results_root.exists()
+
+    stdout, _ = process.communicate(timeout=10)
+    assert process.returncode != 0
+    assert "RETAINED VERIFICATION RESULT:" in stdout
+    assert len(list(results_root.glob("live-provider/*"))) == 1
+
+
 def test_live_provider_tier_rejects_call_without_readiness() -> None:
     result = _run_verifier(
         "live-provider",
@@ -207,7 +255,7 @@ def test_focused_provider_diagnostics_cannot_satisfy_full_gate() -> None:
 
     assert result.returncode != 0
     assert "BACKEND VERIFICATION RESULT: incomplete" in result.stdout
-    assert "provider call test identity mismatch" in result.stdout
+    assert "invalid provider readiness evidence schema" in result.stdout
 
 
 def test_provider_summary_completion_requires_overall_full_gate_success() -> None:
@@ -236,6 +284,55 @@ def test_provider_summary_completion_requires_overall_full_gate_success() -> Non
     ) == (False, "source attestation changed during provider execution")
 
 
+def test_provider_summary_schema_accepts_per_structure_byte_counts() -> None:
+    from scripts.verify_backend import _provider_summary_values_are_valid
+
+    assert _provider_summary_values_are_valid(
+        "fold_sequence",
+        {
+            "input_sequence_length": 56,
+            "input_sequence_sha256": "a" * 64,
+            "structure_count": 1,
+            "pdb_bytes": [4096],
+            "pdb_sha256": ["b" * 64],
+            "score_count": 1,
+            "num_steps": 100,
+        },
+    )
+    assert not _provider_summary_values_are_valid(
+        "fold_sequence",
+        {
+            "input_sequence_length": 56,
+            "input_sequence_sha256": "a" * 64,
+            "structure_count": 1,
+            "pdb_bytes": 4096,
+            "pdb_sha256": ["b" * 64],
+            "score_count": 1,
+            "num_steps": 100,
+        },
+    )
+    assert not _provider_summary_values_are_valid(
+        "esmfold2.fold",
+        {
+            "input_sequence_length": 56,
+            "input_sequence_sha256": "a" * 64,
+            "pdb_bytes": [4096],
+            "pdb_sha256": "b" * 64,
+            "score_ids": ["plddt"],
+        },
+    )
+    assert _provider_summary_values_are_valid(
+        "esmfold2.fold",
+        {
+            "input_sequence_length": 56,
+            "input_sequence_sha256": "a" * 64,
+            "pdb_bytes": 4096,
+            "pdb_sha256": "b" * 64,
+            "score_ids": ["plddt"],
+        },
+    )
+
+
 def test_full_provider_gate_rejects_one_missing_required_call(
     tmp_path: Path,
 ) -> None:
@@ -260,7 +357,7 @@ def test_full_provider_gate_rejects_one_missing_required_call(
     events = [
         {
             **common,
-            "event_id": "readiness",
+            "event_id": str(uuid4()),
             "test_id": (
                 "tests/acceptance/test_biohub_generation.py::"
                 "TestBiohubGeneration::test_generate_3gb1_sequence"
@@ -273,7 +370,7 @@ def test_full_provider_gate_rejects_one_missing_required_call(
         },
         {
             **common,
-            "event_id": "call",
+            "event_id": str(uuid4()),
             "test_id": (
                 "tests/acceptance/test_biohub_generation.py::"
                 "TestBiohubGeneration::test_generate_3gb1_sequence"
@@ -312,12 +409,72 @@ def test_full_provider_gate_rejects_one_missing_required_call(
     assert error == "missing required provider calls: biohub:esmfold2.fold"
 
 
+def test_provider_evidence_rejects_unexpected_sensitive_event_field(
+    tmp_path: Path,
+) -> None:
+    from core.provider_contract import ESM_SDK_REVISION
+    from scripts.verify_backend import TIERS, validate_provider_evidence
+
+    started_at = datetime.now(timezone.utc)
+    event = {
+        "evidence_version": 1,
+        "run_nonce": "nonce",
+        "gate": "live-provider",
+        "recorded_at": datetime.now(timezone.utc).isoformat(),
+        "event_id": str(uuid4()),
+        "test_id": (
+            "tests/acceptance/test_biohub_generation.py::"
+            "TestBiohubGeneration::test_generate_3gb1_sequence"
+        ),
+        "event_type": "provider_readiness",
+        "provider": "biohub",
+        "ready": True,
+        "provider_identity": {
+            "sdk": "esm",
+            "sdk_source_revision": ESM_SDK_REVISION,
+            "service": "Biohub",
+        },
+        "details": {"credential_present": "sk-private-provider-token"},
+    }
+    evidence_path = tmp_path / "provider-calls.jsonl"
+    evidence_path.write_text(json.dumps(event) + "\n")
+
+    events, error = validate_provider_evidence(
+        evidence_path,
+        tier_name="live-provider",
+        tier=TIERS["live-provider"],
+        nonce="nonce",
+        started_at=started_at,
+        focused=False,
+    )
+
+    assert events == []
+    assert error == "invalid provider readiness evidence schema"
+
+    event["details"] = {"credential_present": True}
+    event["provider"] = "sk-private-provider-token"
+    evidence_path.write_text(json.dumps(event) + "\n")
+
+    events, error = validate_provider_evidence(
+        evidence_path,
+        tier_name="live-provider",
+        tier=TIERS["live-provider"],
+        nonce="nonce",
+        started_at=started_at,
+        focused=False,
+    )
+
+    assert events == []
+    assert error == "invalid provider readiness evidence schema"
+
+
 def test_fresh_remote_gate_requires_exact_repeated_provider_calls(
     tmp_path: Path,
 ) -> None:
     from core.provider_contract import esm_provider_identity
     from scripts.verify_backend import (
         TIERS,
+        _expected_provider_identity,
         validate_provider_evidence,
     )
 
@@ -334,19 +491,33 @@ def test_fresh_remote_gate_requires_exact_repeated_provider_calls(
         ),
     }
     local_identity = esm_provider_identity(local=True)
-    events = [{
-        **common,
-        "event_id": "readiness",
-        "event_type": "provider_readiness",
-        "provider": "local_open",
-        "ready": True,
-        "provider_identity": local_identity,
-        "details": {"snapshot_validated": True},
-    }]
+    readiness_details = {
+        "biohub": {"credential_present": True},
+        "biopython-svd": {"installed": True},
+        "local-proteinmpnn": {
+            "checkout_and_checkpoint_validated": True,
+        },
+        "local_open": {"snapshot_validated": True},
+        "mkdssp": {"version_match": True},
+        "tmtools": {"installed": True},
+    }
+    events = []
+    for provider, details in readiness_details.items():
+        identity = _expected_provider_identity(provider)
+        assert identity is not None
+        events.append({
+            **common,
+            "event_id": str(uuid4()),
+            "event_type": "provider_readiness",
+            "provider": provider,
+            "ready": True,
+            "provider_identity": identity,
+            "details": details,
+        })
     for index in range(9):
         events.append({
             **common,
-            "event_id": f"call-{index}",
+            "event_id": str(uuid4()),
             "event_type": "provider_call",
             "provider": "local_open",
             "operation": "esm3.generate_sequence",
@@ -555,7 +726,7 @@ def test_process_supervisor_cleans_group_when_parent_disappears() -> None:
     assert process.wait(timeout=10) < 0
 
 
-def test_process_supervisor_fails_closed_when_group_enumeration_fails() -> None:
+def test_process_supervisor_uses_trusted_ps_when_path_is_unusable() -> None:
     env = os.environ.copy()
     env["PATH"] = "/path-that-does-not-contain-ps"
     process, control_write, status_file = _start_process_supervisor(
@@ -573,17 +744,19 @@ def test_process_supervisor_fails_closed_when_group_enumeration_fails() -> None:
     assert process.stdout is not None
     lingering_pid = int(process.stdout.readline())
 
-    assert status_file.readline() == b""
-    assert process.wait(timeout=10) < 0
+    assert process.stdout.read() == ""
+    assert status_file.readline() == b"DONE:0\n"
+    os.write(control_write, b"R")
     os.close(control_write)
     status_file.close()
+    assert process.wait(timeout=5) == 0
     try:
         os.kill(lingering_pid, 0)
     except ProcessLookupError:
         pass
     else:
         raise AssertionError(
-            "supervisor enumeration failure left a process-group member alive"
+            "trusted process enumeration left a process-group member alive"
         )
 
 
