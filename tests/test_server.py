@@ -38,6 +38,23 @@ def test_modules_returns_json_content_type() -> None:
         assert "application/json" in resp.headers["content-type"]
 
 
+def test_module_api_exposes_standalone_artifact_port_opt_in() -> None:
+    with TestClient(app) as client:
+        modules = client.get("/api/modules").json()
+
+    export_sequence = next(
+        module
+        for module in modules
+        if module["module_id"] == "export.sequence"
+    )
+    file_path = next(
+        port
+        for port in export_sequence["output_ports"]
+        if port["name"] == "file_path"
+    )
+    assert file_path["artifact_kind"] == "standalone"
+
+
 def test_types_returns_json_content_type() -> None:
     with TestClient(app) as client:
         resp = client.get("/api/types")

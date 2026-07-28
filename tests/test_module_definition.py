@@ -59,6 +59,28 @@ class TestModuleDefinitionParsing:
         assert len(md.output_ports) == 1
         assert md.output_ports[0].name == "result"
         assert md.output_ports[0].type_id == "protein.structure"
+        assert md.output_ports[0].artifact_kind is None
+
+    def test_standalone_artifact_output_requires_file_path(self) -> None:
+        standalone = ModuleDefinition.from_yaml_string(
+            VALID_YAML.replace(
+                "type_id: protein.structure\nparameters:",
+                "type_id: file.path\n"
+                "    artifact_kind: standalone\n"
+                "parameters:",
+            )
+        )
+        assert standalone.output_ports[0].artifact_kind == "standalone"
+
+        with pytest.raises(ValueError, match="artifact_kind"):
+            ModuleDefinition.from_yaml_string(
+                VALID_YAML.replace(
+                    "type_id: protein.structure\nparameters:",
+                    "type_id: text\n"
+                    "    artifact_kind: standalone\n"
+                    "parameters:",
+                )
+            )
 
     def test_valid_yaml_parses_parameters(self) -> None:
         md = ModuleDefinition.from_yaml_string(VALID_YAML)

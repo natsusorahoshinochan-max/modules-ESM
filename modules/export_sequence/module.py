@@ -4,7 +4,12 @@ from pathlib import Path
 from typing import Any
 
 from core.module_definition import ModuleDefinition
+from core.recovery import MAX_PUBLIC_ARTIFACT_BYTES
 from core.run_context import RunContext
+from core.storage import (
+    validate_relative_path,
+    write_private_new_file,
+)
 from core.workflow_module import WorkflowModule
 from datatypes import ProteinSequence
 
@@ -24,13 +29,37 @@ class ExportSequenceModule(WorkflowModule):
         if sequence is None:
             raise ValueError("Missing input: sequence")
         filename = parameters.get("filename", "exported.fasta")
-        out_path = context.output_path(filename)
-        out_path.parent.mkdir(parents=True, exist_ok=True)
+        filename_parts = validate_relative_path(
+            filename,
+            "artifact_name",
+            allow_nested=False,
+        )
         # Write FASTA format with 60-char lines
         header = f">exported_sequence len={len(sequence)}"
         chars = sequence.sequence
+        if not chars.isascii():
+            raise ValueError(
+                "Sequence export requires ASCII amino-acid symbols"
+            )
+        sequence_line_count = (len(chars) + 59) // 60
+        serialized_size = (
+            len(header.encode())
+            + 1
+            + len(chars)
+            + sequence_line_count
+        )
+        if serialized_size > MAX_PUBLIC_ARTIFACT_BYTES:
+            raise ValueError(
+                "FASTA artifact exceeds the public retrieval limit"
+            )
         lines = [header]
         for i in range(0, len(chars), 60):
             lines.append(chars[i:i + 60])
-        out_path.write_text("\n".join(lines) + "\n")
+        payload = ("\n".join(lines) + "\n").encode()
+        out_path = write_private_new_file(
+            context.output_dir or "",
+            filename_parts,
+            payload,
+            field="artifact_name",
+        )
         return {"file_path": str(out_path)}

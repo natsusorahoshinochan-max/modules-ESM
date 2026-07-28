@@ -18,6 +18,7 @@ class PortDefinition:
     description: str = ""
     required: bool = True
     allow_multiple: bool = False
+    artifact_kind: str | None = None
 
 
 @dataclass(frozen=True)
@@ -129,12 +130,22 @@ class ModuleDefinition:
         for p in raw.get("output_ports", []):
             if "name" not in p or "type_id" not in p:
                 raise ValueError("Each output port must have 'name' and 'type_id'")
+            artifact_kind = p.get("artifact_kind")
+            if artifact_kind is not None and (
+                artifact_kind != "standalone"
+                or p["type_id"] != "file.path"
+            ):
+                raise ValueError(
+                    "Output Port artifact_kind must be 'standalone' "
+                    "on a file.path Port"
+                )
             output_ports.append(PortDefinition(
                 name=p["name"],
                 type_id=p["type_id"],
                 display_name=p.get("display_name", ""),
                 description=p.get("description", ""),
                 required=p.get("required", True),
+                artifact_kind=artifact_kind,
             ))
 
         output_port_names = {port.name for port in output_ports}

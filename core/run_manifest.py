@@ -820,6 +820,7 @@ class RunManifestStore:
         output_dir: str | Path,
         candidate_id: str | None = None,
         output_port: str | None = None,
+        artifact_kind: str | None = None,
     ) -> bool:
         """Hash one regular, non-symlinked artifact inside this run."""
         return self.record_artifacts(
@@ -829,6 +830,7 @@ class RunManifestStore:
                 "path": path,
                 "candidate_id": candidate_id,
                 "output_port": output_port,
+                "artifact_kind": artifact_kind,
             }],
         )
 
@@ -848,6 +850,7 @@ class RunManifestStore:
                 output_dir=output_dir,
                 candidate_id=artifact.get("candidate_id"),
                 output_port=artifact.get("output_port"),
+                artifact_kind=artifact.get("artifact_kind"),
             )
             if record is None:
                 return False
@@ -886,6 +889,32 @@ class RunManifestStore:
         if existing is None:
             artifacts.append(record)
             return
+        existing_kind = (
+            "standalone"
+            if existing.get("artifact_kind") == "standalone"
+            else (
+                "candidate"
+                if existing.get("candidate_id") is not None
+                else None
+            )
+        )
+        record_kind = (
+            "standalone"
+            if record.get("artifact_kind") == "standalone"
+            else (
+                "candidate"
+                if record.get("candidate_id") is not None
+                else None
+            )
+        )
+        if (
+            existing_kind is not None
+            and record_kind is not None
+            and existing_kind != record_kind
+        ):
+            raise RuntimeError(
+                "Artifact reference has conflicting provenance"
+            )
         for field_name in ("node_id", "size", "sha256"):
             if existing.get(field_name) != record[field_name]:
                 raise RuntimeError(
@@ -911,7 +940,21 @@ class RunManifestStore:
         output_dir: str | Path,
         candidate_id: str | None,
         output_port: str | None,
+        artifact_kind: str | None,
     ) -> dict[str, Any] | None:
+        if output_port is None:
+            raise ValueError(
+                "Artifact requires an output Port binding"
+            )
+        if candidate_id is None:
+            if artifact_kind != "standalone":
+                raise ValueError(
+                    "Candidate-less artifact requires standalone opt-in"
+                )
+        elif artifact_kind is not None:
+            raise ValueError(
+                "Candidate artifact cannot be standalone"
+            )
         output_root = Path(output_dir).absolute()
         supplied = Path(path)
         candidate = Path(os.path.abspath(
@@ -966,16 +1009,17 @@ class RunManifestStore:
                 "size": after.st_size,
                 "sha256": digest.hexdigest(),
             }
-            if output_port is not None:
-                record["output_port"] = validate_identifier(
-                    output_port,
-                    "output_port",
-                )
+            record["output_port"] = validate_identifier(
+                output_port,
+                "output_port",
+            )
             if candidate_id is not None:
                 record["candidate_id"] = validate_identifier(
                     candidate_id,
                     "candidate_id",
                 )
+            else:
+                record["artifact_kind"] = artifact_kind
             return record
         finally:
             os.close(descriptor)

@@ -7,11 +7,14 @@ import hashlib
 import json
 from collections import Counter
 from pathlib import Path
+from typing import Any
 
 import pytest
 
 from core.executor import Executor
 from core.graph import Workflow, WorkflowEdge, WorkflowNode
+from core.project import ProjectManager
+from core.recovery import RunRecoveryService
 from core.run_context import RunContext
 from datatypes import (
     Candidate,
@@ -29,6 +32,10 @@ from tests.deterministic_acceptance.backend_client import (
 
 
 PROJECT_ID = "canonical-3gb1"
+SEQUENCE_EXPORT_PAYLOAD = b">exported_sequence len=10\nMTYKLILNGK\n"
+SEQUENCE_EXPORT_SHA256 = (
+    "fc0335349b5216471f859559c7a35670776bbba860962f34621d12c206b89e5b"
+)
 REQUIRED_FINAL_SECONDARY_STRUCTURE = (
     "EEEEEEEEEEEEEEEEEEE___HHHHHHHH____"
     "EEEEEEEEEEEEEEEEEEEEEE_______________"
@@ -86,7 +93,7 @@ def _sequence_export_workflow() -> Workflow:
     workflow.add_node(WorkflowNode(
         node_id="export-sequence",
         module_id="export.sequence",
-        module_version="1.0.0",
+        module_version="2.0.0",
         parameters={"filename": "out.fa"},
     ))
     workflow.add_edge(WorkflowEdge(
@@ -98,54 +105,78 @@ def _sequence_export_workflow() -> Workflow:
     return workflow
 
 
+def _run_sequence_export(
+    manager: ProjectManager,
+    project_id: str,
+    run_id: str,
+) -> tuple[Path, dict[str, Any], dict[str, Any]]:
+    result = asyncio.run(Executor().execute(
+        _sequence_export_workflow(),
+        {
+            "import.sequence": ImportSequenceModule(),
+            "export.sequence": ExportSequenceModule(),
+        },
+        str(manager.project_dir(project_id)),
+        run_id,
+        seed=4242,
+        project_manager=manager,
+        project_id=project_id,
+    ))
+    manifest = RunRecoveryService(manager).manifest(project_id, run_id)
+    outputs = RunRecoveryService(manager).outputs(project_id, run_id)
+    return Path(result["export-sequence"]["file_path"]), manifest, outputs
+
+
+def _export_cache_fact(
+    manifest: dict[str, Any],
+) -> dict[str, Any]:
+    matches = [
+        fact
+        for fact in manifest["cache"]
+        if fact["node_id"] == "export-sequence"
+    ]
+    assert len(matches) == 1
+    return matches[0]
+
+
 def test_cached_sequence_export_stays_in_the_consuming_run_namespace(
     tmp_path: Path,
 ) -> None:
     """A cached second run must materialize its own exported FASTA."""
-    inputs = tmp_path / "inputs"
-    inputs.mkdir()
-    (inputs / "source.fasta").write_text(">source\nMTYKLILNGK\n")
-    modules = {
-        "import.sequence": ImportSequenceModule(),
-        "export.sequence": ExportSequenceModule(),
-    }
-
-    first = asyncio.run(Executor().execute(
-        _sequence_export_workflow(),
-        modules,
-        str(tmp_path),
-        "run-1",
-        seed=4242,
-    ))
-    second = asyncio.run(Executor().execute(
-        _sequence_export_workflow(),
-        modules,
-        str(tmp_path),
-        "run-2",
-        seed=4242,
-    ))
-
-    first_path = Path(first["export-sequence"]["file_path"])
-    second_path = Path(second["export-sequence"]["file_path"])
-    expected_second_path = tmp_path / "outputs" / "run-2" / "out.fa"
-    observed = {
-        "first_path": str(first_path),
-        "second_path": str(second_path),
-        "second_run_file_exists": expected_second_path.is_file(),
-        "second_path_content": (
-            second_path.read_text() if second_path.is_file() else None
-        ),
-    }
-    required = {
-        "first_path": str(tmp_path / "outputs" / "run-1" / "out.fa"),
-        "second_path": str(expected_second_path),
-        "second_run_file_exists": True,
-        "second_path_content": ">exported_sequence len=10\nMTYKLILNGK\n",
-    }
-    assert observed == required, (
-        "Observed cross-run reuse of the first run's absolute export path; "
-        "repaired behavior must materialize and return run-2/out.fa."
+    manager = ProjectManager(tmp_path / "projects")
+    project = manager.create("Sequence export")
+    source = manager.input_path(project.id, "source.fasta")
+    source.write_text(">source\nMTYKLILNGK\n")
+    first_path, first_manifest, first_outputs = _run_sequence_export(
+        manager, project.id, "run-1",
     )
+    second_path, second_manifest, second_outputs = _run_sequence_export(
+        manager, project.id, "run-2",
+    )
+
+    assert first_path == manager.output_path(project.id, "run-1", "out.fa")
+    assert second_path == manager.output_path(project.id, "run-2", "out.fa")
+    assert first_path.read_bytes() == SEQUENCE_EXPORT_PAYLOAD
+    assert second_path.read_bytes() == SEQUENCE_EXPORT_PAYLOAD
+    expected_artifact = {
+        "node_id": "export-sequence",
+        "output_port": "file_path",
+        "artifact_kind": "standalone",
+        "reference": "out.fa",
+        "size": len(SEQUENCE_EXPORT_PAYLOAD),
+        "sha256": SEQUENCE_EXPORT_SHA256,
+    }
+    assert first_outputs["artifacts"] == [expected_artifact]
+    assert second_outputs["artifacts"] == [expected_artifact]
+    first_cache = _export_cache_fact(first_manifest)
+    second_cache = _export_cache_fact(second_manifest)
+    assert (first_cache["outcome"], first_cache["published"]) == (
+        "miss", False,
+    )
+    assert (second_cache["outcome"], second_cache["published"]) == (
+        "miss", False,
+    )
+    assert first_cache["cache_key"] == second_cache["cache_key"]
 
 
 def _configure_small_reviewed_simplefold_models(

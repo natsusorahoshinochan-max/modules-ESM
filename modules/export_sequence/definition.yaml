@@ -1,5 +1,5 @@
 module_id: export.sequence
-version: 1.0.0
+version: 2.0.0
 display_name: Export Sequence
 category: output
 description: "Writes a ProteinSequence to a FASTA file."
@@ -10,7 +10,8 @@ input_ports:
     description: "The protein sequence to export."
 output_ports:
   - name: file_path
-    type_id: text
+    type_id: file.path
+    artifact_kind: standalone
     display_name: Output Path
     description: "Path to the exported FASTA file."
 parameters:

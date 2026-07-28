@@ -187,13 +187,39 @@ class RunRecoveryService:
             "size": size,
             "sha256": digest,
         }
-        for field_name in ("output_port", "candidate_id"):
-            try:
-                record[field_name] = validate_identifier(
-                    raw[field_name],
-                    field_name,
+        try:
+            record["output_port"] = validate_identifier(
+                raw["output_port"],
+                "output_port",
+            )
+        except (KeyError, TypeError, ValueError):
+            raise RunRecoveryError(
+                "invalid_run_manifest",
+                "Run manifest contains an invalid artifact",
+                status_code=409,
+            ) from None
+        candidate_id = raw.get("candidate_id")
+        if candidate_id is None:
+            if raw.get("artifact_kind") != "standalone":
+                raise RunRecoveryError(
+                    "invalid_run_manifest",
+                    "Run manifest contains an invalid artifact",
+                    status_code=409,
                 )
-            except (KeyError, TypeError, ValueError):
+            record["artifact_kind"] = "standalone"
+        else:
+            if raw.get("artifact_kind") is not None:
+                raise RunRecoveryError(
+                    "invalid_run_manifest",
+                    "Run manifest contains an invalid artifact",
+                    status_code=409,
+                )
+            try:
+                record["candidate_id"] = validate_identifier(
+                    candidate_id,
+                    "candidate_id",
+                )
+            except (TypeError, ValueError):
                 raise RunRecoveryError(
                     "invalid_run_manifest",
                     "Run manifest contains an invalid artifact",

@@ -104,7 +104,7 @@ def register_module_factory(module_id: str, factory: ModuleFactory) -> None:
 
 
 def _port_to_dict(p: PortDefinition) -> dict:
-    return {
+    result = {
         "name": p.name,
         "type_id": p.type_id,
         "display_name": p.display_name,
@@ -112,6 +112,9 @@ def _port_to_dict(p: PortDefinition) -> dict:
         "required": p.required,
         "allow_multiple": p.allow_multiple,
     }
+    if p.artifact_kind is not None:
+        result["artifact_kind"] = p.artifact_kind
+    return result
 
 
 def _param_to_dict(p: ParameterDefinition) -> dict:

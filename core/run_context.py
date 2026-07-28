@@ -221,7 +221,11 @@ class RunContext:
         candidate_id: str | None = None,
         output_port: str | None = None,
     ) -> bool:
-        """Record one output artifact by run-relative reference and digest."""
+        """Record one Candidate-bound artifact from Module code."""
+        if candidate_id is None:
+            raise ValueError(
+                "Module artifact recording requires a Candidate ID"
+            )
         if self._manifest_store is None or self.output_dir is None:
             return False
         return self._manifest_store.record_artifact(
@@ -236,7 +240,15 @@ class RunContext:
         self,
         artifacts: list[dict[str, Any]],
     ) -> bool:
-        """Record a complete artifact collection with one manifest update."""
+        """Record one complete Candidate-bound artifact collection."""
+        if any(
+            artifact.get("candidate_id") is None
+            or artifact.get("artifact_kind") is not None
+            for artifact in artifacts
+        ):
+            raise ValueError(
+                "Module artifact batches require Candidate bindings"
+            )
         if self._manifest_store is None or self.output_dir is None:
             return False
         return self._manifest_store.record_artifacts(

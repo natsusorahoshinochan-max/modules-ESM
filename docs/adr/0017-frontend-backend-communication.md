@@ -52,13 +52,19 @@ DELETE /api/projects/{project_id}/cache                # Clear all cache
 Run recovery is always explicit about both project ID and run ID. Status,
 manifest, output, and artifact requests read that exact manifest; no endpoint
 chooses a run or Cache entry by modification time. Artifact responses expose
-run-relative references and the manifest's Candidate ID, Node ID, output Port,
-size, and SHA-256. A download is served only when the reference is declared by
-the selected manifest and a stable snapshot matches its recorded size and hash.
-Artifacts without both Candidate and output-Port bindings make the public
-manifest invalid. Public retrieval is bounded to 2,048 artifacts, 64 MiB per
-artifact, and 256 MiB in aggregate per run; verification executes on FastAPI's
-worker thread rather than its event loop.
+run-relative references, Node ID, output Port, size, and SHA-256.
+Candidate-bound artifacts additionally expose a Candidate ID. A standalone
+`file.path` output Port opts into standalone publication in its Node Definition
+and the manifest record declares `artifact_kind: "standalone"` with no
+Candidate ID. This explicit opt-in and discriminator prevent an ordinary
+Candidate-bound Port or malformed Candidate artifact from being treated as
+standalone. A download is served only when the reference is declared by the
+selected manifest and a stable snapshot matches its recorded size and hash.
+Artifacts without an output-Port binding, Candidate artifacts without a
+Candidate ID, and candidate-less artifacts without the standalone
+discriminator make the public manifest invalid. Public retrieval is bounded
+to 2,048 artifacts, 64 MiB per artifact, and 256 MiB in aggregate per run;
+verification executes on FastAPI's worker thread rather than its event loop.
 The older Node-output compatibility route therefore requires an explicit
 `run_id` query parameter, and the hybrid output-download route verifies the
 same manifest contract.

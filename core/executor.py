@@ -474,6 +474,75 @@ class Executor:
         )
 
     @staticmethod
+    def _artifact_location(
+        context: RunContext,
+        artifact: str | Path,
+    ) -> tuple[Path, tuple[str, ...], str]:
+        output_root = Path(context.output_dir or "").absolute()
+        supplied = Path(artifact)
+        candidate = Path(os.path.abspath(
+            supplied if supplied.is_absolute() else output_root / supplied
+        ))
+        reference = candidate.relative_to(output_root).as_posix()
+        relative_parts = validate_relative_path(
+            reference,
+            "artifact_path",
+        )
+        return output_root, relative_parts, reference
+
+    @staticmethod
+    def _remove_unpublished_artifact(
+        context: RunContext,
+        artifact: str | Path,
+    ) -> None:
+        output_root, relative_parts, _ = Executor._artifact_location(
+            context,
+            artifact,
+        )
+        remove_private_regular_file(
+            output_root,
+            relative_parts,
+            field="artifact_path",
+        )
+
+    @staticmethod
+    def _publish_file_artifact(
+        manifest_store: RunManifestStore,
+        context: RunContext,
+        node_id: str,
+        artifact: str | Path,
+        *,
+        output_port: str,
+        candidate_id: str | None,
+        artifact_kind: str | None,
+    ) -> None:
+        _, _, reference = Executor._artifact_location(context, artifact)
+        was_declared = any(
+            current.get("reference") == reference
+            for current in manifest_store.manifest.artifacts
+        )
+        try:
+            if not manifest_store.record_artifact(
+                node_id=node_id,
+                path=artifact,
+                output_dir=context.output_dir or "",
+                candidate_id=candidate_id,
+                output_port=output_port,
+                artifact_kind=artifact_kind,
+            ):
+                raise RuntimeError(
+                    "Artifact output could not be recorded"
+                )
+        except Exception:
+            if not was_declared:
+                with suppress(Exception):
+                    Executor._remove_unpublished_artifact(
+                        context,
+                        artifact,
+                    )
+            raise
+
+    @staticmethod
     def _record_output_facts(
         manifest_store: RunManifestStore,
         context: RunContext,
@@ -485,39 +554,16 @@ class Executor:
             port.name: port.type_id
             for port in module.definition.output_ports
         }
-        candidate_bindings: list[tuple[str, str]] = []
-        for output_port, value in outputs.items():
-            describe = getattr(value, "manifest_facts", None)
-            if callable(describe):
-                if port_types.get(output_port) == "score.collection":
-                    manifest_store.record_scores(
-                        node_id=node_id,
-                        output_port=output_port,
-                        facts=describe(),
-                    )
-                    continue
-                for fact in describe():
-                    if fact.get("kind") == "candidate_lineage":
-                        candidate_id = fact.get("candidate_id")
-                        parent_ids = fact.get("parent_ids")
-                        if (
-                            not isinstance(candidate_id, str)
-                            or not isinstance(parent_ids, list)
-                            or not all(
-                                isinstance(parent_id, str)
-                                for parent_id in parent_ids
-                            )
-                        ):
-                            continue
-                        manifest_store.record_candidate_lineage(
-                            node_id=node_id,
-                            output_port=output_port,
-                            candidate_id=candidate_id,
-                            parent_ids=parent_ids,
-                        )
-                        candidate_bindings.append(
-                            (output_port, candidate_id)
-                        )
+        artifact_kinds = {
+            port.name: port.artifact_kind
+            for port in module.definition.output_ports
+        }
+        candidate_bindings = Executor._record_domain_output_facts(
+            manifest_store,
+            node_id,
+            outputs,
+            port_types,
+        )
         artifact_binding = (
             candidate_bindings[0]
             if len(candidate_bindings) == 1
@@ -525,16 +571,70 @@ class Executor:
         )
         for output_port, value in outputs.items():
             if (
-                isinstance(value, (str, Path))
-                and port_types.get(output_port) == "file.path"
-                and artifact_binding is not None
+                not isinstance(value, (str, Path))
+                or port_types.get(output_port) != "file.path"
             ):
+                continue
+            if artifact_kinds.get(output_port) == "standalone":
+                candidate_port, candidate_id = output_port, None
+                artifact_kind = "standalone"
+            elif artifact_binding is not None:
                 candidate_port, candidate_id = artifact_binding
-                context.record_artifact(
-                    value,
-                    candidate_id=candidate_id,
-                    output_port=candidate_port,
+                artifact_kind = None
+            else:
+                continue
+            Executor._publish_file_artifact(
+                manifest_store,
+                context,
+                node_id,
+                value,
+                output_port=candidate_port,
+                candidate_id=candidate_id,
+                artifact_kind=artifact_kind,
+            )
+
+    @staticmethod
+    def _record_domain_output_facts(
+        manifest_store: RunManifestStore,
+        node_id: str,
+        outputs: dict[str, Any],
+        port_types: dict[str, str],
+    ) -> list[tuple[str, str]]:
+        candidate_bindings: list[tuple[str, str]] = []
+        for output_port, value in outputs.items():
+            describe = getattr(value, "manifest_facts", None)
+            if not callable(describe):
+                continue
+            facts = describe()
+            if port_types.get(output_port) == "score.collection":
+                manifest_store.record_scores(
+                    node_id=node_id,
+                    output_port=output_port,
+                    facts=facts,
                 )
+                continue
+            for fact in facts:
+                if fact.get("kind") != "candidate_lineage":
+                    continue
+                candidate_id = fact.get("candidate_id")
+                parent_ids = fact.get("parent_ids")
+                if (
+                    not isinstance(candidate_id, str)
+                    or not isinstance(parent_ids, list)
+                    or not all(
+                        isinstance(parent_id, str)
+                        for parent_id in parent_ids
+                    )
+                ):
+                    continue
+                manifest_store.record_candidate_lineage(
+                    node_id=node_id,
+                    output_port=output_port,
+                    candidate_id=candidate_id,
+                    parent_ids=parent_ids,
+                )
+                candidate_bindings.append((output_port, candidate_id))
+        return candidate_bindings
 
     async def execute(
         self,
