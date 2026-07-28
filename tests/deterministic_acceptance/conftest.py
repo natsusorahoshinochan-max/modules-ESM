@@ -34,9 +34,15 @@ def provider_call_probe(tmp_path: Path) -> ProviderCallProbe:
 
 
 @pytest.fixture
+def provider_prompt_probe(tmp_path: Path) -> Path:
+    return tmp_path / "fixture-provider-prompts.jsonl"
+
+
+@pytest.fixture
 def backend_client(
     tmp_path: Path,
     provider_call_probe: ProviderCallProbe,
+    provider_prompt_probe: Path,
 ) -> Iterator[BackendAcceptanceClient]:
     """Yield a network client connected to the fixture-backed backend."""
     port = _unused_local_port()
@@ -61,6 +67,9 @@ def backend_client(
     env["PROTEIN_WORKBENCH_CANONICAL_VERSION"] = "18-deterministic"
     env["PROTEIN_WORKBENCH_DETERMINISTIC_PROVIDER_CALLS"] = str(
         provider_call_probe.path
+    )
+    env["PROTEIN_WORKBENCH_DETERMINISTIC_PROVIDER_PROMPTS"] = str(
+        provider_prompt_probe
     )
     for name in ("PROJECT", "CACHE", "OUTPUT", "RUN"):
         root = tmp_path / name.lower()

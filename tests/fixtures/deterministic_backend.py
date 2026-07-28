@@ -8,6 +8,7 @@ Execution Engine; only external provider and local-tool boundaries are replaced.
 from __future__ import annotations
 
 import asyncio
+import json
 import os
 from pathlib import Path
 from typing import Any
@@ -29,6 +30,7 @@ from tests.fixtures.canonical_3gb1 import (
 
 
 TELEMETRY_ENV = "PROTEIN_WORKBENCH_DETERMINISTIC_PROVIDER_CALLS"
+PROMPT_TELEMETRY_ENV = "PROTEIN_WORKBENCH_DETERMINISTIC_PROVIDER_PROMPTS"
 ALLOWED_RUNTIME_MODULE_IDS = frozenset({
     "import.structure",
     "prompt.build_residue_layout",
@@ -64,6 +66,22 @@ def _record_fixture_provider_call(operation: str) -> None:
     telemetry.chmod(0o600)
 
 
+def _record_fixture_provider_prompt(
+    protein: Any,
+    track: str,
+) -> None:
+    telemetry = Path(os.environ[PROMPT_TELEMETRY_ENV])
+    telemetry.parent.mkdir(parents=True, exist_ok=True)
+    record = {
+        **RunContext.active_provider_evidence(),
+        "track": track,
+        "secondary_structure": protein.secondary_structure,
+    }
+    with telemetry.open("a", encoding="utf-8") as prompts:
+        prompts.write(json.dumps(record, sort_keys=True) + "\n")
+    telemetry.chmod(0o600)
+
+
 class DeterministicProviderError(RuntimeError):
     """Safe fixture-provider failure observed through public diagnostics."""
 
@@ -74,6 +92,7 @@ class RecordedESMClient(ControlledESMClient):
     """Controlled ESM client with fixture-boundary call telemetry."""
 
     def generate(self, protein: Any, config: Any) -> Any:
+        _record_fixture_provider_prompt(protein, config.track)
         _record_fixture_provider_call(f"esm3:{config.track}")
         return super().generate(protein, config)
 

@@ -117,7 +117,8 @@ TIERS = {
         "not acceptance and not installed_package "
         "and not deterministic_acceptance "
         "and not live_provider and not local_provider "
-        "and not slow and not scientific_repro",
+        "and not slow and not scientific_repro "
+        "and not repair_findings",
     )),
     "deterministic-acceptance": Tier((
         "tests/deterministic_acceptance",
@@ -131,6 +132,11 @@ TIERS = {
     )),
     "scientific-repro": Tier((
         "tests/test_esm3.py::TestESM3Adapter::test_prompt_to_esm_protein_basic",
+    )),
+    "repair-findings": Tier((
+        "tests/deterministic_acceptance/test_review_findings.py",
+        "-m",
+        "repair_findings",
     )),
     "mocked-workflow": Tier((
         "tests/test_e2e_seed_workflow.py",
