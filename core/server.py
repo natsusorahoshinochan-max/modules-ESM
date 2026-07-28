@@ -407,6 +407,7 @@ def create_app(
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         global type_registry, module_registry, project_manager
+        catalog_candidate = builtin_frozen_catalog()
         _run_events.clear()
         _active_runs.clear()
         _active_project_runs.clear()
@@ -554,6 +555,7 @@ def create_app(
                 ),
             )
         _cache_mutations.clear()
+        app.state.frozen_catalog = catalog_candidate
         yield
         for active_run in tuple(_active_runs.values()):
             active_run.cancellation_requested.set()
@@ -707,8 +709,8 @@ def create_app(
     catalog_operation = load_bundle()["rest_operations"]["catalog_snapshot"]
 
     @app.get(catalog_operation["route"], include_in_schema=False)
-    async def public_catalog_snapshot() -> dict[str, Any]:
-        payload = builtin_frozen_catalog().public_snapshot(
+    async def public_catalog_snapshot(request: Request) -> dict[str, Any]:
+        payload = request.app.state.frozen_catalog.public_snapshot(
             protocol_digest=bundle_digest(),
         )
         validate_response(

@@ -132,8 +132,11 @@ def test_catalog_snapshot_publishes_exact_port_type_contracts() -> None:
             "contract_kind": "port_type",
             "contract_id": descriptor["contract_id"],
             "contract_version": descriptor["contract_version"],
-            "contract_digest": reference["contract_digest"],
+            "contract_digest": EXPECTED_PORT_TYPE_DIGESTS[
+                descriptor["contract_id"]
+            ],
         }
+        assert reference["contract_digest"] == canonical_sha256(descriptor)
         assert descriptor["schema_namespace"] == (
             "protein-workbench-contract/v2"
         )
@@ -301,6 +304,39 @@ def test_codec_rejects_malformed_and_noncanonical_values() -> None:
         )
 
 
+@pytest.mark.parametrize(
+    ("type_id", "malformed"),
+    [
+        ("protein.sequence", ProteinSequence(123)),
+        ("protein.sequence", ProteinSequence("MA", [1, 2])),
+        (
+            "candidate.collection",
+            CandidateCollection(
+                "candidates",
+                "protein.sequence",
+                [Candidate("candidate-1", ProteinStructure("ATOM\n"))],
+            ),
+        ),
+        (
+            "score.collection",
+            ScoreCollection("scores", [Score("metric", "not-a-number")]),
+        ),
+        ("residue.track.sasa", ResidueTrack(["buried"], None)),
+    ],
+)
+def test_runtime_validators_reject_malformed_complete_values(
+    type_id: str,
+    malformed: object,
+) -> None:
+    definition = builtin_frozen_catalog().require_port_type(type_id, "2.0.0")
+
+    with pytest.raises(
+        PortValueError,
+        match="requires|must|mismatch|does not match",
+    ):
+        definition.encode(malformed)
+
+
 @pytest.mark.parametrize("invalid_value", [-0.0, float("nan"), float("inf")])
 def test_codec_rejects_non_i_json_numbers(invalid_value: float) -> None:
     score_type = builtin_frozen_catalog().require_port_type(
@@ -327,6 +363,8 @@ def test_behavior_declarations_require_exact_versions_and_i_json() -> None:
             "2.0.0",
             {"threshold": float("nan")},
         )
+    with pytest.raises(CatalogBuildError, match="exact semantic version"):
+        BehaviorReference("example.validate", "2.0.0+local", {})
 
 
 def test_behavior_declaration_parameters_are_deeply_immutable() -> None:

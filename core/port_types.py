@@ -10,8 +10,9 @@ import hashlib
 import json
 import math
 import re
+import types
 from types import MappingProxyType
-from typing import Any, Callable
+from typing import Any, Callable, Union, get_args, get_origin, get_type_hints
 
 import rfc8785
 
@@ -39,8 +40,7 @@ PORT_TYPE_VERSION = "2.0.0"
 _I_JSON_INTEGER_LIMIT = 9_007_199_254_740_991
 _IDENTIFIER = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.:/+-]*$")
 _SEMANTIC_VERSION = re.compile(
-    r"^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)"
-    r"(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$"
+    r"^[0-9]+\.[0-9]+\.[0-9]+(?:-[0-9A-Za-z.-]+)?$"
 )
 
 
@@ -62,7 +62,11 @@ def _validate_identifier(value: str, field_name: str) -> None:
 
 
 def _validate_version(value: str, field_name: str) -> None:
-    if not isinstance(value, str) or _SEMANTIC_VERSION.fullmatch(value) is None:
+    if (
+        not isinstance(value, str)
+        or not 5 <= len(value) <= 64
+        or _SEMANTIC_VERSION.fullmatch(value) is None
+    ):
         raise CatalogBuildError(f"{field_name} must be an exact semantic version")
 
 
@@ -170,6 +174,166 @@ _VALUE_TYPE_BY_KIND = {
     "structure_alignment": StructureAlignment,
     "text": str,
 }
+
+
+def _require_runtime_type(
+    value: Any,
+    expected: Any,
+    *,
+    path: str,
+) -> None:
+    if expected is Any or expected is object:
+        _value_to_wire(value, path=path)
+        return
+
+    origin = get_origin(expected)
+    arguments = get_args(expected)
+    if origin in (Union, types.UnionType):
+        failures: list[PortValueError] = []
+        for alternative in arguments:
+            try:
+                _require_runtime_type(value, alternative, path=path)
+            except PortValueError as error:
+                failures.append(error)
+            else:
+                return
+        raise PortValueError(
+            f"{path} does not match any declared runtime value type"
+        ) from failures[0]
+
+    if expected is type(None):
+        if value is not None:
+            raise PortValueError(f"{path} must be null")
+        return
+
+    if origin is list or expected is list:
+        if type(value) is not list:
+            raise PortValueError(f"{path} must be a list")
+        item_type = arguments[0] if arguments else Any
+        for index, item in enumerate(value):
+            _require_runtime_type(item, item_type, path=f"{path}[{index}]")
+        return
+
+    if origin is dict or expected is dict:
+        if type(value) is not dict:
+            raise PortValueError(f"{path} must be an object mapping")
+        key_type, item_type = arguments if arguments else (Any, Any)
+        for key, item in value.items():
+            _require_runtime_type(key, key_type, path=f"{path}.<key>")
+            _require_runtime_type(item, item_type, path=f"{path}[{key!r}]")
+        return
+
+    if origin is tuple:
+        if type(value) is not tuple or len(value) != len(arguments):
+            raise PortValueError(
+                f"{path} must be a {len(arguments)}-item tuple"
+            )
+        for index, (item, item_type) in enumerate(zip(value, arguments, strict=True)):
+            _require_runtime_type(item, item_type, path=f"{path}[{index}]")
+        return
+
+    if expected is float:
+        if isinstance(value, bool) or not isinstance(value, (int, float)):
+            raise PortValueError(f"{path} must be numeric")
+        _value_to_wire(value, path=path)
+        return
+
+    if expected is int:
+        if type(value) is not int:
+            raise PortValueError(f"{path} must be an integer")
+        _value_to_wire(value, path=path)
+        return
+
+    if expected in (str, bool):
+        if type(value) is not expected:
+            raise PortValueError(f"{path} must be {expected.__name__}")
+        _value_to_wire(value, path=path)
+        return
+
+    if isinstance(expected, type) and is_dataclass(expected):
+        if type(value) is not expected:
+            raise PortValueError(f"{path} must be {expected.__name__}")
+        _validate_dataclass_value(value, path=path)
+        return
+
+    raise PortValueError(f"{path} uses an unsupported runtime type declaration")
+
+
+def _validate_dataclass_value(value: Any, *, path: str) -> None:
+    annotations = get_type_hints(type(value))
+    for item in fields(value):
+        _require_runtime_type(
+            getattr(value, item.name),
+            annotations[item.name],
+            path=f"{path}.{item.name}",
+        )
+
+
+def _validate_builtin_semantics(value_kind: str, value: Any) -> None:
+    if is_dataclass(value):
+        _validate_dataclass_value(value, path="$.value")
+
+    if value_kind == "candidate_collection":
+        expected_candidate_types = {
+            "protein.sequence": ProteinSequence,
+            "protein.structure": ProteinStructure,
+            "structure.alignment": StructureAlignment,
+        }
+        expected_candidate_type = expected_candidate_types.get(value.item_type)
+        if expected_candidate_type is None:
+            raise PortValueError(
+                "$.value.item_type must name a supported Candidate data type"
+            )
+        for index, candidate in enumerate(value.items):
+            if type(candidate.data) is not expected_candidate_type:
+                raise PortValueError(
+                    "$.value.items"
+                    f"[{index}].data mismatches item_type {value.item_type}"
+                )
+
+    if value_kind == "sasa_residue_track":
+        for index, item in enumerate(value.values):
+            if item is value.sentinel:
+                continue
+            if isinstance(item, bool) or not isinstance(item, (int, float)):
+                raise PortValueError(
+                    f"$.value.values[{index}] must be numeric or the sentinel"
+                )
+
+    if value_kind == "secondary_structure_residue_track":
+        for index, item in enumerate(value.values):
+            if item is value.sentinel:
+                continue
+            if type(item) is not str:
+                raise PortValueError(
+                    f"$.value.values[{index}] must be text or the sentinel"
+                )
+
+    if value_kind == "protein_prompt" and value.target_layout is not None:
+        expected_length = value.target_layout.length
+        for field_name in (
+            "sequence_track",
+            "structure_track",
+            "structure_visibility_track",
+            "secondary_structure_track",
+            "sasa_track",
+        ):
+            track = getattr(value, field_name)
+            if track is not None and len(track.values) != expected_length:
+                raise PortValueError(
+                    f"$.value.{field_name} length must match target_layout"
+                )
+
+    if value_kind == "residue_map":
+        for index, (source, target, operation) in enumerate(value.mappings):
+            if source < 0 or target < 0:
+                raise PortValueError(
+                    f"$.value.mappings[{index}] indices must be non-negative"
+                )
+            if operation not in {"match", "insert", "delete"}:
+                raise PortValueError(
+                    f"$.value.mappings[{index}] operation must be declared"
+                )
 
 
 def _value_to_wire(value: Any, *, path: str = "$.value") -> Any:
@@ -462,6 +626,7 @@ class PortTypeDefinition:
             type(item) is str for item in value
         ):
             raise PortValueError("file.path.collection requires only string paths")
+        _validate_builtin_semantics(self.value_kind, value)
         _value_to_wire(value)
 
     def encode(self, value: Any) -> bytes:
