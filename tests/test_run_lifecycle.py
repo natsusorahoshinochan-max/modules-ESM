@@ -87,10 +87,17 @@ class BlockingLifecycleModule(WorkflowModule):
         parameters: dict[str, object],
         context: RunContext,
     ) -> dict[str, object]:
-        del inputs, context
+        del inputs
         started = Path(str(parameters["started_path"]))
         release = Path(str(parameters["release_path"]))
         finished = Path(str(parameters["finished_path"]))
+        if parameters.get("stage_in_temp"):
+            staged = (
+                Path(str(context.temp_dir))
+                / "simplefold-fold-forced-cancellation"
+            )
+            staged.mkdir(parents=True)
+            (staged / "verified-provider-object").write_text("staged")
         started.touch()
         try:
             deadline = time.monotonic() + 5
@@ -244,7 +251,12 @@ def _saved_echo_project(client: TestClient, name: str) -> str:
     return project_id
 
 
-def _saved_blocking_project(client: TestClient, name: str) -> str:
+def _saved_blocking_project(
+    client: TestClient,
+    name: str,
+    *,
+    stage_in_temp: bool = False,
+) -> str:
     control_dir = Path(tempfile.mkdtemp(prefix="blocking-control-"))
     BlockingLifecycleModule.started = control_dir / "started"
     BlockingLifecycleModule.release = control_dir / "release"
@@ -270,6 +282,7 @@ def _saved_blocking_project(client: TestClient, name: str) -> str:
                         "started_path": str(BlockingLifecycleModule.started),
                         "release_path": str(BlockingLifecycleModule.release),
                         "finished_path": str(BlockingLifecycleModule.finished),
+                        "stage_in_temp": stage_in_temp,
                     },
                 }
             ],
@@ -1350,9 +1363,24 @@ def test_cancellation_timeout_fails_and_isolates_the_later_run(
         project_id = _saved_blocking_project(
             client,
             "cancellation-timeout",
+            stage_in_temp=True,
         )
         run_id = client.post(f"/api/projects/{project_id}/run").json()["run_id"]
         assert _wait_for_path(BlockingLifecycleModule.started)
+        timed_out_temp = Path(
+            str(
+                server.project_manager.run_context(
+                    project_id,
+                    run_id,
+                    "blocking",
+                ).temp_dir
+            )
+        )
+        assert (
+            timed_out_temp
+            / "simplefold-fold-forced-cancellation"
+            / "verified-provider-object"
+        ).is_file()
         with client.websocket_connect(
             f"/api/projects/{project_id}/run/{run_id}/ws"
         ) as websocket:
@@ -1392,7 +1420,117 @@ def test_cancellation_timeout_fails_and_isolates_the_later_run(
     assert not any(event["type"] == "run_cancelled" for event in events)
     assert timed_out_manifest["status"] == "failed"
     assert timed_out_manifest["failures"][-1]["kind"] == "cancellation_timeout"
+    assert not timed_out_temp.exists()
     assert later.status_code == 200
     assert later_run_id != run_id
     assert later_events[-1]["type"] == "run_completed"
     assert later_manifest["status"] == "completed"
+
+
+def test_cancellation_cleanup_failure_is_visible(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        server,
+        "RUN_CANCELLATION_TIMEOUT_SECONDS",
+        0.05,
+    )
+    original_cleanup = RunContext.cleanup_temporary_work
+
+    def fail_cleanup(context: RunContext) -> None:
+        del context
+        raise PermissionError("fixture cleanup failure")
+
+    monkeypatch.setattr(RunContext, "cleanup_temporary_work", fail_cleanup)
+    with TestClient(server.app) as client:
+        project_id = _saved_blocking_project(
+            client,
+            "cancellation-cleanup-failure",
+            stage_in_temp=True,
+        )
+        run_id = client.post(f"/api/projects/{project_id}/run").json()["run_id"]
+        assert _wait_for_path(BlockingLifecycleModule.started)
+        with client.websocket_connect(
+            f"/api/projects/{project_id}/run/{run_id}/ws"
+        ) as websocket:
+            assert client.post(
+                f"/api/projects/{project_id}/run/{run_id}/cancel",
+            ).json()["status"] == "cancellation_requested"
+            events = []
+            while not (
+                events
+                and events[-1]["type"] == "run_failed"
+            ):
+                events.append(websocket.receive_json())
+        manifest = read_run_manifest(
+            server.project_manager.run_dir(project_id, run_id)
+        )
+        context = server.project_manager.run_context(
+            project_id,
+            run_id,
+            "blocking",
+        )
+
+    expected_cleanup_failure = {
+        "status": "failed",
+        "error_type": "PermissionError",
+    }
+    assert events[-1]["error"]["cleanup_failure"] == (
+        expected_cleanup_failure
+    )
+    assert "temporary cleanup failed (PermissionError)" in (
+        manifest["failures"][-1]["message"]
+    )
+    original_cleanup(context)
+
+
+def test_forced_cleanup_does_not_block_the_server_event_loop(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        server,
+        "RUN_CANCELLATION_TIMEOUT_SECONDS",
+        0.05,
+    )
+    original_cleanup = RunContext.cleanup_temporary_work
+    cleanup_started = threading.Event()
+    cleanup_release = threading.Event()
+
+    def delayed_cleanup(context: RunContext) -> None:
+        cleanup_started.set()
+        cleanup_release.wait(timeout=2)
+        original_cleanup(context)
+
+    monkeypatch.setattr(RunContext, "cleanup_temporary_work", delayed_cleanup)
+    with TestClient(server.app) as client:
+        project_id = _saved_blocking_project(
+            client,
+            "nonblocking-cancellation-cleanup",
+            stage_in_temp=True,
+        )
+        run_id = client.post(f"/api/projects/{project_id}/run").json()["run_id"]
+        assert _wait_for_path(BlockingLifecycleModule.started)
+        with client.websocket_connect(
+            f"/api/projects/{project_id}/run/{run_id}/ws"
+        ) as websocket:
+            assert client.post(
+                f"/api/projects/{project_id}/run/{run_id}/cancel",
+            ).json()["status"] == "cancellation_requested"
+            assert cleanup_started.wait(timeout=2)
+            release_timer = threading.Timer(0.5, cleanup_release.set)
+            release_timer.start()
+            started = time.monotonic()
+            response = client.get("/api/projects")
+            elapsed = time.monotonic() - started
+            cleanup_release.set()
+            release_timer.join()
+            events = []
+            while not (
+                events
+                and events[-1]["type"] == "run_failed"
+            ):
+                events.append(websocket.receive_json())
+
+    assert response.status_code == 200
+    assert elapsed < 0.35
+    assert events[-1]["error"]["kind"] == "cancellation_timeout"

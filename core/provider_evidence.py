@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -12,6 +13,15 @@ from uuid import uuid4
 
 EVIDENCE_VERSION = 1
 _MAX_EVENT_BYTES = 16 * 1024
+_OPAQUE_API_TOKEN = re.compile(
+    r"\b(?:"
+    r"(?:sk|pk)-[A-Za-z0-9_-]{8,}|"
+    r"hf_[A-Za-z0-9_-]{8,}|"
+    r"gh[pousr]_[A-Za-z0-9]{20,}|"
+    r"github_pat_[A-Za-z0-9_]{20,}|"
+    r"(?:AKIA|ASIA)[A-Z0-9]{16}"
+    r")\b"
+)
 _IDENTITY_KEYS = frozenset({
     "algorithm",
     "artifact_sha256",
@@ -124,7 +134,7 @@ def _bounded(value: Any) -> Any:
     if value is None or isinstance(value, (bool, int, float)):
         return value
     if isinstance(value, str):
-        return value[:512]
+        return _OPAQUE_API_TOKEN.sub("[REDACTED]", value[:512])
     if isinstance(value, (list, tuple)):
         return [_bounded(item) for item in value[:128]]
     if isinstance(value, dict):

@@ -6,6 +6,7 @@ from typing import Any
 
 from core.module_definition import ModuleDefinition
 from core.run_context import RunContext
+from core.storage import validate_identifier
 from core.workflow_module import WorkflowModule
 from datatypes import (
     CandidateCollection,
@@ -66,11 +67,19 @@ class SimpleFoldEvaluateModule(WorkflowModule):
         all_scores_entries = []
 
         for parent_id, struct in structures:
-            scores = evaluate_structure(
-                structure=struct,
-                model_name=model_name,
-                project_dir=context.temp_dir,
+            parent_id = validate_identifier(
+                parent_id,
+                "candidate_id",
             )
+            with context.temporary_directory(
+                prefix="simplefold-evaluate"
+            ) as invocation_dir:
+                scores = evaluate_structure(
+                    structure=struct,
+                    model_name=model_name,
+                    project_dir=str(invocation_dir),
+                    call_details={"candidate_id": parent_id},
+                )
 
             # Update score subjects to reference the parent candidate
             for entry in scores.entries:

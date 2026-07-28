@@ -1,11 +1,13 @@
 """SimpleFold Fold: folds protein sequences using lightweight 100M model."""
 
+import hashlib
 import uuid
 from pathlib import Path
 from typing import Any
 
 from core.module_definition import ModuleDefinition
 from core.run_context import RunContext
+from core.storage import StoragePathError, validate_identifier
 from core.workflow_module import WorkflowModule
 from datatypes import (
     Candidate,
@@ -70,16 +72,31 @@ class SimpleFoldFoldModule(WorkflowModule):
         all_scores_entries = []
 
         for parent_id, seq in sequences:
-            structures, scores = fold_sequence(
-                sequence=seq,
-                model_name=model_name,
-                num_steps=num_steps,
-                num_samples=num_samples,
-                project_dir=context.temp_dir,
+            parent_id = validate_identifier(
+                parent_id,
+                "parent_candidate_id",
             )
+            candidate_ids = [
+                self._candidate_id(context.run_id, parent_id, sample_idx)
+                for sample_idx in range(num_samples)
+            ]
+            with context.temporary_directory(
+                prefix="simplefold-fold"
+            ) as invocation_dir:
+                structures, scores = fold_sequence(
+                    sequence=seq,
+                    model_name=model_name,
+                    num_steps=num_steps,
+                    num_samples=num_samples,
+                    project_dir=str(invocation_dir),
+                    call_details={
+                        "parent_candidate_id": parent_id,
+                        "candidate_ids": candidate_ids,
+                    },
+                )
 
             for sample_idx, struct in enumerate(structures):
-                cid = f"sfold-{context.run_id}-{parent_id}-{sample_idx}"
+                cid = candidate_ids[sample_idx]
                 cand = Candidate(
                     candidate_id=cid,
                     data=struct,
@@ -111,3 +128,18 @@ class SimpleFoldFoldModule(WorkflowModule):
                 entries=all_scores_entries,
             ),
         }
+
+    @staticmethod
+    def _candidate_id(
+        run_id: str,
+        parent_id: str,
+        sample_index: int,
+    ) -> str:
+        candidate_id = f"sfold-{run_id}-{parent_id}-{sample_index}"
+        try:
+            return validate_identifier(candidate_id, "candidate_id")
+        except StoragePathError:
+            digest = hashlib.sha256(
+                f"{run_id}\0{parent_id}\0{sample_index}".encode()
+            ).hexdigest()
+            return f"sfold-{digest}-{sample_index}"

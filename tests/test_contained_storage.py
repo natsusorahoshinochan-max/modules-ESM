@@ -4,6 +4,7 @@ from concurrent.futures import ThreadPoolExecutor
 import os
 from pathlib import Path
 import pickle
+import shutil
 import threading
 from types import SimpleNamespace
 
@@ -523,7 +524,10 @@ def test_provider_mutable_work_uses_run_scoped_node_directory(
     observed: dict[str, str] = {}
 
     def fake_evaluate_structure(**kwargs: object) -> ScoreCollection:
-        observed["project_dir"] = str(kwargs["project_dir"])
+        provider_working_dir = Path(str(kwargs["project_dir"]))
+        observed["project_dir"] = str(provider_working_dir)
+        assert provider_working_dir.is_dir()
+        assert not provider_working_dir.is_symlink()
         return ScoreCollection(collection_id="scores", entries=[])
 
     monkeypatch.setattr(
@@ -537,7 +541,113 @@ def test_provider_mutable_work_uses_run_scoped_node_directory(
         context,
     )
 
-    assert observed["project_dir"] == context.temp_dir
+    provider_working_dir = Path(observed["project_dir"])
+    assert provider_working_dir.parent == Path(str(context.temp_dir))
+    assert not provider_working_dir.exists()
+    assert not provider_working_dir.is_symlink()
+
+
+def test_provider_mutable_work_rejects_symlinked_node_temp(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    context = RunContext(
+        str(tmp_path / "project"),
+        "simplefold",
+        run_id="run-a",
+    )
+    node_temp = Path(str(context.temp_dir))
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    node_temp.parent.mkdir(parents=True)
+    node_temp.symlink_to(outside, target_is_directory=True)
+    provider = pytest.fail
+    monkeypatch.setattr(
+        "modules.simplefold_adapter.evaluate_structure",
+        provider,
+    )
+
+    with pytest.raises(StoragePathError, match="temporary_directory"):
+        SimpleFoldEvaluateModule().run(
+            {"structure": ProteinStructure(pdb_string="END\n")},
+            {},
+            context,
+        )
+
+    assert list(outside.iterdir()) == []
+
+
+def test_provider_mutable_work_removes_invocation_after_failure(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    context = RunContext(
+        str(tmp_path / "project"),
+        "simplefold",
+        run_id="run-a",
+    )
+    observed: dict[str, Path] = {}
+
+    def fail_evaluate_structure(**kwargs: object) -> ScoreCollection:
+        working_dir = Path(str(kwargs["project_dir"]))
+        observed["working_dir"] = working_dir
+        (working_dir / "partial-provider-state").write_text("partial")
+        raise RuntimeError("provider failed")
+
+    monkeypatch.setattr(
+        "modules.simplefold_adapter.evaluate_structure",
+        fail_evaluate_structure,
+    )
+
+    with pytest.raises(RuntimeError, match="provider failed"):
+        SimpleFoldEvaluateModule().run(
+            {"structure": ProteinStructure(pdb_string="END\n")},
+            {},
+            context,
+        )
+
+    assert not observed["working_dir"].exists()
+
+
+def test_provider_failure_is_not_masked_by_cleanup_failure(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    context = RunContext(
+        str(tmp_path / "project"),
+        "simplefold",
+        run_id="run-a",
+    )
+    observed: dict[str, Path] = {}
+    real_rmtree = shutil.rmtree
+
+    def fail_evaluate_structure(**kwargs: object) -> ScoreCollection:
+        observed["working_dir"] = Path(str(kwargs["project_dir"]))
+        raise ValueError("provider failed")
+
+    def fail_cleanup(*args: object, **kwargs: object) -> None:
+        del args, kwargs
+        raise PermissionError("cleanup failed")
+
+    setattr(fail_cleanup, "avoids_symlink_attacks", True)
+    monkeypatch.setattr(
+        "modules.simplefold_adapter.evaluate_structure",
+        fail_evaluate_structure,
+    )
+    monkeypatch.setattr("core.run_context.shutil.rmtree", fail_cleanup)
+
+    with pytest.raises(ValueError, match="provider failed") as raised:
+        SimpleFoldEvaluateModule().run(
+            {"structure": ProteinStructure(pdb_string="END\n")},
+            {},
+            context,
+        )
+
+    assert any(
+        "cleanup also failed: PermissionError" in note
+        for note in (raised.value.__notes__ or [])
+    )
+    real_rmtree(observed["working_dir"])
 
 
 def test_execute_api_rejects_import_path_outside_project_inputs(

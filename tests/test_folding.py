@@ -436,6 +436,44 @@ class TestSimpleFoldFoldModule:
             call_kwargs = mock_fold.call_args.kwargs
             assert call_kwargs["num_steps"] == 100
 
+    def test_maximum_source_ids_produce_a_manifest_safe_candidate_id(
+        self,
+    ) -> None:
+        from core.storage import validate_identifier
+        from modules.simplefold_fold.module import SimpleFoldFoldModule
+
+        mock_structs, mock_scores = _make_mock_sf_fold_result()
+        parent_id = "p" * 128
+        with patch(
+            "modules.simplefold_adapter.fold_sequence",
+            return_value=(mock_structs, mock_scores),
+        ) as mock_fold:
+            result = SimpleFoldFoldModule().run(
+                {
+                    "candidates": CandidateCollection(
+                        collection_id="test-coll",
+                        item_type="protein.sequence",
+                        items=[Candidate(
+                            candidate_id=parent_id,
+                            data=ProteinSequence(sequence="AGS"),
+                        )],
+                    ),
+                },
+                {},
+                RunContext("/tmp/test", "n1", run_id="r" * 128),
+            )
+
+        candidate = result["candidates"].items[0]
+        assert validate_identifier(
+            candidate.candidate_id,
+            "candidate_id",
+        ) == candidate.candidate_id
+        assert candidate.parent_ids == [parent_id]
+        assert mock_fold.call_args.kwargs["call_details"] == {
+            "parent_candidate_id": parent_id,
+            "candidate_ids": [candidate.candidate_id],
+        }
+
 
 # ── SimpleFold Evaluate Module ───────────────────────────────────────
 

@@ -1081,6 +1081,55 @@ def test_fresh_provider_evidence_binds_run_node_and_candidate(
     assert "pdb_string" not in event
 
 
+def test_provider_evidence_redacts_token_shaped_candidate_ids(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    from core.provider_contract import esm_provider_identity
+    from core.provider_evidence import record_provider_call_result
+
+    evidence_path = _enable_gate(
+        monkeypatch,
+        tmp_path,
+        "fresh-remote-3gb1",
+    )
+    candidate_id = "sk-123456789ABCDE"
+    context = RunContext(
+        str(tmp_path),
+        "final_fold",
+        run_id="fresh-run",
+    )
+    token = context.activate()
+    try:
+        context.record_provider_call(
+            "biohub",
+            "fold",
+            model="esmfold2-fast-2026-05",
+            details={"candidate_id": candidate_id},
+        )
+        record_provider_call_result(
+            provider="biohub",
+            operation="esmfold2.fold",
+            model="esmfold2-fast-2026-05",
+            provider_identity=esm_provider_identity(),
+            effective_seed=None,
+            seed_control="unsupported_by_provider",
+            result_summary={
+                "input_sequence_length": 3,
+                "input_sequence_sha256": "1" * 64,
+                "pdb_bytes": 80,
+                "pdb_sha256": "2" * 64,
+                "score_ids": ["ptm"],
+            },
+        )
+    finally:
+        context.deactivate(token)
+
+    event = _events(evidence_path)[0]
+    assert event["candidate_id"] == "[REDACTED]"
+    assert candidate_id not in evidence_path.read_text()
+
+
 def test_required_provider_unavailability_is_a_failure(monkeypatch) -> None:
     from tests.acceptance.conftest import require_ready
 

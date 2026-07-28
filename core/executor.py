@@ -44,8 +44,14 @@ class CancellationTimeoutError(RuntimeError):
 
     kind = "cancellation_timeout"
 
-    def __init__(self, timeout: float) -> None:
+    def __init__(
+        self,
+        timeout: float,
+        *,
+        cleanup_failure: str | None = None,
+    ) -> None:
         self.timeout = timeout
+        self.cleanup_failure = cleanup_failure
         super().__init__(
             "Active Module work did not stop before cancellation timeout"
         )
@@ -53,6 +59,10 @@ class CancellationTimeoutError(RuntimeError):
 
 class _ProcessCancellationTimeout(RuntimeError):
     """A worker process required forceful termination after cancellation."""
+
+    def __init__(self, *, cleanup_failure: str | None = None) -> None:
+        self.cleanup_failure = cleanup_failure
+        super().__init__("Worker process required forceful termination")
 
 
 class _ProcessModuleError(RuntimeError):
@@ -839,7 +849,17 @@ class Executor:
                     pass
                 apply_manifest_events()
                 if timed_out:
-                    raise _ProcessCancellationTimeout from None
+                    cleanup_failure = None
+                    if not process.is_alive():
+                        try:
+                            await asyncio.to_thread(
+                                context.cleanup_temporary_work
+                            )
+                        except BaseException as cleanup_error:
+                            cleanup_failure = type(cleanup_error).__name__
+                    raise _ProcessCancellationTimeout(
+                        cleanup_failure=cleanup_failure,
+                    ) from None
                 raise
             finally:
                 parent_connection.close()
@@ -908,9 +928,10 @@ class Executor:
                     raise CancellationTimeoutError(cancellation_timeout)
                 try:
                     await work
-                except _ProcessCancellationTimeout:
+                except _ProcessCancellationTimeout as error:
                     raise CancellationTimeoutError(
-                        cancellation_timeout
+                        cancellation_timeout,
+                        cleanup_failure=error.cleanup_failure,
                     ) from None
                 except (asyncio.CancelledError, Exception):
                     pass
@@ -1293,32 +1314,40 @@ class Executor:
                         raise
 
                     except CancellationTimeoutError as error:
+                        failure_message = (
+                            "Active Module work did not stop before "
+                            "cancellation timeout"
+                        )
+                        if error.cleanup_failure is not None:
+                            failure_message += (
+                                "; temporary cleanup failed "
+                                f"({error.cleanup_failure})"
+                            )
                         manifest_store.record_failure(
                             node_id=node_id,
                             kind=error.kind,
-                            message=(
+                            message=failure_message,
+                        )
+                        event_error: dict[str, Any] = {
+                            "kind": error.kind,
+                            "message": (
                                 "Active Module work did not stop before "
                                 "cancellation timeout"
                             ),
-                        )
+                            "timeout_ms": int(error.timeout * 1000),
+                            "module_id": node.module_id,
+                            "retryable": False,
+                        }
+                        if error.cleanup_failure is not None:
+                            event_error["cleanup_failure"] = {
+                                "status": "failed",
+                                "error_type": error.cleanup_failure,
+                            }
                         self._set_node_state(
                             node,
                             NodeState.FAILED,
                             manifest_store,
-                            event_details={
-                                "error": {
-                                    "kind": error.kind,
-                                    "message": (
-                                        "Active Module work did not stop before "
-                                        "cancellation timeout"
-                                    ),
-                                    "timeout_ms": int(
-                                        error.timeout * 1000
-                                    ),
-                                    "module_id": node.module_id,
-                                    "retryable": False,
-                                }
-                            },
+                            event_details={"error": event_error},
                         )
                         cancel_queued_nodes(
                             order[node_index + 1:],
@@ -1361,19 +1390,25 @@ class Executor:
                     manifest_store.set_status("failed")
                 except Exception:
                     pass
+                lifecycle_error: dict[str, Any] = {
+                    "kind": error.kind,
+                    "message": (
+                        "Active Module work did not stop before "
+                        "cancellation timeout"
+                    ),
+                    "timeout_ms": int(error.timeout * 1000),
+                    "retryable": False,
+                }
+                if error.cleanup_failure is not None:
+                    lifecycle_error["cleanup_failure"] = {
+                        "status": "failed",
+                        "error_type": error.cleanup_failure,
+                    }
                 self._emit_lifecycle(
                     RunEventType.RUN_FAILED,
                     status="failed",
                     duration_ms=elapsed_ms(),
-                    error={
-                        "kind": error.kind,
-                        "message": (
-                            "Active Module work did not stop before "
-                            "cancellation timeout"
-                        ),
-                        "timeout_ms": int(error.timeout * 1000),
-                        "retryable": False,
-                    },
+                    error=lifecycle_error,
                 )
                 raise
             except asyncio.CancelledError:

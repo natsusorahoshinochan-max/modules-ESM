@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import json
+import stat
 from collections import Counter
 from pathlib import Path
 from typing import Any
@@ -259,13 +260,19 @@ def test_simplefold_collection_items_use_independent_staging_namespaces(
         "ATOM      1  CA  ALA A   1       0.000   0.000   0.000"
         "  1.00  0.00           C\nEND\n"
     )
+    fold_calls: list[dict[str, object]] = []
+    evaluate_calls: list[dict[str, object]] = []
 
     def staged_fold(**kwargs: object) -> tuple[
         list[ProteinStructure],
         ScoreCollection,
     ]:
+        fold_calls.append(kwargs)
+        working_dir = Path(str(kwargs["project_dir"]))
+        assert working_dir.is_dir()
+        assert stat.S_IMODE(working_dir.stat().st_mode) == 0o700
         simplefold_adapter.validated_simplefold_model_dir(
-            Path(str(kwargs["project_dir"]))
+            working_dir
         )
         return (
             [ProteinStructure(pdb_string=pdb, source="simplefold")],
@@ -281,8 +288,12 @@ def test_simplefold_collection_items_use_independent_staging_namespaces(
         )
 
     def staged_evaluate(**kwargs: object) -> ScoreCollection:
+        evaluate_calls.append(kwargs)
+        working_dir = Path(str(kwargs["project_dir"]))
+        assert working_dir.is_dir()
+        assert stat.S_IMODE(working_dir.stat().st_mode) == 0o700
         simplefold_adapter.validated_simplefold_model_dir(
-            Path(str(kwargs["project_dir"]))
+            working_dir
         )
         return ScoreCollection(
             collection_id="evaluation-scores",
@@ -391,6 +402,48 @@ def test_simplefold_collection_items_use_independent_staging_namespaces(
     }, (
         "Observed fixed-name staging collisions on the second collection "
         "item; repaired behavior requires invocation-isolated staging."
+    )
+    assert [
+        call["call_details"]
+        for call in fold_calls
+    ] == [
+        {
+            "parent_candidate_id": "sequence-0",
+            "candidate_ids": ["sfold-fold-run-sequence-0-0"],
+        },
+        {
+            "parent_candidate_id": "sequence-1",
+            "candidate_ids": ["sfold-fold-run-sequence-1-0"],
+        },
+    ]
+    assert [
+        call["call_details"]
+        for call in evaluate_calls
+    ] == [
+        {"candidate_id": "structure-0"},
+        {"candidate_id": "structure-1"},
+    ]
+    fold_working_dirs = [
+        Path(str(call["project_dir"]))
+        for call in fold_calls
+    ]
+    evaluate_working_dirs = [
+        Path(str(call["project_dir"]))
+        for call in evaluate_calls
+    ]
+    assert len(set(fold_working_dirs)) == 2
+    assert len(set(evaluate_working_dirs)) == 2
+    assert all(
+        path.parent == Path(str(fold_context.temp_dir))
+        and not path.exists()
+        and not path.is_symlink()
+        for path in fold_working_dirs
+    )
+    assert all(
+        path.parent == Path(str(evaluate_context.temp_dir))
+        and not path.exists()
+        and not path.is_symlink()
+        for path in evaluate_working_dirs
     )
 
 
