@@ -4,7 +4,7 @@
 
 **Blocked by:** 10 — Produce and select intrinsic Observations.
 
-**Status:** awaiting-controller
+**Status:** completed
 
 - [x] Pairwise Context uses typed participant roles and records subject identity, exact reference Candidate identity/content digest, pairing mode, and result-defining normalization.
 - [x] Produced Observation contracts express fixed sets and controlled pass-through, union, or filter propagation while preserving source partitions and declared multiplicity.
@@ -55,3 +55,35 @@ this state.
   partition-contaminated Observation identity, and conflicting Candidate
   digests. All findings were repaired with regressions; both final review axes
   returned `APPROVE` at `16b254e`.
+
+## Controller cumulative acceptance
+
+Before Ticket 12 started, Controller independently accepted executor commit
+`39670d25ca92026556345e0d3beffbe27f289356` against the previously accepted
+Tickets 01–10 gate `257cdf7fa5b8e36753768aeba0b2a11d3792dc65`.
+
+- Joint Tickets 01–11 focused suites:
+  `uv run --no-sync python -m pytest -q tests/test_public_protocol_v2.py
+  tests/test_port_types_v2.py tests/test_module_packages_v2.py
+  tests/test_workflow_compiler_v2.py tests/test_run_execution_v2.py
+  tests/test_run_cancel_derive_v2.py tests/test_result_cache_v2.py
+  tests/test_scoring_v2.py tests/test_pairwise_scoring_v2.py` →
+  `287 passed`.
+- Cumulative routine gate:
+  `uv run --no-sync python scripts/verify_backend.py routine` →
+  `973 passed, 44 deselected`; retained result
+  `verification-results/routine/20260729T081456.978939Z-28910-782cddcdca52c25c`.
+- Deterministic acceptance:
+  `uv run --no-sync python scripts/verify_backend.py
+  deterministic-acceptance` → `9 passed, 5 deselected`; retained result
+  `verification-results/deterministic-acceptance/20260729T081651.030148Z-29794-af7c8a959bf048a3`.
+- Installed artifact:
+  `uv run --no-sync python scripts/verify_backend.py installed-package` →
+  `3 passed`; retained result
+  `verification-results/installed-package/20260729T081737.039385Z-30000-5e5ee58ecc909426`.
+- `git diff --check
+  257cdf7fa5b8e36753768aeba0b2a11d3792dc65...39670d25ca92026556345e0d3beffbe27f289356`
+  passed.
+
+No Controller regression was found, so Ticket 11 is accepted and Ticket 12
+may start.
