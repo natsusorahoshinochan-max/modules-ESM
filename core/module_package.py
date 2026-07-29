@@ -686,15 +686,17 @@ class ExecutionBindingDefinition:
         if not isinstance(self.implementation_identity, Mapping):
             raise CatalogBuildError("implementation_identity must be an object")
         randomness_parameters = tuple(self.effective_randomness_parameters)
-        if (
-            any(
-                not isinstance(parameter, str) or not parameter
-                for parameter in randomness_parameters
-            )
-            or len(set(randomness_parameters)) != len(randomness_parameters)
-        ):
+        if any(
+            not isinstance(parameter, str) or not parameter
+            for parameter in randomness_parameters
+        ) or len(set(randomness_parameters)) != len(randomness_parameters):
             raise CatalogBuildError(
                 "effective_randomness_parameters must contain unique names"
+            )
+        for parameter in randomness_parameters:
+            _require_identifier(
+                parameter,
+                "effective randomness parameter",
             )
         object.__setattr__(
             self,
@@ -1703,6 +1705,16 @@ def build_frozen_catalog(
                 raise CatalogBuildError(
                     f"Binding {binding.binding_id} effective randomness "
                     "references undeclared parameters"
+                )
+            ambiguous_randomness = (
+                set(binding.effective_randomness_parameters)
+                & set(node_definition.node_parameters)
+                & set(binding.binding_parameters)
+            )
+            if ambiguous_randomness:
+                raise CatalogBuildError(
+                    f"Binding {binding.binding_id} effective randomness must "
+                    "resolve from exactly one parameter scope"
                 )
             output_names = {
                 output["name"]

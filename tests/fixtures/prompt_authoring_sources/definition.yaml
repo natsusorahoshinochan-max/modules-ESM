@@ -112,4 +112,5 @@ node_parameters:
       - sequence-illegal-symbol
       - adapter-boundary
       - 3gb1-intent
+      - insertion-identity-collision
     default: canonical

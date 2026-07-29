@@ -85,6 +85,32 @@ def test_randomness_declaration_cannot_name_an_undeclared_parameter() -> None:
         )
 
 
+def test_randomness_declaration_has_one_unambiguous_parameter_scope() -> None:
+    broken_bindings = tuple(
+        (
+            replace(
+                binding,
+                binding_parameters={
+                    "effective_seed": {
+                        "parameter_scope": "scientific",
+                        "scientific_meaning": "Ambiguous duplicate seed.",
+                        "required": True,
+                        "type": "integer",
+                    },
+                },
+            )
+            if binding.binding_id == "prompt_authoring.random_mask.direct"
+            else binding
+        )
+        for binding in MODULE_PACKAGE.bindings
+    )
+
+    with pytest.raises(CatalogBuildError, match="exactly one parameter scope"):
+        build_frozen_catalog(
+            (replace(MODULE_PACKAGE, bindings=broken_bindings),)
+        )
+
+
 def test_random_mask_clears_only_seeded_assigned_sequence_positions(
     tmp_path: Path,
 ) -> None:
@@ -548,6 +574,31 @@ def test_masked_insertion_rejects_unknown_chain_constraints(
                 "protein_prompt",
             ),
         ),
+    )
+
+    assert projection["status"] == "failed"
+
+
+def test_masked_insertion_rejects_generated_residue_identity_collision(
+    tmp_path: Path,
+) -> None:
+    _, projection, _ = run_operation(
+        tmp_path,
+        operation="random_insert_masked",
+        node_parameters={
+            "effective_seed": 1,
+            "count": 1,
+            "eligible_chain_ids": ["A"],
+        },
+        source_edges=(
+            WorkflowEdge(
+                "source",
+                "protein_prompt",
+                "author",
+                "protein_prompt",
+            ),
+        ),
+        source_fixture="insertion-identity-collision",
     )
 
     assert projection["status"] == "failed"

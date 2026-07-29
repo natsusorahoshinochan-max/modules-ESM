@@ -234,6 +234,29 @@ class _Source:
                     ],
                 )
                 function_annotations = _annotations()
+            elif fixture == "insertion-identity-collision":
+                sequence_value = "A"
+                protein_sequence_value = "A"
+                source = ResidueLayout(
+                    chain_id="A",
+                    length=1,
+                    residue_ids=["A:masked.1.1"],
+                )
+                target = source
+                source_track = AlignedResidueTrack(source, ("A",))
+                source_structure_track = AlignedResidueTrack(source, (None,))
+                visibility_track = AlignedResidueTrack(source, (True,))
+                source_secondary_structure_track = AlignedResidueTrack(
+                    source,
+                    ("-",),
+                )
+                source_sasa_track = AlignedResidueTrack(source, (None,))
+                residue_map = ResidueMap(
+                    source_layout=source,
+                    target_layout=target,
+                    mappings=[(0, 0, "match")],
+                )
+                function_annotations = _annotations()
             if fixture == "adapter-boundary":
                 source_secondary_structure_track = AlignedResidueTrack(
                     source,
@@ -346,7 +369,10 @@ class _Source:
                         if fixture == "contradictory-residue-map"
                         else (
                             list(source_secondary_structure_track.values)
-                            if fixture == "3gb1-intent"
+                            if fixture in {
+                                "3gb1-intent",
+                                "insertion-identity-collision",
+                            }
                             else ["H", None, "-"]
                         )
                     )
