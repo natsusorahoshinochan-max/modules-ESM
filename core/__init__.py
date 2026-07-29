@@ -76,6 +76,15 @@ from core.run_execution_v2 import (
     V2RunService,
 )
 from core.run_manifest import RunManifest, RunManifestStore, read_run_manifest
+from core.scoring_v2 import (
+    SelectionError,
+    SelectionInput,
+    SelectionObjective,
+    SelectionResult,
+    resolve_selection_objective,
+    select_candidates,
+    validate_produced_score_collection,
+)
 from core.type_registry import TypeInfo, TypeRegistry
 from core.workflow_module import WorkflowModule
 from core.workflow_authoring_v2 import (
@@ -146,6 +155,11 @@ __all__ = [
     "RunLifecycleEvent",
     "RunManifest",
     "RunManifestStore",
+    "SelectionError",
+    "SelectionInput",
+    "SelectionObjective",
+    "SelectionResult",
+    "resolve_selection_objective",
     "ReadinessDeclaration",
     "SubscriberLimitError",
     "TypeInfo",
@@ -174,6 +188,8 @@ __all__ = [
     "canonical_json_bytes",
     "canonical_sha256",
     "read_run_manifest",
+    "select_candidates",
+    "validate_produced_score_collection",
     "LazyImplementationFactory",
     "CompiledWorkflow",
     "ContractLockEntry",

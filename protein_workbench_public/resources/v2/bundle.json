@@ -2163,6 +2163,87 @@
       ],
       "type": "object"
     },
+    "IntrinsicObservationContext": {
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "const": "intrinsic"
+        }
+      },
+      "required": [
+        "kind"
+      ],
+      "type": "object"
+    },
+    "SelectionInput": {
+      "additionalProperties": false,
+      "properties": {
+        "node_id": {
+          "$ref": "#/$defs/Identifier"
+        },
+        "output_port": {
+          "$ref": "#/$defs/Identifier"
+        }
+      },
+      "required": [
+        "node_id",
+        "output_port"
+      ],
+      "type": "object"
+    },
+    "SelectionObjective": {
+      "additionalProperties": false,
+      "properties": {
+        "candidate_input": {
+          "$ref": "#/$defs/SelectionInput"
+        },
+        "context_selector": {
+          "$ref": "#/$defs/IntrinsicObservationContext"
+        },
+        "match_cardinality": {
+          "const": "exactly_one"
+        },
+        "method": {
+          "$ref": "#/$defs/ContractReference"
+        },
+        "metric": {
+          "$ref": "#/$defs/ContractReference"
+        },
+        "missing_policy": {
+          "const": "error"
+        },
+        "objective_id": {
+          "$ref": "#/$defs/Identifier"
+        },
+        "score_collection_input": {
+          "$ref": "#/$defs/SelectionInput"
+        },
+        "utility_parameters": {
+          "$ref": "#/$defs/JsonObject"
+        },
+        "utility_transform": {
+          "$ref": "#/$defs/ContractReference"
+        },
+        "weight": {
+          "minimum": 0,
+          "type": "number"
+        }
+      },
+      "required": [
+        "objective_id",
+        "candidate_input",
+        "score_collection_input",
+        "metric",
+        "method",
+        "context_selector",
+        "utility_transform",
+        "utility_parameters",
+        "weight",
+        "match_cardinality",
+        "missing_policy"
+      ],
+      "type": "object"
+    },
     "UtilityTransformContractDescriptor": {
       "additionalProperties": false,
       "properties": {
@@ -2276,6 +2357,13 @@
         },
         "schema_version": {
           "const": "2.0.0"
+        },
+        "selection_objectives": {
+          "items": {
+            "$ref": "#/$defs/SelectionObjective"
+          },
+          "maxItems": 256,
+          "type": "array"
         },
         "workflow_id": {
           "$ref": "#/$defs/Identifier"

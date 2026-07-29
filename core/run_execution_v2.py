@@ -6,7 +6,7 @@ import base64
 import binascii
 from collections.abc import Callable, Mapping
 from contextlib import contextmanager
-from dataclasses import dataclass, field, fields, is_dataclass
+from dataclasses import dataclass, field, fields, is_dataclass, replace
 from datetime import datetime, timezone
 import hashlib
 import json
@@ -35,6 +35,7 @@ from core.port_types import (
 from core.process_control import signal_process_group
 from core.project import ProjectManager
 from core.run_manifest import sanitize_public_value
+from core.scoring_v2 import validate_produced_score_collection
 from core.storage import (
     StoragePathError,
     open_private_regular_file,
@@ -57,6 +58,7 @@ from datatypes import (
     ProteinSequence,
     ProteinStructure,
     ScoreCollection,
+    ScoreObservation,
     StructureAlignment,
 )
 
@@ -3728,11 +3730,25 @@ class V2RunService:
             for value_index, value in enumerate(output_values):
                 if type(value) is not ScoreCollection:
                     continue
+                normalized_scores: list[Any] = []
                 for score in value.entries:
-                    score.subjects = [
-                        normalized_ids.get(subject, subject)
-                        for subject in score.subjects
-                    ]
+                    if isinstance(score, ScoreObservation):
+                        normalized_scores.append(
+                            replace(
+                                score,
+                                candidate_id=normalized_ids.get(
+                                    score.candidate_id,
+                                    score.candidate_id,
+                                ),
+                            )
+                        )
+                    else:
+                        score.subjects = [
+                            normalized_ids.get(subject, subject)
+                            for subject in score.subjects
+                        ]
+                        normalized_scores.append(score)
+                value.entries[:] = normalized_scores
                 value.collection_id = (
                     "scores-"
                     + canonical_sha256(
@@ -3744,12 +3760,48 @@ class V2RunService:
                             "output_port": output_port,
                             "value_slot": value_index,
                             "scores": [
-                                {
-                                    "score_id": score.score_id,
-                                    "value": score.value,
-                                    "subjects": score.subjects,
-                                    "details": score.details,
-                                }
+                                (
+                                    {
+                                        "candidate_id": score.candidate_id,
+                                        "metric": {
+                                            "contract_kind": (
+                                                score.metric.contract_kind
+                                            ),
+                                            "contract_id": (
+                                                score.metric.contract_id
+                                            ),
+                                            "contract_version": (
+                                                score.metric.contract_version
+                                            ),
+                                            "contract_digest": (
+                                                score.metric.contract_digest
+                                            ),
+                                        },
+                                        "method": {
+                                            "contract_kind": (
+                                                score.method.contract_kind
+                                            ),
+                                            "contract_id": (
+                                                score.method.contract_id
+                                            ),
+                                            "contract_version": (
+                                                score.method.contract_version
+                                            ),
+                                            "contract_digest": (
+                                                score.method.contract_digest
+                                            ),
+                                        },
+                                        "context": score.context.to_public(),
+                                        "value": score.value,
+                                    }
+                                    if isinstance(score, ScoreObservation)
+                                    else {
+                                        "score_id": score.score_id,
+                                        "value": score.value,
+                                        "subjects": score.subjects,
+                                        "details": score.details,
+                                    }
+                                )
                                 for score in value.entries
                             ],
                         }
@@ -3761,6 +3813,8 @@ class V2RunService:
         self,
         node: ExecutionPlanNode,
         outputs: Any,
+        *,
+        inputs: Mapping[str, Any],
     ) -> tuple[list[dict[str, Any]], dict[tuple[str, str], list[Any]]]:
         if not isinstance(outputs, Mapping):
             raise PortValueError("Direct implementation output must be an object")
@@ -3804,6 +3858,21 @@ class V2RunService:
                 port_type.decode(item)
                 for item in encoded
             ]
+            if port_type.type_id == "score.collection":
+                binding = self._catalog.require_contract(*node.binding.key)
+                expected_candidate_ids = [
+                    candidate.candidate_id
+                    for input_value in inputs.values()
+                    for candidate in self._candidate_values(input_value)
+                ]
+                for value in decoded:
+                    validate_produced_score_collection(
+                        catalog=self._catalog,
+                        binding=binding,
+                        output_port=port_name,
+                        collection=value,
+                        expected_candidate_ids=expected_candidate_ids,
+                    )
             runtime[(node.node_id, port_name)] = decoded
             published.append(
                 {
@@ -4240,6 +4309,7 @@ class V2RunService:
                             self._validate_outputs(
                                 node,
                                 replayed_outputs,
+                                inputs=node_inputs,
                             )
                         )
                         if not any(
@@ -4480,6 +4550,7 @@ class V2RunService:
                 published, pending_runtime = self._validate_outputs(
                     node,
                     raw_outputs,
+                    inputs=node_inputs,
                 )
                 (
                     pending_typed_outputs,

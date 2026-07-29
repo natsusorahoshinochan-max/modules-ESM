@@ -1,7 +1,9 @@
 from datatypes.protein import (
     Candidate,
     CandidateCollection,
+    ExactContractReference,
     FunctionAnnotations,
+    IntrinsicObservationContext,
     ProteinPrompt,
     ProteinSequence,
     ProteinStructure,
@@ -10,6 +12,7 @@ from datatypes.protein import (
     ResidueTrack,
     Score,
     ScoreCollection,
+    ScoreObservation,
     StructureAlignment,
 )
 from datatypes.constraint_validation import (
@@ -20,7 +23,9 @@ from datatypes.constraint_validation import (
 __all__ = [
     "Candidate",
     "CandidateCollection",
+    "ExactContractReference",
     "FunctionAnnotations",
+    "IntrinsicObservationContext",
     "ProteinPrompt",
     "ProteinSequence",
     "ProteinStructure",
@@ -29,6 +34,7 @@ __all__ = [
     "ResidueTrack",
     "Score",
     "ScoreCollection",
+    "ScoreObservation",
     "StructureAlignment",
     "ProteinMPNNConstraints",
     "PROTEINMPNN_ALPHABET",

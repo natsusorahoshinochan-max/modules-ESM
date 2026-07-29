@@ -14,6 +14,11 @@ from core.parameter_contract import (
     parameter_value_contract,
 )
 from core.port_types import CatalogBuildError, FrozenCatalog, canonical_sha256
+from core.scoring_v2 import (
+    SelectionError,
+    SelectionObjective,
+    resolve_selection_objective,
+)
 from protein_workbench_public import ProtocolValidationError, validate_schema
 
 
@@ -165,6 +170,7 @@ class WorkflowDocument:
     nodes: tuple[WorkflowNodeInstance, ...]
     edges: tuple[WorkflowEdge, ...]
     contract_lock: tuple[ContractLockEntry, ...]
+    selection_objectives: tuple[SelectionObjective, ...] = ()
 
     def to_public(self) -> dict[str, Any]:
         return {
@@ -172,6 +178,10 @@ class WorkflowDocument:
             "workflow_id": self.workflow_id,
             "nodes": [node.to_public() for node in self.nodes],
             "edges": [edge.to_public() for edge in self.edges],
+            "selection_objectives": [
+                objective.to_public()
+                for objective in self.selection_objectives
+            ],
             "contract_lock": [
                 entry.to_public() for entry in self.contract_lock
             ],
@@ -236,6 +246,7 @@ class ExecutionPlan:
     edges: tuple[WorkflowEdge, ...]
     node_order: tuple[str, ...]
     resolved_contracts: tuple[ContractLockEntry, ...]
+    selection_objectives: tuple[SelectionObjective, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -307,22 +318,32 @@ def parse_workflow_document(payload: Mapping[str, Any]) -> WorkflowDocument:
             code,
             f"Workflow document is invalid: {error.reason}",
         ) from error
-    return WorkflowDocument(
-        schema_version=payload["schema_version"],
-        workflow_id=payload["workflow_id"],
-        nodes=tuple(
-            WorkflowNodeInstance.from_public(node)
-            for node in payload["nodes"]
-        ),
-        edges=tuple(
-            WorkflowEdge.from_public(edge)
-            for edge in payload["edges"]
-        ),
-        contract_lock=tuple(
-            ContractLockEntry.from_public(entry)
-            for entry in payload["contract_lock"]
-        ),
-    )
+    try:
+        return WorkflowDocument(
+            schema_version=payload["schema_version"],
+            workflow_id=payload["workflow_id"],
+            nodes=tuple(
+                WorkflowNodeInstance.from_public(node)
+                for node in payload["nodes"]
+            ),
+            edges=tuple(
+                WorkflowEdge.from_public(edge)
+                for edge in payload["edges"]
+            ),
+            contract_lock=tuple(
+                ContractLockEntry.from_public(entry)
+                for entry in payload["contract_lock"]
+            ),
+            selection_objectives=tuple(
+                SelectionObjective.from_public(objective)
+                for objective in payload.get("selection_objectives", ())
+            ),
+        )
+    except (CatalogBuildError, SelectionError, TypeError, ValueError) as error:
+        raise WorkflowDocumentError(
+            "malformed_request",
+            f"Workflow document is invalid: {error}",
+        ) from error
 
 
 def _reference_from_value(value: Any) -> ContractLockEntry | None:
@@ -351,6 +372,20 @@ def _reachable_contract_lock(
         ):
             contract = catalog.require_contract(kind, contract_id, version)
             pending.append(ContractLockEntry.from_public(contract.reference()))
+    for objective in workflow.selection_objectives:
+        for kind, reference in (
+            ("metric", objective.metric),
+            ("method", objective.method),
+            ("utility_transform", objective.utility_transform),
+        ):
+            contract = catalog.require_contract(
+                kind,
+                reference.contract_id,
+                reference.contract_version,
+            )
+            pending.append(
+                ContractLockEntry.from_public(contract.reference())
+            )
 
     reachable: dict[tuple[str, str, str], ContractLockEntry] = {}
     while pending:
@@ -695,6 +730,13 @@ def _validate_static_semantics(
             field_path=("edges",),
         )
 
+    _validate_selection_objectives(
+        workflow,
+        catalog,
+        nodes_by_id=nodes_by_id,
+        plan_nodes=plan_nodes,
+    )
+
     availability = {
         (
             snapshot["binding"]["contract_id"],
@@ -712,6 +754,120 @@ def _validate_static_semantics(
                 field_path=("nodes", node.node_id, "binding_id"),
             )
     return tuple(order)
+
+
+def _validate_selection_objectives(
+    workflow: WorkflowDocument,
+    catalog: FrozenCatalog,
+    *,
+    nodes_by_id: Mapping[str, WorkflowNodeInstance],
+    plan_nodes: Mapping[str, tuple[Any, Any]],
+) -> None:
+    objectives = workflow.selection_objectives
+    objective_ids = [objective.objective_id for objective in objectives]
+    if len(objective_ids) != len(set(objective_ids)):
+        raise WorkflowCompileError(
+            "duplicate_selection_objective",
+            "Selection Objective IDs must be unique",
+            field_path=("selection_objectives",),
+        )
+    if objectives and sum(objective.weight for objective in objectives) <= 0:
+        raise WorkflowCompileError(
+            "invalid_selection_objective",
+            "Selection Objectives require at least one positive weight",
+            field_path=("selection_objectives",),
+        )
+    for index, objective in enumerate(objectives):
+        objective_path = ("selection_objectives", index)
+        input_contracts: dict[str, Any] = {}
+        for field_name, input_reference, expected_type in (
+            (
+                "candidate_input",
+                objective.candidate_input,
+                "candidate.collection",
+            ),
+            (
+                "score_collection_input",
+                objective.score_collection_input,
+                "score.collection",
+            ),
+        ):
+            node = nodes_by_id.get(input_reference.node_id)
+            if node is None:
+                raise WorkflowCompileError(
+                    "invalid_selection_objective",
+                    f"{field_name} references a Node outside the Workflow",
+                    field_path=(*objective_path, field_name, "node_id"),
+                )
+            node_contract, binding = plan_nodes[node.node_id]
+            output = _port_map(node_contract, "outputs").get(
+                input_reference.output_port
+            )
+            if (
+                output is None
+                or output.get("port_type", {}).get("contract_id")
+                != expected_type
+            ):
+                raise WorkflowCompileError(
+                    "invalid_selection_objective",
+                    f"{field_name} must reference an exact {expected_type} "
+                    "output Port",
+                    node_id=node.node_id,
+                    field_path=(*objective_path, field_name, "output_port"),
+                )
+            input_contracts[field_name] = (node_contract, binding, output)
+
+        _, scoring_binding, _ = input_contracts["score_collection_input"]
+        requested_method = {
+            "contract_kind": "method",
+            "contract_id": objective.method.contract_id,
+            "contract_version": objective.method.contract_version,
+            "contract_digest": objective.method.contract_digest,
+        }
+        if scoring_binding.descriptor.get("method") != requested_method:
+            raise WorkflowCompileError(
+                "unsatisfied_selection_objective",
+                "Selected scoring Binding does not use requested Method",
+                node_id=objective.score_collection_input.node_id,
+                field_path=(*objective_path, "method"),
+            )
+        requested_metric = {
+            "contract_kind": "metric",
+            "contract_id": objective.metric.contract_id,
+            "contract_version": objective.metric.contract_version,
+            "contract_digest": objective.metric.contract_digest,
+        }
+        produced = [
+            declaration
+            for declaration in scoring_binding.descriptor.get(
+                "produced_observations",
+                (),
+            )
+            if declaration.get("output_port")
+            == objective.score_collection_input.output_port
+            and declaration.get("metric") == requested_metric
+            and declaration.get("context_profile")
+            == objective.context_selector.to_public()
+            and declaration.get("subject_grain") == "candidate"
+            and declaration.get("source_role") == "subject"
+            and declaration.get("guaranteed_multiplicity") == "one"
+        ]
+        if len(produced) != 1:
+            raise WorkflowCompileError(
+                "unsatisfied_selection_objective",
+                "Selected scoring Binding cannot guarantee the requested "
+                "intrinsic Observation with exactly-one multiplicity",
+                node_id=objective.score_collection_input.node_id,
+                field_path=(*objective_path, "metric"),
+            )
+        try:
+            resolve_selection_objective(objective, catalog)
+        except SelectionError as error:
+            raise WorkflowCompileError(
+                "invalid_selection_objective",
+                str(error),
+                field_path=objective_path,
+            ) from error
 
 
 def compile_workflow(
@@ -787,6 +943,10 @@ def compile_workflow(
             for node in nodes
         ],
         "edges": [edge.to_public() for edge in workflow.edges],
+        "selection_objectives": [
+            objective.to_public()
+            for objective in workflow.selection_objectives
+        ],
         "resolved_contracts": [
             entry.to_public() for entry in resolved_contracts
         ],
@@ -803,6 +963,7 @@ def compile_workflow(
         edges=workflow.edges,
         node_order=node_order,
         resolved_contracts=resolved_contracts,
+        selection_objectives=workflow.selection_objectives,
     )
     receipt = {
         "accepted": True,

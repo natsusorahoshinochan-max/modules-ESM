@@ -187,12 +187,56 @@ class Score:
     details: dict = field(default_factory=dict)
 
 
+@dataclass(frozen=True, slots=True)
+class ExactContractReference:
+    """Exact versioned scientific contract identity carried by typed values."""
+
+    contract_kind: str
+    contract_id: str
+    contract_version: str
+    contract_digest: str
+
+
+@dataclass(frozen=True, slots=True)
+class IntrinsicObservationContext:
+    """The one closed Context for an intrinsic Candidate measurement."""
+
+    kind: str = "intrinsic"
+
+    def to_public(self) -> dict[str, str]:
+        return {"kind": self.kind}
+
+
+@dataclass(frozen=True, slots=True)
+class ScoreObservation:
+    """A scientifically typed Candidate measurement.
+
+    ``value`` is interpreted by the exact Metric, Method, and Context but is
+    intentionally excluded from ``identity``.
+    """
+
+    candidate_id: str
+    metric: ExactContractReference
+    method: ExactContractReference
+    context: IntrinsicObservationContext
+    value: object
+
+    @property
+    def identity(self) -> tuple[object, ...]:
+        return (
+            self.candidate_id,
+            self.metric,
+            self.method,
+            self.context,
+        )
+
+
 @dataclass
 class ScoreCollection:
-    """Set of score entries produced by a scoring module."""
+    """Ordered legacy scores or v2 scientifically typed Observations."""
 
     collection_id: str
-    entries: list[Score] = field(default_factory=list)
+    entries: list[Score | ScoreObservation] = field(default_factory=list)
 
     def __len__(self) -> int:
         return len(self.entries)
@@ -203,6 +247,26 @@ class ScoreCollection:
     def manifest_facts(self) -> Iterator[dict[str, object]]:
         """Yield Candidate-bound scores for bounded durable provenance."""
         for entry in self.entries:
+            if isinstance(entry, ScoreObservation):
+                yield {
+                    "kind": "candidate_score_observation",
+                    "candidate_id": entry.candidate_id,
+                    "metric": {
+                        "contract_kind": entry.metric.contract_kind,
+                        "contract_id": entry.metric.contract_id,
+                        "contract_version": entry.metric.contract_version,
+                        "contract_digest": entry.metric.contract_digest,
+                    },
+                    "method": {
+                        "contract_kind": entry.method.contract_kind,
+                        "contract_id": entry.method.contract_id,
+                        "contract_version": entry.method.contract_version,
+                        "contract_digest": entry.method.contract_digest,
+                    },
+                    "context": entry.context.to_public(),
+                    "value": entry.value,
+                }
+                continue
             yield {
                 "kind": "candidate_score",
                 "score_id": entry.score_id,

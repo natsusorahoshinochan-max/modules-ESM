@@ -23,7 +23,9 @@ from core.parameter_contract import (
 from datatypes import (
     Candidate,
     CandidateCollection,
+    ExactContractReference,
     FunctionAnnotations,
+    IntrinsicObservationContext,
     ProteinMPNNConstraints,
     ProteinPrompt,
     ProteinSequence,
@@ -33,6 +35,7 @@ from datatypes import (
     ResidueTrack,
     Score,
     ScoreCollection,
+    ScoreObservation,
     StructureAlignment,
     validate_proteinmpnn_constraints,
 )
@@ -146,7 +149,9 @@ def _thaw_i_json(value: Any) -> Any:
 _DATACLASS_BY_TAG = {
     "candidate": Candidate,
     "candidate_collection": CandidateCollection,
+    "exact_contract_reference": ExactContractReference,
     "function_annotations": FunctionAnnotations,
+    "intrinsic_observation_context": IntrinsicObservationContext,
     "protein_prompt": ProteinPrompt,
     "protein_sequence": ProteinSequence,
     "protein_structure": ProteinStructure,
@@ -156,6 +161,7 @@ _DATACLASS_BY_TAG = {
     "residue_track": ResidueTrack,
     "score": Score,
     "score_collection": ScoreCollection,
+    "score_observation": ScoreObservation,
     "structure_alignment": StructureAlignment,
 }
 _TAG_BY_DATACLASS = {
@@ -194,6 +200,23 @@ def _require_runtime_type(
     origin = get_origin(expected)
     arguments = get_args(expected)
     if origin in (Union, types.UnionType):
+        exact_dataclass_type = next(
+            (
+                alternative
+                for alternative in arguments
+                if isinstance(alternative, type)
+                and is_dataclass(alternative)
+                and type(value) is alternative
+            ),
+            None,
+        )
+        if exact_dataclass_type is not None:
+            _require_runtime_type(
+                value,
+                exact_dataclass_type,
+                path=path,
+            )
+            return
         failures: list[PortValueError] = []
         for alternative in arguments:
             try:
@@ -460,11 +483,75 @@ def _validate_domain_value(value: Any, *, path: str) -> None:
             raise PortValueError(f"{path}.score_id must not be empty")
         return
 
+    if type(value) is ExactContractReference:
+        if value.contract_kind not in {
+            "metric",
+            "method",
+            "utility_transform",
+        }:
+            raise PortValueError(
+                f"{path}.contract_kind is not a scientific value contract"
+            )
+        if _IDENTIFIER.fullmatch(value.contract_id) is None:
+            raise PortValueError(f"{path}.contract_id is not a valid identity")
+        if _SEMANTIC_VERSION.fullmatch(value.contract_version) is None:
+            raise PortValueError(
+                f"{path}.contract_version must be an exact semantic version"
+            )
+        if re.fullmatch(r"sha256:[0-9a-f]{64}", value.contract_digest) is None:
+            raise PortValueError(
+                f"{path}.contract_digest must be an exact SHA-256 digest"
+            )
+        return
+
+    if type(value) is IntrinsicObservationContext:
+        if value.kind != "intrinsic":
+            raise PortValueError(
+                f"{path} must use the fixed intrinsic Observation Context"
+            )
+        return
+
+    if type(value) is ScoreObservation:
+        if not value.candidate_id:
+            raise PortValueError(f"{path}.candidate_id must not be empty")
+        _validate_domain_value(value.metric, path=f"{path}.metric")
+        _validate_domain_value(value.method, path=f"{path}.method")
+        _validate_domain_value(value.context, path=f"{path}.context")
+        return
+
     if type(value) is ScoreCollection:
         if not value.collection_id:
             raise PortValueError(f"{path}.collection_id must not be empty")
+        entry_types = {type(score) for score in value.entries}
+        if Score in entry_types and ScoreObservation in entry_types:
+            raise PortValueError(
+                f"{path}.entries cannot mix legacy scores and typed Observations"
+            )
+        deduplicated: list[Score | ScoreObservation] = []
+        typed_by_identity: dict[tuple[object, ...], bytes] = {}
         for index, score in enumerate(value.entries):
             _validate_domain_value(score, path=f"{path}.entries[{index}]")
+            if type(score) is not ScoreObservation:
+                deduplicated.append(score)
+                continue
+            encoded_value = canonical_json_bytes(
+                _value_to_wire(
+                    score.value,
+                    path=f"{path}.entries[{index}].value",
+                )
+            )
+            existing = typed_by_identity.get(score.identity)
+            if existing is not None:
+                if existing != encoded_value:
+                    raise PortValueError(
+                        f"{path}.entries contains one Observation identity "
+                        "with conflicting values"
+                    )
+                continue
+            typed_by_identity[score.identity] = encoded_value
+            deduplicated.append(score)
+        if len(deduplicated) != len(value.entries):
+            value.entries[:] = deduplicated
         return
 
     if type(value) is StructureAlignment:
