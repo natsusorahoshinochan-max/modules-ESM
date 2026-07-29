@@ -23,12 +23,17 @@ from datatypes.constraint_validation import (
     PROTEINMPNN_ALPHABET,
     validate_proteinmpnn_constraints,
 )
+from datatypes.function_annotations import (
+    FunctionAnnotation,
+    validate_canonical_function_annotations,
+)
 
 __all__ = [
     "Candidate",
     "CandidateCollection",
     "ExactContractReference",
     "FunctionAnnotations",
+    "FunctionAnnotation",
     "IntrinsicObservationContext",
     "PairwiseCandidateMapping",
     "PairwiseCandidateMatch",
@@ -47,5 +52,6 @@ __all__ = [
     "ProteinMPNNConstraints",
     "PROTEINMPNN_ALPHABET",
     "validate_proteinmpnn_constraints",
+    "validate_canonical_function_annotations",
 ]
 from datatypes.protein import ProteinMPNNConstraints

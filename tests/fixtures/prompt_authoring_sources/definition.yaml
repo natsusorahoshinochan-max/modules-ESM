@@ -68,13 +68,13 @@ outputs:
     scientific_meaning: Complete explicit fixture conversion from source_layout to target_layout.
   - name: function_annotations
     port_type_id: function.annotations
-    port_type_version: "2.0.0"
+    port_type_version: "2.1.0"
     required: true
     multiplicity: one
     scientific_meaning: Canonical chain-qualified function-interval fixture.
   - name: protein_prompt
     port_type_id: protein.prompt
-    port_type_version: "2.0.0"
+    port_type_version: "2.1.0"
     required: true
     multiplicity: one
     scientific_meaning: Canonical multi-track ProteinPrompt fixture.

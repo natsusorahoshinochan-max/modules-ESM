@@ -24,6 +24,7 @@ from .implementation import (
     OverrideResidueTrackImplementation,
     UpdatePromptSequenceImplementation,
 )
+from .prompt_types import PROMPT_PORT_TYPES
 from .track_types import ALIGNED_TRACK_PORT_TYPES
 
 
@@ -186,5 +187,5 @@ MODULE_PACKAGE = ModulePackageRegistration(
     ),
     methods=tuple(_method(operation) for operation in _OPERATIONS),
     bindings=tuple(_binding(operation) for operation in _OPERATIONS),
-    port_types=ALIGNED_TRACK_PORT_TYPES,
+    port_types=(*ALIGNED_TRACK_PORT_TYPES, *PROMPT_PORT_TYPES),
 )

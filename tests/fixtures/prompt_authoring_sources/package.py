@@ -18,6 +18,7 @@ from core import (
     ReadinessDeclaration,
 )
 from datatypes import (
+    FunctionAnnotation,
     FunctionAnnotations,
     ProteinPrompt,
     ProteinSequence,
@@ -29,6 +30,17 @@ from modules.prompt_authoring.domain import AlignedResidueTrack
 
 
 _VERSION = "2.0.0"
+
+
+def _annotations(
+    records: list[dict[str, object]] | None = None,
+) -> FunctionAnnotations:
+    return FunctionAnnotations(
+        [
+            FunctionAnnotation(**record)
+            for record in (records or [])
+        ]
+    )
 
 
 class _Source:
@@ -98,7 +110,7 @@ class _Source:
                 source,
                 (12.5, None, 30.0),
             )
-            function_annotations = FunctionAnnotations(
+            function_annotations = _annotations(
                 [{
                     "label": "binding_site",
                     "start": 1,
@@ -111,7 +123,7 @@ class _Source:
             )
             sequence_value = "AGS"
             if fixture == "annotation-overlap":
-                function_annotations = FunctionAnnotations([
+                function_annotations = _annotations([
                     {
                         "label": "binding_site",
                         "start": 1,
@@ -132,7 +144,7 @@ class _Source:
                     },
                 ])
             elif fixture == "annotation-out-of-order":
-                function_annotations = FunctionAnnotations([
+                function_annotations = _annotations([
                     {
                         "label": "chain_b_site",
                         "start": 3,
@@ -153,7 +165,7 @@ class _Source:
                     },
                 ])
             elif fixture == "annotation-cross-chain":
-                function_annotations = FunctionAnnotations([
+                function_annotations = _annotations([
                     {
                         "label": "cross_chain",
                         "start": 2,
@@ -165,7 +177,7 @@ class _Source:
                     },
                 ])
             elif fixture == "annotation-allow":
-                function_annotations = FunctionAnnotations([
+                function_annotations = _annotations([
                     {
                         "label": "binding_site",
                         "start": 1,

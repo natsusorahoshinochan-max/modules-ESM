@@ -680,7 +680,7 @@ class TestTrackIndependence:
 # ── Module Discovery Integration ────────────────────────────────────
 
 class TestModuleDiscovery:
-    def test_all_45_modules_discoverable(self) -> None:
+    def test_all_44_modules_discoverable(self) -> None:
         from core import TypeRegistry, ModuleRegistry, discover_modules
         tr = TypeRegistry()
         mr = ModuleRegistry(tr)
@@ -703,7 +703,6 @@ class TestModuleDiscovery:
             "esm3.generate",
             "structure.batch_tm_score",
             "esm3.generate_sequence",
-            "esm3.update_prompt_sequence",
             "esm3.generate_structure",
             "proteinmpnn.design",
             "proteinmpnn.score",

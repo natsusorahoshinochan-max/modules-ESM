@@ -280,78 +280,6 @@ class TestESM3Adapter:
         assert token == "configured-test-token"
 
 
-# ── Update Prompt Sequence ───────────────────────────────────────────
-
-
-class TestUpdatePromptSequence:
-    def test_replaces_sequence_preserves_others(self) -> None:
-        from modules.esm3_update_prompt_sequence.module import (
-            UpdatePromptSequenceModule,
-        )
-
-        mod = UpdatePromptSequenceModule()
-        ctx = RunContext("/tmp/test", "n1")
-        prompt = _make_prompt(3)
-        new_seq = ProteinSequence(sequence="WFC")
-        result = mod.run(
-            {"protein_prompt": prompt, "sequence": new_seq},
-            {},
-            ctx,
-        )
-        updated = result["protein_prompt"]
-        assert isinstance(updated, ProteinPrompt)
-        assert updated.sequence_track.values == ["W", "F", "C"]
-        # All other tracks preserved
-        assert updated.secondary_structure_track.values == ["H", "E", "C"]
-        assert updated.sasa_track.values == [50.0, 75.0, 100.0]
-        assert updated.structure_track is None
-        assert len(updated.function_annotations) == 1
-
-    def test_preserves_structure_coordinates(self) -> None:
-        from modules.esm3_update_prompt_sequence.module import (
-            UpdatePromptSequenceModule,
-        )
-
-        mod = UpdatePromptSequenceModule()
-        ctx = RunContext("/tmp/test", "n1")
-        prompt = _make_prompt(3, with_structure=True)
-        new_seq = ProteinSequence(sequence="WFC")
-        result = mod.run(
-            {"protein_prompt": prompt, "sequence": new_seq},
-            {},
-            ctx,
-        )
-        updated = result["protein_prompt"]
-        assert updated.structure_track is not None
-        assert updated.structure_visibility_track is not None
-
-    def test_mismatched_length_raises(self) -> None:
-        from modules.esm3_update_prompt_sequence.module import (
-            UpdatePromptSequenceModule,
-        )
-
-        mod = UpdatePromptSequenceModule()
-        ctx = RunContext("/tmp/test", "n1")
-        prompt = _make_prompt(3)
-        new_seq = ProteinSequence(sequence="AAAA")  # length 4
-        with pytest.raises(ValueError, match="length"):
-            mod.run(
-                {"protein_prompt": prompt, "sequence": new_seq},
-                {},
-                ctx,
-            )
-
-    def test_missing_prompt_raises(self) -> None:
-        from modules.esm3_update_prompt_sequence.module import (
-            UpdatePromptSequenceModule,
-        )
-
-        mod = UpdatePromptSequenceModule()
-        ctx = RunContext("/tmp/test", "n1")
-        with pytest.raises(ValueError, match="protein_prompt"):
-            mod.run({}, {}, ctx)
-
-
 # ── ESM3 Generate Sequence (mocked) ───────────────────────────────────
 
 
@@ -471,11 +399,10 @@ class TestModuleDiscoveryE2E:
         ids = {m.module_id for m in mr.list_all()}
         expected_esm3 = {
             "esm3.generate_sequence",
-            "esm3.update_prompt_sequence",
             "esm3.generate_structure",
         }
         assert expected_esm3.issubset(ids)
-        assert len(mr) == 45
+        assert len(mr) == 44
 
     def test_all_types_registered(self) -> None:
         from core import ModuleRegistry, TypeRegistry, discover_modules

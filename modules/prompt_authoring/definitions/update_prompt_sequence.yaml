@@ -7,7 +7,7 @@ category: prompt_authoring
 inputs:
   - name: protein_prompt
     port_type_id: protein.prompt
-    port_type_version: "2.0.0"
+    port_type_version: "2.1.0"
     required: true
     multiplicity: one
     scientific_meaning: Validated multi-track ProteinPrompt whose sequence track will be replaced.
@@ -20,7 +20,7 @@ inputs:
 outputs:
   - name: protein_prompt
     port_type_id: protein.prompt
-    port_type_version: "2.0.0"
+    port_type_version: "2.1.0"
     required: true
     multiplicity: one
     scientific_meaning: ProteinPrompt with only its sequence assignments changed.

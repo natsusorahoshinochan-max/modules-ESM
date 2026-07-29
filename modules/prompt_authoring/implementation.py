@@ -5,16 +5,15 @@ from __future__ import annotations
 from collections.abc import Mapping
 from typing import Any
 
+from .annotations import add_function_annotation
 from .domain import (
-    add_function_annotation,
-    assemble_protein_prompt,
     build_layout,
     build_residue_map,
     map_track,
     override_track,
     TrackKind,
-    update_prompt_sequence,
 )
+from .prompts import assemble_protein_prompt, update_prompt_sequence
 
 
 _TRACK_PORTS = {

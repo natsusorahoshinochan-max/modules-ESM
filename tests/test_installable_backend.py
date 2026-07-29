@@ -44,11 +44,13 @@ SOURCE_ZERO_CORE_CATALOG = build_discovered_frozen_catalog(
 )
 SOURCE_ZERO_CORE_CATALOG_DIGEST = SOURCE_ZERO_CORE_CATALOG.contract_digest
 SOURCE_PORT_TYPE_BYTES = {
-    definition.type_id: definition.descriptor_bytes.hex()
+    f"{definition.type_id}@{definition.version}": (
+        definition.descriptor_bytes.hex()
+    )
     for definition in SOURCE_PORT_CATALOG.port_types
 }
 SOURCE_PORT_TYPE_DIGESTS = {
-    definition.type_id: definition.contract_digest
+    f"{definition.type_id}@{definition.version}": definition.contract_digest
     for definition in SOURCE_PORT_CATALOG.port_types
 }
 EXPECTED_MODULE_IDS = {
@@ -60,7 +62,6 @@ EXPECTED_MODULE_IDS = {
     "esm3.generate",
     "esm3.generate_sequence",
     "esm3.generate_structure",
-    "esm3.update_prompt_sequence",
     "esmfold2.fold",
     "export.sequence",
     "export.structure",
@@ -281,11 +282,15 @@ catalog = build_discovered_frozen_catalog()
 assert catalog.catalog_descriptor_bytes.hex() == {SOURCE_PORT_CATALOG_BYTES.hex()!r}
 assert catalog.contract_digest == {SOURCE_PORT_CATALOG_DIGEST!r}
 assert {{
-    definition.type_id: definition.descriptor_bytes.hex()
+    f"{{definition.type_id}}@{{definition.version}}": (
+        definition.descriptor_bytes.hex()
+    )
     for definition in catalog.port_types
 }} == {SOURCE_PORT_TYPE_BYTES!r}
 assert {{
-    definition.type_id: definition.contract_digest
+    f"{{definition.type_id}}@{{definition.version}}": (
+        definition.contract_digest
+    )
     for definition in catalog.port_types
 }} == {SOURCE_PORT_TYPE_DIGESTS!r}
 

@@ -491,10 +491,8 @@ def create_app(
         register_module_factory("prompt.random_fixed_positions", RandomFixedPositionsModule)
         register_module_factory("esm3.generate", ESM3GenerateModule)
         from modules.esm3_generate_sequence import ESM3GenerateSequenceModule
-        from modules.esm3_update_prompt_sequence import UpdatePromptSequenceModule
         from modules.esm3_generate_structure import ESM3GenerateStructureModule
         register_module_factory("esm3.generate_sequence", ESM3GenerateSequenceModule)
-        register_module_factory("esm3.update_prompt_sequence", UpdatePromptSequenceModule)
         register_module_factory("esm3.generate_structure", ESM3GenerateStructureModule)
         from modules.proteinmpnn.module_design import ProteinMPNNDesignModule
         from modules.proteinmpnn.module_score import ProteinMPNNScoreModule

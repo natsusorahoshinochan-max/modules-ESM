@@ -13,7 +13,13 @@ from core import (
     verify_module_package_contract,
 )
 from core.workflow_v2 import WorkflowEdge
-from datatypes import ResidueMap
+from datatypes import (
+    FunctionAnnotation,
+    FunctionAnnotations,
+    ProteinPrompt,
+    ResidueMap,
+    ResidueTrack,
+)
 from modules.prompt_authoring.domain import AlignedResidueTrack
 from modules.prompt_authoring.package import MODULE_PACKAGE
 from tests.fixtures.prompt_authoring_sources.package import (
@@ -85,6 +91,22 @@ _RESIDUE_MAP = ResidueMap(
         (1, -1, "delete"),
     ],
 )
+_ANNOTATIONS = FunctionAnnotations([
+    FunctionAnnotation(
+        label="binding_site",
+        start=1,
+        end=2,
+        chain_id="A",
+        start_residue_id="A:1",
+        end_residue_id="A:2",
+        overlap_policy="reject",
+    ),
+])
+_PROTEIN_PROMPT = ProteinPrompt(
+    target_layout=SOURCE_LAYOUT,
+    sequence_track=ResidueTrack(["A", "G", "S"], None),
+    function_annotations=_ANNOTATIONS,
+)
 _TRACK_PORT_CASES = (
     ModulePackagePortCase(
         "prompt_authoring.track.sequence",
@@ -134,6 +156,35 @@ _TRACK_PORT_CASES = (
         VERSION,
         AlignedResidueTrack(SOURCE_LAYOUT, (0.0, None, 42.5)),
         (AlignedResidueTrack(SOURCE_LAYOUT, (0.0, None, -1.0)),),
+    ),
+    ModulePackagePortCase(
+        "function.annotations",
+        "2.1.0",
+        _ANNOTATIONS,
+        (
+            FunctionAnnotations([
+                FunctionAnnotation(
+                    label="binding_site",
+                    start=0,
+                    end=2,
+                    chain_id="A",
+                    start_residue_id="A:1",
+                    end_residue_id="A:2",
+                    overlap_policy="reject",
+                ),
+            ]),
+        ),
+    ),
+    ModulePackagePortCase(
+        "protein.prompt",
+        "2.1.0",
+        _PROTEIN_PROMPT,
+        (
+            ProteinPrompt(
+                target_layout=None,
+                function_annotations=FunctionAnnotations(),
+            ),
+        ),
     ),
 )
 

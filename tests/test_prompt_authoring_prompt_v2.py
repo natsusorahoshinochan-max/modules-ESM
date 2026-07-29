@@ -14,6 +14,7 @@ from core import (
 )
 from core.workflow_v2 import WorkflowEdge
 from datatypes import (
+    FunctionAnnotation,
     FunctionAnnotations,
     ProteinPrompt,
     ResidueLayout,
@@ -23,6 +24,18 @@ from tests.fixtures.prompt_authoring_v2 import decoded_output, run_operation
 
 
 VERSION = "2.0.0"
+PROMPT_PORT_VERSION = "2.1.0"
+
+
+def canonical_annotations(
+    records: list[dict[str, object]] | None = None,
+) -> FunctionAnnotations:
+    return FunctionAnnotations(
+        [
+            FunctionAnnotation(**record)
+            for record in (records or [])
+        ]
+    )
 
 
 def test_prompt_authoring_registers_three_prompt_nodes_once() -> None:
@@ -81,7 +94,7 @@ def test_function_annotation_keeps_chain_qualified_provenance(
         for output in projection["outputs"]
         if output["node_id"] == "author"
     )
-    assert decoded_output(catalog, output) == FunctionAnnotations(
+    assert decoded_output(catalog, output) == canonical_annotations(
         [{
             "label": "binding_site",
             "start": 1,
@@ -165,7 +178,7 @@ def test_prompt_assembly_preserves_every_declared_aligned_track(
         structure_visibility_track=ResidueTrack([True, True, False], None),
         secondary_structure_track=ResidueTrack(["H", "E", "-"], None),
         sasa_track=ResidueTrack([12.5, None, 30.0], None),
-        function_annotations=FunctionAnnotations(
+        function_annotations=canonical_annotations(
             [{
                 "label": "binding_site",
                 "start": 1,
@@ -232,7 +245,7 @@ def test_generic_sequence_update_preserves_layout_and_unaffected_tracks(
         None,
     )
     assert updated.sasa_track == ResidueTrack([12.5, None, 30.0], None)
-    assert updated.function_annotations == FunctionAnnotations(
+    assert updated.function_annotations == canonical_annotations(
         [{
             "label": "binding_site",
             "start": 1,
@@ -269,7 +282,7 @@ def test_prompt_assembly_keeps_absent_optional_tracks_absent(
     assert prompt.structure_visibility_track is None
     assert prompt.secondary_structure_track is None
     assert prompt.sasa_track is None
-    assert prompt.function_annotations == FunctionAnnotations()
+    assert prompt.function_annotations == canonical_annotations()
 
 
 def test_prompt_assembly_rejects_track_from_another_effective_layout(
@@ -403,12 +416,12 @@ def test_function_annotation_overlap_policy_is_retained_and_enforced(
         if output["node_id"] == "author"
     )
     annotations = decoded_output(catalog, output)
-    assert [item["label"] for item in annotations.annotations] == [
+    assert [item.label for item in annotations.annotations] == [
         "binding_site",
         "active_site",
     ]
     assert {
-        item["overlap_policy"] for item in annotations.annotations
+        item.overlap_policy for item in annotations.annotations
     } == {"allow"}
 
     _, rejected, _ = run_operation(
@@ -555,9 +568,10 @@ def test_prompt_nodes_expose_only_scientific_authoring_parameters() -> None:
 
 
 def test_function_annotation_port_declares_canonical_provenance_shape() -> None:
-    definition = build_discovered_frozen_catalog().require_port_type(
+    catalog = build_discovered_frozen_catalog()
+    definition = catalog.require_port_type(
         "function.annotations",
-        VERSION,
+        PROMPT_PORT_VERSION,
     )
 
     assert definition.validator.parameters[
@@ -576,12 +590,23 @@ def test_function_annotation_port_declares_canonical_provenance_shape() -> None:
         "ordering": "start,end,label,chain-and-residue-provenance",
         "overlap_policy": ("allow", "reject"),
     }
+    assert catalog.require_port_type(
+        "function.annotations",
+        VERSION,
+    ).contract_digest != definition.contract_digest
+    prompt_definition = catalog.require_port_type(
+        "protein.prompt",
+        PROMPT_PORT_VERSION,
+    )
+    assert prompt_definition.codec.parameters["embedded_contracts"][
+        "function_annotations"
+    ] == "function.annotations@2.1.0"
 
 
 @pytest.mark.parametrize(
     "annotations",
     (
-        FunctionAnnotations([
+        canonical_annotations([
             {
                 "label": "later",
                 "start": 2,
@@ -601,7 +626,7 @@ def test_function_annotation_port_declares_canonical_provenance_shape() -> None:
                 "overlap_policy": "allow",
             },
         ]),
-        FunctionAnnotations([
+        canonical_annotations([
             {
                 "label": "first",
                 "start": 1,
@@ -628,7 +653,7 @@ def test_function_annotation_port_rejects_noncanonical_collections(
 ) -> None:
     definition = build_discovered_frozen_catalog().require_port_type(
         "function.annotations",
-        VERSION,
+        PROMPT_PORT_VERSION,
     )
 
     with pytest.raises(PortValueError):
@@ -694,7 +719,10 @@ def test_protein_prompt_round_trip_preserves_esm3_adapter_intent(
         if output["node_id"] == "author"
     )
     prompt = decoded_output(catalog, output)
-    prompt_codec = catalog.require_port_type("protein.prompt", VERSION)
+    prompt_codec = catalog.require_port_type(
+        "protein.prompt",
+        PROMPT_PORT_VERSION,
+    )
     round_tripped = prompt_codec.decode(prompt_codec.encode(prompt))
 
     provider_prompt = protein_prompt_to_esm_protein(round_tripped)

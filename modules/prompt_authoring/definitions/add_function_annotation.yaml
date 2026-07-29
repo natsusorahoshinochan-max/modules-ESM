@@ -13,14 +13,14 @@ inputs:
     scientific_meaning: Identity-complete effective residue layout used to resolve the interval.
   - name: existing_annotations
     port_type_id: function.annotations
-    port_type_version: "2.0.0"
+    port_type_version: "2.1.0"
     required: false
     multiplicity: one
     scientific_meaning: Existing canonical annotations aligned to the same effective layout.
 outputs:
   - name: function_annotations
     port_type_id: function.annotations
-    port_type_version: "2.0.0"
+    port_type_version: "2.1.0"
     required: true
     multiplicity: one
     scientific_meaning: Canonically ordered annotations retaining chain-qualified endpoint provenance.

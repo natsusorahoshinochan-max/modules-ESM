@@ -20,6 +20,7 @@ from core.provider_contract import (
     validate_local_esm3_snapshot,
 )
 from datatypes import (
+    FunctionAnnotation,
     ProteinPrompt,
     ProteinSequence,
     ProteinStructure,
@@ -414,10 +415,17 @@ def protein_prompt_to_esm_protein(prompt: ProteinPrompt) -> Any:
     if prompt.function_annotations is not None and len(prompt.function_annotations) > 0:
         from esm.utils.types import FunctionAnnotation as ESMFA
 
-        fa_list = [
-            ESMFA(label=a["label"], start=a["start"], end=a["end"])
-            for a in prompt.function_annotations.annotations
-        ]
+        fa_list = []
+        for annotation in prompt.function_annotations.annotations:
+            if type(annotation) is FunctionAnnotation:
+                label = annotation.label
+                start = annotation.start
+                end = annotation.end
+            else:
+                label = annotation["label"]
+                start = annotation["start"]
+                end = annotation["end"]
+            fa_list.append(ESMFA(label=label, start=start, end=end))
 
     return ESMProteinSDK(
         sequence=sequence,
