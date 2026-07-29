@@ -88,6 +88,13 @@ def test_remote_esm3_is_one_package_with_three_fixed_generation_nodes() -> None:
             "2.0.0",
         )
         assert "model_name" not in node.descriptor["node_parameters"]
+        if operation in {"generate_sequence", "generate_paired"}:
+            assert "at least one masked sequence residue" in (
+                node.descriptor["summary"]
+            )
+            assert "at least one masked sequence residue" in (
+                node.descriptor["inputs"][0]["scientific_meaning"]
+            )
         for route, method_suffix, model_name in models:
             binding = catalog.require_contract(
                 "binding",

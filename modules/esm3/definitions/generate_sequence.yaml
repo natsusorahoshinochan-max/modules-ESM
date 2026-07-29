@@ -2,7 +2,7 @@ schema_version: "2.0.0"
 node_type_id: esm3.generate_sequence
 version: "2.0.0"
 title: Generate sequences with remote ESM-3
-summary: Samples the sequence track of one exact ProteinPrompt without changing any conditioning track.
+summary: Samples the sequence track of one exact ProteinPrompt with at least one masked sequence residue, without changing any conditioning track.
 category: generation
 inputs:
   - name: protein_prompt
@@ -10,7 +10,7 @@ inputs:
     port_type_version: "2.1.0"
     required: true
     multiplicity: one
-    scientific_meaning: Complete residue-aligned conditioning Prompt translated without implicit track conversion.
+    scientific_meaning: Complete residue-aligned conditioning Prompt with at least one masked sequence residue, translated without implicit track conversion.
 outputs:
   - name: sequence_candidates
     port_type_id: candidate.collection

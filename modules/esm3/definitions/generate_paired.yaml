@@ -2,7 +2,7 @@ schema_version: "2.0.0"
 node_type_id: esm3.generate_paired
 version: "2.0.0"
 title: Generate paired sequences and structures with remote ESM-3
-summary: Generates each sequence first and samples exactly one structure-track counterpart from that terminal sequence.
+summary: Generates each sequence from a Prompt with at least one masked sequence residue, then samples exactly one structure-track counterpart from that terminal sequence.
 category: generation
 inputs:
   - name: protein_prompt
@@ -10,7 +10,7 @@ inputs:
     port_type_version: "2.1.0"
     required: true
     multiplicity: one
-    scientific_meaning: Complete residue-aligned conditioning Prompt preserved for sequence generation and each counterpart structure request.
+    scientific_meaning: Complete residue-aligned conditioning Prompt with at least one masked sequence residue, preserved for sequence generation and each counterpart structure request.
 outputs:
   - name: sequence_candidates
     port_type_id: candidate.collection
