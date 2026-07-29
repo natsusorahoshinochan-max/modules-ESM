@@ -8,10 +8,12 @@ import importlib.util
 import json
 import math
 import os
+import pickle
 import stat
 import sys
 from argparse import Namespace
 from collections.abc import Mapping
+from dataclasses import asdict, dataclass
 from functools import partial
 from pathlib import Path
 from typing import Any
@@ -45,6 +47,42 @@ SIMPLEFOLD_CONFIDENCE_FEATURIZATION = (
 SIMPLEFOLD_CONFIDENCE_ADAPTER = (
     "protein-workbench-simplefold-confidence-adapter/v1"
 )
+
+
+@dataclass(frozen=True, slots=True)
+class PDBResidueIdentity:
+    """One chain-aware PDB residue identity."""
+
+    chain_id: str
+    residue_number: str
+    insertion_code: str
+
+
+@dataclass(frozen=True, slots=True)
+class _PDBResidue:
+    identity: PDBResidueIdentity
+    residue_name: str
+    atoms: Mapping[str, tuple[float, float, float]]
+
+
+@dataclass(frozen=True, slots=True)
+class _PDBChain:
+    chain_id: str
+    sequence: str
+    residues: tuple[_PDBResidue, ...]
+
+
+@dataclass(frozen=True, slots=True)
+class _ParsedExistingStructure:
+    chains: tuple[_PDBChain, ...]
+
+    @property
+    def residues(self) -> tuple[_PDBResidue, ...]:
+        return tuple(
+            residue
+            for chain in self.chains
+            for residue in chain.residues
+        )
 
 
 def validated_simplefold_esm2_root(
@@ -88,13 +126,14 @@ def provider_identity() -> dict[str, Any]:
     }
 
 
-def configured_runtime_fingerprint() -> str:
-    """Return the path-free exact identity of the confidence runtime."""
+def _runtime_fingerprint(
+    exact_provider_identity: Mapping[str, Any],
+) -> str:
     payload = {
         "schema_namespace": (
             "protein-workbench-simplefold-confidence-runtime/v2"
         ),
-        "provider_identity": provider_identity(),
+        "provider_identity": exact_provider_identity,
         "device": SIMPLEFOLD_CONFIDENCE_DEVICE,
         "featurization": SIMPLEFOLD_CONFIDENCE_FEATURIZATION,
         "adapter": SIMPLEFOLD_CONFIDENCE_ADAPTER,
@@ -109,6 +148,11 @@ def configured_runtime_fingerprint() -> str:
             separators=(",", ":"),
         ).encode()
     ).hexdigest()
+
+
+def configured_runtime_fingerprint() -> str:
+    """Return the path-free declared identity of the confidence runtime."""
+    return _runtime_fingerprint(provider_identity())
 
 
 def simplefold_confidence_runtime_structurally_available() -> bool:
@@ -156,29 +200,47 @@ def _sha256_file(path: Path, *, expected_bytes: int | None = None) -> str:
     return digest.hexdigest()
 
 
+def _validated_file_digest(
+    path: Path,
+    *,
+    expected_digest: str,
+    identities: Mapping[str, Mapping[str, Any]],
+    changed_message: str,
+) -> str:
+    expected_bytes = identities.get(path.name, {}).get("bytes")
+    observed_digest = _sha256_file(
+        path,
+        expected_bytes=(
+            expected_bytes
+            if isinstance(expected_bytes, int)
+            else None
+        ),
+    )
+    if observed_digest != expected_digest:
+        raise RuntimeError(f"{changed_message}: {path.name}")
+    return observed_digest
+
+
 def _validated_file_set(
     root: object,
     expected: Mapping[str, str],
     identities: Mapping[str, Mapping[str, Any]],
-) -> Path:
+) -> tuple[Path, dict[str, str]]:
     if not isinstance(root, Path) or root.is_symlink() or not root.is_dir():
         raise FileNotFoundError(
             "SimpleFold confidence asset root is unavailable"
         )
+    observed: dict[str, str] = {}
     for name, expected_digest in sorted(expected.items()):
-        expected_bytes = identities.get(name, {}).get("bytes")
-        if _sha256_file(
+        observed[name] = _validated_file_digest(
             root / name,
-            expected_bytes=(
-                expected_bytes
-                if isinstance(expected_bytes, int)
-                else None
+            expected_digest=expected_digest,
+            identities=identities,
+            changed_message=(
+                "SimpleFold confidence asset SHA-256 mismatch"
             ),
-        ) != expected_digest:
-            raise RuntimeError(
-                f"SimpleFold confidence asset SHA-256 mismatch: {name}"
-            )
-    return root
+        )
+    return root, observed
 
 
 def validate_simplefold_confidence_environment(
@@ -192,12 +254,12 @@ def validate_simplefold_confidence_environment(
         raise RuntimeError(
             "SimpleFold confidence runtime fingerprint changed"
         )
-    model_root = _validated_file_set(
+    model_root, observed_model_digests = _validated_file_set(
         environment.get("model_root"),
         simplefold_confidence_artifact_sha256(),
         SIMPLEFOLD_ARTIFACT_IDENTITIES,
     )
-    esm2_model_root = _validated_file_set(
+    esm2_model_root, observed_esm2_digests = _validated_file_set(
         environment.get("esm2_model_root"),
         simplefold_confidence_esm2_artifact_sha256(),
         SIMPLEFOLD_ESM2_ARTIFACT_IDENTITIES,
@@ -210,12 +272,19 @@ def validate_simplefold_confidence_environment(
     observed_source = validated_simplefold_esm2_root(source_root)
     if Path(observed_source).resolve() != source_root.resolve():
         raise RuntimeError("SimpleFold confidence ESM2 source identity changed")
+    resolved_provider_identity = {
+        **provider_identity(),
+        "artifact_sha256": dict(sorted(observed_model_digests.items())),
+        "esm2_artifact_sha256": dict(
+            sorted(observed_esm2_digests.items())
+        ),
+    }
     return {
         "model_root": model_root,
         "esm2_model_root": esm2_model_root,
         "esm2_source_root": source_root,
         "resolved_runtime_fingerprint": fingerprint,
-        "resolved_provider_identity": provider_identity(),
+        "resolved_provider_identity": resolved_provider_identity,
     }
 
 
@@ -243,11 +312,31 @@ def simplefold_confidence_readiness(
     return ReadinessResult(True, proof_source="direct-observation")
 
 
-def invocation_identity() -> str:
-    """Bind the exact verified asset closure to public Invocation evidence."""
+def invocation_identity(
+    resolved_provider_identity: Mapping[str, Any],
+) -> str:
+    """Bind every resolved digest into the bounded Invocation identity."""
+    simplefold_digests = resolved_provider_identity.get(
+        "artifact_sha256"
+    )
+    esm2_digests = resolved_provider_identity.get(
+        "esm2_artifact_sha256"
+    )
+    source_tree_digest = resolved_provider_identity.get(
+        "esm2_source_tree_sha256"
+    )
+    if (
+        not isinstance(simplefold_digests, Mapping)
+        or not isinstance(esm2_digests, Mapping)
+        or not isinstance(source_tree_digest, str)
+    ):
+        raise ValueError(
+            "SimpleFold confidence Invocation identity is incomplete"
+        )
+    del simplefold_digests, esm2_digests, source_tree_digest
     return (
         "folding.simplefold_confidence.assets."
-        f"{configured_runtime_fingerprint()}"
+        f"{_runtime_fingerprint(resolved_provider_identity)}"
     )
 
 
@@ -299,18 +388,12 @@ def _stage_file_set(
     for name, expected_digest in sorted(expected.items()):
         destination = destination_root / name
         _copy_regular_file(source_root / name, destination)
-        expected_bytes = identities.get(name, {}).get("bytes")
-        if _sha256_file(
+        _validated_file_digest(
             destination,
-            expected_bytes=(
-                expected_bytes
-                if isinstance(expected_bytes, int)
-                else None
-            ),
-        ) != expected_digest:
-            raise RuntimeError(
-                f"Staged SimpleFold confidence asset changed: {name}"
-            )
+            expected_digest=expected_digest,
+            identities=identities,
+            changed_message="Staged SimpleFold confidence asset changed",
+        )
     return destination_root
 
 
@@ -371,7 +454,7 @@ def _load_representation_only_esm2(
 
 def _pdb_residues(
     pdb_string: str,
-) -> tuple[str, list[dict[str, tuple[float, float, float]]]]:
+) -> _ParsedExistingStructure:
     letters = {
         "ALA": "A",
         "ARG": "R",
@@ -394,10 +477,12 @@ def _pdb_residues(
         "TYR": "Y",
         "VAL": "V",
     }
-    order: list[tuple[str, str, str]] = []
-    names: dict[tuple[str, str, str], str] = {}
+    order: list[PDBResidueIdentity] = []
+    chain_order: list[str] = []
+    chain_residues: dict[str, list[PDBResidueIdentity]] = {}
+    names: dict[PDBResidueIdentity, str] = {}
     coordinates: dict[
-        tuple[str, str, str],
+        PDBResidueIdentity,
         dict[str, tuple[float, float, float]],
     ] = {}
     for line in pdb_string.splitlines():
@@ -406,7 +491,11 @@ def _pdb_residues(
         altloc = line[16]
         if altloc not in {" ", "A"}:
             continue
-        identity = (line[21], line[22:26].strip(), line[26])
+        identity = PDBResidueIdentity(
+            chain_id=line[21],
+            residue_number=line[22:26].strip(),
+            insertion_code=line[26],
+        )
         residue_name = line[17:20].strip().upper()
         atom_name = line[12:16].strip()
         if residue_name not in letters or not atom_name:
@@ -427,6 +516,10 @@ def _pdb_residues(
             )
         if identity not in coordinates:
             order.append(identity)
+            if identity.chain_id not in chain_residues:
+                chain_order.append(identity.chain_id)
+                chain_residues[identity.chain_id] = []
+            chain_residues[identity.chain_id].append(identity)
             names[identity] = residue_name
             coordinates[identity] = {}
         elif names[identity] != residue_name:
@@ -442,9 +535,25 @@ def _pdb_residues(
         raise ValueError(
             "SimpleFold confidence requires protein ATOM coordinates"
         )
-    return (
-        "".join(letters[names[identity]] for identity in order),
-        [coordinates[identity] for identity in order],
+    return _ParsedExistingStructure(
+        chains=tuple(
+            _PDBChain(
+                chain_id=chain_id,
+                sequence="".join(
+                    letters[names[identity]]
+                    for identity in chain_residues[chain_id]
+                ),
+                residues=tuple(
+                    _PDBResidue(
+                        identity=identity,
+                        residue_name=names[identity],
+                        atoms=dict(coordinates[identity]),
+                    )
+                    for identity in chain_residues[chain_id]
+                ),
+            )
+            for chain_id in chain_order
+        )
     )
 
 
@@ -465,7 +574,8 @@ def _native_existing_structure_confidence(
 
     @_restore_process_cwd
     def run() -> dict[str, Any]:
-        sequence, input_residues = _pdb_residues(structure.pdb_string)
+        parsed_structure = _pdb_residues(structure.pdb_string)
+        input_residues = parsed_structure.residues
         artifact_root = staging_directory / "simplefold-confidence-assets"
         artifact_root.mkdir(mode=0o700)
         model_dir = _stage_file_set(
@@ -490,6 +600,9 @@ def _native_existing_structure_confidence(
             from simplefold.boltz_data_pipeline.feature.featurizer import (
                 BoltzFeaturizer,
             )
+            from simplefold.boltz_data_pipeline.parse.fasta import (
+                parse_fasta,
+            )
             from simplefold.boltz_data_pipeline.tokenize.boltz_protein import (
                 BoltzTokenizer,
             )
@@ -500,7 +613,6 @@ def _native_existing_structure_confidence(
                 process_one_inference_structure,
             )
             from simplefold.utils.esm_utils import _af2_to_esm, esm_registry
-            from simplefold.utils.fasta_utils import process_fastas
             from simplefold.wrapper import ModelWrapper
 
             esm_registry["esm2_3B"] = partial(
@@ -514,19 +626,28 @@ def _native_existing_structure_confidence(
             output_dir.mkdir(mode=0o700)
             _copy_regular_file(model_dir / "ccd.pkl", cache / "ccd.pkl")
             fasta_path = cache / "existing.fasta"
-            fasta_path.write_text(f">A|Protein\n{sequence}\n")
-            process_fastas(
-                data=[fasta_path],
-                out_dir=output_dir,
-                ccd_path=cache / "ccd.pkl",
-            )
-            struct_files = list(output_dir.glob("structures/*.npz"))
-            if len(struct_files) != 1:
-                raise RuntimeError(
-                    "SimpleFold confidence featurization is incomplete"
+            fasta_path.write_text(
+                "".join(
+                    f">chain_{index + 1}|Protein\n{chain.sequence}\n"
+                    for index, chain in enumerate(
+                        parsed_structure.chains
+                    )
                 )
-            record_file = (
-                output_dir / "records" / f"{struct_files[0].stem}.json"
+            )
+            with (cache / "ccd.pkl").open("rb") as handle:
+                ccd = pickle.load(handle)
+            target = parse_fasta(fasta_path, ccd)
+            for chain in target.record.chains:
+                chain.msa_id = -1
+            structure_dir = output_dir / "structures"
+            record_dir = output_dir / "records"
+            structure_dir.mkdir()
+            record_dir.mkdir()
+            structure_file = structure_dir / f"{target.record.id}.npz"
+            record_file = record_dir / f"{target.record.id}.json"
+            target.structure.dump(structure_file)
+            record_file.write_text(
+                json.dumps(asdict(target.record), sort_keys=True)
             )
             wrapper = ModelWrapper(
                 simplefold_model="simplefold_1.6B",
@@ -544,7 +665,7 @@ def _native_existing_structure_confidence(
             esm_model = esm_model.to(device).eval()
             af2_to_esm = _af2_to_esm(esm_dict).to(device)
             batch, provider_structure, _ = process_one_inference_structure(
-                struct_files[0],
+                structure_file,
                 record_file,
                 BoltzTokenizer(),
                 BoltzFeaturizer(),
@@ -575,7 +696,7 @@ def _native_existing_structure_confidence(
             ):
                 atom_start = int(residue["atom_idx"])
                 atom_count = int(residue["atom_num"])
-                supplied = input_residues[residue_index]
+                supplied = input_residues[residue_index].atoms
                 for atom_index in range(atom_start, atom_start + atom_count):
                     encoded_name = provider_structure.atoms[atom_index][
                         "name"
@@ -654,11 +775,14 @@ def evaluate(
     structure: ProteinStructure,
     staging_directory: Path,
     environment: Mapping[str, Any],
-    call_details: Mapping[str, Any],
+    validated_environment: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Cross exactly one existing-structure confidence engine seam."""
-    del call_details
-    validated = validate_simplefold_confidence_environment(environment)
+    validated = (
+        dict(validated_environment)
+        if validated_environment is not None
+        else validate_simplefold_confidence_environment(environment)
+    )
     client = environment.get("provider_client")
     if client is not None:
         result = client.evaluate(
@@ -672,9 +796,16 @@ def evaluate(
             raise ValueError(
                 "SimpleFold confidence provider result is malformed"
             )
-        return dict(result)
-    return _native_existing_structure_confidence(
-        structure=structure,
-        staging_directory=staging_directory,
-        validated=validated,
-    )
+        native = dict(result)
+    else:
+        native = _native_existing_structure_confidence(
+            structure=structure,
+            staging_directory=staging_directory,
+            validated=validated,
+        )
+    return {
+        **native,
+        "resolved_provider_identity": dict(
+            validated["resolved_provider_identity"]
+        ),
+    }

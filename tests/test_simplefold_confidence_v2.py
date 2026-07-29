@@ -45,11 +45,42 @@ def _two_residue_pdb() -> str:
     )
 
 
+def _two_chain_pdb() -> str:
+    return "\n".join(
+        (
+            "ATOM      1  N   ALA A   1       0.000   0.000   0.000  1.00 20.00           N",
+            "ATOM      2  CA  ALA A   1       1.000   0.000   0.000  1.00 20.00           C",
+            "TER",
+            "ATOM      3  N   GLY B   4       2.000   0.000   0.000  1.00 20.00           N",
+            "ATOM      4  CA  GLY B   4       3.000   0.000   0.000  1.00 20.00           C",
+            "END",
+            "",
+        )
+    )
+
+
+def test_existing_structure_parser_preserves_chain_breaks() -> None:
+    from modules.folding.simplefold_confidence_adapter import _pdb_residues
+
+    parsed = _pdb_residues(_two_chain_pdb())
+
+    assert [
+        (chain.chain_id, chain.sequence)
+        for chain in parsed.chains
+    ] == [("A", "A"), ("B", "G")]
+    assert [
+        residue.identity.chain_id
+        for chain in parsed.chains
+        for residue in chain.residues
+    ] == ["A", "B"]
+
+
 def _confidence_environment(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     *,
     client: Any,
+    asset_prefix: str = "fixture",
 ) -> dict[str, Any]:
     import modules.folding.simplefold_confidence_adapter as adapter
 
@@ -60,11 +91,11 @@ def _confidence_environment(
     esm2_model_root.mkdir()
     esm2_source_root.mkdir()
     model_payloads = {
-        name: f"fixture-{name}".encode()
+        name: f"{asset_prefix}-{name}".encode()
         for name in adapter.SIMPLEFOLD_CONFIDENCE_ARTIFACTS
     }
     esm2_payloads = {
-        name: f"fixture-{name}".encode()
+        name: f"{asset_prefix}-{name}".encode()
         for name in adapter.SIMPLEFOLD_CONFIDENCE_ESM2_ARTIFACTS
     }
     for name, payload in model_payloads.items():
@@ -354,7 +385,11 @@ def test_confidence_readiness_has_exact_asset_closure_and_invalidates_replacemen
     assert adapter.simplefold_confidence_readiness(
         environment
     ) == ReadinessResult(True, proof_source="direct-observation")
+    validated = adapter.validate_simplefold_confidence_environment(
+        environment
+    )
     identity = adapter.provider_identity()
+    assert validated["resolved_provider_identity"] == identity
     assert set(identity["artifact_sha256"]) == {
         "ccd.pkl",
         "plddt.ckpt",
@@ -442,6 +477,24 @@ def test_direct_head_is_statically_scaled_and_masks_invalid_residues(
     ]
     assert len(started) == len(terminal) == 1
     assert terminal[0]["status"] == "succeeded"
+    from modules.folding.simplefold_confidence_adapter import (
+        invocation_identity,
+    )
+
+    resolved_identity = client.calls[0]["resolved_provider_identity"]
+    assert started[0]["engine_identity"] == invocation_identity(
+        resolved_identity
+    )
+    changed_identity = {
+        **resolved_identity,
+        "artifact_sha256": {
+            **resolved_identity["artifact_sha256"],
+            "ccd.pkl": "0" * 64,
+        },
+    }
+    assert invocation_identity(changed_identity) != started[0][
+        "engine_identity"
+    ]
     public = json.dumps({"projection": projection, "events": events})
     for forbidden in (
         "contact-regression",
@@ -451,6 +504,53 @@ def test_direct_head_is_statically_scaled_and_masks_invalid_residues(
         "must-never-publish",
     ):
         assert forbidden not in public
+
+
+def test_resolved_asset_digests_are_bound_to_result_contract_identity(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import modules.folding.simplefold_confidence_adapter as adapter
+    from modules.folding.package import _simplefold_confidence_binding
+
+    class Client:
+        def evaluate(self, **_kwargs: Any) -> dict[str, Any]:
+            return {
+                "native_plddt": [0.71, 0.83],
+                "valid_protein_residues": [True, True],
+            }
+
+    baseline_identity = dict(
+        _simplefold_confidence_binding().implementation_identity
+    )
+    environment = _confidence_environment(
+        tmp_path / "environment",
+        monkeypatch,
+        client=Client(),
+    )
+    _catalog, projection, _ = _run_confidence(
+        tmp_path / "run",
+        monkeypatch,
+        client=Client(),
+        environment_values=environment,
+    )
+    result_identity = next(
+        output["result_identity"]
+        for output in projection["outputs"]
+        if output["node_id"] == "confidence"
+    )
+    assert result_identity.startswith("sha256:")
+    replacement = dict(adapter.SIMPLEFOLD_ARTIFACT_SHA256)
+    replacement["ccd.pkl"] = "0" * 64
+    monkeypatch.setattr(
+        adapter,
+        "SIMPLEFOLD_ARTIFACT_SHA256",
+        replacement,
+    )
+    changed_identity = dict(
+        _simplefold_confidence_binding().implementation_identity
+    )
+    assert changed_identity != baseline_identity
 
 
 @pytest.mark.parametrize("native_value", (77.0, -0.01, 1.01))

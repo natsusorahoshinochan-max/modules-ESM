@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import builtins
+import io
 import json
 import os
 from pathlib import Path
@@ -31,6 +33,7 @@ def test_simplefold_confidence_v2_evaluates_3gb1_exact_assets_without_refold(
     readiness: dict[str, bool],
     pdb_3gb1: object,
     tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Execute the exact confidence-only Binding; its full gate forbids skips."""
     require_ready("simplefold", readiness)
@@ -122,6 +125,87 @@ def test_simplefold_confidence_v2_evaluates_3gb1_exact_assets_without_refold(
         esm2_model_root
         / "esm2_t36_3B_UR50D-contact-regression.pt"
     ).exists()
+    forbidden_assets = {
+        "boltz1_conf.ckpt",
+        "simplefold_100M.ckpt",
+        "simplefold_360M.ckpt",
+        "esm2_t36_3B_UR50D-contact-regression.pt",
+    }
+    forbidden_accesses: list[str] = []
+
+    def reject_forbidden(path: object) -> None:
+        try:
+            name = Path(os.fspath(path)).name
+        except TypeError:
+            return
+        if name in forbidden_assets:
+            forbidden_accesses.append(name)
+            raise AssertionError(
+                f"forbidden confidence asset was probed: {name}"
+            )
+
+    real_builtin_open = builtins.open
+    real_io_open = io.open
+    real_os_open = os.open
+    real_os_stat = os.stat
+    real_os_lstat = os.lstat
+    real_os_access = os.access
+
+    def guarded_builtin_open(file: object, *args: object, **kwargs: object):
+        reject_forbidden(file)
+        return real_builtin_open(file, *args, **kwargs)
+
+    def guarded_io_open(file: object, *args: object, **kwargs: object):
+        reject_forbidden(file)
+        return real_io_open(file, *args, **kwargs)
+
+    def guarded_os_open(path: object, *args: object, **kwargs: object):
+        reject_forbidden(path)
+        return real_os_open(path, *args, **kwargs)
+
+    def guarded_os_stat(path: object, *args: object, **kwargs: object):
+        reject_forbidden(path)
+        return real_os_stat(path, *args, **kwargs)
+
+    def guarded_os_lstat(path: object, *args: object, **kwargs: object):
+        reject_forbidden(path)
+        return real_os_lstat(path, *args, **kwargs)
+
+    def guarded_os_access(path: object, *args: object, **kwargs: object):
+        reject_forbidden(path)
+        return real_os_access(path, *args, **kwargs)
+
+    from modules.simplefold_adapter import _setup_simplefold_imports
+
+    old_cwd = _setup_simplefold_imports()
+    try:
+        from simplefold.wrapper import InferenceWrapper, ModelWrapper
+    finally:
+        os.chdir(old_cwd)
+    refold_attempts: list[str] = []
+
+    def reject_refold(*_args: object, **_kwargs: object) -> None:
+        refold_attempts.append("refold")
+        raise AssertionError(
+            "existing-structure confidence invoked a folding path"
+        )
+
+    monkeypatch.setattr(
+        ModelWrapper,
+        "from_pretrained_folding_model",
+        reject_refold,
+    )
+    monkeypatch.setattr(
+        InferenceWrapper,
+        "run_inference",
+        reject_refold,
+    )
+    monkeypatch.setattr(builtins, "open", guarded_builtin_open)
+    monkeypatch.setattr(io, "open", guarded_io_open)
+    monkeypatch.setattr(os, "open", guarded_os_open)
+    monkeypatch.setattr(os, "stat", guarded_os_stat)
+    monkeypatch.setattr(os, "lstat", guarded_os_lstat)
+    monkeypatch.setattr(os, "access", guarded_os_access)
     fingerprint = configured_runtime_fingerprint()
     environment = EnvironmentConfiguration({
         ("folding.simplefold_confidence.simplefold_local", "2.0.0"): {
@@ -152,6 +236,8 @@ def test_simplefold_confidence_v2_evaluates_3gb1_exact_assets_without_refold(
     finally:
         service.shutdown()
 
+    assert forbidden_accesses == []
+    assert refold_attempts == []
     assert projection["status"] == "succeeded", json.dumps(events, indent=2)
     output = next(
         item

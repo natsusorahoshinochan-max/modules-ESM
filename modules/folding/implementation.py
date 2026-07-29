@@ -50,7 +50,7 @@ from .simplefold_adapter import (
 from .simplefold_confidence_adapter import (
     evaluate as simplefold_confidence_evaluate,
     invocation_identity as simplefold_confidence_invocation_identity,
-    provider_identity as simplefold_confidence_provider_identity,
+    validate_simplefold_confidence_environment,
 )
 
 
@@ -753,6 +753,14 @@ class SimpleFoldConfidenceImplementation:
                 "structure.plddt.mean_residue",
             )
         }
+        validated_environment = (
+            validate_simplefold_confidence_environment(
+                self._environment
+            )
+        )
+        resolved_provider_identity = validated_environment[
+            "resolved_provider_identity"
+        ]
         observations: list[ScoreObservation] = []
         for candidate_index, candidate in enumerate(candidates):
             structure = candidate.data
@@ -771,20 +779,21 @@ class SimpleFoldConfidenceImplementation:
                 with self._run_resources.engine_invocation(
                     engine_role=f"confidence_subject_{candidate_index}",
                     engine_identity=(
-                        simplefold_confidence_invocation_identity()
+                        simplefold_confidence_invocation_identity(
+                            resolved_provider_identity
+                        )
                     ),
                 ):
                     native = simplefold_confidence_evaluate(
                         structure=structure,
                         staging_directory=staging_directory,
                         environment=self._environment,
-                        call_details={
-                            "candidate_id": candidate.candidate_id,
-                        },
+                        validated_environment=validated_environment,
                     )
             if set(native) != {
                 "native_plddt",
                 "valid_protein_residues",
+                "resolved_provider_identity",
             }:
                 raise ValueError(
                     "SimpleFold confidence provider result is not closed"
@@ -800,8 +809,8 @@ class SimpleFoldConfidenceImplementation:
                 provider="simplefold",
                 operation="evaluate_structure",
                 model="simplefold_confidence_1.6B",
-                provider_identity=(
-                    simplefold_confidence_provider_identity()
+                provider_identity=dict(
+                    native["resolved_provider_identity"]
                 ),
                 effective_seed=None,
                 seed_control="deterministic_existing_coordinates",
