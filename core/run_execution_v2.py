@@ -15,6 +15,11 @@ from types import MappingProxyType
 from typing import Any
 import uuid
 
+from protein_workbench_public import (
+    ProtocolValidationError,
+    validate_event,
+)
+
 from core.port_types import (
     FrozenCatalog,
     PortValueError,
@@ -41,6 +46,18 @@ MAX_ARTIFACTS_PER_RUN = 2_048
 MAX_ARTIFACT_SIZE_BYTES = 64 * 1024 * 1024
 MAX_ARTIFACT_BYTES_PER_RUN = 256 * 1024 * 1024
 _PUBLIC_IDENTIFIER = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.:/+-]*$")
+_ATTEMPT_TERMINALS = frozenset(
+    {
+        "succeeded",
+        "failed",
+        "cancelled",
+        "interrupted",
+        "outcome_unknown",
+    }
+)
+_DISPOSITION_OUTCOMES = frozenset(
+    {"succeeded", "failed", "blocked", "cancelled", "interrupted"}
+)
 
 
 def _utc_now() -> datetime:
@@ -54,6 +71,71 @@ def run_timestamp(value: datetime | None = None) -> str:
 
 def run_cursor(sequence: int) -> str:
     return f"cursor-{sequence:020d}"
+
+
+def _public_failure(error: BaseException) -> dict[str, Any]:
+    error_type = type(error).__name__
+    if (
+        len(error_type) > 128
+        or _PUBLIC_IDENTIFIER.fullmatch(error_type) is None
+    ):
+        error_type = "Exception"
+    return {
+        "code": "node_execution_failed",
+        "message": "Node execution failed safely",
+        "retryable": False,
+        "correlation_id": f"incident-{uuid.uuid4().hex}",
+        "details": {"exception_type": error_type},
+    }
+
+
+def _public_event_from_fact(
+    *,
+    project_id: str,
+    run_id: str,
+    fact: Mapping[str, Any],
+) -> dict[str, Any] | None:
+    fact_type = fact["fact_type"]
+    public_fact_types = {
+        "readiness_attested",
+        "run_admitted",
+        "run_started",
+        "node_attempt_started",
+        "operation_attempt_started",
+        "engine_invocation_started",
+        "engine_invocation_terminal",
+        "operation_attempt_terminal",
+        "node_attempt_terminal",
+        "node_disposition",
+        "run_terminal",
+    }
+    if fact_type not in public_fact_types:
+        return None
+    payload = dict(fact["payload"])
+    if fact_type == "readiness_attested":
+        event = {
+            "type": fact_type,
+            "binding": payload["binding"],
+            "attestation_digest": payload["attestation_digest"],
+            "observed_at": payload["observed_at"],
+            "conclusion": payload["conclusion"],
+            "proof_source": payload["proof_source"],
+        }
+    elif fact_type == "node_disposition":
+        disposition = dict(payload)
+        disposition["terminal_sequence"] = fact["sequence"]
+        event = {"type": fact_type, "disposition": disposition}
+    else:
+        event = {"type": fact_type, **payload}
+    return {
+        "schema_namespace": "protein-workbench-public/v2",
+        "project_id": project_id,
+        "run_id": run_id,
+        "sequence": fact["sequence"],
+        "cursor": run_cursor(fact["sequence"]),
+        "emitted_at": fact["recorded_at"],
+        "event": event,
+    }
 
 
 @dataclass(frozen=True, slots=True)
@@ -262,6 +344,21 @@ class RunResources:
         context.cleanup_temporary_work()
 
 
+class ResultReplaySource:
+    """Optional Cache boundary; Ticket 09 supplies durable v2 storage."""
+
+    def lookup(
+        self,
+        *,
+        project_id: str,
+        execution_plan: ExecutionPlan,
+        node: ExecutionPlanNode,
+        inputs: Mapping[str, Any],
+    ) -> Mapping[str, Any] | None:
+        del project_id, execution_plan, node, inputs
+        return None
+
+
 class V2RunError(RuntimeError):
     """One public-safe v2 Run failure."""
 
@@ -277,19 +374,65 @@ class V2RunError(RuntimeError):
         super().__init__(message)
 
 
+class ExecutionTermination(RuntimeError):
+    """A bounded terminal conclusion reported by a started engine seam."""
+
+    def __init__(self, status: str) -> None:
+        if status not in {
+            "failed",
+            "cancelled",
+            "interrupted",
+            "outcome_unknown",
+        }:
+            raise ValueError("Execution terminal status is invalid")
+        self.status = status
+        super().__init__("Execution terminated without public diagnostics")
+
+
+class PreScheduleTermination(RuntimeError):
+    """A scheduler conclusion that prevents a Node Attempt from starting."""
+
+    def __init__(self, outcome: str) -> None:
+        if outcome not in {"cancelled", "interrupted"}:
+            raise ValueError("Pre-schedule disposition outcome is invalid")
+        self.outcome = outcome
+        super().__init__("Node was not scheduled")
+
+
 class _RunEvidenceLedger:
-    """Append-only owner-only fact files for one Run."""
+    """Schema-checked, causally closed owner-only facts for one Run."""
 
     def __init__(
         self,
         projects: ProjectManager,
         project_id: str,
         run_id: str,
+        plan: ExecutionPlan,
     ) -> None:
         run_dir = projects.run_dir(project_id, run_id)
         self._root = run_dir.parent
+        self._project_id = project_id
         self._run_id = run_id
         self._facts: list[dict[str, Any]] = []
+        self._plan_nodes = frozenset(node.node_id for node in plan.nodes)
+        dependencies: dict[str, set[str]] = {
+            node.node_id: set() for node in plan.nodes
+        }
+        for edge in plan.edges:
+            dependencies[edge.target_node_id].add(edge.source_node_id)
+        self._dependencies = {
+            node_id: frozenset(upstream)
+            for node_id, upstream in dependencies.items()
+        }
+        self._node_attempts: dict[str, dict[str, Any]] = {}
+        self._node_attempt_by_node: dict[str, str] = {}
+        self._operations: dict[str, dict[str, Any]] = {}
+        self._invocations: dict[str, dict[str, Any]] = {}
+        self._dispositions: dict[str, dict[str, Any]] = {}
+        self._outputs_published: set[str] = set()
+        self._run_admitted = False
+        self._run_started = False
+        self._run_terminal = False
 
     @property
     def facts(self) -> tuple[dict[str, Any], ...]:
@@ -299,15 +442,468 @@ class _RunEvidenceLedger:
     def cursor(self) -> str:
         return run_cursor(len(self._facts))
 
+    def _require_fields(
+        self,
+        payload: Mapping[str, Any],
+        *,
+        required: frozenset[str],
+        optional: frozenset[str] = frozenset(),
+    ) -> None:
+        fields = frozenset(payload)
+        if not required <= fields or fields - required - optional:
+            raise V2RunError(
+                "evidence_unavailable",
+                "Required Run evidence failed schema validation",
+                details={"last_durable_cursor": self.cursor},
+            )
+
+    def _causal_error(self) -> V2RunError:
+        return V2RunError(
+            "evidence_unavailable",
+            "Required Run evidence failed causal validation",
+            details={"last_durable_cursor": self.cursor},
+        )
+
+    def _validate_causality(
+        self,
+        fact_type: str,
+        payload: Mapping[str, Any],
+    ) -> None:
+        if self._run_terminal:
+            raise self._causal_error()
+        if fact_type == "run_scope_bound":
+            if self._facts:
+                raise self._causal_error()
+            return
+        if not self._facts or self._facts[0]["fact_type"] != "run_scope_bound":
+            raise self._causal_error()
+        if fact_type in {"availability_bound", "readiness_attested"}:
+            if self._run_admitted:
+                raise self._causal_error()
+            return
+        if fact_type == "run_admitted":
+            if self._run_admitted or self._run_started:
+                raise self._causal_error()
+            return
+        if fact_type == "run_started":
+            if not self._run_admitted or self._run_started:
+                raise self._causal_error()
+            return
+        if fact_type == "node_attempt_started":
+            node_id = payload["node_id"]
+            attempt_id = payload["node_attempt_id"]
+            if (
+                not self._run_started
+                or node_id not in self._plan_nodes
+                or node_id in self._node_attempt_by_node
+                or node_id in self._dispositions
+                or attempt_id in self._node_attempts
+                or any(
+                    upstream not in self._dispositions
+                    or self._dispositions[upstream]["outcome"] != "succeeded"
+                    for upstream in self._dependencies[node_id]
+                )
+            ):
+                raise self._causal_error()
+            return
+        if fact_type == "operation_attempt_started":
+            attempt_id = payload["node_attempt_id"]
+            operation_id = payload["operation_attempt_id"]
+            attempt = self._node_attempts.get(attempt_id)
+            if (
+                attempt is None
+                or attempt["terminal"] is not None
+                or operation_id in self._operations
+                or any(
+                    operation["node_attempt_id"] == attempt_id
+                    for operation in self._operations.values()
+                )
+            ):
+                raise self._causal_error()
+            return
+        if fact_type == "engine_invocation_started":
+            operation_id = payload["operation_attempt_id"]
+            invocation_id = payload["invocation_id"]
+            operation = self._operations.get(operation_id)
+            if (
+                operation is None
+                or operation["terminal"] is not None
+                or invocation_id in self._invocations
+            ):
+                raise self._causal_error()
+            return
+        if fact_type == "engine_invocation_terminal":
+            invocation = self._invocations.get(payload["invocation_id"])
+            if invocation is None or invocation["terminal"] is not None:
+                raise self._causal_error()
+            return
+        if fact_type == "operation_attempt_terminal":
+            operation_id = payload["operation_attempt_id"]
+            operation = self._operations.get(operation_id)
+            if (
+                operation is None
+                or operation["terminal"] is not None
+                or any(
+                    invocation["operation_attempt_id"] == operation_id
+                    and invocation["terminal"] is None
+                    for invocation in self._invocations.values()
+                )
+                or (
+                    payload["status"] == "succeeded"
+                    and any(
+                        invocation["operation_attempt_id"] == operation_id
+                        and invocation["terminal"] != "succeeded"
+                        for invocation in self._invocations.values()
+                    )
+                )
+            ):
+                raise self._causal_error()
+            return
+        if fact_type in {"artifact_published", "outputs_published"}:
+            node_id = (
+                payload["artifact"]["node_id"]
+                if fact_type == "artifact_published"
+                else payload["node_id"]
+            )
+            attempt_id = self._node_attempt_by_node.get(node_id)
+            attempt = (
+                self._node_attempts.get(attempt_id)
+                if attempt_id is not None
+                else None
+            )
+            if (
+                attempt is None
+                or attempt["terminal"] is not None
+                or node_id in self._dispositions
+                or (
+                    fact_type == "outputs_published"
+                    and node_id in self._outputs_published
+                )
+            ):
+                raise self._causal_error()
+            child_operations = [
+                operation_id
+                for operation_id, operation in self._operations.items()
+                if operation["node_attempt_id"] == attempt_id
+            ]
+            if child_operations and any(
+                invocation["operation_attempt_id"] in child_operations
+                and invocation["terminal"] != "succeeded"
+                for invocation in self._invocations.values()
+            ):
+                raise self._causal_error()
+            return
+        if fact_type == "node_attempt_terminal":
+            attempt_id = payload["node_attempt_id"]
+            attempt = self._node_attempts.get(attempt_id)
+            child_operations = [
+                operation
+                for operation in self._operations.values()
+                if operation["node_attempt_id"] == attempt_id
+            ]
+            if (
+                attempt is None
+                or attempt["terminal"] is not None
+                or any(
+                    operation["terminal"] is None
+                    for operation in child_operations
+                )
+                or (
+                    payload["resolution"] == "cache_replayed"
+                    and (
+                        payload["status"] != "succeeded"
+                        or child_operations
+                    )
+                )
+                or (
+                    payload["resolution"] == "executed"
+                    and child_operations
+                    and child_operations[-1]["terminal"]
+                    != payload["status"]
+                )
+            ):
+                raise self._causal_error()
+            return
+        if fact_type == "node_disposition":
+            node_id = payload["node_id"]
+            outcome = payload["outcome"]
+            if node_id not in self._plan_nodes or node_id in self._dispositions:
+                raise self._causal_error()
+            attempt_id = self._node_attempt_by_node.get(node_id)
+            attempt = (
+                self._node_attempts.get(attempt_id)
+                if attempt_id is not None
+                else None
+            )
+            if outcome == "blocked":
+                blocked_by = frozenset(payload["blocked_by"])
+                expected_blockers = frozenset(
+                    upstream
+                    for upstream in self._dependencies[node_id]
+                    if upstream in self._dispositions
+                    and self._dispositions[upstream]["outcome"]
+                    != "succeeded"
+                )
+                if (
+                    attempt is not None
+                    or not blocked_by
+                    or blocked_by != expected_blockers
+                    or any(
+                        upstream not in self._dispositions
+                        or self._dispositions[upstream]["outcome"]
+                        == "succeeded"
+                        for upstream in blocked_by
+                    )
+                ):
+                    raise self._causal_error()
+                return
+            if outcome in {"cancelled", "interrupted"} and attempt is None:
+                return
+            if attempt is None or attempt["terminal"] is None:
+                raise self._causal_error()
+            expected_outcome = {
+                "succeeded": "succeeded",
+                "failed": "failed",
+                "cancelled": "cancelled",
+                "interrupted": "interrupted",
+                "outcome_unknown": "interrupted",
+            }[attempt["terminal"]]
+            if expected_outcome != outcome:
+                raise self._causal_error()
+            if outcome == "succeeded" and (
+                payload.get("resolution") != attempt["resolution"]
+            ):
+                raise self._causal_error()
+            return
+        if fact_type == "run_terminal":
+            outcomes = {
+                disposition["outcome"]
+                for disposition in self._dispositions.values()
+            }
+            expected_status = (
+                "failed"
+                if "failed" in outcomes
+                else "interrupted"
+                if "interrupted" in outcomes
+                else "cancelled"
+                if "cancelled" in outcomes
+                else "succeeded"
+            )
+            if (
+                not self._run_started
+                or set(self._dispositions) != set(self._plan_nodes)
+                or any(
+                    attempt["terminal"] is None
+                    for attempt in self._node_attempts.values()
+                )
+                or any(
+                    operation["terminal"] is None
+                    for operation in self._operations.values()
+                )
+                or any(
+                    invocation["terminal"] is None
+                    for invocation in self._invocations.values()
+                )
+                or payload["status"] != expected_status
+            ):
+                raise self._causal_error()
+
+    def _validate_schema(
+        self,
+        fact_type: str,
+        payload: Mapping[str, Any],
+    ) -> None:
+        schemas = {
+            "run_scope_bound": (
+                frozenset(
+                    {
+                        "project_id",
+                        "run_id",
+                        "workflow_revision",
+                        "workflow_digest",
+                        "contract_lock_digest",
+                        "compile_id",
+                        "execution_plan_digest",
+                        "catalog_contract_digest",
+                        "resolved_contracts",
+                    }
+                ),
+                frozenset(),
+            ),
+            "availability_bound": (
+                frozenset(
+                    {"binding", "catalog_observed_at", "available"}
+                ),
+                frozenset(),
+            ),
+            "readiness_attested": (
+                frozenset(
+                    {
+                        "binding",
+                        "readiness_contract_digest",
+                        "safe_environment_fingerprint",
+                        "observed_at",
+                        "conclusion",
+                        "proof_source",
+                        "attestation_digest",
+                    }
+                ),
+                frozenset(
+                    {"proof_reference", "refreshed_proof_reference"}
+                ),
+            ),
+            "run_admitted": (
+                frozenset({"workflow_revision", "compile_id"}),
+                frozenset(),
+            ),
+            "run_started": (frozenset({"started_at"}), frozenset()),
+            "node_attempt_started": (
+                frozenset({"node_id", "node_attempt_id"}),
+                frozenset(),
+            ),
+            "operation_attempt_started": (
+                frozenset({"operation_attempt_id", "node_attempt_id"}),
+                frozenset(),
+            ),
+            "engine_invocation_started": (
+                frozenset(
+                    {
+                        "invocation_id",
+                        "operation_attempt_id",
+                        "engine_role",
+                        "engine_identity",
+                    }
+                ),
+                frozenset(),
+            ),
+            "engine_invocation_terminal": (
+                frozenset({"invocation_id", "status"}),
+                frozenset({"error"}),
+            ),
+            "artifact_published": (
+                frozenset({"artifact"}),
+                frozenset(),
+            ),
+            "outputs_published": (
+                frozenset({"node_id", "outputs", "artifacts"}),
+                frozenset(),
+            ),
+            "operation_attempt_terminal": (
+                frozenset({"operation_attempt_id", "status"}),
+                frozenset({"error"}),
+            ),
+            "node_attempt_terminal": (
+                frozenset({"node_attempt_id", "status", "resolution"}),
+                frozenset({"error"}),
+            ),
+            "node_disposition": (
+                frozenset({"node_id", "outcome", "blocked_by"}),
+                frozenset({"resolution"}),
+            ),
+            "run_terminal": (frozenset({"status"}), frozenset()),
+        }
+        try:
+            required, optional = schemas[fact_type]
+        except KeyError as error:
+            raise V2RunError(
+                "evidence_unavailable",
+                "Required Run evidence has an unknown fact type",
+                details={"last_durable_cursor": self.cursor},
+            ) from error
+        self._require_fields(
+            payload,
+            required=required,
+            optional=optional,
+        )
+        if (
+            fact_type.endswith("_terminal")
+            and fact_type != "run_terminal"
+            and payload["status"] not in _ATTEMPT_TERMINALS
+        ):
+            raise self._causal_error()
+        if fact_type == "node_attempt_terminal" and payload["resolution"] not in {
+            "executed",
+            "cache_replayed",
+        }:
+            raise self._causal_error()
+        if fact_type == "node_disposition":
+            if payload["outcome"] not in _DISPOSITION_OUTCOMES:
+                raise self._causal_error()
+            if (
+                payload["outcome"] == "succeeded"
+            ) != ("resolution" in payload):
+                raise self._causal_error()
+
+    def _apply(self, fact_type: str, payload: Mapping[str, Any]) -> None:
+        if fact_type == "run_admitted":
+            self._run_admitted = True
+        elif fact_type == "run_started":
+            self._run_started = True
+        elif fact_type == "node_attempt_started":
+            record = {
+                "node_id": payload["node_id"],
+                "terminal": None,
+                "resolution": None,
+            }
+            self._node_attempts[payload["node_attempt_id"]] = record
+            self._node_attempt_by_node[payload["node_id"]] = payload[
+                "node_attempt_id"
+            ]
+        elif fact_type == "operation_attempt_started":
+            self._operations[payload["operation_attempt_id"]] = {
+                "node_attempt_id": payload["node_attempt_id"],
+                "terminal": None,
+            }
+        elif fact_type == "engine_invocation_started":
+            self._invocations[payload["invocation_id"]] = {
+                "operation_attempt_id": payload["operation_attempt_id"],
+                "terminal": None,
+            }
+        elif fact_type == "engine_invocation_terminal":
+            self._invocations[payload["invocation_id"]]["terminal"] = payload[
+                "status"
+            ]
+        elif fact_type == "operation_attempt_terminal":
+            self._operations[payload["operation_attempt_id"]]["terminal"] = (
+                payload["status"]
+            )
+        elif fact_type == "node_attempt_terminal":
+            attempt = self._node_attempts[payload["node_attempt_id"]]
+            attempt["terminal"] = payload["status"]
+            attempt["resolution"] = payload["resolution"]
+        elif fact_type == "outputs_published":
+            self._outputs_published.add(payload["node_id"])
+        elif fact_type == "node_disposition":
+            self._dispositions[payload["node_id"]] = dict(payload)
+        elif fact_type == "run_terminal":
+            self._run_terminal = True
+
     def append(self, fact_type: str, payload: Mapping[str, Any]) -> dict[str, Any]:
         sequence = len(self._facts) + 1
+        safe_payload = sanitize_public_value(dict(payload))
         fact = {
             "schema_version": RUN_LEDGER_SCHEMA_VERSION,
             "sequence": sequence,
             "recorded_at": run_timestamp(),
             "fact_type": fact_type,
-            "payload": sanitize_public_value(dict(payload)),
+            "payload": safe_payload,
         }
+        self._validate_schema(fact_type, safe_payload)
+        self._validate_causality(fact_type, safe_payload)
+        event = _public_event_from_fact(
+            project_id=self._project_id,
+            run_id=self._run_id,
+            fact=fact,
+        )
+        if event is not None:
+            try:
+                validate_event(event)
+            except ProtocolValidationError as error:
+                raise V2RunError(
+                    "evidence_unavailable",
+                    "Required Run evidence failed public schema validation",
+                    details={"last_durable_cursor": self.cursor},
+                ) from error
         encoded = canonical_json_bytes(fact)
         try:
             write_private_new_file(
@@ -327,6 +923,7 @@ class _RunEvidenceLedger:
                 details={"last_durable_cursor": self.cursor},
             ) from error
         self._facts.append(fact)
+        self._apply(fact_type, safe_payload)
         return fact
 
 
@@ -443,17 +1040,45 @@ class V2RunService:
         catalog: FrozenCatalog,
         authoring: WorkflowAuthoringService,
         environment: EnvironmentConfiguration,
+        result_replay_source: ResultReplaySource | None = None,
     ) -> None:
         self._projects = projects
         self._catalog = catalog
         self._authoring = authoring
         self._environment = environment
+        self._result_replay_source = (
+            result_replay_source or ResultReplaySource()
+        )
         self._runs: dict[tuple[str, str], _RunRecord] = {}
         self._run_owners: dict[str, str] = {}
         self._proofs: dict[
             tuple[str, str, str, str],
             ReusableReadinessProof,
         ] = {}
+
+    def _require_record(
+        self,
+        project_id: str,
+        run_id: str,
+    ) -> _RunRecord:
+        owner = self._run_owners.get(run_id)
+        if owner is not None and owner != project_id:
+            raise V2RunError(
+                "cross_scope_access_denied",
+                "Run does not belong to the requested Project",
+                details={
+                    "requested_project_id": project_id,
+                    "requested_run_id": run_id,
+                },
+            )
+        try:
+            return self._runs[(project_id, run_id)]
+        except KeyError as error:
+            raise V2RunError(
+                "run_not_found",
+                "Run was not found",
+                details={"resource_kind": "run", "resource_id": run_id},
+            ) from error
 
     def _availability(self, binding_id: str, version: str) -> Mapping[str, Any]:
         for snapshot in self._catalog.availability:
@@ -475,6 +1100,53 @@ class V2RunService:
                 "reason_code": "availability_missing",
             },
         )
+
+    @staticmethod
+    def _project_terminal_run(
+        *,
+        project_id: str,
+        run_id: str,
+        workflow_revision: int,
+        compile_id: str,
+        plan: ExecutionPlan,
+        ledger: _RunEvidenceLedger,
+    ) -> dict[str, Any]:
+        dispositions: list[dict[str, Any]] = []
+        outputs: list[dict[str, Any]] = []
+        artifacts: list[dict[str, Any]] = []
+        terminal_status: str | None = None
+        terminal_sequence: int | None = None
+        for fact in ledger.facts:
+            payload = fact["payload"]
+            if fact["fact_type"] == "node_disposition":
+                disposition = dict(payload)
+                disposition["terminal_sequence"] = fact["sequence"]
+                dispositions.append(disposition)
+            elif fact["fact_type"] == "outputs_published":
+                outputs.extend(payload["outputs"])
+                artifacts.extend(payload["artifacts"])
+            elif fact["fact_type"] == "run_terminal":
+                terminal_status = payload["status"]
+                terminal_sequence = fact["sequence"]
+        if terminal_status is None or terminal_sequence is None:
+            raise V2RunError(
+                "evidence_unavailable",
+                "Run projection requires a causally closed terminal Ledger",
+                details={"last_durable_cursor": ledger.cursor},
+            )
+        return {
+            "project_id": project_id,
+            "run_id": run_id,
+            "workflow_revision": workflow_revision,
+            "workflow_digest": plan.workflow_digest,
+            "compile_id": compile_id,
+            "status": terminal_status,
+            "terminal_sequence": terminal_sequence,
+            "ledger_cursor": ledger.cursor,
+            "node_dispositions": dispositions,
+            "outputs": outputs,
+            "artifact_index": artifacts,
+        }
 
     @staticmethod
     def _proof_contract(
@@ -964,6 +1636,7 @@ class V2RunService:
                 self._projects,
                 project_id,
                 run_id,
+                plan,
             )
         except (OSError, StoragePathError) as error:
             raise V2RunError(
@@ -1026,32 +1699,101 @@ class V2RunService:
         )
         ledger.append("run_started", {"started_at": run_timestamp()})
 
-        all_outputs: list[dict[str, Any]] = []
         all_artifacts: list[dict[str, Any]] = []
         artifact_records: dict[
             str,
             tuple[dict[str, Any], tuple[str, ...]],
         ] = {}
         values: dict[tuple[str, str], list[Any]] = {}
-        dispositions: list[dict[str, Any]] = []
+        disposition_outcomes: dict[str, str] = {}
         for node in plan.nodes:
+            blocked_by = sorted(
+                {
+                    edge.source_node_id
+                    for edge in plan.edges
+                    if edge.target_node_id == node.node_id
+                    and disposition_outcomes.get(edge.source_node_id)
+                    != "succeeded"
+                }
+            )
+            if blocked_by:
+                ledger.append(
+                    "node_disposition",
+                    {
+                        "node_id": node.node_id,
+                        "outcome": "blocked",
+                        "blocked_by": blocked_by,
+                    },
+                )
+                disposition_outcomes[node.node_id] = "blocked"
+                continue
             node_attempt_id = f"node-attempt-{uuid.uuid4().hex}"
             operation_attempt_id = f"operation-{uuid.uuid4().hex}"
             invocation_id = f"invocation-{uuid.uuid4().hex}"
-            ledger.append(
-                "node_attempt_started",
-                {
-                    "node_id": node.node_id,
-                    "node_attempt_id": node_attempt_id,
-                },
+            node_inputs = self._inputs_for(plan, node, values)
+            binding_contract = self._catalog.require_contract(
+                *node.binding.key,
             )
-            ledger.append(
-                "operation_attempt_started",
-                {
-                    "operation_attempt_id": operation_attempt_id,
-                    "node_attempt_id": node_attempt_id,
-                },
-            )
+            replayed_outputs = None
+            if binding_contract.descriptor.get("cacheable") is True:
+                replayed_outputs = self._result_replay_source.lookup(
+                    project_id=project_id,
+                    execution_plan=plan,
+                    node=node,
+                    inputs=node_inputs,
+                )
+            if replayed_outputs is not None:
+                ledger.append(
+                    "node_attempt_started",
+                    {
+                        "node_id": node.node_id,
+                        "node_attempt_id": node_attempt_id,
+                    },
+                )
+                published, runtime = self._validate_outputs(
+                    node,
+                    replayed_outputs,
+                )
+                if any(
+                    output["port_type"]["contract_id"]
+                    in {"file.path", "file.path.collection"}
+                    for output in published
+                ):
+                    raise V2RunError(
+                        "internal_error",
+                        "Cache replay contained a path-valued result",
+                        details={
+                            "incident_id": f"incident-{uuid.uuid4().hex}"
+                        },
+                    )
+                ledger.append(
+                    "outputs_published",
+                    {
+                        "node_id": node.node_id,
+                        "outputs": published,
+                        "artifacts": [],
+                    },
+                )
+                ledger.append(
+                    "node_attempt_terminal",
+                    {
+                        "node_attempt_id": node_attempt_id,
+                        "status": "succeeded",
+                        "resolution": "cache_replayed",
+                    },
+                )
+                ledger.append(
+                    "node_disposition",
+                    {
+                        "node_id": node.node_id,
+                        "outcome": "succeeded",
+                        "resolution": "cache_replayed",
+                        "blocked_by": [],
+                    },
+                )
+                values.update(runtime)
+                disposition_outcomes[node.node_id] = "succeeded"
+                continue
             resources = RunResources(
                 project_id,
                 run_id,
@@ -1059,6 +1801,7 @@ class V2RunService:
                 self._projects,
             )
             body_error: BaseException | None = None
+            implementation: Any | None = None
             try:
                 environment = self._environment.for_binding(
                     node.binding.contract_id,
@@ -1074,7 +1817,43 @@ class V2RunService:
                     environment_configuration=environment.values,
                     run_resources=resources,
                 )
-                node_inputs = self._inputs_for(plan, node, values)
+            except PreScheduleTermination as termination:
+                try:
+                    resources.cleanup_temporary_work()
+                except BaseException as cleanup_error:
+                    termination.add_note(
+                        "Run workspace cleanup also failed: "
+                        f"{type(cleanup_error).__name__}"
+                    )
+                ledger.append(
+                    "node_disposition",
+                    {
+                        "node_id": node.node_id,
+                        "outcome": termination.outcome,
+                        "blocked_by": [],
+                    },
+                )
+                disposition_outcomes[node.node_id] = termination.outcome
+                continue
+            except BaseException as error:
+                body_error = error
+            ledger.append(
+                "node_attempt_started",
+                {
+                    "node_id": node.node_id,
+                    "node_attempt_id": node_attempt_id,
+                },
+            )
+            try:
+                if body_error is not None:
+                    raise body_error
+                ledger.append(
+                    "operation_attempt_started",
+                    {
+                        "operation_attempt_id": operation_attempt_id,
+                        "node_attempt_id": node_attempt_id,
+                    },
+                )
                 ledger.append(
                     "engine_invocation_started",
                     {
@@ -1085,17 +1864,24 @@ class V2RunService:
                     },
                 )
                 try:
+                    assert implementation is not None
                     raw_outputs = implementation.execute(
                         inputs=node_inputs,
                         node_parameters=dict(node.node_parameters),
                         binding_parameters=dict(node.binding_parameters),
                     )
-                except BaseException:
+                except BaseException as error:
+                    terminal_status = (
+                        error.status
+                        if isinstance(error, ExecutionTermination)
+                        else "failed"
+                    )
                     ledger.append(
                         "engine_invocation_terminal",
                         {
                             "invocation_id": invocation_id,
-                            "status": "failed",
+                            "status": terminal_status,
+                            "error": _public_failure(error),
                         },
                     )
                     raise
@@ -1111,7 +1897,6 @@ class V2RunService:
                     node,
                     raw_outputs,
                 )
-                values.update(runtime)
                 (
                     typed_outputs,
                     node_artifacts,
@@ -1128,7 +1913,7 @@ class V2RunService:
                         for artifact in all_artifacts
                     ),
                 )
-                all_outputs.extend(typed_outputs)
+                values.update(runtime)
                 all_artifacts.extend(node_artifacts)
                 artifact_records.update(node_artifact_records)
                 ledger.append(
@@ -1153,35 +1938,56 @@ class V2RunService:
                     else:
                         body_error = cleanup_error
             if body_error is not None:
-                ledger.append(
-                    "operation_attempt_terminal",
-                    {
-                        "operation_attempt_id": operation_attempt_id,
-                        "status": "failed",
-                    },
+                if (
+                    isinstance(body_error, V2RunError)
+                    and body_error.code == "evidence_unavailable"
+                ):
+                    raise body_error
+                terminal_status = (
+                    body_error.status
+                    if isinstance(body_error, ExecutionTermination)
+                    else "failed"
                 )
+                disposition_outcome = (
+                    "interrupted"
+                    if terminal_status == "outcome_unknown"
+                    else terminal_status
+                )
+                public_error = _public_failure(body_error)
+                operation_started = any(
+                    fact["fact_type"] == "operation_attempt_started"
+                    and fact["payload"]["operation_attempt_id"]
+                    == operation_attempt_id
+                    for fact in ledger.facts
+                )
+                if operation_started:
+                    ledger.append(
+                        "operation_attempt_terminal",
+                        {
+                            "operation_attempt_id": operation_attempt_id,
+                            "status": terminal_status,
+                            "error": public_error,
+                        },
+                    )
                 ledger.append(
                     "node_attempt_terminal",
                     {
                         "node_attempt_id": node_attempt_id,
-                        "status": "failed",
+                        "status": terminal_status,
                         "resolution": "executed",
+                        "error": public_error,
                     },
                 )
                 ledger.append(
                     "node_disposition",
                     {
                         "node_id": node.node_id,
-                        "outcome": "failed",
+                        "outcome": disposition_outcome,
                         "blocked_by": [],
                     },
                 )
-                ledger.append("run_terminal", {"status": "failed"})
-                raise V2RunError(
-                    "internal_error",
-                    "Direct Node execution failed safely",
-                    details={"incident_id": f"incident-{uuid.uuid4().hex}"},
-                ) from body_error
+                disposition_outcomes[node.node_id] = disposition_outcome
+                continue
             ledger.append(
                 "operation_attempt_terminal",
                 {
@@ -1197,7 +2003,7 @@ class V2RunService:
                     "resolution": "executed",
                 },
             )
-            disposition_fact = ledger.append(
+            ledger.append(
                 "node_disposition",
                 {
                     "node_id": node.node_id,
@@ -1206,29 +2012,25 @@ class V2RunService:
                     "blocked_by": [],
                 },
             )
-            dispositions.append(
-                {
-                    "node_id": node.node_id,
-                    "outcome": "succeeded",
-                    "resolution": "executed",
-                    "terminal_sequence": disposition_fact["sequence"],
-                    "blocked_by": [],
-                }
-            )
-        terminal = ledger.append("run_terminal", {"status": "succeeded"})
-        projection = {
-            "project_id": project_id,
-            "run_id": run_id,
-            "workflow_revision": workflow_revision,
-            "workflow_digest": plan.workflow_digest,
-            "compile_id": compile_id,
-            "status": "succeeded",
-            "terminal_sequence": terminal["sequence"],
-            "ledger_cursor": ledger.cursor,
-            "node_dispositions": dispositions,
-            "outputs": all_outputs,
-            "artifact_index": all_artifacts,
-        }
+            disposition_outcomes[node.node_id] = "succeeded"
+        run_status = (
+            "failed"
+            if "failed" in disposition_outcomes.values()
+            else "interrupted"
+            if "interrupted" in disposition_outcomes.values()
+            else "cancelled"
+            if "cancelled" in disposition_outcomes.values()
+            else "succeeded"
+        )
+        ledger.append("run_terminal", {"status": run_status})
+        projection = self._project_terminal_run(
+            project_id=project_id,
+            run_id=run_id,
+            workflow_revision=workflow_revision,
+            compile_id=compile_id,
+            plan=plan,
+            ledger=ledger,
+        )
         self._runs[(project_id, run_id)] = _RunRecord(
             compiled=compiled,
             ledger=ledger,
@@ -1246,24 +2048,7 @@ class V2RunService:
         }
 
     def projection(self, project_id: str, run_id: str) -> dict[str, Any]:
-        owner = self._run_owners.get(run_id)
-        if owner is not None and owner != project_id:
-            raise V2RunError(
-                "cross_scope_access_denied",
-                "Run does not belong to the requested Project",
-                details={
-                    "requested_project_id": project_id,
-                    "requested_run_id": run_id,
-                },
-            )
-        try:
-            record = self._runs[(project_id, run_id)]
-        except KeyError as error:
-            raise V2RunError(
-                "run_not_found",
-                "Run was not found",
-                details={"resource_kind": "run", "resource_id": run_id},
-            ) from error
+        record = self._require_record(project_id, run_id)
         return json.loads(json.dumps(record.projection))
 
     def artifact(
@@ -1272,24 +2057,7 @@ class V2RunService:
         run_id: str,
         artifact_reference: str,
     ) -> tuple[dict[str, Any], bytes]:
-        owner = self._run_owners.get(run_id)
-        if owner is not None and owner != project_id:
-            raise V2RunError(
-                "cross_scope_access_denied",
-                "Run does not belong to the requested Project",
-                details={
-                    "requested_project_id": project_id,
-                    "requested_run_id": run_id,
-                },
-            )
-        try:
-            record = self._runs[(project_id, run_id)]
-        except KeyError as error:
-            raise V2RunError(
-                "run_not_found",
-                "Run was not found",
-                details={"resource_kind": "run", "resource_id": run_id},
-            ) from error
+        record = self._require_record(project_id, run_id)
         try:
             descriptor, stored_parts = record.artifacts[artifact_reference]
         except KeyError as error:
@@ -1337,67 +2105,17 @@ class V2RunService:
         project_id: str,
         run_id: str,
     ) -> tuple[dict[str, Any], ...]:
-        try:
-            record = self._runs[(project_id, run_id)]
-        except KeyError as error:
-            raise V2RunError(
-                "run_not_found",
-                "Run was not found",
-                details={"resource_kind": "run", "resource_id": run_id},
-            ) from error
-        public_fact_types = {
-            "readiness_attested",
-            "run_admitted",
-            "run_started",
-            "node_attempt_started",
-            "operation_attempt_started",
-            "engine_invocation_started",
-            "engine_invocation_terminal",
-            "operation_attempt_terminal",
-            "node_attempt_terminal",
-            "node_disposition",
-            "run_terminal",
-        }
+        record = self._require_record(project_id, run_id)
         events: list[dict[str, Any]] = []
         for fact in record.ledger.facts:
-            fact_type = fact["fact_type"]
-            if fact_type not in public_fact_types:
-                continue
-            payload = dict(fact["payload"])
-            if fact_type == "readiness_attested":
-                event = {
-                    "type": fact_type,
-                    "binding": payload["binding"],
-                    "attestation_digest": payload["attestation_digest"],
-                    "observed_at": payload["observed_at"],
-                    "conclusion": payload["conclusion"],
-                    "proof_source": payload["proof_source"],
-                }
-            elif fact_type == "node_disposition":
-                disposition = dict(payload)
-                disposition["terminal_sequence"] = fact["sequence"]
-                event = {"type": fact_type, "disposition": disposition}
-            else:
-                event = {"type": fact_type, **payload}
-            events.append(
-                {
-                    "schema_namespace": "protein-workbench-public/v2",
-                    "project_id": project_id,
-                    "run_id": run_id,
-                    "sequence": fact["sequence"],
-                    "cursor": run_cursor(fact["sequence"]),
-                    "emitted_at": fact["recorded_at"],
-                    "event": event,
-                }
+            event = _public_event_from_fact(
+                project_id=project_id,
+                run_id=run_id,
+                fact=fact,
             )
+            if event is not None:
+                events.append(event)
         return tuple(events)
 
     def ledger_cursor(self, project_id: str, run_id: str) -> str:
-        try:
-            return self._runs[(project_id, run_id)].ledger.cursor
-        except KeyError as error:
-            raise V2RunError(
-                "run_not_found",
-                "Run was not found",
-                details={"resource_kind": "run", "resource_id": run_id},
-            ) from error
+        return self._require_record(project_id, run_id).ledger.cursor

@@ -60,6 +60,7 @@ from core.provider_readiness import (
 from core.run_manifest import create_run_manifest_store
 from core.run_execution_v2 import (
     EnvironmentConfiguration,
+    ResultReplaySource,
     V2RunError,
     V2RunService,
     run_cursor,
@@ -425,6 +426,7 @@ def create_app(
     v2_environment_configuration: (
         Mapping[tuple[str, str], Mapping[str, Any]] | None
     ) = None,
+    v2_result_replay_source: ResultReplaySource | None = None,
 ) -> FastAPI:
     """Create the backend, optionally replacing external-boundary Modules."""
     trusted_readiness_resolver = (
@@ -597,6 +599,7 @@ def create_app(
             catalog_candidate,
             app.state.workflow_authoring_v2,
             EnvironmentConfiguration(v2_environment_configuration),
+            v2_result_replay_source,
         )
         yield
         for active_run in tuple(_active_runs.values()):
