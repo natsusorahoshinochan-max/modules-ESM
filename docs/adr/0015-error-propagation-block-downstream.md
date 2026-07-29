@@ -1,9 +1,20 @@
+---
+status: refined by the v2 backend architecture specification
+---
+
 # Error propagation: block downstream, allow unrelated branches
 
-When a node fails, its output ports produce no values. The execution engine
-marks all direct downstream nodes as blocked rather than queued. Nodes whose
-all input dependencies are resolved and whose upstream nodes all succeeded
-can still execute, even if other branches of the DAG have failed.
+When a Node fails, its output Ports produce no values. In the v2 runtime, a
+downstream Node is blocked when the absent values leave one of its required
+input Ports unsatisfied. An edge into an optional input Port does not by itself
+make the downstream Node blocked; it may execute after the upstream disposition
+is known, with that optional input absent. Nodes whose required inputs are
+satisfied can still execute even if another branch of the DAG has failed.
+
+The legacy v1 scheduler blocked every direct downstream Node after a failure.
+The v2 backend architecture specification refines that rule to required-input
+satisfiability and requires each blocked disposition to cite its direct causal
+upstream dispositions.
 
 ESMProteinError (returned by the ESM SDK after retries) is treated as a
 failure, not a partial result. The node is marked failed with a diagnostic
