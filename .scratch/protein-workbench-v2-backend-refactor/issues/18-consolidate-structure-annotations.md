@@ -4,7 +4,7 @@
 
 **Blocked by:** 13 — Consolidate protein I/O.
 
-**Status:** awaiting-controller
+**Status:** completed
 
 - [x] DSSP computation, secondary-structure extraction, SASA calculation, and secondary-structure agreement each have one v2 Node Definition under one package registration.
 - [x] Duplicate DSSP invocation, structure parsing, residue correspondence, and annotation conversion logic is consolidated behind package-local implementation or adapters.
@@ -52,3 +52,30 @@ executor for repair before that next Ticket starts.
   reconciliation, absent-symbol handling, explicit pairwise reference
   identity, and consolidation of legacy modules behind package-local
   adapters. Both final review axes returned `APPROVE` at `54617f4`.
+
+## Controller cumulative acceptance
+
+Before Ticket 19 started, Controller independently accepted executor commit
+`a7238796b8079e4b424015db108338a6cfcebabe` against the previously accepted
+Tickets 01–17 gate `4221bc203b1be9c5fd466f9515e5d10a11b7ae52`.
+
+- Joint Tickets 01–18 v2 suites:
+  `uv run --no-sync pytest -q tests/*_v2.py` → `419 passed`.
+- Cumulative routine gate:
+  `uv run --no-sync python scripts/verify_backend.py routine` →
+  `1101 passed, 44 deselected`; retained result
+  `verification-results/routine/20260729T144755.445946Z-96296-fa2a83ef4e0f9aac`.
+- Deterministic acceptance:
+  `uv run --no-sync python scripts/verify_backend.py
+  deterministic-acceptance` → `9 passed, 5 deselected`; retained result
+  `verification-results/deterministic-acceptance/20260729T145038.228336Z-96934-388b87982efa7e06`.
+- Installed artifact:
+  `uv run --no-sync python scripts/verify_backend.py installed-package` →
+  `3 passed`; retained result
+  `verification-results/installed-package/20260729T145128.899703Z-97067-a5ae934ec901fc86`.
+- `git diff --check
+  4221bc203b1be9c5fd466f9515e5d10a11b7ae52...a7238796b8079e4b424015db108338a6cfcebabe`
+  passed.
+
+No Controller regression was found, so Ticket 18 is accepted and Ticket 19
+may start.
