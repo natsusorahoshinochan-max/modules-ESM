@@ -15,6 +15,7 @@ from core import (
     LazyImplementationFactory,
     ReadinessDeclaration,
     ResultReplaySource,
+    V2RunError,
     builtin_frozen_catalog,
 )
 from core.server import create_app
@@ -23,8 +24,10 @@ from tests.test_run_execution_v2 import (
     _artifact_catalog,
     _compile_artifact_node,
     _compile_one_node,
+    _compile_pipeline,
     _contract,
     _direct_catalog,
+    _pipeline_catalog,
 )
 
 
@@ -365,6 +368,69 @@ def test_replay_without_identity_bound_producer_provenance_is_rejected(
     )
 
 
+def test_publication_conflict_closes_node_and_run_as_failed(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    class ConflictOnPublish(ResultReplaySource):
+        def publish(self, **kwargs: Any):
+            raise V2RunError(
+                "cache_identity_conflict",
+                "Fixture publication conflict",
+                details={"result_identity": kwargs["result_identity"]},
+            )
+
+    monkeypatch.setenv(
+        "PROTEIN_WORKBENCH_PROJECT_ROOT",
+        str(tmp_path / "projects"),
+    )
+    monkeypatch.setenv("PROTEIN_WORKBENCH_RUN_ROOT", str(tmp_path / "runs"))
+    monkeypatch.setenv(
+        "PROTEIN_WORKBENCH_OUTPUT_ROOT",
+        str(tmp_path / "outputs"),
+    )
+    app = create_app(
+        frozen_catalog_override=_direct_catalog([], cacheable=True),
+        v2_result_replay_source=ConflictOnPublish(),
+        v2_environment_configuration={
+            ("test.direct.local", "2.0.0"): {
+                "values": {"credential": "credential-value"},
+            }
+        },
+    )
+
+    with TestClient(app) as client:
+        project_id, compiled = _compile_one_node(client)
+        projection, events = _start_run(
+            client,
+            project_id,
+            compiled,
+            "publish-conflict",
+        )
+
+    public_events = [item["event"] for item in events]
+    operation_terminal = next(
+        item
+        for item in public_events
+        if item["type"] == "operation_attempt_terminal"
+    )
+    node_terminal = next(
+        item
+        for item in public_events
+        if item["type"] == "node_attempt_terminal"
+    )
+    run_terminal = next(
+        item for item in public_events if item["type"] == "run_terminal"
+    )
+    assert projection["status"] == "failed"
+    assert projection["outputs"] == []
+    assert operation_terminal["status"] == "failed"
+    assert operation_terminal["error"]["code"] == "cache_identity_conflict"
+    assert node_terminal["status"] == "failed"
+    assert node_terminal["error"]["code"] == "cache_identity_conflict"
+    assert run_terminal["status"] == "failed"
+
+
 def test_candidate_identity_is_run_independent_and_preserved_on_replay(
     tmp_path,
     monkeypatch,
@@ -610,6 +676,94 @@ def test_runtime_credentials_paths_and_performance_choices_do_not_change_identit
             project_id,
             compiled_again,
             "environment-b",
+        )
+
+    assert (
+        first["outputs"][0]["result_identity"]
+        == second["outputs"][0]["result_identity"]
+    )
+    assert first["node_dispositions"][0]["resolution"] == "executed"
+    assert second["node_dispositions"][0]["resolution"] == "cache_replayed"
+    assert "execute:test.direct.local" in first_calls
+    assert "execute:test.direct.local" not in second_calls
+
+
+def test_presentation_only_contract_change_preserves_identity_and_replay(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    project_root = tmp_path / "projects"
+    cache_root = tmp_path / "cache"
+    monkeypatch.setenv("PROTEIN_WORKBENCH_PROJECT_ROOT", str(project_root))
+    monkeypatch.setenv("PROTEIN_WORKBENCH_CACHE_ROOT", str(cache_root))
+    monkeypatch.setenv("PROTEIN_WORKBENCH_RUN_ROOT", str(tmp_path / "runs"))
+    monkeypatch.setenv(
+        "PROTEIN_WORKBENCH_OUTPUT_ROOT",
+        str(tmp_path / "outputs"),
+    )
+    environment = {
+        ("test.direct.local", "2.0.0"): {
+            "values": {"credential": "credential-value"},
+        }
+    }
+    first_calls: list[str] = []
+    with TestClient(
+        create_app(
+            frozen_catalog_override=_direct_catalog(
+                first_calls,
+                cacheable=True,
+                node_title="Scientific text producer",
+            ),
+            v2_environment_configuration=environment,
+        )
+    ) as first_client:
+        project_id, compiled = _compile_one_node(first_client)
+        first, _ = _start_run(
+            first_client,
+            project_id,
+            compiled,
+            "presentation-a",
+        )
+
+    second_calls: list[str] = []
+    with TestClient(
+        create_app(
+            frozen_catalog_override=_direct_catalog(
+                second_calls,
+                cacheable=True,
+                node_title="Renamed UI label",
+            ),
+            v2_environment_configuration=environment,
+        )
+    ) as second_client:
+        loaded = second_client.get(
+            f"/api/v2/projects/{project_id}/workflow"
+        ).json()
+        unlocked = loaded["workflow"]
+        unlocked["contract_lock"] = []
+        saved = second_client.put(
+            f"/api/v2/projects/{project_id}/workflow",
+            json={
+                "expected_workflow_revision": loaded["workflow_revision"],
+                "workflow": unlocked,
+            },
+        ).json()
+        relocked = second_client.post(
+            f"/api/v2/projects/{project_id}/workflow:relock",
+            json={"workflow_revision": saved["workflow_revision"]},
+        ).json()
+        compiled_again = second_client.post(
+            f"/api/v2/projects/{project_id}/workflow:compile",
+            json={
+                "workflow_revision": relocked["workflow_revision"],
+                "workflow": relocked["workflow"],
+            },
+        ).json()
+        second, _ = _start_run(
+            second_client,
+            project_id,
+            compiled_again,
+            "presentation-b",
         )
 
     assert (
@@ -993,6 +1147,53 @@ def test_unresolved_result_affecting_identity_disables_cross_run_cache(
         "execute:test.direct.local",
         "execute:test.direct.local",
     ]
+    assert not list((cache_root / project_id).rglob("*.json"))
+
+
+def test_unresolved_port_behavior_identity_disables_cross_run_cache(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    calls: list[str] = []
+    cache_root = tmp_path / "cache"
+    monkeypatch.setenv(
+        "PROTEIN_WORKBENCH_PROJECT_ROOT",
+        str(tmp_path / "projects"),
+    )
+    monkeypatch.setenv("PROTEIN_WORKBENCH_CACHE_ROOT", str(cache_root))
+    monkeypatch.setenv("PROTEIN_WORKBENCH_RUN_ROOT", str(tmp_path / "runs"))
+    monkeypatch.setenv(
+        "PROTEIN_WORKBENCH_OUTPUT_ROOT",
+        str(tmp_path / "outputs"),
+    )
+    app = create_app(
+        frozen_catalog_override=_pipeline_catalog(
+            calls,
+            cacheable=True,
+            unresolved_port_identity=True,
+        )
+    )
+
+    with TestClient(app) as client:
+        project_id, compiled = _compile_pipeline(client)
+        first, _ = _start_run(client, project_id, compiled, "port-unresolved-a")
+        second, _ = _start_run(
+            client,
+            project_id,
+            compiled,
+            "port-unresolved-b",
+        )
+
+    assert all(
+        item["resolution"] == "executed"
+        for item in first["node_dispositions"]
+    )
+    assert all(
+        item["resolution"] == "executed"
+        for item in second["node_dispositions"]
+    )
+    assert calls.count("execute:source") == 2
+    assert calls.count("sink-input:ready") == 2
     assert not list((cache_root / project_id).rglob("*.json"))
 
 

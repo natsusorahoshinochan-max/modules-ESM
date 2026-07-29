@@ -6,7 +6,7 @@ import base64
 import binascii
 from collections.abc import Callable, Mapping
 from contextlib import contextmanager
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, fields, is_dataclass
 from datetime import datetime, timezone
 import hashlib
 import json
@@ -66,6 +66,19 @@ READINESS_ATTESTATION_NAMESPACE = (
 )
 RESULT_IDENTITY_NAMESPACE = "protein-workbench-cache/v2"
 RESULT_CACHE_ENTRY_NAMESPACE = "protein-workbench-cache-entry/v2"
+_PRESENTATION_CONTRACT_FIELDS = frozenset(
+    {
+        "category",
+        "description",
+        "display_name",
+        "label",
+        "presentation",
+        "presentation_metadata",
+        "summary",
+        "title",
+        "ui",
+    }
+)
 RUN_LEDGER_SCHEMA_VERSION = "2.0.0"
 MAX_ARTIFACTS_PER_RUN = 2_048
 MAX_ARTIFACT_SIZE_BYTES = 64 * 1024 * 1024
@@ -663,7 +676,7 @@ class ResultReplaySource:
         result_identity: str,
         outputs: list[dict[str, Any]],
         producer_run_id: str,
-    ) -> None:
+    ) -> Callable[[], None] | None:
         del (
             project_id,
             execution_plan,
@@ -672,6 +685,7 @@ class ResultReplaySource:
             outputs,
             producer_run_id,
         )
+        return None
 
     def validate_publish(
         self,
@@ -1690,6 +1704,9 @@ class _RunEvidenceLedger:
         artifacts: list[dict[str, Any]],
         operation_attempt_id: str | None = None,
         cancel_cleanup: Callable[[], None] | None = None,
+        before_success: (
+            Callable[[], Callable[[], None] | None] | None
+        ) = None,
     ) -> str:
         """Commit one Node outcome atomically against Run cancellation."""
         with self._condition:
@@ -1738,44 +1755,58 @@ class _RunEvidenceLedger:
                     },
                 )
                 return outcome
-            if operation_attempt_id is not None:
+            rollback: Callable[[], None] | None = None
+            try:
+                if before_success is not None:
+                    rollback = before_success()
+                if operation_attempt_id is not None:
+                    self.append(
+                        "operation_attempt_terminal",
+                        {
+                            "operation_attempt_id": operation_attempt_id,
+                            "status": "succeeded",
+                        },
+                    )
+                for artifact in artifacts:
+                    self.append(
+                        "artifact_published",
+                        {"artifact": artifact},
+                    )
                 self.append(
-                    "operation_attempt_terminal",
+                    "outputs_published",
                     {
-                        "operation_attempt_id": operation_attempt_id,
-                        "status": "succeeded",
+                        "node_id": node_id,
+                        "outputs": outputs,
+                        "artifacts": artifacts,
                     },
                 )
-            for artifact in artifacts:
                 self.append(
-                    "artifact_published",
-                    {"artifact": artifact},
+                    "node_attempt_terminal",
+                    {
+                        "node_attempt_id": node_attempt_id,
+                        "status": "succeeded",
+                        "resolution": resolution,
+                    },
                 )
-            self.append(
-                "outputs_published",
-                {
-                    "node_id": node_id,
-                    "outputs": outputs,
-                    "artifacts": artifacts,
-                },
-            )
-            self.append(
-                "node_attempt_terminal",
-                {
-                    "node_attempt_id": node_attempt_id,
-                    "status": "succeeded",
-                    "resolution": resolution,
-                },
-            )
-            self.append(
-                "node_disposition",
-                {
-                    "node_id": node_id,
-                    "outcome": "succeeded",
-                    "resolution": resolution,
-                    "blocked_by": [],
-                },
-            )
+                self.append(
+                    "node_disposition",
+                    {
+                        "node_id": node_id,
+                        "outcome": "succeeded",
+                        "resolution": resolution,
+                        "blocked_by": [],
+                    },
+                )
+            except BaseException as error:
+                if rollback is not None:
+                    try:
+                        rollback()
+                    except BaseException as rollback_error:
+                        error.add_note(
+                            "Result Cache rollback also failed: "
+                            f"{type(rollback_error).__name__}"
+                        )
+                raise
             return "succeeded"
 
     def load_fact(self, fact: Mapping[str, Any], encoded: bytes) -> None:
@@ -2190,7 +2221,7 @@ def _result_identity_descriptor(
                 "port_type": port_type.reference(),
                 "multiplicity": declaration["multiplicity"],
                 "value_content_digests": [
-                    port_type.content_digest(value)
+                    _input_content_digest(catalog, port_type, value)
                     for value in values
                 ],
             }
@@ -2202,15 +2233,16 @@ def _result_identity_descriptor(
         binding_contract,
     )
     relevant_contracts = {
-        entry.key: entry.to_public()
-        for entry in plan.resolved_contracts
-        if entry.key in relevant_keys
+        key: _result_affecting_contract(
+            catalog.require_contract(*key)
+        )
+        for key in relevant_keys
     }
     return {
         "schema_namespace": RESULT_IDENTITY_NAMESPACE,
-        "node_type": node.node_type.to_public(),
-        "binding": node.binding.to_public(),
-        "method": node.method.to_public(),
+        "node_type": _identity_without_digest(node.node_type.to_public()),
+        "binding": _identity_without_digest(node.binding.to_public()),
+        "method": _identity_without_digest(node.method.to_public()),
         "resolved_result_contracts": [
             relevant_contracts[key] for key in sorted(relevant_contracts)
         ],
@@ -2242,6 +2274,111 @@ def _result_identity_descriptor(
             binding_contract.descriptor.get("produced_observations", ())
         ),
     }
+
+
+def _identity_without_digest(reference: Mapping[str, Any]) -> dict[str, Any]:
+    return {
+        "contract_kind": reference["contract_kind"],
+        "contract_id": reference["contract_id"],
+        "contract_version": reference["contract_version"],
+    }
+
+
+def _strip_presentation_contract_fields(value: Any) -> Any:
+    if isinstance(value, Mapping):
+        return {
+            str(key): _strip_presentation_contract_fields(item)
+            for key, item in value.items()
+            if (
+                key not in _PRESENTATION_CONTRACT_FIELDS
+                and key != "contract_digest"
+            )
+        }
+    if isinstance(value, (list, tuple)):
+        return [
+            _strip_presentation_contract_fields(item)
+            for item in value
+        ]
+    return value
+
+
+def _result_affecting_contract(contract: Any) -> dict[str, Any]:
+    descriptor = (
+        contract.descriptor()
+        if callable(contract.descriptor)
+        else contract.descriptor
+    )
+    return {
+        "contract_kind": descriptor["contract_kind"],
+        "contract_id": descriptor["contract_id"],
+        "contract_version": descriptor["contract_version"],
+        "descriptor": _strip_presentation_contract_fields(descriptor),
+    }
+
+
+def _candidate_data_content_digest(
+    catalog: FrozenCatalog,
+    candidate: Candidate,
+) -> str:
+    type_id = {
+        ProteinSequence: "protein.sequence",
+        ProteinStructure: "protein.structure",
+        StructureAlignment: "structure.alignment",
+    }.get(type(candidate.data))
+    if type_id is None:
+        raise PortValueError(
+            "Candidate data has no registered content identity"
+        )
+    return catalog.require_port_type(
+        type_id,
+        "2.0.0",
+    ).content_digest(candidate.data)
+
+
+def _input_content_digest(
+    catalog: FrozenCatalog,
+    port_type: Any,
+    value: Any,
+) -> str:
+    """Identify scientific input content without runtime/presentation labels."""
+    if type(value) is CandidateCollection:
+        return canonical_sha256(
+            {
+                "schema_namespace": (
+                    "protein-workbench-candidate-input/v2"
+                ),
+                "item_type": value.item_type,
+                "candidates": [
+                    {
+                        "candidate_id": candidate.candidate_id,
+                        "parent_candidate_identities": (
+                            list(candidate.parent_ids)
+                        ),
+                        "content_digest": _candidate_data_content_digest(
+                            catalog,
+                            candidate,
+                        ),
+                    }
+                    for candidate in value.items
+                ],
+            }
+        )
+    if type(value) is ScoreCollection:
+        return canonical_sha256(
+            {
+                "schema_namespace": "protein-workbench-score-input/v2",
+                "observations": [
+                    {
+                        "score_id": score.score_id,
+                        "value": score.value,
+                        "subjects": list(score.subjects),
+                        "details": dict(score.details),
+                    }
+                    for score in value.entries
+                ],
+            }
+        )
+    return port_type.content_digest(value)
 
 
 def _result_identity(
@@ -2303,6 +2440,11 @@ def _contains_unresolved_identity(value: Any) -> bool:
         )
     if isinstance(value, (list, tuple)):
         return any(_contains_unresolved_identity(item) for item in value)
+    if is_dataclass(value) and not isinstance(value, type):
+        return any(
+            _contains_unresolved_identity(getattr(value, item.name))
+            for item in fields(value)
+        )
     return (
         isinstance(value, str)
         and value.strip().lower()
@@ -2326,9 +2468,13 @@ def _result_identity_is_cache_safe(
     )
     contracts = tuple(catalog.require_contract(*key) for key in keys)
     if any(
-        _contains_unresolved_identity(contract.descriptor)
+        _contains_unresolved_identity(
+            _result_affecting_contract(contract)["descriptor"]
+        )
         for contract in contracts
     ):
+        return False
+    if _contains_unresolved_identity(inputs):
         return False
     if _contains_unresolved_identity(
         _result_identity_descriptor(catalog, plan, node, inputs)
@@ -2343,13 +2489,25 @@ def _result_identity_is_cache_safe(
 
 def _result_contract_metadata(
     catalog: FrozenCatalog,
+    plan: ExecutionPlan,
     node: ExecutionPlanNode,
 ) -> dict[str, Any]:
     node_contract = catalog.require_contract(*node.node_type.key)
+    binding_contract = catalog.require_contract(*node.binding.key)
+    relevant_keys = _relevant_result_contract_keys(
+        plan,
+        node,
+        node_contract,
+        binding_contract,
+    )
+    contracts = {
+        identity: _result_affecting_contract(
+            catalog.require_contract(*identity)
+        )
+        for identity in relevant_keys
+    }
     return {
-        "node_type": node.node_type.to_public(),
-        "binding": node.binding.to_public(),
-        "method": node.method.to_public(),
+        "contracts": [contracts[key] for key in sorted(contracts)],
         "outputs": [
             {
                 "output_port": port["name"],
@@ -2458,6 +2616,52 @@ class _ProjectResultCache(ResultReplaySource):
             return None
         return payload
 
+    def _producer_node_succeeded(
+        self,
+        project_id: str,
+        producer: Mapping[str, Any],
+    ) -> bool:
+        """Expose a provisional entry only after its producer Node commits."""
+        try:
+            producer_run_id = validate_identifier(
+                producer["producer_run_id"],
+                "producer_run_id",
+            )
+            producer_node_id = validate_identifier(
+                producer["producer_node_id"],
+                "producer_node_id",
+            )
+            run_dir = self._projects.run_dir(
+                project_id,
+                producer_run_id,
+            )
+            encoded = _read_stable_private_file(
+                run_dir.parent,
+                (producer_run_id, "manifest.json"),
+                field="run_manifest_projection",
+                maximum_size=MAX_ARTIFACT_BYTES_PER_RUN,
+            )
+            projection = json.loads(encoded)
+        except (
+            FileNotFoundError,
+            KeyError,
+            OSError,
+            StoragePathError,
+            TypeError,
+            UnicodeDecodeError,
+            json.JSONDecodeError,
+        ):
+            return False
+        if not isinstance(projection, Mapping):
+            return False
+        dispositions = projection.get("node_dispositions")
+        return isinstance(dispositions, list) and any(
+            isinstance(disposition, Mapping)
+            and disposition.get("node_id") == producer_node_id
+            and disposition.get("outcome") == "succeeded"
+            for disposition in dispositions
+        )
+
     def lookup(
         self,
         *,
@@ -2467,12 +2671,13 @@ class _ProjectResultCache(ResultReplaySource):
         inputs: Mapping[str, Any],
         result_identity: str,
     ) -> ResultReplayHit | None:
-        del execution_plan, inputs
+        del inputs
         entry = self._load_entry(project_id, result_identity)
         if entry is None:
             return None
         if entry["contract_metadata"] != _result_contract_metadata(
             self._catalog,
+            execution_plan,
             node,
         ):
             raise V2RunError(
@@ -2480,6 +2685,11 @@ class _ProjectResultCache(ResultReplaySource):
                 "Result Identity resolves to conflicting contract metadata",
                 details={"result_identity": result_identity},
             )
+        if not self._producer_node_succeeded(
+            project_id,
+            entry["producer"],
+        ):
+            return None
         node_contract = self._catalog.require_contract(*node.node_type.key)
         declarations = {
             port["name"]: port
@@ -2556,6 +2766,7 @@ class _ProjectResultCache(ResultReplaySource):
     def _entry(
         self,
         *,
+        execution_plan: ExecutionPlan,
         node: ExecutionPlanNode,
         result_identity: str,
         outputs: list[dict[str, Any]],
@@ -2606,6 +2817,7 @@ class _ProjectResultCache(ResultReplaySource):
             "result_identity": result_identity,
             "contract_metadata": _result_contract_metadata(
                 self._catalog,
+                execution_plan,
                 node,
             ),
             "producer": {
@@ -2640,15 +2852,15 @@ class _ProjectResultCache(ResultReplaySource):
         outputs: list[dict[str, Any]],
         producer_run_id: str,
     ) -> None:
-        del execution_plan
         entry = self._entry(
+            execution_plan=execution_plan,
             node=node,
             result_identity=result_identity,
             outputs=outputs,
             producer_run_id=producer_run_id,
         )
         if entry is None:
-            return
+            return None
         existing = self._load_entry(project_id, result_identity)
         if existing is not None and self._conflicts(existing, entry):
             raise V2RunError(
@@ -2666,16 +2878,16 @@ class _ProjectResultCache(ResultReplaySource):
         result_identity: str,
         outputs: list[dict[str, Any]],
         producer_run_id: str,
-    ) -> None:
-        del execution_plan
+    ) -> Callable[[], None] | None:
         entry = self._entry(
+            execution_plan=execution_plan,
             node=node,
             result_identity=result_identity,
             outputs=outputs,
             producer_run_id=producer_run_id,
         )
         if entry is None:
-            return
+            return None
         existing = self._load_entry(project_id, result_identity)
         if existing is not None:
             if self._conflicts(existing, entry):
@@ -2684,10 +2896,10 @@ class _ProjectResultCache(ResultReplaySource):
                     "Result Identity resolves to conflicting outputs",
                     details={"result_identity": result_identity},
                 )
-            return
+            return None
         root = self._projects.cache_dir(project_id)
         try:
-            write_private_new_file(
+            created_path = write_private_new_file(
                 root,
                 self._relative_parts(result_identity),
                 canonical_json_bytes(entry),
@@ -2696,13 +2908,38 @@ class _ProjectResultCache(ResultReplaySource):
         except FileExistsError:
             winner = self._load_entry(project_id, result_identity)
             if winner is None:
-                return
+                return None
             if self._conflicts(winner, entry):
                 raise V2RunError(
                     "cache_identity_conflict",
                     "Result Identity publication conflicted",
                     details={"result_identity": result_identity},
                 )
+            return None
+        except (OSError, StoragePathError):
+            return None
+
+        def rollback_created_entry() -> None:
+            try:
+                encoded = _read_stable_private_file(
+                    root,
+                    self._relative_parts(result_identity),
+                    field="result_cache_entry",
+                    maximum_size=MAX_ARTIFACT_BYTES_PER_RUN,
+                )
+                if (
+                    created_path.is_file()
+                    and encoded == canonical_json_bytes(entry)
+                ):
+                    remove_private_regular_file(
+                        root,
+                        self._relative_parts(result_identity),
+                        field="result_cache_entry",
+                    )
+            except (FileNotFoundError, OSError, StoragePathError):
+                return
+
+        return rollback_created_entry
 
 
 class V2RunService:
@@ -3284,19 +3521,7 @@ class V2RunService:
         return []
 
     def _candidate_content_digest(self, candidate: Candidate) -> str:
-        type_id = {
-            ProteinSequence: "protein.sequence",
-            ProteinStructure: "protein.structure",
-            StructureAlignment: "structure.alignment",
-        }.get(type(candidate.data))
-        if type_id is None:
-            raise PortValueError(
-                "Candidate data has no registered content identity"
-            )
-        return self._catalog.require_port_type(
-            type_id,
-            "2.0.0",
-        ).content_digest(candidate.data)
+        return _candidate_data_content_digest(self._catalog, candidate)
 
     def _normalize_candidate_outputs(
         self,
@@ -4299,32 +4524,68 @@ class V2RunService:
                 disposition_outcomes[node.node_id] = disposition_outcome
                 continue
 
-            outcome = ledger.commit_node_publication(
-                node_id=node.node_id,
-                node_attempt_id=node_attempt_id,
-                resolution="executed",
-                outputs=pending_typed_outputs,
-                artifacts=pending_artifacts,
-                operation_attempt_id=operation_attempt_id,
-                cancel_cleanup=cleanup_cancelled_publication,
-            )
+            def publish_cache_before_success() -> Callable[[], None] | None:
+                if (
+                    not cache_eligible
+                    or result_identity is None
+                    or pending_artifacts
+                ):
+                    return None
+                return self._result_replay_source.publish(
+                    project_id=project_id,
+                    execution_plan=plan,
+                    node=node,
+                    result_identity=result_identity,
+                    outputs=pending_typed_outputs,
+                    producer_run_id=run_id,
+                )
+
+            try:
+                outcome = ledger.commit_node_publication(
+                    node_id=node.node_id,
+                    node_attempt_id=node_attempt_id,
+                    resolution="executed",
+                    outputs=pending_typed_outputs,
+                    artifacts=pending_artifacts,
+                    operation_attempt_id=operation_attempt_id,
+                    cancel_cleanup=cleanup_cancelled_publication,
+                    before_success=publish_cache_before_success,
+                )
+            except V2RunError as cache_error:
+                if cache_error.code != "cache_identity_conflict":
+                    raise
+                public_error = _public_failure(cache_error)
+                ledger.append(
+                    "operation_attempt_terminal",
+                    {
+                        "operation_attempt_id": operation_attempt_id,
+                        "status": "failed",
+                        "error": public_error,
+                    },
+                )
+                ledger.append(
+                    "node_attempt_terminal",
+                    {
+                        "node_attempt_id": node_attempt_id,
+                        "status": "failed",
+                        "resolution": "executed",
+                        "error": public_error,
+                    },
+                )
+                ledger.append(
+                    "node_disposition",
+                    {
+                        "node_id": node.node_id,
+                        "outcome": "failed",
+                        "blocked_by": [],
+                    },
+                )
+                disposition_outcomes[node.node_id] = "failed"
+                continue
             if outcome == "succeeded":
                 values.update(pending_runtime)
                 all_artifacts.extend(pending_artifacts)
                 artifact_records.update(pending_artifact_records)
-                if (
-                    cache_eligible
-                    and result_identity is not None
-                    and not pending_artifacts
-                ):
-                    self._result_replay_source.publish(
-                        project_id=project_id,
-                        execution_plan=plan,
-                        node=node,
-                        result_identity=result_identity,
-                        outputs=pending_typed_outputs,
-                        producer_run_id=run_id,
-                    )
             disposition_outcomes[node.node_id] = outcome
         run_status = (
             "failed"

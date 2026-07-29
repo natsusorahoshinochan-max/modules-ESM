@@ -75,6 +75,7 @@ def _direct_catalog(
     deterministic: bool = True,
     source_identity: Mapping[str, Any] | None = None,
     node_parameter_declarations: Mapping[str, Any] | None = None,
+    node_title: str = "Deterministic direct test Node",
 ) -> FrozenCatalog:
     builtin = builtin_frozen_catalog()
     text = builtin.require_port_type("text", "2.0.0")
@@ -98,7 +99,7 @@ def _direct_catalog(
         "node_type",
         "test.direct",
         {
-            "title": "Deterministic direct test Node",
+            "title": node_title,
             "summary": "Returns one canonical text value.",
             "category": "contract_test",
             "inputs": [],
@@ -368,6 +369,7 @@ def _pipeline_catalog(
     pre_schedule_source_nodes: Mapping[str, str] | None = None,
     optional_sink_input: bool = False,
     cacheable: bool = False,
+    unresolved_port_identity: bool = False,
     execution_gates: (
         Mapping[str, tuple[threading.Event, threading.Event]] | None
     ) = None,
@@ -388,7 +390,14 @@ def _pipeline_catalog(
         codec=BehaviorReference(
             "test.canonical_text/codec",
             "2.0.0",
-            {"normalization": "strip-and-lowercase"},
+            {
+                "normalization": "strip-and-lowercase",
+                **(
+                    {"identity_complete": False}
+                    if unresolved_port_identity
+                    else {}
+                ),
+            },
         ),
         content_identity=BehaviorReference(
             "test.canonical_text/content",
@@ -2164,7 +2173,7 @@ def test_node_success_is_not_published_when_disposition_commit_fails(
     monkeypatch.setenv("PROTEIN_WORKBENCH_OUTPUT_ROOT", str(tmp_path / "outputs"))
     monkeypatch.setenv("PROTEIN_WORKBENCH_CACHE_ROOT", str(cache_root))
     app = create_app(
-        frozen_catalog_override=_direct_catalog(calls),
+        frozen_catalog_override=_direct_catalog(calls, cacheable=True),
         v2_environment_configuration={
             ("test.direct.local", "2.0.0"): {
                 "values": {"credential": "credential-value"},
@@ -2193,7 +2202,7 @@ def test_node_success_is_not_published_when_disposition_commit_fails(
         fact["fact_type"] in {"node_disposition", "run_terminal"}
         for fact in facts
     )
-    assert not any(cache_root.rglob("*"))
+    assert not list(cache_root.rglob("*.json"))
     assert calls.count("execute:test.direct.local") == 1
 
 
