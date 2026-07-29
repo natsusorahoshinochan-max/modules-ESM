@@ -436,9 +436,7 @@ class _CancellationControl:
 
     def unregister_process_group(self, registration: int) -> None:
         with self._condition:
-            group = self._process_groups.get(registration)
-            if group is None or not self._process_group_active(group[0]):
-                self._process_groups.pop(registration, None)
+            self._process_groups.pop(registration, None)
             self._condition.notify_all()
 
     @staticmethod

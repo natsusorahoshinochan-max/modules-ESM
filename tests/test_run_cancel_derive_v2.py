@@ -637,6 +637,56 @@ def test_process_group_registered_after_cancel_uses_full_cleanup_protocol(
     assert process_status in {"", "Z"}
 
 
+def test_successful_process_fallback_is_confirmed_when_context_exits(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    entered = threading.Event()
+    release = threading.Event()
+    fallback_called = threading.Event()
+
+    def finish_fallback() -> None:
+        fallback_called.set()
+        release.set()
+
+    def execute_with_fallback(resources) -> None:
+        with resources.cancellable_process_group(
+            os.getpgrp(),
+            fallback=finish_fallback,
+        ):
+            entered.set()
+            assert release.wait(timeout=3)
+
+    monkeypatch.setenv("PROTEIN_WORKBENCH_PROJECT_ROOT", str(tmp_path / "projects"))
+    monkeypatch.setenv("PROTEIN_WORKBENCH_RUN_ROOT", str(tmp_path / "runs"))
+    monkeypatch.setenv("PROTEIN_WORKBENCH_OUTPUT_ROOT", str(tmp_path / "outputs"))
+    app = create_app(
+        frozen_catalog_override=_direct_catalog(
+            [],
+            execution_action=execute_with_fallback,
+        ),
+        v2_environment_configuration={
+            ("test.direct.local", "2.0.0"): {
+                "values": {"credential": "credential-value"},
+            }
+        },
+    )
+
+    with TestClient(app) as client:
+        project_id, compiled = _compile_one_node(client)
+        receipt = _start(client, project_id, compiled, "cancel-fallback")
+        assert entered.wait(timeout=2)
+        cancelled = client.post(
+            f"/api/v2/projects/{project_id}/runs/{receipt['run_id']}:cancel",
+            json={},
+        )
+        projection = _wait_terminal(client, project_id, receipt["run_id"])
+
+    assert cancelled.status_code == 200
+    assert fallback_called.is_set()
+    assert projection["status"] == "cancelled"
+
+
 def test_cancel_factory_cleanup_failure_is_interrupted_without_false_attempt(
     tmp_path,
     monkeypatch,
