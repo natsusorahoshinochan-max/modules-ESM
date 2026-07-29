@@ -201,6 +201,14 @@ def validate_parameter_declarations(
                 f"{declaration_path}.resource_kind must equal "
                 "'project_input'"
             )
+        if resource_kind == "project_input" and (
+            declaration.get("required") is not True
+            or "default" in declaration
+        ):
+            raise ParameterContractDefinitionError(
+                f"{declaration_path} Project input resources must be "
+                "required and cannot declare a default"
+            )
         value_contract = declaration.get("value_contract")
         if value_contract is None:
             schema = parameter_value_contract(declaration)

@@ -33,6 +33,10 @@ from core import (
     verify_module_package_contract,
 )
 from core.port_types import canonical_json_bytes
+from core.parameter_contract import (
+    ParameterContractDefinitionError,
+    validate_parameter_declarations,
+)
 from core.storage import StoragePathError
 from core.workflow_v2 import WorkflowEdge
 from datatypes import ProteinSequence, ProteinStructure
@@ -237,6 +241,25 @@ def test_artifact_output_requires_a_nominal_publication_contract() -> None:
         match="generic artifact publication contract",
     ):
         build_frozen_catalog((malformed_package,))
+
+
+def test_project_resource_parameters_must_be_required() -> None:
+    with pytest.raises(
+        ParameterContractDefinitionError,
+        match="must be required",
+    ):
+        validate_parameter_declarations(
+            {
+                "project_input_ref": {
+                    "parameter_scope": "scientific",
+                    "scientific_meaning": "Optional Project input.",
+                    "resource_kind": "project_input",
+                    "type": "string",
+                    "required": False,
+                }
+            },
+            path="$.node_parameters",
+        )
 
 
 def test_artifact_media_contract_rejects_malformed_type_subtype() -> None:
