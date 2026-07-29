@@ -147,6 +147,7 @@ def test_bundle_freezes_event_replay_close_and_error_vocabulary() -> None:
         "replay_started",
         "run_admitted",
         "run_started",
+        "selection_terminal",
         "run_terminal",
     ]
     assert stream["cursor_semantics"] == {

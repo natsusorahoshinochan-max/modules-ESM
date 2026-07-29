@@ -52,6 +52,18 @@ outputs:
     required: true
     multiplicity: one
     scientific_meaning: Text returned by the synthetic operation.
+  - name: candidates
+    port_type_id: candidate.collection
+    port_type_version: "2.0.0"
+    required: false
+    multiplicity: one
+    scientific_meaning: Candidates observed by the synthetic operation.
+  - name: scores
+    port_type_id: score.collection
+    port_type_version: "2.0.0"
+    required: false
+    multiplicity: one
+    scientific_meaning: Typed observations emitted by the synthetic operation.
 parameter_groups: []
 node_parameters: {}
 """
@@ -218,13 +230,13 @@ MODULE_PACKAGE = ModulePackageRegistration(
             ),
             produced_observations=(
                 ProducedObservationDefinition(
-                    output_port="value",
+                    output_port="scores",
                     metric=_METRIC,
                     context_profile={"kind": "intrinsic"},
                     subject_grain="candidate",
                     source_role="subject",
                     subject_direction="output",
-                    subject_port="value",
+                    subject_port="candidates",
                     guaranteed_multiplicity="one",
                 ),
             ),
@@ -235,7 +247,7 @@ MODULE_PACKAGE = ModulePackageRegistration(
 
 EXPECTED_SYNTHETIC_CONTRACT_DIGESTS = {
     ("binding", "synthetic.echo.direct"): (
-        "sha256:a95cfa4856d51343c95df8a557df6c630ddf3480180eb165419caaa89bf252e8"
+        "sha256:f78090aad2bb6a009a268bf1e439b66f672adaadfe96dd4644ede5fa281de049"
     ),
     ("method", "synthetic.echo"): (
         "sha256:1e44eccb730679996c9c9e2d65c61dc26745a8812c950b62c6c9a5963de2a176"
@@ -244,7 +256,7 @@ EXPECTED_SYNTHETIC_CONTRACT_DIGESTS = {
         "sha256:8b333f26b39be0d8ae55e6e2dffd0241a631d933cd0405f46b7099ab4b6a1770"
     ),
     ("node_type", "synthetic.echo"): (
-        "sha256:88c11dca061f9861e7d9266112037f22f438cf165b786ddfe53c437c94c2d44c"
+        "sha256:65224a90b57d13beff0d9f8bfc004f7f4061c4b44b007cba2266006d90e0ff4e"
     ),
     ("port_type", "synthetic.text"): (
         "sha256:f0d3dacfc4df11a4cced278907d6d11d0b364674657f0df0a098f943d6366c81"
@@ -548,6 +560,49 @@ def test_binding_rejects_an_observation_for_an_unknown_output_port(
             CatalogBuildError,
             match="unknown Node output Port",
         ):
+            build_frozen_catalog(
+                (replace(registration, bindings=(invalid_binding,)),)
+            )
+    finally:
+        _forget_package(root_name)
+
+
+@pytest.mark.parametrize(
+    ("changes", "message"),
+    [
+        (
+            {"output_port": "value"},
+            "output must use exact score.collection@2.0.0",
+        ),
+        (
+            {"subject_port": "value"},
+            "subject must use exact candidate.collection@2.0.0",
+        ),
+    ],
+)
+def test_binding_rejects_incompatible_produced_observation_ports(
+    tmp_path: Path,
+    monkeypatch,
+    changes: dict[str, str],
+    message: str,
+) -> None:
+    root_name = _write_discovery_root(tmp_path)
+    monkeypatch.syspath_prepend(str(tmp_path))
+    importlib.invalidate_caches()
+
+    try:
+        registration = discover_module_packages(root_name)[0]
+        binding = registration.bindings[0]
+        invalid_binding = replace(
+            binding,
+            produced_observations=(
+                replace(
+                    binding.produced_observations[0],
+                    **changes,
+                ),
+            ),
+        )
+        with pytest.raises(CatalogBuildError, match=message):
             build_frozen_catalog(
                 (replace(registration, bindings=(invalid_binding,)),)
             )

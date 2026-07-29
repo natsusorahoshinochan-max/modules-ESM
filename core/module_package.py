@@ -1402,12 +1402,32 @@ def build_frozen_catalog(
                 input_port["name"]
                 for input_port in node_definition.inputs
             }
+            outputs_by_name = {
+                output["name"]: output
+                for output in node_definition.outputs
+            }
+            inputs_by_name = {
+                input_port["name"]: input_port
+                for input_port in node_definition.inputs
+            }
             for observation in binding.produced_observations:
                 if observation.output_port not in output_names:
                     raise CatalogBuildError(
                         f"Binding {binding.binding_id} Produced Observation "
                         f"references unknown Node output Port "
                         f"{observation.output_port!r}"
+                    )
+                output_reference = outputs_by_name[
+                    observation.output_port
+                ]["port_type"]
+                if (
+                    not isinstance(output_reference, ContractIdentity)
+                    or output_reference.key
+                    != ("port_type", "score.collection", "2.0.0")
+                ):
+                    raise CatalogBuildError(
+                        f"Binding {binding.binding_id} Produced Observation "
+                        "output must use exact score.collection@2.0.0"
                     )
                 subject_ports = (
                     input_names
@@ -1419,6 +1439,24 @@ def build_frozen_catalog(
                         f"Binding {binding.binding_id} Produced Observation "
                         f"references unknown subject {observation.subject_direction} "
                         f"Port {observation.subject_port!r}"
+                    )
+                subject_declaration = (
+                    inputs_by_name
+                    if observation.subject_direction == "input"
+                    else outputs_by_name
+                )[observation.subject_port]
+                subject_reference = subject_declaration["port_type"]
+                if (
+                    observation.subject_grain != "candidate"
+                    or observation.source_role != "subject"
+                    or not isinstance(subject_reference, ContractIdentity)
+                    or subject_reference.key
+                    != ("port_type", "candidate.collection", "2.0.0")
+                ):
+                    raise CatalogBuildError(
+                        f"Binding {binding.binding_id} Produced Observation "
+                        "subject must use exact candidate.collection@2.0.0 "
+                        "with candidate subject grain"
                     )
                 metric_entry = entry_by_key.get(observation.metric.key)
                 if metric_entry is None:

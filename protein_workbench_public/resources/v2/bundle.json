@@ -1712,6 +1712,9 @@
           "$ref": "#/$defs/RunStartedEvent"
         },
         {
+          "$ref": "#/$defs/SelectionTerminalEvent"
+        },
+        {
           "$ref": "#/$defs/RunTerminalEvent"
         }
       ]
@@ -1821,11 +1824,14 @@
         "run_id": {
           "$ref": "#/$defs/Identifier"
         },
+        "selection_error": {
+          "$ref": "#/$defs/StructuredError"
+        },
         "selection_results": {
           "items": {
             "$ref": "#/$defs/SelectionResult"
           },
-          "maxItems": 64,
+          "maxItems": 256,
           "type": "array"
         },
         "status": {
@@ -2209,6 +2215,50 @@
       ],
       "type": "object"
     },
+    "SelectionTerminalEvent": {
+      "oneOf": [
+        {
+          "additionalProperties": false,
+          "properties": {
+            "result": {
+              "$ref": "#/$defs/SelectionResult"
+            },
+            "status": {
+              "const": "succeeded"
+            },
+            "type": {
+              "const": "selection_terminal"
+            }
+          },
+          "required": [
+            "type",
+            "status",
+            "result"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "error": {
+              "$ref": "#/$defs/StructuredError"
+            },
+            "status": {
+              "const": "failed"
+            },
+            "type": {
+              "const": "selection_terminal"
+            }
+          },
+          "required": [
+            "type",
+            "status",
+            "error"
+          ],
+          "type": "object"
+        }
+      ]
+    },
     "SelectionObjectiveProvenance": {
       "additionalProperties": false,
       "properties": {
@@ -2278,7 +2328,7 @@
           "items": {
             "$ref": "#/$defs/SelectionObjectiveProvenance"
           },
-          "maxItems": 64,
+          "maxItems": 256,
           "minItems": 1,
           "type": "array"
         },
@@ -2736,6 +2786,7 @@
       "replay_started",
       "run_admitted",
       "run_started",
+      "selection_terminal",
       "run_terminal"
     ],
     "message_schema": "#/$defs/RunEventStreamMessage",

@@ -22,6 +22,8 @@ from datatypes import (
     CandidateCollection,
     ExactContractReference,
     IntrinsicObservationContext,
+    ProteinSequence,
+    ProteinStructure,
     Score,
     ScoreCollection,
     ScoreObservation,
@@ -194,6 +196,17 @@ class SelectionResult:
     candidates: CandidateCollection
     provenance: Mapping[str, Any] = field(compare=False)
 
+    def __post_init__(self) -> None:
+        if not isinstance(self.provenance, Mapping):
+            raise SelectionError("Selection provenance must be an object")
+        try:
+            frozen_provenance = _freeze_json(self.provenance)
+        except CatalogBuildError as error:
+            raise SelectionError(
+                "Selection provenance must contain canonical I-JSON values"
+            ) from error
+        object.__setattr__(self, "provenance", frozen_provenance)
+
     def public_provenance(self) -> dict[str, Any]:
         return _thaw_json(self.provenance)
 
@@ -315,7 +328,29 @@ def resolve_selection_objective(
     return metric, method, utility, _freeze_json(parameters)
 
 
-def _validate_metric_value(metric: Any, value: object) -> None:
+def _subject_residue_count(subject: Any) -> int:
+    data = subject.data
+    if isinstance(data, ProteinSequence):
+        return len(data.sequence)
+    if isinstance(data, ProteinStructure):
+        residue_keys = {
+            (line[21:22], line[22:26], line[26:27])
+            for line in data.pdb_string.splitlines()
+            if line.startswith("ATOM  ") and len(line) >= 27
+        }
+        if residue_keys:
+            return len(residue_keys)
+    raise SelectionError(
+        "Per-residue Metric requires an exact subject residue layout"
+    )
+
+
+def _validate_metric_value(
+    metric: Any,
+    value: object,
+    *,
+    subject: Any | None = None,
+) -> None:
     shape = metric.descriptor.get("value_shape")
     validation = metric.descriptor.get("validation_contract")
     if not isinstance(validation, Mapping):
@@ -328,6 +363,11 @@ def _validate_metric_value(metric: Any, value: object) -> None:
                 "Per-residue Metric value must be an ordered array"
             )
         values = tuple(value)
+        if subject is None or len(values) != _subject_residue_count(subject):
+            raise SelectionError(
+                "Per-residue Metric value does not align with its exact "
+                "subject residue layout"
+            )
     else:
         raise SelectionError(
             f"Selection does not support Metric value shape {shape!r}"
@@ -437,6 +477,10 @@ def select_candidates(
     candidate_ids = [candidate.candidate_id for candidate in candidates.items]
     if len(candidate_ids) != len(set(candidate_ids)):
         raise SelectionError("Selection Candidate input has duplicate identities")
+    candidates_by_id = {
+        candidate.candidate_id: candidate
+        for candidate in candidates.items
+    }
 
     resolved: list[
         tuple[SelectionObjective, Any, Any, Any, Mapping[str, Any]]
@@ -508,7 +552,11 @@ def select_candidates(
                     "one observation per Candidate"
                 )
             observation = matches[0]
-            _validate_metric_value(metric, observation.value)
+            _validate_metric_value(
+                metric,
+                observation.value,
+                subject=candidates_by_id[candidate_id],
+            )
             try:
                 output = runtime(observation.value, parameters)
             except Exception as error:
@@ -615,16 +663,6 @@ def validate_produced_score_collection(
                 "Binding emitted an Observation outside its closed Produced "
                 "Observation Interface"
             )
-        try:
-            metric = _require_exact_contract(
-                catalog,
-                "metric",
-                observation.metric,
-            )
-            _validate_metric_value(metric, observation.value)
-        except SelectionError as error:
-            raise PortValueError(str(error)) from error
-
     for declaration in declarations:
         source = (
             inputs
@@ -639,9 +677,7 @@ def validate_produced_score_collection(
             else None
         )
         if isinstance(subject_value, CandidateCollection):
-            subject_ids = tuple(
-                candidate.candidate_id for candidate in subject_value.items
-            )
+            subjects = tuple(subject_value.items)
         elif (
             isinstance(subject_value, (list, tuple))
             and all(
@@ -649,8 +685,8 @@ def validate_produced_score_collection(
                 for item in subject_value
             )
         ):
-            subject_ids = tuple(
-                candidate.candidate_id
+            subjects = tuple(
+                candidate
                 for collection_value in subject_value
                 for candidate in collection_value.items
             )
@@ -658,6 +694,9 @@ def validate_produced_score_collection(
             raise PortValueError(
                 "Binding Produced Observation subject source is unavailable"
             )
+        subject_ids = tuple(
+            candidate.candidate_id for candidate in subjects
+        )
         if len(subject_ids) != len(set(subject_ids)):
             raise PortValueError(
                 "Binding Produced Observation subject source has duplicates"
@@ -698,3 +737,22 @@ def validate_produced_score_collection(
                 raise PortValueError(
                     "Binding violated guaranteed one-or-more Observations"
                 )
+            for observation in matches:
+                try:
+                    metric = _require_exact_contract(
+                        catalog,
+                        "metric",
+                        observation.metric,
+                    )
+                    subject = next(
+                        candidate
+                        for candidate in subjects
+                        if candidate.candidate_id == candidate_id
+                    )
+                    _validate_metric_value(
+                        metric,
+                        observation.value,
+                        subject=subject,
+                    )
+                except SelectionError as error:
+                    raise PortValueError(str(error)) from error

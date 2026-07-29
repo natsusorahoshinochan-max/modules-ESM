@@ -209,6 +209,27 @@ def _public_failure(error: BaseException) -> dict[str, Any]:
     }
 
 
+def _public_selection_failure(error: BaseException) -> dict[str, Any]:
+    error_type = type(error).__name__
+    if (
+        len(error_type) > 128
+        or _PUBLIC_IDENTIFIER.fullmatch(error_type) is None
+    ):
+        error_type = "Exception"
+    details = (
+        {"reason": str(error)}
+        if isinstance(error, SelectionError)
+        else {"exception_type": error_type}
+    )
+    return {
+        "code": "selection_failed",
+        "message": "Workflow selection failed safely",
+        "retryable": False,
+        "correlation_id": f"incident-{uuid.uuid4().hex}",
+        "details": sanitize_public_value(details),
+    }
+
+
 def _public_event_from_fact(
     *,
     project_id: str,
@@ -227,6 +248,7 @@ def _public_event_from_fact(
         "operation_attempt_terminal",
         "node_attempt_terminal",
         "node_disposition",
+        "selection_terminal",
         "run_terminal",
     }
     if fact_type not in public_fact_types:
@@ -1575,6 +1597,7 @@ class _RunEvidenceLedger:
         ] = {}
         status = "admitted"
         selection_results: list[dict[str, Any]] = []
+        selection_error: dict[str, Any] | None = None
         terminal_sequence: int | None = None
         for fact in self._facts:
             payload = fact["payload"]
@@ -1594,6 +1617,8 @@ class _RunEvidenceLedger:
                 and payload["status"] == "succeeded"
             ):
                 selection_results.append(payload["result"])
+            elif fact["fact_type"] == "selection_terminal":
+                selection_error = payload["error"]
             elif fact["fact_type"] == "run_terminal":
                 status = payload["status"]
                 terminal_sequence = fact["sequence"]
@@ -1628,6 +1653,8 @@ class _RunEvidenceLedger:
         }
         if scope.get("selection_required", False):
             projection["selection_results"] = selection_results
+        if selection_error is not None:
+            projection["selection_error"] = selection_error
         if terminal_sequence is not None:
             projection["terminal_sequence"] = terminal_sequence
         derived_from = scope.get("derived_from")
@@ -4901,7 +4928,7 @@ class V2RunService:
                     "selection_terminal",
                     {
                         "status": "failed",
-                        "error": _public_failure(error),
+                        "error": _public_selection_failure(error),
                     },
                 )
         run_status = (

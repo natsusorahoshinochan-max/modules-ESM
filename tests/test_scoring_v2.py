@@ -7,6 +7,7 @@ from datetime import datetime, timezone
 
 from fastapi.testclient import TestClient
 import pytest
+from starlette.websockets import WebSocketDisconnect
 
 from core import (
     BehaviorReference,
@@ -17,6 +18,7 @@ from core import (
     SelectionError,
     SelectionInput,
     SelectionObjective,
+    SelectionResult,
     builtin_frozen_catalog,
     compile_workflow,
     relock_workflow,
@@ -30,7 +32,7 @@ from core.workflow_v2 import (
     WorkflowDocumentError,
     parse_workflow_document,
 )
-from protein_workbench_public import validate_response
+from protein_workbench_public import validate_response, validate_schema
 from datatypes import (
     Candidate,
     CandidateCollection,
@@ -662,6 +664,18 @@ def test_binding_output_validates_per_residue_shape_range_and_masking() -> None:
             inputs={},
             outputs={"candidates": candidates},
         )
+    with pytest.raises(PortValueError, match="exact subject residue layout"):
+        validate_produced_score_collection(
+            catalog=residue_catalog,
+            binding=residue_binding,
+            output_port="scores",
+            collection=ScoreCollection(
+                "scores",
+                [replace(observation, value=[80, 95])],
+            ),
+            inputs={},
+            outputs={"candidates": candidates},
+        )
 
 
 def test_explicit_utilities_normalize_weights_and_record_provenance() -> None:
@@ -762,6 +776,24 @@ def test_explicit_utilities_normalize_weights_and_record_provenance() -> None:
             "missing_policy": "error",
         },
     ]
+
+
+def test_selection_result_defensively_freezes_all_provenance_paths() -> None:
+    candidates = CandidateCollection(
+        "selected",
+        "protein.sequence",
+        [Candidate("candidate-1", ProteinSequence("AA"))],
+    )
+    source = {"objectives": [{"parameters": [1]}]}
+
+    result = SelectionResult(candidates, source)
+    source["objectives"][0]["parameters"].append(2)
+    first_public = result.public_provenance()
+    first_public["objectives"][0]["parameters"].append(3)
+
+    assert result.public_provenance() == {
+        "objectives": [{"parameters": [1]}]
+    }
 
 
 @pytest.mark.parametrize("weight", [-1, -0.0, float("inf"), float("nan")])
@@ -964,6 +996,52 @@ def test_compiler_resolves_exact_intrinsic_objective_before_runtime() -> None:
     )
 
 
+def test_compiler_and_runtime_accept_65_declared_objectives() -> None:
+    catalog, contracts = _scoring_catalog()
+    payload = _workflow_payload(contracts)
+    template = payload["selection_objectives"][0]
+    payload["selection_objectives"] = [
+        {**template, "objective_id": f"quality-objective-{index}"}
+        for index in range(65)
+    ]
+    workflow = parse_workflow_document(payload)
+    compiled = compile_workflow(
+        relock_workflow(workflow, catalog),
+        workflow_revision=1,
+        catalog=catalog,
+    )
+    candidate_input = SelectionInput("producer", "candidates")
+    score_input = SelectionInput("producer", "scores")
+    candidates = CandidateCollection(
+        "candidates",
+        "protein.sequence",
+        [Candidate("candidate-1", ProteinSequence("AA"))],
+    )
+    selection = select_candidates(
+        candidate_inputs={candidate_input: candidates},
+        score_collection_inputs={
+            score_input: ScoreCollection(
+                "scores",
+                [_observation(contracts, "candidate-1", 90)],
+            )
+        },
+        objectives=compiled.execution_plan.selection_objectives,
+        catalog=catalog,
+        limit=1,
+    )
+    provenance = selection.public_provenance()
+    result = {
+        "status": "succeeded",
+        "candidate_input": candidate_input.to_public(),
+        "selected_collection_id": selection.candidates.collection_id,
+        "selected_candidate_ids": ["candidate-1"],
+        "objectives": provenance["objectives"],
+    }
+
+    assert len(provenance["objectives"]) == 65
+    validate_schema("#/$defs/SelectionResult", result)
+
+
 def test_run_executes_objectives_and_publishes_effective_provenance(
     tmp_path,
     monkeypatch,
@@ -1098,6 +1176,125 @@ def test_run_executes_objectives_and_publishes_effective_provenance(
     assert reloaded.status_code == 200
     assert reloaded.json()["selection_results"] == (
         projection["selection_results"]
+    )
+
+
+def test_selection_failure_is_public_and_survives_ledger_reload(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    catalog, contracts = _scoring_catalog()
+    unsafe_catalog = replace(
+        catalog,
+        utility_transforms={
+            **dict(catalog.utility_transforms),
+            ("quality.linear", "2.0.0"): lambda value, parameters: 1.01,
+        },
+    )
+    monkeypatch.setenv(
+        "PROTEIN_WORKBENCH_PROJECT_ROOT",
+        str(tmp_path / "projects"),
+    )
+    monkeypatch.setenv(
+        "PROTEIN_WORKBENCH_RUN_ROOT",
+        str(tmp_path / "runs"),
+    )
+    monkeypatch.setenv(
+        "PROTEIN_WORKBENCH_OUTPUT_ROOT",
+        str(tmp_path / "outputs"),
+    )
+    environment = {
+        ("score.intrinsic.direct", "2.0.0"): {
+            "values": {},
+            "safe_fingerprint": "scoring-fixture-v1",
+            "invalidation_token": "scoring-fixture-assets-v1",
+        }
+    }
+    app = create_app(
+        frozen_catalog_override=unsafe_catalog,
+        v2_environment_configuration=environment,
+    )
+
+    with TestClient(app) as client:
+        project = client.post(
+            "/api/projects",
+            json={"name": "unsafe intrinsic scoring"},
+        ).json()
+        project_id = project["id"]
+        workflow = _workflow_payload(contracts)
+        workflow["workflow_id"] = project_id
+        assert client.put(
+            f"/api/v2/projects/{project_id}/workflow",
+            json={
+                "expected_workflow_revision": 0,
+                "workflow": workflow,
+            },
+        ).status_code == 200
+        relocked = client.post(
+            f"/api/v2/projects/{project_id}/workflow:relock",
+            json={"workflow_revision": 1},
+        )
+        compiled = client.post(
+            f"/api/v2/projects/{project_id}/workflow:compile",
+            json={
+                "workflow_revision": 2,
+                "workflow": relocked.json()["workflow"],
+            },
+        )
+        started = client.post(
+            f"/api/v2/projects/{project_id}/runs",
+            json={
+                "workflow_revision": 2,
+                "compile_id": compiled.json()["compile_id"],
+                "client_request_id": "unsafe-scoring-run-1",
+            },
+        )
+        run_id = started.json()["run_id"]
+        projection_response = client.get(
+            f"/api/v2/projects/{project_id}/runs/{run_id}"
+        )
+        with client.websocket_connect(
+            f"/api/v2/projects/{project_id}/runs/{run_id}/events"
+        ) as websocket:
+            messages = []
+            try:
+                while True:
+                    messages.append(websocket.receive_json())
+            except WebSocketDisconnect as closed:
+                assert closed.code == 1000
+
+    assert projection_response.status_code == 200
+    projection = projection_response.json()
+    validate_response("run_projection", 200, projection)
+    assert projection["status"] == "failed"
+    assert projection["selection_results"] == []
+    assert projection["selection_error"]["code"] == "selection_failed"
+    assert projection["selection_error"]["message"] == (
+        "Workflow selection failed safely"
+    )
+    selection_events = [
+        message["event"]
+        for message in messages
+        if message["event"]["type"] == "selection_terminal"
+    ]
+    assert selection_events == [
+        {
+            "type": "selection_terminal",
+            "status": "failed",
+            "error": projection["selection_error"],
+        }
+    ]
+    reloaded_app = create_app(
+        frozen_catalog_override=unsafe_catalog,
+        v2_environment_configuration=environment,
+    )
+    with TestClient(reloaded_app) as client:
+        reloaded = client.get(
+            f"/api/v2/projects/{project_id}/runs/{run_id}"
+        )
+    assert reloaded.status_code == 200
+    assert reloaded.json()["selection_error"] == (
+        projection["selection_error"]
     )
 
 
