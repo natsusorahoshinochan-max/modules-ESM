@@ -21,6 +21,7 @@ from core import (
     LazyImplementationFactory,
     MethodDefinition,
     ModulePackageRegistration,
+    ObservationPropagationDefinition,
     ProducedObservationDefinition,
     ReadinessDeclaration,
     build_discovered_frozen_catalog,
@@ -598,6 +599,53 @@ def test_binding_rejects_incompatible_produced_observation_ports(
             ),
         )
         with pytest.raises(CatalogBuildError, match=message):
+            build_frozen_catalog(
+                (replace(registration, bindings=(invalid_binding,)),)
+            )
+    finally:
+        _forget_package(root_name)
+
+
+def test_binding_rejects_many_valued_observation_propagation_inputs(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    root_name = _write_discovery_root(tmp_path)
+    node_path = tmp_path / root_name / "synthetic" / "node.yaml"
+    node_path.write_text(
+        NODE_DEFINITION.replace(
+            "    port_type_id: synthetic.text\n"
+            "    port_type_version: \"2.0.0\"\n"
+            "    required: true\n"
+            "    multiplicity: one\n"
+            "    scientific_meaning: Text supplied to the synthetic operation.",
+            "    port_type_id: score.collection\n"
+            "    port_type_version: \"2.0.0\"\n"
+            "    required: true\n"
+            "    multiplicity: many\n"
+            "    scientific_meaning: Scores supplied to the synthetic operation.",
+        )
+    )
+    monkeypatch.syspath_prepend(str(tmp_path))
+    importlib.invalidate_caches()
+
+    try:
+        registration = discover_module_packages(root_name)[0]
+        binding = registration.bindings[0]
+        invalid_binding = replace(
+            binding,
+            produced_observations=(),
+            observation_propagation=ObservationPropagationDefinition(
+                mode="pass_through",
+                output_port="scores",
+                input_ports=("value",),
+            ),
+        )
+
+        with pytest.raises(
+            CatalogBuildError,
+            match="propagation inputs must use multiplicity one",
+        ):
             build_frozen_catalog(
                 (replace(registration, bindings=(invalid_binding,)),)
             )

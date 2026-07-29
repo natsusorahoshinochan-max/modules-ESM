@@ -502,17 +502,25 @@ def _deduplicated_observations(
             raise SelectionError(
                 "Observation value must be canonical I-JSON"
             ) from error
-        partitioned_identity = (entry.source_partition, *entry.identity)
-        existing = encoded_values.get(partitioned_identity)
+        identity = entry.identity
+        existing = encoded_values.get(identity)
         if existing is not None:
             if existing != encoded:
                 raise SelectionError(
                     "Score Collection contains conflicting values for one "
                     "Observation identity"
                 )
+            if (
+                observations[identity].source_partition
+                != entry.source_partition
+            ):
+                raise SelectionError(
+                    "Score Collection contains an Observation identity "
+                    "partition collision"
+                )
             continue
-        encoded_values[partitioned_identity] = encoded
-        observations[partitioned_identity] = entry
+        encoded_values[identity] = encoded
+        observations[identity] = entry
     return tuple(observations.values())
 
 

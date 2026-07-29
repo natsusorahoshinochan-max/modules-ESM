@@ -447,6 +447,76 @@ def test_score_collection_codec_deduplicates_equal_observations_and_fails_closed
             )
         )
 
+    with pytest.raises(PortValueError, match="partition collision"):
+        score_type.encode(
+            ScoreCollection(
+                "scores",
+                [
+                    observation,
+                    replace(observation, source_partition="other"),
+                ],
+            )
+        )
+
+    with pytest.raises(PortValueError, match="conflicting values"):
+        score_type.encode(
+            ScoreCollection(
+                "scores",
+                [
+                    observation,
+                    replace(
+                        observation,
+                        source_partition="other",
+                        value=10,
+                    ),
+                ],
+            )
+        )
+
+
+def test_selection_rejects_one_observation_identity_in_two_partitions() -> None:
+    catalog, contracts = _scoring_catalog()
+    candidate_input = SelectionInput("producer", "candidates")
+    score_input = SelectionInput("producer", "scores")
+    observation = _observation(contracts, "candidate-1", 90)
+
+    with pytest.raises(SelectionError, match="partition collision"):
+        select_candidates(
+            candidate_inputs={
+                candidate_input: CandidateCollection(
+                    "candidates",
+                    "protein.sequence",
+                    [Candidate("candidate-1", ProteinSequence("AA"))],
+                )
+            },
+            score_collection_inputs={
+                score_input: ScoreCollection(
+                    "scores",
+                    [
+                        observation,
+                        replace(observation, source_partition="other"),
+                    ],
+                )
+            },
+            objectives=(
+                SelectionObjective(
+                    objective_id="quality-objective",
+                    candidate_input=candidate_input,
+                    score_collection_input=score_input,
+                    metric=_reference(contracts["quality"]),
+                    method=_reference(contracts["method.a"]),
+                    context_selector=IntrinsicObservationContext(),
+                    utility_transform=_reference(
+                        contracts["quality.linear"]
+                    ),
+                    utility_parameters={},
+                    weight=1,
+                ),
+            ),
+            catalog=catalog,
+            limit=1,
+        )
+
 
 def test_score_collection_codec_enforces_metric_and_method_reference_roles() -> None:
     catalog, contracts = _scoring_catalog()

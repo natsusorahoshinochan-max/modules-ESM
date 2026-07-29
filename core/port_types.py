@@ -554,26 +554,43 @@ def _validate_domain_value(value: Any, *, path: str) -> None:
 
     if type(value) is PairwiseCandidateMapping:
         subject_ids: set[str] = set()
-        pair_identities: set[tuple[str, str]] = set()
+        reference_ids: set[str] = set()
+        candidate_digests: dict[str, str] = {}
         for index, entry in enumerate(value.entries):
             _validate_domain_value(
                 entry,
                 path=f"{path}.entries[{index}]",
             )
+            for candidate_id, content_digest in (
+                (
+                    entry.subject_candidate_id,
+                    entry.subject_content_digest,
+                ),
+                (
+                    entry.reference_candidate_id,
+                    entry.reference_content_digest,
+                ),
+            ):
+                known_digest = candidate_digests.get(candidate_id)
+                if (
+                    known_digest is not None
+                    and known_digest != content_digest
+                ):
+                    raise PortValueError(
+                        f"{path} reuses one Candidate identity with "
+                        "conflicting content"
+                    )
+                candidate_digests[candidate_id] = content_digest
             if entry.subject_candidate_id in subject_ids:
                 raise PortValueError(
                     f"{path} contains multiple counterparts for one subject"
                 )
             subject_ids.add(entry.subject_candidate_id)
-            identity = (
-                entry.reference_candidate_id,
-                entry.reference_content_digest,
-            )
-            if identity in pair_identities:
+            if entry.reference_candidate_id in reference_ids:
                 raise PortValueError(
                     f"{path} reuses one counterpart for multiple subjects"
                 )
-            pair_identities.add(identity)
+            reference_ids.add(entry.reference_candidate_id)
         return
 
     if type(value) is PairwiseObservationContext:
@@ -805,7 +822,10 @@ def _deduplicated_score_entries(
     path: str,
 ) -> list[ScoreObservation]:
     deduplicated: list[ScoreObservation] = []
-    typed_by_identity: dict[tuple[object, ...], bytes] = {}
+    typed_by_identity: dict[
+        tuple[object, ...],
+        tuple[bytes, str],
+    ] = {}
     for index, score in enumerate(collection.entries):
         if not isinstance(score, ScoreObservation):
             raise PortValueError(
@@ -817,16 +837,25 @@ def _deduplicated_score_entries(
                 path=f"{path}.entries[{index}].value",
             )
         )
-        partitioned_identity = (score.source_partition, *score.identity)
-        existing = typed_by_identity.get(partitioned_identity)
+        identity = score.identity
+        existing = typed_by_identity.get(identity)
         if existing is not None:
-            if existing != encoded_value:
+            existing_value, existing_partition = existing
+            if existing_value != encoded_value:
                 raise PortValueError(
                     f"{path}.entries contains one Observation identity "
                     "with conflicting values"
                 )
+            if existing_partition != score.source_partition:
+                raise PortValueError(
+                    f"{path}.entries contains an Observation identity "
+                    "partition collision"
+                )
             continue
-        typed_by_identity[partitioned_identity] = encoded_value
+        typed_by_identity[identity] = (
+            encoded_value,
+            score.source_partition,
+        )
         deduplicated.append(score)
     return deduplicated
 

@@ -1733,6 +1733,11 @@ def build_frozen_catalog(
                         "propagation output must use exact "
                         "score.collection@2.0.0"
                     )
+                if output_declaration.get("multiplicity") != "one":
+                    raise CatalogBuildError(
+                        f"Binding {binding.binding_id} Observation "
+                        "propagation output must use multiplicity one"
+                    )
                 for input_port in propagation.input_ports:
                     input_declaration = inputs_by_name.get(input_port)
                     input_type = (
@@ -1749,6 +1754,11 @@ def build_frozen_catalog(
                             f"Binding {binding.binding_id} Observation "
                             "propagation inputs must use exact "
                             "score.collection@2.0.0"
+                        )
+                    if input_declaration.get("multiplicity") != "one":
+                        raise CatalogBuildError(
+                            f"Binding {binding.binding_id} Observation "
+                            "propagation inputs must use multiplicity one"
                         )
 
     resolved: dict[tuple[str, str, str], CatalogContract] = {}

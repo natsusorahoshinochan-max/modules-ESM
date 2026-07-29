@@ -61,6 +61,8 @@ from core.workflow_v2 import (
 from datatypes import (
     Candidate,
     CandidateCollection,
+    PairwiseCandidateMapping,
+    PairwiseObservationContext,
     ProteinSequence,
     ProteinStructure,
     ScoreCollection,
@@ -3834,11 +3836,49 @@ class V2RunService:
                 else [supplied]
             )
             for value_index, value in enumerate(output_values):
+                if type(value) is PairwiseCandidateMapping:
+                    value.entries[:] = [
+                        replace(
+                            entry,
+                            subject_candidate_id=normalized_ids.get(
+                                entry.subject_candidate_id,
+                                entry.subject_candidate_id,
+                            ),
+                            reference_candidate_id=normalized_ids.get(
+                                entry.reference_candidate_id,
+                                entry.reference_candidate_id,
+                            ),
+                        )
+                        for entry in value.entries
+                    ]
+                    continue
                 if type(value) is not ScoreCollection:
                     continue
                 normalized_scores: list[Any] = []
                 for score in value.entries:
                     if isinstance(score, ScoreObservation):
+                        context = score.context
+                        if isinstance(
+                            context,
+                            PairwiseObservationContext,
+                        ):
+                            context = replace(
+                                context,
+                                subject=replace(
+                                    context.subject,
+                                    candidate_id=normalized_ids.get(
+                                        context.subject.candidate_id,
+                                        context.subject.candidate_id,
+                                    ),
+                                ),
+                                reference=replace(
+                                    context.reference,
+                                    candidate_id=normalized_ids.get(
+                                        context.reference.candidate_id,
+                                        context.reference.candidate_id,
+                                    ),
+                                ),
+                            )
                         normalized_scores.append(
                             replace(
                                 score,
@@ -3846,6 +3886,7 @@ class V2RunService:
                                     score.candidate_id,
                                     score.candidate_id,
                                 ),
+                                context=context,
                             )
                         )
                     else:

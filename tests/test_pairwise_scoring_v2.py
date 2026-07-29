@@ -28,6 +28,7 @@ from core import (
     validate_produced_score_collection,
 )
 from core.port_types import PortValueError
+from core.run_execution_v2 import V2RunService
 from core.workflow_v2 import WorkflowEdge as V2WorkflowEdge
 from datatypes import (
     Candidate,
@@ -325,6 +326,19 @@ def test_candidate_pairing_port_is_canonical_and_one_to_one() -> None:
         pairing_type.encode(
             PairwiseCandidateMapping(
                 entries=[mapping.entries[0], mapping.entries[0]]
+            )
+        )
+
+    subject_b = Candidate("subject-b", ProteinSequence("GG"))
+    conflicting_reference = Candidate("reference-a", ProteinSequence("AG"))
+    with pytest.raises(PortValueError, match="conflicting content"):
+        pairing_type.encode(
+            _pairing_map(
+                catalog,
+                [
+                    (subject, reference),
+                    (subject_b, conflicting_reference),
+                ],
             )
         )
 
@@ -1239,3 +1253,107 @@ def test_compiler_rejects_unknown_partition_before_any_provider_invocation() -> 
             workflow_revision=1,
             catalog=catalog,
         )
+
+
+def test_output_pairwise_relation_is_normalized_as_one_atomic_identity() -> None:
+    catalog, contracts = _compiler_catalog()
+    workflow = _compiler_workflow(contracts)
+    compiled = compile_workflow(
+        relock_workflow(workflow, catalog),
+        workflow_revision=1,
+        catalog=catalog,
+    )
+    node = next(
+        item
+        for item in compiled.execution_plan.nodes
+        if item.node_id == "producer"
+    )
+    subject = Candidate("raw-subject", ProteinSequence("AA"))
+    reference = Candidate("raw-reference", ProteinSequence("AT"))
+    fixed = _pairwise_observation(
+        catalog=catalog,
+        contracts=contracts,
+        subject=subject,
+        reference=reference,
+        pairing_mode="fixed_reference",
+        source_partition="fixed-reference",
+        value=0.4,
+    )
+    paired = _pairwise_observation(
+        catalog=catalog,
+        contracts=contracts,
+        subject=subject,
+        reference=reference,
+        pairing_mode="per_subject_counterpart",
+        source_partition="per-subject",
+        value=0.8,
+    )
+    outputs = {
+        "candidates": CandidateCollection(
+            "raw-subjects",
+            "protein.sequence",
+            [subject],
+        ),
+        "references": CandidateCollection(
+            "raw-references",
+            "protein.sequence",
+            [reference],
+        ),
+        "pairings": _pairing_map(catalog, [(subject, reference)]),
+        "scores": ScoreCollection("raw-scores", [fixed, paired]),
+    }
+    service = object.__new__(V2RunService)
+    service._catalog = catalog
+
+    normalized = service._normalize_candidate_outputs(
+        node=node,
+        result_identity="sha256:" + "a" * 64,
+        inputs={},
+        outputs=outputs,
+    )
+
+    normalized_subject = normalized["candidates"].items[0]
+    normalized_reference = normalized["references"].items[0]
+    assert normalized_subject.candidate_id != "raw-subject"
+    assert normalized_reference.candidate_id != "raw-reference"
+    for observation in normalized["scores"].entries:
+        assert observation.candidate_id == normalized_subject.candidate_id
+        assert (
+            observation.context.subject.candidate_id
+            == normalized_subject.candidate_id
+        )
+        assert (
+            observation.context.reference.candidate_id
+            == normalized_reference.candidate_id
+        )
+    pairing = normalized["pairings"].entries[0]
+    assert pairing.subject_candidate_id == normalized_subject.candidate_id
+    assert (
+        pairing.reference_candidate_id
+        == normalized_reference.candidate_id
+    )
+
+    catalog.require_port_type("candidate.collection", "2.0.0").encode(
+        normalized["candidates"]
+    )
+    catalog.require_port_type("candidate.collection", "2.0.0").encode(
+        normalized["references"]
+    )
+    catalog.require_port_type("candidate.pairing", "2.0.0").encode(
+        normalized["pairings"]
+    )
+    catalog.require_port_type("score.collection", "2.0.0").encode(
+        normalized["scores"]
+    )
+    validate_produced_score_collection(
+        catalog=catalog,
+        binding=catalog.require_contract(
+            "binding",
+            "score.pairwise.producer.direct",
+            "2.0.0",
+        ),
+        output_port="scores",
+        collection=normalized["scores"],
+        inputs={},
+        outputs=normalized,
+    )
