@@ -14,4 +14,3 @@ outputs:
     scientific_meaning: One deterministic provider-native PDB structure.
 parameter_groups: []
 node_parameters: {}
-

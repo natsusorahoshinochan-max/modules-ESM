@@ -14,4 +14,3 @@ outputs:
     scientific_meaning: One deterministic protein sequence.
 parameter_groups: []
 node_parameters: {}
-
