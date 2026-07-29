@@ -44,6 +44,7 @@ _PARAMETER_METADATA_KEYS = frozenset(
         "display_name",
         "group",
         "meaning",
+        "parameter_scope",
         "required",
         "scientific_meaning",
         "summary",
@@ -55,7 +56,9 @@ _PARAMETER_METADATA_KEYS = frozenset(
 )
 _ENVIRONMENT_TOKENS = frozenset(
     {
+        "access",
         "auth",
+        "authorization",
         "checkpoint",
         "credential",
         "credentials",
@@ -66,12 +69,20 @@ _ENVIRONMENT_TOKENS = frozenset(
         "environment",
         "gpu",
         "header",
+        "host",
+        "key",
         "model",
+        "passwd",
+        "password",
         "path",
         "provider",
         "runtime",
         "secret",
+        "server",
+        "service",
+        "ssh",
         "token",
+        "uri",
         "url",
     }
 )
@@ -119,6 +130,20 @@ def validate_parameter_declarations(
             raise ParameterContractDefinitionError(
                 f"{declaration_path} must be an object"
             )
+        if declaration.get("parameter_scope") != "scientific":
+            raise ParameterContractDefinitionError(
+                f"{declaration_path}.parameter_scope must explicitly equal "
+                "'scientific'"
+            )
+        scientific_meaning = declaration.get("scientific_meaning")
+        if (
+            not isinstance(scientific_meaning, str)
+            or not scientific_meaning.strip()
+        ):
+            raise ParameterContractDefinitionError(
+                f"{declaration_path}.scientific_meaning must explicitly "
+                "describe the cross-Binding scientific parameter"
+            )
         value_contract = declaration.get("value_contract")
         if value_contract is None:
             schema = {
@@ -150,13 +175,26 @@ def validate_parameter_declarations(
                 if value_contract is not None
                 else declaration_path
             ),
+            allow_parameter_required=value_contract is None,
         )
+        if "default" in declaration:
+            violation = parameter_contract_violation(
+                declaration["default"],
+                schema,
+                path=(name,),
+            )
+            if violation is not None:
+                _, reason = violation
+                raise ParameterContractDefinitionError(
+                    f"{declaration_path}.default {reason}"
+                )
 
 
 def _validate_value_contract_schema(
     schema: Mapping[str, Any],
     *,
     path: str,
+    allow_parameter_required: bool = False,
 ) -> None:
     unexpected = set(schema) - _SUPPORTED_VALUE_CONTRACT_KEYS
     if unexpected:
@@ -164,6 +202,171 @@ def _validate_value_contract_schema(
             f"{path} has unsupported value-contract keywords "
             f"{sorted(unexpected)!r}"
         )
+    expected_type = schema.get("type")
+    supported_types = {
+        "array",
+        "boolean",
+        "integer",
+        "null",
+        "number",
+        "object",
+        "string",
+    }
+    if expected_type is not None:
+        types = (
+            tuple(expected_type)
+            if isinstance(expected_type, (list, tuple))
+            else (expected_type,)
+        )
+        if (
+            not types
+            or any(item not in supported_types for item in types)
+            or len(set(types)) != len(types)
+        ):
+            raise ParameterContractDefinitionError(
+                f"{path}.type must contain supported unique value types"
+            )
+    else:
+        types = ()
+    enum = schema.get("enum")
+    if enum is not None and (
+        not isinstance(enum, (list, tuple)) or not enum
+    ):
+        raise ParameterContractDefinitionError(
+            f"{path}.enum must be a non-empty array"
+        )
+    if types:
+        typed_values = list(enum or ())
+        if "const" in schema:
+            typed_values.append(schema["const"])
+        if any(
+            not any(_parameter_type_matches(value, item) for item in types)
+            for value in typed_values
+        ):
+            raise ParameterContractDefinitionError(
+                f"{path}.enum/const values must conform to type"
+            )
+    for keyword in (
+        "minimum",
+        "maximum",
+        "exclusiveMinimum",
+        "exclusiveMaximum",
+    ):
+        bound = schema.get(keyword)
+        if bound is not None and (
+            not isinstance(bound, (int, float))
+            or isinstance(bound, bool)
+        ):
+            raise ParameterContractDefinitionError(
+                f"{path}.{keyword} must be a number"
+            )
+    numeric_keywords = {
+        "minimum",
+        "maximum",
+        "exclusiveMinimum",
+        "exclusiveMaximum",
+    }
+    if set(schema).intersection(numeric_keywords) and not set(types).intersection(
+        {"integer", "number"}
+    ):
+        raise ParameterContractDefinitionError(
+            f"{path} numeric bounds require an integer or number type"
+        )
+    for minimum_keyword, maximum_keyword in (
+        ("minimum", "maximum"),
+        ("exclusiveMinimum", "exclusiveMaximum"),
+        ("minLength", "maxLength"),
+        ("minItems", "maxItems"),
+        ("minProperties", "maxProperties"),
+    ):
+        minimum = schema.get(minimum_keyword)
+        maximum = schema.get(maximum_keyword)
+        if minimum is not None and maximum is not None and minimum > maximum:
+            raise ParameterContractDefinitionError(
+                f"{path}.{minimum_keyword} must not exceed {maximum_keyword}"
+            )
+    for keyword in (
+        "minLength",
+        "maxLength",
+        "minItems",
+        "maxItems",
+        "minProperties",
+        "maxProperties",
+    ):
+        limit = schema.get(keyword)
+        if limit is not None and (
+            type(limit) is not int or limit < 0
+        ):
+            raise ParameterContractDefinitionError(
+                f"{path}.{keyword} must be a non-negative integer"
+            )
+    required = schema.get("required")
+    keyword_type_groups = (
+        (
+            {"minLength", "maxLength", "pattern"},
+            "string",
+        ),
+        (
+            {"minItems", "maxItems", "uniqueItems", "items"},
+            "array",
+        ),
+        (
+            {
+                "minProperties",
+                "maxProperties",
+                "properties",
+                "required",
+                "additionalProperties",
+            },
+            "object",
+        ),
+    )
+    for keywords, required_type in keyword_type_groups:
+        present = set(schema).intersection(keywords)
+        if (
+            present
+            and not (
+                required_type == "object"
+                and allow_parameter_required
+                and present == {"required"}
+                and type(required) is bool
+            )
+            and required_type not in types
+        ):
+            raise ParameterContractDefinitionError(
+                f"{path} fields {sorted(present)!r} require "
+                f"type {required_type!r}"
+            )
+    pattern = schema.get("pattern")
+    if pattern is not None:
+        if not isinstance(pattern, str):
+            raise ParameterContractDefinitionError(
+                f"{path}.pattern must be a string"
+            )
+        try:
+            re.compile(pattern)
+        except re.error as error:
+            raise ParameterContractDefinitionError(
+                f"{path}.pattern is invalid"
+            ) from error
+    unique_items = schema.get("uniqueItems")
+    if unique_items is not None and type(unique_items) is not bool:
+        raise ParameterContractDefinitionError(
+            f"{path}.uniqueItems must be boolean"
+        )
+    if required is not None:
+        parameter_required = (
+            allow_parameter_required and type(required) is bool
+        )
+        object_required = (
+            isinstance(required, (list, tuple))
+            and all(isinstance(name, str) for name in required)
+            and len(set(required)) == len(required)
+        )
+        if not parameter_required and not object_required:
+            raise ParameterContractDefinitionError(
+                f"{path}.required must be a unique array of field names"
+            )
     for keyword in ("allOf", "anyOf", "oneOf"):
         alternatives = schema.get(keyword)
         if alternatives is None:
@@ -211,13 +414,178 @@ def _validate_value_contract_schema(
                 property_schema,
                 path=f"{path}.properties.{name}",
             )
+        if isinstance(required, (list, tuple)):
+            undeclared = set(required) - set(properties)
+            if undeclared:
+                raise ParameterContractDefinitionError(
+                    f"{path}.required contains undeclared fields "
+                    f"{sorted(undeclared)!r}"
+                )
     additional = schema.get("additionalProperties")
-    if additional is not None and not isinstance(additional, bool):
-        if not isinstance(additional, Mapping):
-            raise ParameterContractDefinitionError(
-                f"{path}.additionalProperties must be boolean or an object"
-            )
-        _validate_value_contract_schema(
-            additional,
-            path=f"{path}.additionalProperties",
+    expresses_object = (
+        expected_type == "object"
+        or (
+            isinstance(expected_type, (list, tuple))
+            and "object" in expected_type
         )
+        or properties is not None
+    )
+    if expresses_object and additional is not False:
+        raise ParameterContractDefinitionError(
+            f"{path}.additionalProperties must explicitly be false "
+            "for Workflow object parameters"
+        )
+    if additional is not None and type(additional) is not bool:
+        raise ParameterContractDefinitionError(
+            f"{path}.additionalProperties must be boolean"
+        )
+
+
+def parameter_contract_violation(
+    value: Any,
+    schema: Mapping[str, Any],
+    *,
+    path: tuple[str | int, ...],
+) -> tuple[tuple[str | int, ...], str] | None:
+    """Return the first violation of one validated value contract."""
+    if "const" in schema and value != schema["const"]:
+        return path, f"must equal {schema['const']!r}"
+    if "enum" in schema and value not in schema["enum"]:
+        return path, f"must be one of {list(schema['enum'])!r}"
+
+    for keyword in ("allOf", "anyOf", "oneOf"):
+        alternatives = schema.get(keyword)
+        if alternatives is None:
+            continue
+        results = [
+            parameter_contract_violation(value, item, path=path)
+            for item in alternatives
+        ]
+        matches = sum(result is None for result in results)
+        if keyword == "allOf" and any(result is not None for result in results):
+            return next(result for result in results if result is not None)
+        if keyword == "anyOf" and matches == 0:
+            return path, "must match at least one value-contract alternative"
+        if keyword == "oneOf" and matches != 1:
+            return path, "must match exactly one value-contract alternative"
+
+    expected_type = schema.get("type")
+    if isinstance(expected_type, (list, tuple)):
+        valid_type = any(
+            _parameter_type_matches(value, candidate)
+            for candidate in expected_type
+        )
+    else:
+        valid_type = (
+            True
+            if expected_type is None
+            else _parameter_type_matches(value, expected_type)
+        )
+    if not valid_type:
+        return path, f"must be {expected_type}"
+
+    if isinstance(value, (int, float)) and not isinstance(value, bool):
+        for keyword, comparison, reason in (
+            ("minimum", lambda item, bound: item < bound, "at least"),
+            ("maximum", lambda item, bound: item > bound, "at most"),
+            (
+                "exclusiveMinimum",
+                lambda item, bound: item <= bound,
+                "greater than",
+            ),
+            (
+                "exclusiveMaximum",
+                lambda item, bound: item >= bound,
+                "less than",
+            ),
+        ):
+            bound = schema.get(keyword)
+            if bound is not None and comparison(value, bound):
+                return path, f"must be {reason} {bound}"
+
+    if isinstance(value, str):
+        if (
+            schema.get("minLength") is not None
+            and len(value) < schema["minLength"]
+        ):
+            return path, f"must contain at least {schema['minLength']} characters"
+        if (
+            schema.get("maxLength") is not None
+            and len(value) > schema["maxLength"]
+        ):
+            return path, f"must contain at most {schema['maxLength']} characters"
+        pattern = schema.get("pattern")
+        if pattern is not None and re.search(pattern, value) is None:
+            return path, f"must match {pattern!r}"
+
+    if isinstance(value, (list, tuple)):
+        if (
+            schema.get("minItems") is not None
+            and len(value) < schema["minItems"]
+        ):
+            return path, f"must contain at least {schema['minItems']} items"
+        if (
+            schema.get("maxItems") is not None
+            and len(value) > schema["maxItems"]
+        ):
+            return path, f"must contain at most {schema['maxItems']} items"
+        if schema.get("uniqueItems") is True:
+            for index, item in enumerate(value):
+                if item in value[:index]:
+                    return (*path, index), "must be unique"
+        item_schema = schema.get("items")
+        if isinstance(item_schema, Mapping):
+            for index, item in enumerate(value):
+                violation = parameter_contract_violation(
+                    item,
+                    item_schema,
+                    path=(*path, index),
+                )
+                if violation is not None:
+                    return violation
+
+    if isinstance(value, Mapping):
+        properties = schema.get("properties", {})
+        required = schema.get("required", ())
+        if isinstance(required, (list, tuple)):
+            missing = [name for name in required if name not in value]
+            if missing:
+                return path, f"must contain required fields {missing!r}"
+        if (
+            schema.get("minProperties") is not None
+            and len(value) < schema["minProperties"]
+        ):
+            return path, f"must contain at least {schema['minProperties']} fields"
+        if (
+            schema.get("maxProperties") is not None
+            and len(value) > schema["maxProperties"]
+        ):
+            return path, f"must contain at most {schema['maxProperties']} fields"
+        for name, item in value.items():
+            item_schema = (
+                properties.get(name)
+                if isinstance(properties, Mapping)
+                else None
+            )
+            if item_schema is None:
+                return (*path, name), "is not an allowed field"
+            violation = parameter_contract_violation(
+                item,
+                item_schema,
+                path=(*path, name),
+            )
+            if violation is not None:
+                return violation
+    return None
+
+
+def _parameter_type_matches(value: Any, expected_type: Any) -> bool:
+    return {
+        "null": value is None,
+        "boolean": type(value) is bool,
+        "integer": type(value) is int,
+        "number": isinstance(value, (int, float)) and not isinstance(value, bool),
+        "string": type(value) is str,
+        "array": isinstance(value, (list, tuple)),
+        "object": isinstance(value, Mapping),
+    }.get(expected_type, False)

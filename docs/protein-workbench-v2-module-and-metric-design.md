@@ -92,8 +92,16 @@ inputs[] / outputs[]:
   name, port_type_id, port_type_version, required, multiplicity, meaning
 parameter_groups[]
 node_parameters[]:
-  name, value_contract, required/default, scientific meaning
+  name, parameter_scope=scientific, scientific_meaning,
+  value_contract, required/default
 ```
+
+`parameter_scope=scientific` 与非空 `scientific_meaning` 是每个 Node/Binding
+Workflow 参数的显式准入分类；Environment Configuration、credential、endpoint、
+runtime/model source 不存在可进入 Workflow 的分类值。`value_contract` 只允许
+Catalog Builder 明确支持并完整验证的闭合关键字子集，object 参数必须
+`additionalProperties: false`。因此不支持或不完整的参数合同在 Catalog 原子发布前
+失败，而不是推迟到编译或执行阶段。
 
 Metric Definition YAML 只包含科学测量合同：
 

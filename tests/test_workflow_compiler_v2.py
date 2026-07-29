@@ -94,6 +94,16 @@ def _workflow_catalog(
             "output_contract": {"minimum": 0, "maximum": 1},
         },
     )
+    parameter_overrides = {
+        name: {
+            "parameter_scope": "scientific",
+            "scientific_meaning": f"Synthetic scientific parameter {name}",
+            **declaration,
+        }
+        for name, declaration in (
+            source_node_parameter_overrides or {}
+        ).items()
+    }
     source_node = _catalog_contract(
         "node_type",
         "synthetic.source",
@@ -109,15 +119,23 @@ def _workflow_catalog(
             ],
             "node_parameters": {
                 "uppercase": {
+                    "parameter_scope": "scientific",
+                    "scientific_meaning": (
+                        "Whether the scientific text transform uses uppercase"
+                    ),
                     "type": "boolean",
                     "required": True,
                     "utility_transform": utility.reference(),
                 },
                 "label": {
+                    "parameter_scope": "scientific",
+                    "scientific_meaning": (
+                        "Stable scientific label attached to source output"
+                    ),
                     "type": "string",
                     "default": "default-label",
                 },
-                **(source_node_parameter_overrides or {}),
+                **parameter_overrides,
             },
         },
     )
@@ -152,6 +170,10 @@ def _workflow_catalog(
             "method": source_method.reference(),
             "binding_parameters": {
                 "batch_size": {
+                    "parameter_scope": "scientific",
+                    "scientific_meaning": (
+                        "Synthetic batch cardinality used by this Binding"
+                    ),
                     "type": "integer",
                     "required": True,
                     "minimum": 1,
@@ -718,11 +740,16 @@ def test_compile_enforces_complete_nested_parameter_value_contract(
     "forbidden_name",
     [
         "apiToken",
+        "accessKey",
+        "awsAccessKeyId",
         "baseURL",
         "credentialHandle",
         "gpuDevice",
         "modelPath",
+        "password",
         "runtime.path",
+        "serviceURI",
+        "sshKey",
         "auth_header",
     ],
 )
@@ -733,7 +760,16 @@ def test_compile_rejects_nested_environment_configuration_fields(
         source_node_parameter_overrides={
             "scientific_options": {
                 "type": "object",
-                "additionalProperties": True,
+                "additionalProperties": False,
+                "properties": {
+                    "sampling": {
+                        "type": "object",
+                        "additionalProperties": False,
+                        "properties": {
+                            "temperature": {"type": "number"},
+                        },
+                    }
+                },
             }
         }
     )
@@ -793,11 +829,16 @@ def test_catalog_rejects_unsupported_parameter_contract_keywords(
     "environment_name",
     [
         "apiToken",
+        "accessKey",
+        "awsAccessKeyId",
         "baseURL",
         "credentialHandle",
         "gpuDevice",
         "modelPath",
+        "password",
         "runtime.path",
+        "serviceURI",
+        "sshKey",
         "auth_header",
     ],
 )
@@ -808,6 +849,56 @@ def test_catalog_rejects_environment_parameter_declarations(
         _workflow_catalog(
             source_node_parameter_overrides={
                 environment_name: {"type": "string"},
+            }
+        )
+
+
+@pytest.mark.parametrize(
+    "malformed_contract",
+    [
+        {"type": "integer", "minimum": "bad"},
+        {"type": "string", "pattern": 7},
+        {"type": "string", "enum": 3},
+        {
+            "value_contract": {
+                "type": "object",
+                "additionalProperties": False,
+                "required": True,
+            },
+        },
+        {"type": "array", "uniqueItems": "yes"},
+        {"type": "bogus"},
+        {"type": "integer", "minimum": 1, "default": 0},
+    ],
+)
+def test_catalog_rejects_malformed_supported_parameter_contracts(
+    malformed_contract: dict,
+) -> None:
+    with pytest.raises(CatalogBuildError):
+        _workflow_catalog(
+            source_node_parameter_overrides={
+                "malformed_contract": malformed_contract,
+            }
+        )
+
+
+@pytest.mark.parametrize(
+    "classification",
+    [
+        {"parameter_scope": "environment"},
+        {"scientific_meaning": ""},
+    ],
+)
+def test_catalog_requires_explicit_scientific_parameter_classification(
+    classification: dict,
+) -> None:
+    with pytest.raises(CatalogBuildError):
+        _workflow_catalog(
+            source_node_parameter_overrides={
+                "temperature": {
+                    "type": "number",
+                    **classification,
+                },
             }
         )
 
