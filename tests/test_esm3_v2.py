@@ -539,3 +539,99 @@ def test_structure_generation_normalizes_exact_confidence_before_publication(
         if event["event"]["type"] == "engine_invocation_started"
         and event["event"]["engine_role"] == "structure_sample"
     ] == ["structure_sample"]
+
+
+def test_paired_generation_publishes_ten_exact_counterparts_and_real_calls(
+    tmp_path: Path,
+) -> None:
+    import torch
+
+    responses: list[_ProviderResponse] = []
+    for _ in range(10):
+        responses.extend(
+            [
+                _ProviderResponse("ACD"),
+                _ProviderResponse(
+                    "ACD",
+                    coordinates=torch.zeros((3, 37, 3)),
+                    ptm=torch.tensor(0.75),
+                    plddt=torch.tensor([0.7, 0.8, 0.9]),
+                    pdb_string=_three_residue_pdb(),
+                ),
+            ]
+        )
+    client = _ProviderClient(responses)
+
+    catalog, projection, events = _run_generation(
+        tmp_path,
+        operation="generate_paired",
+        client=client,
+        num_samples=10,
+    )
+
+    assert projection["status"] == "succeeded"
+    outputs = {
+        item["output_port"]: item
+        for item in projection["outputs"]
+        if item["node_id"] == "generate"
+    }
+    sequences = _decode_output(catalog, outputs["sequence_candidates"])
+    structures = _decode_output(catalog, outputs["structure_candidates"])
+    pairing = _decode_output(catalog, outputs["counterpart_pairs"])
+    confidence = _decode_output(
+        catalog,
+        outputs["confidence_observations"],
+    )
+    assert len(sequences.items) == len(structures.items) == 10
+    assert len(pairing.entries) == 10
+    assert len(confidence.entries) == 30
+    assert [
+        structure.parent_ids
+        for structure in structures.items
+    ] == [[sequence.candidate_id] for sequence in sequences.items]
+    assert [
+        (
+            entry.subject_candidate_id,
+            entry.reference_candidate_id,
+        )
+        for entry in pairing.entries
+    ] == [
+        (sequence.candidate_id, structure.candidate_id)
+        for sequence, structure in zip(
+            sequences.items,
+            structures.items,
+            strict=True,
+        )
+    ]
+    assert [
+        candidate.metadata["sample_index"]
+        for candidate in sequences.items
+    ] == list(range(10))
+    assert [
+        candidate.metadata["sample_index"]
+        for candidate in structures.items
+    ] == list(range(10))
+    assert [call[1].track for call in client.calls] == [
+        track
+        for _ in range(10)
+        for track in ("sequence", "structure")
+    ]
+    generation_roles = [
+        event["event"]["engine_role"]
+        for event in events
+        if event["event"]["type"] == "engine_invocation_started"
+        and event["event"]["engine_role"]
+        in {"sequence_parent", "structure_child"}
+    ]
+    assert generation_roles == [
+        role
+        for _ in range(10)
+        for role in ("sequence_parent", "structure_child")
+    ]
+    terminals = [
+        event["event"]
+        for event in events
+        if event["event"]["type"] == "engine_invocation_terminal"
+    ]
+    assert len(terminals) >= 20
+    assert all(event["status"] == "succeeded" for event in terminals)

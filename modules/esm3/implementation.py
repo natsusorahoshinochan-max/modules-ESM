@@ -6,23 +6,33 @@ from collections.abc import Mapping
 from typing import Any
 
 from core.provider_contract import BIOHUB_ESM3_MODEL
-from datatypes import Candidate, CandidateCollection, ProteinPrompt
+from datatypes import (
+    Candidate,
+    CandidateCollection,
+    ProteinPrompt,
+    ProteinSequence,
+    ProteinStructure,
+)
 from datatypes import (
     ExactContractReference,
     IntrinsicObservationContext,
     ScoreCollection,
     ScoreObservation,
+    PairwiseCandidateMapping,
+    PairwiseCandidateMatch,
 )
 
 from .adapter import (
     complete_sequence,
     complete_structure,
+    derived_call_seed,
     generation_config,
     normalized_confidence,
     protein_prompt_to_provider,
     reject_silent_sequence_fields,
     require_provider_protein,
     response_has_structure,
+    structure_prompt_for_sequence,
 )
 
 
@@ -112,6 +122,8 @@ class ESM3GenerationImplementation:
             return self._generate_sequence(prompt, parameters)
         if self._operation == "generate_structure":
             return self._generate_structure(prompt, parameters)
+        if self._operation == "generate_paired":
+            return self._generate_paired(prompt, parameters)
         raise NotImplementedError(
             f"ESM-3 operation {self._operation!r} is not implemented"
         )
@@ -123,6 +135,7 @@ class ESM3GenerationImplementation:
         sample_index: int,
         classification: str,
         parameters: Mapping[str, Any],
+        call_track: str,
     ) -> dict[str, Any]:
         return {
             "provider": "biohub",
@@ -131,6 +144,12 @@ class ESM3GenerationImplementation:
             "sample_index": sample_index,
             "classification": classification,
             "effective_seed": parameters["effective_seed"],
+            "effective_call_seed": derived_call_seed(
+                parameters["effective_seed"],
+                sample_index,
+                call_track,
+            ),
+            "effective_call_seed_scope": "sample_and_track",
             "seed_control": "unsupported_by_provider",
             "generation_parameters": {
                 name: parameters[name]
@@ -174,6 +193,7 @@ class ESM3GenerationImplementation:
                     sample_index=sample_index,
                     classification="sequence",
                     parameters=parameters,
+                    call_track="sequence",
                 ),
             )
             candidates.append(candidate)
@@ -315,6 +335,7 @@ class ESM3GenerationImplementation:
                     sample_index=sample_index,
                     classification="sampled_structure",
                     parameters=parameters,
+                    call_track="structure",
                 ),
             )
             candidates.append(candidate)
@@ -326,6 +347,119 @@ class ESM3GenerationImplementation:
                 "protein.structure",
                 candidates,
             ),
+            "confidence_observations": confidence,
+        }
+        if pae is not None:
+            outputs["pae_observations"] = pae
+        return outputs
+
+    def _content_digest(self, candidate: Candidate) -> str:
+        if type(candidate.data) is ProteinSequence:
+            type_id = "protein.sequence"
+        elif type(candidate.data) is ProteinStructure:
+            type_id = "protein.structure"
+        else:
+            raise TypeError(
+                "ESM-3 paired content must be a sequence or structure"
+            )
+        return self._catalog.require_port_type(
+            type_id,
+            "2.0.0",
+        ).content_digest(candidate.data)
+
+    def _generate_paired(
+        self,
+        prompt: ProteinPrompt,
+        parameters: Mapping[str, Any],
+    ) -> dict[str, Any]:
+        client = self._client()
+        provider_prompt = protein_prompt_to_provider(prompt)
+        sequence_config = generation_config("sequence", parameters)
+        structure_config = generation_config("structure", parameters)
+        sequence_candidates: list[Candidate] = []
+        structure_candidates: list[Candidate] = []
+        pairing_entries: list[PairwiseCandidateMatch] = []
+        confidence_sources: list[tuple[Candidate, Any]] = []
+        for sample_index in range(parameters["num_samples"]):
+            sequence_result = self._provider_call(
+                client,
+                provider_prompt,
+                sequence_config,
+                role="sequence_parent",
+                operation="generate_sequence",
+            )
+            reject_silent_sequence_fields(sequence_result)
+            sequence = complete_sequence(sequence_result, prompt)
+            sequence_candidate = Candidate(
+                f"sequence-{sample_index}",
+                sequence,
+                [],
+                self._candidate_metadata(
+                    operation="generate_sequence",
+                    sample_index=sample_index,
+                    classification="sequence",
+                    parameters=parameters,
+                    call_track="sequence",
+                ),
+            )
+            structure_prompt = structure_prompt_for_sequence(
+                provider_prompt,
+                sequence.sequence,
+            )
+            structure_result = self._provider_call(
+                client,
+                structure_prompt,
+                structure_config,
+                role="structure_child",
+                operation="generate_structure",
+            )
+            structure = complete_structure(
+                structure_result,
+                prompt,
+                expected_sequence=sequence.sequence,
+            )
+            structure_candidate = Candidate(
+                f"structure-{sample_index}",
+                structure,
+                [sequence_candidate.candidate_id],
+                self._candidate_metadata(
+                    operation="generate_structure",
+                    sample_index=sample_index,
+                    classification="sampled_structure",
+                    parameters=parameters,
+                    call_track="structure",
+                ),
+            )
+            sequence_candidates.append(sequence_candidate)
+            structure_candidates.append(structure_candidate)
+            pairing_entries.append(
+                PairwiseCandidateMatch(
+                    subject_candidate_id=sequence_candidate.candidate_id,
+                    subject_content_digest=self._content_digest(
+                        sequence_candidate
+                    ),
+                    reference_candidate_id=structure_candidate.candidate_id,
+                    reference_content_digest=self._content_digest(
+                        structure_candidate
+                    ),
+                )
+            )
+            confidence_sources.append(
+                (structure_candidate, structure_result)
+            )
+        confidence, pae = self._confidence_outputs(confidence_sources)
+        outputs: dict[str, Any] = {
+            "sequence_candidates": CandidateCollection(
+                "esm3-paired-sequences",
+                "protein.sequence",
+                sequence_candidates,
+            ),
+            "structure_candidates": CandidateCollection(
+                "esm3-paired-structures",
+                "protein.structure",
+                structure_candidates,
+            ),
+            "counterpart_pairs": PairwiseCandidateMapping(pairing_entries),
             "confidence_observations": confidence,
         }
         if pae is not None:

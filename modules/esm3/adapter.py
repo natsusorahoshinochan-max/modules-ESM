@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
+import hashlib
 import math
 from typing import Any
 
@@ -440,3 +441,42 @@ def normalized_confidence(
             for row in normalized.tolist()
         ]
     return ptm, per_residue, mean_residue, pae
+
+
+def structure_prompt_for_sequence(
+    provider_prompt: Any,
+    sequence: str,
+) -> Any:
+    """Preserve every non-structure condition for one paired structure call."""
+    from esm.sdk.api import ESMProtein
+
+    return ESMProtein(
+        sequence=sequence,
+        secondary_structure=getattr(
+            provider_prompt,
+            "secondary_structure",
+            None,
+        ),
+        sasa=getattr(provider_prompt, "sasa", None),
+        function_annotations=getattr(
+            provider_prompt,
+            "function_annotations",
+            None,
+        ),
+        coordinates=None,
+    )
+
+
+def derived_call_seed(
+    effective_seed: int,
+    sample_index: int,
+    track: str,
+) -> int:
+    """Derive one stable per-slot identity even though Biohub cannot apply it."""
+    digest = hashlib.sha256(
+        (
+            "protein-workbench-esm3-call-seed/v2:"
+            f"{effective_seed}:{sample_index}:{track}"
+        ).encode("ascii")
+    ).digest()
+    return int.from_bytes(digest[:6], "big")
