@@ -399,7 +399,7 @@ def test_selected_binding_folds_without_fallback_and_publishes_exact_lineage(
         sequence = "AG"
         plddt = (0.70, 0.80)
         ptm = 0.625
-        pae = ((0.0, 1.0), (1.0, 0.0))
+        pae = ((0.0, 31.75), (31.75, 0.0))
         pdb_string = _two_residue_pdb()
 
     class RemoteClient:
@@ -423,7 +423,7 @@ def test_selected_binding_folds_without_fallback_and_publishes_exact_lineage(
         complex = LocalComplex()
         plddt = (0.70, 0.80)
         ptm = 0.625
-        pae = ((0.0, 1.0), (1.0, 0.0))
+        pae = ((0.0, 31.75), (31.75, 0.0))
         pdb_string = _two_residue_pdb()
 
     class LocalClient:
@@ -494,7 +494,10 @@ def test_selected_binding_folds_without_fallback_and_publishes_exact_lineage(
     }
     assert len(pae.entries) == 1
     assert pae.entries[0].metric.contract_id == "structure.pae"
-    assert pae.entries[0].value == [[0.0, 1.0], [1.0, 0.0]]
+    assert pae.entries[0].value == [
+        [0.0, 31.75],
+        [31.75, 0.0],
+    ]
     assert {
         observation.candidate_id
         for observation in (*confidence.entries, *pae.entries)

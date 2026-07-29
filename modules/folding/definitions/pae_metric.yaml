@@ -8,7 +8,7 @@ unit: angstrom
 direction: lower_is_better
 canonical_range:
   minimum: 0
-  maximum: 31.5
+  maximum: 31.75
 granularity: residue_pair
 aggregation_semantics:
   kind: none
