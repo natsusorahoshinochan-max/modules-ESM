@@ -3,10 +3,26 @@
 from __future__ import annotations
 
 import math
+from pathlib import Path
+from types import SimpleNamespace
+from typing import Any
 
 import pytest
 
-from core import build_discovered_frozen_catalog, discover_module_packages
+from core import (
+    EnvironmentConfiguration,
+    ProjectManager,
+    V2RunService,
+    WorkflowAuthoringService,
+    WorkflowDocument,
+    WorkflowNodeInstance,
+    build_discovered_frozen_catalog,
+    build_frozen_catalog,
+    discover_module_packages,
+    parse_workflow_document,
+)
+from core.port_types import canonical_json_bytes
+from core.workflow_v2 import WorkflowEdge
 from datatypes import (
     FunctionAnnotation,
     FunctionAnnotations,
@@ -158,3 +174,277 @@ def test_adapter_preserves_every_representable_prompt_track_and_symbol() -> None
     prompt.sequence_track.values[0] = "J"
     with pytest.raises(ValueError, match="cannot represent sequence symbol 'J'"):
         protein_prompt_to_provider(prompt)
+
+
+class _ProviderResponse:
+    def __init__(
+        self,
+        sequence: str,
+        *,
+        coordinates: Any = None,
+        ptm: Any = None,
+        plddt: Any = None,
+        pae: Any = None,
+        pdb_string: str | None = None,
+    ) -> None:
+        self.sequence = sequence
+        self.coordinates = coordinates
+        self.ptm = ptm
+        self.plddt = plddt
+        self.pae = pae
+        self._pdb_string = pdb_string
+
+    def to_pdb_string(self) -> str:
+        if self._pdb_string is None:
+            raise AssertionError("coordinate-free fixture cannot render a PDB")
+        return self._pdb_string
+
+
+class _ProviderClient:
+    def __init__(self, responses: list[_ProviderResponse]) -> None:
+        self._responses = iter(responses)
+        self.calls: list[tuple[Any, Any]] = []
+
+    def generate(self, protein: Any, config: Any) -> _ProviderResponse:
+        self.calls.append((protein, config))
+        return next(self._responses)
+
+
+def _decode_output(catalog: Any, output: dict[str, Any]) -> Any:
+    reference = output["port_type"]
+    port_type = catalog.require_port_type(
+        reference["contract_id"],
+        reference["contract_version"],
+    )
+    return port_type.decode(
+        canonical_json_bytes(
+            {
+                "schema_namespace": "protein-workbench-port-value/v2",
+                "port_type_id": port_type.type_id,
+                "port_type_version": port_type.version,
+                "value": output["values"][0],
+            }
+        )
+    )
+
+
+def _run_generation(
+    tmp_path: Path,
+    *,
+    operation: str,
+    client: _ProviderClient,
+    num_samples: int,
+    sequence: str | None = None,
+) -> tuple[Any, dict[str, Any], tuple[dict[str, Any], ...]]:
+    from modules.esm3.package import MODULE_PACKAGE as ESM3_PACKAGE
+    from modules.prompt_authoring.package import (
+        MODULE_PACKAGE as PROMPT_AUTHORING_PACKAGE,
+    )
+    from modules.protein_io.package import MODULE_PACKAGE as PROTEIN_IO_PACKAGE
+
+    supporting = [PROMPT_AUTHORING_PACKAGE]
+    nodes = [
+        WorkflowNodeInstance(
+            node_id="layout",
+            node_type_id="prompt_authoring.build_residue_layout",
+            node_type_version="2.0.0",
+            binding_id="prompt_authoring.build_residue_layout.direct",
+            binding_version="2.0.0",
+            node_parameters={
+                "chains": [
+                    {
+                        "chain_id": "A",
+                        "length": len(sequence) if sequence is not None else 3,
+                    }
+                ]
+            },
+            binding_parameters={},
+        ),
+        WorkflowNodeInstance(
+            node_id="assemble",
+            node_type_id="prompt_authoring.assemble_protein_prompt",
+            node_type_version="2.0.0",
+            binding_id="prompt_authoring.assemble_protein_prompt.direct",
+            binding_version="2.0.0",
+            node_parameters={},
+            binding_parameters={},
+        ),
+    ]
+    edges = [
+        WorkflowEdge("layout", "layout", "assemble", "layout"),
+    ]
+    project_inputs: dict[str, bytes] = {}
+    prompt_source = "assemble"
+    if sequence is not None:
+        supporting.append(PROTEIN_IO_PACKAGE)
+        project_inputs["sequence-input"] = f">fixture\n{sequence}\n".encode()
+        nodes.extend(
+            [
+                WorkflowNodeInstance(
+                    node_id="import_sequence",
+                    node_type_id="protein_io.import_sequence",
+                    node_type_version="2.0.0",
+                    binding_id="protein_io.import_sequence.direct",
+                    binding_version="2.0.0",
+                    node_parameters={"project_input_ref": "sequence-input"},
+                    binding_parameters={},
+                ),
+                WorkflowNodeInstance(
+                    node_id="update_sequence",
+                    node_type_id="prompt_authoring.update_prompt_sequence",
+                    node_type_version="2.0.0",
+                    binding_id="prompt_authoring.update_prompt_sequence.direct",
+                    binding_version="2.0.0",
+                    node_parameters={},
+                    binding_parameters={},
+                ),
+            ]
+        )
+        edges.extend(
+            [
+                WorkflowEdge(
+                    "assemble",
+                    "protein_prompt",
+                    "update_sequence",
+                    "protein_prompt",
+                ),
+                WorkflowEdge(
+                    "import_sequence",
+                    "sequence",
+                    "update_sequence",
+                    "sequence",
+                ),
+            ]
+        )
+        prompt_source = "update_sequence"
+    nodes.append(
+        WorkflowNodeInstance(
+            node_id="generate",
+            node_type_id=f"esm3.{operation}",
+            node_type_version="2.0.0",
+            binding_id=f"esm3.{operation}.biohub_medium",
+            binding_version="2.0.0",
+            node_parameters={
+                "effective_seed": 1603,
+                "num_samples": num_samples,
+            },
+            binding_parameters={},
+        )
+    )
+    edges.append(
+        WorkflowEdge(
+            prompt_source,
+            "protein_prompt",
+            "generate",
+            "protein_prompt",
+        )
+    )
+
+    catalog = build_frozen_catalog((ESM3_PACKAGE, *supporting))
+    projects = ProjectManager(
+        tmp_path / "projects",
+        cache_root=tmp_path / "cache",
+        output_root=tmp_path / "outputs",
+        run_root=tmp_path / "runs",
+    )
+    project = projects.create(f"ESM3 {operation}")
+    for reference, payload in project_inputs.items():
+        projects.publish_input(project.id, reference, payload)
+    authoring = WorkflowAuthoringService(projects, catalog)
+    workflow = WorkflowDocument(
+        schema_version="2.0.0",
+        workflow_id=project.id,
+        nodes=tuple(nodes),
+        edges=tuple(edges),
+        contract_lock=(),
+    )
+    saved = authoring.save(
+        project.id,
+        expected_workflow_revision=0,
+        workflow=workflow,
+    )
+    relocked = authoring.relock(
+        project.id,
+        workflow_revision=saved["workflow_revision"],
+    )
+    compiled = authoring.compile(
+        project.id,
+        workflow_revision=relocked["workflow_revision"],
+        workflow=parse_workflow_document(relocked["workflow"]),
+    )
+    environment = EnvironmentConfiguration(
+        {
+            (f"esm3.{operation}.biohub_medium", "2.0.0"): {
+                "values": {
+                    "endpoint_id": "biohub",
+                    "credential_handle": object(),
+                    "provider_client": client,
+                    "private_token": "secret-must-never-publish",
+                    "runtime_path": "/private/esm3-runtime",
+                },
+                "safe_fingerprint": "biohub-medium-fixture-v1",
+                "invalidation_token": "biohub-medium-fixture-v1",
+            }
+        }
+    )
+    service = V2RunService(projects, catalog, authoring, environment)
+    try:
+        receipt = service.start_background(
+            project.id,
+            workflow_revision=relocked["workflow_revision"],
+            compile_id=compiled.public_receipt()["compile_id"],
+            client_request_id=f"esm3-{operation}",
+        )
+        service.shutdown()
+        projection = service.projection(project.id, receipt["run_id"])
+        events = service.public_events(project.id, receipt["run_id"])
+    finally:
+        service.shutdown()
+    return catalog, projection, events
+
+
+def test_sequence_generation_publishes_ordered_complete_candidates(
+    tmp_path: Path,
+) -> None:
+    client = _ProviderClient(
+        [
+            _ProviderResponse("ACD"),
+            _ProviderResponse("EFG"),
+        ]
+    )
+
+    catalog, projection, events = _run_generation(
+        tmp_path,
+        operation="generate_sequence",
+        client=client,
+        num_samples=2,
+    )
+
+    assert projection["status"] == "succeeded"
+    output = next(
+        item
+        for item in projection["outputs"]
+        if item["node_id"] == "generate"
+        and item["output_port"] == "sequence_candidates"
+    )
+    candidates = _decode_output(catalog, output)
+    assert [candidate.data.sequence for candidate in candidates.items] == [
+        "ACD",
+        "EFG",
+    ]
+    assert [candidate.metadata["sample_index"] for candidate in candidates.items] == [
+        0,
+        1,
+    ]
+    assert all(candidate.parent_ids == [] for candidate in candidates.items)
+    assert [call[1].track for call in client.calls] == ["sequence", "sequence"]
+    generation_events = [
+        event["event"]
+        for event in events
+        if event["event"]["type"] == "engine_invocation_started"
+        and event["event"]["engine_role"] == "sequence_sample"
+    ]
+    assert len(generation_events) == 2
+    public = str({"projection": projection, "events": events})
+    assert "secret-must-never-publish" not in public
+    assert "/private/esm3-runtime" not in public

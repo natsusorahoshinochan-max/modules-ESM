@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 from typing import Any
 
-from datatypes import FunctionAnnotation, ProteinPrompt
+from datatypes import FunctionAnnotation, ProteinPrompt, ProteinSequence
 from modules.prompt_authoring.prompts import validate_protein_prompt
 
 
@@ -198,3 +198,79 @@ def protein_prompt_to_provider(prompt: object) -> Any:
         coordinates=_coordinates(source),
     )
 
+
+def generation_config(
+    track: str,
+    parameters: Mapping[str, Any],
+) -> Any:
+    """Build only the exact provider operation declared by the Node Type."""
+    if track not in {"sequence", "structure"}:
+        raise ValueError("ESM-3 generation track is not declared")
+    from esm.sdk.api import GenerationConfig
+
+    return GenerationConfig(
+        track=track,
+        num_steps=parameters["num_steps"],
+        temperature=parameters["temperature"],
+        top_p=parameters["top_p"],
+        schedule=parameters["schedule"],
+        strategy=parameters["strategy"],
+        temperature_annealing=parameters["temperature_annealing"],
+        condition_on_coordinates_only=True,
+    )
+
+
+def require_provider_protein(result: Any, operation: str) -> Any:
+    """Reject provider error values before post-processing."""
+    from esm.sdk.api import ESMProteinError
+
+    if isinstance(result, ESMProteinError):
+        raise RuntimeError(
+            f"ESM-3 provider operation {operation} failed with a provider error"
+        )
+    return result
+
+
+def complete_sequence(
+    result: Any,
+    prompt: ProteinPrompt,
+) -> ProteinSequence:
+    """Validate one complete provider sequence on the exact Prompt axis."""
+    sequence = getattr(result, "sequence", None)
+    if not isinstance(sequence, str) or not sequence:
+        raise ValueError("ESM-3 provider response has no complete sequence")
+    if (
+        len(sequence) != prompt.num_residues
+        or any(
+            symbol not in _PROVIDER_SEQUENCE_ALPHABET
+            for symbol in sequence
+        )
+    ):
+        raise ValueError(
+            "ESM-3 provider sequence is incomplete or misaligned"
+        )
+    layout = prompt.target_layout
+    assert layout is not None and layout.residue_ids is not None
+    return ProteinSequence(
+        sequence=sequence,
+        residue_ids=list(layout.residue_ids),
+    )
+
+
+def response_has_structure(result: Any) -> bool:
+    return getattr(result, "coordinates", None) is not None
+
+
+def reject_silent_sequence_fields(result: Any) -> None:
+    """Do not discard confidence without a corresponding structure output."""
+    if response_has_structure(result):
+        return
+    unexpected = [
+        name
+        for name in ("ptm", "plddt", "pae")
+        if getattr(result, name, None) is not None
+    ]
+    if unexpected:
+        raise ValueError(
+            "ESM-3 sequence response contains confidence without structure"
+        )
