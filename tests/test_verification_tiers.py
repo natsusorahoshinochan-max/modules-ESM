@@ -358,10 +358,10 @@ def test_full_provider_gate_rejects_one_missing_required_call(
         {
             **common,
             "event_id": str(uuid4()),
-            "test_id": (
-                "tests/acceptance/test_biohub_generation.py::"
-                "TestBiohubGeneration::test_generate_3gb1_sequence"
-            ),
+                "test_id": (
+                    "tests/acceptance/test_biohub_generation.py::"
+                    "TestBiohubGeneration::test_v2_all_modes_and_ten_pairs"
+                ),
             "event_type": "provider_readiness",
             "provider": "biohub",
             "ready": True,
@@ -371,10 +371,10 @@ def test_full_provider_gate_rejects_one_missing_required_call(
         {
             **common,
             "event_id": str(uuid4()),
-            "test_id": (
-                "tests/acceptance/test_biohub_generation.py::"
-                "TestBiohubGeneration::test_generate_3gb1_sequence"
-            ),
+                "test_id": (
+                    "tests/acceptance/test_biohub_generation.py::"
+                    "TestBiohubGeneration::test_v2_all_modes_and_ten_pairs"
+                ),
             "event_type": "provider_call",
             "provider": "biohub",
             "operation": "esm3.generate_sequence",
@@ -392,6 +392,22 @@ def test_full_provider_gate_rejects_one_missing_required_call(
             },
         },
     ]
+    sequence_call = events[1]
+    events.extend(
+        {
+            **sequence_call,
+            "event_id": str(uuid4()),
+        }
+        for _ in range(10)
+    )
+    events.extend(
+        {
+            **sequence_call,
+            "event_id": str(uuid4()),
+            "operation": "esm3.generate_structure",
+        }
+        for _ in range(11)
+    )
     evidence_path = tmp_path / "provider-calls.jsonl"
     evidence_path.write_text(
         "".join(json.dumps(event) + "\n" for event in events)

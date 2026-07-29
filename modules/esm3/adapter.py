@@ -65,12 +65,14 @@ _PROVIDER_SS8 = frozenset("GHITEBSC")
 _PDB_TO_SEQUENCE = {
     "ALA": "A",
     "ARG": "R",
+    "ASX": "B",
     "ASN": "N",
     "ASP": "D",
     "CYS": "C",
     "GLN": "Q",
     "GLU": "E",
     "GLY": "G",
+    "GLX": "Z",
     "HIS": "H",
     "ILE": "I",
     "LEU": "L",
@@ -78,11 +80,14 @@ _PDB_TO_SEQUENCE = {
     "MET": "M",
     "PHE": "F",
     "PRO": "P",
+    "PYL": "O",
+    "SEC": "U",
     "SER": "S",
     "THR": "T",
     "TRP": "W",
     "TYR": "Y",
     "VAL": "V",
+    "UNK": "X",
 }
 
 

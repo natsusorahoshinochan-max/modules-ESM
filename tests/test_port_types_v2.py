@@ -155,6 +155,9 @@ def test_catalog_snapshot_publishes_exact_port_type_contracts() -> None:
         )
         for snapshot in payload["availability"]
     } == {
+        ("esm3.generate_paired.biohub_medium", "2.0.0", True),
+        ("esm3.generate_sequence.biohub_medium", "2.0.0", True),
+        ("esm3.generate_structure.biohub_medium", "2.0.0", True),
         ("protein_io.import_sequence.direct", "2.0.0", True),
         ("protein_io.import_structure.direct", "2.0.0", True),
         ("protein_io.export_sequence.direct", "2.0.0", True),
