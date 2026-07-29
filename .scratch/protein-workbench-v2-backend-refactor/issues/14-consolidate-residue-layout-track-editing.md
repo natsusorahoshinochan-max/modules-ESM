@@ -4,7 +4,7 @@
 
 **Blocked by:** 12 — Prove the zero-Core extension journey.
 
-**Status:** awaiting-controller
+**Status:** completed
 
 - [x] Layout construction, residue editing, track mapping, and track override each have one independent v2 Node Definition under one `prompt_authoring` registration.
 - [x] Shared implementation and domain values replace duplicated per-directory Definition loading, registration glue, and ad hoc track parsing.
@@ -60,3 +60,37 @@ this state.
   secondary-structure layout shifts, public-protocol coverage, and exclusive
   named-atom structure coordinates. Every finding received a regression; both
   final review axes returned `APPROVE` at `cd0f185`.
+
+## Controller cumulative acceptance
+
+Before Ticket 15 started, Controller independently accepted executor commit
+`bef874324396d42712a856632f31d71af807c2aa` against the previously accepted
+Tickets 01–13 gate `2442671a3f2b55436a44a5f3ce6677bd7a8d0e86`.
+
+- Joint Tickets 01–14 focused suites:
+  `uv run --no-sync python -m pytest -q tests/test_public_protocol_v2.py
+  tests/test_port_types_v2.py tests/test_module_packages_v2.py
+  tests/test_workflow_compiler_v2.py tests/test_run_execution_v2.py
+  tests/test_run_cancel_derive_v2.py tests/test_result_cache_v2.py
+  tests/test_scoring_v2.py tests/test_pairwise_scoring_v2.py
+  tests/test_contract_test_kit_v2.py tests/test_protein_io_v2.py
+  tests/test_protein_io_artifacts_v2.py tests/test_prompt_authoring_v2.py
+  tests/test_prompt_authoring_behavior_v2.py` → `339 passed`.
+- Cumulative routine gate:
+  `uv run --no-sync python scripts/verify_backend.py routine` →
+  `1025 passed, 44 deselected`; retained result
+  `verification-results/routine/20260729T112725.511501Z-62136-af2454e0106a0d4e`.
+- Deterministic acceptance:
+  `uv run --no-sync python scripts/verify_backend.py
+  deterministic-acceptance` → `9 passed, 5 deselected`; retained result
+  `verification-results/deterministic-acceptance/20260729T112930.549687Z-62725-959d8c3c73e9fcf6`.
+- Installed artifact:
+  `uv run --no-sync python scripts/verify_backend.py installed-package` →
+  `3 passed`; retained result
+  `verification-results/installed-package/20260729T113023.011872Z-62854-7cf950b5cd497ab0`.
+- `git diff --check
+  2442671a3f2b55436a44a5f3ce6677bd7a8d0e86...bef874324396d42712a856632f31d71af807c2aa`
+  passed.
+
+No Controller regression was found, so Ticket 14 is accepted and Ticket 15
+may start.
