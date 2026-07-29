@@ -1,0 +1,120 @@
+schema_version: "2.0.0"
+node_type_id: proteinmpnn.constraints
+version: "2.0.0"
+title: Author ProteinMPNN constraints
+summary: Authors one complete ProteinMPNN constraint value against an explicit identity-complete residue layout.
+category: protein_design
+inputs:
+  - name: layout
+    port_type_id: residue.layout
+    port_type_version: "2.0.0"
+    required: true
+    multiplicity: one
+    scientific_meaning: Exact ordered residue and chain layout against which every position and chain constraint is validated.
+outputs:
+  - name: constraints
+    port_type_id: proteinmpnn.constraints
+    port_type_version: "2.0.0"
+    required: true
+    multiplicity: one
+    scientific_meaning: Complete validated zero-based ProteinMPNN constraint value on the supplied layout.
+parameter_groups:
+  - id: residue_constraints
+    title: Residue constraints
+    parameters:
+      - designable_positions
+      - fixed_positions
+      - tied_positions
+      - bias_by_res
+  - id: chain_constraints
+    title: Chain constraints
+    parameters:
+      - designed_chains
+      - fixed_chains
+  - id: amino_acid_constraints
+    title: Amino-acid constraints
+    parameters:
+      - omit_amino_acids
+node_parameters:
+  designable_positions:
+    parameter_scope: scientific
+    scientific_meaning: Unique zero-based positions that remain designable within the effective designed-chain partition.
+    type: array
+    uniqueItems: true
+    default: []
+    items:
+      type: integer
+      minimum: 0
+  fixed_positions:
+    parameter_scope: scientific
+    scientific_meaning: Unique zero-based positions fixed to the supplied structure or optional reference sequence.
+    type: array
+    uniqueItems: true
+    default: []
+    items:
+      type: integer
+      minimum: 0
+  designed_chains:
+    parameter_scope: scientific
+    scientific_meaning: Unique chain identifiers to design; omitted chains become fixed.
+    type: array
+    uniqueItems: true
+    default: []
+    items:
+      type: string
+      pattern: "^[A-Za-z0-9]$"
+  fixed_chains:
+    parameter_scope: scientific
+    scientific_meaning: Unique chain identifiers to preserve; omitted chains become designed when designed_chains is empty.
+    type: array
+    uniqueItems: true
+    default: []
+    items:
+      type: string
+      pattern: "^[A-Za-z0-9]$"
+  omit_amino_acids:
+    parameter_scope: scientific
+    scientific_meaning: Unique canonical ProteinMPNN amino-acid symbols excluded globally from sampling.
+    type: array
+    uniqueItems: true
+    default: []
+    items:
+      type: string
+      enum: [A, C, D, E, F, G, H, I, K, L, M, N, P, Q, R, S, T, V, W, Y, X]
+  tied_positions:
+    parameter_scope: scientific
+    scientific_meaning: Disjoint groups of two or more zero-based designable positions constrained to share one sampled amino acid.
+    type: array
+    default: []
+    items:
+      type: array
+      minItems: 2
+      uniqueItems: true
+      items:
+        type: integer
+        minimum: 0
+  bias_by_res:
+    parameter_scope: scientific
+    scientific_meaning: Ordered per-residue amino-acid logit biases on unique zero-based designable positions.
+    type: array
+    default: []
+    items:
+      type: object
+      additionalProperties: false
+      required: [position, amino_acid, bias]
+      properties:
+        position:
+          field_scope: scientific
+          scientific_meaning: Zero-based target-layout position receiving this bias.
+          type: integer
+          minimum: 0
+        amino_acid:
+          field_scope: scientific
+          scientific_meaning: Canonical ProteinMPNN amino-acid symbol receiving this bias.
+          type: string
+          enum: [A, C, D, E, F, G, H, I, K, L, M, N, P, Q, R, S, T, V, W, Y, X]
+        bias:
+          field_scope: scientific
+          scientific_meaning: Finite additive ProteinMPNN sampling-logit bias.
+          type: number
+

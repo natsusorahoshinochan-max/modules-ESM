@@ -4,7 +4,7 @@
 
 **Blocked by:** 13 — Consolidate protein I/O.
 
-**Status:** ready-for-agent
+**Status:** in-progress
 
 - [ ] Constraint authoring, random fixed-position selection, and sequence design each have one v2 Node Definition under the single `proteinmpnn` package registration.
 - [ ] Constraint values cover designable and fixed positions, designed and fixed chains, omitted amino acids, tied positions, and per-residue bias with explicit layout/chain validation.

@@ -178,6 +178,9 @@ def test_built_artifacts_contain_backend_definitions_and_canonical_assets(
         "modules/folding/definitions/plddt_mean_residue_metric.yaml",
         "modules/folding/definitions/plddt_per_residue_metric.yaml",
         "modules/folding/definitions/ptm_metric.yaml",
+        "modules/proteinmpnn/definitions/constraints.yaml",
+        "modules/proteinmpnn/definitions/design.yaml",
+        "modules/proteinmpnn/definitions/random_fixed_positions.yaml",
         "pdbs/3GB1.pdb",
         "protein_workbench_public/resources/v2/bundle.json",
     }
@@ -334,6 +337,22 @@ assert {{
     ("binding", "folding.fold.esmfold2_remote", "2.0.0"),
     ("binding", "folding.fold.esmfold2_local", "2.0.0"),
     ("binding", "folding.fold.simplefold_local", "2.0.0"),
+}}
+assert {{
+    (
+        contract.contract_kind,
+        contract.contract_id,
+        contract.contract_version,
+    )
+    for contract in catalog.contracts
+    if contract.contract_id.startswith("proteinmpnn.")
+}} >= {{
+    ("node_type", "proteinmpnn.constraints", "2.0.0"),
+    ("node_type", "proteinmpnn.random_fixed_positions", "2.0.0"),
+    ("node_type", "proteinmpnn.design", "2.0.0"),
+    ("binding", "proteinmpnn.constraints.local", "2.0.0"),
+    ("binding", "proteinmpnn.random_fixed_positions.local", "2.0.0"),
+    ("binding", "proteinmpnn.design.local", "2.0.0"),
 }}
 
 registry = ModuleRegistry(TypeRegistry())

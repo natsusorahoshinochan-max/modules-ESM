@@ -128,8 +128,8 @@ def _load_provider_module(provider_root: Path) -> ModuleType:
     return module
 
 
-def _provider_module() -> ModuleType:
-    return _load_provider_module(_proteinmpnn_dir())
+def _provider_module(provider_root: Path | None = None) -> ModuleType:
+    return _load_provider_module(provider_root or _proteinmpnn_dir())
 
 
 def _sha256_file(path: Path) -> str:
@@ -217,12 +217,15 @@ class ProteinMPNNProvider(Protocol):
         """Execute one already-validated ProteinMPNN request."""
 
 
-def _get_checkpoint_path(model_name: str) -> str:
+def _get_checkpoint_path(
+    model_name: str,
+    provider_root: Path | None = None,
+) -> str:
     """Get the path to a ProteinMPNN model checkpoint."""
-    provider_root = _proteinmpnn_dir()
+    resolved_root = provider_root or _proteinmpnn_dir()
     candidate_names = [f"vanilla_model_weights/{model_name}.pt"]
     for candidate_name in candidate_names:
-        path = provider_root / candidate_name
+        path = resolved_root / candidate_name
         if not path.is_file():
             continue
         validated = validate_proteinmpnn_checkpoint(
@@ -238,16 +241,26 @@ def _get_checkpoint_path(model_name: str) -> str:
 
 def check_proteinmpnn_readiness(
     model_name: str = "v_48_020",
+    provider_root: Path | None = None,
 ) -> ProteinMPNNReadiness:
     """Report whether the locked provider and selected checkpoint are usable."""
     try:
-        provider_root = _proteinmpnn_dir()
-        checkpoint_path = Path(_get_checkpoint_path(model_name))
+        resolved_root = (
+            _proteinmpnn_dir()
+            if provider_root is None
+            else validate_proteinmpnn_checkout(
+                provider_root,
+                _PROTEINMPNN_COMMIT,
+            )
+        )
+        checkpoint_path = Path(
+            _get_checkpoint_path(model_name, resolved_root)
+        )
     except (FileNotFoundError, RuntimeError) as exc:
         return ProteinMPNNReadiness(ready=False, detail=str(exc))
     return ProteinMPNNReadiness(
         ready=True,
-        provider_root=provider_root,
+        provider_root=resolved_root,
         checkpoint_path=checkpoint_path,
     )
 
@@ -255,13 +268,14 @@ def check_proteinmpnn_readiness(
 def _load_model(
     model_name: str = "v_48_020",
     backbone_noise: float = 0.0,
+    provider_root: Path | None = None,
 ) -> Any:
     """Load a ProteinMPNN model from checkpoint."""
     import torch
 
-    MPNNModel = _provider_module().ProteinMPNN
+    MPNNModel = _provider_module(provider_root).ProteinMPNN
 
-    checkpoint_path = _get_checkpoint_path(model_name)
+    checkpoint_path = _get_checkpoint_path(model_name, provider_root)
     device = torch.device("cpu")
 
     model = MPNNModel(
@@ -286,9 +300,10 @@ def _load_model(
 def _parse_structure(
     pdb_string: str,
     temp_dir: str | Path | None = None,
+    provider_root: Path | None = None,
 ) -> list[dict[str, Any]]:
     """Convert a PDB string to ProteinMPNN's pdb_dict_list format."""
-    parse_PDB = _provider_module().parse_PDB
+    parse_PDB = _provider_module(provider_root).parse_PDB
 
     temporary_root = Path(temp_dir) if temp_dir is not None else None
     if temporary_root is not None:
@@ -312,12 +327,13 @@ def _parse_structure(
 def _featurize(
     request: ProteinMPNNDesignRequest,
     device: torch.device,
+    provider_root: Path | None = None,
 ) -> dict[str, Any]:
     """Featurize parsed PDB data into tensors for ProteinMPNN.
     
     Converts tied_featurize's tuple output to a dict keyed by field name.
     """
-    tied_featurize = _provider_module().tied_featurize
+    tied_featurize = _provider_module(provider_root).tied_featurize
 
     result = tied_featurize(
         request.pdb_dict_list,
@@ -348,12 +364,13 @@ def _run_design(
     temperature: float,
     device: torch.device,
     omit_amino_acids: list[str],
+    provider_root: Path | None = None,
 ) -> list[ProteinSequence]:
     """Run ProteinMPNN design and return list of ProteinSequence objects."""
     import numpy as np
     import torch
 
-    _S_to_seq = _provider_module()._S_to_seq
+    _S_to_seq = _provider_module(provider_root)._S_to_seq
 
     alphabet = "ACDEFGHIKLMNPQRSTVWYX"
     omit_AAs_np = np.array(
@@ -411,11 +428,12 @@ def _compute_score(
     batch: dict[str, Any],
     sequence: str,
     device: torch.device,
+    provider_root: Path | None = None,
 ) -> float:
     """Score a sequence against a structure using ProteinMPNN."""
     import torch
 
-    _scores = _provider_module()._scores
+    _scores = _provider_module(provider_root)._scores
 
     alphabet = "ACDEFGHIKLMNPQRSTVWYX"
     alphabet_dict = dict(zip(alphabet, range(21)))
@@ -470,11 +488,20 @@ def _validate_generated_sequences(
 class _LocalProteinMPNNProvider:
     provider_identity = _LOCAL_PROVIDER_IDENTITY
 
-    def __init__(self, temp_dir: str | Path | None = None) -> None:
+    def __init__(
+        self,
+        temp_dir: str | Path | None = None,
+        provider_root: Path | None = None,
+    ) -> None:
         self._temp_dir = temp_dir
+        self._provider_root = provider_root
 
     def parse_structure(self, pdb_string: str) -> list[dict[str, Any]]:
-        return _parse_structure(pdb_string, temp_dir=self._temp_dir)
+        return _parse_structure(
+            pdb_string,
+            temp_dir=self._temp_dir,
+            provider_root=self._provider_root,
+        )
 
     def design(
         self, request: ProteinMPNNDesignRequest
@@ -486,8 +513,13 @@ class _LocalProteinMPNNProvider:
             model, device = _load_model(
                 request.model_name,
                 request.backbone_noise,
+                self._provider_root,
             )
-            batch = _featurize(request, device)
+            batch = _featurize(
+                request,
+                device,
+                self._provider_root,
+            )
             if request.reference_sequences is not None:
                 offset = 0
                 for chain in batch["letter_list_list"][0]:
@@ -510,6 +542,7 @@ class _LocalProteinMPNNProvider:
                 request.temperature,
                 device,
                 request.omit_amino_acids,
+                self._provider_root,
             )
             _validate_generated_sequences(
                 sequences,
@@ -522,6 +555,7 @@ class _LocalProteinMPNNProvider:
                     batch,
                     sequence.sequence,
                     device,
+                    self._provider_root,
                 )
                 for sequence in sequences
             ]

@@ -1,0 +1,33 @@
+schema_version: "2.0.0"
+node_type_id: contract_test.proteinmpnn_source
+version: "2.0.0"
+title: ProteinMPNN structure source
+summary: Emits deterministic structure parents and one optional exact reference sequence for ProteinMPNN conformance.
+category: contract_test
+inputs: []
+outputs:
+  - name: structure_candidates
+    port_type_id: candidate.collection
+    port_type_version: "2.0.0"
+    required: true
+    multiplicity: one
+    scientific_meaning: Independently defined ordered complete structure parent Candidates.
+  - name: sequence
+    port_type_id: protein.sequence
+    port_type_version: "2.0.0"
+    required: true
+    multiplicity: one
+    scientific_meaning: One independently defined complete reference sequence aligned to every fixture parent.
+parameter_groups:
+  - id: fixture
+    title: Fixture controls
+    parameters:
+      - parent_count
+node_parameters:
+  parent_count:
+    parameter_scope: scientific
+    scientific_meaning: Exact number of independent structure parents emitted by the fixture.
+    type: integer
+    minimum: 1
+    maximum: 10
+    default: 3

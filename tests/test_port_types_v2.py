@@ -201,6 +201,13 @@ def test_catalog_snapshot_publishes_exact_port_type_contracts() -> None:
             "2.0.0",
             True,
         ),
+        ("proteinmpnn.constraints.local", "2.0.0", True),
+        (
+            "proteinmpnn.random_fixed_positions.local",
+            "2.0.0",
+            True,
+        ),
+        ("proteinmpnn.design.local", "2.0.0", True),
         ("structure_transform.select_chains.direct", "2.0.0", True),
         ("structure_transform.extract_backbone.direct", "2.0.0", True),
         ("structure_transform.extract_sequence.direct", "2.0.0", True),
