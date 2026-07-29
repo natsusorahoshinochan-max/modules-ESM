@@ -300,6 +300,70 @@ def test_huggingface_blob_links_are_contained_and_staged_as_regular_files(
     assert staged_artifact.read_bytes() == payload
 
 
+def test_successful_local_load_has_explicit_staging_cleanup(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import esm.models.esm3 as esm3_model
+    import esm.pretrained as esm_pretrained
+    import modules.esm3.local_adapter as local_adapter
+
+    class FakeESM3:
+        def float(self) -> FakeESM3:
+            return self
+
+    def main_builder(device: object = "cpu") -> FakeESM3:
+        del device
+        return FakeESM3()
+
+    def component_builder(device: object = "cpu") -> object:
+        del device
+        return object()
+
+    payload = b"staged fixture"
+    digest = hashlib.sha256(payload).hexdigest()
+    artifact = tmp_path / "fixture.pth"
+    artifact.write_bytes(payload)
+    runtime_directory = tmp_path / "runtime"
+    runtime_directory.mkdir()
+    runtime = local_adapter.LocalESM3Runtime(
+        snapshot_path=tmp_path,
+        runtime_directory=runtime_directory,
+        device="cpu",
+        performance_settings={},
+        safe_fingerprint=f"sha256:{'a' * 64}",
+        artifact_sources={"fixture.pth": artifact},
+    )
+    monkeypatch.setattr(esm3_model, "ESM3", FakeESM3)
+    monkeypatch.setattr(
+        esm_pretrained,
+        "LOCAL_MODEL_REGISTRY",
+        {
+            local_adapter.LOCAL_ESM3_MODEL: main_builder,
+            "esm3_structure_encoder_v0": component_builder,
+            "esm3_structure_decoder_v0": component_builder,
+            "esm3_function_decoder_v0": component_builder,
+        },
+    )
+    monkeypatch.setattr(
+        local_adapter,
+        "LOCAL_ESM3_WEIGHT_SHA256",
+        {"fixture.pth": digest},
+    )
+
+    client = local_adapter.load_local_esm3_client(
+        {},
+        model_name=local_adapter.LOCAL_ESM3_MODEL,
+        runtime=runtime,
+    )
+    staged_root = client._protein_workbench_staged_root
+    assert staged_root.is_dir()
+
+    local_adapter.release_local_esm3_client(client)
+
+    assert not staged_root.exists()
+
+
 @pytest.mark.parametrize(
     ("operation", "sequence", "response_kind"),
     (
@@ -401,6 +465,47 @@ def test_local_execution_preserves_remote_scientific_contracts(
         and event["event"]["engine_identity"].startswith("esm3.local_open.")
     ]
     assert len(generation_events) == (2 if operation == "generate_paired" else 1)
+
+
+def test_default_local_client_releases_staged_runtime_after_execution(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import modules.esm3.implementation as implementation
+
+    from tests.test_esm3_v2 import (
+        _ProviderClient,
+        _ProviderResponse,
+        _run_generation,
+    )
+
+    _patch_local_runtime(monkeypatch, tmp_path)
+    client = _ProviderClient([_ProviderResponse("ACD")])
+    released: list[Any] = []
+    monkeypatch.setattr(
+        implementation,
+        "load_local_esm3_client",
+        lambda environment, *, model_name, runtime: client,
+    )
+    monkeypatch.setattr(
+        implementation,
+        "release_local_esm3_client",
+        lambda owned: released.append(owned),
+    )
+
+    _, projection, _ = _run_generation(
+        tmp_path,
+        operation="generate_sequence",
+        client=None,
+        num_samples=1,
+        binding_route="local_open",
+        environment_overrides=_local_environment(tmp_path),
+        safe_environment_fingerprint=f"sha256:{'a' * 64}",
+        invalidation_token="local-fixture-a",
+    )
+
+    assert projection["status"] == "succeeded"
+    assert released == [client]
 
 
 def test_local_readiness_rechecks_model_identity_before_any_cache_lookup(

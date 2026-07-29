@@ -41,6 +41,7 @@ from .local_adapter import (
     load_local_esm3_client,
     prepare_local_provider_call,
     record_local_provider_result,
+    release_local_esm3_client,
     resolve_local_runtime,
 )
 
@@ -69,6 +70,7 @@ class ESM3GenerationImplementation:
         self._route_name = route_name
         self._seed_control = seed_control
         self._runtime_fingerprint: str | None = None
+        self._owned_local_client: Any | None = None
 
     def _client(self) -> Any:
         if self._route_name == "local_open":
@@ -86,10 +88,13 @@ class ESM3GenerationImplementation:
                     runtime_directory=runtime.runtime_directory,
                     performance_settings=dict(runtime.performance_settings),
                 )
-            return load_local_esm3_client(
+            client = load_local_esm3_client(
                 self._environment,
                 model_name=self._model_name,
+                runtime=runtime,
             )
+            self._owned_local_client = client
+            return client
         client = self._environment.get("provider_client")
         if callable(getattr(client, "generate", None)):
             return client
@@ -214,15 +219,20 @@ class ESM3GenerationImplementation:
         if type(prompt) is not ProteinPrompt:
             raise ValueError("protein_prompt has the wrong runtime type")
         parameters = self._parameters(node_parameters)
-        if self._operation == "generate_sequence":
-            return self._generate_sequence(prompt, parameters)
-        if self._operation == "generate_structure":
-            return self._generate_structure(prompt, parameters)
-        if self._operation == "generate_paired":
-            return self._generate_paired(prompt, parameters)
-        raise NotImplementedError(
-            f"ESM-3 operation {self._operation!r} is not implemented"
-        )
+        try:
+            if self._operation == "generate_sequence":
+                return self._generate_sequence(prompt, parameters)
+            if self._operation == "generate_structure":
+                return self._generate_structure(prompt, parameters)
+            if self._operation == "generate_paired":
+                return self._generate_paired(prompt, parameters)
+            raise NotImplementedError(
+                f"ESM-3 operation {self._operation!r} is not implemented"
+            )
+        finally:
+            if self._owned_local_client is not None:
+                release_local_esm3_client(self._owned_local_client)
+                self._owned_local_client = None
 
     def _candidate_metadata(
         self,

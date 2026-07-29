@@ -13,6 +13,7 @@ import stat
 import tempfile
 from types import FunctionType
 from typing import Any
+import weakref
 
 from core import ReadinessResult, canonical_sha256
 from core.provider_contract import (
@@ -385,11 +386,13 @@ def load_local_esm3_client(
     environment: Mapping[str, Any],
     *,
     model_name: str,
+    runtime: LocalESM3Runtime | None = None,
 ) -> Any:
     """Load only the exact readiness-validated local model on explicit demand."""
     if model_name != LOCAL_ESM3_MODEL:
         raise RuntimeError("local ESM-3 Binding requested an unknown model")
-    runtime = resolve_local_runtime(environment)
+    if runtime is None:
+        runtime = resolve_local_runtime(environment)
     import torch
     from esm.models.esm3 import ESM3
     import esm.pretrained as esm_pretrained
@@ -420,10 +423,22 @@ def load_local_esm3_client(
         client.function_decoder_fn = bound["esm3_function_decoder_v0"]
         client = client.float()
         client._protein_workbench_staged_root = staged_root
+        client._protein_workbench_staged_cleanup = weakref.finalize(
+            client,
+            shutil.rmtree,
+            staged_root,
+        )
         return client
     except BaseException:
         shutil.rmtree(staged_root)
         raise
+
+
+def release_local_esm3_client(client: Any) -> None:
+    """Release private staged weights owned by an internally loaded client."""
+    cleanup = getattr(client, "_protein_workbench_staged_cleanup", None)
+    if cleanup is not None and bool(getattr(cleanup, "alive", False)):
+        cleanup()
 
 
 def _track_identity(protein: Any) -> dict[str, Any]:
