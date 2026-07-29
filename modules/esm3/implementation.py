@@ -209,9 +209,42 @@ class ESM3GenerationImplementation:
             )
         }
         if structure_responses:
-            raise NotImplementedError(
-                "coordinate-conditioned sequence reconstruction is not implemented"
+            if getattr(provider_prompt, "coordinates", None) is None:
+                raise ValueError(
+                    "sequence generation returned structure fields without "
+                    "coordinate-conditioned input"
+                )
+            reconstructed: list[Candidate] = []
+            confidence_sources: list[tuple[Candidate, Any]] = []
+            for sample_index, response, sequence_candidate in structure_responses:
+                structure = complete_structure(
+                    response,
+                    prompt,
+                    expected_sequence=sequence_candidate.data.sequence,
+                )
+                structure_candidate = Candidate(
+                    f"reconstructed-structure-{sample_index}",
+                    structure,
+                    [sequence_candidate.candidate_id],
+                    self._candidate_metadata(
+                        operation="generate_sequence",
+                        sample_index=sample_index,
+                        classification="prompt_reconstruction",
+                        parameters=parameters,
+                        call_track="sequence",
+                    ),
+                )
+                reconstructed.append(structure_candidate)
+                confidence_sources.append((structure_candidate, response))
+            confidence, pae = self._confidence_outputs(confidence_sources)
+            outputs["reconstructed_structure_candidates"] = CandidateCollection(
+                "esm3-reconstructed-structures",
+                "protein.structure",
+                reconstructed,
             )
+            outputs["confidence_observations"] = confidence
+            if pae is not None:
+                outputs["pae_observations"] = pae
         return outputs
 
     def _contract_reference(

@@ -12,6 +12,8 @@ import pytest
 from core import (
     EnvironmentConfiguration,
     ProjectManager,
+    ResultReplaySource,
+    V2RunError,
     V2RunService,
     WorkflowAuthoringService,
     WorkflowDocument,
@@ -235,6 +237,8 @@ def _run_generation(
     client: _ProviderClient,
     num_samples: int,
     sequence: str | None = None,
+    environment_overrides: dict[str, Any] | None = None,
+    result_replay_source: ResultReplaySource | None = None,
 ) -> tuple[Any, dict[str, Any], tuple[dict[str, Any], ...]]:
     from modules.esm3.package import MODULE_PACKAGE as ESM3_PACKAGE
     from modules.prompt_authoring.package import (
@@ -372,22 +376,30 @@ def _run_generation(
         workflow_revision=relocked["workflow_revision"],
         workflow=parse_workflow_document(relocked["workflow"]),
     )
+    environment_values = {
+        "endpoint_id": "biohub",
+        "credential_handle": object(),
+        "provider_client": client,
+        "private_token": "secret-must-never-publish",
+        "runtime_path": "/private/esm3-runtime",
+    }
+    environment_values.update(environment_overrides or {})
     environment = EnvironmentConfiguration(
         {
             (f"esm3.{operation}.biohub_medium", "2.0.0"): {
-                "values": {
-                    "endpoint_id": "biohub",
-                    "credential_handle": object(),
-                    "provider_client": client,
-                    "private_token": "secret-must-never-publish",
-                    "runtime_path": "/private/esm3-runtime",
-                },
+                "values": environment_values,
                 "safe_fingerprint": "biohub-medium-fixture-v1",
                 "invalidation_token": "biohub-medium-fixture-v1",
             }
         }
     )
-    service = V2RunService(projects, catalog, authoring, environment)
+    service = V2RunService(
+        projects,
+        catalog,
+        authoring,
+        environment,
+        result_replay_source,
+    )
     try:
         receipt = service.start_background(
             project.id,
@@ -401,6 +413,191 @@ def _run_generation(
     finally:
         service.shutdown()
     return catalog, projection, events
+
+
+def test_readiness_rejects_before_cache_lookup_or_provider_call(
+    tmp_path: Path,
+) -> None:
+    class LookupRecorder(ResultReplaySource):
+        def __init__(self) -> None:
+            self.lookups = 0
+
+        def lookup(self, **kwargs: Any) -> None:
+            del kwargs
+            self.lookups += 1
+            return None
+
+    cache = LookupRecorder()
+    client = _ProviderClient([])
+
+    with pytest.raises(V2RunError) as rejected:
+        _run_generation(
+            tmp_path,
+            operation="generate_sequence",
+            client=client,
+            num_samples=1,
+            environment_overrides={"endpoint_id": "wrong-provider"},
+            result_replay_source=cache,
+        )
+
+    assert rejected.value.code == "readiness_rejected"
+    assert cache.lookups == 0
+    assert client.calls == []
+
+
+def _run_generation_from_prompt_fixture(
+    tmp_path: Path,
+    *,
+    operation: str,
+    mode: str,
+    client: _ProviderClient,
+    num_samples: int = 1,
+) -> tuple[Any, dict[str, Any], tuple[dict[str, Any], ...]]:
+    from modules.esm3.package import MODULE_PACKAGE as ESM3_PACKAGE
+    from modules.prompt_authoring.package import (
+        MODULE_PACKAGE as PROMPT_AUTHORING_PACKAGE,
+    )
+    from tests.fixtures.esm3_sources.package import (
+        MODULE_PACKAGE as SOURCE_PACKAGE,
+    )
+
+    catalog = build_frozen_catalog(
+        (ESM3_PACKAGE, PROMPT_AUTHORING_PACKAGE, SOURCE_PACKAGE)
+    )
+    projects = ProjectManager(
+        tmp_path / "projects",
+        cache_root=tmp_path / "cache",
+        output_root=tmp_path / "outputs",
+        run_root=tmp_path / "runs",
+    )
+    project = projects.create(f"ESM3 {operation} fixture")
+    authoring = WorkflowAuthoringService(projects, catalog)
+    workflow = WorkflowDocument(
+        schema_version="2.0.0",
+        workflow_id=project.id,
+        nodes=(
+            WorkflowNodeInstance(
+                node_id="source",
+                node_type_id="contract_test.esm3_prompt_source",
+                node_type_version="2.0.0",
+                binding_id="contract_test.esm3_prompt_source.direct",
+                binding_version="2.0.0",
+                node_parameters={"mode": mode},
+                binding_parameters={},
+            ),
+            WorkflowNodeInstance(
+                node_id="generate",
+                node_type_id=f"esm3.{operation}",
+                node_type_version="2.0.0",
+                binding_id=f"esm3.{operation}.biohub_medium",
+                binding_version="2.0.0",
+                node_parameters={
+                    "effective_seed": 1603,
+                    "num_samples": num_samples,
+                },
+                binding_parameters={},
+            ),
+        ),
+        edges=(
+            WorkflowEdge(
+                "source",
+                "protein_prompt",
+                "generate",
+                "protein_prompt",
+            ),
+        ),
+        contract_lock=(),
+    )
+    saved = authoring.save(
+        project.id,
+        expected_workflow_revision=0,
+        workflow=workflow,
+    )
+    relocked = authoring.relock(
+        project.id,
+        workflow_revision=saved["workflow_revision"],
+    )
+    compiled = authoring.compile(
+        project.id,
+        workflow_revision=relocked["workflow_revision"],
+        workflow=parse_workflow_document(relocked["workflow"]),
+    )
+    environment = EnvironmentConfiguration(
+        {
+            (f"esm3.{operation}.biohub_medium", "2.0.0"): {
+                "values": {
+                    "endpoint_id": "biohub",
+                    "credential_handle": object(),
+                    "provider_client": client,
+                },
+                "safe_fingerprint": "biohub-medium-fixture-v1",
+                "invalidation_token": "biohub-medium-fixture-v1",
+            }
+        }
+    )
+    service = V2RunService(projects, catalog, authoring, environment)
+    try:
+        receipt = service.start_background(
+            project.id,
+            workflow_revision=relocked["workflow_revision"],
+            compile_id=compiled.public_receipt()["compile_id"],
+            client_request_id=f"esm3-{operation}-{mode}",
+        )
+        service.shutdown()
+        projection = service.projection(project.id, receipt["run_id"])
+        events = service.public_events(project.id, receipt["run_id"])
+    finally:
+        service.shutdown()
+    return catalog, projection, events
+
+
+def test_coordinate_conditioned_sequence_returns_prompt_reconstruction(
+    tmp_path: Path,
+) -> None:
+    import torch
+
+    client = _ProviderClient(
+        [
+            _ProviderResponse(
+                "ACD",
+                coordinates=torch.zeros((3, 37, 3)),
+                ptm=torch.tensor(0.75),
+                plddt=torch.tensor([0.7, 0.8, 0.9]),
+                pdb_string=_three_residue_pdb(),
+            )
+        ]
+    )
+
+    catalog, projection, _ = _run_generation_from_prompt_fixture(
+        tmp_path,
+        operation="generate_sequence",
+        mode="coordinate_conditioned",
+        client=client,
+    )
+
+    assert projection["status"] == "succeeded"
+    outputs = {
+        item["output_port"]: item
+        for item in projection["outputs"]
+        if item["node_id"] == "generate"
+    }
+    sequences = _decode_output(catalog, outputs["sequence_candidates"])
+    structures = _decode_output(
+        catalog,
+        outputs["reconstructed_structure_candidates"],
+    )
+    confidence = _decode_output(
+        catalog,
+        outputs["confidence_observations"],
+    )
+    assert len(sequences.items) == len(structures.items) == 1
+    assert structures.items[0].parent_ids == [
+        sequences.items[0].candidate_id
+    ]
+    assert structures.items[0].metadata["classification"] == (
+        "prompt_reconstruction"
+    )
+    assert len(confidence.entries) == 3
 
 
 def test_sequence_generation_publishes_ordered_complete_candidates(
