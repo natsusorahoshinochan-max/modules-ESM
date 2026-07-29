@@ -27,6 +27,7 @@ from protein_workbench_public import (
     validate_schema,
 )
 
+from core.artifacts import ArtifactPayload
 from core.port_types import (
     FrozenCatalog,
     PortValueError,
@@ -59,7 +60,6 @@ from core.workflow_v2 import (
     parse_workflow_document,
 )
 from datatypes import (
-    ArtifactPayload,
     Candidate,
     CandidateCollection,
     PairwiseCandidateMapping,
@@ -603,6 +603,11 @@ class RunResources:
         repr=False,
         compare=False,
     )
+    _project_input_identities: list[dict[str, Any]] = field(
+        default_factory=list,
+        repr=False,
+        compare=False,
+    )
 
     @property
     def _output_root(self) -> Path:
@@ -628,7 +633,26 @@ class RunResources:
         input_reference: str,
     ) -> tuple[Mapping[str, Any], bytes]:
         """Read one trusted input from this Run's exact Project scope."""
-        return self._projects.read_input(self.project_id, input_reference)
+        descriptor, payload = self._projects.read_input(
+            self.project_id,
+            input_reference,
+        )
+        self._project_input_identities.append(
+            {
+                "resource_kind": "project_input",
+                "content_digest": descriptor["content_digest"],
+                "size": descriptor["size"],
+            }
+        )
+        return descriptor, payload
+
+    @property
+    def result_identity_inputs(self) -> tuple[Mapping[str, Any], ...]:
+        """Return path-free immutable resource identities observed by this Node."""
+        return tuple(
+            dict(identity)
+            for identity in self._project_input_identities
+        )
 
     def temporary_directory(self, *, prefix: str):
         """Delegate to the hardened legacy workspace primitive."""
@@ -792,13 +816,17 @@ class _PlanNodeEvidence:
     node_id: str
     dependencies: tuple[str, ...]
     required_dependencies: tuple[str, ...]
+    node_type: Mapping[str, Any] | None = None
 
     def to_dict(self) -> dict[str, Any]:
-        return {
+        result = {
             "node_id": self.node_id,
             "dependencies": list(self.dependencies),
             "required_dependencies": list(self.required_dependencies),
         }
+        if self.node_type is not None:
+            result["node_type"] = dict(self.node_type)
+        return result
 
 
 def _parse_plan_evidence(
@@ -809,13 +837,16 @@ def _parse_plan_evidence(
     parsed: list[_PlanNodeEvidence] = []
     seen: set[str] = set()
     for item in value:
+        allowed_fields = {
+            "node_id",
+            "dependencies",
+            "required_dependencies",
+        }
         if (
             not isinstance(item, Mapping)
-            or set(item)
-            != {
-                "node_id",
-                "dependencies",
-                "required_dependencies",
+            or set(item) not in {
+                frozenset(allowed_fields),
+                frozenset({*allowed_fields, "node_type"}),
             }
             or not isinstance(item["node_id"], str)
             or not isinstance(item["dependencies"], list)
@@ -839,8 +870,24 @@ def _parse_plan_evidence(
             or not set(required) <= set(dependencies)
         ):
             raise ValueError("Run plan evidence is invalid")
+        node_type = item.get("node_type")
+        if node_type is not None:
+            try:
+                validate_schema("#/$defs/ContractReference", node_type)
+            except ProtocolValidationError as error:
+                raise ValueError("Run plan evidence is invalid") from error
+            if node_type["contract_kind"] != "node_type":
+                raise ValueError("Run plan evidence is invalid")
+            node_type = dict(node_type)
         seen.add(node_id)
-        parsed.append(_PlanNodeEvidence(node_id, dependencies, required))
+        parsed.append(
+            _PlanNodeEvidence(
+                node_id,
+                dependencies,
+                required,
+                node_type,
+            )
+        )
     if any(
         dependency not in seen
         for node in parsed
@@ -873,6 +920,14 @@ class _RunEvidenceLedger:
         }
         self._required_dependencies = {
             node.node_id: frozenset(node.required_dependencies)
+            for node in plan_nodes
+        }
+        self._node_types = {
+            node.node_id: (
+                dict(node.node_type)
+                if node.node_type is not None
+                else None
+            )
             for node in plan_nodes
         }
         self._node_attempts: dict[str, dict[str, Any]] = {}
@@ -923,6 +978,7 @@ class _RunEvidenceLedger:
                 node_id,
                 tuple(sorted(self._dependencies[node_id])),
                 tuple(sorted(self._required_dependencies[node_id])),
+                self._node_types[node_id],
             )
             for node_id in self._plan_node_order
         )
@@ -1442,23 +1498,31 @@ class _RunEvidenceLedger:
         if fact_type == "run_scope_bound":
             plan_nodes = payload["plan_nodes"]
             def valid_plan_node(item: Any) -> bool:
+                node_id = (
+                    item.get("node_id")
+                    if isinstance(item, Mapping)
+                    else None
+                )
+                expected_node_type = self._node_types.get(node_id)
+                expected_fields = {
+                    "node_id",
+                    "dependencies",
+                    "required_dependencies",
+                }
+                if expected_node_type is not None:
+                    expected_fields.add("node_type")
                 if (
                     not isinstance(item, Mapping)
-                    or set(item)
-                    != {
-                        "node_id",
-                        "dependencies",
-                        "required_dependencies",
-                    }
-                    or item["node_id"] not in self._dependencies
+                    or set(item) != expected_fields
+                    or node_id not in self._dependencies
                 ):
                     return False
-                node_id = item["node_id"]
                 return (
                     item["dependencies"]
                     == sorted(self._dependencies[node_id])
                     and item["required_dependencies"]
                     == sorted(self._required_dependencies[node_id])
+                    and item.get("node_type") == expected_node_type
                 )
 
             if (
@@ -2401,6 +2465,7 @@ def _result_identity_descriptor(
     plan: ExecutionPlan,
     node: ExecutionPlanNode,
     inputs: Mapping[str, Any],
+    resolved_resource_inputs: tuple[Mapping[str, Any], ...] = (),
 ) -> dict[str, Any]:
     """Build the closed scientific identity of one resolved Node result."""
     node_contract = catalog.require_contract(*node.node_type.key)
@@ -2450,7 +2515,7 @@ def _result_identity_descriptor(
         )
         for key in relevant_keys
     }
-    return {
+    descriptor = {
         "schema_namespace": RESULT_IDENTITY_NAMESPACE,
         "node_type": _identity_without_digest(node.node_type.to_public()),
         "binding": _identity_without_digest(node.binding.to_public()),
@@ -2493,6 +2558,12 @@ def _result_identity_descriptor(
             )
         ),
     }
+    if resolved_resource_inputs:
+        descriptor["resolved_resource_inputs"] = [
+            _plain_json(identity)
+            for identity in resolved_resource_inputs
+        ]
+    return descriptor
 
 
 def _identity_without_digest(reference: Mapping[str, Any]) -> dict[str, Any]:
@@ -2616,9 +2687,16 @@ def _result_identity(
     plan: ExecutionPlan,
     node: ExecutionPlanNode,
     inputs: Mapping[str, Any],
+    resolved_resource_inputs: tuple[Mapping[str, Any], ...] = (),
 ) -> str:
     return canonical_sha256(
-        _result_identity_descriptor(catalog, plan, node, inputs)
+        _result_identity_descriptor(
+            catalog,
+            plan,
+            node,
+            inputs,
+            resolved_resource_inputs,
+        )
     )
 
 
@@ -3239,7 +3317,19 @@ class V2RunService:
                 port["name"]: port
                 for port in contract.descriptor.get("inputs", ())
             }
-            if ports[edge.target_port]["required"] is True:
+            constrained_ports = {
+                port_name
+                for constraint in contract.descriptor.get(
+                    "input_constraints",
+                    (),
+                )
+                if constraint.get("kind") == "exactly_one"
+                for port_name in constraint["ports"]
+            }
+            if (
+                ports[edge.target_port]["required"] is True
+                or edge.target_port in constrained_ports
+            ):
                 required_dependencies[edge.target_node_id].add(
                     edge.source_node_id
                 )
@@ -3248,6 +3338,7 @@ class V2RunService:
                 node.node_id,
                 tuple(sorted(dependencies[node.node_id])),
                 tuple(sorted(required_dependencies[node.node_id])),
+                node.node_type.to_public(),
             )
             for node in plan.nodes
         )
@@ -3692,6 +3783,17 @@ class V2RunService:
             for port in node_contract.descriptor.get("inputs", ())
             if port.get("required") is True
         }
+        required_ports.update(
+            edge.target_port
+            for constraint in node_contract.descriptor.get(
+                "input_constraints",
+                (),
+            )
+            if constraint.get("kind") == "exactly_one"
+            for edge in plan.edges
+            if edge.target_node_id == node.node_id
+            and edge.target_port in constraint["ports"]
+        )
         blockers: set[str] = set()
         for port_name in required_ports:
             incoming = [
@@ -4106,6 +4208,7 @@ class V2RunService:
         output_port: str,
         artifact_kind: str,
         payload: ArtifactPayload,
+        accepted_media_types: tuple[str, ...],
         maximum_size: int,
     ) -> tuple[dict[str, Any], tuple[str, ...]]:
         if type(payload) is not ArtifactPayload:
@@ -4126,8 +4229,11 @@ class V2RunService:
             not isinstance(payload.media_type, str)
             or "/" not in payload.media_type
             or any(character.isspace() for character in payload.media_type)
+            or payload.media_type not in accepted_media_types
         ):
-            raise PortValueError("Artifact media type is invalid")
+            raise PortValueError(
+                "Artifact media type is outside its nominal Port contract"
+            )
         if artifact_kind == "standalone":
             if payload.candidate_id is not None:
                 raise PortValueError(
@@ -4196,7 +4302,12 @@ class V2RunService:
             for port in node_contract.descriptor.get("outputs", ())
         }
         artifact_sources: list[
-            tuple[str, str, str | ArtifactPayload]
+            tuple[
+                str,
+                str,
+                str | ArtifactPayload,
+                tuple[str, ...] | None,
+            ]
         ] = []
         for output in published:
             port_type_id = output["port_type"]["contract_id"]
@@ -4234,16 +4345,43 @@ class V2RunService:
                             "Artifact Port requires one private relative reference"
                         )
                     artifact_sources.append(
-                        (output["output_port"], artifact_kind, relative_name)
+                        (
+                            output["output_port"],
+                            artifact_kind,
+                            relative_name,
+                            None,
+                        )
                     )
             else:
+                port_type = self._catalog.require_port_type(
+                    output["port_type"]["contract_id"],
+                    output["port_type"]["contract_version"],
+                )
+                accepted_media_types = port_type.artifact_media_types
+                if accepted_media_types is None:
+                    raise PortValueError(
+                        "Artifact Port lacks a publication media contract"
+                    )
+                declared_media_type = declaration.get(
+                    "artifact_media_type"
+                )
+                if declared_media_type not in accepted_media_types:
+                    raise PortValueError(
+                        "Artifact Port media contract is invalid"
+                    )
+                accepted_media_types = (declared_media_type,)
                 for payload in decoded_values:
                     if type(payload) is not ArtifactPayload:
                         raise PortValueError(
                             "Artifact output must contain ArtifactPayload values"
                         )
                     artifact_sources.append(
-                        (output["output_port"], artifact_kind, payload)
+                        (
+                            output["output_port"],
+                            artifact_kind,
+                            payload,
+                            accepted_media_types,
+                        )
                     )
         if (
             current_artifact_count + len(artifact_sources)
@@ -4254,7 +4392,12 @@ class V2RunService:
             MAX_ARTIFACT_BYTES_PER_RUN - current_artifact_bytes
         )
         try:
-            for output_port, artifact_kind, source in artifact_sources:
+            for (
+                output_port,
+                artifact_kind,
+                source,
+                accepted_media_types,
+            ) in artifact_sources:
                 if isinstance(source, str):
                     descriptor, stored_parts = self._publish_artifact(
                         resources=resources,
@@ -4264,12 +4407,14 @@ class V2RunService:
                         maximum_size=remaining_bytes,
                     )
                 else:
+                    assert accepted_media_types is not None
                     descriptor, stored_parts = self._publish_artifact_payload(
                         resources=resources,
                         node_id=node.node_id,
                         output_port=output_port,
                         artifact_kind=artifact_kind,
                         payload=source,
+                        accepted_media_types=accepted_media_types,
                         maximum_size=remaining_bytes,
                     )
                 remaining_bytes -= descriptor["size"]
@@ -4848,6 +4993,7 @@ class V2RunService:
                         plan,
                         node,
                         node_inputs,
+                        resources.result_identity_inputs,
                     )
                 if isinstance(raw_outputs, Mapping):
                     raw_outputs = self._normalize_candidate_outputs(
@@ -5490,42 +5636,72 @@ class V2RunService:
                 "Artifact descriptor integrity validation failed",
                 details={"artifact_reference": artifact_reference},
             ) from error
-        if record.compiled is not None:
-            plan_node = next(
-                (
-                    node
-                    for node in record.compiled.execution_plan.nodes
-                    if node.node_id == descriptor["node_id"]
-                ),
-                None,
-            )
-            if plan_node is None:
-                raise V2RunError(
-                    "artifact_integrity_mismatch",
-                    "Artifact output binding is not part of this Run",
-                    details={"artifact_reference": artifact_reference},
-                )
+        plan_node = next(
+            (
+                node
+                for node in record.ledger.plan_nodes
+                if node.node_id == descriptor["node_id"]
+            ),
+            None,
+        )
+        try:
+            if plan_node is None or plan_node.node_type is None:
+                raise KeyError("missing durable Node Type evidence")
+            node_reference = dict(plan_node.node_type)
             node_contract = self._catalog.require_contract(
-                *plan_node.node_type.key,
+                node_reference["contract_kind"],
+                node_reference["contract_id"],
+                node_reference["contract_version"],
             )
+            if node_contract.reference() != node_reference:
+                raise KeyError("Node Type contract digest changed")
             output_declaration = next(
-                (
-                    output
-                    for output in node_contract.descriptor.get("outputs", ())
-                    if output["name"] == descriptor["output_port"]
-                ),
-                None,
+                output
+                for output in node_contract.descriptor.get("outputs", ())
+                if output["name"] == descriptor["output_port"]
+            )
+            declared_media_type = output_declaration.get(
+                "artifact_media_type"
             )
             if (
-                output_declaration is None
-                or output_declaration.get("artifact_kind")
+                output_declaration.get("artifact_kind")
                 != descriptor["artifact_kind"]
-            ):
-                raise V2RunError(
-                    "artifact_integrity_mismatch",
-                    "Artifact output binding integrity validation failed",
-                    details={"artifact_reference": artifact_reference},
+                or (
+                    declared_media_type is not None
+                    and declared_media_type != descriptor["media_type"]
                 )
+            ):
+                raise KeyError("artifact output declaration changed")
+            port_reference = output_declaration["port_type"]
+            port_type = self._catalog.require_port_type(
+                port_reference["contract_id"],
+                port_reference["contract_version"],
+            )
+            media_types = port_type.artifact_media_types
+            if port_type.reference() != port_reference:
+                raise KeyError("artifact Port Type contract changed")
+            if media_types is None:
+                if (
+                    port_type.type_id
+                    not in {"file.path", "file.path.collection"}
+                    or declared_media_type is not None
+                    or descriptor["media_type"]
+                    not in {
+                        "application/json",
+                        "application/octet-stream",
+                        "chemical/x-pdb",
+                        "text/x-fasta",
+                    }
+                ):
+                    raise KeyError("artifact media contract changed")
+            elif descriptor["media_type"] not in media_types:
+                raise KeyError("artifact media contract changed")
+        except (KeyError, StopIteration, TypeError, ValueError) as error:
+            raise V2RunError(
+                "artifact_integrity_mismatch",
+                "Artifact output binding integrity validation failed",
+                details={"artifact_reference": artifact_reference},
+            ) from error
         stored_parts = ("published", artifact_reference)
         output_root = self._projects.output_dir(project_id, run_id).parent
         try:

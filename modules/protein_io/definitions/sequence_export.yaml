@@ -19,5 +19,6 @@ outputs:
     multiplicity: one
     scientific_meaning: Cache-safe FASTA bytes for opaque Run-bound publication.
     artifact_kind: standalone
+    artifact_media_type: text/x-fasta
 parameter_groups: []
 node_parameters: {}

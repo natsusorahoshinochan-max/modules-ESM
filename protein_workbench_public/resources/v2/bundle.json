@@ -1359,6 +1359,32 @@
           "maxItems": 1024,
           "type": "array"
         },
+        "input_constraints": {
+          "items": {
+            "additionalProperties": false,
+            "properties": {
+              "kind": {
+                "const": "exactly_one"
+              },
+              "ports": {
+                "items": {
+                  "$ref": "#/$defs/Identifier"
+                },
+                "maxItems": 1024,
+                "minItems": 2,
+                "type": "array",
+                "uniqueItems": true
+              }
+            },
+            "required": [
+              "kind",
+              "ports"
+            ],
+            "type": "object"
+          },
+          "maxItems": 256,
+          "type": "array"
+        },
         "node_parameters": {
           "$ref": "#/$defs/JsonObject"
         },
@@ -1646,6 +1672,12 @@
     "PublicPortContract": {
       "additionalProperties": false,
       "properties": {
+        "artifact_media_type": {
+          "maxLength": 256,
+          "minLength": 3,
+          "pattern": "^[^\\s/]+/[^\\s/]+$",
+          "type": "string"
+        },
         "artifact_kind": {
           "enum": [
             "candidate",

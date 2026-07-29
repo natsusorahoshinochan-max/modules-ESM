@@ -2,12 +2,16 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
 from pathlib import Path
 from typing import Any
 
 import pytest
 
 from core import (
+    ArtifactPayload,
+    BehaviorReference,
+    CatalogBuildError,
     EnvironmentConfiguration,
     ModulePackageContractCase,
     ModulePackagePortCase,
@@ -17,17 +21,20 @@ from core import (
     WorkflowAuthoringService,
     WorkflowAuthoringError,
     WorkflowDocument,
+    WorkflowCompileError,
     WorkflowNodeInstance,
     build_discovered_frozen_catalog,
     build_frozen_catalog,
+    compile_workflow,
     discover_module_packages,
     parse_workflow_document,
+    relock_workflow,
     verify_module_package_contract,
 )
 from core.port_types import canonical_json_bytes
 from core.storage import StoragePathError
 from core.workflow_v2 import WorkflowEdge
-from datatypes import ArtifactPayload, ProteinSequence, ProteinStructure
+from datatypes import ProteinSequence, ProteinStructure
 from modules.protein_io.package import MODULE_PACKAGE as PROTEIN_IO_PACKAGE
 from tests.fixtures.protein_io_sources.package import (
     MODULE_PACKAGE as STRUCTURE_SOURCE_PACKAGE,
@@ -209,6 +216,60 @@ def test_protein_io_passes_the_shared_contract_test_kit(
     } == {"standalone_artifact"}
 
 
+def test_artifact_output_requires_a_nominal_publication_contract() -> None:
+    artifact_port = PROTEIN_IO_PACKAGE.port_types[0]
+    malformed_port = replace(
+        artifact_port,
+        validator=BehaviorReference(
+            "protein_io.artifact_payload/validate",
+            "2.0.0",
+            {"accepted_value_kind": "artifact_payload"},
+        ),
+    )
+    malformed_package = replace(
+        PROTEIN_IO_PACKAGE,
+        port_types=(malformed_port,),
+    )
+
+    with pytest.raises(
+        CatalogBuildError,
+        match="generic artifact publication contract",
+    ):
+        build_frozen_catalog((malformed_package,))
+
+
+def test_structure_export_xor_is_rejected_during_compilation() -> None:
+    catalog = build_frozen_catalog(
+        (PROTEIN_IO_PACKAGE, STRUCTURE_SOURCE_PACKAGE)
+    )
+    workflow = WorkflowDocument(
+        schema_version="2.0.0",
+        workflow_id="missing-structure-input",
+        nodes=(
+            WorkflowNodeInstance(
+                node_id="export",
+                node_type_id="protein_io.export_structure",
+                node_type_version="2.0.0",
+                binding_id="protein_io.export_structure.direct",
+                binding_version="2.0.0",
+                node_parameters={},
+                binding_parameters={},
+            ),
+        ),
+        edges=(),
+        contract_lock=(),
+    )
+
+    with pytest.raises(WorkflowCompileError) as rejected:
+        compile_workflow(
+            relock_workflow(workflow, catalog),
+            workflow_revision=1,
+            catalog=catalog,
+        )
+
+    assert rejected.value.code == "input_constraint_unsatisfied"
+
+
 def _run_single_node(
     tmp_path: Path,
     *,
@@ -313,6 +374,28 @@ def test_sequence_import_reads_only_one_project_scoped_reference(
     assert not any(
         "input-sequence-1" in str(event.get("event"))
         for event in events
+    )
+
+
+def test_project_input_content_participates_in_result_identity(
+    tmp_path: Path,
+) -> None:
+    _, first, _ = _run_single_node(
+        tmp_path / "first",
+        operation="import_sequence",
+        node_parameters={"project_input_ref": "same-reference"},
+        project_inputs={"same-reference": b">protein\nACD\n"},
+    )
+    _, second, _ = _run_single_node(
+        tmp_path / "second",
+        operation="import_sequence",
+        node_parameters={"project_input_ref": "same-reference"},
+        project_inputs={"same-reference": b">protein\nACE\n"},
+    )
+
+    assert (
+        first["outputs"][0]["result_identity"]
+        != second["outputs"][0]["result_identity"]
     )
 
 
@@ -576,6 +659,63 @@ def test_artifact_retrieval_rejects_tampering_symlinks_and_traversal(
             "../outside.fasta",
         )
     assert traversed.value.code == "artifact_not_found"
+
+
+def test_artifact_retrieval_revalidates_binding_after_restart(
+    tmp_path: Path,
+) -> None:
+    service, project_id, projection, _ = _run_import_export(
+        tmp_path,
+        value_kind="sequence",
+        payload=b">source\nACDEFG\n",
+    )
+    service.shutdown()
+    catalog = build_discovered_frozen_catalog()
+    projects = ProjectManager(
+        tmp_path / "projects",
+        cache_root=tmp_path / "cache",
+        output_root=tmp_path / "outputs",
+        run_root=tmp_path / "runs",
+    )
+    restarted = V2RunService(
+        projects,
+        catalog,
+        WorkflowAuthoringService(projects, catalog),
+        EnvironmentConfiguration({}),
+    )
+    artifact = projection["artifact_index"][0]
+
+    descriptor, body = restarted.artifact(
+        project_id,
+        projection["run_id"],
+        artifact["artifact_reference"],
+    )
+    restarted.shutdown()
+
+    assert descriptor["media_type"] == "text/x-fasta"
+    assert body == b">protein-workbench-sequence\nACDEFG\n"
+
+
+def test_artifact_retrieval_rejects_media_outside_the_exact_output_port(
+    tmp_path: Path,
+) -> None:
+    service, project_id, projection, _ = _run_import_export(
+        tmp_path,
+        value_kind="sequence",
+        payload=b">source\nACDEFG\n",
+    )
+    record = service._runs[(project_id, projection["run_id"])]
+    for fact in record.ledger._facts:
+        if fact["fact_type"] != "outputs_published":
+            continue
+        for artifact in fact["payload"]["artifacts"]:
+            artifact["media_type"] = "chemical/x-pdb"
+    reference = projection["artifact_index"][0]["artifact_reference"]
+
+    with pytest.raises(V2RunError) as rejected:
+        service.artifact(project_id, projection["run_id"], reference)
+
+    assert rejected.value.code == "artifact_integrity_mismatch"
 
 
 def test_structure_export_preserves_the_validated_native_pdb_serialization(

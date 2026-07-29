@@ -778,6 +778,7 @@ class _NodeDefinition:
     category: str
     inputs: tuple[Mapping[str, Any], ...]
     outputs: tuple[Mapping[str, Any], ...]
+    input_constraints: tuple[Mapping[str, Any], ...]
     parameter_groups: tuple[Any, ...]
     node_parameters: Mapping[str, Any]
 
@@ -786,7 +787,7 @@ class _NodeDefinition:
         return ContractIdentity("node_type", self.node_type_id, self.version)
 
     def descriptor_template(self) -> dict[str, Any]:
-        return {
+        descriptor = {
             "schema_namespace": CONTRACT_NAMESPACE,
             "contract_kind": "node_type",
             "contract_id": self.node_type_id,
@@ -799,6 +800,9 @@ class _NodeDefinition:
             "parameter_groups": self.parameter_groups,
             "node_parameters": self.node_parameters,
         }
+        if self.input_constraints:
+            descriptor["input_constraints"] = self.input_constraints
+        return descriptor
 
 
 @dataclass(frozen=True, slots=True)
@@ -1012,6 +1016,7 @@ def _parse_port(
             "multiplicity",
             "scientific_meaning",
             "artifact_kind",
+            "artifact_media_type",
         },
     )
     _require_identifier(port["name"], f"{resource_name}.name")
@@ -1033,6 +1038,7 @@ def _parse_port(
             f"{resource_name}.scientific_meaning must be non-empty"
         )
     artifact_kind = port.get("artifact_kind")
+    artifact_media_type = port.get("artifact_media_type")
     if artifact_kind is not None and (
         not allow_artifact_publication
         or artifact_kind not in {"standalone", "candidate"}
@@ -1044,6 +1050,16 @@ def _parse_port(
         raise CatalogBuildError(
             f"{resource_name}.artifact_kind is not a valid artifact output"
         )
+    if artifact_media_type is not None and (
+        artifact_kind is None
+        or not isinstance(artifact_media_type, str)
+        or len(artifact_media_type) > 256
+        or "/" not in artifact_media_type
+        or any(character.isspace() for character in artifact_media_type)
+    ):
+        raise CatalogBuildError(
+            f"{resource_name}.artifact_media_type is invalid"
+        )
     descriptor = {
         "name": port["name"],
         "port_type": reference,
@@ -1053,6 +1069,8 @@ def _parse_port(
     }
     if artifact_kind is not None:
         descriptor["artifact_kind"] = artifact_kind
+    if artifact_media_type is not None:
+        descriptor["artifact_media_type"] = artifact_media_type
     return MappingProxyType(descriptor)
 
 
@@ -1073,7 +1091,7 @@ def _parse_node_definition(raw: Any, resource_name: str) -> _NodeDefinition:
         raw,
         resource_name=resource_name,
         required=required,
-        allowed=required,
+        allowed={*required, "input_constraints"},
     )
     _require_schema_version(node["schema_version"], "Node Definition")
     _require_identifier(node["node_type_id"], "node_type_id")
@@ -1106,6 +1124,42 @@ def _parse_node_definition(raw: Any, resource_name: str) -> _NodeDefinition:
         names = [port["name"] for port in ports]
         if len(set(names)) != len(names):
             raise CatalogBuildError(f"duplicate Node {label} Port name")
+    input_names = {port["name"] for port in inputs}
+    raw_input_constraints = node.get("input_constraints", [])
+    if not isinstance(raw_input_constraints, list):
+        raise CatalogBuildError("input_constraints must be an array")
+    input_constraints: list[Mapping[str, Any]] = []
+    constrained_ports: set[str] = set()
+    for index, raw_constraint in enumerate(raw_input_constraints):
+        constraint = _closed_object(
+            raw_constraint,
+            resource_name=f"{resource_name}.input_constraints[{index}]",
+            required={"kind", "ports"},
+            allowed={"kind", "ports"},
+        )
+        ports = constraint["ports"]
+        if (
+            constraint["kind"] != "exactly_one"
+            or not isinstance(ports, list)
+            or len(ports) < 2
+            or any(not isinstance(port, str) for port in ports)
+            or len(set(ports)) != len(ports)
+            or not set(ports) <= input_names
+            or constrained_ports.intersection(ports)
+        ):
+            raise CatalogBuildError(
+                "input_constraints must contain disjoint exactly_one "
+                "groups of declared input Ports"
+            )
+        constrained_ports.update(ports)
+        input_constraints.append(
+            MappingProxyType(
+                {
+                    "kind": "exactly_one",
+                    "ports": tuple(ports),
+                }
+            )
+        )
     if not isinstance(node["parameter_groups"], list):
         raise CatalogBuildError("parameter_groups must be an array")
     if not all(
@@ -1125,6 +1179,7 @@ def _parse_node_definition(raw: Any, resource_name: str) -> _NodeDefinition:
         category=node["category"],
         inputs=inputs,
         outputs=outputs,
+        input_constraints=tuple(input_constraints),
         parameter_groups=_freeze_declaration(node["parameter_groups"]),
         node_parameters=_freeze_declaration(node["node_parameters"]),
     )
@@ -1557,6 +1612,41 @@ def build_frozen_catalog(
             )
         entry_by_key[key] = ({owner}, definition)
         template_by_key[key] = fingerprint
+
+    for _, definition in definitions:
+        if not isinstance(definition, _NodeDefinition):
+            continue
+        for output in definition.outputs:
+            if output.get("artifact_kind") is None:
+                continue
+            reference = output["port_type"]
+            if reference.contract_id in {
+                "file.path",
+                "file.path.collection",
+            }:
+                continue
+            port_entry = entry_by_key.get(reference.key)
+            port_type = port_entry[1] if port_entry is not None else None
+            if (
+                not isinstance(port_type, PortTypeDefinition)
+                or port_type.artifact_media_types is None
+            ):
+                raise CatalogBuildError(
+                    f"Node {definition.node_type_id} artifact output "
+                    f"{output['name']!r} requires a Port Type with an exact "
+                    "generic artifact publication contract"
+                )
+            artifact_media_type = output.get("artifact_media_type")
+            if (
+                not isinstance(artifact_media_type, str)
+                or artifact_media_type
+                not in port_type.artifact_media_types
+            ):
+                raise CatalogBuildError(
+                    f"Node {definition.node_type_id} artifact output "
+                    f"{output['name']!r} requires one exact media type "
+                    "accepted by its nominal Port Type"
+                )
 
     for registration in registration_tuple:
         owned = {

@@ -262,7 +262,7 @@ def test_upload_api_rejects_traversal_without_writing_external_file(
     assert not (tmp_path / "outside.pdb").exists()
 
 
-def test_upload_api_returns_hybrid_relative_input_reference(
+def test_upload_api_returns_opaque_project_input_reference(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -283,24 +283,19 @@ def test_upload_api_returns_hybrid_relative_input_reference(
             f"/api/projects/{project_id}/inputs",
             files={"file": ("source.fasta", b">safe\nAGS\n", "text/plain")},
         )
-        execution = client.post(
-            "/api/execute",
-            json={
-                "project_id": project_id,
-                "nodes": [
-                    {
-                        "node_id": "reader",
-                        "module_id": "import.sequence",
-                        "module_version": "1.0.0",
-                        "parameters": {"file_path": response.json()["path"]},
-                    },
-                ],
-                "edges": [],
-            },
-        )
 
-    assert response.json()["path"] == "inputs/source.fasta"
-    assert execution.status_code == 200
+    payload = response.json()
+    assert "path" not in payload
+    assert payload["filename"] == "source.fasta"
+    assert payload["project_input_ref"].startswith("input-")
+    assert "/" not in payload["project_input_ref"]
+    assert (
+        tmp_path
+        / "projects"
+        / project_id
+        / "inputs"
+        / payload["project_input_ref"]
+    ).read_bytes() == b">safe\nAGS\n"
 
 
 def test_exported_artifacts_with_the_same_name_are_isolated_by_run(

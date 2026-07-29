@@ -8,8 +8,8 @@ from typing import Any, Mapping
 
 from Bio.PDB import PDBParser
 
+from core import ArtifactPayload
 from datatypes import (
-    ArtifactPayload,
     CandidateCollection,
     ProteinSequence,
     ProteinStructure,
@@ -17,6 +17,20 @@ from datatypes import (
 
 
 _AMINO_ACIDS = re.compile(r"^[ACDEFGHIKLMNPQRSTVWYBXZJUO]+$")
+
+
+def _native_pdb_bytes(structure: ProteinStructure, *, subject: str) -> bytes:
+    if type(structure) is not ProteinStructure:
+        raise ValueError(f"{subject} must be a ProteinStructure")
+    try:
+        body = structure.pdb_string.encode("utf-8")
+    except UnicodeEncodeError as error:
+        raise ValueError(
+            "structure export requires UTF-8 PDB text"
+        ) from error
+    if not body:
+        raise ValueError(f"{subject} contains empty PDB text")
+    return body
 
 
 class SequenceImportImplementation:
@@ -188,20 +202,10 @@ class StructureExportImplementation:
             ):
                 artifacts = []
                 for index, candidate in enumerate(structures.items):
-                    if type(candidate.data) is not ProteinStructure:
-                        raise ValueError(
-                            "structure Candidate contains non-structure data"
-                        )
-                    try:
-                        body = candidate.data.pdb_string.encode("utf-8")
-                    except UnicodeEncodeError as error:
-                        raise ValueError(
-                            "structure export requires UTF-8 PDB text"
-                        ) from error
-                    if not body:
-                        raise ValueError(
-                            "structure Candidate contains empty PDB text"
-                        )
+                    body = _native_pdb_bytes(
+                        candidate.data,
+                        subject="structure Candidate",
+                    )
                     artifacts.append(
                         ArtifactPayload(
                             body=body,
@@ -211,19 +215,13 @@ class StructureExportImplementation:
                         )
                     )
             return {"candidate_artifacts": artifacts}
-        if type(structure) is not ProteinStructure:
-            raise ValueError("structure input must be a ProteinStructure")
         with self._run_resources.engine_invocation(
             engine_identity="protein_io.export_structure.method/2.0.0",
         ):
-            try:
-                body = structure.pdb_string.encode("utf-8")
-            except UnicodeEncodeError as error:
-                raise ValueError(
-                    "structure export requires UTF-8 PDB text"
-                ) from error
-            if not body:
-                raise ValueError("structure export requires nonempty PDB text")
+            body = _native_pdb_bytes(
+                structure,
+                subject="structure input",
+            )
         return {
             "standalone_artifact": ArtifactPayload(
                 body=body,

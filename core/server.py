@@ -2161,11 +2161,10 @@ def create_app(
             )
         published = project_manager.publish_input(
             project_id,
-            uploaded_name,
+            f"input-{uuid.uuid4().hex}",
             payload,
         )
         return {
-            "path": f"inputs/{uploaded_name}",
             "filename": file.filename,
             **published,
         }

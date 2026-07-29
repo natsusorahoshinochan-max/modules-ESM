@@ -6,6 +6,7 @@ import base64
 import re
 
 from core import (
+    ArtifactPayload,
     AvailabilityDeclaration,
     AvailabilityResult,
     BehaviorReference,
@@ -18,7 +19,6 @@ from core import (
     PortTypeDefinition,
     ReadinessDeclaration,
 )
-from datatypes import ArtifactPayload
 
 from .implementation import (
     SequenceExportImplementation,
@@ -194,7 +194,15 @@ MODULE_PACKAGE = ModulePackageRegistration(
             validator=BehaviorReference(
                 "protein_io.artifact_payload/validate",
                 _VERSION,
-                {"accepted_value_kind": "artifact_payload"},
+                {
+                    "accepted_value_kind": "artifact_payload",
+                    "artifact_publication": {
+                        "media_types": [
+                            "chemical/x-pdb",
+                            "text/x-fasta",
+                        ],
+                    },
+                },
             ),
             codec=BehaviorReference(
                 "protein_io.artifact_payload/codec",

@@ -716,6 +716,28 @@ def _validate_static_semantics(
                     node_id=node.node_id,
                     field_path=("nodes", index),
                 )
+        for constraint in node_contract.descriptor.get(
+            "input_constraints",
+            (),
+        ):
+            if constraint.get("kind") != "exactly_one":
+                raise WorkflowCompileError(
+                    "invalid_input_constraint",
+                    "Node Type contains an unsupported input constraint",
+                    node_id=node.node_id,
+                    field_path=("nodes", index),
+                )
+            connected = sum(
+                incoming.get((node.node_id, port_name), 0)
+                for port_name in constraint["ports"]
+            )
+            if connected != 1:
+                raise WorkflowCompileError(
+                    "input_constraint_unsatisfied",
+                    "Exactly one constrained input Port must be connected",
+                    node_id=node.node_id,
+                    field_path=("nodes", index),
+                )
         plan_nodes[node.node_id] = (node_contract, binding)
 
     queue = deque(

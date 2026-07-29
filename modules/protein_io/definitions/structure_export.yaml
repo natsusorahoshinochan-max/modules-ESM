@@ -17,6 +17,11 @@ inputs:
     required: false
     multiplicity: one
     scientific_meaning: Ordered protein structure Candidates to serialize without changing identity or PDB text.
+input_constraints:
+  - kind: exactly_one
+    ports:
+      - structure
+      - structures
 outputs:
   - name: standalone_artifact
     port_type_id: protein_io.artifact_payload
@@ -25,6 +30,7 @@ outputs:
     multiplicity: one
     scientific_meaning: Cache-safe native PDB bytes for opaque Run-bound publication.
     artifact_kind: standalone
+    artifact_media_type: chemical/x-pdb
   - name: candidate_artifacts
     port_type_id: protein_io.artifact_payload
     port_type_version: "2.0.0"
@@ -32,5 +38,6 @@ outputs:
     multiplicity: many
     scientific_meaning: Ordered Candidate-bound native PDB bytes for opaque Run-bound publication.
     artifact_kind: candidate
+    artifact_media_type: chemical/x-pdb
 parameter_groups: []
 node_parameters: {}

@@ -1024,6 +1024,37 @@ class PortTypeDefinition:
         }
 
     @property
+    def artifact_media_types(self) -> tuple[str, ...] | None:
+        """Return the exact media contract for generic artifact publication."""
+        declaration = self.validator.parameters.get("artifact_publication")
+        if declaration is None:
+            return None
+        if (
+            not isinstance(declaration, Mapping)
+            or set(declaration) != {"media_types"}
+            or not isinstance(declaration["media_types"], tuple)
+        ):
+            raise CatalogBuildError(
+                f"{self.type_id}@{self.version} has an invalid artifact "
+                "publication declaration"
+            )
+        media_types = tuple(declaration["media_types"])
+        if (
+            not media_types
+            or tuple(sorted(set(media_types))) != media_types
+            or any(
+                not isinstance(media_type, str)
+                or "/" not in media_type
+                or any(character.isspace() for character in media_type)
+                for media_type in media_types
+            )
+        ):
+            raise CatalogBuildError(
+                f"{self.type_id}@{self.version} has invalid artifact media types"
+            )
+        return media_types
+
+    @property
     def descriptor_bytes(self) -> bytes:
         """RFC 8785 canonical UTF-8 descriptor bytes."""
         return canonical_json_bytes(self.descriptor())

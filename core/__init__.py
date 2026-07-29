@@ -1,4 +1,5 @@
 from core.cache_store import CachePublishStatus, CacheStore
+from core.artifacts import ArtifactPayload
 from core.contract_test_kit import (
     ModulePackageCaseReport,
     ModulePackageConformanceError,
@@ -118,6 +119,7 @@ from core.workflow_v2 import (
 __all__ = [
     "CacheStore",
     "CachePublishStatus",
+    "ArtifactPayload",
     "BehaviorReference",
     "AvailabilityDeclaration",
     "AvailabilityResult",
