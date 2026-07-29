@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
+from enum import Enum
 import math
 import re
 from typing import Any
@@ -16,6 +17,14 @@ _RESIDUE_ID = re.compile(
 )
 _SECONDARY_STRUCTURE = frozenset({"H", "B", "E", "G", "I", "T", "S", "-"})
 _MAX_RESIDUES = 2_000_000
+
+
+class TrackKind(Enum):
+    """Closed scientific value domains supported by the track Nodes."""
+
+    GENERIC = "generic"
+    SECONDARY_STRUCTURE = "secondary_structure"
+    SASA = "sasa"
 
 
 def residue_chain(residue_id: str) -> str:
@@ -276,10 +285,12 @@ def validate_track(
     track: object,
     layout: ResidueLayout,
     *,
-    kind: str,
+    kind: TrackKind,
     subject: str,
 ) -> ResidueTrack:
     """Validate one complete nullable track against one exact layout."""
+    if not isinstance(kind, TrackKind):
+        raise ValueError("track kind must be one closed scientific domain")
     validate_layout(layout, subject=f"{subject} layout")
     if type(track) is not ResidueTrack:
         raise ValueError(f"{subject} must be a ResidueTrack")
@@ -290,12 +301,12 @@ def validate_track(
     for index, item in enumerate(track.values):
         if item is None:
             continue
-        if kind == "secondary_structure":
+        if kind is TrackKind.SECONDARY_STRUCTURE:
             if type(item) is not str or item not in _SECONDARY_STRUCTURE:
                 raise ValueError(
                     f"{subject}[{index}] is not one canonical SS8 value"
                 )
-        elif kind == "sasa":
+        elif kind is TrackKind.SASA:
             if (
                 isinstance(item, bool)
                 or not isinstance(item, (int, float))
@@ -336,7 +347,7 @@ def map_track(
     track: object,
     residue_map: object,
     *,
-    kind: str,
+    kind: TrackKind,
 ) -> ResidueTrack:
     """Explicitly convert one track through one validated residue map."""
     mapping = validate_residue_map(residue_map)
@@ -364,7 +375,7 @@ def override_track(
     layout: object,
     overrides: object,
     *,
-    kind: str,
+    kind: TrackKind,
 ) -> ResidueTrack:
     """Apply identity-addressed clear/preserve/replace operations."""
     target_layout = validate_layout(layout, subject="target_layout")

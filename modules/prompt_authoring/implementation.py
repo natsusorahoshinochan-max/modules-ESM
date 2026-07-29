@@ -10,13 +10,14 @@ from .domain import (
     build_residue_map,
     map_track,
     override_track,
+    TrackKind,
 )
 
 
 _TRACK_PORTS = {
-    "track": "generic",
-    "secondary_structure_track": "secondary_structure",
-    "sasa_track": "sasa",
+    "track": TrackKind.GENERIC,
+    "secondary_structure_track": TrackKind.SECONDARY_STRUCTURE,
+    "sasa_track": TrackKind.SASA,
 }
 
 
@@ -73,7 +74,9 @@ class EditResidueLayoutImplementation(_Implementation):
         return {"residue_map": residue_map}
 
 
-def _selected_track(inputs: Mapping[str, Any]) -> tuple[str, str, object]:
+def _selected_track(
+    inputs: Mapping[str, Any],
+) -> tuple[str, TrackKind, object]:
     selected = [
         (port, kind, inputs[port])
         for port, kind in _TRACK_PORTS.items()

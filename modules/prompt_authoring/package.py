@@ -56,20 +56,32 @@ def _build(operation: str):
 
 
 def _method(operation: str) -> MethodDefinition:
-    algorithm = {
-        "build_residue_layout": "canonical-residue-layout-construction",
-        "edit_residue_layout": "explicit-residue-identity-reconciliation",
-        "map_residue_track": "explicit-residue-map-conversion",
-        "override_residue_track": "identity-addressed-track-override",
+    algorithm_identity = {
+        "build_residue_layout": {
+            "name": "canonical-residue-layout-construction",
+            "residue_identity": "<chain>:<one-based-generated-label>",
+            "chain_boundary": "ordered-contiguous-chain-blocks",
+        },
+        "edit_residue_layout": {
+            "name": "explicit-residue-identity-reconciliation",
+            "mapping_operations": ["delete", "insert", "match"],
+            "mapping_indexing": "zero-based-with-negative-unmapped-sentinel",
+        },
+        "map_residue_track": {
+            "name": "explicit-residue-map-conversion",
+            "nullable_semantics": "JSON null means unmapped or unspecified",
+            "mapping_indexing": "zero-based",
+        },
+        "override_residue_track": {
+            "name": "identity-addressed-track-override",
+            "actions": ["clear", "preserve", "replace"],
+            "nullable_semantics": "JSON null means unspecified",
+        },
     }[operation]
     return MethodDefinition(
         method_id=f"prompt_authoring.{operation}.method",
         version=_VERSION,
-        algorithm_identity={
-            "name": algorithm,
-            "indexing": "zero-based-internal-residue-map",
-            "nullable_semantics": "JSON null means unspecified",
-        },
+        algorithm_identity=algorithm_identity,
         model_identity={"kind": "none"},
         checkpoint_identity={"kind": "none"},
         featurization_identity={
@@ -137,9 +149,11 @@ MODULE_PACKAGE = ModulePackageRegistration(
     package_id="prompt_authoring",
     package_version=_VERSION,
     package_module=__package__,
-    node_definitions=tuple(
-        DefinitionResource(f"definitions/{operation}.yaml")
-        for operation in _OPERATIONS
+    node_definitions=(
+        DefinitionResource("definitions/build_residue_layout.yaml"),
+        DefinitionResource("definitions/edit_residue_layout.yaml"),
+        DefinitionResource("definitions/map_residue_track.yaml"),
+        DefinitionResource("definitions/override_residue_track.yaml"),
     ),
     methods=tuple(_method(operation) for operation in _OPERATIONS),
     bindings=tuple(_binding(operation) for operation in _OPERATIONS),
