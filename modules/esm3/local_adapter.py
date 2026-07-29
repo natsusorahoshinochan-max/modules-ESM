@@ -437,8 +437,11 @@ def load_local_esm3_client(
 def release_local_esm3_client(client: Any) -> None:
     """Release private staged weights owned by an internally loaded client."""
     cleanup = getattr(client, "_protein_workbench_staged_cleanup", None)
+    staged_root = getattr(client, "_protein_workbench_staged_root", None)
+    if isinstance(staged_root, Path) and staged_root.exists():
+        shutil.rmtree(staged_root)
     if cleanup is not None and bool(getattr(cleanup, "alive", False)):
-        cleanup()
+        cleanup.detach()
 
 
 def _track_identity(protein: Any) -> dict[str, Any]:

@@ -221,18 +221,39 @@ class ESM3GenerationImplementation:
         parameters = self._parameters(node_parameters)
         try:
             if self._operation == "generate_sequence":
-                return self._generate_sequence(prompt, parameters)
-            if self._operation == "generate_structure":
-                return self._generate_structure(prompt, parameters)
-            if self._operation == "generate_paired":
-                return self._generate_paired(prompt, parameters)
-            raise NotImplementedError(
-                f"ESM-3 operation {self._operation!r} is not implemented"
+                outputs = self._generate_sequence(prompt, parameters)
+            elif self._operation == "generate_structure":
+                outputs = self._generate_structure(prompt, parameters)
+            elif self._operation == "generate_paired":
+                outputs = self._generate_paired(prompt, parameters)
+            else:
+                raise NotImplementedError(
+                    f"ESM-3 operation {self._operation!r} is not implemented"
+                )
+        except BaseException as body_error:
+            self._release_owned_local_client(body_error=body_error)
+            raise
+        self._release_owned_local_client()
+        return outputs
+
+    def _release_owned_local_client(
+        self,
+        *,
+        body_error: BaseException | None = None,
+    ) -> None:
+        client = self._owned_local_client
+        self._owned_local_client = None
+        if client is None:
+            return
+        try:
+            release_local_esm3_client(client)
+        except BaseException as cleanup_error:
+            if body_error is None:
+                raise
+            body_error.add_note(
+                "Local ESM-3 staged-weight cleanup also failed: "
+                f"{type(cleanup_error).__name__}"
             )
-        finally:
-            if self._owned_local_client is not None:
-                release_local_esm3_client(self._owned_local_client)
-                self._owned_local_client = None
 
     def _candidate_metadata(
         self,

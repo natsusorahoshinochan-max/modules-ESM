@@ -508,6 +508,34 @@ def test_default_local_client_releases_staged_runtime_after_execution(
     assert released == [client]
 
 
+def test_cleanup_failure_does_not_replace_primary_execution_failure(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import modules.esm3.implementation as implementation
+
+    client = object()
+    adapter = object.__new__(implementation.ESM3GenerationImplementation)
+    adapter._owned_local_client = client
+
+    def fail_cleanup(owned: object) -> None:
+        assert owned is client
+        raise OSError("fixture cleanup failed")
+
+    monkeypatch.setattr(
+        implementation,
+        "release_local_esm3_client",
+        fail_cleanup,
+    )
+    primary = RuntimeError("fixture provider failed")
+
+    adapter._release_owned_local_client(body_error=primary)
+
+    assert adapter._owned_local_client is None
+    assert primary.__notes__ == [
+        "Local ESM-3 staged-weight cleanup also failed: OSError"
+    ]
+
+
 def test_local_readiness_rechecks_model_identity_before_any_cache_lookup(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
