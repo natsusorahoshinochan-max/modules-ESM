@@ -25,7 +25,7 @@ this state.
 - Fixed implementation/review base:
   `81fcd5dcbeb93e84ff9f735d3ebdda934e5bbfc4`.
 - Implementation and review-fix commits: `60be5b5`, `8b9ef30`, `aeb196c`,
-  `791f1c8`, and `72ae53d`.
+  `791f1c8`, `72ae53d`, and `96a29d0`.
 - Joint Tickets 01–13 focused regression across public protocol, Port Types,
   Module Packages, Workflow compiler, Run execution, cancellation/derivation,
   Result replay, intrinsic scoring, pairwise scoring, the Contract Test Kit,
@@ -51,7 +51,7 @@ this state.
   `verification-results/installed-package/20260729T103754.488724Z-54603-b0be061ce3f73b4b`.
 - `compileall`, `uv lock --check`, `uv pip check`, `git diff --check`, and the
   zero-`protein_io`-literal Core scan passed at clean implementation HEAD
-  `72ae53d94530f74d181faa40e216ec476d8ee509`.
+  `96a29d0d8bc8799967d476953256d314f8d29d70`.
 - Parallel `/code-review` Standards and Spec reviewers drove repairs for
   generic nominal artifact publication, Project-resource Result Identity,
   opaque upload references, durable post-restart artifact binding/media
