@@ -4,7 +4,7 @@
 
 **Blocked by:** 08 — Cancel and derive Runs without rewriting history; 11 — Resolve pairwise Observation counterparts.
 
-**Status:** awaiting-controller
+**Status:** completed
 
 - [x] Contract Test Kit consumes the production Module Package registration plus independent test cases and fixtures rather than embedding test data in the registration.
 - [x] The kit builds an isolated temporary FrozenCatalog and exercises registration, Definitions, Port Types, parameters, Availability, Readiness, provenance, Result Identity, Candidates, Metrics, and produced observations through the unified execution interface.
@@ -55,3 +55,35 @@ this state.
   test double, omitted Derived Run acceptance, and REST/WebSocket routes not
   fully derived from the public bundle. All findings were repaired with
   regressions; both final review axes returned `APPROVE` at `7872479`.
+
+## Controller cumulative acceptance
+
+Before Ticket 13 started, Controller independently accepted executor commit
+`5b44ae04e3552adf855e6c7afab1dbd66c389ffa` against the previously accepted
+Tickets 01–11 gate `13928834520ae32c2189a03ad2a637bdbdf1fe75`.
+
+- Joint Tickets 01–12 focused suites:
+  `uv run --no-sync python -m pytest -q tests/test_public_protocol_v2.py
+  tests/test_port_types_v2.py tests/test_module_packages_v2.py
+  tests/test_workflow_compiler_v2.py tests/test_run_execution_v2.py
+  tests/test_run_cancel_derive_v2.py tests/test_result_cache_v2.py
+  tests/test_scoring_v2.py tests/test_pairwise_scoring_v2.py
+  tests/test_contract_test_kit_v2.py` → `299 passed`.
+- Cumulative routine gate:
+  `uv run --no-sync python scripts/verify_backend.py routine` →
+  `985 passed, 44 deselected`; retained result
+  `verification-results/routine/20260729T091223.752647Z-39355-83cfbaadc1a0ae4d`.
+- Deterministic acceptance:
+  `uv run --no-sync python scripts/verify_backend.py
+  deterministic-acceptance` → `9 passed, 5 deselected`; retained result
+  `verification-results/deterministic-acceptance/20260729T091428.279676Z-39945-7945650dba973da4`.
+- Installed artifact:
+  `uv run --no-sync python scripts/verify_backend.py installed-package` →
+  `3 passed`; retained result
+  `verification-results/installed-package/20260729T091518.186921Z-40072-a41c209001539fb1`.
+- `git diff --check
+  13928834520ae32c2189a03ad2a637bdbdf1fe75...5b44ae04e3552adf855e6c7afab1dbd66c389ffa`
+  passed.
+
+No Controller regression was found, so Ticket 12 is accepted and Ticket 13
+may start.
