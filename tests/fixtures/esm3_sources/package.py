@@ -44,8 +44,12 @@ class _Source:
         mode = node_parameters["mode"]
         sequence_track = (
             ResidueTrack(["A", "C", "D"], None)
-            if mode in {"assigned_sequence", "coordinate_conditioned"}
-            else None
+            if mode == "assigned_sequence"
+            else (
+                ResidueTrack([None, None, None], None)
+                if mode == "coordinate_conditioned"
+                else None
+            )
         )
         structure_track = None
         visibility_track = None

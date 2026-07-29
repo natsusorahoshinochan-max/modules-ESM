@@ -263,6 +263,7 @@ def _run_generation(
     result_replay_source: ResultReplaySource | None = None,
     generation_parameters: dict[str, Any] | None = None,
     binding_route: str = "biohub_medium",
+    sequence_mask_residue_ids: tuple[str, ...] = (),
 ) -> tuple[Any, dict[str, Any], tuple[dict[str, Any], ...]]:
     from modules.esm3.package import MODULE_PACKAGE as ESM3_PACKAGE
     from modules.prompt_authoring.package import (
@@ -345,6 +346,34 @@ def _run_generation(
             ]
         )
         prompt_source = "update_sequence"
+        if sequence_mask_residue_ids:
+            nodes.append(
+                WorkflowNodeInstance(
+                    node_id="mask_sequence",
+                    node_type_id="prompt_authoring.random_mask",
+                    node_type_version="2.0.0",
+                    binding_id="prompt_authoring.random_mask.direct",
+                    binding_version="2.0.0",
+                    node_parameters={
+                        "effective_seed": 1603,
+                        "count": len(sequence_mask_residue_ids),
+                        "track": "sequence",
+                        "eligible_residue_ids": list(
+                            sequence_mask_residue_ids
+                        ),
+                    },
+                    binding_parameters={},
+                )
+            )
+            edges.append(
+                WorkflowEdge(
+                    "update_sequence",
+                    "protein_prompt",
+                    "mask_sequence",
+                    "protein_prompt",
+                )
+            )
+            prompt_source = "mask_sequence"
     resolved_generation_parameters = {
         "effective_seed": 1603,
         "num_samples": num_samples,
@@ -819,6 +848,54 @@ def test_sequence_generation_publishes_ordered_complete_candidates(
     public = str({"projection": projection, "events": events})
     assert "secret-must-never-publish" not in public
     assert "/private/esm3-runtime" not in public
+
+
+@pytest.mark.parametrize(
+    "operation",
+    ("generate_sequence", "generate_paired"),
+)
+def test_sequence_generation_rejects_a_fully_assigned_track_before_call(
+    tmp_path: Path,
+    operation: str,
+) -> None:
+    client = _ProviderClient([_ProviderResponse("ACD")])
+
+    _, projection, events = _run_generation(
+        tmp_path,
+        operation=operation,
+        client=client,
+        num_samples=1,
+        sequence="ACD",
+    )
+
+    assert projection["status"] == "failed"
+    assert client.calls == []
+    assert not [
+        event
+        for event in events
+        if event["event"]["type"] == "engine_invocation_started"
+        and event["event"]["engine_role"]
+        in {"sequence_sample", "sequence_parent"}
+    ]
+
+
+def test_sequence_generation_calls_provider_with_explicit_workflow_mask(
+    tmp_path: Path,
+) -> None:
+    client = _ProviderClient([_ProviderResponse("ACD")])
+
+    _, projection, _ = _run_generation(
+        tmp_path,
+        operation="generate_sequence",
+        client=client,
+        num_samples=1,
+        sequence="ACD",
+        sequence_mask_residue_ids=("A:1",),
+    )
+
+    assert projection["status"] == "succeeded"
+    assert len(client.calls) == 1
+    assert client.calls[0][0].sequence == "_CD"
 
 
 def _three_residue_pdb(sequence: str = "ACD") -> str:

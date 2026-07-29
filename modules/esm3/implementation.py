@@ -33,6 +33,7 @@ from .adapter import (
     record_remote_provider_result,
     reject_silent_sequence_fields,
     response_has_structure,
+    require_sequence_mask,
     structure_prompt_for_sequence,
 )
 
@@ -201,6 +202,7 @@ class ESM3GenerationImplementation:
     ) -> dict[str, Any]:
         client = self._client()
         provider_prompt = protein_prompt_to_provider(prompt)
+        require_sequence_mask(provider_prompt)
         config = generation_config("sequence", parameters)
         candidates: list[Candidate] = []
         structure_responses: list[tuple[int, Any, Candidate]] = []
@@ -439,6 +441,7 @@ class ESM3GenerationImplementation:
     ) -> dict[str, Any]:
         client = self._client()
         provider_prompt = protein_prompt_to_provider(prompt)
+        require_sequence_mask(provider_prompt)
         sequence_config = generation_config("sequence", parameters)
         structure_config = generation_config("structure", parameters)
         sequence_candidates: list[Candidate] = []

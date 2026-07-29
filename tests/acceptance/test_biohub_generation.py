@@ -55,6 +55,7 @@ class TestBiohubGeneration:
             num_samples=1,
             sequence=sequence,
             generation_parameters=parameters,
+            sequence_mask_residue_ids=("A:1",),
         )
         assert sequence_projection["status"] == "succeeded"
 
@@ -75,6 +76,7 @@ class TestBiohubGeneration:
             num_samples=10,
             sequence=sequence,
             generation_parameters=parameters,
+            sequence_mask_residue_ids=("A:1",),
         )
         assert paired_projection["status"] == "succeeded"
         paired_outputs = {

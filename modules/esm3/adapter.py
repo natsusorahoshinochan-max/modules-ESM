@@ -257,6 +257,15 @@ def generation_config(
     )
 
 
+def require_sequence_mask(provider_prompt: Any) -> None:
+    """Fail before a remote sequence call that the provider cannot sample."""
+    sequence = getattr(provider_prompt, "sequence", None)
+    if not isinstance(sequence, str) or "_" not in sequence:
+        raise ValueError(
+            "ESM-3 sequence generation requires at least one masked residue"
+        )
+
+
 def require_provider_protein(result: Any, operation: str) -> Any:
     """Reject provider error values before post-processing."""
     from esm.sdk.api import ESMProteinError
