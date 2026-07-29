@@ -99,7 +99,18 @@ class ESM3GenerationImplementation:
                 f"esm3.biohub.{BIOHUB_ESM3_MODEL}.{operation}"
             ),
         ):
-            result = client.generate(provider_prompt, config)
+            from modules.esm3_adapter import call_esm3_provider
+
+            result = call_esm3_provider(
+                client,
+                provider_prompt,
+                config,
+                {
+                    "generate_sequence": "generate(track=sequence)",
+                    "generate_structure": "generate(track=structure)",
+                }[operation],
+                model_name=BIOHUB_ESM3_MODEL,
+            )
             return require_provider_protein(result, operation)
 
     def execute(

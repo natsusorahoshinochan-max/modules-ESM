@@ -68,7 +68,7 @@ MAX_JUNIT_BYTES = 16 * 1024 * 1024
 TIER_TIMEOUT_SECONDS = 30 * 60
 LIVE_ESM3_TEST = (
     "tests/acceptance/test_biohub_generation.py::"
-    "TestBiohubGeneration::test_generate_3gb1_sequence"
+    "TestBiohubGeneration::test_v2_all_modes_and_ten_pairs"
 )
 PROCESS_SUPERVISOR_FLAG = "--verification-process-supervisor"
 TRUSTED_PS = "/bin/ps"
@@ -368,6 +368,7 @@ FRESH_CALL_NODE_COUNT_MAP = Counter({
 })
 EXPECTED_SEED_CONTROLS = {
     ("biohub", "esm3.generate_sequence"): "unsupported_by_provider",
+    ("biohub", "esm3.generate_structure"): "unsupported_by_provider",
     ("biohub", "esmfold2.fold"): "unsupported_by_provider",
     ("biopython-svd", "structure_align"): "deterministic_no_rng",
     ("local-proteinmpnn", "design_sequences"): "provider_request_seed",
@@ -457,10 +458,11 @@ TIERS = {
         "tests/acceptance/test_biohub_folding.py::TestBiohubFolding::test_fold_3gb1[False-False]",
         "-m",
         "live_provider",
-    ), requires_provider_evidence=True, required_calls=frozenset({
-        ("biohub", "esm3.generate_sequence"),
-        ("biohub", "esmfold2.fold"),
-    }), expected_test_ids=frozenset({
+    ), requires_provider_evidence=True, required_call_counts=(
+        ("biohub", "esm3.generate_sequence", 11),
+        ("biohub", "esm3.generate_structure", 11),
+        ("biohub", "esmfold2.fold", 1),
+    ), expected_test_ids=frozenset({
         LIVE_ESM3_TEST,
         "tests/acceptance/test_biohub_folding.py::TestBiohubFolding::test_fold_3gb1[False-False]",
     }), requires_biohub_credential=True),
@@ -493,6 +495,7 @@ EXPECTED_MODELS = {
     ("simplefold", "fold_sequence"): "simplefold_100M",
     ("simplefold", "evaluate_structure"): "simplefold_360M",
     ("biohub", "esm3.generate_sequence"): BIOHUB_ESM3_MODEL,
+    ("biohub", "esm3.generate_structure"): BIOHUB_ESM3_MODEL,
     ("biohub", "esmfold2.fold"): BIOHUB_ESMFOLD2_MODEL,
     ("mkdssp", "secondary_structure"): "mkdssp",
     ("biopython-svd", "structure_align"): "PairwiseAligner+SVDSuperimposer",

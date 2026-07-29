@@ -241,6 +241,7 @@ def _run_generation(
     sequence: str | None = None,
     environment_overrides: dict[str, Any] | None = None,
     result_replay_source: ResultReplaySource | None = None,
+    generation_parameters: dict[str, Any] | None = None,
 ) -> tuple[Any, dict[str, Any], tuple[dict[str, Any], ...]]:
     from modules.esm3.package import MODULE_PACKAGE as ESM3_PACKAGE
     from modules.prompt_authoring.package import (
@@ -323,6 +324,11 @@ def _run_generation(
             ]
         )
         prompt_source = "update_sequence"
+    resolved_generation_parameters = {
+        "effective_seed": 1603,
+        "num_samples": num_samples,
+    }
+    resolved_generation_parameters.update(generation_parameters or {})
     nodes.append(
         WorkflowNodeInstance(
             node_id="generate",
@@ -330,10 +336,7 @@ def _run_generation(
             node_type_version="2.0.0",
             binding_id=f"esm3.{operation}.biohub_medium",
             binding_version="2.0.0",
-            node_parameters={
-                "effective_seed": 1603,
-                "num_samples": num_samples,
-            },
+            node_parameters=resolved_generation_parameters,
             binding_parameters={},
         )
     )

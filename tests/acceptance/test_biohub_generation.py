@@ -28,6 +28,75 @@ def _make_prompt(seq_str: str) -> ProteinPrompt:
 @pytest.mark.acceptance
 @pytest.mark.live_provider
 class TestBiohubGeneration:
+    def test_v2_all_modes_and_ten_pairs(
+        self,
+        readiness,
+        pdb_3gb1,
+        tmp_path,
+    ):
+        """Required remote gate for all cohesive v2 ESM-3 operations."""
+        require_ready("biohub", readiness)
+
+        from modules.esm3_adapter import create_esm3_client
+        from modules.extract_sequence_from_structure.module import (
+            _extract_sequence,
+        )
+        from tests.test_esm3_v2 import _decode_output, _run_generation
+
+        sequence = _extract_sequence(pdb_3gb1.pdb_string)
+        assert len(sequence) == 56
+        client = create_esm3_client("esm3-medium-2024-08")
+        parameters = {"num_steps": 1}
+
+        _, sequence_projection, _ = _run_generation(
+            tmp_path / "sequence",
+            operation="generate_sequence",
+            client=client,
+            num_samples=1,
+            sequence=sequence,
+            generation_parameters=parameters,
+        )
+        assert sequence_projection["status"] == "succeeded"
+
+        _, structure_projection, _ = _run_generation(
+            tmp_path / "structure",
+            operation="generate_structure",
+            client=client,
+            num_samples=1,
+            sequence=sequence,
+            generation_parameters=parameters,
+        )
+        assert structure_projection["status"] == "succeeded"
+
+        catalog, paired_projection, _ = _run_generation(
+            tmp_path / "paired",
+            operation="generate_paired",
+            client=client,
+            num_samples=10,
+            sequence=sequence,
+            generation_parameters=parameters,
+        )
+        assert paired_projection["status"] == "succeeded"
+        paired_outputs = {
+            output["output_port"]: output
+            for output in paired_projection["outputs"]
+            if output["node_id"] == "generate"
+        }
+        sequences = _decode_output(
+            catalog,
+            paired_outputs["sequence_candidates"],
+        )
+        structures = _decode_output(
+            catalog,
+            paired_outputs["structure_candidates"],
+        )
+        pairs = _decode_output(
+            catalog,
+            paired_outputs["counterpart_pairs"],
+        )
+        assert len(sequences.items) == len(structures.items) == 10
+        assert len(pairs.entries) == 10
+
     def test_generate_3gb1_sequence(
         self, readiness, pdb_3gb1, isolated_project_dir
     ):
