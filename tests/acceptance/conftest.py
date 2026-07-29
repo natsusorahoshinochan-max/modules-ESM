@@ -200,11 +200,22 @@ def readiness() -> dict:
             {"installed": status["alignment"]},
         ),
     )
-    required_for_tier = {
-        "live-provider": {"biohub"},
-        "local-provider": {"mkdssp", "biopython-svd", "tmtools"},
-        "heavy-model": {"local_open", "local-proteinmpnn", "simplefold"},
-    }.get(os.environ.get("PROTEIN_WORKBENCH_VERIFICATION_TIER"), set())
+    evidence_scope = os.environ.get(
+        "PROTEIN_WORKBENCH_PROVIDER_EVIDENCE_SCOPE"
+    )
+    required_for_tier = (
+        set(evidence_scope.split(","))
+        if evidence_scope
+        else {
+            "live-provider": {"biohub"},
+            "local-provider": {"mkdssp", "biopython-svd", "tmtools"},
+            "heavy-model": {
+                "local_open",
+                "local-proteinmpnn",
+                "simplefold",
+            },
+        }.get(os.environ.get("PROTEIN_WORKBENCH_VERIFICATION_TIER"), set())
+    )
     for provider, ready, identity, details in readiness_evidence:
         if provider not in required_for_tier:
             continue

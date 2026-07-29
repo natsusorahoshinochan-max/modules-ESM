@@ -326,6 +326,7 @@ def _timezone_aware_iso_timestamp(value: object) -> bool:
 class Tier:
     pytest_args: tuple[str, ...]
     requires_provider_evidence: bool = False
+    provider_evidence_gate: str | None = None
     required_calls: frozenset[tuple[str, str]] = frozenset()
     required_call_counts: tuple[tuple[str, str, int], ...] = ()
     expected_test_ids: frozenset[str] = frozenset()
@@ -429,6 +430,24 @@ TIERS = {
         "tests/acceptance/test_alignment_tm.py::test_real_alignment_and_tm_score",
         "tests/acceptance/test_mkdssp.py::TestMKDSSP::test_dssp_3gb1",
     })),
+    "local-esm3-heavy-model": Tier((
+        "tests/acceptance/test_local_esm3.py::"
+        "test_local_esm3_all_generation_modes",
+        "-m",
+        "local_provider and slow",
+    ),
+        requires_provider_evidence=True,
+        provider_evidence_gate="heavy-model",
+        required_call_counts=(
+            ("local_open", "esm3.generate_sequence", 2),
+            ("local_open", "esm3.generate_structure", 2),
+        ),
+        expected_test_ids=frozenset({
+            "tests/acceptance/test_local_esm3.py::"
+            "test_local_esm3_all_generation_modes",
+        }),
+        requires_local_model_environment=True,
+    ),
     "heavy-model": Tier((
         "tests/acceptance/test_local_esm3.py::test_local_esm3_all_generation_modes",
         "tests/acceptance/test_proteinmpnn_design.py::TestProteinMPNNDesign::test_design_3gb1",
@@ -2581,6 +2600,7 @@ def seal_bundle_checksums(result_dir: Path) -> Path:
 def main() -> int:
     args = _parse_args()
     tier = TIERS[args.tier]
+    provider_evidence_gate = tier.provider_evidence_gate or args.tier
     process_timeout_seconds = tier.timeout_seconds
     termination_grace_seconds = tier.termination_grace_seconds
     timeout_probe = (
@@ -2661,7 +2681,17 @@ def main() -> int:
             root.mkdir()
             env[variable] = str(root)
         env["PROTEIN_WORKBENCH_TEST_ROOTS_INITIALIZED"] = "1"
-        env["PROTEIN_WORKBENCH_VERIFICATION_TIER"] = args.tier
+        env["PROTEIN_WORKBENCH_VERIFICATION_TIER"] = (
+            provider_evidence_gate
+        )
+        if tier.requires_provider_evidence:
+            env["PROTEIN_WORKBENCH_PROVIDER_EVIDENCE_SCOPE"] = ",".join(
+                sorted({
+                    provider
+                    for provider, _operation
+                    in tier.expected_call_counts
+                })
+            )
         env["PROTEIN_WORKBENCH_REAL_GATE_NONCE"] = gate_nonce
         env["PROTEIN_WORKBENCH_REAL_GATE_FRESH"] = "1"
         if timeout_probe:
@@ -2967,7 +2997,7 @@ def main() -> int:
         elif tier.requires_provider_evidence:
             evidence, evidence_error = validate_provider_evidence(
                 call_evidence,
-                tier_name=args.tier,
+                tier_name=provider_evidence_gate,
                 tier=tier,
                 nonce=gate_nonce,
                 started_at=gate_started_at,

@@ -512,6 +512,31 @@ def test_focused_heavy_evidence_allows_uncalled_providers_to_be_unready(
     assert validated == events
 
 
+def test_local_esm3_has_a_source_bound_full_heavy_gate() -> None:
+    from scripts.verify_backend import TIERS
+
+    tier = TIERS["local-esm3-heavy-model"]
+
+    assert tier.pytest_args == (
+        "tests/acceptance/test_local_esm3.py::"
+        "test_local_esm3_all_generation_modes",
+        "-m",
+        "local_provider and slow",
+    )
+    assert tier.requires_provider_evidence is True
+    assert tier.provider_evidence_gate == "heavy-model"
+    assert tier.requires_local_model_environment is True
+    assert tier.requires_simplefold_environment is False
+    assert tier.expected_call_counts == {
+        ("local_open", "esm3.generate_sequence"): 2,
+        ("local_open", "esm3.generate_structure"): 2,
+    }
+    assert tier.expected_test_ids == {
+        "tests/acceptance/test_local_esm3.py::"
+        "test_local_esm3_all_generation_modes"
+    }
+
+
 def test_provider_evidence_rejects_unexpected_sensitive_event_field(
     tmp_path: Path,
 ) -> None:
