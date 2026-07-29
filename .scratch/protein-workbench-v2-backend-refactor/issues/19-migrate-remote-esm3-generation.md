@@ -4,7 +4,7 @@
 
 **Blocked by:** 15 — Assemble and update ProteinPrompts.
 
-**Status:** awaiting-controller
+**Status:** completed
 
 - [x] Sequence, structure, and paired generation each have one v2 Node Definition and share the ESM-3 adapter, provider contract, test assets, and package registration.
 - [x] Exact Methods and Bindings fix model/source/scale and execution route; model name is not a mutable Workflow parameter, and credential/endpoint configuration is trusted environment state.
@@ -106,3 +106,42 @@ retained failing result is
 Ticket 19 remains `awaiting-controller`. Controller must rerun the cumulative
 Tickets 01–19 gates, including live-provider against the new final clean SHA,
 and return any regression to this executor before Ticket 20 starts.
+
+## Controller evidence
+
+Controller accepted Ticket 19 only after the original executor revision failed
+the required live-provider gate, the failure was returned to the same executor,
+and the repaired clean revision passed the complete cumulative gate.
+
+- Previous accepted multi-ticket gate:
+  `87dab2ac6457e9d99603400d75c167c78968177b`.
+- Final executor revision under test:
+  `489f3c4c75e8d06437af59f39d184d828ac2907b`.
+- Repair-range `git diff --check` passed and the worktree was clean before
+  testing.
+- Tickets 01–19 v2 joint regression:
+  `uv run --no-sync pytest -q tests/*_v2.py` → `437 passed`.
+- Focused ESM-3/provider evidence regression:
+  `uv run --no-sync pytest -q tests/test_esm3_v2.py
+  tests/test_provider_evidence.py` → `57 passed`.
+- Cumulative routine gate:
+  `uv run --no-sync python scripts/verify_backend.py routine` →
+  `1119 passed, 46 deselected`; retained result
+  `verification-results/routine/20260729T163742.348015Z-38614-8ea57dfa4270f8b6`.
+- Deterministic acceptance:
+  `uv run --no-sync python scripts/verify_backend.py
+  deterministic-acceptance` → `10 passed, 5 deselected`; retained result
+  `verification-results/deterministic-acceptance/20260729T164102.343436Z-41613-3474476556310626`.
+- Installed artifact:
+  `uv run --no-sync python scripts/verify_backend.py installed-package` →
+  `3 passed`; retained result
+  `verification-results/installed-package/20260729T164102.343512Z-41614-b0285c4b22c8ec1c`.
+- Required zero-skip remote gate, bound to the exact clean revision:
+  `PROTEIN_WORKBENCH_APPROVED_SOURCE_REVISION=489f3c4c75e8d06437af59f39d184d828ac2907b
+  uv run --no-sync python scripts/verify_backend.py live-provider` →
+  `2 passed`, including the required 11 sequence and 11 structure ESM-3 calls
+  plus Biohub folding; retained result
+  `verification-results/live-provider/20260729T164201.011203Z-42084-48d34359345df082`.
+
+Ticket 20 may start only from the committed Controller gate containing this
+evidence.
