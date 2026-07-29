@@ -25,6 +25,7 @@ from core import build_discovered_frozen_catalog
 from protein_workbench_public import (
     bundle_bytes,
     bundle_digest,
+    prepare_run_event_stream_request,
     prepare_rest_request,
     validate_artifact_response,
     validate_event,
@@ -582,10 +583,14 @@ assert sorted(item.module_id for item in registry.list_all()) == {expected}
             time.sleep(0.05)
         assert entered_marker.is_file()
 
-        websocket_url = (
-            f"ws://127.0.0.1:{port}/api/v2/projects/{project_id}/runs/"
-            f"{interrupted_run_id}/events"
+        stream_request = prepare_run_event_stream_request(
+            {
+                "project_id": project_id,
+                "run_id": interrupted_run_id,
+            }
         )
+        assert stream_request.transport == "websocket"
+        websocket_url = f"ws://127.0.0.1:{port}{stream_request.route}"
         with connect(
             websocket_url,
             open_timeout=5,
@@ -642,8 +647,15 @@ assert sorted(item.module_id for item in registry.list_all()) == {expected}
             "interrupted"
         )
 
+        resumed_stream_request = prepare_run_event_stream_request(
+            {
+                "project_id": project_id,
+                "run_id": interrupted_run_id,
+                "after_sequence": resume_cursor,
+            }
+        )
         with connect(
-            f"{websocket_url}?after_sequence={resume_cursor}",
+            f"ws://127.0.0.1:{port}{resumed_stream_request.route}",
             open_timeout=5,
             close_timeout=2,
         ) as websocket:
@@ -703,8 +715,15 @@ assert sorted(item.module_id for item in registry.list_all()) == {expected}
             output = server.communicate(timeout=5)[0]
             pytest.fail(f"Second installed restart did not recover:\n{output}")
         assert repeated_projection == interrupted_projection
+        repeated_stream_request = prepare_run_event_stream_request(
+            {
+                "project_id": project_id,
+                "run_id": interrupted_run_id,
+                "after_sequence": terminal_cursor,
+            }
+        )
         with connect(
-            f"{websocket_url}?after_sequence={terminal_cursor}",
+            f"ws://127.0.0.1:{port}{repeated_stream_request.route}",
             open_timeout=5,
             close_timeout=2,
         ) as websocket:

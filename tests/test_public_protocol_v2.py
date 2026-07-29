@@ -13,11 +13,13 @@ import httpx
 from core.server import create_app
 from protein_workbench_public import (
     PUBLIC_PROTOCOL_NAMESPACE,
+    PreparedEventStreamRequest,
     PreparedRestRequest,
     ProtocolValidationError,
     bundle_bytes,
     bundle_digest,
     load_bundle,
+    prepare_run_event_stream_request,
     prepare_rest_request,
     validate_artifact_response,
     validate_error,
@@ -507,6 +509,28 @@ def test_acceptance_request_is_derived_from_the_bundle_operation() -> None:
         "start_run",
         request,
     ).route
+
+
+def test_event_stream_request_is_derived_from_the_bundle_contract() -> None:
+    assert prepare_run_event_stream_request(
+        {"project_id": "project/1", "run_id": "run/7"}
+    ) == PreparedEventStreamRequest(
+        transport="websocket",
+        route="/api/v2/projects/project%2F1/runs/run%2F7/events",
+        message_schema="#/$defs/RunEventStreamMessage",
+    )
+    assert prepare_run_event_stream_request(
+        {
+            "project_id": "project-1",
+            "run_id": "run-7",
+            "after_sequence": "cursor/1",
+        }
+    ).route == (
+        "/api/v2/projects/project-1/runs/run-7/events"
+        "?after_sequence=cursor%2F1"
+    )
+    with pytest.raises(ProtocolValidationError, match="project_id"):
+        prepare_run_event_stream_request({"run_id": "run-7"})
 
 
 def test_acceptance_client_validates_response_without_backend_imports() -> None:

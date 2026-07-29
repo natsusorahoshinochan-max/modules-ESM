@@ -25,6 +25,7 @@ from core import (
 )
 from core.server import create_app
 from protein_workbench_public import (
+    prepare_run_event_stream_request,
     prepare_rest_request,
     validate_artifact_response,
     validate_event,
@@ -315,8 +316,12 @@ def test_source_public_journey_discovers_compiles_executes_replays_and_retrieves
             expected_status=200,
         )
         assert derived_projection.json()["derived_from_run_id"] == run_id
+        stream_request = prepare_run_event_stream_request(
+            {"project_id": project_id, "run_id": run_id}
+        )
+        assert stream_request.transport == "websocket"
         with client.websocket_connect(
-            f"/api/v2/projects/{project_id}/runs/{run_id}/events"
+            stream_request.route
         ) as websocket:
             replay = []
             try:

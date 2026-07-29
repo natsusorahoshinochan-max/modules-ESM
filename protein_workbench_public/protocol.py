@@ -31,6 +31,15 @@ class PreparedRestRequest:
     json_body: dict[str, Any] | None
 
 
+@dataclass(frozen=True, slots=True)
+class PreparedEventStreamRequest:
+    """One WebSocket request derived from the bundle stream contract."""
+
+    transport: str
+    route: str
+    message_schema: str
+
+
 class ProtocolValidationError(ValueError):
     """A public payload does not conform to the protocol bundle."""
 
@@ -286,6 +295,42 @@ def prepare_rest_request(
         method=operation["method"],
         route=route,
         json_body=body or None,
+    )
+
+
+def prepare_run_event_stream_request(
+    payload: dict[str, Any],
+) -> PreparedEventStreamRequest:
+    """Validate and map a Run Event Stream request from its bundle contract."""
+    stream = _source_bundle().get("run_event_stream")
+    if not isinstance(stream, dict):
+        raise ValueError("Public protocol has no Run Event Stream contract")
+    validate_schema(stream["request_schema"], payload)
+    path_template, separator, query_template = stream["route"].partition("?")
+
+    def render(template: str) -> str:
+        rendered = template
+        for field in re.findall(r"{([A-Za-z0-9_]+)}", template):
+            rendered = rendered.replace(
+                f"{{{field}}}",
+                quote(str(payload[field]), safe=""),
+            )
+        return rendered
+
+    route = render(path_template)
+    if separator:
+        query_parts = []
+        for part in query_template.split("&"):
+            fields = re.findall(r"{([A-Za-z0-9_]+)}", part)
+            if any(field not in payload for field in fields):
+                continue
+            query_parts.append(render(part))
+        if query_parts:
+            route = f"{route}?{'&'.join(query_parts)}"
+    return PreparedEventStreamRequest(
+        transport=stream["transport"],
+        route=route,
+        message_schema=stream["message_schema"],
     )
 
 
