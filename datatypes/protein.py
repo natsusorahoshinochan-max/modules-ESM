@@ -208,6 +208,42 @@ class IntrinsicObservationContext:
 
 
 @dataclass(frozen=True, slots=True)
+class PairwiseParticipant:
+    """One role-labelled Candidate participating in a pairwise observation."""
+
+    role: str
+    candidate_id: str
+    content_digest: str
+
+    def to_public(self) -> dict[str, str]:
+        return {
+            "role": self.role,
+            "candidate_id": self.candidate_id,
+            "content_digest": self.content_digest,
+        }
+
+
+@dataclass(frozen=True, slots=True)
+class PairwiseObservationContext:
+    """Exact subject/reference relationship defining a pairwise observation."""
+
+    subject: PairwiseParticipant
+    reference: PairwiseParticipant
+    pairing_mode: str
+    normalization: str
+    kind: str = "pairwise"
+
+    def to_public(self) -> dict[str, object]:
+        return {
+            "kind": self.kind,
+            "subject": self.subject.to_public(),
+            "reference": self.reference.to_public(),
+            "pairing_mode": self.pairing_mode,
+            "normalization": self.normalization,
+        }
+
+
+@dataclass(frozen=True, slots=True)
 class ScoreObservation:
     """A scientifically typed Candidate measurement.
 
@@ -218,8 +254,9 @@ class ScoreObservation:
     candidate_id: str
     metric: ExactContractReference
     method: ExactContractReference
-    context: IntrinsicObservationContext
+    context: IntrinsicObservationContext | PairwiseObservationContext
     value: object
+    source_partition: str = "default"
 
     @property
     def identity(self) -> tuple[object, ...]:
@@ -264,6 +301,7 @@ class ScoreCollection:
                         "contract_digest": entry.method.contract_digest,
                     },
                     "context": entry.context.to_public(),
+                    "source_partition": entry.source_partition,
                     "value": entry.value,
                 }
                 continue

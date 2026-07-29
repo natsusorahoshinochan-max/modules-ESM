@@ -41,6 +41,7 @@ from core.module_package import (
     MethodDefinition,
     ModulePackageDiscoveryError,
     ModulePackageRegistration,
+    ObservationPropagationDefinition,
     ProducedObservationDefinition,
     ReadinessDeclaration,
     UtilityTransformDefinition,
@@ -77,6 +78,7 @@ from core.run_execution_v2 import (
 )
 from core.run_manifest import RunManifest, RunManifestStore, read_run_manifest
 from core.scoring_v2 import (
+    PairwiseContextSelector,
     SelectionError,
     SelectionInput,
     SelectionObjective,
@@ -123,6 +125,7 @@ __all__ = [
     "ModuleDiscoveryError",
     "ModulePackageDiscoveryError",
     "ModulePackageRegistration",
+    "ObservationPropagationDefinition",
     "ModuleRegistry",
     "MethodDefinition",
     "NodeState",
@@ -131,6 +134,7 @@ __all__ = [
     "PortDefinition",
     "PortTypeDefinition",
     "PortValueError",
+    "PairwiseContextSelector",
     "ProducedObservationDefinition",
     "ProjectManager",
     "ProjectMeta",

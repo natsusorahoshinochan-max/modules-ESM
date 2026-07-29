@@ -26,6 +26,8 @@ from datatypes import (
     ExactContractReference,
     FunctionAnnotations,
     IntrinsicObservationContext,
+    PairwiseObservationContext,
+    PairwiseParticipant,
     ProteinMPNNConstraints,
     ProteinPrompt,
     ProteinSequence,
@@ -152,6 +154,8 @@ _DATACLASS_BY_TAG = {
     "exact_contract_reference": ExactContractReference,
     "function_annotations": FunctionAnnotations,
     "intrinsic_observation_context": IntrinsicObservationContext,
+    "pairwise_observation_context": PairwiseObservationContext,
+    "pairwise_participant": PairwiseParticipant,
     "protein_prompt": ProteinPrompt,
     "protein_sequence": ProteinSequence,
     "protein_structure": ProteinStructure,
@@ -511,6 +515,51 @@ def _validate_domain_value(value: Any, *, path: str) -> None:
             )
         return
 
+    if type(value) is PairwiseParticipant:
+        if value.role not in {"subject", "reference"}:
+            raise PortValueError(
+                f"{path}.role must be subject or reference"
+            )
+        if not value.candidate_id:
+            raise PortValueError(
+                f"{path}.candidate_id must not be empty"
+            )
+        if re.fullmatch(r"sha256:[0-9a-f]{64}", value.content_digest) is None:
+            raise PortValueError(
+                f"{path}.content_digest must be an exact SHA-256 digest"
+            )
+        return
+
+    if type(value) is PairwiseObservationContext:
+        if value.kind != "pairwise":
+            raise PortValueError(
+                f"{path} must use the pairwise Observation Context"
+            )
+        _validate_domain_value(value.subject, path=f"{path}.subject")
+        _validate_domain_value(value.reference, path=f"{path}.reference")
+        if value.subject.role != "subject":
+            raise PortValueError(f"{path}.subject must use the subject role")
+        if value.reference.role != "reference":
+            raise PortValueError(
+                f"{path}.reference must use the reference role"
+            )
+        if value.subject.candidate_id == value.reference.candidate_id:
+            raise PortValueError(
+                f"{path} subject and reference identities must differ"
+            )
+        if value.pairing_mode not in {
+            "fixed_reference",
+            "per_subject_counterpart",
+        }:
+            raise PortValueError(
+                f"{path}.pairing_mode is not a controlled pairing mode"
+            )
+        if not value.normalization:
+            raise PortValueError(
+                f"{path}.normalization must identify the exact normalization"
+            )
+        return
+
     if type(value) is ScoreObservation:
         if not value.candidate_id:
             raise PortValueError(f"{path}.candidate_id must not be empty")
@@ -525,6 +574,17 @@ def _validate_domain_value(value: Any, *, path: str) -> None:
         _validate_domain_value(value.metric, path=f"{path}.metric")
         _validate_domain_value(value.method, path=f"{path}.method")
         _validate_domain_value(value.context, path=f"{path}.context")
+        if not value.source_partition:
+            raise PortValueError(
+                f"{path}.source_partition must identify an exact partition"
+            )
+        if (
+            type(value.context) is PairwiseObservationContext
+            and value.context.subject.candidate_id != value.candidate_id
+        ):
+            raise PortValueError(
+                f"{path}.context subject identity must match candidate_id"
+            )
         return
 
     if type(value) is ScoreCollection:
@@ -711,7 +771,8 @@ def _deduplicated_score_entries(
                 path=f"{path}.entries[{index}].value",
             )
         )
-        existing = typed_by_identity.get(score.identity)
+        partitioned_identity = (score.source_partition, *score.identity)
+        existing = typed_by_identity.get(partitioned_identity)
         if existing is not None:
             if existing != encoded_value:
                 raise PortValueError(
@@ -719,7 +780,7 @@ def _deduplicated_score_entries(
                     "with conflicting values"
                 )
             continue
-        typed_by_identity[score.identity] = encoded_value
+        typed_by_identity[partitioned_identity] = encoded_value
         deduplicated.append(score)
     return deduplicated
 

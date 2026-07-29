@@ -223,11 +223,6 @@ MODULE_PACKAGE = ModulePackageRegistration(
             deterministic=True,
             cacheable=True,
             implementation_identity={"name": "synthetic.echo.direct"},
-            observation_propagation=BehaviorReference(
-                "synthetic.echo/fixed-observations",
-                "2.0.0",
-                {},
-            ),
             produced_observations=(
                 ProducedObservationDefinition(
                     output_port="scores",
@@ -247,7 +242,7 @@ MODULE_PACKAGE = ModulePackageRegistration(
 
 EXPECTED_SYNTHETIC_CONTRACT_DIGESTS = {
     ("binding", "synthetic.echo.direct"): (
-        "sha256:f78090aad2bb6a009a268bf1e439b66f672adaadfe96dd4644ede5fa281de049"
+        "sha256:ed6d00a6bde59f312c58f860f87ab864d054e0d6502085152cadbee257588b0a"
     ),
     ("method", "synthetic.echo"): (
         "sha256:1e44eccb730679996c9c9e2d65c61dc26745a8812c950b62c6c9a5963de2a176"
@@ -624,10 +619,18 @@ def test_binding_rejects_a_context_profile_outside_the_metric_schema(
         invalid_binding = replace(
             binding,
             produced_observations=(
-                replace(
-                    binding.produced_observations[0],
-                    context_profile={"kind": "pairwise"},
-                ),
+                    replace(
+                        binding.produced_observations[0],
+                        context_profile={
+                            "kind": "pairwise",
+                            "subject_role": "subject",
+                            "reference_role": "reference",
+                            "pairing_mode": "fixed_reference",
+                            "normalization": "none",
+                        },
+                        reference_direction="output",
+                        reference_port="candidates",
+                    ),
             ),
         )
         with pytest.raises(

@@ -1,0 +1,1044 @@
+"""Ticket 11 acceptance at the typed scoring, compiler, and selection seams."""
+
+from __future__ import annotations
+
+from dataclasses import replace
+from datetime import datetime, timezone
+
+import pytest
+
+from core import (
+    CatalogContract,
+    CatalogBuildError,
+    FrozenCatalog,
+    ObservationPropagationDefinition,
+    PairwiseContextSelector,
+    SelectionError,
+    SelectionInput,
+    SelectionObjective,
+    ContractIdentity,
+    ProducedObservationDefinition,
+    WorkflowCompileError,
+    WorkflowDocument,
+    WorkflowNodeInstance,
+    compile_workflow,
+    relock_workflow,
+    builtin_frozen_catalog,
+    select_candidates,
+    validate_produced_score_collection,
+)
+from core.port_types import PortValueError
+from core.workflow_v2 import WorkflowEdge as V2WorkflowEdge
+from datatypes import (
+    Candidate,
+    CandidateCollection,
+    ExactContractReference,
+    PairwiseObservationContext,
+    PairwiseParticipant,
+    ProteinSequence,
+    ScoreCollection,
+    ScoreObservation,
+)
+
+
+def _reference(kind: str, contract_id: str) -> ExactContractReference:
+    return ExactContractReference(
+        contract_kind=kind,
+        contract_id=contract_id,
+        contract_version="2.0.0",
+        contract_digest="sha256:" + "1" * 64,
+    )
+
+
+def _contract(
+    kind: str,
+    contract_id: str,
+    descriptor: dict,
+) -> CatalogContract:
+    return CatalogContract(
+        contract_kind=kind,  # type: ignore[arg-type]
+        contract_id=contract_id,
+        contract_version="2.0.0",
+        descriptor={
+            "schema_namespace": "protein-workbench-contract/v2",
+            "contract_kind": kind,
+            "contract_id": contract_id,
+            "contract_version": "2.0.0",
+            **descriptor,
+        },
+    )
+
+
+def _pairwise_catalog() -> tuple[FrozenCatalog, dict[str, CatalogContract]]:
+    builtin = builtin_frozen_catalog()
+    metric = _contract(
+        "metric",
+        "structure.tm_score",
+        {
+            "value_shape": "scalar",
+            "canonical_range": {"minimum": 0, "maximum": 1},
+            "validation_contract": {"finite": True},
+        },
+    )
+    method = _contract("method", "tm-align", {})
+    selector_profile = PairwiseContextSelector(
+        pairing_mode="fixed_reference",
+        normalization="tm-score/reference-length",
+    ).to_public()
+    fixed_utility = _contract(
+        "utility_transform",
+        "tm-score.fixed",
+        {
+            "compatible_input_contract": {
+                "metric": metric.reference(),
+                "method": method.reference(),
+                "context_profile": selector_profile,
+            },
+            "parameters": {},
+        },
+    )
+    paired_utility = _contract(
+        "utility_transform",
+        "tm-score.paired",
+        {
+            "compatible_input_contract": {
+                "metric": metric.reference(),
+                "method": method.reference(),
+                "context_profile": PairwiseContextSelector(
+                    pairing_mode="per_subject_counterpart",
+                    normalization="tm-score/reference-length",
+                ).to_public(),
+            },
+            "parameters": {},
+        },
+    )
+    contracts = {
+        item.contract_id: item
+        for item in (metric, method, fixed_utility, paired_utility)
+    }
+    return (
+        FrozenCatalog(
+            builtin.port_types,
+            contracts=tuple(contracts.values()),
+            availability_observed_at=datetime(
+                2026,
+                7,
+                29,
+                tzinfo=timezone.utc,
+            ),
+            utility_transforms={
+                ("tm-score.fixed", "2.0.0"): lambda value, _: float(value),
+                ("tm-score.paired", "2.0.0"): lambda value, _: float(value),
+            },
+        ),
+        contracts,
+    )
+
+
+def _pairwise_context(
+    *,
+    subject_id: str = "subject-a",
+    reference_id: str = "reference-a",
+) -> PairwiseObservationContext:
+    return PairwiseObservationContext(
+        subject=PairwiseParticipant(
+            role="subject",
+            candidate_id=subject_id,
+            content_digest="sha256:" + "2" * 64,
+        ),
+        reference=PairwiseParticipant(
+            role="reference",
+            candidate_id=reference_id,
+            content_digest="sha256:" + "3" * 64,
+        ),
+        pairing_mode="fixed_reference",
+        normalization="tm-score/reference-length",
+    )
+
+
+def test_pairwise_context_is_typed_canonical_and_part_of_observation_identity() -> None:
+    score_type = builtin_frozen_catalog().require_port_type(
+        "score.collection",
+        "2.0.0",
+    )
+    context = _pairwise_context()
+    observation = ScoreObservation(
+        candidate_id="subject-a",
+        metric=_reference("metric", "structure.tm_score"),
+        method=_reference("method", "tm-align"),
+        context=context,
+        value=0.8,
+        source_partition="fixed-reference",
+    )
+
+    decoded = score_type.decode(
+        score_type.encode(ScoreCollection("pairwise-scores", [observation]))
+    )
+
+    assert decoded.entries == [observation]
+    assert context.to_public() == {
+        "kind": "pairwise",
+        "subject": {
+            "role": "subject",
+            "candidate_id": "subject-a",
+            "content_digest": "sha256:" + "2" * 64,
+        },
+        "reference": {
+            "role": "reference",
+            "candidate_id": "reference-a",
+            "content_digest": "sha256:" + "3" * 64,
+        },
+        "pairing_mode": "fixed_reference",
+        "normalization": "tm-score/reference-length",
+    }
+    assert replace(observation, value=0.2).identity == observation.identity
+    assert (
+        replace(
+            observation,
+            context=_pairwise_context(reference_id="reference-b"),
+        ).identity
+        != observation.identity
+    )
+
+
+@pytest.mark.parametrize(
+    ("context", "message"),
+    [
+        (
+            replace(
+                _pairwise_context(),
+                subject=PairwiseParticipant(
+                    role="reference",
+                    candidate_id="subject-a",
+                    content_digest="sha256:" + "2" * 64,
+                ),
+            ),
+            "subject role",
+        ),
+        (
+            replace(
+                _pairwise_context(),
+                reference=PairwiseParticipant(
+                    role="reference",
+                    candidate_id="reference-a",
+                    content_digest="not-a-digest",
+                ),
+            ),
+            "content_digest",
+        ),
+    ],
+)
+def test_pairwise_context_fails_closed_on_invalid_roles_or_identity(
+    context: PairwiseObservationContext,
+    message: str,
+) -> None:
+    score_type = builtin_frozen_catalog().require_port_type(
+        "score.collection",
+        "2.0.0",
+    )
+    observation = ScoreObservation(
+        candidate_id="subject-a",
+        metric=_reference("metric", "structure.tm_score"),
+        method=_reference("method", "tm-align"),
+        context=context,
+        value=0.8,
+        source_partition="fixed-reference",
+    )
+
+    with pytest.raises(PortValueError, match=message):
+        score_type.encode(ScoreCollection("pairwise-scores", [observation]))
+
+
+def _pairwise_observation(
+    *,
+    catalog: FrozenCatalog,
+    contracts: dict[str, CatalogContract],
+    subject: Candidate,
+    reference: Candidate,
+    pairing_mode: str,
+    source_partition: str,
+    value: float,
+) -> ScoreObservation:
+    candidate_type = catalog.require_port_type("protein.sequence", "2.0.0")
+    reference_type = catalog.require_port_type("protein.sequence", "2.0.0")
+    return ScoreObservation(
+        candidate_id=subject.candidate_id,
+        metric=_reference_from_contract(contracts["structure.tm_score"]),
+        method=_reference_from_contract(contracts["tm-align"]),
+        context=PairwiseObservationContext(
+            subject=PairwiseParticipant(
+                role="subject",
+                candidate_id=subject.candidate_id,
+                content_digest=candidate_type.content_digest(subject.data),
+            ),
+            reference=PairwiseParticipant(
+                role="reference",
+                candidate_id=reference.candidate_id,
+                content_digest=reference_type.content_digest(reference.data),
+            ),
+            pairing_mode=pairing_mode,
+            normalization="tm-score/reference-length",
+        ),
+        value=value,
+        source_partition=source_partition,
+    )
+
+
+def _reference_from_contract(
+    contract: CatalogContract,
+) -> ExactContractReference:
+    value = contract.reference()
+    return ExactContractReference(
+        contract_kind=value["contract_kind"],
+        contract_id=value["contract_id"],
+        contract_version=value["contract_version"],
+        contract_digest=value["contract_digest"],
+    )
+
+
+def _objective(
+    contracts: dict[str, CatalogContract],
+    *,
+    objective_id: str,
+    partition: str,
+    pairing_mode: str,
+    utility: str,
+) -> SelectionObjective:
+    return SelectionObjective(
+        objective_id=objective_id,
+        candidate_input=SelectionInput("subjects", "candidates"),
+        score_collection_input=SelectionInput("scorer", "scores"),
+        source_partition=partition,
+        metric=_reference_from_contract(contracts["structure.tm_score"]),
+        method=_reference_from_contract(contracts["tm-align"]),
+        context_selector=PairwiseContextSelector(
+            pairing_mode=pairing_mode,
+            normalization="tm-score/reference-length",
+        ),
+        utility_transform=_reference_from_contract(contracts[utility]),
+        utility_parameters={},
+        weight=1,
+    )
+
+
+def test_fixed_and_per_subject_partitions_never_cross_match() -> None:
+    catalog, contracts = _pairwise_catalog()
+    subject_a = Candidate("subject-a", data=ProteinSequence("AA"))
+    subject_b = Candidate("subject-b", data=ProteinSequence("GG"))
+    fixed_reference = Candidate(
+        "reference-fixed",
+        data=ProteinSequence("AG"),
+    )
+    reference_a = Candidate(
+        "reference-a",
+        data=ProteinSequence("AT"),
+    )
+    reference_b = Candidate(
+        "reference-b",
+        data=ProteinSequence("GT"),
+    )
+    candidates = CandidateCollection(
+        "subjects",
+        "protein.sequence",
+        [subject_a, subject_b],
+    )
+    scores = ScoreCollection(
+        "overlapping-pairwise-scores",
+        [
+            _pairwise_observation(
+                catalog=catalog,
+                contracts=contracts,
+                subject=subject_a,
+                reference=fixed_reference,
+                pairing_mode="fixed_reference",
+                source_partition="fixed-reference",
+                value=0.9,
+            ),
+            _pairwise_observation(
+                catalog=catalog,
+                contracts=contracts,
+                subject=subject_b,
+                reference=fixed_reference,
+                pairing_mode="fixed_reference",
+                source_partition="fixed-reference",
+                value=0.1,
+            ),
+            _pairwise_observation(
+                catalog=catalog,
+                contracts=contracts,
+                subject=subject_a,
+                reference=reference_a,
+                pairing_mode="per_subject_counterpart",
+                source_partition="per-subject",
+                value=0.1,
+            ),
+            _pairwise_observation(
+                catalog=catalog,
+                contracts=contracts,
+                subject=subject_b,
+                reference=reference_b,
+                pairing_mode="per_subject_counterpart",
+                source_partition="per-subject",
+                value=0.9,
+            ),
+        ],
+    )
+    inputs = {
+        SelectionInput("subjects", "candidates"): candidates,
+    }
+    score_inputs = {
+        SelectionInput("scorer", "scores"): scores,
+    }
+
+    fixed = select_candidates(
+        candidate_inputs=inputs,
+        score_collection_inputs=score_inputs,
+        objectives=(
+            _objective(
+                contracts,
+                objective_id="fixed",
+                partition="fixed-reference",
+                pairing_mode="fixed_reference",
+                utility="tm-score.fixed",
+            ),
+        ),
+        catalog=catalog,
+        limit=1,
+    )
+    paired = select_candidates(
+        candidate_inputs=inputs,
+        score_collection_inputs=score_inputs,
+        objectives=(
+            _objective(
+                contracts,
+                objective_id="paired",
+                partition="per-subject",
+                pairing_mode="per_subject_counterpart",
+                utility="tm-score.paired",
+            ),
+        ),
+        catalog=catalog,
+        limit=1,
+    )
+
+    assert [item.candidate_id for item in fixed.candidates.items] == ["subject-a"]
+    assert [item.candidate_id for item in paired.candidates.items] == ["subject-b"]
+
+
+def test_pairwise_selection_fails_closed_on_zero_or_multiple_counterparts() -> None:
+    catalog, contracts = _pairwise_catalog()
+    subject = Candidate(
+        "subject-a",
+        data=ProteinSequence("AA"),
+    )
+    reference_a = Candidate(
+        "reference-a",
+        data=ProteinSequence("AT"),
+    )
+    reference_b = Candidate(
+        "reference-b",
+        data=ProteinSequence("AG"),
+    )
+    objective = _objective(
+        contracts,
+        objective_id="paired",
+        partition="per-subject",
+        pairing_mode="per_subject_counterpart",
+        utility="tm-score.paired",
+    )
+    candidates = CandidateCollection(
+        "subjects",
+        "protein.sequence",
+        [subject],
+    )
+    inputs = {SelectionInput("subjects", "candidates"): candidates}
+    score_input = SelectionInput("scorer", "scores")
+
+    with pytest.raises(SelectionError, match="missing observation"):
+        select_candidates(
+            candidate_inputs=inputs,
+            score_collection_inputs={
+                score_input: ScoreCollection(
+                    "wrong-partition",
+                    [
+                        _pairwise_observation(
+                            catalog=catalog,
+                            contracts=contracts,
+                            subject=subject,
+                            reference=reference_a,
+                            pairing_mode="per_subject_counterpart",
+                            source_partition="other",
+                            value=0.5,
+                        )
+                    ],
+                )
+            },
+            objectives=(objective,),
+            catalog=catalog,
+            limit=1,
+        )
+
+    with pytest.raises(SelectionError, match="exactly one"):
+        select_candidates(
+            candidate_inputs=inputs,
+            score_collection_inputs={
+                score_input: ScoreCollection(
+                    "ambiguous",
+                    [
+                        _pairwise_observation(
+                            catalog=catalog,
+                            contracts=contracts,
+                            subject=subject,
+                            reference=reference_a,
+                            pairing_mode="per_subject_counterpart",
+                            source_partition="per-subject",
+                            value=0.5,
+                        ),
+                        _pairwise_observation(
+                            catalog=catalog,
+                            contracts=contracts,
+                            subject=subject,
+                            reference=reference_b,
+                            pairing_mode="per_subject_counterpart",
+                            source_partition="per-subject",
+                            value=0.5,
+                        ),
+                    ],
+                )
+            },
+            objectives=(objective,),
+            catalog=catalog,
+            limit=1,
+        )
+
+
+def _pairwise_binding(
+    contracts: dict[str, CatalogContract],
+) -> CatalogContract:
+    return _contract(
+        "binding",
+        "score.tm.pairwise",
+        {
+            "method": contracts["tm-align"].reference(),
+            "produced_observations": [
+                {
+                    "output_port": "scores",
+                    "output_partition": "per-subject",
+                    "metric": contracts["structure.tm_score"].reference(),
+                    "context_profile": PairwiseContextSelector(
+                        pairing_mode="per_subject_counterpart",
+                        normalization="tm-score/reference-length",
+                    ).to_public(),
+                    "subject_grain": "candidate",
+                    "source_role": "subject",
+                    "subject_direction": "input",
+                    "subject_port": "subjects",
+                    "reference_direction": "input",
+                    "reference_port": "counterparts",
+                    "guaranteed_multiplicity": "one",
+                }
+            ],
+            "observation_propagation": None,
+        },
+    )
+
+
+def test_pairwise_output_requires_exact_subject_and_reference_candidates() -> None:
+    catalog, contracts = _pairwise_catalog()
+    subject = Candidate("subject-a", ProteinSequence("AA"))
+    reference = Candidate("reference-a", ProteinSequence("AT"))
+    impostor = Candidate("reference-b", ProteinSequence("AG"))
+    observation = _pairwise_observation(
+        catalog=catalog,
+        contracts=contracts,
+        subject=subject,
+        reference=reference,
+        pairing_mode="per_subject_counterpart",
+        source_partition="per-subject",
+        value=0.7,
+    )
+    inputs = {
+        "subjects": CandidateCollection(
+            "subjects",
+            "protein.sequence",
+            [subject],
+        ),
+        "counterparts": CandidateCollection(
+            "counterparts",
+            "protein.sequence",
+            [reference],
+        ),
+    }
+
+    validate_produced_score_collection(
+        catalog=catalog,
+        binding=_pairwise_binding(contracts),
+        output_port="scores",
+        collection=ScoreCollection("pairwise", [observation]),
+        inputs=inputs,
+        outputs={},
+    )
+
+    with pytest.raises(PortValueError, match="reference source"):
+        validate_produced_score_collection(
+            catalog=catalog,
+            binding=_pairwise_binding(contracts),
+            output_port="scores",
+            collection=ScoreCollection("pairwise", [observation]),
+            inputs={
+                **inputs,
+                "counterparts": CandidateCollection(
+                    "counterparts",
+                    "protein.sequence",
+                    [impostor],
+                ),
+            },
+            outputs={},
+        )
+
+
+def test_per_subject_pairing_rejects_one_global_implicit_reference() -> None:
+    catalog, contracts = _pairwise_catalog()
+    subject_a = Candidate("subject-a", ProteinSequence("AA"))
+    subject_b = Candidate("subject-b", ProteinSequence("GG"))
+    shared_reference = Candidate("reference-a", ProteinSequence("AT"))
+    scores = ScoreCollection(
+        "invalid-global-reference",
+        [
+            _pairwise_observation(
+                catalog=catalog,
+                contracts=contracts,
+                subject=subject,
+                reference=shared_reference,
+                pairing_mode="per_subject_counterpart",
+                source_partition="per-subject",
+                value=value,
+            )
+            for subject, value in ((subject_a, 0.7), (subject_b, 0.8))
+        ],
+    )
+
+    with pytest.raises(PortValueError, match="distinct exact counterpart"):
+        validate_produced_score_collection(
+            catalog=catalog,
+            binding=_pairwise_binding(contracts),
+            output_port="scores",
+            collection=scores,
+            inputs={
+                "subjects": CandidateCollection(
+                    "subjects",
+                    "protein.sequence",
+                    [subject_a, subject_b],
+                ),
+                "counterparts": CandidateCollection(
+                    "counterparts",
+                    "protein.sequence",
+                    [shared_reference],
+                ),
+            },
+            outputs={},
+        )
+
+
+def test_controlled_union_preserves_partitions_and_rejects_invented_entries() -> None:
+    catalog, contracts = _pairwise_catalog()
+    subject = Candidate("subject-a", ProteinSequence("AA"))
+    reference = Candidate("reference-a", ProteinSequence("AT"))
+    fixed = _pairwise_observation(
+        catalog=catalog,
+        contracts=contracts,
+        subject=subject,
+        reference=reference,
+        pairing_mode="fixed_reference",
+        source_partition="fixed-reference",
+        value=0.4,
+    )
+    paired = replace(
+        fixed,
+        context=replace(
+            fixed.context,
+            pairing_mode="per_subject_counterpart",
+        ),
+        source_partition="per-subject",
+        value=0.8,
+    )
+    binding = _contract(
+        "binding",
+        "score.union",
+        {
+            "method": contracts["tm-align"].reference(),
+            "produced_observations": [],
+            "observation_propagation": {
+                "schema_version": "2.0.0",
+                "mode": "union",
+                "output_port": "scores",
+                "input_ports": ["left", "right"],
+                "filter": None,
+            },
+        },
+    )
+    inputs = {
+        "left": ScoreCollection("left", [fixed]),
+        "right": ScoreCollection("right", [paired]),
+    }
+
+    validate_produced_score_collection(
+        catalog=catalog,
+        binding=binding,
+        output_port="scores",
+        collection=ScoreCollection("union", [fixed, paired]),
+        inputs=inputs,
+        outputs={},
+    )
+
+    with pytest.raises(PortValueError, match="invent"):
+        validate_produced_score_collection(
+            catalog=catalog,
+            binding=binding,
+            output_port="scores",
+            collection=ScoreCollection(
+                "union",
+                [fixed, replace(paired, source_partition="invented")],
+            ),
+            inputs=inputs,
+            outputs={},
+        )
+
+
+def test_controlled_filter_publishes_every_exact_matching_observation() -> None:
+    catalog, contracts = _pairwise_catalog()
+    subject = Candidate("subject-a", ProteinSequence("AA"))
+    reference = Candidate("reference-a", ProteinSequence("AT"))
+    fixed = _pairwise_observation(
+        catalog=catalog,
+        contracts=contracts,
+        subject=subject,
+        reference=reference,
+        pairing_mode="fixed_reference",
+        source_partition="fixed-reference",
+        value=0.4,
+    )
+    paired = replace(
+        fixed,
+        context=replace(
+            fixed.context,
+            pairing_mode="per_subject_counterpart",
+        ),
+        source_partition="per-subject",
+        value=0.8,
+    )
+    binding = _contract(
+        "binding",
+        "score.filter",
+        {
+            "method": contracts["tm-align"].reference(),
+            "produced_observations": [],
+            "observation_propagation": {
+                "schema_version": "2.0.0",
+                "mode": "filter",
+                "output_port": "scores",
+                "input_ports": ["source"],
+                "filter": {"source_partition": "fixed-reference"},
+            },
+        },
+    )
+    inputs = {"source": ScoreCollection("source", [fixed, paired])}
+
+    validate_produced_score_collection(
+        catalog=catalog,
+        binding=binding,
+        output_port="scores",
+        collection=ScoreCollection("filtered", [fixed]),
+        inputs=inputs,
+        outputs={},
+    )
+
+    with pytest.raises(PortValueError, match="exact filter result"):
+        validate_produced_score_collection(
+            catalog=catalog,
+            binding=binding,
+            output_port="scores",
+            collection=ScoreCollection("filtered", []),
+            inputs=inputs,
+            outputs={},
+        )
+
+
+def test_produced_pairwise_and_propagation_contracts_are_closed_descriptors() -> None:
+    produced = ProducedObservationDefinition(
+        output_port="scores",
+        output_partition="per-subject",
+        metric=ContractIdentity(
+            "metric",
+            "structure.tm_score",
+            "2.0.0",
+        ),
+        context_profile={
+            "kind": "pairwise",
+            "subject_role": "subject",
+            "reference_role": "reference",
+            "pairing_mode": "per_subject_counterpart",
+            "normalization": "tm-score/reference-length",
+        },
+        subject_grain="candidate",
+        source_role="subject",
+        subject_direction="input",
+        subject_port="subjects",
+        reference_direction="input",
+        reference_port="counterparts",
+        guaranteed_multiplicity="one",
+    )
+    propagation = ObservationPropagationDefinition(
+        mode="union",
+        output_port="scores",
+        input_ports=("fixed_scores", "paired_scores"),
+    )
+
+    assert produced.descriptor_template()["output_partition"] == "per-subject"
+    assert produced.descriptor_template()["reference_port"] == "counterparts"
+    assert propagation.descriptor_template() == {
+        "schema_version": "2.0.0",
+        "mode": "union",
+        "output_port": "scores",
+        "input_ports": ("fixed_scores", "paired_scores"),
+        "filter": None,
+    }
+
+    with pytest.raises(CatalogBuildError, match="at least two"):
+        ObservationPropagationDefinition(
+            mode="union",
+            output_port="scores",
+            input_ports=("scores",),
+        )
+
+    with pytest.raises(CatalogBuildError, match="both reference"):
+        replace(produced, reference_port=None)
+
+
+def _compiler_catalog() -> tuple[FrozenCatalog, dict[str, CatalogContract]]:
+    base, scoring = _pairwise_catalog()
+    candidate_type = base.require_port_type("candidate.collection", "2.0.0")
+    score_type = base.require_port_type("score.collection", "2.0.0")
+    producer_node = _contract(
+        "node_type",
+        "score.pairwise.producer",
+        {
+            "inputs": [],
+            "outputs": [
+                {
+                    "name": "candidates",
+                    "port_type": candidate_type.reference(),
+                    "required": True,
+                    "multiplicity": "one",
+                },
+                {
+                    "name": "references",
+                    "port_type": candidate_type.reference(),
+                    "required": True,
+                    "multiplicity": "one",
+                },
+                {
+                    "name": "scores",
+                    "port_type": score_type.reference(),
+                    "required": True,
+                    "multiplicity": "one",
+                },
+            ],
+            "node_parameters": {},
+        },
+    )
+    union_node = _contract(
+        "node_type",
+        "score.partition.union",
+        {
+            "inputs": [
+                {
+                    "name": "left",
+                    "port_type": score_type.reference(),
+                    "required": True,
+                    "multiplicity": "one",
+                },
+                {
+                    "name": "right",
+                    "port_type": score_type.reference(),
+                    "required": True,
+                    "multiplicity": "one",
+                },
+            ],
+            "outputs": [
+                {
+                    "name": "scores",
+                    "port_type": score_type.reference(),
+                    "required": True,
+                    "multiplicity": "one",
+                }
+            ],
+            "node_parameters": {},
+        },
+    )
+    producer_binding = _contract(
+        "binding",
+        "score.pairwise.producer.direct",
+        {
+            "node_type": producer_node.reference(),
+            "method": scoring["tm-align"].reference(),
+            "binding_parameters": {},
+            "produced_observations": [
+                {
+                    "output_port": "scores",
+                    "output_partition": "fixed-reference",
+                    "metric": scoring["structure.tm_score"].reference(),
+                    "context_profile": PairwiseContextSelector(
+                        pairing_mode="fixed_reference",
+                        normalization="tm-score/reference-length",
+                    ).to_public(),
+                    "subject_grain": "candidate",
+                    "source_role": "subject",
+                    "subject_direction": "output",
+                    "subject_port": "candidates",
+                    "reference_direction": "output",
+                    "reference_port": "references",
+                    "guaranteed_multiplicity": "one",
+                },
+                {
+                    "output_port": "scores",
+                    "output_partition": "per-subject",
+                    "metric": scoring["structure.tm_score"].reference(),
+                    "context_profile": PairwiseContextSelector(
+                        pairing_mode="per_subject_counterpart",
+                        normalization="tm-score/reference-length",
+                    ).to_public(),
+                    "subject_grain": "candidate",
+                    "source_role": "subject",
+                    "subject_direction": "output",
+                    "subject_port": "candidates",
+                    "reference_direction": "output",
+                    "reference_port": "references",
+                    "guaranteed_multiplicity": "one",
+                },
+            ],
+            "observation_propagation": None,
+        },
+    )
+    union_binding = _contract(
+        "binding",
+        "score.partition.union.direct",
+        {
+            "node_type": union_node.reference(),
+            "method": scoring["tm-align"].reference(),
+            "binding_parameters": {},
+            "produced_observations": [],
+            "observation_propagation": {
+                "schema_version": "2.0.0",
+                "mode": "union",
+                "output_port": "scores",
+                "input_ports": ["left", "right"],
+                "filter": None,
+            },
+        },
+    )
+    contracts = {
+        **scoring,
+        producer_node.contract_id: producer_node,
+        union_node.contract_id: union_node,
+        producer_binding.contract_id: producer_binding,
+        union_binding.contract_id: union_binding,
+    }
+    availability = tuple(
+        {
+            "binding": binding.reference(),
+            "observed_at": "2026-07-29T00:00:00Z",
+            "available": True,
+        }
+        for binding in (producer_binding, union_binding)
+    )
+    return (
+        replace(
+            base,
+            contracts=tuple(contracts.values()),
+            availability=availability,
+        ),
+        contracts,
+    )
+
+
+def _compiler_workflow(
+    contracts: dict[str, CatalogContract],
+    *,
+    source_partition: str = "fixed-reference",
+) -> WorkflowDocument:
+    return WorkflowDocument(
+        schema_version="2.0.0",
+        workflow_id="pairwise-capability",
+        nodes=(
+            WorkflowNodeInstance(
+                node_id="producer",
+                node_type_id="score.pairwise.producer",
+                node_type_version="2.0.0",
+                binding_id="score.pairwise.producer.direct",
+                binding_version="2.0.0",
+                node_parameters={},
+                binding_parameters={},
+            ),
+            WorkflowNodeInstance(
+                node_id="union",
+                node_type_id="score.partition.union",
+                node_type_version="2.0.0",
+                binding_id="score.partition.union.direct",
+                binding_version="2.0.0",
+                node_parameters={},
+                binding_parameters={},
+            ),
+        ),
+        edges=(
+            V2WorkflowEdge("producer", "scores", "union", "left"),
+            V2WorkflowEdge("producer", "scores", "union", "right"),
+        ),
+        contract_lock=(),
+        selection_objectives=(
+            replace(
+                _objective(
+                    contracts,
+                    objective_id="fixed",
+                    partition=source_partition,
+                    pairing_mode="fixed_reference",
+                    utility="tm-score.fixed",
+                ),
+                candidate_input=SelectionInput("producer", "candidates"),
+                score_collection_input=SelectionInput("union", "scores"),
+            ),
+        ),
+    )
+
+
+def test_compiler_derives_exact_capability_through_controlled_union() -> None:
+    catalog, contracts = _compiler_catalog()
+    workflow = _compiler_workflow(contracts)
+
+    compiled = compile_workflow(
+        relock_workflow(workflow, catalog),
+        workflow_revision=1,
+        catalog=catalog,
+    )
+
+    assert compiled.execution_plan.selection_objectives[0].source_partition == (
+        "fixed-reference"
+    )
+
+
+def test_compiler_rejects_unknown_partition_before_any_provider_invocation() -> None:
+    catalog, contracts = _compiler_catalog()
+    workflow = _compiler_workflow(
+        contracts,
+        source_partition="global-reference",
+    )
+
+    with pytest.raises(
+        WorkflowCompileError,
+        match="cannot guarantee",
+    ):
+        compile_workflow(
+            relock_workflow(workflow, catalog),
+            workflow_revision=1,
+            catalog=catalog,
+        )

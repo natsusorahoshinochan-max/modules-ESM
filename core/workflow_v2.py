@@ -14,7 +14,12 @@ from core.parameter_contract import (
     parameter_contract_violation,
     parameter_value_contract,
 )
-from core.port_types import CatalogBuildError, FrozenCatalog, canonical_sha256
+from core.port_types import (
+    CatalogBuildError,
+    FrozenCatalog,
+    canonical_json_bytes,
+    canonical_sha256,
+)
 from core.scoring_v2 import (
     SelectionError,
     SelectionObjective,
@@ -736,6 +741,7 @@ def _validate_static_semantics(
         catalog,
         nodes_by_id=nodes_by_id,
         plan_nodes=plan_nodes,
+        node_order=tuple(order),
     )
 
     availability = {
@@ -763,6 +769,7 @@ def _validate_selection_objectives(
     *,
     nodes_by_id: Mapping[str, WorkflowNodeInstance],
     plan_nodes: Mapping[str, tuple[Any, Any]],
+    node_order: tuple[str, ...],
 ) -> None:
     objectives = workflow.selection_objectives
     objective_ids = [objective.objective_id for objective in objectives]
@@ -796,6 +803,11 @@ def _validate_selection_objectives(
             "Weighted Selection Objectives must use one exact Candidate input",
             field_path=("selection_objectives",),
         )
+    capabilities = _derive_observation_capabilities(
+        workflow,
+        plan_nodes=plan_nodes,
+        node_order=node_order,
+    )
     for index, objective in enumerate(objectives):
         objective_path = ("selection_objectives", index)
         input_contracts: dict[str, Any] = {}
@@ -837,69 +849,68 @@ def _validate_selection_objectives(
                 )
             input_contracts[field_name] = (node_contract, binding, output)
 
-        _, scoring_binding, _ = input_contracts["score_collection_input"]
         requested_method = {
             "contract_kind": "method",
             "contract_id": objective.method.contract_id,
             "contract_version": objective.method.contract_version,
             "contract_digest": objective.method.contract_digest,
         }
-        if scoring_binding.descriptor.get("method") != requested_method:
-            raise WorkflowCompileError(
-                "unsatisfied_selection_objective",
-                "Selected scoring Binding does not use requested Method",
-                node_id=objective.score_collection_input.node_id,
-                field_path=(*objective_path, "method"),
-            )
         requested_metric = {
             "contract_kind": "metric",
             "contract_id": objective.metric.contract_id,
             "contract_version": objective.metric.contract_version,
             "contract_digest": objective.metric.contract_digest,
         }
+        output_capabilities = capabilities.get(
+            (
+                objective.score_collection_input.node_id,
+                objective.score_collection_input.output_port,
+            ),
+            (),
+        )
         produced = [
-            declaration
-            for declaration in scoring_binding.descriptor.get(
-                "produced_observations",
-                (),
-            )
-            if declaration.get("output_port")
-            == objective.score_collection_input.output_port
-            and declaration.get("metric") == requested_metric
-            and declaration.get("context_profile")
+            capability
+            for capability in output_capabilities
+            if capability.get("source_partition")
+            == objective.source_partition
+            and capability.get("metric") == requested_metric
+            and capability.get("method") == requested_method
+            and capability.get("context_profile")
             == objective.context_selector.to_public()
-            and declaration.get("subject_grain") == "candidate"
-            and declaration.get("source_role") == "subject"
-            and declaration.get("guaranteed_multiplicity") == "one"
+            and capability.get("subject_grain") == "candidate"
+            and capability.get("source_role") == "subject"
+            and capability.get("guaranteed_multiplicity") == "one"
+            and capability.get("subject_source")
+            == objective.candidate_input.to_public()
             and (
-                (
-                    declaration.get("subject_direction") == "output"
-                    and objective.candidate_input.node_id
-                    == objective.score_collection_input.node_id
-                    and declaration.get("subject_port")
-                    == objective.candidate_input.output_port
-                )
-                or (
-                    declaration.get("subject_direction") == "input"
-                    and any(
-                        edge.source_node_id
-                        == objective.candidate_input.node_id
-                        and edge.source_port
-                        == objective.candidate_input.output_port
-                        and edge.target_node_id
-                        == objective.score_collection_input.node_id
-                        and edge.target_port
-                        == declaration.get("subject_port")
-                        for edge in workflow.edges
-                    )
-                )
+                objective.context_selector.to_public().get("kind")
+                != "pairwise"
+                or capability.get("reference_source") is not None
             )
         ]
         if len(produced) != 1:
+            if any(
+                capability.get("source_partition")
+                == objective.source_partition
+                and capability.get("metric") == requested_metric
+                and capability.get("context_profile")
+                == objective.context_selector.to_public()
+                and capability.get("subject_source")
+                == objective.candidate_input.to_public()
+                and capability.get("method") != requested_method
+                for capability in output_capabilities
+            ):
+                raise WorkflowCompileError(
+                    "unsatisfied_selection_objective",
+                    "Exact output capability does not use requested Method",
+                    node_id=objective.score_collection_input.node_id,
+                    field_path=(*objective_path, "method"),
+                )
             raise WorkflowCompileError(
                 "unsatisfied_selection_objective",
                 "Selected scoring Binding cannot guarantee the requested "
-                "intrinsic Observation with exactly-one multiplicity",
+                "Observation in the exact source partition with exactly-one "
+                "multiplicity",
                 node_id=objective.score_collection_input.node_id,
                 field_path=(*objective_path, "metric"),
             )
@@ -911,6 +922,160 @@ def _validate_selection_objectives(
                 str(error),
                 field_path=objective_path,
             ) from error
+
+
+def _connected_source(
+    workflow: WorkflowDocument,
+    *,
+    node_id: str,
+    input_port: str,
+) -> dict[str, str] | None:
+    sources = [
+        {
+            "node_id": edge.source_node_id,
+            "output_port": edge.source_port,
+        }
+        for edge in workflow.edges
+        if edge.target_node_id == node_id
+        and edge.target_port == input_port
+    ]
+    return sources[0] if len(sources) == 1 else None
+
+
+def _capability_source(
+    workflow: WorkflowDocument,
+    *,
+    node_id: str,
+    direction: object,
+    port: object,
+) -> dict[str, str] | None:
+    if not isinstance(port, str):
+        return None
+    if direction == "output":
+        return {"node_id": node_id, "output_port": port}
+    if direction == "input":
+        return _connected_source(
+            workflow,
+            node_id=node_id,
+            input_port=port,
+        )
+    return None
+
+
+def _capability_matches_filter(
+    capability: Mapping[str, Any],
+    filter_descriptor: Mapping[str, Any],
+) -> bool:
+    for name in (
+        "source_partition",
+        "metric",
+        "method",
+        "context_profile",
+    ):
+        expected = filter_descriptor.get(name)
+        if expected is not None and capability.get(name) != expected:
+            return False
+    return True
+
+
+def _derive_observation_capabilities(
+    workflow: WorkflowDocument,
+    *,
+    plan_nodes: Mapping[str, tuple[Any, Any]],
+    node_order: tuple[str, ...],
+) -> dict[tuple[str, str], tuple[Mapping[str, Any], ...]]:
+    """Derive exact output capabilities from closed fixed/propagation contracts."""
+    capabilities: dict[
+        tuple[str, str],
+        tuple[Mapping[str, Any], ...],
+    ] = {}
+    for node_id in node_order:
+        _, binding = plan_nodes[node_id]
+        method = binding.descriptor.get("method")
+        for declaration in binding.descriptor.get(
+            "produced_observations",
+            (),
+        ):
+            output_port = declaration.get("output_port")
+            if not isinstance(output_port, str):
+                continue
+            capability = {
+                "source_partition": declaration.get(
+                    "output_partition",
+                    "default",
+                ),
+                "metric": declaration.get("metric"),
+                "method": method,
+                "context_profile": declaration.get("context_profile"),
+                "subject_grain": declaration.get("subject_grain"),
+                "source_role": declaration.get("source_role"),
+                "guaranteed_multiplicity": declaration.get(
+                    "guaranteed_multiplicity"
+                ),
+                "subject_source": _capability_source(
+                    workflow,
+                    node_id=node_id,
+                    direction=declaration.get("subject_direction"),
+                    port=declaration.get("subject_port"),
+                ),
+                "reference_source": _capability_source(
+                    workflow,
+                    node_id=node_id,
+                    direction=declaration.get("reference_direction"),
+                    port=declaration.get("reference_port"),
+                ),
+            }
+            key = (node_id, output_port)
+            capabilities[key] = (*capabilities.get(key, ()), capability)
+
+        propagation = binding.descriptor.get("observation_propagation")
+        if not isinstance(propagation, Mapping):
+            continue
+        output_port = propagation.get("output_port")
+        input_ports = propagation.get("input_ports")
+        mode = propagation.get("mode")
+        if (
+            not isinstance(output_port, str)
+            or not isinstance(input_ports, (list, tuple))
+            or propagation.get("schema_version") != "2.0.0"
+            or mode not in {"pass_through", "union", "filter"}
+        ):
+            continue
+        propagated: list[Mapping[str, Any]] = []
+        for input_port in input_ports:
+            if not isinstance(input_port, str):
+                continue
+            sources = [
+                edge
+                for edge in workflow.edges
+                if edge.target_node_id == node_id
+                and edge.target_port == input_port
+            ]
+            for edge in sources:
+                propagated.extend(
+                    capabilities.get(
+                        (edge.source_node_id, edge.source_port),
+                        (),
+                    )
+                )
+        if mode == "filter":
+            filter_descriptor = propagation.get("filter")
+            if not isinstance(filter_descriptor, Mapping):
+                propagated = []
+            else:
+                propagated = [
+                    capability
+                    for capability in propagated
+                    if _capability_matches_filter(
+                        capability,
+                        filter_descriptor,
+                    )
+                ]
+        unique: dict[bytes, Mapping[str, Any]] = {}
+        for capability in propagated:
+            unique[canonical_json_bytes(_thaw_json(capability))] = capability
+        capabilities[(node_id, output_port)] = tuple(unique.values())
+    return capabilities
 
 
 def compile_workflow(

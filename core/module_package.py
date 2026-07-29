@@ -404,6 +404,117 @@ class ReadinessDeclaration:
 
 
 @dataclass(frozen=True, slots=True)
+class ObservationPropagationDefinition:
+    """One controlled Score Collection capability propagation operation."""
+
+    mode: Literal["pass_through", "union", "filter"]
+    output_port: str
+    input_ports: tuple[str, ...]
+    filter: Mapping[str, Any] | None = None
+    schema_version: str = "2.0.0"
+
+    def __post_init__(self) -> None:
+        _require_schema_version(
+            self.schema_version,
+            "Observation propagation",
+        )
+        if self.mode not in {"pass_through", "union", "filter"}:
+            raise CatalogBuildError(
+                "unknown Observation propagation mode"
+            )
+        _require_identifier(self.output_port, "output_port")
+        input_ports = tuple(self.input_ports)
+        if (
+            not input_ports
+            or any(not isinstance(name, str) for name in input_ports)
+            or len(input_ports) != len(set(input_ports))
+        ):
+            raise CatalogBuildError(
+                "Observation propagation input Ports must be unique"
+            )
+        for input_port in input_ports:
+            _require_identifier(input_port, "input_port")
+        if (
+            self.mode in {"pass_through", "filter"}
+            and len(input_ports) != 1
+        ):
+            raise CatalogBuildError(
+                f"{self.mode} Observation propagation requires one input Port"
+            )
+        if self.mode == "union" and len(input_ports) < 2:
+            raise CatalogBuildError(
+                "union Observation propagation requires at least two input Ports"
+            )
+        if self.mode == "filter":
+            if not isinstance(self.filter, Mapping) or not self.filter:
+                raise CatalogBuildError(
+                    "filter Observation propagation requires an exact filter"
+                )
+            unknown = set(self.filter) - {
+                "source_partition",
+                "metric",
+                "method",
+                "context_profile",
+            }
+            if unknown:
+                raise CatalogBuildError(
+                    "Observation propagation filter contains unknown fields"
+                )
+            source_partition = self.filter.get("source_partition")
+            if source_partition is not None:
+                _require_identifier(
+                    source_partition,
+                    "filter source_partition",
+                )
+            for name, contract_kind in (
+                ("metric", "metric"),
+                ("method", "method"),
+            ):
+                reference = self.filter.get(name)
+                if (
+                    reference is not None
+                    and (
+                        not isinstance(reference, ContractIdentity)
+                        or reference.contract_kind != contract_kind
+                    )
+                ):
+                    raise CatalogBuildError(
+                        f"Observation propagation filter {name} must be an "
+                        f"exact {contract_kind} contract reference"
+                    )
+            context_profile = self.filter.get("context_profile")
+            if (
+                context_profile is not None
+                and not isinstance(context_profile, Mapping)
+            ):
+                raise CatalogBuildError(
+                    "Observation propagation filter context_profile must be "
+                    "an object"
+                )
+            frozen_filter = _freeze_declaration(
+                self.filter,
+                path="$.observation_propagation.filter",
+            )
+        elif self.filter is not None:
+            raise CatalogBuildError(
+                "only filter Observation propagation accepts a filter"
+            )
+        else:
+            frozen_filter = None
+        object.__setattr__(self, "input_ports", input_ports)
+        object.__setattr__(self, "filter", frozen_filter)
+
+    def descriptor_template(self) -> dict[str, Any]:
+        return {
+            "schema_version": self.schema_version,
+            "mode": self.mode,
+            "output_port": self.output_port,
+            "input_ports": self.input_ports,
+            "filter": self.filter,
+        }
+
+
+@dataclass(frozen=True, slots=True)
 class ProducedObservationDefinition:
     """One closed guaranteed observation emitted by a Binding output."""
 
@@ -419,6 +530,9 @@ class ProducedObservationDefinition:
         "one_or_more",
         "zero_or_more",
     ]
+    output_partition: str = "default"
+    reference_direction: Literal["input", "output"] | None = None
+    reference_port: str | None = None
 
     def __post_init__(self) -> None:
         _require_identifier(self.output_port, "output_port")
@@ -449,16 +563,44 @@ class ProducedObservationDefinition:
             raise CatalogBuildError(
                 "unknown Produced Observation guaranteed multiplicity"
             )
+        _require_identifier(self.output_partition, "output_partition")
+        if (self.reference_direction is None) != (
+            self.reference_port is None
+        ):
+            raise CatalogBuildError(
+                "Produced Observation must declare both reference direction "
+                "and reference Port"
+            )
+        if self.reference_direction is not None:
+            if self.reference_direction not in {"input", "output"}:
+                raise CatalogBuildError(
+                    "Produced Observation reference_direction must be input "
+                    "or output"
+                )
+            _require_identifier(self.reference_port, "reference_port")
+        context_kind = self.context_profile.get("kind")
+        if context_kind == "pairwise" and self.reference_port is None:
+            raise CatalogBuildError(
+                "pairwise Produced Observation requires an exact reference "
+                "Candidate source"
+            )
+        if context_kind != "pairwise" and self.reference_port is not None:
+            raise CatalogBuildError(
+                "only pairwise Produced Observations declare a reference source"
+            )
 
     def descriptor_template(self) -> dict[str, Any]:
         return {
             "output_port": self.output_port,
+            "output_partition": self.output_partition,
             "metric": self.metric,
             "context_profile": self.context_profile,
             "subject_grain": self.subject_grain,
             "source_role": self.source_role,
             "subject_direction": self.subject_direction,
             "subject_port": self.subject_port,
+            "reference_direction": self.reference_direction,
+            "reference_port": self.reference_port,
             "guaranteed_multiplicity": self.guaranteed_multiplicity,
         }
 
@@ -481,7 +623,7 @@ class ExecutionBindingDefinition:
     implementation_identity: Mapping[str, Any]
     produced_observations: tuple[ProducedObservationDefinition, ...] = ()
     adapter_behavior: BehaviorReference | None = None
-    observation_propagation: BehaviorReference | None = None
+    observation_propagation: ObservationPropagationDefinition | None = None
 
     def __post_init__(self) -> None:
         _require_identifier(self.binding_id, "binding_id")
@@ -525,10 +667,19 @@ class ExecutionBindingDefinition:
             ),
         )
         observations = tuple(self.produced_observations)
+        if (
+            observations
+            and self.observation_propagation is not None
+        ):
+            raise CatalogBuildError(
+                "Binding must declare fixed Produced Observations or controlled "
+                "Observation propagation, not both"
+            )
         if len(
             {
                 (
                     observation.output_port,
+                    observation.output_partition,
                     observation.metric.key,
                     canonical_json_bytes(
                         _template_json(observation.context_profile)
@@ -554,10 +705,6 @@ class ExecutionBindingDefinition:
             implementation_identity["adapter"] = (
                 self.adapter_behavior.descriptor()
             )
-        if self.observation_propagation is not None:
-            implementation_identity["observation_propagation"] = (
-                self.observation_propagation.descriptor()
-            )
         return {
             "schema_namespace": CONTRACT_NAMESPACE,
             "contract_kind": "binding",
@@ -581,6 +728,11 @@ class ExecutionBindingDefinition:
                 observation.descriptor_template()
                 for observation in self.produced_observations
             ],
+            "observation_propagation": (
+                self.observation_propagation.descriptor_template()
+                if self.observation_propagation is not None
+                else None
+            ),
         }
 
 
@@ -1472,6 +1624,71 @@ def build_frozen_catalog(
                     metric_definition.observation_context_schema,
                     binding_id=binding.binding_id,
                 )
+                if observation.reference_port is not None:
+                    reference_ports = (
+                        inputs_by_name
+                        if observation.reference_direction == "input"
+                        else outputs_by_name
+                    )
+                    reference_declaration = reference_ports.get(
+                        observation.reference_port
+                    )
+                    reference_type = (
+                        reference_declaration.get("port_type")
+                        if isinstance(reference_declaration, Mapping)
+                        else None
+                    )
+                    if (
+                        not isinstance(reference_type, ContractIdentity)
+                        or reference_type.key
+                        != (
+                            "port_type",
+                            "candidate.collection",
+                            "2.0.0",
+                        )
+                    ):
+                        raise CatalogBuildError(
+                            f"Binding {binding.binding_id} Produced "
+                            "Observation reference source must use exact "
+                            "candidate.collection@2.0.0"
+                        )
+            propagation = binding.observation_propagation
+            if propagation is not None:
+                output_declaration = outputs_by_name.get(
+                    propagation.output_port
+                )
+                output_type = (
+                    output_declaration.get("port_type")
+                    if isinstance(output_declaration, Mapping)
+                    else None
+                )
+                if (
+                    not isinstance(output_type, ContractIdentity)
+                    or output_type.key
+                    != ("port_type", "score.collection", "2.0.0")
+                ):
+                    raise CatalogBuildError(
+                        f"Binding {binding.binding_id} Observation "
+                        "propagation output must use exact "
+                        "score.collection@2.0.0"
+                    )
+                for input_port in propagation.input_ports:
+                    input_declaration = inputs_by_name.get(input_port)
+                    input_type = (
+                        input_declaration.get("port_type")
+                        if isinstance(input_declaration, Mapping)
+                        else None
+                    )
+                    if (
+                        not isinstance(input_type, ContractIdentity)
+                        or input_type.key
+                        != ("port_type", "score.collection", "2.0.0")
+                    ):
+                        raise CatalogBuildError(
+                            f"Binding {binding.binding_id} Observation "
+                            "propagation inputs must use exact "
+                            "score.collection@2.0.0"
+                        )
 
     resolved: dict[tuple[str, str, str], CatalogContract] = {}
     resolving: list[tuple[str, str, str]] = []

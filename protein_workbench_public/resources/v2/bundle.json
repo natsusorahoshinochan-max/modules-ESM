@@ -1168,6 +1168,16 @@
         "node_type": {
           "$ref": "#/$defs/ContractReference"
         },
+        "observation_propagation": {
+          "oneOf": [
+            {
+              "$ref": "#/$defs/ObservationPropagationDeclaration"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
         "produced_observations": {
           "items": {
             "$ref": "#/$defs/ProducedObservationDeclaration"
@@ -1450,6 +1460,32 @@
         "output_port": {
           "$ref": "#/$defs/Identifier"
         },
+        "output_partition": {
+          "$ref": "#/$defs/Identifier"
+        },
+        "reference_direction": {
+          "oneOf": [
+            {
+              "enum": [
+                "input",
+                "output"
+              ]
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "reference_port": {
+          "oneOf": [
+            {
+              "$ref": "#/$defs/Identifier"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
         "source_role": {
           "$ref": "#/$defs/Identifier"
         },
@@ -1468,13 +1504,61 @@
       },
       "required": [
         "output_port",
+        "output_partition",
         "metric",
         "context_profile",
         "subject_grain",
         "source_role",
         "subject_direction",
         "subject_port",
+        "reference_direction",
+        "reference_port",
         "guaranteed_multiplicity"
+      ],
+      "type": "object"
+    },
+    "ObservationPropagationDeclaration": {
+      "additionalProperties": false,
+      "properties": {
+        "filter": {
+          "oneOf": [
+            {
+              "$ref": "#/$defs/JsonObject"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "input_ports": {
+          "items": {
+            "$ref": "#/$defs/Identifier"
+          },
+          "maxItems": 64,
+          "minItems": 1,
+          "type": "array",
+          "uniqueItems": true
+        },
+        "mode": {
+          "enum": [
+            "pass_through",
+            "union",
+            "filter"
+          ]
+        },
+        "output_port": {
+          "$ref": "#/$defs/Identifier"
+        },
+        "schema_version": {
+          "const": "2.0.0"
+        }
+      },
+      "required": [
+        "schema_version",
+        "mode",
+        "output_port",
+        "input_ports",
+        "filter"
       ],
       "type": "object"
     },
@@ -2211,6 +2295,47 @@
       ],
       "type": "object"
     },
+    "PairwiseContextSelector": {
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "const": "pairwise"
+        },
+        "normalization": {
+          "$ref": "#/$defs/Identifier"
+        },
+        "pairing_mode": {
+          "enum": [
+            "fixed_reference",
+            "per_subject_counterpart"
+          ]
+        },
+        "reference_role": {
+          "const": "reference"
+        },
+        "subject_role": {
+          "const": "subject"
+        }
+      },
+      "required": [
+        "kind",
+        "subject_role",
+        "reference_role",
+        "pairing_mode",
+        "normalization"
+      ],
+      "type": "object"
+    },
+    "ObservationContextSelector": {
+      "oneOf": [
+        {
+          "$ref": "#/$defs/IntrinsicObservationContext"
+        },
+        {
+          "$ref": "#/$defs/PairwiseContextSelector"
+        }
+      ]
+    },
     "SelectionInput": {
       "additionalProperties": false,
       "properties": {
@@ -2299,7 +2424,7 @@
           "$ref": "#/$defs/SelectionInput"
         },
         "context_selector": {
-          "$ref": "#/$defs/IntrinsicObservationContext"
+          "$ref": "#/$defs/ObservationContextSelector"
         },
         "declared_weight": {
           "minimum": 0,
@@ -2328,6 +2453,9 @@
         "score_collection_input": {
           "$ref": "#/$defs/SelectionInput"
         },
+        "source_partition": {
+          "$ref": "#/$defs/Identifier"
+        },
         "utility_parameters": {
           "$ref": "#/$defs/JsonObject"
         },
@@ -2339,6 +2467,7 @@
         "objective_id",
         "candidate_input",
         "score_collection_input",
+        "source_partition",
         "metric",
         "method",
         "context_selector",
@@ -2396,7 +2525,7 @@
           "$ref": "#/$defs/SelectionInput"
         },
         "context_selector": {
-          "$ref": "#/$defs/IntrinsicObservationContext"
+          "$ref": "#/$defs/ObservationContextSelector"
         },
         "match_cardinality": {
           "const": "exactly_one"
@@ -2416,6 +2545,9 @@
         "score_collection_input": {
           "$ref": "#/$defs/SelectionInput"
         },
+        "source_partition": {
+          "$ref": "#/$defs/Identifier"
+        },
         "utility_parameters": {
           "$ref": "#/$defs/JsonObject"
         },
@@ -2431,6 +2563,7 @@
         "objective_id",
         "candidate_input",
         "score_collection_input",
+        "source_partition",
         "metric",
         "method",
         "context_selector",
