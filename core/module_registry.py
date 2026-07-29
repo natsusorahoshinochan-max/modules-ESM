@@ -95,6 +95,15 @@ def discover_modules(registry: ModuleRegistry, modules_package: str = "modules")
         try:
             subpkg = importlib.import_module(qualified_name)
             register = getattr(subpkg, "register", None)
+            if register is None:
+                from core.module_package import ModulePackageRegistration
+
+                if isinstance(
+                    getattr(subpkg, "MODULE_PACKAGE", None),
+                    ModulePackageRegistration,
+                ):
+                    registry._discovered_packages.add(qualified_name)
+                    continue
             if register is None or not callable(register):
                 raise TypeError("required register(registry) function is missing")
             register(registry)

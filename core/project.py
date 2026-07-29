@@ -28,13 +28,16 @@ from core.module_registry import ModuleRegistry
 from core.storage import (
     StoragePathError,
     contained_path,
+    open_private_regular_file,
     validate_identifier,
     validate_relative_path,
+    write_private_new_file,
 )
 
 _logger = logging.getLogger(__name__)
 
 CANONICAL_3GB1_PROJECT_ID = "canonical-3gb1"
+MAX_PROJECT_INPUT_BYTES = 64 * 1024 * 1024
 
 
 class CanonicalSeedError(RuntimeError):
@@ -130,6 +133,85 @@ class ProjectManager:
             "inputs",
             *name_parts,
             field="uploaded_name",
+        )
+
+    def publish_input(
+        self,
+        project_id: str,
+        input_reference: str,
+        payload: bytes,
+    ) -> dict[str, Any]:
+        """Publish one immutable owner-only Project input under an opaque ID."""
+        self.assert_writable(project_id)
+        safe_reference = validate_identifier(
+            input_reference,
+            "project_input_ref",
+        )
+        if type(payload) is not bytes or len(payload) > MAX_PROJECT_INPUT_BYTES:
+            raise ValueError("Project input payload is invalid or too large")
+        write_private_new_file(
+            self.project_dir(project_id),
+            ("inputs", safe_reference),
+            payload,
+            field="project_input_ref",
+        )
+        return {
+            "project_input_ref": safe_reference,
+            "size": len(payload),
+            "content_digest": (
+                "sha256:" + hashlib.sha256(payload).hexdigest()
+            ),
+        }
+
+    def read_input(
+        self,
+        project_id: str,
+        input_reference: str,
+    ) -> tuple[dict[str, Any], bytes]:
+        """Read and revalidate one immutable Project-scoped input snapshot."""
+        safe_reference = validate_identifier(
+            input_reference,
+            "project_input_ref",
+        )
+        descriptor = open_private_regular_file(
+            self.project_dir(project_id),
+            ("inputs", safe_reference),
+            field="project_input_ref",
+        )
+        try:
+            before = os.fstat(descriptor)
+            if before.st_size > MAX_PROJECT_INPUT_BYTES:
+                raise ValueError("Project input exceeds the supported size")
+            with os.fdopen(descriptor, "rb", closefd=False) as source:
+                payload = source.read(MAX_PROJECT_INPUT_BYTES + 1)
+            after = os.fstat(descriptor)
+            stable_fields = (
+                "st_dev",
+                "st_ino",
+                "st_size",
+                "st_mtime_ns",
+                "st_ctime_ns",
+            )
+            if (
+                len(payload) > MAX_PROJECT_INPUT_BYTES
+                or any(
+                    getattr(before, field_name)
+                    != getattr(after, field_name)
+                    for field_name in stable_fields
+                )
+            ):
+                raise ValueError("Project input changed while it was read")
+        finally:
+            os.close(descriptor)
+        return (
+            {
+                "project_input_ref": safe_reference,
+                "size": len(payload),
+                "content_digest": (
+                    "sha256:" + hashlib.sha256(payload).hexdigest()
+                ),
+            },
+            payload,
         )
 
     def cache_dir(self, project_id: str) -> Path:

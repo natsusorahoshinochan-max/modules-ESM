@@ -59,6 +59,7 @@ from core.workflow_v2 import (
     parse_workflow_document,
 )
 from datatypes import (
+    ArtifactPayload,
     Candidate,
     CandidateCollection,
     PairwiseCandidateMapping,
@@ -621,6 +622,13 @@ class RunResources:
             field="artifact_name",
         )
         return "/".join(parts)
+
+    def read_project_input(
+        self,
+        input_reference: str,
+    ) -> tuple[Mapping[str, Any], bytes]:
+        """Read one trusted input from this Run's exact Project scope."""
+        return self._projects.read_input(self.project_id, input_reference)
 
     def temporary_directory(self, *, prefix: str):
         """Delegate to the hardened legacy workspace primitive."""
@@ -4090,6 +4098,78 @@ class V2RunService:
         }
         return descriptor, stored_parts
 
+    def _publish_artifact_payload(
+        self,
+        *,
+        resources: RunResources,
+        node_id: str,
+        output_port: str,
+        artifact_kind: str,
+        payload: ArtifactPayload,
+        maximum_size: int,
+    ) -> tuple[dict[str, Any], tuple[str, ...]]:
+        if type(payload) is not ArtifactPayload:
+            raise PortValueError(
+                "Artifact publication requires one validated ArtifactPayload"
+            )
+        if (
+            type(payload.body) is not bytes
+            or len(payload.body) > min(MAX_ARTIFACT_SIZE_BYTES, maximum_size)
+        ):
+            raise PortValueError("Artifact payload exceeds the public bound")
+        validate_relative_path(
+            payload.filename,
+            "artifact_filename",
+            allow_nested=False,
+        )
+        if (
+            not isinstance(payload.media_type, str)
+            or "/" not in payload.media_type
+            or any(character.isspace() for character in payload.media_type)
+        ):
+            raise PortValueError("Artifact media type is invalid")
+        if artifact_kind == "standalone":
+            if payload.candidate_id is not None:
+                raise PortValueError(
+                    "Standalone artifact cannot claim a Candidate identity"
+                )
+        elif artifact_kind == "candidate":
+            if not isinstance(payload.candidate_id, str):
+                raise PortValueError(
+                    "Candidate artifact requires one Candidate identity"
+                )
+            try:
+                validate_identifier(payload.candidate_id, "candidate_id")
+            except StoragePathError as error:
+                raise PortValueError(
+                    "Candidate artifact identity is invalid"
+                ) from error
+        else:
+            raise PortValueError("Artifact kind is invalid")
+        reference = f"artifact-{uuid.uuid4().hex}"
+        stored_parts = ("published", reference)
+        write_private_new_file(
+            resources._output_root,
+            (resources.run_id, *stored_parts),
+            payload.body,
+            field="artifact_path",
+        )
+        descriptor = {
+            "artifact_reference": reference,
+            "artifact_kind": artifact_kind,
+            "node_id": node_id,
+            "output_port": output_port,
+            "media_type": payload.media_type,
+            "size": len(payload.body),
+            "content_digest": (
+                "sha256:" + hashlib.sha256(payload.body).hexdigest()
+            ),
+        }
+        if payload.candidate_id is not None:
+            descriptor["candidate_id"] = payload.candidate_id
+        validate_schema("#/$defs/ArtifactDescriptor", descriptor)
+        return descriptor, stored_parts
+
     def _materialize_artifacts(
         self,
         *,
@@ -4115,39 +4195,56 @@ class V2RunService:
             port["name"]: port
             for port in node_contract.descriptor.get("outputs", ())
         }
-        artifact_sources: list[tuple[str, str]] = []
+        artifact_sources: list[
+            tuple[str, str, str | ArtifactPayload]
+        ] = []
         for output in published:
             port_type_id = output["port_type"]["contract_id"]
-            if port_type_id not in {
+            declaration = port_declarations[output["output_port"]]
+            artifact_kind = declaration.get("artifact_kind")
+            if artifact_kind is None and port_type_id not in {
                 "file.path",
                 "file.path.collection",
             }:
                 typed_outputs.append(output)
                 continue
-            declaration = port_declarations[output["output_port"]]
-            if declaration.get("artifact_kind") != "standalone":
+            if artifact_kind is None:
                 raise PortValueError(
                     "Artifact output Port requires explicit standalone opt-in"
                 )
             decoded_values = runtime[
                 (node.node_id, output["output_port"])
             ]
-            if port_type_id == "file.path.collection":
-                relative_names = [
-                    relative_name
-                    for collection in decoded_values
-                    for relative_name in collection
-                ]
-            else:
-                relative_names = decoded_values
-            for relative_name in relative_names:
-                if not isinstance(relative_name, str):
+            if port_type_id in {"file.path", "file.path.collection"}:
+                if artifact_kind != "standalone":
                     raise PortValueError(
-                        "Artifact Port requires one private relative reference"
+                        "Filesystem path artifacts can only be standalone"
                     )
-                artifact_sources.append(
-                    (output["output_port"], relative_name)
-                )
+                if port_type_id == "file.path.collection":
+                    relative_names = [
+                        relative_name
+                        for collection in decoded_values
+                        for relative_name in collection
+                    ]
+                else:
+                    relative_names = decoded_values
+                for relative_name in relative_names:
+                    if not isinstance(relative_name, str):
+                        raise PortValueError(
+                            "Artifact Port requires one private relative reference"
+                        )
+                    artifact_sources.append(
+                        (output["output_port"], artifact_kind, relative_name)
+                    )
+            else:
+                for payload in decoded_values:
+                    if type(payload) is not ArtifactPayload:
+                        raise PortValueError(
+                            "Artifact output must contain ArtifactPayload values"
+                        )
+                    artifact_sources.append(
+                        (output["output_port"], artifact_kind, payload)
+                    )
         if (
             current_artifact_count + len(artifact_sources)
             > MAX_ARTIFACTS_PER_RUN
@@ -4157,14 +4254,24 @@ class V2RunService:
             MAX_ARTIFACT_BYTES_PER_RUN - current_artifact_bytes
         )
         try:
-            for output_port, relative_name in artifact_sources:
-                descriptor, stored_parts = self._publish_artifact(
-                    resources=resources,
-                    node_id=node.node_id,
-                    output_port=output_port,
-                    relative_name=relative_name,
-                    maximum_size=remaining_bytes,
-                )
+            for output_port, artifact_kind, source in artifact_sources:
+                if isinstance(source, str):
+                    descriptor, stored_parts = self._publish_artifact(
+                        resources=resources,
+                        node_id=node.node_id,
+                        output_port=output_port,
+                        relative_name=source,
+                        maximum_size=remaining_bytes,
+                    )
+                else:
+                    descriptor, stored_parts = self._publish_artifact_payload(
+                        resources=resources,
+                        node_id=node.node_id,
+                        output_port=output_port,
+                        artifact_kind=artifact_kind,
+                        payload=source,
+                        maximum_size=remaining_bytes,
+                    )
                 remaining_bytes -= descriptor["size"]
                 artifact_index.append(descriptor)
                 artifacts[descriptor["artifact_reference"]] = (
@@ -4317,12 +4424,6 @@ class V2RunService:
             artifacts=artifact_records,
         )
 
-        def require_cancellation_cleanup() -> None:
-            record.cancellation.wait_for_cleanup()
-            cleanup_error = record.cancellation.cleanup_error
-            if cleanup_error is not None:
-                raise cleanup_error
-
         self._runs[(project_id, run_id)] = record
         self._run_owners[run_id] = project_id
         receipt = {
@@ -4405,6 +4506,11 @@ class V2RunService:
                 tuple[str, str],
                 list[Any],
             ] | None = None
+            replayed_artifacts: list[dict[str, Any]] = []
+            replayed_artifact_records: dict[
+                str,
+                tuple[dict[str, Any], tuple[str, ...]],
+            ] = {}
             replay_producer_run_id: str | None = None
             cache_lookup_error: V2RunError | None = None
             if cache_lookup_eligible and result_identity is not None:
@@ -4461,8 +4567,31 @@ class V2RunService:
                             in {"file.path", "file.path.collection"}
                             for output in candidate_published
                         ):
+                            replay_resources = RunResources(
+                                project_id,
+                                run_id,
+                                node.node_id,
+                                self._projects,
+                                None,
+                                record.cancellation,
+                            )
+                            (
+                                replayed_typed_outputs,
+                                replayed_artifacts,
+                                replayed_artifact_records,
+                            ) = self._materialize_artifacts(
+                                node=node,
+                                resources=replay_resources,
+                                published=candidate_published,
+                                runtime=candidate_runtime,
+                                current_artifact_count=len(all_artifacts),
+                                current_artifact_bytes=sum(
+                                    artifact["size"]
+                                    for artifact in all_artifacts
+                                ),
+                            )
                             replayed_published = _with_result_provenance(
-                                candidate_published,
+                                replayed_typed_outputs,
                                 result_identity=result_identity,
                                 current_run_id=run_id,
                                 producer_run_id=replay_producer_run_id,
@@ -4502,8 +4631,31 @@ class V2RunService:
                 disposition_outcomes[node.node_id] = "failed"
                 continue
             if replayed_published is not None and replayed_runtime is not None:
+                def cleanup_replayed_artifacts() -> None:
+                    cleanup_error: BaseException | None = None
+                    if ledger.cancellation_requested:
+                        record.cancellation.wait_for_cleanup()
+                        cleanup_error = record.cancellation.cleanup_error
+                    for _, stored_parts in (
+                        replayed_artifact_records.values()
+                    ):
+                        try:
+                            remove_private_regular_file(
+                                self._projects.output_dir(
+                                    project_id,
+                                    run_id,
+                                ).parent,
+                                (run_id, *stored_parts),
+                                field="artifact_path",
+                            )
+                        except BaseException as error:
+                            if cleanup_error is None:
+                                cleanup_error = error
+                    if cleanup_error is not None:
+                        raise cleanup_error
+
                 if ledger.cancellation_requested:
-                    record.cancellation.wait_for_cleanup()
+                    cleanup_replayed_artifacts()
                     cancellation_outcome = (
                         "interrupted"
                         if record.cancellation.cleanup_error is not None
@@ -4528,16 +4680,28 @@ class V2RunService:
                         "node_attempt_id": node_attempt_id,
                     },
                 )
-                outcome = ledger.commit_node_publication(
-                    node_id=node.node_id,
-                    node_attempt_id=node_attempt_id,
-                    resolution="cache_replayed",
-                    outputs=replayed_published,
-                    artifacts=[],
-                    cancel_cleanup=require_cancellation_cleanup,
-                )
+                try:
+                    outcome = ledger.commit_node_publication(
+                        node_id=node.node_id,
+                        node_attempt_id=node_attempt_id,
+                        resolution="cache_replayed",
+                        outputs=replayed_published,
+                        artifacts=replayed_artifacts,
+                        cancel_cleanup=cleanup_replayed_artifacts,
+                    )
+                except BaseException as error:
+                    try:
+                        cleanup_replayed_artifacts()
+                    except BaseException as cleanup_error:
+                        error.add_note(
+                            "Replayed artifact rollback also failed: "
+                            f"{type(cleanup_error).__name__}"
+                        )
+                    raise
                 if outcome == "succeeded":
                     values.update(replayed_runtime)
+                    all_artifacts.extend(replayed_artifacts)
+                    artifact_records.update(replayed_artifact_records)
                 disposition_outcomes[node.node_id] = outcome
                 continue
             resources = RunResources(
@@ -4635,6 +4799,7 @@ class V2RunService:
             )
             pending_runtime: dict[tuple[str, str], list[Any]] = {}
             pending_typed_outputs: list[dict[str, Any]] = []
+            pending_cache_outputs: list[dict[str, Any]] = []
             pending_artifacts: list[dict[str, Any]] = []
             pending_artifact_records: dict[
                 str,
@@ -4696,6 +4861,13 @@ class V2RunService:
                     raw_outputs,
                     inputs=node_inputs,
                 )
+                pending_cache_outputs = _with_result_provenance(
+                    published,
+                    result_identity=result_identity,
+                    current_run_id=run_id,
+                    producer_run_id=run_id,
+                    resolution="executed",
+                )
                 (
                     pending_typed_outputs,
                     pending_artifacts,
@@ -4718,13 +4890,13 @@ class V2RunService:
                     producer_run_id=run_id,
                     resolution="executed",
                 )
-                if cache_eligible and not pending_artifacts:
+                if cache_eligible:
                     self._result_replay_source.validate_publish(
                         project_id=project_id,
                         execution_plan=plan,
                         node=node,
                         result_identity=result_identity,
-                        outputs=pending_typed_outputs,
+                        outputs=pending_cache_outputs,
                         producer_run_id=run_id,
                     )
                 if ledger.cancellation_requested:
@@ -4827,7 +4999,6 @@ class V2RunService:
                 if (
                     not cache_eligible
                     or result_identity is None
-                    or pending_artifacts
                 ):
                     return None
                 return self._result_replay_source.publish(
@@ -4835,7 +5006,7 @@ class V2RunService:
                     execution_plan=plan,
                     node=node,
                     result_identity=result_identity,
-                    outputs=pending_typed_outputs,
+                    outputs=pending_cache_outputs,
                     producer_run_id=run_id,
                 )
 
@@ -5311,6 +5482,50 @@ class V2RunService:
                     "resource_id": artifact_reference,
                 },
             )
+        try:
+            validate_schema("#/$defs/ArtifactDescriptor", descriptor)
+        except ProtocolValidationError as error:
+            raise V2RunError(
+                "artifact_integrity_mismatch",
+                "Artifact descriptor integrity validation failed",
+                details={"artifact_reference": artifact_reference},
+            ) from error
+        if record.compiled is not None:
+            plan_node = next(
+                (
+                    node
+                    for node in record.compiled.execution_plan.nodes
+                    if node.node_id == descriptor["node_id"]
+                ),
+                None,
+            )
+            if plan_node is None:
+                raise V2RunError(
+                    "artifact_integrity_mismatch",
+                    "Artifact output binding is not part of this Run",
+                    details={"artifact_reference": artifact_reference},
+                )
+            node_contract = self._catalog.require_contract(
+                *plan_node.node_type.key,
+            )
+            output_declaration = next(
+                (
+                    output
+                    for output in node_contract.descriptor.get("outputs", ())
+                    if output["name"] == descriptor["output_port"]
+                ),
+                None,
+            )
+            if (
+                output_declaration is None
+                or output_declaration.get("artifact_kind")
+                != descriptor["artifact_kind"]
+            ):
+                raise V2RunError(
+                    "artifact_integrity_mismatch",
+                    "Artifact output binding integrity validation failed",
+                    details={"artifact_reference": artifact_reference},
+                )
         stored_parts = ("published", artifact_reference)
         output_root = self._projects.output_dir(project_id, run_id).parent
         try:

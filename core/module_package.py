@@ -1035,12 +1035,14 @@ def _parse_port(
     artifact_kind = port.get("artifact_kind")
     if artifact_kind is not None and (
         not allow_artifact_publication
-        or artifact_kind != "standalone"
-        or reference.contract_id
-        not in {"file.path", "file.path.collection"}
+        or artifact_kind not in {"standalone", "candidate"}
+        or (
+            reference.contract_id in {"file.path", "file.path.collection"}
+            and artifact_kind != "standalone"
+        )
     ):
         raise CatalogBuildError(
-            f"{resource_name}.artifact_kind requires a standalone file output"
+            f"{resource_name}.artifact_kind is not a valid artifact output"
         )
     descriptor = {
         "name": port["name"],

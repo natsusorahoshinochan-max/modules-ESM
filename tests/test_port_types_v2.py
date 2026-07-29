@@ -147,9 +147,26 @@ def test_catalog_snapshot_publishes_exact_port_type_contracts() -> None:
         r"sha256:[0-9a-f]{64}",
         payload["catalog_contract_digest"],
     )
-    assert payload["availability"] == []
+    assert {
+        (
+            snapshot["binding"]["contract_id"],
+            snapshot["binding"]["contract_version"],
+            snapshot["available"],
+        )
+        for snapshot in payload["availability"]
+    } == {
+        ("protein_io.import_sequence.direct", "2.0.0", True),
+        ("protein_io.import_structure.direct", "2.0.0", True),
+        ("protein_io.export_sequence.direct", "2.0.0", True),
+        ("protein_io.export_structure.direct", "2.0.0", True),
+    }
 
-    contracts = payload["contracts"]
+    contracts = [
+        item
+        for item in payload["contracts"]
+        if item["reference"]["contract_kind"] == "port_type"
+        and item["reference"]["contract_id"] in EXPECTED_PORT_TYPE_IDS
+    ]
     assert {item["reference"]["contract_id"] for item in contracts} == (
         EXPECTED_PORT_TYPE_IDS
     )

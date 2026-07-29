@@ -1647,7 +1647,10 @@
       "additionalProperties": false,
       "properties": {
         "artifact_kind": {
-          "const": "standalone"
+          "enum": [
+            "candidate",
+            "standalone"
+          ]
         },
         "multiplicity": {
           "enum": [

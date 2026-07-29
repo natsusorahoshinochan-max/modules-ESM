@@ -33,6 +33,7 @@ from core.workflow_authoring_v2 import (
 )
 from core.workflow_v2 import (
     WorkflowDocument,
+    WorkflowEdge,
     WorkflowNodeInstance,
     parse_workflow_document,
 )
@@ -78,6 +79,9 @@ class ModulePackageContractCase:
     environment_values: Mapping[str, Any]
     safe_environment_fingerprint: str
     invalidation_token: str
+    workflow_nodes: tuple[WorkflowNodeInstance, ...] = ()
+    workflow_edges: tuple[WorkflowEdge, ...] = ()
+    project_inputs: Mapping[str, bytes] = field(default_factory=dict)
     expected_scalar_outputs: Mapping[str, Any] = field(default_factory=dict)
     expected_candidate_counts: Mapping[str, int] = field(default_factory=dict)
     expected_observation_counts: Mapping[str, int] = field(default_factory=dict)
@@ -96,6 +100,7 @@ class ModulePackageContractCase:
             "node_parameters",
             "binding_parameters",
             "environment_values",
+            "project_inputs",
             "expected_scalar_outputs",
             "expected_candidate_counts",
             "expected_observation_counts",
@@ -112,6 +117,25 @@ class ModulePackageContractCase:
             "forbidden_public_fragments",
             tuple(self.forbidden_public_fragments),
         )
+        object.__setattr__(self, "workflow_nodes", tuple(self.workflow_nodes))
+        object.__setattr__(self, "workflow_edges", tuple(self.workflow_edges))
+        if any(
+            not isinstance(node, WorkflowNodeInstance)
+            for node in self.workflow_nodes
+        ) or any(
+            not isinstance(edge, WorkflowEdge)
+            for edge in self.workflow_edges
+        ):
+            raise ModulePackageConformanceError(
+                "workflow_nodes and workflow_edges must use v2 Workflow types"
+            )
+        if any(
+            not isinstance(reference, str) or type(payload) is not bytes
+            for reference, payload in self.project_inputs.items()
+        ):
+            raise ModulePackageConformanceError(
+                "project_inputs must map opaque references to bytes"
+            )
 
 
 @dataclass(frozen=True, slots=True)
@@ -300,11 +324,14 @@ def _verify_case(
         run_root=root / "runs",
     )
     project = project_manager.create(f"Contract Test Kit: {case.case_id}")
+    for reference, payload in case.project_inputs.items():
+        project_manager.publish_input(project.id, reference, payload)
     authoring = WorkflowAuthoringService(project_manager, catalog)
     workflow = WorkflowDocument(
         schema_version="2.0.0",
         workflow_id=project.id,
         nodes=(
+            *case.workflow_nodes,
             WorkflowNodeInstance(
                 node_id="contract-test-node",
                 node_type_id=case.node_type_id,
@@ -315,7 +342,7 @@ def _verify_case(
                 binding_parameters=case.binding_parameters,
             ),
         ),
-        edges=(),
+        edges=case.workflow_edges,
         contract_lock=(),
     )
     saved = authoring.save(
@@ -375,6 +402,7 @@ def _verify_case(
         outputs = {
             output["output_port"]: output
             for output in projection["outputs"]
+            if output["node_id"] == "contract-test-node"
         }
         for port_name, expected in case.expected_scalar_outputs.items():
             output = outputs.get(port_name)
@@ -431,6 +459,7 @@ def _verify_case(
         artifacts_by_port = {
             artifact["output_port"]: artifact
             for artifact in projection["artifact_index"]
+            if artifact["node_id"] == "contract-test-node"
         }
         for port_name, expected_body in case.expected_artifacts.items():
             artifact = artifacts_by_port.get(port_name)
@@ -451,8 +480,11 @@ def _verify_case(
             sorted({output["result_identity"] for output in outputs.values()})
         )
         if (
-            len(result_identities) != 1
-            or _CANONICAL_DIGEST.fullmatch(result_identities[0]) is None
+            (outputs and len(result_identities) != 1)
+            or any(
+                _CANONICAL_DIGEST.fullmatch(identity) is None
+                for identity in result_identities
+            )
             or any(
                 output["producer_provenance"]
                 != {
@@ -518,6 +550,7 @@ def verify_module_package_contract(
     *,
     execution_cases: Sequence[ModulePackageContractCase],
     port_cases: Sequence[ModulePackagePortCase] = (),
+    supporting_registrations: Sequence[ModulePackageRegistration] = (),
     work_root: str | Path | None = None,
 ) -> ModulePackageContractReport:
     """Validate and execute one exact production registration in isolation."""
@@ -532,7 +565,16 @@ def verify_module_package_contract(
             "Contract Test Kit requires at least one independent execution case"
         )
     try:
-        catalog = build_frozen_catalog((registration,))
+        support = tuple(supporting_registrations)
+        if any(
+            not isinstance(item, ModulePackageRegistration)
+            for item in support
+        ):
+            raise ModulePackageConformanceError(
+                "supporting_registrations must contain Module Packages"
+            )
+        package_catalog = build_frozen_catalog((registration,))
+        catalog = build_frozen_catalog((registration, *support))
         _verify_execution_case_coverage(
             catalog,
             registration,
@@ -577,7 +619,7 @@ def verify_module_package_contract(
     return ModulePackageContractReport(
         package_id=registration.package_id,
         package_version=registration.package_version,
-        catalog_contract_digest=catalog.contract_digest,
+        catalog_contract_digest=package_catalog.contract_digest,
         case_reports=reports,
         verified_port_types=verified_port_types,
     )

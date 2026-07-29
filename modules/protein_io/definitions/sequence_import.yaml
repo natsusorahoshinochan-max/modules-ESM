@@ -1,0 +1,27 @@
+schema_version: "2.0.0"
+node_type_id: protein_io.import_sequence
+version: "2.0.0"
+title: Import protein sequence
+summary: Parses one trusted Project-scoped sequence input.
+category: protein_io
+inputs: []
+outputs:
+  - name: sequence
+    port_type_id: protein.sequence
+    port_type_version: "2.0.0"
+    required: true
+    multiplicity: one
+    scientific_meaning: Canonically validated imported protein sequence.
+parameter_groups:
+  - id: project_input
+    title: Project input
+    parameters:
+      - project_input_ref
+node_parameters:
+  project_input_ref:
+    parameter_scope: scientific
+    scientific_meaning: Opaque identity of one trusted Project-scoped input.
+    type: string
+    required: true
+    pattern: "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$"
+

@@ -40,6 +40,16 @@ class ProteinStructure:
     source: Optional[str] = None
 
 
+@dataclass(frozen=True, slots=True)
+class ArtifactPayload:
+    """Cache-safe bytes awaiting generic Run-bound artifact publication."""
+
+    body: bytes
+    media_type: str
+    filename: str
+    candidate_id: Optional[str] = None
+
+
 @dataclass
 class ResidueLayout:
     """Target residue layout: chain ID and residue count."""

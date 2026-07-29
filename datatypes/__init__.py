@@ -1,4 +1,5 @@
 from datatypes.protein import (
+    ArtifactPayload,
     Candidate,
     CandidateCollection,
     ExactContractReference,
@@ -25,6 +26,7 @@ from datatypes.constraint_validation import (
 )
 
 __all__ = [
+    "ArtifactPayload",
     "Candidate",
     "CandidateCollection",
     "ExactContractReference",

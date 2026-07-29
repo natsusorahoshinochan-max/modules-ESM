@@ -6,7 +6,6 @@ import asyncio
 from dataclasses import dataclass
 import os
 import uuid
-import shutil
 from collections.abc import Callable, Mapping
 from pathlib import Path
 from typing import Any, AsyncGenerator
@@ -47,6 +46,7 @@ from core.module_package import build_discovered_frozen_catalog
 from core.module_registry import ModuleRegistry, discover_modules
 from core.port_types import FrozenCatalog
 from core.project import (
+    MAX_PROJECT_INPUT_BYTES,
     ProjectManager,
     ProjectMeta,
     ProtectedProjectError,
@@ -2152,13 +2152,22 @@ def create_app(
             return {"error": "Project not found"}
         project_manager.assert_writable(project_id)
         uploaded_name = file.filename or "uploaded"
-        dest = project_manager.input_path(project_id, uploaded_name)
-        dest.parent.mkdir(parents=True, exist_ok=True)
-        with open(dest, "wb") as f:
-            shutil.copyfileobj(file.file, f)
+        project_manager.input_path(project_id, uploaded_name)
+        payload = await file.read(MAX_PROJECT_INPUT_BYTES + 1)
+        if len(payload) > MAX_PROJECT_INPUT_BYTES:
+            raise StoragePathError(
+                "file",
+                "Uploaded Project input is too large",
+            )
+        published = project_manager.publish_input(
+            project_id,
+            uploaded_name,
+            payload,
+        )
         return {
             "path": f"inputs/{uploaded_name}",
             "filename": file.filename,
+            **published,
         }
 
     @app.get("/api/projects/{project_id}/outputs/{filename:path}")
