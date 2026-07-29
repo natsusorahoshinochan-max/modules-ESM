@@ -610,7 +610,7 @@ class V2RunService:
             if (
                 proof_contract is None
                 or not proof.reusable_for(
-                    now=proof.observed_at,
+                    now=now,
                     proof_identity=proof_contract[0],
                     proof_scope=proof_contract[1],
                     maximum_age_seconds=proof_contract[2],
@@ -645,8 +645,13 @@ class V2RunService:
                 reusable,
                 reuse_kind="reused",
             )
-        elif proof_to_cache is not None:
-            attestation_payload["proof_reference"] = self._proof_reference(
+        if proof_to_cache is not None:
+            reference_field = (
+                "refreshed_proof_reference"
+                if reusable is not None
+                else "proof_reference"
+            )
+            attestation_payload[reference_field] = self._proof_reference(
                 proof_to_cache,
                 reuse_kind="newly-observed",
             )

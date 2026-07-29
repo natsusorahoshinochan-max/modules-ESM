@@ -9,6 +9,7 @@ import stat
 from typing import Any
 
 from fastapi.testclient import TestClient
+import pytest
 from starlette.websockets import WebSocketDisconnect
 
 from core import (
@@ -1181,6 +1182,70 @@ def test_reusable_proof_rejects_implicit_environment_identities(
     assert calls == []
 
 
+@pytest.mark.parametrize("observed_offset_seconds", [-61, 1])
+def test_new_reusable_proof_rejects_stale_or_future_observation(
+    tmp_path,
+    monkeypatch,
+    observed_offset_seconds: int,
+) -> None:
+    calls: list[str] = []
+    now = datetime(2026, 7, 29, 9, 0, tzinfo=timezone.utc)
+
+    def readiness(environment) -> ReadinessResult:
+        calls.append("checker")
+        return ReadinessResult(
+            True,
+            reusable_proof=ReusableReadinessProof(
+                proof_identity="immutable-model-proof-v1",
+                proof_scope="test.direct.local@2.0.0",
+                observed_at=now + timedelta(seconds=observed_offset_seconds),
+                maximum_age_seconds=60,
+                configuration_fingerprint="configuration-v1",
+                invalidation_token="assets-v1",
+            ),
+        )
+
+    monkeypatch.setattr(run_execution_v2, "_utc_now", lambda: now)
+    monkeypatch.setenv("PROTEIN_WORKBENCH_PROJECT_ROOT", str(tmp_path / "projects"))
+    monkeypatch.setenv("PROTEIN_WORKBENCH_RUN_ROOT", str(tmp_path / "runs"))
+    monkeypatch.setenv("PROTEIN_WORKBENCH_OUTPUT_ROOT", str(tmp_path / "outputs"))
+    app = create_app(
+        frozen_catalog_override=_direct_catalog(
+            calls,
+            readiness_prerequisites={
+                "reusable_proof": {
+                    "identity": "immutable-model-proof-v1",
+                    "scope": "test.direct.local@2.0.0",
+                    "maximum_age_seconds": 60,
+                }
+            },
+            readiness_checks={"test.direct.local": readiness},
+        ),
+        v2_environment_configuration={
+            ("test.direct.local", "2.0.0"): {
+                "values": {"credential": "credential-value"},
+                "safe_fingerprint": "configuration-v1",
+                "invalidation_token": "assets-v1",
+            }
+        },
+    )
+
+    with TestClient(app) as client:
+        project_id, compiled = _compile_one_node(client)
+        response = client.post(
+            f"/api/v2/projects/{project_id}/runs",
+            json={
+                "workflow_revision": 2,
+                "compile_id": compiled["compile_id"],
+                "client_request_id": "invalid-proof-age",
+            },
+        )
+
+    assert response.status_code == 503
+    assert response.json()["error"]["code"] == "readiness_rejected"
+    assert not any(call.startswith("factory:") for call in calls)
+
+
 def test_reusable_proof_is_cached_only_after_durable_attestation(
     tmp_path,
     monkeypatch,
@@ -1191,7 +1256,18 @@ def test_reusable_proof_is_cached_only_after_durable_attestation(
     def readiness(environment) -> ReadinessResult:
         calls.append(environment.reusable_proof is not None)
         if environment.reusable_proof is not None:
-            return ReadinessResult(True, proof_source="reused-proof")
+            return ReadinessResult(
+                True,
+                proof_source="refreshed-proof",
+                reusable_proof=ReusableReadinessProof(
+                    proof_identity="immutable-model-proof-v1",
+                    proof_scope="test.direct.local@2.0.0",
+                    observed_at=now,
+                    maximum_age_seconds=60,
+                    configuration_fingerprint="configuration-v1",
+                    invalidation_token="assets-v1",
+                ),
+            )
         return ReadinessResult(
             True,
             proof_source="fresh-proof",
@@ -1275,6 +1351,14 @@ def test_reusable_proof_is_cached_only_after_durable_attestation(
         fact["payload"]["proof_reference"]["reuse_kind"]
         for fact in readiness_facts
     } == {"newly-observed", "reused"}
+    refreshed = [
+        fact["payload"]
+        for fact in readiness_facts
+        if fact["payload"]["proof_reference"]["reuse_kind"] == "reused"
+    ]
+    assert refreshed[0]["refreshed_proof_reference"]["reuse_kind"] == (
+        "newly-observed"
+    )
 
 
 def test_connected_ports_publish_and_consume_only_canonical_validated_values(
@@ -1521,6 +1605,9 @@ def test_success_ledger_projects_validated_events_and_opaque_artifact(
     app = create_app(frozen_catalog_override=_artifact_catalog(calls))
 
     with TestClient(app) as client:
+        catalog = client.get("/api/v2/catalog")
+        assert catalog.status_code == 200
+        validate_response("catalog_snapshot", 200, catalog.json())
         project_id, compiled = _compile_artifact_node(client)
         started = client.post(
             f"/api/v2/projects/{project_id}/runs",
