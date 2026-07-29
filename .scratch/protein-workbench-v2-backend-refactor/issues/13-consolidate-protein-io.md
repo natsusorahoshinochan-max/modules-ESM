@@ -4,7 +4,7 @@
 
 **Blocked by:** 12 — Prove the zero-Core extension journey.
 
-**Status:** awaiting-controller
+**Status:** completed
 
 - [x] Sequence import, structure import, sequence export, and structure export each have one v2 Node Definition and are registered by the single `protein_io` Module Package.
 - [x] Import consumes a trusted Project-scoped value or artifact reference rather than an arbitrary private host path embedded in a Workflow.
@@ -58,3 +58,36 @@ this state.
   validation independent of the current Catalog, compile-time structure-input
   XOR, closed media grammar, and bounded test-file size. All findings received
   regressions; both final review axes returned `APPROVE` at `72ae53d`.
+
+## Controller cumulative acceptance
+
+Before Ticket 14 started, Controller independently accepted executor commit
+`bb5427e491a0e50da85a470ffda37e393249c52b` against the previously accepted
+Tickets 01–12 gate `81fcd5dcbeb93e84ff9f735d3ebdda934e5bbfc4`.
+
+- Joint Tickets 01–13 focused suites:
+  `uv run --no-sync python -m pytest -q tests/test_public_protocol_v2.py
+  tests/test_port_types_v2.py tests/test_module_packages_v2.py
+  tests/test_workflow_compiler_v2.py tests/test_run_execution_v2.py
+  tests/test_run_cancel_derive_v2.py tests/test_result_cache_v2.py
+  tests/test_scoring_v2.py tests/test_pairwise_scoring_v2.py
+  tests/test_contract_test_kit_v2.py tests/test_protein_io_v2.py
+  tests/test_protein_io_artifacts_v2.py` → `321 passed`.
+- Cumulative routine gate:
+  `uv run --no-sync python scripts/verify_backend.py routine` →
+  `1007 passed, 44 deselected`; retained result
+  `verification-results/routine/20260729T104124.306735Z-55014-61c4fa625853a389`.
+- Deterministic acceptance:
+  `uv run --no-sync python scripts/verify_backend.py
+  deterministic-acceptance` → `9 passed, 5 deselected`; retained result
+  `verification-results/deterministic-acceptance/20260729T104323.996468Z-55609-67acd63b1dd3a026`.
+- Installed artifact:
+  `uv run --no-sync python scripts/verify_backend.py installed-package` →
+  `3 passed`; retained result
+  `verification-results/installed-package/20260729T104411.987220Z-55748-70b9be458ad68b06`.
+- `git diff --check
+  81fcd5dcbeb93e84ff9f735d3ebdda934e5bbfc4...bb5427e491a0e50da85a470ffda37e393249c52b`
+  passed.
+
+No Controller regression was found, so Ticket 13 is accepted and Ticket 14
+may start.
