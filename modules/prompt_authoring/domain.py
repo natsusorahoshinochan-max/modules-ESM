@@ -3,12 +3,13 @@
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
+from dataclasses import dataclass
 from enum import Enum
 import math
 import re
 from typing import Any
 
-from datatypes import ResidueLayout, ResidueMap, ResidueTrack
+from datatypes import ResidueLayout, ResidueMap
 
 
 _CHAIN_ID = re.compile(r"^[A-Za-z0-9]$")
@@ -22,9 +23,19 @@ _MAX_RESIDUES = 2_000_000
 class TrackKind(Enum):
     """Closed scientific value domains supported by the track Nodes."""
 
-    GENERIC = "generic"
+    SEQUENCE = "sequence"
+    STRUCTURE = "structure"
+    VISIBILITY = "visibility"
     SECONDARY_STRUCTURE = "secondary_structure"
     SASA = "sasa"
+
+
+@dataclass(frozen=True, slots=True)
+class AlignedResidueTrack:
+    """One nullable value per explicit residue identity in one layout."""
+
+    layout: ResidueLayout
+    values: tuple[Any, ...]
 
 
 def residue_chain(residue_id: str) -> str:
@@ -236,8 +247,10 @@ def validate_residue_map(value: object) -> ResidueMap:
     target = validate_layout(value.target_layout, subject="target layout")
     source_ids = tuple(source.residue_ids or ())
     target_ids = tuple(target.residue_ids or ())
+    common_ids = set(source_ids) & set(target_ids)
     covered_sources: set[int] = set()
     covered_targets: set[int] = set()
+    matched_ids: set[str] = set()
     for entry in value.mappings:
         if type(entry) is not tuple or len(entry) != 3:
             raise ValueError("residue_map entries must be three-item tuples")
@@ -256,11 +269,13 @@ def validate_residue_map(value: object) -> ResidueMap:
                 )
             covered_sources.add(source_index)
             covered_targets.add(target_index)
+            matched_ids.add(source_ids[source_index])
         elif operation == "insert":
             if (
                 source_index != -1
                 or target_index in covered_targets
                 or not 0 <= target_index < target.length
+                or target_ids[target_index] in common_ids
             ):
                 raise ValueError("residue_map contains invalid insert entries")
             covered_targets.add(target_index)
@@ -269,6 +284,7 @@ def validate_residue_map(value: object) -> ResidueMap:
                 target_index != -1
                 or source_index in covered_sources
                 or not 0 <= source_index < source.length
+                or source_ids[source_index] in common_ids
             ):
                 raise ValueError("residue_map contains invalid delete entries")
             covered_sources.add(source_index)
@@ -278,30 +294,57 @@ def validate_residue_map(value: object) -> ResidueMap:
         raise ValueError("residue_map does not cover every source residue")
     if covered_targets != set(range(target.length)):
         raise ValueError("residue_map does not cover every target residue")
+    if matched_ids != common_ids:
+        raise ValueError(
+            "residue_map must match every identity preserved by both layouts"
+        )
     return value
 
 
 def validate_track(
     track: object,
-    layout: ResidueLayout,
     *,
     kind: TrackKind,
     subject: str,
-) -> ResidueTrack:
+    expected_layout: ResidueLayout | None = None,
+) -> AlignedResidueTrack:
     """Validate one complete nullable track against one exact layout."""
     if not isinstance(kind, TrackKind):
         raise ValueError("track kind must be one closed scientific domain")
-    validate_layout(layout, subject=f"{subject} layout")
-    if type(track) is not ResidueTrack:
-        raise ValueError(f"{subject} must be a ResidueTrack")
-    if track.sentinel is not None:
-        raise ValueError(f"{subject} must use null as its nullable sentinel")
+    if type(track) is not AlignedResidueTrack:
+        raise ValueError(f"{subject} must be an AlignedResidueTrack")
+    layout = validate_layout(track.layout, subject=f"{subject} layout")
+    if expected_layout is not None:
+        target = validate_layout(
+            expected_layout,
+            subject=f"{subject} expected layout",
+        )
+        if layout != target:
+            raise ValueError(
+                f"{subject} residue identities do not match the expected layout"
+            )
     if len(track.values) != layout.length:
         raise ValueError(f"{subject} length does not match its residue layout")
     for index, item in enumerate(track.values):
         if item is None:
             continue
-        if kind is TrackKind.SECONDARY_STRUCTURE:
+        if kind is TrackKind.SEQUENCE:
+            if (
+                type(item) is not str
+                or len(item) != 1
+                or item not in "ACDEFGHIKLMNPQRSTVWYBXZJUO"
+            ):
+                raise ValueError(
+                    f"{subject}[{index}] is not one amino-acid code"
+                )
+        elif kind is TrackKind.STRUCTURE:
+            _validate_structure_value(item, subject=f"{subject}[{index}]")
+        elif kind is TrackKind.VISIBILITY:
+            if type(item) is not bool:
+                raise ValueError(
+                    f"{subject}[{index}] is not nullable visibility"
+                )
+        elif kind is TrackKind.SECONDARY_STRUCTURE:
             if type(item) is not str or item not in _SECONDARY_STRUCTURE:
                 raise ValueError(
                     f"{subject}[{index}] is not one canonical SS8 value"
@@ -316,31 +359,41 @@ def validate_track(
                 raise ValueError(
                     f"{subject}[{index}] is not nullable non-negative SASA"
                 )
-        else:
-            _validate_track_value(item, subject=f"{subject}[{index}]")
     return track
 
 
-def _validate_track_value(value: Any, *, subject: str) -> None:
-    if value is None or type(value) in {str, bool, int}:
+def _validate_coordinate(value: object, *, subject: str) -> None:
+    if (
+        not isinstance(value, (list, tuple))
+        or len(value) != 3
+        or any(
+            isinstance(item, bool)
+            or not isinstance(item, (int, float))
+            or not math.isfinite(item)
+            for item in value
+        )
+    ):
+        raise ValueError(f"{subject} must be one finite Cartesian 3-vector")
+
+
+def _validate_structure_value(value: object, *, subject: str) -> None:
+    if isinstance(value, (list, tuple)):
+        _validate_coordinate(value, subject=subject)
         return
-    if type(value) is float:
-        if not math.isfinite(value):
-            raise ValueError(f"{subject} must be finite")
-        return
-    if type(value) is tuple:
-        for index, item in enumerate(value):
-            _validate_track_value(item, subject=f"{subject}[{index}]")
-        return
-    if type(value) is list:
-        for index, item in enumerate(value):
-            _validate_track_value(item, subject=f"{subject}[{index}]")
-        return
-    if type(value) is dict and all(type(key) is str for key in value):
-        for key, item in value.items():
-            _validate_track_value(item, subject=f"{subject}.{key}")
-        return
-    raise ValueError(f"{subject} is not a canonical per-residue value")
+    if not isinstance(value, Mapping) or not value:
+        raise ValueError(
+            f"{subject} must be one coordinate or named atom coordinate map"
+        )
+    for atom_name, coordinate in value.items():
+        if (
+            not isinstance(atom_name, str)
+            or re.fullmatch(r"^[A-Z0-9][A-Z0-9']{0,3}$", atom_name) is None
+        ):
+            raise ValueError(f"{subject} contains an invalid atom name")
+        _validate_coordinate(
+            coordinate,
+            subject=f"{subject}.{atom_name}",
+        )
 
 
 def map_track(
@@ -348,25 +401,28 @@ def map_track(
     residue_map: object,
     *,
     kind: TrackKind,
-) -> ResidueTrack:
+) -> AlignedResidueTrack:
     """Explicitly convert one track through one validated residue map."""
     mapping = validate_residue_map(residue_map)
     source = validate_track(
         track,
-        mapping.source_layout,
         kind=kind,
         subject="source track",
+        expected_layout=mapping.source_layout,
     )
     values: list[Any] = [None] * mapping.target_layout.length
     for source_index, target_index, operation in mapping.mappings:
         if operation == "match":
             values[target_index] = source.values[source_index]
-    result = ResidueTrack(values=values, sentinel=None)
+    result = AlignedResidueTrack(
+        layout=mapping.target_layout,
+        values=tuple(values),
+    )
     return validate_track(
         result,
-        mapping.target_layout,
         kind=kind,
         subject="mapped track",
+        expected_layout=mapping.target_layout,
     )
 
 
@@ -376,14 +432,14 @@ def override_track(
     overrides: object,
     *,
     kind: TrackKind,
-) -> ResidueTrack:
+) -> AlignedResidueTrack:
     """Apply identity-addressed clear/preserve/replace operations."""
     target_layout = validate_layout(layout, subject="target_layout")
     source = validate_track(
         track,
-        target_layout,
         kind=kind,
         subject="input track",
+        expected_layout=target_layout,
     )
     if not isinstance(overrides, Sequence) or isinstance(
         overrides, (str, bytes, bytearray)
@@ -427,11 +483,53 @@ def override_track(
                 raise ValueError(
                     "replace requires a concrete value; use clear for null"
                 )
-            values[position] = replacement
-    result = ResidueTrack(values=values, sentinel=None)
+            values[position] = normalize_replacement(
+                replacement,
+                kind=kind,
+            )
+    result = AlignedResidueTrack(
+        layout=target_layout,
+        values=tuple(values),
+    )
     return validate_track(
         result,
-        target_layout,
         kind=kind,
         subject="overridden track",
+        expected_layout=target_layout,
     )
+
+
+def normalize_replacement(value: object, *, kind: TrackKind) -> object:
+    """Normalize public structure authoring values to the domain shape."""
+    if kind is not TrackKind.STRUCTURE:
+        return value
+    if isinstance(value, list):
+        return tuple(value)
+    if not isinstance(value, Mapping) or set(value) != {"atom_coordinates"}:
+        return value
+    raw_atoms = value["atom_coordinates"]
+    if not isinstance(raw_atoms, Sequence) or isinstance(
+        raw_atoms,
+        (str, bytes, bytearray),
+    ):
+        raise ValueError("atom_coordinates must be an ordered array")
+    normalized: dict[str, tuple[object, ...]] = {}
+    for index, raw_atom in enumerate(raw_atoms):
+        if not isinstance(raw_atom, Mapping) or set(raw_atom) != {
+            "atom_name",
+            "coordinates",
+        }:
+            raise ValueError(
+                f"atom_coordinates[{index}] must contain atom_name and coordinates"
+            )
+        atom_name = raw_atom["atom_name"]
+        coordinates = raw_atom["coordinates"]
+        if not isinstance(atom_name, str) or atom_name in normalized:
+            raise ValueError("atom_coordinates contains an invalid duplicate atom")
+        if not isinstance(coordinates, Sequence) or isinstance(
+            coordinates,
+            (str, bytes, bytearray),
+        ):
+            raise ValueError("coordinates must be one three-item array")
+        normalized[atom_name] = tuple(coordinates)
+    return normalized

@@ -21,6 +21,7 @@ from .implementation import (
     MapResidueTrackImplementation,
     OverrideResidueTrackImplementation,
 )
+from .track_types import ALIGNED_TRACK_PORT_TYPES
 
 
 _VERSION = "2.0.0"
@@ -157,4 +158,5 @@ MODULE_PACKAGE = ModulePackageRegistration(
     ),
     methods=tuple(_method(operation) for operation in _OPERATIONS),
     bindings=tuple(_binding(operation) for operation in _OPERATIONS),
+    port_types=ALIGNED_TRACK_PORT_TYPES,
 )

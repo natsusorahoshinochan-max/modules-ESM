@@ -17,7 +17,8 @@ from core import (
     ModulePackageRegistration,
     ReadinessDeclaration,
 )
-from datatypes import ResidueLayout, ResidueMap, ResidueTrack
+from datatypes import ResidueLayout, ResidueMap
+from modules.prompt_authoring.domain import AlignedResidueTrack
 
 
 _VERSION = "2.0.0"
@@ -66,10 +67,23 @@ class _Source:
                     (1, -1, "delete"),
                 ],
             )
-            source_track = ResidueTrack(["H", "E", "-"], None)
-            visibility_track = ResidueTrack([True, True, False], None)
+            source_track = AlignedResidueTrack(
+                source,
+                ("A", "G", "S"),
+            )
+            source_secondary_structure_track = AlignedResidueTrack(
+                source,
+                ("H", "E", "-"),
+            )
+            visibility_track = AlignedResidueTrack(
+                source,
+                (True, True, False),
+            )
             if fixture == "source-track-length-drift":
-                source_track = ResidueTrack(["H", "E"], None)
+                source_track = AlignedResidueTrack(
+                    source,
+                    ("A", "G"),
+                )
             elif fixture == "overlapping-residue-map":
                 residue_map = ResidueMap(
                     source_layout=source,
@@ -125,18 +139,60 @@ class _Source:
                         (1, -1, "delete"),
                     ],
                 )
+            elif fixture == "contradictory-residue-map":
+                identical = ResidueLayout(
+                    chain_id="A",
+                    length=1,
+                    residue_ids=["A:1"],
+                )
+                source = identical
+                target = identical
+                source_track = AlignedResidueTrack(
+                    source,
+                    ("A",),
+                )
+                source_secondary_structure_track = AlignedResidueTrack(
+                    source,
+                    ("H",),
+                )
+                visibility_track = AlignedResidueTrack(
+                    source,
+                    (True,),
+                )
+                residue_map = ResidueMap(
+                    source_layout=source,
+                    target_layout=target,
+                    mappings=[
+                        (-1, 0, "insert"),
+                        (0, -1, "delete"),
+                    ],
+                )
         return {
             "source_layout": source,
             "target_layout": target,
-            "source_track": source_track,
+            "source_sequence_track": source_track,
             "source_visibility_track": visibility_track,
-            "target_secondary_structure_track": ResidueTrack(
-                (
+            "source_secondary_structure_track": (
+                source_secondary_structure_track
+            ),
+            "target_secondary_structure_track": AlignedResidueTrack(
+                target,
+                tuple(
                     [None, "H", "-", None]
                     if fixture == "boundary-edit"
-                    else ["H", None, "-"]
+                    else (
+                        ["H"]
+                        if fixture == "contradictory-residue-map"
+                        else ["H", None, "-"]
+                    )
                 ),
-                None,
+            ),
+            "target_structure_track": AlignedResidueTrack(
+                target,
+                tuple(
+                    None
+                    for _ in range(target.length)
+                ),
             ),
             "residue_map": residue_map,
         }

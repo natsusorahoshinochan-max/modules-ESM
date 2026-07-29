@@ -15,7 +15,9 @@ from .domain import (
 
 
 _TRACK_PORTS = {
-    "track": TrackKind.GENERIC,
+    "sequence_track": TrackKind.SEQUENCE,
+    "structure_track": TrackKind.STRUCTURE,
+    "visibility_track": TrackKind.VISIBILITY,
     "secondary_structure_track": TrackKind.SECONDARY_STRUCTURE,
     "sasa_track": TrackKind.SASA,
 }

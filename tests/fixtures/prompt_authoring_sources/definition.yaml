@@ -18,24 +18,36 @@ outputs:
     required: true
     multiplicity: one
     scientific_meaning: Identity-complete post-edit fixture layout.
-  - name: source_track
-    port_type_id: residue.track
+  - name: source_sequence_track
+    port_type_id: prompt_authoring.track.sequence
     port_type_version: "2.0.0"
     required: true
     multiplicity: one
-    scientific_meaning: Nullable generic fixture values aligned to source_layout.
+    scientific_meaning: Nullable amino-acid fixture values carrying source_layout.
   - name: source_visibility_track
-    port_type_id: residue.track
+    port_type_id: prompt_authoring.track.visibility
     port_type_version: "2.0.0"
     required: true
     multiplicity: one
-    scientific_meaning: Nullable visibility fixture values aligned to source_layout.
+    scientific_meaning: Nullable visibility fixture values carrying source_layout.
+  - name: source_secondary_structure_track
+    port_type_id: prompt_authoring.track.secondary_structure
+    port_type_version: "2.0.0"
+    required: true
+    multiplicity: one
+    scientific_meaning: Nullable SS8 fixture values carrying source_layout.
   - name: target_secondary_structure_track
-    port_type_id: residue.track.secondary_structure
+    port_type_id: prompt_authoring.track.secondary_structure
     port_type_version: "2.0.0"
     required: true
     multiplicity: one
-    scientific_meaning: Nullable SS8 fixture values aligned to target_layout.
+    scientific_meaning: Nullable SS8 fixture values carrying target_layout.
+  - name: target_structure_track
+    port_type_id: prompt_authoring.track.structure
+    port_type_version: "2.0.0"
+    required: true
+    multiplicity: one
+    scientific_meaning: Nullable structure-coordinate fixture values carrying target_layout.
   - name: residue_map
     port_type_id: residue.map
     port_type_version: "2.0.0"
@@ -59,4 +71,5 @@ node_parameters:
       - unmapped-residue-map
       - noncontiguous-chain-layout
       - boundary-edit
+      - contradictory-residue-map
     default: canonical
