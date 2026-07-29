@@ -22,6 +22,7 @@ from datatypes import (
 )
 
 from .adapter import (
+    call_remote_provider,
     complete_sequence,
     complete_structure,
     derived_call_seed,
@@ -29,7 +30,6 @@ from .adapter import (
     normalized_confidence,
     protein_prompt_to_provider,
     reject_silent_sequence_fields,
-    require_provider_protein,
     response_has_structure,
     structure_prompt_for_sequence,
 )
@@ -106,9 +106,7 @@ class ESM3GenerationImplementation:
             ),
             parent_invocation_id=parent_invocation_id,
         ) as invocation_id:
-            from modules.esm3_adapter import call_esm3_provider
-
-            result = call_esm3_provider(
+            result = call_remote_provider(
                 client,
                 provider_prompt,
                 config,
@@ -118,7 +116,7 @@ class ESM3GenerationImplementation:
                 }[operation],
                 model_name=self._model_name,
             )
-            return require_provider_protein(result, operation), invocation_id
+            return result, invocation_id
 
     def execute(
         self,

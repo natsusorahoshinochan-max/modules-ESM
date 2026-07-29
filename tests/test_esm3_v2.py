@@ -487,7 +487,7 @@ def test_readiness_has_no_implicit_process_credential_fallback(
     )
 
 
-def test_provider_availability_is_reobserved_without_process_cache(
+def test_provider_installation_is_reobserved_without_process_cache(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     import modules.esm3.package as package
@@ -506,7 +506,16 @@ def test_provider_availability_is_reobserved_without_process_cache(
 
     assert package._available().is_available
     assert package._available().is_available
+    environment = {
+        "endpoint_id": "biohub",
+        "credential_handle": object(),
+        "provider_client": _ProviderClient([]),
+    }
+    assert package._ready(environment)
+    assert package._ready(environment)
     assert validations == [
+        ("esm", package.ESM_SDK_REVISION),
+        ("esm", package.ESM_SDK_REVISION),
         ("esm", package.ESM_SDK_REVISION),
         ("esm", package.ESM_SDK_REVISION),
     ]

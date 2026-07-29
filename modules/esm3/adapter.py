@@ -16,6 +16,9 @@ from datatypes import (
 from modules.prompt_authoring.prompts import validate_protein_prompt
 
 
+ESM_SDK_REVISION = "917af90b624535eed1e072d343c717e3ec11fef4"
+BIOHUB_ESM3_MEDIUM_MODEL = "esm3-medium-2024-08"
+BIOHUB_ESM3_OPEN_MODEL = "esm3-open-2024-03"
 _ATOM37_INDEX = {
     atom_name: index
     for index, atom_name in enumerate(
@@ -262,6 +265,82 @@ def require_provider_protein(result: Any, operation: str) -> Any:
         raise RuntimeError(
             f"ESM-3 provider operation {operation} failed with a provider error"
         )
+    return result
+
+
+def call_remote_provider(
+    client: Any,
+    protein: Any,
+    config: Any,
+    operation: str,
+    *,
+    model_name: str,
+) -> Any:
+    """Execute one remote call and retain exact provider evidence."""
+    from core.provider_evidence import record_provider_call_result
+    from core.run_context import RunContext
+    from esm.sdk.api import ESMProteinError
+
+    secondary_structure = getattr(protein, "secondary_structure", None)
+    track_identity: dict[str, Any] = {}
+    if isinstance(secondary_structure, str):
+        track_identity = {
+            "secondary_structure_length": len(secondary_structure),
+            "secondary_structure_sha256": hashlib.sha256(
+                secondary_structure.encode()
+            ).hexdigest(),
+        }
+    RunContext.record_active_provider_call(
+        "biohub",
+        operation,
+        model=model_name,
+        details=track_identity,
+    )
+    try:
+        result = client.generate(protein, config)
+    except ESMProteinError as error:
+        raise RuntimeError(
+            f"ESM-3 provider operation {operation} failed"
+        ) from error
+    result = require_provider_protein(result, operation)
+    result_summary: dict[str, Any] = {
+        "result_type": type(result).__name__,
+        "has_sequence": getattr(result, "sequence", None) is not None,
+        "has_coordinates": getattr(result, "coordinates", None) is not None,
+        **track_identity,
+    }
+    input_sequence = getattr(protein, "sequence", None)
+    if isinstance(input_sequence, str):
+        result_summary.update({
+            "input_sequence_length": len(input_sequence),
+            "input_sequence_sha256": hashlib.sha256(
+                input_sequence.encode()
+            ).hexdigest(),
+        })
+    output_sequence = getattr(result, "sequence", None)
+    if isinstance(output_sequence, str):
+        result_summary.update({
+            "output_sequence_length": len(output_sequence),
+            "output_sequence_sha256": hashlib.sha256(
+                output_sequence.encode()
+            ).hexdigest(),
+        })
+    record_provider_call_result(
+        provider="biohub",
+        operation={
+            "generate(track=sequence)": "esm3.generate_sequence",
+            "generate(track=structure)": "esm3.generate_structure",
+        }.get(operation, operation),
+        model=model_name,
+        provider_identity={
+            "sdk": "esm",
+            "sdk_source_revision": ESM_SDK_REVISION,
+            "service": "Biohub",
+        },
+        effective_seed=None,
+        seed_control="unsupported_by_provider",
+        result_summary=result_summary,
+    )
     return result
 
 

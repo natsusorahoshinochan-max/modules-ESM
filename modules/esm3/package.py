@@ -20,13 +20,13 @@ from core import (
     ProducedObservationDefinition,
     ReadinessDeclaration,
 )
-from core.provider_contract import (
-    BIOHUB_ESM3_MODEL,
+from core.provider_contract import validate_installed_provider_checkout
+
+from .adapter import (
+    BIOHUB_ESM3_MEDIUM_MODEL,
     BIOHUB_ESM3_OPEN_MODEL,
     ESM_SDK_REVISION,
-    validate_installed_provider_checkout,
 )
-
 from .implementation import ESM3GenerationImplementation
 
 
@@ -45,7 +45,7 @@ _MODELS = (
     {
         "suffix": "medium_2024_08",
         "route": "biohub_medium",
-        "model": BIOHUB_ESM3_MODEL,
+        "model": BIOHUB_ESM3_MEDIUM_MODEL,
         "scale": "medium",
         "release": "2024-08",
     },
@@ -86,10 +86,15 @@ def _ready(environment: object) -> bool:
         return False
     client = environment.get("provider_client")
     client_factory = environment.get("client_factory")
-    return (
+    has_bound_client = (
         callable(getattr(client, "generate", None))
         or callable(client_factory)
-    ) and environment.get("credential_handle") is not None
+    )
+    return (
+        has_bound_client
+        and environment.get("credential_handle") is not None
+        and _provider_installation_is_exact()
+    )
 
 
 def _resolve_effective_randomness(
