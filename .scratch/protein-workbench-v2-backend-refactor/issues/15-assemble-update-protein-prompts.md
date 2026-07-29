@@ -4,7 +4,7 @@
 
 **Blocked by:** 14 — Consolidate residue layout and track editing.
 
-**Status:** awaiting-controller
+**Status:** completed
 
 - [x] Prompt assembly, function annotation, and generic prompt sequence update each have one v2 Node Definition in the existing `prompt_authoring` package.
 - [x] Prompt assembly accepts only declared layout, sequence, structure, visibility, secondary-structure, SASA, and function-annotation inputs with exact Port contracts.
@@ -59,3 +59,38 @@ this state.
   modules, one typed annotation validator, and complete removal of the legacy
   ESM-3-specific sequence helper. Both final review axes returned `APPROVE` at
   `4c7f2d3`.
+
+## Controller cumulative acceptance
+
+Before Ticket 16 started, Controller independently accepted executor commit
+`338dda476a87739a6ec1e14353adfd96a2eb2aab` against the previously accepted
+Tickets 01–14 gate `5273f2d5b0d984e32542c10e1c4404048997e3db`.
+
+- Joint Tickets 01–15 focused suites:
+  `uv run --no-sync python -m pytest -q tests/test_public_protocol_v2.py
+  tests/test_port_types_v2.py tests/test_module_packages_v2.py
+  tests/test_workflow_compiler_v2.py tests/test_run_execution_v2.py
+  tests/test_run_cancel_derive_v2.py tests/test_result_cache_v2.py
+  tests/test_scoring_v2.py tests/test_pairwise_scoring_v2.py
+  tests/test_contract_test_kit_v2.py tests/test_protein_io_v2.py
+  tests/test_protein_io_artifacts_v2.py tests/test_prompt_authoring_v2.py
+  tests/test_prompt_authoring_behavior_v2.py
+  tests/test_prompt_authoring_prompt_v2.py` → `362 passed`.
+- Cumulative routine gate:
+  `uv run --no-sync python scripts/verify_backend.py routine` →
+  `1044 passed, 44 deselected`; retained result
+  `verification-results/routine/20260729T122643.813268Z-72691-00fb90f3532653a9`.
+- Deterministic acceptance:
+  `uv run --no-sync python scripts/verify_backend.py
+  deterministic-acceptance` → `9 passed, 5 deselected`; retained result
+  `verification-results/deterministic-acceptance/20260729T122854.272334Z-73309-a11ac848d05796a4`.
+- Installed artifact:
+  `uv run --no-sync python scripts/verify_backend.py installed-package` →
+  `3 passed`; retained result
+  `verification-results/installed-package/20260729T122942.895394Z-73433-e87859a773ffb24c`.
+- `git diff --check
+  5273f2d5b0d984e32542c10e1c4404048997e3db...338dda476a87739a6ec1e14353adfd96a2eb2aab`
+  passed.
+
+No Controller regression was found, so Ticket 15 is accepted and Ticket 16
+may start.
