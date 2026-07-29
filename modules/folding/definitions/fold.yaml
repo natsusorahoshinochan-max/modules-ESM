@@ -23,13 +23,13 @@ outputs:
     port_type_version: "2.0.0"
     required: true
     multiplicity: one
-    scientific_meaning: Exact intrinsic pTM and canonical per-residue and mean-residue pLDDT Observations for every structure Candidate.
+    scientific_meaning: Exact intrinsic confidence Observations declared by the selected folding Binding, including canonical per-residue and mean-residue pLDDT for every structure Candidate and pTM only when that Method produces it.
   - name: pae_observations
     port_type_id: score.collection
     port_type_version: "2.0.0"
     required: true
     multiplicity: one
-    scientific_meaning: Exact intrinsic PAE matrices in angstroms for every structure Candidate.
+    scientific_meaning: Exact intrinsic PAE matrices in angstroms when the selected folding Method produces PAE; otherwise an explicit empty Observation Collection.
 parameter_groups:
   - id: sampling
     title: Sampling controls

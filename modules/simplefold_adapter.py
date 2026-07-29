@@ -94,10 +94,19 @@ def _sha256_regular_file(
     return digest.hexdigest()
 
 
-def validated_simplefold_model_dir(working_artifacts: Path) -> Path:
+def validated_simplefold_model_dir(
+    working_artifacts: Path,
+    model_root: Path | None = None,
+    *,
+    required_artifacts: tuple[str, ...] | None = None,
+) -> Path:
     """Resolve only immutable, locally provisioned SimpleFold provider objects."""
-    configured = os.environ.get("PROTEIN_WORKBENCH_SIMPLEFOLD_MODEL_ROOT")
-    if not configured:
+    configured = (
+        model_root
+        if model_root is not None
+        else os.environ.get("PROTEIN_WORKBENCH_SIMPLEFOLD_MODEL_ROOT")
+    )
+    if configured is None:
         raise FileNotFoundError(
             "SimpleFold model root is not explicitly configured"
         )
@@ -106,10 +115,14 @@ def validated_simplefold_model_dir(working_artifacts: Path) -> Path:
         raise FileNotFoundError(
             "SimpleFold model root is unavailable or is a symlink"
         )
-    required_names = {
-        *SIMPLEFOLD_ARTIFACT_IDENTITIES,
-        *SIMPLEFOLD_AUXILIARY_ARTIFACTS,
-    }
+    required_names = set(
+        required_artifacts
+        if required_artifacts is not None
+        else (
+            *SIMPLEFOLD_ARTIFACT_IDENTITIES,
+            *SIMPLEFOLD_AUXILIARY_ARTIFACTS,
+        )
+    )
     if not SIMPLEFOLD_EXECUTION_ENABLED:
         raise RuntimeError(
             "SimpleFold real-provider execution remains disabled pending "
@@ -203,10 +216,16 @@ def _run_simplefold_esm2_git(root: Path, *args: str) -> str:
     return completed.stdout.strip()
 
 
-def validated_simplefold_esm2_root() -> Path:
+def validated_simplefold_esm2_root(
+    source_root: Path | None = None,
+) -> Path:
     """Resolve the exact local ESM2 checkout used by SimpleFold."""
-    configured = os.environ.get("PROTEIN_WORKBENCH_SIMPLEFOLD_ESM2_ROOT")
-    if not configured:
+    configured = (
+        source_root
+        if source_root is not None
+        else os.environ.get("PROTEIN_WORKBENCH_SIMPLEFOLD_ESM2_ROOT")
+    )
+    if configured is None:
         raise FileNotFoundError(
             "SimpleFold ESM2 source root is not explicitly configured"
         )
@@ -342,12 +361,19 @@ def _simplefold_esm2_runtime_files_without_git(
     return sorted(runtime_files)
 
 
-def validated_simplefold_esm2_model_dir(working_artifacts: Path) -> Path:
+def validated_simplefold_esm2_model_dir(
+    working_artifacts: Path,
+    model_root: Path | None = None,
+) -> Path:
     """Stage only reviewed ESM2 pickle inputs into the isolated run root."""
-    configured = os.environ.get(
-        "PROTEIN_WORKBENCH_SIMPLEFOLD_ESM2_MODEL_ROOT"
+    configured = (
+        model_root
+        if model_root is not None
+        else os.environ.get(
+            "PROTEIN_WORKBENCH_SIMPLEFOLD_ESM2_MODEL_ROOT"
+        )
     )
-    if not configured:
+    if configured is None:
         raise FileNotFoundError(
             "SimpleFold ESM2 model root is not explicitly configured"
         )
@@ -390,14 +416,19 @@ def validated_simplefold_esm2_model_dir(working_artifacts: Path) -> Path:
 
 def validated_simplefold_esm2_runtime(
     working_artifacts: Path,
+    source_root: Path | None = None,
+    model_root: Path | None = None,
 ) -> tuple[Path, Path]:
     """Stage reviewed ESM2 source and weights before provider import."""
-    source_root = validated_simplefold_esm2_root()
+    source_root = validated_simplefold_esm2_root(source_root)
     staged_source = _stage_simplefold_esm2_source(
         source_root,
         working_artifacts,
     )
-    staged_models = validated_simplefold_esm2_model_dir(working_artifacts)
+    staged_models = validated_simplefold_esm2_model_dir(
+        working_artifacts,
+        model_root,
+    )
     return staged_source, staged_models
 
 
@@ -467,7 +498,9 @@ def _bind_simplefold_esm2_source(
 def _prepare_simplefold_cache(model_dir: Path, cache: Path) -> None:
     """Populate a fresh cache from verified objects; never invoke a downloader."""
     for name in SIMPLEFOLD_AUXILIARY_ARTIFACTS:
-        _copy_regular_file(model_dir / name, cache / name)
+        source = model_dir / name
+        if source.is_file() and not source.is_symlink():
+            _copy_regular_file(source, cache / name)
 
 
 def _restore_process_cwd(function: Callable[..., Any]) -> Callable[..., Any]:
@@ -491,6 +524,12 @@ def fold_sequence(
     num_samples: int = 1,
     project_dir: str | None = None,
     call_details: dict[str, Any] | None = None,
+    effective_seed: int | None = None,
+    model_root: Path | None = None,
+    esm2_source_root: Path | None = None,
+    esm2_model_root: Path | None = None,
+    required_device: str | None = None,
+    record_evidence: bool = True,
 ) -> tuple[list[ProteinStructure], ScoreCollection]:
     """Fold a protein sequence using SimpleFold.
 
@@ -503,10 +542,29 @@ def fold_sequence(
         raise ValueError("SimpleFold folding requires simplefold_100M")
     num_steps = min(num_steps, 50)
     artifacts = _get_artifact_dir(project_dir)
-    model_dir = validated_simplefold_model_dir(artifacts)
-    esm2_source_root, esm2_model_dir = validated_simplefold_esm2_runtime(
-        artifacts
-    )
+    if model_root is None:
+        model_dir = validated_simplefold_model_dir(artifacts)
+    else:
+        model_dir = validated_simplefold_model_dir(
+            artifacts,
+            model_root,
+            required_artifacts=(
+                "ccd.pkl",
+                "plddt.ckpt",
+                "simplefold_1.6B.ckpt",
+                "simplefold_100M.ckpt",
+            ),
+        )
+    if esm2_source_root is None and esm2_model_root is None:
+        esm2_source_root, esm2_model_dir = validated_simplefold_esm2_runtime(
+            artifacts
+        )
+    else:
+        esm2_source_root, esm2_model_dir = validated_simplefold_esm2_runtime(
+            artifacts,
+            esm2_source_root,
+            esm2_model_root,
+        )
     old_cwd = _setup_simplefold_imports()
     from simplefold.wrapper import ModelWrapper, InferenceWrapper
     from simplefold.utils.boltz_utils import (
@@ -555,6 +613,10 @@ def fold_sequence(
     model = model_wrapper.from_pretrained_folding_model()
     plddt_models = model_wrapper.from_pretrained_plddt_model()
     device = model_wrapper.device
+    if required_device is not None and str(device) != required_device:
+        raise RuntimeError(
+            "SimpleFold provider device does not match the Binding"
+        )
 
     # Initialize inference wrapper
     inf_wrapper = InferenceWrapper(
@@ -594,13 +656,37 @@ def fold_sequence(
         # Run inference
         from core.run_context import RunContext
 
-        RunContext.record_active_provider_call(
-            "simplefold",
-            "fold_sequence",
-            model=model_name,
-            details=call_details,
+        if record_evidence:
+            RunContext.record_active_provider_call(
+                "simplefold",
+                "fold_sequence",
+                model=model_name,
+                details=call_details,
+            )
+        resolved_seed = 42 if effective_seed is None else effective_seed
+        if (
+            type(resolved_seed) is not int
+            or not 0 <= resolved_seed <= 9_007_199_254_740_991
+        ):
+            raise ValueError("SimpleFold effective seed is invalid")
+        torch_device = torch.device(device)
+        fork_devices = (
+            [
+                torch_device.index
+                if torch_device.index is not None
+                else torch.cuda.current_device()
+            ]
+            if torch_device.type == "cuda"
+            else []
         )
-        results = inf_wrapper.run_inference(batch, model, plddt_models, device)
+        with torch.random.fork_rng(devices=fork_devices):
+            torch.manual_seed(resolved_seed)
+            results = inf_wrapper.run_inference(
+                batch,
+                model,
+                plddt_models,
+                device,
+            )
 
         sampled_coord = results["sampled_coord"]
         pad_mask = results["pad_mask"]
@@ -648,32 +734,36 @@ def fold_sequence(
         from core.provider_evidence import record_provider_call_result
 
         produced = structures[structure_start:]
-        record_provider_call_result(
-            provider="simplefold",
-            operation="fold_sequence",
-            model=model_name,
-            provider_identity=simplefold_provider_identity(
-                SIMPLEFOLD_ARTIFACT_SHA256
-            ),
-            effective_seed=None,
-            seed_control="unsupported_by_adapter",
-            result_summary={
-                "input_sequence_length": len(sequence.sequence),
-                "input_sequence_sha256": hashlib.sha256(
-                    sequence.sequence.encode()
-                ).hexdigest(),
-                "structure_count": len(produced),
-                "pdb_bytes": [
-                    len(structure.pdb_string.encode()) for structure in produced
-                ],
-                "pdb_sha256": [
-                    hashlib.sha256(structure.pdb_string.encode()).hexdigest()
-                    for structure in produced
-                ],
-                "score_count": len(all_score_entries) - score_start,
-                "num_steps": num_steps,
-            },
-        )
+        if record_evidence:
+            record_provider_call_result(
+                provider="simplefold",
+                operation="fold_sequence",
+                model=model_name,
+                provider_identity=simplefold_provider_identity(
+                    SIMPLEFOLD_ARTIFACT_SHA256
+                ),
+                effective_seed=resolved_seed,
+                seed_control="torch_local",
+                result_summary={
+                    "input_sequence_length": len(sequence.sequence),
+                    "input_sequence_sha256": hashlib.sha256(
+                        sequence.sequence.encode()
+                    ).hexdigest(),
+                    "structure_count": len(produced),
+                    "pdb_bytes": [
+                        len(structure.pdb_string.encode())
+                        for structure in produced
+                    ],
+                    "pdb_sha256": [
+                        hashlib.sha256(
+                            structure.pdb_string.encode()
+                        ).hexdigest()
+                        for structure in produced
+                    ],
+                    "score_count": len(all_score_entries) - score_start,
+                    "num_steps": num_steps,
+                },
+            )
 
     os.chdir(old_cwd)
     return structures, ScoreCollection(

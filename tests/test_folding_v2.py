@@ -29,7 +29,12 @@ from core import (
 )
 from core.port_types import canonical_json_bytes
 from core.workflow_v2 import WorkflowEdge
-from datatypes import ProteinSequence
+from datatypes import (
+    ProteinSequence,
+    ProteinStructure,
+    Score,
+    ScoreCollection,
+)
 
 
 def _two_residue_pdb() -> str:
@@ -666,6 +671,111 @@ def test_remote_and_local_bindings_pass_shared_contract_test_kit(
         monkeypatch,
     )
     local_environment["provider_client"] = LocalClient()
+    import modules.folding.simplefold_adapter as simplefold_adapter
+
+    simplefold_model_root = tmp_path / "simplefold-models"
+    simplefold_esm2_models = tmp_path / "simplefold-esm2-models"
+    simplefold_esm2_source = tmp_path / "simplefold-esm2-source"
+    simplefold_model_root.mkdir()
+    simplefold_esm2_models.mkdir()
+    simplefold_esm2_source.mkdir()
+    simplefold_payloads = {
+        name: f"fixture-{name}".encode()
+        for name in simplefold_adapter._FOLDING_ARTIFACTS
+    }
+    simplefold_esm2_payloads = {
+        "esm2_t36_3B_UR50D.pt": b"fixture-esm2",
+        "esm2_t36_3B_UR50D-contact-regression.pt": b"fixture-contact",
+    }
+    for name, payload in simplefold_payloads.items():
+        (simplefold_model_root / name).write_bytes(payload)
+    for name, payload in simplefold_esm2_payloads.items():
+        (simplefold_esm2_models / name).write_bytes(payload)
+    monkeypatch.setattr(
+        simplefold_adapter,
+        "SIMPLEFOLD_ARTIFACT_SHA256",
+        {
+            name: hashlib.sha256(payload).hexdigest()
+            for name, payload in simplefold_payloads.items()
+        },
+    )
+    monkeypatch.setattr(
+        simplefold_adapter,
+        "SIMPLEFOLD_ARTIFACT_IDENTITIES",
+        {
+            name: {"bytes": len(payload)}
+            for name, payload in simplefold_payloads.items()
+        },
+    )
+    monkeypatch.setattr(
+        simplefold_adapter,
+        "SIMPLEFOLD_ESM2_ARTIFACT_SHA256",
+        {
+            name: hashlib.sha256(payload).hexdigest()
+            for name, payload in simplefold_esm2_payloads.items()
+        },
+    )
+    monkeypatch.setattr(
+        simplefold_adapter,
+        "SIMPLEFOLD_ESM2_ARTIFACT_IDENTITIES",
+        {
+            name: {"bytes": len(payload)}
+            for name, payload in simplefold_esm2_payloads.items()
+        },
+    )
+    monkeypatch.setattr(
+        simplefold_adapter,
+        "validate_installed_provider_checkout",
+        lambda *_args, **_kwargs: None,
+    )
+    import modules.simplefold_adapter as legacy_simplefold_adapter
+
+    monkeypatch.setattr(
+        legacy_simplefold_adapter,
+        "validated_simplefold_esm2_root",
+        lambda root=None: root,
+    )
+
+    class SimpleFoldClient:
+        def fold(
+            self,
+            **kwargs: Any,
+        ) -> tuple[list[ProteinStructure], ScoreCollection]:
+            assert kwargs["num_steps"] == 10
+            assert kwargs["num_samples"] == 1
+            return (
+                [
+                    ProteinStructure(
+                        _two_residue_pdb(),
+                        source="simplefold",
+                    )
+                ],
+                ScoreCollection(
+                    "simplefold-native",
+                    [
+                        Score(
+                            "plddt",
+                            75.0,
+                            details={
+                                "per_residue": [70.0, 80.0],
+                                "sample_index": 0,
+                            },
+                        )
+                    ],
+                ),
+            )
+
+    simplefold_environment = {
+        "model_root": simplefold_model_root,
+        "esm2_model_root": simplefold_esm2_models,
+        "esm2_source_root": simplefold_esm2_source,
+        "device": simplefold_adapter.SIMPLEFOLD_DEVICE,
+        "resolved_runtime_fingerprint": (
+            simplefold_adapter.configured_runtime_fingerprint()
+        ),
+        "provider_client": SimpleFoldClient(),
+        "private_token": "ctk-secret-must-not-publish",
+    }
     common = {
         "node_type_id": "folding.fold",
         "node_type_version": "2.0.0",
@@ -674,7 +784,6 @@ def test_remote_and_local_bindings_pass_shared_contract_test_kit(
             "effective_seed": 1603,
             "num_samples": 1,
         },
-        "binding_parameters": {},
         "workflow_nodes": (source_node,),
         "workflow_edges": (
             WorkflowEdge(
@@ -701,6 +810,7 @@ def test_remote_and_local_bindings_pass_shared_contract_test_kit(
         ModulePackageContractCase(
             case_id="esmfold2-remote",
             binding_id="folding.fold.esmfold2_remote",
+            binding_parameters={},
             environment_values={
                 "endpoint_id": "biohub",
                 "credential_handle": object(),
@@ -712,11 +822,42 @@ def test_remote_and_local_bindings_pass_shared_contract_test_kit(
         ModulePackageContractCase(
             case_id="esmfold2-local",
             binding_id="folding.fold.esmfold2_local",
+            binding_parameters={},
             environment_values={
                 **local_environment,
                 "private_token": "ctk-secret-must-not-publish",
             },
             **common,
+        ),
+        ModulePackageContractCase(
+            case_id="simplefold-local",
+            binding_id="folding.fold.simplefold_local",
+            binding_parameters={"num_steps": 10},
+            environment_values=simplefold_environment,
+            expected_candidate_counts={
+                "structure_candidates": 1,
+            },
+            expected_observation_counts={
+                "confidence_observations": 2,
+                "pae_observations": 0,
+            },
+            safe_environment_fingerprint=simplefold_environment[
+                "resolved_runtime_fingerprint"
+            ],
+            invalidation_token=simplefold_environment[
+                "resolved_runtime_fingerprint"
+            ],
+            **{
+                key: value
+                for key, value in common.items()
+                if key
+                not in {
+                    "expected_candidate_counts",
+                    "expected_observation_counts",
+                    "safe_environment_fingerprint",
+                    "invalidation_token",
+                }
+            },
         ),
     )
 
@@ -728,6 +869,7 @@ def test_remote_and_local_bindings_pass_shared_contract_test_kit(
     )
 
     assert [case.status for case in report.case_reports] == [
+        "succeeded",
         "succeeded",
         "succeeded",
     ]

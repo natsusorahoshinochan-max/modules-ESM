@@ -166,6 +166,7 @@ def test_catalog_snapshot_publishes_exact_port_type_contracts() -> None:
         ("esm3.generate_structure.local_open", "2.0.0", True),
         ("folding.fold.esmfold2_remote", "2.0.0", True),
         ("folding.fold.esmfold2_local", "2.0.0", True),
+        ("folding.fold.simplefold_local", "2.0.0", True),
         ("protein_io.import_sequence.direct", "2.0.0", True),
         ("protein_io.import_structure.direct", "2.0.0", True),
         ("protein_io.export_sequence.direct", "2.0.0", True),

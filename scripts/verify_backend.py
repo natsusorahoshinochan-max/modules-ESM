@@ -380,7 +380,7 @@ EXPECTED_SEED_CONTROLS = {
     ("simplefold", "evaluate_structure"): (
         "deterministic_existing_coordinates"
     ),
-    ("simplefold", "fold_sequence"): "unsupported_by_adapter",
+    ("simplefold", "fold_sequence"): "torch_local",
     ("tmtools", "tm_score"): "deterministic_no_rng",
 }
 
@@ -463,6 +463,24 @@ TIERS = {
         "-m",
         "not live_provider and not local_provider",
     )),
+    "simplefold-v2-heavy-model": Tier((
+        "tests/acceptance/test_simplefold_v2.py::"
+        "test_simplefold_v2_folds_3gb1_through_exact_binding",
+        "-m",
+        "local_provider and slow",
+    ),
+        requires_provider_evidence=True,
+        provider_evidence_gate="heavy-model",
+        required_call_counts=(
+            ("simplefold", "fold_sequence", 1),
+        ),
+        expected_test_ids=frozenset({
+            "tests/acceptance/test_simplefold_v2.py::"
+            "test_simplefold_v2_folds_3gb1_through_exact_binding",
+        }),
+        requires_local_model_environment=True,
+        requires_simplefold_environment=True,
+    ),
     "heavy-model": Tier((
         "tests/acceptance/test_local_esm3.py::test_local_esm3_all_generation_modes",
         "tests/acceptance/test_proteinmpnn_design.py::TestProteinMPNNDesign::test_design_3gb1",

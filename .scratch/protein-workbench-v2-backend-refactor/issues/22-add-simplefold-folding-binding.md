@@ -4,7 +4,7 @@
 
 **Blocked by:** 21 — Unify remote and local ESMFold2 folding.
 
-**Status:** ready-for-agent
+**Status:** in-progress
 
 - [ ] SimpleFold reuses the established folding Node Definition while fixing its own Method, checkpoint/source/featurization identity, implementation identity, parameters, Readiness, determinism, and cacheability.
 - [ ] SimpleFold-specific adjustable parameters belong to the Binding contract; model identity, checkpoint path, device, and staging directory are not free Workflow parameters.

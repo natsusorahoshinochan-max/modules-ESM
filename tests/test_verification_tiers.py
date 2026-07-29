@@ -537,6 +537,30 @@ def test_local_esm3_has_a_source_bound_full_heavy_gate() -> None:
     }
 
 
+def test_simplefold_v2_has_a_source_bound_full_heavy_gate() -> None:
+    from scripts.verify_backend import TIERS
+
+    tier = TIERS["simplefold-v2-heavy-model"]
+
+    assert tier.pytest_args == (
+        "tests/acceptance/test_simplefold_v2.py::"
+        "test_simplefold_v2_folds_3gb1_through_exact_binding",
+        "-m",
+        "local_provider and slow",
+    )
+    assert tier.requires_provider_evidence is True
+    assert tier.provider_evidence_gate == "heavy-model"
+    assert tier.requires_local_model_environment is True
+    assert tier.requires_simplefold_environment is True
+    assert tier.expected_call_counts == {
+        ("simplefold", "fold_sequence"): 1,
+    }
+    assert tier.expected_test_ids == {
+        "tests/acceptance/test_simplefold_v2.py::"
+        "test_simplefold_v2_folds_3gb1_through_exact_binding"
+    }
+
+
 def test_esmfold2_v2_has_explicit_remote_and_local_gates() -> None:
     from scripts.verify_backend import TIERS
 

@@ -333,6 +333,7 @@ assert {{
     ("node_type", "folding.fold", "2.0.0"),
     ("binding", "folding.fold.esmfold2_remote", "2.0.0"),
     ("binding", "folding.fold.esmfold2_local", "2.0.0"),
+    ("binding", "folding.fold.simplefold_local", "2.0.0"),
 }}
 
 registry = ModuleRegistry(TypeRegistry())

@@ -20,6 +20,13 @@ from core import (
     ReadinessDeclaration,
 )
 from core.provider_contract import validate_installed_provider_checkout
+from core.provider_contract import (
+    SIMPLEFOLD_ARTIFACT_SHA256,
+    SIMPLEFOLD_ESM2_ARTIFACT_SHA256,
+    SIMPLEFOLD_ESM2_REVISION,
+    SIMPLEFOLD_ESM2_SOURCE_TREE_SHA256,
+    SIMPLEFOLD_REVISION,
+)
 
 from .adapter import (
     ESM_SDK_REVISION,
@@ -37,6 +44,12 @@ from .adapter import (
     local_runtime_structurally_available,
     remote_readiness,
     remote_runtime_structurally_available,
+)
+from .simplefold_adapter import (
+    SIMPLEFOLD_DEVICE,
+    SIMPLEFOLD_MODEL,
+    simplefold_readiness,
+    simplefold_runtime_structurally_available,
 )
 
 
@@ -76,6 +89,16 @@ def _local_available() -> AvailabilityResult:
     )
 
 
+def _simplefold_available() -> AvailabilityResult:
+    if simplefold_runtime_structurally_available():
+        return AvailabilityResult.available()
+    return AvailabilityResult.unavailable(
+        code="simplefold_runtime_unavailable",
+        message="The exact local SimpleFold runtime is unavailable.",
+        retryable=False,
+    )
+
+
 def _resolve_effective_randomness(
     *,
     inputs: Mapping[str, Any],
@@ -95,6 +118,25 @@ def _resolve_effective_randomness(
     return {"effective_seed": seed}
 
 
+def _resolve_simplefold_effective_randomness(
+    *,
+    inputs: Mapping[str, Any],
+    node_parameters: Mapping[str, Any],
+    binding_parameters: Mapping[str, Any],
+) -> dict[str, Any]:
+    del inputs
+    if set(binding_parameters) != {"num_steps"}:
+        raise ValueError("SimpleFold Binding parameters are not resolved")
+    seed = node_parameters.get("effective_seed")
+    if (
+        type(seed) is not int
+        or seed < 0
+        or seed > 9_007_199_254_740_991
+    ):
+        raise ValueError("effective_seed must be one resolved I-JSON integer")
+    return {"effective_seed": seed}
+
+
 def _build(route: str, method_id: str):
     def factory(**kwargs: object) -> object:
         from .implementation import ESMFold2FoldingImplementation
@@ -104,6 +146,20 @@ def _build(route: str, method_id: str):
             kwargs["environment_configuration"],
             kwargs["frozen_catalog"],
             route=route,
+            method_id=method_id,
+        )
+
+    return factory
+
+
+def _build_simplefold(method_id: str):
+    def factory(**kwargs: object) -> object:
+        from .implementation import SimpleFoldFoldingImplementation
+
+        return SimpleFoldFoldingImplementation(
+            kwargs["run_resources"],
+            kwargs["environment_configuration"],
+            kwargs["frozen_catalog"],
             method_id=method_id,
         )
 
@@ -192,6 +248,58 @@ def _method(route: str) -> MethodDefinition:
             "ptm": "provider_native_[0,1]",
             "plddt": "provider_native_[0,1]_multiply_100",
             "pae": "provider_native_angstrom",
+        },
+    )
+
+
+def _simplefold_method() -> MethodDefinition:
+    return MethodDefinition(
+        method_id="folding.fold.simplefold_100m_c7a5570",
+        version=_VERSION,
+        algorithm_identity={
+            "name": "SimpleFold Euler-Maruyama sequence folding",
+            "sampler": "Euler-Maruyama",
+            "t_start": 0.0001,
+            "tau": 0.1,
+            "log_timesteps": True,
+            "w_cutoff": 0.99,
+            "maximum_num_steps": 50,
+        },
+        model_identity={
+            "folding_model": SIMPLEFOLD_MODEL,
+            "confidence_latent_model": "simplefold_1.6B",
+            "confidence_output_head": "plddt_module_1.6B",
+            "language_model": "esm2_t36_3B_UR50D",
+        },
+        checkpoint_identity={
+            "simplefold_artifact_sha256": {
+                name: SIMPLEFOLD_ARTIFACT_SHA256[name]
+                for name in (
+                    "ccd.pkl",
+                    "plddt.ckpt",
+                    "simplefold_1.6B.ckpt",
+                    "simplefold_100M.ckpt",
+                )
+            },
+            "esm2_artifact_sha256": dict(
+                sorted(SIMPLEFOLD_ESM2_ARTIFACT_SHA256.items())
+            ),
+        },
+        featurization_identity={
+            "input": "single-chain canonical protein sequence",
+            "format": "SimpleFold FASTA A|Protein",
+            "ccd_sha256": SIMPLEFOLD_ARTIFACT_SHA256["ccd.pkl"],
+            "processor_scale": 16.0,
+            "processor_reference_scale": 5.0,
+        },
+        source_identity={
+            "provider": "ml-simplefold",
+            "source_revision": SIMPLEFOLD_REVISION,
+            "esm2_source_revision": SIMPLEFOLD_ESM2_REVISION,
+            "esm2_source_tree_sha256": SIMPLEFOLD_ESM2_SOURCE_TREE_SHA256,
+        },
+        scale_contract={
+            "plddt": "provider_high_level_[0,100]_identity",
         },
     )
 
@@ -414,6 +522,146 @@ def _binding(route: str) -> ExecutionBindingDefinition:
     )
 
 
+def _simplefold_binding() -> ExecutionBindingDefinition:
+    method_id = "folding.fold.simplefold_100m_c7a5570"
+    return ExecutionBindingDefinition(
+        binding_id="folding.fold.simplefold_local",
+        version=_VERSION,
+        node_type=ContractIdentity(
+            "node_type",
+            "folding.fold",
+            _VERSION,
+        ),
+        method=ContractIdentity("method", method_id, _VERSION),
+        binding_parameters={
+            "num_steps": {
+                "parameter_scope": "scientific",
+                "scientific_meaning": (
+                    "Exact SimpleFold Euler-Maruyama sampling step count."
+                ),
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 50,
+                "default": 50,
+            },
+        },
+        execution_route="adapter",
+        factory=LazyImplementationFactory(
+            behavior=BehaviorReference(
+                "folding.fold/factory",
+                _VERSION,
+                {"route": "simplefold_local", "model": SIMPLEFOLD_MODEL},
+            ),
+            build=_build_simplefold(method_id),
+        ),
+        adapter_behavior=BehaviorReference(
+            "folding.simplefold_local/adapter",
+            _VERSION,
+            {
+                "provider_contract": (
+                    f"ml-simplefold@{SIMPLEFOLD_REVISION}"
+                ),
+                "native_scale": "[0,100]_identity",
+                "staging": "one-private-directory-per-engine-invocation",
+            },
+        ),
+        availability=AvailabilityDeclaration(
+            behavior=BehaviorReference(
+                "folding.simplefold_local/availability",
+                _VERSION,
+                {"observation": "startup", "model_load": "forbidden"},
+            ),
+            prerequisites={
+                "provider": {
+                    "name": "simplefold",
+                    "source_revision": SIMPLEFOLD_REVISION,
+                },
+                "runtime": {"name": "torch"},
+            },
+            check=_simplefold_available,
+        ),
+        readiness=ReadinessDeclaration(
+            behavior=BehaviorReference(
+                "folding.simplefold_local/readiness",
+                _VERSION,
+                {
+                    "observation": "per-run",
+                    "cache_order": "before-cache-lookup",
+                    "model_load": "forbidden",
+                },
+            ),
+            prerequisites={
+                "simplefold_models": {
+                    "artifact_sha256": {
+                        name: SIMPLEFOLD_ARTIFACT_SHA256[name]
+                        for name in (
+                            "ccd.pkl",
+                            "plddt.ckpt",
+                            "simplefold_1.6B.ckpt",
+                            "simplefold_100M.ckpt",
+                        )
+                    },
+                    "path_source": "trusted_environment_configuration",
+                },
+                "esm2_source": {
+                    "source_revision": SIMPLEFOLD_ESM2_REVISION,
+                    "source_tree_sha256": SIMPLEFOLD_ESM2_SOURCE_TREE_SHA256,
+                    "path_source": "trusted_environment_configuration",
+                },
+                "esm2_models": {
+                    "artifact_sha256": dict(
+                        sorted(SIMPLEFOLD_ESM2_ARTIFACT_SHA256.items())
+                    ),
+                    "path_source": "trusted_environment_configuration",
+                },
+                "device": {
+                    "source": "trusted_environment_configuration",
+                    "exact_value": SIMPLEFOLD_DEVICE,
+                },
+                "runtime_fingerprint": {
+                    "source": "trusted_environment_configuration",
+                    "safe_public_identity": True,
+                },
+            },
+            check=simplefold_readiness,
+        ),
+        deterministic=False,
+        cacheable=False,
+        implementation_identity={
+            "name": "folding.simplefold.local-adapter",
+            "model": SIMPLEFOLD_MODEL,
+            "source_revision": SIMPLEFOLD_REVISION,
+            "device": SIMPLEFOLD_DEVICE,
+            "seed_control": "torch_local",
+            "determinism_contract": (
+                "derived Torch seed per parent and sample; no cross-device "
+                "bitwise guarantee"
+            ),
+            "cache_policy": (
+                "runtime-device-specific_diffusion_not_cacheable"
+            ),
+            "staging_policy": "private-per-engine-invocation-cleaned",
+        },
+        produced_observations=tuple(
+            observation
+            for observation in _produced_observations()
+            if observation.metric.contract_id.startswith("structure.plddt.")
+        ),
+        effective_randomness_parameters=("effective_seed",),
+        effective_randomness_resolver=EffectiveRandomnessResolver(
+            behavior=BehaviorReference(
+                "folding.simplefold_local/effective-randomness",
+                _VERSION,
+                {
+                    "provider_seed_control": "torch_local",
+                    "sample_order": "parent-then-zero-based-sample",
+                },
+            ),
+            resolve=_resolve_simplefold_effective_randomness,
+        ),
+    )
+
+
 MODULE_PACKAGE = ModulePackageRegistration(
     schema_version=_VERSION,
     package_id="folding",
@@ -426,6 +674,10 @@ MODULE_PACKAGE = ModulePackageRegistration(
         DefinitionResource("definitions/ptm_metric.yaml"),
         DefinitionResource("definitions/pae_metric.yaml"),
     ),
-    methods=(_method("remote"), _method("local")),
-    bindings=(_binding("remote"), _binding("local")),
+    methods=(_method("remote"), _method("local"), _simplefold_method()),
+    bindings=(
+        _binding("remote"),
+        _binding("local"),
+        _simplefold_binding(),
+    ),
 )
