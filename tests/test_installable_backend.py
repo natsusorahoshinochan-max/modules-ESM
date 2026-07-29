@@ -169,6 +169,10 @@ def test_built_artifacts_contain_backend_definitions_and_canonical_assets(
     required_names = {
         "examples/3gb1_pipeline.json",
         "examples/3gb1_pipeline_ui.json",
+        "modules/esm3/definitions/generate_paired.yaml",
+        "modules/esm3/definitions/generate_sequence.yaml",
+        "modules/esm3/definitions/generate_structure.yaml",
+        "modules/esm3/definitions/pae_metric.yaml",
         "pdbs/3GB1.pdb",
         "protein_workbench_public/resources/v2/bundle.json",
     }
@@ -293,6 +297,18 @@ assert {{
     )
     for definition in catalog.port_types
 }} == {SOURCE_PORT_TYPE_DIGESTS!r}
+assert {{
+    (kind, contract_id, version)
+    for kind, contract_id, version in catalog.contracts
+    if contract_id.startswith("esm3.")
+}} >= {{
+    ("node_type", "esm3.generate_sequence", "2.0.0"),
+    ("node_type", "esm3.generate_structure", "2.0.0"),
+    ("node_type", "esm3.generate_paired", "2.0.0"),
+    ("binding", "esm3.generate_sequence.biohub_medium", "2.0.0"),
+    ("binding", "esm3.generate_structure.biohub_medium", "2.0.0"),
+    ("binding", "esm3.generate_paired.biohub_medium", "2.0.0"),
+}}
 
 registry = ModuleRegistry(TypeRegistry())
 discover_modules(registry)
