@@ -28,7 +28,9 @@ from .adapter import (
     derived_call_seed,
     generation_config,
     normalized_confidence,
+    prepare_remote_provider_call,
     protein_prompt_to_provider,
+    record_remote_provider_result,
     reject_silent_sequence_fields,
     response_has_structure,
     structure_prompt_for_sequence,
@@ -99,6 +101,15 @@ class ESM3GenerationImplementation:
         operation: str,
         parent_invocation_id: str | None = None,
     ) -> tuple[Any, str]:
+        provider_operation = {
+            "generate_sequence": "generate(track=sequence)",
+            "generate_structure": "generate(track=structure)",
+        }[operation]
+        track_identity = prepare_remote_provider_call(
+            provider_prompt,
+            provider_operation,
+            model_name=self._model_name,
+        )
         with self._run_resources.engine_invocation(
             engine_role=role,
             engine_identity=(
@@ -110,13 +121,16 @@ class ESM3GenerationImplementation:
                 client,
                 provider_prompt,
                 config,
-                {
-                    "generate_sequence": "generate(track=sequence)",
-                    "generate_structure": "generate(track=structure)",
-                }[operation],
-                model_name=self._model_name,
+                provider_operation,
             )
-            return result, invocation_id
+        record_remote_provider_result(
+            provider_prompt,
+            result,
+            provider_operation,
+            model_name=self._model_name,
+            track_identity=track_identity,
+        )
+        return result, invocation_id
 
     def execute(
         self,

@@ -268,18 +268,14 @@ def require_provider_protein(result: Any, operation: str) -> Any:
     return result
 
 
-def call_remote_provider(
-    client: Any,
+def prepare_remote_provider_call(
     protein: Any,
-    config: Any,
     operation: str,
     *,
     model_name: str,
-) -> Any:
-    """Execute one remote call and retain exact provider evidence."""
-    from core.provider_evidence import record_provider_call_result
+) -> dict[str, Any]:
+    """Record provider-call intent before crossing the engine boundary."""
     from core.run_context import RunContext
-    from esm.sdk.api import ESMProteinError
 
     secondary_structure = getattr(protein, "secondary_structure", None)
     track_identity: dict[str, Any] = {}
@@ -296,13 +292,38 @@ def call_remote_provider(
         model=model_name,
         details=track_identity,
     )
+    return track_identity
+
+
+def call_remote_provider(
+    client: Any,
+    protein: Any,
+    config: Any,
+    operation: str,
+) -> Any:
+    """Cross only the remote engine boundary and classify its return."""
+    from esm.sdk.api import ESMProteinError
+
     try:
         result = client.generate(protein, config)
     except ESMProteinError as error:
         raise RuntimeError(
             f"ESM-3 provider operation {operation} failed"
         ) from error
-    result = require_provider_protein(result, operation)
+    return require_provider_protein(result, operation)
+
+
+def record_remote_provider_result(
+    protein: Any,
+    result: Any,
+    operation: str,
+    *,
+    model_name: str,
+    track_identity: Mapping[str, Any],
+) -> None:
+    """Persist result evidence after the Engine Invocation has succeeded."""
+    from core.provider_evidence import record_provider_call_result
+
     result_summary: dict[str, Any] = {
         "result_type": type(result).__name__,
         "has_sequence": getattr(result, "sequence", None) is not None,
@@ -341,7 +362,6 @@ def call_remote_provider(
         seed_control="unsupported_by_provider",
         result_summary=result_summary,
     )
-    return result
 
 
 def complete_sequence(
