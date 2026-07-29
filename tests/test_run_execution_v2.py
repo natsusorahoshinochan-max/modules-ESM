@@ -1295,6 +1295,7 @@ def test_restart_does_not_publish_unclosed_cache_replay_output(
                 frozen_catalog_override=catalog,
                 v2_result_replay_source=FixtureReplaySource(),
                 v2_environment_configuration=environment,
+                _v2_wait_for_workers_on_shutdown=False,
             )
         ) as first:
             project_id, compiled = _compile_one_node(first)
@@ -2792,6 +2793,83 @@ def test_terminal_run_projection_and_events_rebuild_after_backend_restart(
     assert len(resumed_facts) == len(expected_sequences)
 
 
+def test_restart_isolates_one_damaged_ledger_without_hiding_healthy_runs(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    project_root = tmp_path / "projects"
+    run_root = tmp_path / "runs"
+    monkeypatch.setenv("PROTEIN_WORKBENCH_PROJECT_ROOT", str(project_root))
+    monkeypatch.setenv("PROTEIN_WORKBENCH_RUN_ROOT", str(run_root))
+    monkeypatch.setenv(
+        "PROTEIN_WORKBENCH_OUTPUT_ROOT",
+        str(tmp_path / "outputs"),
+    )
+    catalog = _direct_catalog([])
+    environment = {
+        ("test.direct.local", "2.0.0"): {
+            "values": {"credential": "credential-value"},
+        }
+    }
+
+    with TestClient(
+        create_app(
+            frozen_catalog_override=catalog,
+            v2_environment_configuration=environment,
+        )
+    ) as first:
+        healthy_project, healthy_compiled = _compile_one_node(first)
+        damaged_project, damaged_compiled = _compile_one_node(first)
+        healthy = first.post(
+            f"/api/v2/projects/{healthy_project}/runs",
+            json={
+                "workflow_revision": 2,
+                "compile_id": healthy_compiled["compile_id"],
+                "client_request_id": "healthy-ledger",
+            },
+        ).json()
+        damaged = first.post(
+            f"/api/v2/projects/{damaged_project}/runs",
+            json={
+                "workflow_revision": 2,
+                "compile_id": damaged_compiled["compile_id"],
+                "client_request_id": "damaged-ledger",
+            },
+        ).json()
+        healthy_projection = first.get(
+            f"/api/v2/projects/{healthy_project}/runs/{healthy['run_id']}"
+        ).json()
+
+    damaged_facts = sorted(
+        (
+            run_root
+            / damaged_project
+            / damaged["run_id"]
+            / "ledger"
+        ).glob("*.json")
+    )
+    damaged_facts[-1].write_bytes(b"{")
+
+    with TestClient(
+        create_app(
+            frozen_catalog_override=catalog,
+            v2_environment_configuration=environment,
+        )
+    ) as restarted:
+        recovered = restarted.get(
+            f"/api/v2/projects/{healthy_project}/runs/{healthy['run_id']}"
+        )
+        isolated = restarted.get(
+            f"/api/v2/projects/{damaged_project}/runs/{damaged['run_id']}"
+        )
+
+    assert recovered.status_code == 200
+    assert recovered.json() == healthy_projection
+    assert isolated.status_code == 503
+    validate_error(isolated.json(), status=503)
+    assert isolated.json()["error"]["code"] == "evidence_unavailable"
+
+
 def test_running_event_reconnect_switches_from_replay_to_live_without_loss(
     tmp_path,
     monkeypatch,
@@ -2897,6 +2975,102 @@ def test_running_event_reconnect_switches_from_replay_to_live_without_loss(
     assert projection["status"] == "succeeded"
 
 
+def test_background_runs_are_bounded_project_reserved_serial_and_joined(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    entered = threading.Event()
+    release = threading.Event()
+    shutdown_done = threading.Event()
+    calls: list[str] = []
+    monkeypatch.setattr(run_execution_v2, "MAX_BACKGROUND_RUNS", 2)
+    monkeypatch.setenv(
+        "PROTEIN_WORKBENCH_PROJECT_ROOT",
+        str(tmp_path / "projects"),
+    )
+    monkeypatch.setenv("PROTEIN_WORKBENCH_RUN_ROOT", str(tmp_path / "runs"))
+    monkeypatch.setenv(
+        "PROTEIN_WORKBENCH_OUTPUT_ROOT",
+        str(tmp_path / "outputs"),
+    )
+    app = create_app(
+        frozen_catalog_override=_direct_catalog(
+            calls,
+            execution_gate=(entered, release),
+        ),
+        v2_environment_configuration={
+            ("test.direct.local", "2.0.0"): {
+                "values": {"credential": "credential-value"},
+            }
+        },
+    )
+
+    with TestClient(app) as client:
+        project_a, compiled_a = _compile_one_node(client)
+        project_b, compiled_b = _compile_one_node(client)
+        project_c, compiled_c = _compile_one_node(client)
+
+        def start(project_id: str, compile_id: str, request_id: str):
+            return client.post(
+                f"/api/v2/projects/{project_id}/runs",
+                json={
+                    "workflow_revision": 2,
+                    "compile_id": compile_id,
+                    "client_request_id": request_id,
+                },
+            )
+
+        first = start(project_a, compiled_a["compile_id"], "serial-a")
+        assert first.status_code == 202
+        assert entered.wait(timeout=1)
+        second = start(project_b, compiled_b["compile_id"], "serial-b")
+        assert second.status_code == 202
+        assert calls.count("execute:test.direct.local") == 1
+
+        same_project = start(
+            project_a,
+            compiled_a["compile_id"],
+            "serial-a-conflict",
+        )
+        at_capacity = start(
+            project_c,
+            compiled_c["compile_id"],
+            "serial-capacity",
+        )
+        assert same_project.status_code == 503
+        assert at_capacity.status_code == 503
+        validate_error(same_project.json(), status=503)
+        validate_error(at_capacity.json(), status=503)
+
+        def shutdown() -> None:
+            app.state.run_execution_v2.shutdown()
+            shutdown_done.set()
+
+        shutdown_thread = threading.Thread(target=shutdown)
+        shutdown_thread.start()
+        assert not shutdown_done.wait(timeout=0.05)
+        release.set()
+        assert shutdown_done.wait(timeout=2)
+        shutdown_thread.join(timeout=1)
+
+        first_projection = client.get(
+            f"/api/v2/projects/{project_a}/runs/{first.json()['run_id']}"
+        ).json()
+        second_projection = client.get(
+            f"/api/v2/projects/{project_b}/runs/{second.json()['run_id']}"
+        ).json()
+        assert first_projection["status"] == "succeeded"
+        assert second_projection["status"] == "succeeded"
+        assert calls.count("execute:test.direct.local") == 2
+        after_shutdown = start(
+            project_c,
+            compiled_c["compile_id"],
+            "serial-closed",
+        )
+        assert after_shutdown.status_code == 503
+        validate_error(after_shutdown.json(), status=503)
+
+
 def test_restart_reconciliation_closes_started_work_without_guessing_success(
     tmp_path,
     monkeypatch,
@@ -2926,6 +3100,7 @@ def test_restart_reconciliation_closes_started_work_without_guessing_success(
             create_app(
                 frozen_catalog_override=catalog,
                 v2_environment_configuration=environment,
+                _v2_wait_for_workers_on_shutdown=False,
             )
         ) as first:
             project_id, compiled = _compile_one_node(first)
@@ -3183,11 +3358,21 @@ def test_projection_failure_leaves_facts_intact_and_restart_rebuilds_outputs(
             f"/api/v2/projects/{project_id}/runs/{run_id}"
         ).json()
         assert projection["status"] == "succeeded"
+        repaired_events = client.app.state.run_execution_v2.public_events(
+            project_id,
+            run_id,
+        )
     ledger_paths = sorted(
         (run_root / project_id / run_id / "ledger").glob("*.json")
     )
     before_restart = [path.read_bytes() for path in ledger_paths]
     assert fail_terminal_lifecycle["pending"] is False
+    run_dir = run_root / project_id / run_id
+    assert json.loads((run_dir / "manifest.json").read_text()) == projection
+    assert [
+        json.loads(line)
+        for line in (run_dir / "lifecycle.jsonl").read_text().splitlines()
+    ] == list(repaired_events)
 
     with TestClient(
         create_app(
@@ -3209,7 +3394,6 @@ def test_projection_failure_leaves_facts_intact_and_restart_rebuilds_outputs(
         "status": "succeeded",
     }
     assert [path.read_bytes() for path in ledger_paths] == before_restart
-    run_dir = run_root / project_id / run_id
     assert json.loads((run_dir / "manifest.json").read_text()) == rebuilt
     assert [
         json.loads(line)
@@ -3319,6 +3503,7 @@ def test_restart_reconciliation_closes_each_started_outer_attempt(
             create_app(
                 frozen_catalog_override=catalog,
                 v2_environment_configuration=environment,
+                _v2_wait_for_workers_on_shutdown=False,
             )
         ) as first:
             project_id, compiled = _compile_one_node(first)
@@ -3392,7 +3577,10 @@ def test_restart_reconciliation_disposes_every_plan_node_by_direct_cause(
 
     try:
         with TestClient(
-            create_app(frozen_catalog_override=catalog)
+            create_app(
+                frozen_catalog_override=catalog,
+                _v2_wait_for_workers_on_shutdown=False,
+            )
         ) as first:
             project_id, compiled = _compile_branching_pipeline(first)
             started = first.post(

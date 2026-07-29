@@ -205,6 +205,16 @@ against the same private storage roots, and verifies cursor-exclusive replay,
 conservative outcome-unknown/interrupted closure, empty outputs and Cache, and
 idempotent projection and terminal-stream recovery after a second restart.
 
+V2 Ledger facts are bounded to 4 MiB, fsynced under a private temporary name,
+and atomically published without replacement; an invalid Run Ledger is isolated
+as unavailable instead of preventing unrelated Runs from loading. Background
+Run admission is bounded and Project-reserved, Node work is globally serial,
+and graceful backend shutdown joins every tracked v2 writer. Manifest and
+lifecycle projection publication is retried after a partial projection failure;
+while a persistent mismatch remains, public projection/event reads fail closed
+with the last durable cursor and retry the rebuild rather than serving
+contradictory generations.
+
 The first v2 Catalog slice is available from `GET /api/v2/catalog`. It publishes
 the exact `2.0.0` nominal Port Type contracts used by the backend, including
 stable validator, canonical-codec, and content-identity behavior declarations.

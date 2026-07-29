@@ -426,6 +426,7 @@ def create_app(
         Mapping[tuple[str, str], Mapping[str, Any]] | None
     ) = None,
     v2_result_replay_source: ResultReplaySource | None = None,
+    _v2_wait_for_workers_on_shutdown: bool = True,
 ) -> FastAPI:
     """Create the backend, optionally replacing external-boundary Modules."""
     trusted_readiness_resolver = (
@@ -601,6 +602,8 @@ def create_app(
             v2_result_replay_source,
         )
         yield
+        if _v2_wait_for_workers_on_shutdown:
+            await asyncio.to_thread(app.state.run_execution_v2.shutdown)
         for active_run in tuple(_active_runs.values()):
             active_run.cancellation_requested.set()
         active_tasks = tuple(

@@ -16,7 +16,8 @@ from core.executor import Executor
 from core.project import ProjectManager
 from core.run_context import RunContext
 from core.server import app
-from core.storage import StoragePathError
+import core.storage as storage
+from core.storage import StoragePathError, write_private_new_file
 from datatypes import (
     Candidate,
     CandidateCollection,
@@ -92,6 +93,52 @@ def test_default_run_paths_preserve_hybrid_project_storage(
     assert manager.input_path(project.id, "source.pdb") == (
         tmp_path / "projects" / project.id / "inputs" / "source.pdb"
     )
+
+
+def test_private_new_file_is_complete_before_atomic_noreplace_publish(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    observed: list[bytes] = []
+    original_publish = storage._rename_private_noreplace
+
+    def observe_publish(
+        directory_fd: int,
+        source_name: str,
+        destination_name: str,
+    ) -> None:
+        assert destination_name == "fact.json"
+        if not observed:
+            assert not (tmp_path / "ledger" / destination_name).exists()
+        observed.append(
+            (tmp_path / "ledger" / source_name).read_bytes()
+        )
+        original_publish(directory_fd, source_name, destination_name)
+
+    monkeypatch.setattr(
+        storage,
+        "_rename_private_noreplace",
+        observe_publish,
+    )
+    destination = write_private_new_file(
+        tmp_path,
+        ("ledger", "fact.json"),
+        b'{"complete":true}',
+        field="test_fact",
+    )
+
+    assert observed == [b'{"complete":true}']
+    assert destination.read_bytes() == b'{"complete":true}'
+    with pytest.raises(FileExistsError):
+        write_private_new_file(
+            tmp_path,
+            ("ledger", "fact.json"),
+            b"replacement",
+            field="test_fact",
+        )
+    assert observed == [b'{"complete":true}', b"replacement"]
+    assert destination.read_bytes() == b'{"complete":true}'
+    assert list((tmp_path / "ledger").glob("*.pending")) == []
 
 
 @pytest.mark.parametrize(

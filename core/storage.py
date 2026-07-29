@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import ctypes
+import errno
 import os
 import re
 import secrets
@@ -90,6 +92,57 @@ def _absolute_storage_root(root: str | Path, field: str) -> Path:
     return absolute_root
 
 
+def _rename_private_noreplace(
+    directory_fd: int,
+    source_name: str,
+    destination_name: str,
+) -> None:
+    """Atomically publish one directory entry without replacing a peer."""
+    library = ctypes.CDLL(None, use_errno=True)
+    source = os.fsencode(source_name)
+    destination = os.fsencode(destination_name)
+    if hasattr(library, "renameatx_np"):
+        result = library.renameatx_np(
+            directory_fd,
+            ctypes.c_char_p(source),
+            directory_fd,
+            ctypes.c_char_p(destination),
+            0x00000004,  # RENAME_EXCL
+        )
+    elif hasattr(library, "renameat2"):
+        result = library.renameat2(
+            directory_fd,
+            ctypes.c_char_p(source),
+            directory_fd,
+            ctypes.c_char_p(destination),
+            1,  # RENAME_NOREPLACE
+        )
+    else:
+        os.link(
+            source_name,
+            destination_name,
+            src_dir_fd=directory_fd,
+            dst_dir_fd=directory_fd,
+            follow_symlinks=False,
+        )
+        os.unlink(source_name, dir_fd=directory_fd)
+        return
+    if result == 0:
+        return
+    error_number = ctypes.get_errno()
+    if error_number == errno.EEXIST:
+        raise FileExistsError(
+            error_number,
+            os.strerror(error_number),
+            destination_name,
+        )
+    raise OSError(
+        error_number,
+        os.strerror(error_number),
+        destination_name,
+    )
+
+
 def open_private_regular_file(
     root: str | Path,
     relative_parts: tuple[str, ...],
@@ -152,7 +205,7 @@ def write_private_new_file(
     *,
     field: str,
 ) -> Path:
-    """Create one private contained file without following or replacing links."""
+    """Crash-atomically create a private file without replacing a peer."""
     if not relative_parts:
         raise StoragePathError(field, f"Invalid {field}")
     absolute_root = _absolute_storage_root(root, field)
@@ -160,6 +213,9 @@ def write_private_new_file(
     directory_flags |= getattr(os, "O_NOFOLLOW", 0)
     current_fd = os.open(absolute_root.anchor, directory_flags)
     descriptor: int | None = None
+    temporary_name = (
+        f".{relative_parts[-1]}.{secrets.token_hex(12)}.pending"
+    )
     created = False
     try:
         for component in absolute_root.parts[1:]:
@@ -208,7 +264,7 @@ def write_private_new_file(
             current_fd = next_fd
 
         descriptor = os.open(
-            relative_parts[-1],
+            temporary_name,
             os.O_WRONLY
             | os.O_CREAT
             | os.O_EXCL
@@ -229,18 +285,22 @@ def write_private_new_file(
             or stat.S_IMODE(metadata.st_mode) != 0o600
         ):
             raise StoragePathError(field, f"Invalid {field}")
+        _rename_private_noreplace(
+            current_fd,
+            temporary_name,
+            relative_parts[-1],
+        )
+        created = False
         os.fsync(current_fd)
         return absolute_root.joinpath(*relative_parts)
-    except Exception:
-        if created:
-            try:
-                os.unlink(relative_parts[-1], dir_fd=current_fd)
-            except FileNotFoundError:
-                pass
-        raise
     finally:
         if descriptor is not None:
             os.close(descriptor)
+        if created:
+            try:
+                os.unlink(temporary_name, dir_fd=current_fd)
+            except FileNotFoundError:
+                pass
         os.close(current_fd)
 
 

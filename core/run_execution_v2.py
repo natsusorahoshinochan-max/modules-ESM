@@ -51,6 +51,8 @@ RUN_LEDGER_SCHEMA_VERSION = "2.0.0"
 MAX_ARTIFACTS_PER_RUN = 2_048
 MAX_ARTIFACT_SIZE_BYTES = 64 * 1024 * 1024
 MAX_ARTIFACT_BYTES_PER_RUN = 256 * 1024 * 1024
+MAX_LEDGER_FACT_BYTES = 4 * 1024 * 1024
+MAX_BACKGROUND_RUNS = 8
 FAST_RUN_COMPLETION_GRACE_SECONDS = 0.25
 _PUBLIC_IDENTIFIER = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.:/+-]*$")
 _ATTEMPT_TERMINALS = frozenset(
@@ -1202,6 +1204,7 @@ class _RunEvidenceLedger:
 
     def projection(self) -> dict[str, Any]:
         with self._condition:
+            self._ensure_projection_consistency()
             return json.loads(json.dumps(self._projection()))
 
     def _refresh_projections(self) -> None:
@@ -1233,8 +1236,27 @@ class _RunEvidenceLedger:
 
     def rebuild_projections(self) -> None:
         with self._condition:
+            try:
+                self._refresh_projections()
+            except (OSError, StoragePathError) as error:
+                self._projection_error = error
+                raise
+            else:
+                self._projection_error = None
+
+    def _ensure_projection_consistency(self) -> None:
+        if self._projection_error is None:
+            return
+        try:
             self._refresh_projections()
-            self._projection_error = None
+        except (OSError, StoragePathError) as error:
+            self._projection_error = error
+            raise V2RunError(
+                "evidence_unavailable",
+                "Run projections are temporarily unavailable",
+                details={"last_durable_cursor": self.cursor},
+            ) from error
+        self._projection_error = None
 
     def append(self, fact_type: str, payload: Mapping[str, Any]) -> dict[str, Any]:
         with self._condition:
@@ -1264,6 +1286,12 @@ class _RunEvidenceLedger:
                         details={"last_durable_cursor": self.cursor},
                     ) from error
             encoded = canonical_json_bytes(fact)
+            if len(encoded) > MAX_LEDGER_FACT_BYTES:
+                raise V2RunError(
+                    "evidence_unavailable",
+                    "Required Run evidence exceeds the durable fact bound",
+                    details={"last_durable_cursor": self.cursor},
+                )
             try:
                 write_private_new_file(
                     self._root,
@@ -1283,10 +1311,14 @@ class _RunEvidenceLedger:
                 ) from error
             self._facts.append(fact)
             self._apply(fact_type, safe_payload)
-            try:
-                self._refresh_projections()
-            except (OSError, StoragePathError) as error:
-                self._projection_error = error
+            for _ in range(2):
+                try:
+                    self._refresh_projections()
+                except (OSError, StoragePathError) as error:
+                    self._projection_error = error
+                else:
+                    self._projection_error = None
+                    break
             self._condition.notify_all()
             return json.loads(json.dumps(fact))
 
@@ -1332,6 +1364,7 @@ class _RunEvidenceLedger:
         through_sequence: int | None = None,
     ) -> tuple[dict[str, Any], ...]:
         with self._condition:
+            self._ensure_projection_consistency()
             upper = (
                 len(self._facts)
                 if through_sequence is None
@@ -1680,7 +1713,13 @@ class V2RunService:
             result_replay_source or ResultReplaySource()
         )
         self._runs: dict[tuple[str, str], _RunRecord] = {}
+        self._damaged_runs: dict[tuple[str, str], str] = {}
         self._run_owners: dict[str, str] = {}
+        self._worker_condition = threading.Condition(threading.RLock())
+        self._workers: set[threading.Thread] = set()
+        self._reserved_projects: set[str] = set()
+        self._execution_lock = threading.Lock()
+        self._closed = False
         self._proofs: dict[
             tuple[str, str, str, str],
             ReusableReadinessProof,
@@ -1797,82 +1836,102 @@ class V2RunService:
 
     def _load_persisted_runs(self) -> None:
         for project_id, run_id, run_parent in self._run_directories():
-            ledger_dir = run_parent / run_id / "ledger"
-            fact_paths = sorted(ledger_dir.glob("*.json"))
-            if not fact_paths:
-                continue
-            encoded_facts: list[bytes] = []
-            parsed_facts: list[Mapping[str, Any]] = []
-            for expected_sequence, path in enumerate(fact_paths, start=1):
-                if path.name != f"{expected_sequence:020d}.json":
-                    raise RuntimeError("Run Ledger sequence is not contiguous")
-                encoded = _read_stable_private_file(
+            try:
+                self._load_persisted_run(
+                    project_id,
+                    run_id,
                     run_parent,
-                    (run_id, "ledger", path.name),
-                    field="run_ledger",
-                    maximum_size=4 * 1024 * 1024,
                 )
-                try:
-                    parsed = json.loads(encoded)
-                except json.JSONDecodeError as error:
-                    raise RuntimeError("Run Ledger fact is invalid") from error
-                if not isinstance(parsed, Mapping):
-                    raise RuntimeError("Run Ledger fact is invalid")
-                encoded_facts.append(encoded)
-                parsed_facts.append(parsed)
-            first = parsed_facts[0]
-            try:
-                plan_nodes = self._parse_plan_evidence(
-                    first["payload"]["plan_nodes"]
-                )
-            except (KeyError, TypeError, ValueError, StoragePathError) as error:
-                raise RuntimeError("Run Ledger plan evidence is invalid") from error
-            ledger = _RunEvidenceLedger(
-                self._projects,
-                project_id,
-                run_id,
-                plan_nodes,
-            )
-            try:
-                for fact, encoded in zip(
-                    parsed_facts,
-                    encoded_facts,
-                    strict=True,
-                ):
-                    ledger.load_fact(fact, encoded)
-            except (ProtocolValidationError, V2RunError, ValueError) as error:
-                raise RuntimeError("Run Ledger validation failed") from error
-            if not ledger.started:
-                continue
-            if (
-                run_id in self._run_owners
-                and self._run_owners[run_id] != project_id
+            except (
+                KeyError,
+                OSError,
+                ProtocolValidationError,
+                RuntimeError,
+                StoragePathError,
+                TypeError,
+                V2RunError,
+                ValueError,
             ):
-                raise RuntimeError("Run identity appears in multiple Projects")
-            ledger.reconcile_restart()
-            try:
-                ledger.rebuild_projections()
-            except (OSError, StoragePathError):
-                pass
-            artifacts: dict[
-                str,
-                tuple[dict[str, Any], tuple[str, ...]],
-            ] = {}
-            for descriptor in ledger.projection()["artifact_index"]:
-                reference = descriptor["artifact_reference"]
-                artifacts[reference] = (
-                    descriptor,
-                    ("published", reference),
+                self._damaged_runs[(project_id, run_id)] = run_cursor(
+                    0,
+                    project_id=project_id,
+                    run_id=run_id,
                 )
-            record = _RunRecord(
-                compiled=None,
-                ledger=ledger,
-                artifacts=artifacts,
+                self._run_owners.setdefault(run_id, project_id)
+
+    def _load_persisted_run(
+        self,
+        project_id: str,
+        run_id: str,
+        run_parent: Path,
+    ) -> None:
+        ledger_dir = run_parent / run_id / "ledger"
+        fact_paths = sorted(ledger_dir.glob("*.json"))
+        if not fact_paths:
+            return
+        encoded_facts: list[bytes] = []
+        parsed_facts: list[Mapping[str, Any]] = []
+        for expected_sequence, path in enumerate(fact_paths, start=1):
+            if path.name != f"{expected_sequence:020d}.json":
+                raise RuntimeError("Run Ledger sequence is not contiguous")
+            encoded = _read_stable_private_file(
+                run_parent,
+                (run_id, "ledger", path.name),
+                field="run_ledger",
+                maximum_size=MAX_LEDGER_FACT_BYTES,
             )
-            if ledger.terminal:
-                record.finished.set()
-            self._runs[(project_id, run_id)] = record
-            self._run_owners[run_id] = project_id
+            parsed = json.loads(encoded)
+            if not isinstance(parsed, Mapping):
+                raise RuntimeError("Run Ledger fact is invalid")
+            encoded_facts.append(encoded)
+            parsed_facts.append(parsed)
+        first = parsed_facts[0]
+        plan_nodes = self._parse_plan_evidence(
+            first["payload"]["plan_nodes"]
+        )
+        ledger = _RunEvidenceLedger(
+            self._projects,
+            project_id,
+            run_id,
+            plan_nodes,
+        )
+        for fact, encoded in zip(
+            parsed_facts,
+            encoded_facts,
+            strict=True,
+        ):
+            ledger.load_fact(fact, encoded)
+        if not ledger.started:
+            return
+        if (
+            run_id in self._run_owners
+            and self._run_owners[run_id] != project_id
+        ):
+            raise RuntimeError("Run identity appears in multiple Projects")
+        ledger.reconcile_restart()
+        try:
+            ledger.rebuild_projections()
+        except (OSError, StoragePathError):
+            pass
+        artifacts: dict[
+            str,
+            tuple[dict[str, Any], tuple[str, ...]],
+        ] = {}
+        for descriptor in ledger.projection()["artifact_index"]:
+            reference = descriptor["artifact_reference"]
+            artifacts[reference] = (
+                descriptor,
+                ("published", reference),
+            )
+        record = _RunRecord(
+            compiled=None,
+            ledger=ledger,
+            artifacts=artifacts,
+        )
+        if ledger.terminal:
+            record.finished.set()
+        self._runs[(project_id, run_id)] = record
+        self._run_owners[run_id] = project_id
 
     def _require_record(
         self,
@@ -1892,6 +1951,13 @@ class V2RunService:
         try:
             return self._runs[(project_id, run_id)]
         except KeyError as error:
+            damaged_cursor = self._damaged_runs.get((project_id, run_id))
+            if damaged_cursor is not None:
+                raise V2RunError(
+                    "evidence_unavailable",
+                    "Required Run evidence is damaged and unavailable",
+                    details={"last_durable_cursor": damaged_cursor},
+                ) from error
             raise V2RunError(
                 "run_not_found",
                 "Run was not found",
@@ -2413,6 +2479,7 @@ class V2RunService:
             None,
         ]
         | None = None,
+        _before_execute: Callable[[], None] | None = None,
     ) -> dict[str, Any]:
         del client_request_id
         compiled = self._authoring.require_compiled(
@@ -2535,6 +2602,8 @@ class V2RunService:
         }
         if _on_admitted is not None:
             _on_admitted(receipt, record)
+        if _before_execute is not None:
+            _before_execute()
         values: dict[tuple[str, str], list[Any]] = {}
         disposition_outcomes: dict[str, str] = {}
         for node in plan.nodes:
@@ -2859,12 +2928,17 @@ class V2RunService:
 
         def execute() -> None:
             try:
+                def acquire_execution_slot() -> None:
+                    self._execution_lock.acquire()
+                    state["execution_slot_acquired"] = True
+
                 self.start(
                     project_id,
                     workflow_revision=workflow_revision,
                     compile_id=compile_id,
                     client_request_id=client_request_id,
                     _on_admitted=on_admitted,
+                    _before_execute=acquire_execution_slot,
                 )
             except BaseException as error:
                 state["error"] = error
@@ -2873,13 +2947,40 @@ class V2RunService:
                     record.execution_error = error
                     record.finished.set()
             finally:
+                if state.get("execution_slot_acquired") is True:
+                    self._execution_lock.release()
+                with self._worker_condition:
+                    self._workers.discard(threading.current_thread())
+                    self._reserved_projects.discard(project_id)
+                    self._worker_condition.notify_all()
                 admitted.set()
 
-        threading.Thread(
+        worker = threading.Thread(
             target=execute,
             name=f"v2-run-admission-{project_id}",
-            daemon=True,
-        ).start()
+            daemon=False,
+        )
+        with self._worker_condition:
+            if (
+                self._closed
+                or len(self._workers) >= MAX_BACKGROUND_RUNS
+                or project_id in self._reserved_projects
+            ):
+                raise V2RunError(
+                    "evidence_unavailable",
+                    "Run execution admission is temporarily unavailable",
+                    details={"last_durable_cursor": run_cursor(0)},
+                )
+            self._workers.add(worker)
+            self._reserved_projects.add(project_id)
+        try:
+            worker.start()
+        except BaseException:
+            with self._worker_condition:
+                self._workers.discard(worker)
+                self._reserved_projects.discard(project_id)
+                self._worker_condition.notify_all()
+            raise
         admitted.wait()
         error = state.get("error")
         if "receipt" not in state:
@@ -2891,6 +2992,14 @@ class V2RunService:
         if record.finished.is_set() and record.execution_error is not None:
             raise record.execution_error
         return state["receipt"]
+
+    def shutdown(self) -> None:
+        """Stop admission and wait until every tracked Run writer is closed."""
+        with self._worker_condition:
+            self._closed = True
+            workers = tuple(self._workers)
+        for worker in workers:
+            worker.join()
 
     def projection(self, project_id: str, run_id: str) -> dict[str, Any]:
         record = self._require_record(project_id, run_id)
