@@ -298,9 +298,13 @@ assert {{
     for definition in catalog.port_types
 }} == {SOURCE_PORT_TYPE_DIGESTS!r}
 assert {{
-    (kind, contract_id, version)
-    for kind, contract_id, version in catalog.contracts
-    if contract_id.startswith("esm3.")
+    (
+        contract.contract_kind,
+        contract.contract_id,
+        contract.contract_version,
+    )
+    for contract in catalog.contracts
+    if contract.contract_id.startswith("esm3.")
 }} >= {{
     ("node_type", "esm3.generate_sequence", "2.0.0"),
     ("node_type", "esm3.generate_structure", "2.0.0"),
