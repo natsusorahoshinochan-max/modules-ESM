@@ -4,7 +4,7 @@
 
 **Blocked by:** 15 — Assemble and update ProteinPrompts.
 
-**Status:** completed
+**Status:** awaiting-controller
 
 - [x] Sequence, structure, and paired generation each have one v2 Node Definition and share the ESM-3 adapter, provider contract, test assets, and package registration.
 - [x] Exact Methods and Bindings fix model/source/scale and execution route; model name is not a mutable Workflow parameter, and credential/endpoint configuration is trusted environment state.
@@ -56,3 +56,53 @@ executor for repair before that next Ticket starts.
   Invocation lineage, provider-neutral Metrics, and truthful post-call
   evidence failure semantics. Both final review axes returned `APPROVE` at
   `4c94f1b`.
+
+## Controller return repair
+
+Controller returned executor revision
+`78c80a3f14507eb486e318b57462fd55349c9594` after the cumulative
+live-provider gate found that the first v2 sequence operation failed. The
+retained failing result is
+`verification-results/live-provider/20260729T161717.151352Z-25335-34bef94bdda0f067`.
+
+- Diagnosis reproduced the provider response exactly: Biohub returned HTTP
+  422, `Cannot sample sequence when input has no masks.` The live test had
+  passed a fully assigned 3GB1 sequence into a sequence-track operation.
+- TDD repair commit `b5a285a` makes sequence and paired operations reject a
+  fully assigned sequence track before any Engine Invocation/provider call,
+  composes an exact `A:1` mask through the existing
+  `prompt_authoring.random_mask` v2 Node in live acceptance, and aligns the
+  coordinate-conditioned fixture with the locked all-mask research contract.
+- Review repair commit `0ad2f97` declares the mandatory “at least one masked
+  sequence residue” precondition in both public Node summaries and input
+  scientific meanings, with discovered-catalog regression assertions.
+- Executor live-provider verification at clean implementation commit
+  `b5a285a22ff3bb6de7b25936df8b477589138785` passed both required tests,
+  including the exact 11 sequence + 11 structure ESM-3 calls and Biohub
+  folding. Retained result:
+  `verification-results/live-provider/20260729T162318.618713Z-26975-e01bcbd68c6ffd68`.
+- Focused ESM-3/provider-evidence regression:
+  `uv run --no-sync pytest -q tests/test_esm3_v2.py
+  tests/test_provider_evidence.py` → `57 passed`.
+- Joint Tickets 01–19 v2 regression:
+  `uv run --no-sync pytest -q tests/*_v2.py` → `437 passed`.
+- Cumulative routine gate:
+  `uv run --no-sync python scripts/verify_backend.py routine` →
+  `1119 passed, 46 deselected`; retained result
+  `verification-results/routine/20260729T163148.319855Z-33777-930ff6f0a9a66e62`.
+- Deterministic acceptance:
+  `uv run --no-sync python scripts/verify_backend.py
+  deterministic-acceptance` → `10 passed, 5 deselected`; retained result
+  `verification-results/deterministic-acceptance/20260729T162956.033781Z-32517-f1f495d4a33e48f7`.
+- Installed artifact:
+  `uv run --no-sync python scripts/verify_backend.py installed-package` →
+  `3 passed`; retained result
+  `verification-results/installed-package/20260729T163057.209064Z-33662-defd9dbb65b8c025`.
+- `compileall`, `uv lock --check`, `uv pip check`, and repair-range
+  `git diff --check` passed.
+- Final `/code-review` Standards and Spec axes both returned `APPROVE` at
+  `0ad2f97`.
+
+Ticket 19 remains `awaiting-controller`. Controller must rerun the cumulative
+Tickets 01–19 gates, including live-provider against the new final clean SHA,
+and return any regression to this executor before Ticket 20 starts.
