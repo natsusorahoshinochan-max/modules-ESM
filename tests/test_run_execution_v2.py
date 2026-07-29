@@ -488,9 +488,16 @@ def _pipeline_catalog(
     )
 
 
-def _artifact_catalog(calls: list[str]) -> FrozenCatalog:
+def _artifact_catalog(
+    calls: list[str],
+    *,
+    artifact_kind: str | None = "standalone",
+    collection: bool = False,
+    artifact_payloads: tuple[bytes, ...] = (b"MODEL        1\nEND\n",),
+) -> FrozenCatalog:
     builtin = builtin_frozen_catalog()
-    file_path = builtin.require_port_type("file.path", "2.0.0")
+    port_type_id = "file.path.collection" if collection else "file.path"
+    file_path = builtin.require_port_type(port_type_id, "2.0.0")
     method = _contract(
         "method",
         "test.artifact.method",
@@ -511,15 +518,18 @@ def _artifact_catalog(calls: list[str]) -> FrozenCatalog:
             "summary": "Publishes one deterministic PDB artifact.",
             "category": "contract_test",
             "inputs": [],
-            "outputs": [
-                {
+            "outputs": [{
                     "name": "structure",
                     "port_type": file_path.reference(),
                     "required": True,
                     "multiplicity": "one",
                     "scientific_meaning": "Published PDB structure",
-                }
-            ],
+                    **(
+                        {"artifact_kind": artifact_kind}
+                        if artifact_kind is not None
+                        else {}
+                    ),
+                }],
             "parameter_groups": [],
             "node_parameters": {},
         },
@@ -575,11 +585,16 @@ def _artifact_catalog(calls: list[str]) -> FrozenCatalog:
                 prefix="artifact-engine"
             ) as workspace:
                 calls.append(f"workspace:{workspace.name.startswith('artifact-engine-')}")
-            reference = self._resources.write_artifact(
-                "models/result.pdb",
-                b"MODEL        1\nEND\n",
-            )
-            return {"structure": reference}
+            references = [
+                self._resources.write_artifact(
+                    f"models/result-{index}.pdb",
+                    payload,
+                )
+                for index, payload in enumerate(artifact_payloads)
+            ]
+            return {
+                "structure": references if collection else references[0]
+            }
 
     def factory(**kwargs: Any) -> ArtifactImplementation:
         return ArtifactImplementation(kwargs["run_resources"])
@@ -1104,6 +1119,164 @@ def test_reusable_readiness_proof_requires_identity_scope_age_fingerprint_and_in
     assert calls == [False, True, False, False, False]
 
 
+def test_reusable_proof_rejects_implicit_environment_identities(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    calls: list[str] = []
+    now = datetime(2026, 7, 29, 9, 0, tzinfo=timezone.utc)
+
+    def readiness(environment) -> ReadinessResult:
+        calls.append("checker")
+        return ReadinessResult(
+            True,
+            reusable_proof=ReusableReadinessProof(
+                proof_identity="immutable-model-proof-v1",
+                proof_scope="test.direct.local@2.0.0",
+                observed_at=now,
+                maximum_age_seconds=60,
+                configuration_fingerprint=(
+                    "binding-test.direct.local-2.0.0"
+                ),
+                invalidation_token="binding-test.direct.local-2.0.0",
+            ),
+        )
+
+    monkeypatch.setattr(run_execution_v2, "_utc_now", lambda: now)
+    monkeypatch.setenv("PROTEIN_WORKBENCH_PROJECT_ROOT", str(tmp_path / "projects"))
+    monkeypatch.setenv("PROTEIN_WORKBENCH_RUN_ROOT", str(tmp_path / "runs"))
+    monkeypatch.setenv("PROTEIN_WORKBENCH_OUTPUT_ROOT", str(tmp_path / "outputs"))
+    app = create_app(
+        frozen_catalog_override=_direct_catalog(
+            calls,
+            readiness_prerequisites={
+                "reusable_proof": {
+                    "identity": "immutable-model-proof-v1",
+                    "scope": "test.direct.local@2.0.0",
+                    "maximum_age_seconds": 60,
+                }
+            },
+            readiness_checks={"test.direct.local": readiness},
+        ),
+        v2_environment_configuration={
+            ("test.direct.local", "2.0.0"): {
+                "values": {"credential": "credential-value"},
+            }
+        },
+    )
+
+    with TestClient(app) as client:
+        project_id, compiled = _compile_one_node(client)
+        response = client.post(
+            f"/api/v2/projects/{project_id}/runs",
+            json={
+                "workflow_revision": 2,
+                "compile_id": compiled["compile_id"],
+                "client_request_id": "implicit-proof-identities",
+            },
+        )
+
+    assert response.status_code == 503
+    assert response.json()["error"]["code"] == "readiness_rejected"
+    assert calls == []
+
+
+def test_reusable_proof_is_cached_only_after_durable_attestation(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    calls: list[bool] = []
+    now = datetime(2026, 7, 29, 9, 0, tzinfo=timezone.utc)
+
+    def readiness(environment) -> ReadinessResult:
+        calls.append(environment.reusable_proof is not None)
+        if environment.reusable_proof is not None:
+            return ReadinessResult(True, proof_source="reused-proof")
+        return ReadinessResult(
+            True,
+            proof_source="fresh-proof",
+            reusable_proof=ReusableReadinessProof(
+                proof_identity="immutable-model-proof-v1",
+                proof_scope="test.direct.local@2.0.0",
+                observed_at=now,
+                maximum_age_seconds=60,
+                configuration_fingerprint="configuration-v1",
+                invalidation_token="assets-v1",
+            ),
+        )
+
+    original_append = run_execution_v2._RunEvidenceLedger.append
+    failure = {"pending": True}
+
+    def fail_first_attestation(ledger, fact_type, payload):
+        if fact_type == "readiness_attested" and failure["pending"]:
+            failure["pending"] = False
+            raise run_execution_v2.V2RunError(
+                "evidence_unavailable",
+                "Required Run evidence could not be persisted safely",
+                details={"last_durable_cursor": ledger.cursor},
+            )
+        return original_append(ledger, fact_type, payload)
+
+    monkeypatch.setattr(run_execution_v2, "_utc_now", lambda: now)
+    monkeypatch.setattr(
+        run_execution_v2._RunEvidenceLedger,
+        "append",
+        fail_first_attestation,
+    )
+    monkeypatch.setenv("PROTEIN_WORKBENCH_PROJECT_ROOT", str(tmp_path / "projects"))
+    monkeypatch.setenv("PROTEIN_WORKBENCH_RUN_ROOT", str(tmp_path / "runs"))
+    monkeypatch.setenv("PROTEIN_WORKBENCH_OUTPUT_ROOT", str(tmp_path / "outputs"))
+    app = create_app(
+        frozen_catalog_override=_direct_catalog(
+            [],
+            readiness_prerequisites={
+                "reusable_proof": {
+                    "identity": "immutable-model-proof-v1",
+                    "scope": "test.direct.local@2.0.0",
+                    "maximum_age_seconds": 60,
+                }
+            },
+            readiness_checks={"test.direct.local": readiness},
+        ),
+        v2_environment_configuration={
+            ("test.direct.local", "2.0.0"): {
+                "values": {"credential": "credential-value"},
+                "safe_fingerprint": "configuration-v1",
+                "invalidation_token": "assets-v1",
+            }
+        },
+    )
+
+    with TestClient(app) as client:
+        project_id, compiled = _compile_one_node(client)
+
+        def start(request_id: str):
+            return client.post(
+                f"/api/v2/projects/{project_id}/runs",
+                json={
+                    "workflow_revision": 2,
+                    "compile_id": compiled["compile_id"],
+                    "client_request_id": request_id,
+                },
+            )
+
+        assert start("proof-ledger-failure").status_code == 503
+        assert start("proof-ledger-retry").status_code == 202
+        assert start("proof-ledger-reuse").status_code == 202
+
+    assert calls == [False, False, True]
+    readiness_facts = [
+        json.loads(path.read_text())
+        for path in (tmp_path / "runs").rglob("*.json")
+        if json.loads(path.read_text())["fact_type"] == "readiness_attested"
+    ]
+    assert {
+        fact["payload"]["proof_reference"]["reuse_kind"]
+        for fact in readiness_facts
+    } == {"newly-observed", "reused"}
+
+
 def test_connected_ports_publish_and_consume_only_canonical_validated_values(
     tmp_path,
     monkeypatch,
@@ -1197,6 +1370,144 @@ def test_invalid_output_never_publishes_success_or_a_public_result(
     ] == ["failed", "failed", "failed"]
 
 
+def test_artifact_publication_requires_explicit_node_port_opt_in(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    monkeypatch.setenv("PROTEIN_WORKBENCH_PROJECT_ROOT", str(tmp_path / "projects"))
+    monkeypatch.setenv("PROTEIN_WORKBENCH_RUN_ROOT", str(tmp_path / "runs"))
+    monkeypatch.setenv("PROTEIN_WORKBENCH_OUTPUT_ROOT", str(tmp_path / "outputs"))
+    app = create_app(
+        frozen_catalog_override=_artifact_catalog([], artifact_kind=None)
+    )
+
+    with TestClient(app) as client:
+        project_id, compiled = _compile_artifact_node(client)
+        response = client.post(
+            f"/api/v2/projects/{project_id}/runs",
+            json={
+                "workflow_revision": 2,
+                "compile_id": compiled["compile_id"],
+                "client_request_id": "artifact-without-opt-in",
+            },
+        )
+
+    assert response.status_code == 500
+    assert response.json()["error"]["code"] == "internal_error"
+
+
+def test_standalone_file_collection_projects_each_opaque_artifact(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    payloads = (
+        b"MODEL        1\nEND\n",
+        b"MODEL        2\nEND\n",
+    )
+    monkeypatch.setenv("PROTEIN_WORKBENCH_PROJECT_ROOT", str(tmp_path / "projects"))
+    monkeypatch.setenv("PROTEIN_WORKBENCH_RUN_ROOT", str(tmp_path / "runs"))
+    monkeypatch.setenv("PROTEIN_WORKBENCH_OUTPUT_ROOT", str(tmp_path / "outputs"))
+    app = create_app(
+        frozen_catalog_override=_artifact_catalog(
+            [],
+            collection=True,
+            artifact_payloads=payloads,
+        )
+    )
+
+    with TestClient(app) as client:
+        project_id, compiled = _compile_artifact_node(client)
+        started = client.post(
+            f"/api/v2/projects/{project_id}/runs",
+            json={
+                "workflow_revision": 2,
+                "compile_id": compiled["compile_id"],
+                "client_request_id": "artifact-collection",
+            },
+        )
+        assert started.status_code == 202
+        run_id = started.json()["run_id"]
+        projection = client.get(
+            f"/api/v2/projects/{project_id}/runs/{run_id}"
+        ).json()
+        assert projection["outputs"] == []
+        assert len(projection["artifact_index"]) == 2
+        downloaded = [
+            client.get(
+                f"/api/v2/projects/{project_id}/runs/{run_id}/artifacts/"
+                f"{artifact['artifact_reference']}"
+            ).content
+            for artifact in projection["artifact_index"]
+        ]
+
+    assert downloaded == list(payloads)
+
+
+def test_run_artifact_count_and_aggregate_size_are_bounded(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    monkeypatch.setattr(run_execution_v2, "MAX_ARTIFACTS_PER_RUN", 1)
+    monkeypatch.setattr(run_execution_v2, "MAX_ARTIFACT_BYTES_PER_RUN", 8)
+    monkeypatch.setenv("PROTEIN_WORKBENCH_PROJECT_ROOT", str(tmp_path / "projects"))
+    monkeypatch.setenv("PROTEIN_WORKBENCH_RUN_ROOT", str(tmp_path / "runs"))
+    monkeypatch.setenv("PROTEIN_WORKBENCH_OUTPUT_ROOT", str(tmp_path / "outputs"))
+    count_limited = create_app(
+        frozen_catalog_override=_artifact_catalog(
+            [],
+            collection=True,
+            artifact_payloads=(b"1234", b"5678"),
+        )
+    )
+
+    with TestClient(count_limited) as client:
+        project_id, compiled = _compile_artifact_node(client)
+        count_response = client.post(
+            f"/api/v2/projects/{project_id}/runs",
+            json={
+                "workflow_revision": 2,
+                "compile_id": compiled["compile_id"],
+                "client_request_id": "artifact-count-bound",
+            },
+        )
+
+    assert count_response.status_code == 500
+    assert count_response.json()["error"]["code"] == "internal_error"
+    assert not any(
+        json.loads(path.read_text())["fact_type"] == "artifact_published"
+        for path in (tmp_path / "runs").rglob("*.json")
+    )
+
+    monkeypatch.setattr(run_execution_v2, "MAX_ARTIFACTS_PER_RUN", 2)
+    aggregate_root = tmp_path / "aggregate-runs"
+    monkeypatch.setenv("PROTEIN_WORKBENCH_RUN_ROOT", str(aggregate_root))
+    aggregate_limited = create_app(
+        frozen_catalog_override=_artifact_catalog(
+            [],
+            collection=True,
+            artifact_payloads=(b"12345", b"67890"),
+        )
+    )
+
+    with TestClient(aggregate_limited) as client:
+        project_id, compiled = _compile_artifact_node(client)
+        aggregate_response = client.post(
+            f"/api/v2/projects/{project_id}/runs",
+            json={
+                "workflow_revision": 2,
+                "compile_id": compiled["compile_id"],
+                "client_request_id": "artifact-aggregate-bound",
+            },
+        )
+
+    assert aggregate_response.status_code == 500
+    assert aggregate_response.json()["error"]["code"] == "internal_error"
+    assert sum(
+        json.loads(path.read_text())["fact_type"] == "artifact_published"
+        for path in aggregate_root.rglob("*.json")
+    ) == 1
+
+
 def test_success_ledger_projects_validated_events_and_opaque_artifact(
     tmp_path,
     monkeypatch,
@@ -1233,7 +1544,7 @@ def test_success_ledger_projects_validated_events_and_opaque_artifact(
         assert artifact["artifact_kind"] == "standalone"
         assert artifact["node_id"] == "artifact"
         assert artifact["output_port"] == "structure"
-        assert artifact["artifact_reference"] != "models/result.pdb"
+        assert artifact["artifact_reference"] != "models/result-0.pdb"
         assert "/" not in artifact["artifact_reference"]
         assert artifact["content_digest"] == (
             "sha256:"

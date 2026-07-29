@@ -37,6 +37,9 @@ READINESS_ATTESTATION_NAMESPACE = (
     "protein-workbench-readiness-attestation/v2"
 )
 RUN_LEDGER_SCHEMA_VERSION = "2.0.0"
+MAX_ARTIFACTS_PER_RUN = 2_048
+MAX_ARTIFACT_SIZE_BYTES = 64 * 1024 * 1024
+MAX_ARTIFACT_BYTES_PER_RUN = 256 * 1024 * 1024
 _PUBLIC_IDENTIFIER = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.:/+-]*$")
 
 
@@ -60,6 +63,7 @@ class BindingEnvironment:
     values: Mapping[str, Any]
     safe_fingerprint: str
     invalidation_token: str
+    reusable_identity_configured: bool
 
     def __post_init__(self) -> None:
         if (
@@ -67,6 +71,7 @@ class BindingEnvironment:
             or not self.safe_fingerprint
             or not isinstance(self.invalidation_token, str)
             or not self.invalidation_token
+            or type(self.reusable_identity_configured) is not bool
         ):
             raise ValueError(
                 "Environment Configuration requires safe fingerprint and "
@@ -120,6 +125,10 @@ class EnvironmentConfiguration:
             invalidation_token=resolve(
                 "invalidation_token",
                 f"binding-{binding_id}-{binding_version}",
+            ),
+            reusable_identity_configured=(
+                "safe_fingerprint" in entry
+                and "invalidation_token" in entry
             ),
         )
 
@@ -375,6 +384,56 @@ def _plain_json(value: Any) -> Any:
     return value
 
 
+def _read_stable_private_file(
+    root: Path,
+    parts: tuple[str, ...],
+    *,
+    field: str,
+    maximum_size: int,
+) -> bytes:
+    file_descriptor: int | None = None
+    try:
+        file_descriptor = open_private_regular_file(
+            root,
+            parts,
+            field=field,
+        )
+        metadata = os.fstat(file_descriptor)
+        if (
+            stat.S_IMODE(metadata.st_mode) != 0o600
+            or metadata.st_size > maximum_size
+        ):
+            raise StoragePathError(field, f"Invalid {field}")
+        chunks: list[bytes] = []
+        remaining = metadata.st_size
+        while remaining:
+            chunk = os.read(
+                file_descriptor,
+                min(remaining, 1024 * 1024),
+            )
+            if not chunk:
+                raise StoragePathError(field, f"Invalid {field}")
+            chunks.append(chunk)
+            remaining -= len(chunk)
+        final_metadata = os.fstat(file_descriptor)
+        if (
+            final_metadata.st_dev,
+            final_metadata.st_ino,
+            final_metadata.st_size,
+            final_metadata.st_mtime_ns,
+        ) != (
+            metadata.st_dev,
+            metadata.st_ino,
+            metadata.st_size,
+            metadata.st_mtime_ns,
+        ):
+            raise StoragePathError(field, f"Invalid {field}")
+        return b"".join(chunks)
+    finally:
+        if file_descriptor is not None:
+            os.close(file_descriptor)
+
+
 class V2RunService:
     """Execute compiled direct Nodes behind readiness and durable evidence."""
 
@@ -447,6 +506,20 @@ class V2RunService:
             raw["maximum_age_seconds"],
         )
 
+    @staticmethod
+    def _proof_reference(
+        proof: ReusableReadinessProof,
+        *,
+        reuse_kind: str,
+    ) -> dict[str, Any]:
+        return {
+            "proof_identity": proof.proof_identity,
+            "proof_scope": proof.proof_scope,
+            "observed_at": run_timestamp(proof.observed_at),
+            "maximum_age_seconds": proof.maximum_age_seconds,
+            "reuse_kind": reuse_kind,
+        }
+
     def _attest_readiness(
         self,
         *,
@@ -466,7 +539,18 @@ class V2RunService:
         now = _utc_now()
         reusable: ReusableReadinessProof | None = None
         proof_contract = self._proof_contract(declaration, node)
-        if proof_contract is not None:
+        if (
+            proof_contract is not None
+            and not environment.reusable_identity_configured
+        ):
+            result = ReadinessResult(
+                False,
+                proof_source="missing-environment-identity",
+                reason_code="reusable_identity_not_configured",
+            )
+        else:
+            result = None
+        if proof_contract is not None and result is None:
             proof_identity, proof_scope, maximum_age = proof_contract
             candidate = self._proofs.get(
                 (
@@ -485,27 +569,28 @@ class V2RunService:
                 invalidation_token=environment.invalidation_token,
             ):
                 reusable = candidate
-        try:
-            observed = declaration.check(
-                ReadinessCheckInput(environment, reusable)
-            )
-        except Exception as error:
-            del error
-            observed = ReadinessResult(
-                False,
-                proof_source="checker-failure",
-                reason_code="readiness_check_failed",
-            )
-        if isinstance(observed, bool):
-            result = ReadinessResult(observed)
-        elif isinstance(observed, ReadinessResult):
-            result = observed
-        else:
-            result = ReadinessResult(
-                False,
-                proof_source="invalid-conclusion",
-                reason_code="invalid_readiness_conclusion",
-            )
+        if result is None:
+            try:
+                observed = declaration.check(
+                    ReadinessCheckInput(environment, reusable)
+                )
+            except Exception as error:
+                del error
+                observed = ReadinessResult(
+                    False,
+                    proof_source="checker-failure",
+                    reason_code="readiness_check_failed",
+                )
+            if isinstance(observed, bool):
+                result = ReadinessResult(observed)
+            elif isinstance(observed, ReadinessResult):
+                result = observed
+            else:
+                result = ReadinessResult(
+                    False,
+                    proof_source="invalid-conclusion",
+                    reason_code="invalid_readiness_conclusion",
+                )
         if (
             not isinstance(result.proof_source, str)
             or len(result.proof_source) > 128
@@ -519,7 +604,8 @@ class V2RunService:
                 proof_source="invalid-conclusion",
                 reason_code="invalid_readiness_conclusion",
             )
-        if result.reusable_proof is not None:
+        proof_to_cache: ReusableReadinessProof | None = None
+        if result.passing and result.reusable_proof is not None:
             proof = result.reusable_proof
             if (
                 proof_contract is None
@@ -538,14 +624,7 @@ class V2RunService:
                     reason_code="invalid_readiness_proof",
                 )
             else:
-                self._proofs[
-                    (
-                        binding_id,
-                        binding_version,
-                        proof.proof_identity,
-                        proof.proof_scope,
-                    )
-                ] = proof
+                proof_to_cache = proof
         readiness_digest = canonical_sha256(
             {
                 "schema_namespace": "protein-workbench-readiness/v2",
@@ -561,6 +640,16 @@ class V2RunService:
             "conclusion": "passing" if result.passing else "failing",
             "proof_source": result.proof_source,
         }
+        if reusable is not None:
+            attestation_payload["proof_reference"] = self._proof_reference(
+                reusable,
+                reuse_kind="reused",
+            )
+        elif proof_to_cache is not None:
+            attestation_payload["proof_reference"] = self._proof_reference(
+                proof_to_cache,
+                reuse_kind="newly-observed",
+            )
         attestation_digest = canonical_sha256(
             {
                 "schema_namespace": READINESS_ATTESTATION_NAMESPACE,
@@ -574,6 +663,15 @@ class V2RunService:
                 "attestation_digest": attestation_digest,
             },
         )
+        if proof_to_cache is not None:
+            self._proofs[
+                (
+                    binding_id,
+                    binding_version,
+                    proof_to_cache.proof_identity,
+                    proof_to_cache.proof_scope,
+                )
+            ] = proof_to_cache
         if not result.passing:
             raise V2RunError(
                 "readiness_rejected",
@@ -701,58 +799,18 @@ class V2RunService:
         output_port: str,
         relative_name: str,
         ledger: _RunEvidenceLedger,
+        maximum_size: int,
     ) -> tuple[dict[str, Any], tuple[str, ...]]:
         source_parts = validate_relative_path(
             relative_name,
             "artifact_path",
         )
-        source_fd: int | None = None
-        try:
-            source_fd = open_private_regular_file(
-                resources._output_root,
-                (resources.run_id, *source_parts),
-                field="artifact_path",
-            )
-            metadata = os.fstat(source_fd)
-            if (
-                stat.S_IMODE(metadata.st_mode) != 0o600
-                or metadata.st_size > 64 * 1024 * 1024
-            ):
-                raise StoragePathError(
-                    "artifact_path",
-                    "Invalid artifact_path",
-                )
-            chunks: list[bytes] = []
-            remaining = metadata.st_size
-            while remaining:
-                chunk = os.read(source_fd, min(remaining, 1024 * 1024))
-                if not chunk:
-                    raise StoragePathError(
-                        "artifact_path",
-                        "Invalid artifact_path",
-                    )
-                chunks.append(chunk)
-                remaining -= len(chunk)
-            payload = b"".join(chunks)
-            final_metadata = os.fstat(source_fd)
-            if (
-                final_metadata.st_dev,
-                final_metadata.st_ino,
-                final_metadata.st_size,
-                final_metadata.st_mtime_ns,
-            ) != (
-                metadata.st_dev,
-                metadata.st_ino,
-                metadata.st_size,
-                metadata.st_mtime_ns,
-            ):
-                raise StoragePathError(
-                    "artifact_path",
-                    "Invalid artifact_path",
-                )
-        finally:
-            if source_fd is not None:
-                os.close(source_fd)
+        payload = _read_stable_private_file(
+            resources._output_root,
+            (resources.run_id, *source_parts),
+            field="artifact_path",
+            maximum_size=min(MAX_ARTIFACT_SIZE_BYTES, maximum_size),
+        )
         reference = f"artifact-{uuid.uuid4().hex}"
         stored_parts = ("published", reference)
         write_private_new_file(
@@ -786,6 +844,8 @@ class V2RunService:
         published: list[dict[str, Any]],
         runtime: Mapping[tuple[str, str], list[Any]],
         ledger: _RunEvidenceLedger,
+        current_artifact_count: int,
+        current_artifact_bytes: int,
     ) -> tuple[
         list[dict[str, Any]],
         list[dict[str, Any]],
@@ -797,32 +857,67 @@ class V2RunService:
             str,
             tuple[dict[str, Any], tuple[str, ...]],
         ] = {}
+        node_contract = self._catalog.require_contract(*node.node_type.key)
+        port_declarations = {
+            port["name"]: port
+            for port in node_contract.descriptor.get("outputs", ())
+        }
+        artifact_sources: list[tuple[str, str]] = []
         for output in published:
-            if output["port_type"]["contract_id"] not in {
+            port_type_id = output["port_type"]["contract_id"]
+            if port_type_id not in {
                 "file.path",
                 "file.path.collection",
             }:
                 typed_outputs.append(output)
                 continue
-            for relative_name in runtime[
+            declaration = port_declarations[output["output_port"]]
+            if declaration.get("artifact_kind") != "standalone":
+                raise PortValueError(
+                    "Artifact output Port requires explicit standalone opt-in"
+                )
+            decoded_values = runtime[
                 (node.node_id, output["output_port"])
-            ]:
+            ]
+            if port_type_id == "file.path.collection":
+                relative_names = [
+                    relative_name
+                    for collection in decoded_values
+                    for relative_name in collection
+                ]
+            else:
+                relative_names = decoded_values
+            for relative_name in relative_names:
                 if not isinstance(relative_name, str):
                     raise PortValueError(
                         "Artifact Port requires one private relative reference"
                     )
-                descriptor, stored_parts = self._publish_artifact(
-                    resources=resources,
-                    node_id=node.node_id,
-                    output_port=output["output_port"],
-                    relative_name=relative_name,
-                    ledger=ledger,
+                artifact_sources.append(
+                    (output["output_port"], relative_name)
                 )
-                artifact_index.append(descriptor)
-                artifacts[descriptor["artifact_reference"]] = (
-                    descriptor,
-                    stored_parts,
-                )
+        if (
+            current_artifact_count + len(artifact_sources)
+            > MAX_ARTIFACTS_PER_RUN
+        ):
+            raise PortValueError("Run artifact count exceeds the public bound")
+        remaining_bytes = (
+            MAX_ARTIFACT_BYTES_PER_RUN - current_artifact_bytes
+        )
+        for output_port, relative_name in artifact_sources:
+            descriptor, stored_parts = self._publish_artifact(
+                resources=resources,
+                node_id=node.node_id,
+                output_port=output_port,
+                relative_name=relative_name,
+                ledger=ledger,
+                maximum_size=remaining_bytes,
+            )
+            remaining_bytes -= descriptor["size"]
+            artifact_index.append(descriptor)
+            artifacts[descriptor["artifact_reference"]] = (
+                descriptor,
+                stored_parts,
+            )
         return typed_outputs, artifact_index, artifacts
 
     def start(
@@ -1022,6 +1117,11 @@ class V2RunService:
                     published=published,
                     runtime=runtime,
                     ledger=ledger,
+                    current_artifact_count=len(all_artifacts),
+                    current_artifact_bytes=sum(
+                        artifact["size"]
+                        for artifact in all_artifacts
+                    ),
                 )
                 all_outputs.extend(typed_outputs)
                 all_artifacts.extend(node_artifacts)
@@ -1197,43 +1297,19 @@ class V2RunService:
                 },
             ) from error
         output_root = self._projects.output_dir(project_id, run_id).parent
-        artifact_fd: int | None = None
         try:
-            artifact_fd = open_private_regular_file(
+            payload = _read_stable_private_file(
                 output_root,
                 (run_id, *stored_parts),
                 field="artifact_reference",
+                maximum_size=MAX_ARTIFACT_SIZE_BYTES,
             )
-            metadata = os.fstat(artifact_fd)
-            if (
-                stat.S_IMODE(metadata.st_mode) != 0o600
-                or metadata.st_size > 64 * 1024 * 1024
-            ):
-                raise StoragePathError(
-                    "artifact_reference",
-                    "Invalid artifact_reference",
-                )
-            chunks: list[bytes] = []
-            remaining = metadata.st_size
-            while remaining:
-                chunk = os.read(artifact_fd, min(remaining, 1024 * 1024))
-                if not chunk:
-                    raise StoragePathError(
-                        "artifact_reference",
-                        "Invalid artifact_reference",
-                    )
-                chunks.append(chunk)
-                remaining -= len(chunk)
-            payload = b"".join(chunks)
         except (OSError, StoragePathError) as error:
             raise V2RunError(
                 "artifact_integrity_mismatch",
                 "Artifact integrity validation failed",
                 details={"artifact_reference": artifact_reference},
             ) from error
-        finally:
-            if artifact_fd is not None:
-                os.close(artifact_fd)
         observed_digest = "sha256:" + hashlib.sha256(payload).hexdigest()
         if (
             len(payload) != descriptor["size"]

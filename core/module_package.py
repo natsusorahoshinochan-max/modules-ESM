@@ -792,7 +792,12 @@ def _closed_object(
     return raw
 
 
-def _parse_port(raw: Any, *, resource_name: str) -> Mapping[str, Any]:
+def _parse_port(
+    raw: Any,
+    *,
+    resource_name: str,
+    allow_artifact_publication: bool = False,
+) -> Mapping[str, Any]:
     port = _closed_object(
         raw,
         resource_name=resource_name,
@@ -812,6 +817,7 @@ def _parse_port(raw: Any, *, resource_name: str) -> Mapping[str, Any]:
             "required",
             "multiplicity",
             "scientific_meaning",
+            "artifact_kind",
         },
     )
     _require_identifier(port["name"], f"{resource_name}.name")
@@ -832,15 +838,26 @@ def _parse_port(raw: Any, *, resource_name: str) -> Mapping[str, Any]:
         raise CatalogBuildError(
             f"{resource_name}.scientific_meaning must be non-empty"
         )
-    return MappingProxyType(
-        {
-            "name": port["name"],
-            "port_type": reference,
-            "required": port["required"],
-            "multiplicity": port["multiplicity"],
-            "scientific_meaning": meaning,
-        }
-    )
+    artifact_kind = port.get("artifact_kind")
+    if artifact_kind is not None and (
+        not allow_artifact_publication
+        or artifact_kind != "standalone"
+        or reference.contract_id
+        not in {"file.path", "file.path.collection"}
+    ):
+        raise CatalogBuildError(
+            f"{resource_name}.artifact_kind requires a standalone file output"
+        )
+    descriptor = {
+        "name": port["name"],
+        "port_type": reference,
+        "required": port["required"],
+        "multiplicity": port["multiplicity"],
+        "scientific_meaning": meaning,
+    }
+    if artifact_kind is not None:
+        descriptor["artifact_kind"] = artifact_kind
+    return MappingProxyType(descriptor)
 
 
 def _parse_node_definition(raw: Any, resource_name: str) -> _NodeDefinition:
@@ -882,7 +899,11 @@ def _parse_node_definition(raw: Any, resource_name: str) -> _NodeDefinition:
         for index, item in enumerate(node["inputs"])
     )
     outputs = tuple(
-        _parse_port(item, resource_name=f"{resource_name}.outputs[{index}]")
+        _parse_port(
+            item,
+            resource_name=f"{resource_name}.outputs[{index}]",
+            allow_artifact_publication=True,
+        )
         for index, item in enumerate(node["outputs"])
     )
     for label, ports in (("input", inputs), ("output", outputs)):

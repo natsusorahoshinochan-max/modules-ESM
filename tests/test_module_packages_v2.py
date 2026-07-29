@@ -389,6 +389,45 @@ def test_node_descriptor_keeps_parameter_groups_separate(
     ).descriptor["parameter_groups"] == ()
 
 
+def test_node_definition_can_explicitly_opt_in_standalone_file_publication(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    root_name = _write_discovery_root(tmp_path)
+    node_path = tmp_path / root_name / "synthetic" / "node.yaml"
+    node_path.write_text(
+        NODE_DEFINITION.replace(
+            "  - name: value\n"
+            "    port_type_id: synthetic.text\n"
+            "    port_type_version: \"2.0.0\"\n"
+            "    required: true\n"
+            "    multiplicity: one\n"
+            "    scientific_meaning: Text returned by the synthetic operation.",
+            "  - name: value\n"
+            "    port_type_id: file.path\n"
+            "    port_type_version: \"2.0.0\"\n"
+            "    required: true\n"
+            "    multiplicity: one\n"
+            "    scientific_meaning: File returned by the synthetic operation.\n"
+            "    artifact_kind: standalone",
+        )
+    )
+    monkeypatch.syspath_prepend(str(tmp_path))
+    importlib.invalidate_caches()
+
+    try:
+        catalog = build_discovered_frozen_catalog(root_name)
+    finally:
+        _forget_package(root_name)
+
+    output = catalog.require_contract(
+        "node_type",
+        "synthetic.echo",
+        "2.0.0",
+    ).descriptor["outputs"][0]
+    assert output["artifact_kind"] == "standalone"
+
+
 def test_package_owned_utility_runtime_is_resolved_by_exact_identity(
     tmp_path: Path,
     monkeypatch,

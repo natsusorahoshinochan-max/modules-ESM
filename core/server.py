@@ -1066,7 +1066,7 @@ def create_app(
         "{artifact_reference}",
         include_in_schema=False,
     )
-    async def public_v2_artifact(
+    def public_v2_artifact(
         request: Request,
         project_id: str,
         run_id: str,
