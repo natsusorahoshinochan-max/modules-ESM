@@ -1,0 +1,64 @@
+schema_version: "2.0.0"
+node_type_id: prompt_authoring.random_mask
+version: "2.0.0"
+title: Randomly mask a ProteinPrompt track
+summary: Selects reproducible eligible residues and clears only one declared ProteinPrompt track.
+category: prompt_authoring
+inputs:
+  - name: protein_prompt
+    port_type_id: protein.prompt
+    port_type_version: "2.1.0"
+    required: true
+    multiplicity: one
+    scientific_meaning: Validated residue-aligned ProteinPrompt whose selected track will be masked.
+outputs:
+  - name: protein_prompt
+    port_type_id: protein.prompt
+    port_type_version: "2.1.0"
+    required: true
+    multiplicity: one
+    scientific_meaning: ProteinPrompt with only the reproducibly selected values of one declared track cleared.
+parameter_groups:
+  - id: randomness
+    title: Effective randomness
+    parameters:
+      - effective_seed
+      - count
+      - track
+      - eligible_residue_ids
+node_parameters:
+  effective_seed:
+    parameter_scope: scientific
+    scientific_meaning: Fully resolved seed used by the repository-owned sampling algorithm.
+    required: true
+    type: integer
+    minimum: 0
+    maximum: 9007199254740991
+  count:
+    parameter_scope: scientific
+    scientific_meaning: Exact number of currently assigned eligible values to clear.
+    required: true
+    type: integer
+    minimum: 0
+    maximum: 2000000
+  track:
+    parameter_scope: scientific
+    scientific_meaning: Exact ProteinPrompt track whose selected assigned values may be cleared.
+    required: true
+    type: string
+    enum:
+      - sequence
+      - structure
+      - visibility
+      - secondary_structure
+      - sasa
+  eligible_residue_ids:
+    parameter_scope: scientific
+    scientific_meaning: Optional closed eligible residue subset; an empty list means every currently assigned value in the selected track.
+    type: array
+    maxItems: 2000000
+    uniqueItems: true
+    items:
+      type: string
+      pattern: "^[A-Za-z0-9]:[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$"
+    default: []

@@ -122,6 +122,7 @@ class _Source:
                 }]
             )
             sequence_value = "AGS"
+            protein_sequence_value = "WFC"
             if fixture == "annotation-overlap":
                 function_annotations = _annotations([
                     {
@@ -190,6 +191,49 @@ class _Source:
                 ])
             elif fixture == "prompt-illegal-sequence":
                 sequence_value = "A?S"
+            elif fixture == "3gb1-intent":
+                sequence_value = (
+                    "MTYKLILNGKTLKGETTTEAVDAATAEKVFKQYANDNGVDGEW"
+                    "TYDDATKTFTVTE"
+                )
+                protein_sequence_value = sequence_value
+                source = ResidueLayout(
+                    chain_id="A",
+                    length=56,
+                    residue_ids=[
+                        f"A:{index}" for index in range(1, 57)
+                    ],
+                )
+                target = source
+                source_track = AlignedResidueTrack(
+                    source,
+                    tuple(sequence_value),
+                )
+                source_structure_track = AlignedResidueTrack(
+                    source,
+                    tuple(None for _ in range(56)),
+                )
+                visibility_track = AlignedResidueTrack(
+                    source,
+                    tuple(None for _ in range(56)),
+                )
+                source_secondary_structure_track = AlignedResidueTrack(
+                    source,
+                    tuple("-" for _ in range(56)),
+                )
+                source_sasa_track = AlignedResidueTrack(
+                    source,
+                    tuple(None for _ in range(56)),
+                )
+                residue_map = ResidueMap(
+                    source_layout=source,
+                    target_layout=target,
+                    mappings=[
+                        (index, index, "match")
+                        for index in range(56)
+                    ],
+                )
+                function_annotations = _annotations()
             if fixture == "adapter-boundary":
                 source_secondary_structure_track = AlignedResidueTrack(
                     source,
@@ -300,7 +344,11 @@ class _Source:
                     else (
                         ["H"]
                         if fixture == "contradictory-residue-map"
-                        else ["H", None, "-"]
+                        else (
+                            list(source_secondary_structure_track.values)
+                            if fixture == "3gb1-intent"
+                            else ["H", None, "-"]
+                        )
                     )
                 ),
             ),
@@ -342,7 +390,7 @@ class _Source:
                     else (
                         "W?C"
                         if fixture == "sequence-illegal-symbol"
-                        else "WFC"
+                        else protein_sequence_value
                     )
                 ),
                 (

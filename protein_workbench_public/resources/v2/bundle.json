@@ -1153,6 +1153,15 @@
         "deterministic": {
           "type": "boolean"
         },
+        "effective_randomness_parameters": {
+          "items": {
+            "$ref": "#/$defs/Identifier"
+          },
+          "maxItems": 256,
+          "minItems": 1,
+          "type": "array",
+          "uniqueItems": true
+        },
         "execution_route": {
           "enum": [
             "adapter",

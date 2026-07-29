@@ -22,6 +22,8 @@ from .implementation import (
     EditResidueLayoutImplementation,
     MapResidueTrackImplementation,
     OverrideResidueTrackImplementation,
+    RandomInsertMaskedImplementation,
+    RandomMaskImplementation,
     UpdatePromptSequenceImplementation,
 )
 from .prompt_types import PROMPT_PORT_TYPES
@@ -36,6 +38,8 @@ _OPERATIONS = (
     "edit_residue_layout",
     "map_residue_track",
     "override_residue_track",
+    "random_insert_masked",
+    "random_mask",
     "update_prompt_sequence",
 )
 _IMPLEMENTATIONS = {
@@ -45,6 +49,8 @@ _IMPLEMENTATIONS = {
     "edit_residue_layout": EditResidueLayoutImplementation,
     "map_residue_track": MapResidueTrackImplementation,
     "override_residue_track": OverrideResidueTrackImplementation,
+    "random_insert_masked": RandomInsertMaskedImplementation,
+    "random_mask": RandomMaskImplementation,
     "update_prompt_sequence": UpdatePromptSequenceImplementation,
 }
 
@@ -99,6 +105,18 @@ def _method(operation: str) -> MethodDefinition:
             "actions": ["clear", "preserve", "replace"],
             "nullable_semantics": "JSON null means unspecified",
         },
+        "random_insert_masked": {
+            "name": "seeded-chain-local-masked-residue-insertion",
+            "sampling": "sha256-counter-modulo-v1",
+            "replacement": "with-replacement-across-eligible-boundaries",
+            "inserted_values": "explicit-null-on-every-present-track",
+        },
+        "random_mask": {
+            "name": "seeded-assigned-residue-masking",
+            "sampling": "sha256-residue-ranking-v1",
+            "replacement": "without-replacement",
+            "masked_value": "explicit-null",
+        },
         "update_prompt_sequence": {
             "name": "generic-protein-prompt-sequence-replacement",
             "preservation": "layout-and-all-unaffected-tracks",
@@ -121,6 +139,19 @@ def _method(operation: str) -> MethodDefinition:
 
 
 def _binding(operation: str) -> ExecutionBindingDefinition:
+    randomness_parameters = {
+        "random_mask": (
+            "effective_seed",
+            "count",
+            "track",
+            "eligible_residue_ids",
+        ),
+        "random_insert_masked": (
+            "effective_seed",
+            "count",
+            "eligible_chain_ids",
+        ),
+    }.get(operation, ())
     return ExecutionBindingDefinition(
         binding_id=f"prompt_authoring.{operation}.direct",
         version=_VERSION,
@@ -168,6 +199,7 @@ def _binding(operation: str) -> ExecutionBindingDefinition:
             "name": f"prompt_authoring.{operation}.direct",
             "source": "repository-owned",
         },
+        effective_randomness_parameters=randomness_parameters,
     )
 
 
@@ -183,6 +215,8 @@ MODULE_PACKAGE = ModulePackageRegistration(
         DefinitionResource("definitions/edit_residue_layout.yaml"),
         DefinitionResource("definitions/map_residue_track.yaml"),
         DefinitionResource("definitions/override_residue_track.yaml"),
+        DefinitionResource("definitions/random_insert_masked.yaml"),
+        DefinitionResource("definitions/random_mask.yaml"),
         DefinitionResource("definitions/update_prompt_sequence.yaml"),
     ),
     methods=tuple(_method(operation) for operation in _OPERATIONS),

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
@@ -66,7 +67,38 @@ def decoded_output(catalog: Any, output: dict[str, Any]) -> object:
     )
 
 
-def run_operation(
+@dataclass(frozen=True)
+class PreparedPromptOperation:
+    """One compiled prompt-authoring operation reusable across Runs."""
+
+    catalog: Any
+    service: V2RunService
+    project_id: str
+    workflow_revision: int
+    compile_id: str
+
+    def start(
+        self,
+        client_request_id: str,
+    ) -> tuple[dict[str, Any], tuple[dict[str, Any], ...]]:
+        receipt = self.service.start_background(
+            self.project_id,
+            workflow_revision=self.workflow_revision,
+            compile_id=self.compile_id,
+            client_request_id=client_request_id,
+        )
+        projection = self.service.projection(
+            self.project_id,
+            receipt["run_id"],
+        )
+        events = self.service.public_events(
+            self.project_id,
+            receipt["run_id"],
+        )
+        return projection, events
+
+
+def prepare_operation(
     tmp_path: Path,
     *,
     operation: str,
@@ -74,8 +106,8 @@ def run_operation(
     source_edges: tuple[WorkflowEdge, ...] = (),
     source_fixture: str = "canonical",
     environment_label: str = "one",
-) -> tuple[Any, dict[str, Any], tuple[dict[str, Any], ...]]:
-    """Compile and execute one production Node through the real v2 services."""
+) -> PreparedPromptOperation:
+    """Compile one production Node through the real reusable v2 services."""
     catalog = build_frozen_catalog((MODULE_PACKAGE, SOURCE_PACKAGE))
     projects = ProjectManager(
         tmp_path / "projects",
@@ -145,15 +177,37 @@ def run_operation(
             }
         ),
     )
-    receipt = service.start_background(
-        project.id,
+    return PreparedPromptOperation(
+        catalog=catalog,
+        service=service,
+        project_id=project.id,
         workflow_revision=relocked["workflow_revision"],
         compile_id=compiled.public_receipt()["compile_id"],
-        client_request_id=(
-            f"prompt-authoring-{operation}-{environment_label}"
-        ),
     )
-    service.shutdown()
-    projection = service.projection(project.id, receipt["run_id"])
-    events = service.public_events(project.id, receipt["run_id"])
-    return catalog, projection, events
+
+
+def run_operation(
+    tmp_path: Path,
+    *,
+    operation: str,
+    node_parameters: dict[str, Any],
+    source_edges: tuple[WorkflowEdge, ...] = (),
+    source_fixture: str = "canonical",
+    environment_label: str = "one",
+) -> tuple[Any, dict[str, Any], tuple[dict[str, Any], ...]]:
+    """Compile and execute one production Node through the real v2 services."""
+    prepared = prepare_operation(
+        tmp_path,
+        operation=operation,
+        node_parameters=node_parameters,
+        source_edges=source_edges,
+        source_fixture=source_fixture,
+        environment_label=environment_label,
+    )
+    try:
+        projection, events = prepared.start(
+            f"prompt-authoring-{operation}-{environment_label}"
+        )
+        return prepared.catalog, projection, events
+    finally:
+        prepared.service.shutdown()

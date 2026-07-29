@@ -14,6 +14,7 @@ from .domain import (
     TrackKind,
 )
 from .prompts import assemble_protein_prompt, update_prompt_sequence
+from .stochastic import random_insert_masked, random_mask_prompt
 
 
 _TRACK_PORTS = {
@@ -228,3 +229,70 @@ class UpdatePromptSequenceImplementation(_Implementation):
                 inputs["sequence"],
             )
         return {"protein_prompt": prompt}
+
+
+class RandomMaskImplementation(_Implementation):
+    def execute(
+        self,
+        *,
+        inputs: Mapping[str, Any],
+        node_parameters: Mapping[str, Any],
+        binding_parameters: Mapping[str, Any],
+    ) -> dict[str, Any]:
+        if (
+            set(inputs) != {"protein_prompt"}
+            or set(node_parameters)
+            != {
+                "effective_seed",
+                "count",
+                "track",
+                "eligible_residue_ids",
+            }
+            or binding_parameters
+        ):
+            raise ValueError(
+                "random masking requires one ProteinPrompt and resolved randomness"
+            )
+        with self._invocation():
+            prompt = random_mask_prompt(
+                inputs["protein_prompt"],
+                effective_seed=node_parameters["effective_seed"],
+                count=node_parameters["count"],
+                track=node_parameters["track"],
+                eligible_residue_ids=node_parameters["eligible_residue_ids"],
+            )
+        return {"protein_prompt": prompt}
+
+
+class RandomInsertMaskedImplementation(_Implementation):
+    def execute(
+        self,
+        *,
+        inputs: Mapping[str, Any],
+        node_parameters: Mapping[str, Any],
+        binding_parameters: Mapping[str, Any],
+    ) -> dict[str, Any]:
+        if (
+            set(inputs) != {"protein_prompt"}
+            or set(node_parameters)
+            != {
+                "effective_seed",
+                "count",
+                "eligible_chain_ids",
+            }
+            or binding_parameters
+        ):
+            raise ValueError(
+                "masked insertion requires one ProteinPrompt and resolved randomness"
+            )
+        with self._invocation():
+            prompt, residue_map = random_insert_masked(
+                inputs["protein_prompt"],
+                effective_seed=node_parameters["effective_seed"],
+                count=node_parameters["count"],
+                eligible_chain_ids=node_parameters["eligible_chain_ids"],
+            )
+        return {
+            "protein_prompt": prompt,
+            "residue_map": residue_map,
+        }

@@ -2634,6 +2634,37 @@ def _result_identity_descriptor(
         )
         for key in relevant_keys
     }
+    resolved_node_parameters = _plain_json(node.node_parameters)
+    resolved_binding_parameters = _plain_json(node.binding_parameters)
+    declared_randomness = binding_contract.descriptor.get(
+        "effective_randomness_parameters"
+    )
+    if declared_randomness:
+        effective_randomness: dict[str, Any] = {}
+        for parameter_name in declared_randomness:
+            node_has_parameter = parameter_name in resolved_node_parameters
+            binding_has_parameter = parameter_name in resolved_binding_parameters
+            if node_has_parameter == binding_has_parameter:
+                effective_randomness[parameter_name] = {
+                    "resolution": "unresolved",
+                }
+            elif node_has_parameter:
+                effective_randomness[parameter_name] = (
+                    resolved_node_parameters[parameter_name]
+                )
+            else:
+                effective_randomness[parameter_name] = (
+                    resolved_binding_parameters[parameter_name]
+                )
+    else:
+        effective_randomness = {
+            key: value
+            for key, value in {
+                **resolved_node_parameters,
+                **resolved_binding_parameters,
+            }.items()
+            if key in {"seed", "random_seed", "effective_seed"}
+        }
     descriptor = {
         "schema_namespace": RESULT_IDENTITY_NAMESPACE,
         "node_type": _identity_without_digest(node.node_type.to_public()),
@@ -2643,18 +2674,11 @@ def _result_identity_descriptor(
             relevant_contracts[key] for key in sorted(relevant_contracts)
         ],
         "inputs": input_identities,
-        "node_parameters": _plain_json(node.node_parameters),
-        "binding_parameters": _plain_json(node.binding_parameters),
+        "node_parameters": resolved_node_parameters,
+        "binding_parameters": resolved_binding_parameters,
         "determinism": {
             "deterministic": binding_contract.descriptor.get("deterministic"),
-            "effective_randomness": {
-                key: value
-                for key, value in {
-                    **_plain_json(node.node_parameters),
-                    **_plain_json(node.binding_parameters),
-                }.items()
-                if key in {"seed", "random_seed", "effective_seed"}
-            },
+            "effective_randomness": effective_randomness,
         },
         "output_contracts": [
             {

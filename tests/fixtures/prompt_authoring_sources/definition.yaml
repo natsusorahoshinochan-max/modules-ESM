@@ -111,4 +111,5 @@ node_parameters:
       - sequence-identity-drift
       - sequence-illegal-symbol
       - adapter-boundary
+      - 3gb1-intent
     default: canonical

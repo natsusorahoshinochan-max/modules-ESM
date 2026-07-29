@@ -1,0 +1,59 @@
+schema_version: "2.0.0"
+node_type_id: prompt_authoring.random_insert_masked
+version: "2.0.0"
+title: Randomly insert masked residues
+summary: Inserts reproducibly selected chain-local masked residues across every present ProteinPrompt track.
+category: prompt_authoring
+inputs:
+  - name: protein_prompt
+    port_type_id: protein.prompt
+    port_type_version: "2.1.0"
+    required: true
+    multiplicity: one
+    scientific_meaning: Validated residue-aligned ProteinPrompt whose layout and present tracks will be extended.
+outputs:
+  - name: protein_prompt
+    port_type_id: protein.prompt
+    port_type_version: "2.1.0"
+    required: true
+    multiplicity: one
+    scientific_meaning: ProteinPrompt with identity-complete inserted residues masked in every present track.
+  - name: residue_map
+    port_type_id: residue.map
+    port_type_version: "2.0.0"
+    required: true
+    multiplicity: one
+    scientific_meaning: Complete source-to-target map identifying every preserved and inserted residue.
+parameter_groups:
+  - id: randomness
+    title: Effective randomness
+    parameters:
+      - effective_seed
+      - count
+      - eligible_chain_ids
+node_parameters:
+  effective_seed:
+    parameter_scope: scientific
+    scientific_meaning: Fully resolved seed used by the repository-owned insertion sampler.
+    required: true
+    type: integer
+    minimum: 0
+    maximum: 9007199254740991
+  count:
+    parameter_scope: scientific
+    scientific_meaning: Exact number of new masked residues to insert.
+    required: true
+    type: integer
+    minimum: 0
+    maximum: 2000000
+  eligible_chain_ids:
+    parameter_scope: scientific
+    scientific_meaning: Optional closed chain subset whose chain-local insertion boundaries may be sampled; an empty list means every chain.
+    type: array
+    minItems: 0
+    maxItems: 64
+    uniqueItems: true
+    items:
+      type: string
+      pattern: "^[A-Za-z0-9]$"
+    default: []

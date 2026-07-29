@@ -77,6 +77,7 @@ def _direct_catalog(
     source_identity: Mapping[str, Any] | None = None,
     node_parameter_declarations: Mapping[str, Any] | None = None,
     node_title: str = "Deterministic direct test Node",
+    effective_randomness_parameters: tuple[str, ...] = (),
 ) -> FrozenCatalog:
     builtin = builtin_frozen_catalog()
     text = builtin.require_port_type("text", "2.0.0")
@@ -169,6 +170,15 @@ def _direct_catalog(
                     "factory": binding_factory_behavior.descriptor(),
                 },
                 "produced_observations": [],
+                **(
+                    {
+                        "effective_randomness_parameters": list(
+                            effective_randomness_parameters
+                        ),
+                    }
+                    if effective_randomness_parameters
+                    else {}
+                ),
             },
         )
         bindings.append(binding)

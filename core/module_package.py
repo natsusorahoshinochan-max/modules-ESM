@@ -658,6 +658,7 @@ class ExecutionBindingDefinition:
     produced_observations: tuple[ProducedObservationDefinition, ...] = ()
     adapter_behavior: BehaviorReference | None = None
     observation_propagation: ObservationPropagationDefinition | None = None
+    effective_randomness_parameters: tuple[str, ...] = ()
 
     def __post_init__(self) -> None:
         _require_identifier(self.binding_id, "binding_id")
@@ -684,6 +685,22 @@ class ExecutionBindingDefinition:
             )
         if not isinstance(self.implementation_identity, Mapping):
             raise CatalogBuildError("implementation_identity must be an object")
+        randomness_parameters = tuple(self.effective_randomness_parameters)
+        if (
+            any(
+                not isinstance(parameter, str) or not parameter
+                for parameter in randomness_parameters
+            )
+            or len(set(randomness_parameters)) != len(randomness_parameters)
+        ):
+            raise CatalogBuildError(
+                "effective_randomness_parameters must contain unique names"
+            )
+        object.__setattr__(
+            self,
+            "effective_randomness_parameters",
+            randomness_parameters,
+        )
         object.__setattr__(
             self,
             "binding_parameters",
@@ -739,7 +756,7 @@ class ExecutionBindingDefinition:
             implementation_identity["adapter"] = (
                 self.adapter_behavior.descriptor()
             )
-        return {
+        descriptor = {
             "schema_namespace": CONTRACT_NAMESPACE,
             "contract_kind": "binding",
             "contract_id": self.binding_id,
@@ -768,6 +785,11 @@ class ExecutionBindingDefinition:
                 else None
             ),
         }
+        if self.effective_randomness_parameters:
+            descriptor["effective_randomness_parameters"] = list(
+                self.effective_randomness_parameters
+            )
+        return descriptor
 
 
 @dataclass(frozen=True, slots=True)
@@ -1668,6 +1690,19 @@ def build_frozen_catalog(
                 raise CatalogBuildError(
                     f"Binding {binding.binding_id} does not reference a "
                     "Node Definition"
+                )
+            declared_parameters = {
+                *node_definition.node_parameters,
+                *binding.binding_parameters,
+            }
+            unknown_randomness = (
+                set(binding.effective_randomness_parameters)
+                - declared_parameters
+            )
+            if unknown_randomness:
+                raise CatalogBuildError(
+                    f"Binding {binding.binding_id} effective randomness "
+                    "references undeclared parameters"
                 )
             output_names = {
                 output["name"]

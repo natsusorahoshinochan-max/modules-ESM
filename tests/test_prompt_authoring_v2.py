@@ -33,7 +33,7 @@ from tests.fixtures.prompt_authoring_v2 import (
 )
 
 
-def test_prompt_authoring_is_one_package_with_seven_independent_nodes() -> None:
+def test_prompt_authoring_is_one_package_with_nine_independent_nodes() -> None:
     registrations = {
         registration.package_id: registration
         for registration in discover_module_packages()
@@ -50,6 +50,8 @@ def test_prompt_authoring_is_one_package_with_seven_independent_nodes() -> None:
         "definitions/edit_residue_layout.yaml",
         "definitions/map_residue_track.yaml",
         "definitions/override_residue_track.yaml",
+        "definitions/random_insert_masked.yaml",
+        "definitions/random_mask.yaml",
         "definitions/update_prompt_sequence.yaml",
     }
 
@@ -68,6 +70,8 @@ def test_prompt_authoring_is_one_package_with_seven_independent_nodes() -> None:
         ("prompt_authoring.edit_residue_layout", VERSION),
         ("prompt_authoring.map_residue_track", VERSION),
         ("prompt_authoring.override_residue_track", VERSION),
+        ("prompt_authoring.random_insert_masked", VERSION),
+        ("prompt_authoring.random_mask", VERSION),
         ("prompt_authoring.update_prompt_sequence", VERSION),
     }
 
@@ -189,7 +193,7 @@ _TRACK_PORT_CASES = (
 )
 
 
-def test_all_seven_nodes_execute_through_shared_contract_kit(
+def test_all_nine_nodes_execute_through_shared_contract_kit(
     tmp_path: Path,
 ) -> None:
     report = verify_module_package_contract(
@@ -444,6 +448,59 @@ def test_all_seven_nodes_execute_through_shared_contract_kit(
                     ),
                 ),
             ),
+            ModulePackageContractCase(
+                case_id="prompt-authoring-random-mask",
+                node_type_id="prompt_authoring.random_mask",
+                node_type_version=VERSION,
+                binding_id="prompt_authoring.random_mask.direct",
+                binding_version=VERSION,
+                node_parameters={
+                    "effective_seed": 73,
+                    "count": 1,
+                    "track": "sequence",
+                    "eligible_residue_ids": [],
+                },
+                binding_parameters={},
+                environment_values={},
+                safe_environment_fingerprint="provider-free",
+                invalidation_token="prompt-authoring-random-mask-v1",
+                workflow_nodes=(_SOURCE,),
+                workflow_edges=(
+                    WorkflowEdge(
+                        "source",
+                        "protein_prompt",
+                        "contract-test-node",
+                        "protein_prompt",
+                    ),
+                ),
+            ),
+            ModulePackageContractCase(
+                case_id="prompt-authoring-random-insert",
+                node_type_id="prompt_authoring.random_insert_masked",
+                node_type_version=VERSION,
+                binding_id=(
+                    "prompt_authoring.random_insert_masked.direct"
+                ),
+                binding_version=VERSION,
+                node_parameters={
+                    "effective_seed": 73,
+                    "count": 1,
+                    "eligible_chain_ids": [],
+                },
+                binding_parameters={},
+                environment_values={},
+                safe_environment_fingerprint="provider-free",
+                invalidation_token="prompt-authoring-random-insert-v1",
+                workflow_nodes=(_SOURCE,),
+                workflow_edges=(
+                    WorkflowEdge(
+                        "source",
+                        "protein_prompt",
+                        "contract-test-node",
+                        "protein_prompt",
+                    ),
+                ),
+            ),
         ),
         port_cases=_TRACK_PORT_CASES,
         supporting_registrations=(SOURCE_PACKAGE,),
@@ -451,6 +508,8 @@ def test_all_seven_nodes_execute_through_shared_contract_kit(
     )
 
     assert [case.status for case in report.case_reports] == [
+        "succeeded",
+        "succeeded",
         "succeeded",
         "succeeded",
         "succeeded",
