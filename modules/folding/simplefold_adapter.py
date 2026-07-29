@@ -24,16 +24,11 @@ from core.provider_contract import (
     validate_installed_provider_checkout,
 )
 from datatypes import ProteinSequence, ProteinStructure
+from modules.simplefold_contract import SIMPLEFOLD_FOLDING_ARTIFACTS
 
 
 SIMPLEFOLD_MODEL = "simplefold_100M"
 SIMPLEFOLD_DEVICE = "cpu"
-SIMPLEFOLD_FOLDING_ARTIFACTS = (
-    "ccd.pkl",
-    "plddt.ckpt",
-    "simplefold_1.6B.ckpt",
-    "simplefold_100M.ckpt",
-)
 
 
 def simplefold_folding_artifact_sha256() -> dict[str, str]:

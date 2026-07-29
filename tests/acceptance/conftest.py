@@ -113,8 +113,8 @@ def _check_proteinmpnn_ready() -> bool:
 def _check_simplefold_ready() -> bool:
     """Check if SimpleFold and required gate artifacts are installed."""
     if (
-        os.environ.get("PROTEIN_WORKBENCH_VERIFICATION_TIER")
-        == "simplefold-v2-heavy-model"
+        os.environ.get("PROTEIN_WORKBENCH_PROVIDER_IDENTITY_PROFILE")
+        == "simplefold-v2-folding"
     ):
         try:
             validate_installed_provider_checkout(
@@ -194,8 +194,8 @@ def readiness() -> dict:
         simplefold_provider_identity(
             simplefold_folding_artifact_sha256()
         )
-        if os.environ.get("PROTEIN_WORKBENCH_VERIFICATION_TIER")
-        == "simplefold-v2-heavy-model"
+        if os.environ.get("PROTEIN_WORKBENCH_PROVIDER_IDENTITY_PROFILE")
+        == "simplefold-v2-folding"
         else simplefold_provider_identity(SIMPLEFOLD_ARTIFACT_SHA256)
     )
     readiness_evidence = (
@@ -265,7 +265,6 @@ def readiness() -> dict:
                 "local-proteinmpnn",
                 "simplefold",
             },
-            "simplefold-v2-heavy-model": {"simplefold"},
         }.get(os.environ.get("PROTEIN_WORKBENCH_VERIFICATION_TIER"), set())
     )
     for provider, ready, identity, details in readiness_evidence:

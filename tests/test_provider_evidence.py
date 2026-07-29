@@ -10,6 +10,8 @@ import importlib
 import json
 import os
 import sys
+import threading
+import time
 from pathlib import Path
 from types import ModuleType
 from unittest.mock import MagicMock, patch
@@ -697,6 +699,69 @@ def test_simplefold_invalid_model_root_does_not_enter_provider_directory(
 
     setup.assert_not_called()
     assert os.getcwd() == original_cwd
+
+
+def test_simplefold_folding_seam_serializes_process_global_import_state(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    from modules import simplefold_adapter
+
+    class StopAtProviderImport(RuntimeError):
+        pass
+
+    state_lock = threading.Lock()
+    active_setups = 0
+    maximum_active_setups = 0
+    observed_artifact_roots: list[Path] = []
+
+    def validated_model_dir(artifacts: Path) -> Path:
+        observed_artifact_roots.append(artifacts)
+        return artifacts
+
+    def setup() -> str:
+        nonlocal active_setups, maximum_active_setups
+        with state_lock:
+            active_setups += 1
+            maximum_active_setups = max(
+                maximum_active_setups,
+                active_setups,
+            )
+        try:
+            time.sleep(0.05)
+        finally:
+            with state_lock:
+                active_setups -= 1
+        raise StopAtProviderImport
+
+    monkeypatch.setattr(
+        simplefold_adapter,
+        "validated_simplefold_model_dir",
+        validated_model_dir,
+    )
+    monkeypatch.setattr(
+        simplefold_adapter,
+        "validated_simplefold_esm2_runtime",
+        lambda artifacts: (artifacts, artifacts),
+    )
+    monkeypatch.setattr(simplefold_adapter, "_setup_simplefold_imports", setup)
+
+    def invoke(slot: str) -> None:
+        with pytest.raises(StopAtProviderImport):
+            simplefold_adapter.fold_sequence(
+                ProteinSequence(sequence="AAA"),
+                project_dir=str(tmp_path / slot),
+            )
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        first = pool.submit(invoke, "run-a")
+        second = pool.submit(invoke, "run-b")
+        first.result(timeout=5)
+        second.result(timeout=5)
+
+    assert maximum_active_setups == 1
+    assert len(observed_artifact_roots) == 2
+    assert observed_artifact_roots[0] != observed_artifact_roots[1]
 
 
 def test_simplefold_size_only_artifacts_fail_closed_on_sha_mismatch(

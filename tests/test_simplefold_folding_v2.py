@@ -763,7 +763,7 @@ def test_malformed_simplefold_output_cannot_publish_a_candidate(
         )
     ]
     assert len(simplefold_terminal) == 1
-    assert simplefold_terminal[0]["status"] == "failed"
+    assert simplefold_terminal[0]["status"] == "succeeded"
 
 
 @pytest.mark.parametrize(

@@ -538,12 +538,12 @@ class SimpleFoldFoldingImplementation:
                             "candidate_ids": raw_ids,
                         },
                     )
-                    structures, plddt_values = self._decode_scores(
-                        structures,
-                        scores,
-                        sequence,
-                        sample_count,
-                    )
+            structures, plddt_values = self._decode_scores(
+                structures,
+                scores,
+                sequence,
+                sample_count,
+            )
             record_provider_call_result(
                 provider="simplefold",
                 operation="fold_sequence",

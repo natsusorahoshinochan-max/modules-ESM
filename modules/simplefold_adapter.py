@@ -14,6 +14,7 @@ import stat
 import subprocess
 import sys
 import tempfile
+import threading
 import uuid
 from argparse import Namespace
 from copy import deepcopy
@@ -43,6 +44,10 @@ from core.provider_contract import (
     simplefold_provider_identity,
     validate_installed_provider_checkout,
 )
+from modules.simplefold_contract import SIMPLEFOLD_FOLDING_ARTIFACTS
+
+
+_SIMPLEFOLD_PROCESS_LOCK = threading.RLock()
 
 
 def _setup_simplefold_imports() -> str:
@@ -504,14 +509,15 @@ def _prepare_simplefold_cache(model_dir: Path, cache: Path) -> None:
 
 
 def _restore_process_cwd(function: Callable[..., Any]) -> Callable[..., Any]:
-    """Restore process-global CWD even when the provider raises."""
+    """Serialize and restore the provider's process-global import state."""
     @wraps(function)
     def wrapped(*args: Any, **kwargs: Any) -> Any:
-        original_cwd = os.getcwd()
-        try:
-            return function(*args, **kwargs)
-        finally:
-            os.chdir(original_cwd)
+        with _SIMPLEFOLD_PROCESS_LOCK:
+            original_cwd = os.getcwd()
+            try:
+                return function(*args, **kwargs)
+            finally:
+                os.chdir(original_cwd)
 
     return wrapped
 
@@ -548,12 +554,7 @@ def fold_sequence(
         model_dir = validated_simplefold_model_dir(
             artifacts,
             model_root,
-            required_artifacts=(
-                "ccd.pkl",
-                "plddt.ckpt",
-                "simplefold_1.6B.ckpt",
-                "simplefold_100M.ckpt",
-            ),
+            required_artifacts=SIMPLEFOLD_FOLDING_ARTIFACTS,
         )
     if esm2_source_root is None and esm2_model_root is None:
         esm2_source_root, esm2_model_dir = validated_simplefold_esm2_runtime(

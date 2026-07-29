@@ -552,7 +552,7 @@ def test_simplefold_v2_has_a_source_bound_full_heavy_gate() -> None:
         "local_provider and slow",
     )
     assert tier.requires_provider_evidence is True
-    assert tier.provider_evidence_gate == "simplefold-v2-heavy-model"
+    assert tier.provider_evidence_gate == "heavy-model"
     assert tier.provider_identity_profile == "simplefold-v2-folding"
     assert tier.requires_local_model_environment is True
     assert tier.requires_simplefold_environment is True
@@ -574,6 +574,51 @@ def test_simplefold_v2_has_a_source_bound_full_heavy_gate() -> None:
         "simplefold_1.6B.ckpt",
         "simplefold_100M.ckpt",
     }
+
+
+def test_simplefold_v2_gate_alias_writes_supported_provider_evidence(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    from core.provider_evidence import record_provider_readiness
+    from scripts.verify_backend import (
+        TIERS,
+        _expected_provider_identity,
+    )
+
+    tier = TIERS["simplefold-v2-heavy-model"]
+    evidence_path = tmp_path / "provider-calls.jsonl"
+    monkeypatch.setenv(
+        "PROTEIN_WORKBENCH_PROVIDER_CALL_EVIDENCE",
+        str(evidence_path),
+    )
+    monkeypatch.setenv(
+        "PROTEIN_WORKBENCH_REAL_GATE_NONCE",
+        "simplefold-v2-gate-test",
+    )
+    monkeypatch.setenv(
+        "PROTEIN_WORKBENCH_VERIFICATION_TIER",
+        tier.provider_evidence_gate,
+    )
+    monkeypatch.setenv(
+        "PROTEIN_WORKBENCH_PROVIDER_IDENTITY_PROFILE",
+        tier.provider_identity_profile,
+    )
+    identity = _expected_provider_identity(
+        "simplefold",
+        profile=tier.provider_identity_profile,
+    )
+    assert identity is not None
+
+    assert record_provider_readiness(
+        provider="simplefold",
+        ready=True,
+        identity=identity,
+        details={"artifact_contract_complete": True},
+    )
+    event = json.loads(evidence_path.read_text())
+    assert event["gate"] == "heavy-model"
+    assert event["provider_identity"] == identity
 
 
 def test_esmfold2_v2_has_explicit_remote_and_local_gates() -> None:

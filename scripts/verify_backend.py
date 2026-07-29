@@ -474,7 +474,7 @@ TIERS = {
         "local_provider and slow",
     ),
         requires_provider_evidence=True,
-        provider_evidence_gate="simplefold-v2-heavy-model",
+        provider_evidence_gate="heavy-model",
         provider_identity_profile="simplefold-v2-folding",
         required_call_counts=(
             ("simplefold", "fold_sequence", 1),
@@ -2754,6 +2754,10 @@ def main() -> int:
         env["PROTEIN_WORKBENCH_VERIFICATION_TIER"] = (
             provider_evidence_gate
         )
+        if tier.provider_identity_profile is not None:
+            env["PROTEIN_WORKBENCH_PROVIDER_IDENTITY_PROFILE"] = (
+                tier.provider_identity_profile
+            )
         if tier.requires_provider_evidence:
             env["PROTEIN_WORKBENCH_PROVIDER_EVIDENCE_SCOPE"] = ",".join(
                 sorted({
