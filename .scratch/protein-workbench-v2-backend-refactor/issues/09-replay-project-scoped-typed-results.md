@@ -4,7 +4,7 @@
 
 **Blocked by:** 06 — Close dispositions across branch failures.
 
-**Status:** awaiting-controller
+**Status:** completed
 
 - [x] Result Identity uses the `protein-workbench-cache/v2` namespace and includes every result-affecting Node, Port, Binding, Method, implementation, model, source, input, parameter, randomness, Metric, Context, and Utility contract.
 - [x] Project ID, Run ID, Node Instance ID, timestamps, credentials, private paths, presentation metadata, and performance-only choices do not enter Result Identity.
@@ -55,3 +55,34 @@ this state.
   identity, over-broad presentation stripping, Candidate codec bypass, and
   manifest-based producer gating. All findings were repaired with public
   regressions; both final review axes returned `APPROVE` at `50923ed`.
+
+## Controller cumulative acceptance
+
+Before Ticket 10 started, Controller independently accepted executor commit
+`54f56677e76e709ac1c33c082f56781a32506286` against the previously accepted
+Tickets 01–08 gate `80949598dcb0a36117ecc14bd20fb7e2abaebd7b`.
+
+- Joint Tickets 01–09 focused suites:
+  `uv run --no-sync python -m pytest -q tests/test_public_protocol_v2.py
+  tests/test_port_types_v2.py tests/test_module_packages_v2.py
+  tests/test_workflow_compiler_v2.py tests/test_run_execution_v2.py
+  tests/test_run_cancel_derive_v2.py tests/test_result_cache_v2.py` →
+  `242 passed`.
+- Cumulative routine gate:
+  `uv run --no-sync python scripts/verify_backend.py routine` →
+  `928 passed, 44 deselected`; retained result
+  `verification-results/routine/20260729T054158.542419Z-2126-75ab9b24125a4b6d`.
+- Deterministic acceptance:
+  `uv run --no-sync python scripts/verify_backend.py
+  deterministic-acceptance` → `9 passed, 5 deselected`; retained result
+  `verification-results/deterministic-acceptance/20260729T054347.981848Z-2709-bdca6b0cd8e11c46`.
+- Installed artifact:
+  `uv run --no-sync python scripts/verify_backend.py installed-package` →
+  `3 passed`; retained result
+  `verification-results/installed-package/20260729T054431.355048Z-2832-a934da32967f1534`.
+- `git diff --check
+  80949598dcb0a36117ecc14bd20fb7e2abaebd7b...54f56677e76e709ac1c33c082f56781a32506286`
+  passed.
+
+No Controller regression was found, so Ticket 09 is accepted and Ticket 10
+may start.
