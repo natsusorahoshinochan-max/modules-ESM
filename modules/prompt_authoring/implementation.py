@@ -1,0 +1,137 @@
+"""Provider-free prompt-authoring implementations."""
+
+from __future__ import annotations
+
+from collections.abc import Mapping
+from typing import Any
+
+from .domain import (
+    build_layout,
+    build_residue_map,
+    map_track,
+    override_track,
+)
+
+
+_TRACK_PORTS = {
+    "track": "generic",
+    "secondary_structure_track": "secondary_structure",
+    "sasa_track": "sasa",
+}
+
+
+class _Implementation:
+    def __init__(self, run_resources: Any, operation: str) -> None:
+        self._run_resources = run_resources
+        self._operation = operation
+
+    def _invocation(self):
+        return self._run_resources.engine_invocation(
+            engine_identity=(
+                f"prompt_authoring.{self._operation}.method/2.0.0"
+            ),
+        )
+
+
+class BuildResidueLayoutImplementation(_Implementation):
+    def execute(
+        self,
+        *,
+        inputs: Mapping[str, Any],
+        node_parameters: Mapping[str, Any],
+        binding_parameters: Mapping[str, Any],
+    ) -> dict[str, Any]:
+        if inputs or binding_parameters or set(node_parameters) != {"chains"}:
+            raise ValueError("layout construction requires only chains")
+        with self._invocation():
+            layout = build_layout(node_parameters["chains"])
+        return {"layout": layout}
+
+
+class EditResidueLayoutImplementation(_Implementation):
+    def execute(
+        self,
+        *,
+        inputs: Mapping[str, Any],
+        node_parameters: Mapping[str, Any],
+        binding_parameters: Mapping[str, Any],
+    ) -> dict[str, Any]:
+        if (
+            set(inputs) != {"source_layout", "target_layout"}
+            or set(node_parameters) != {"edits"}
+            or binding_parameters
+        ):
+            raise ValueError(
+                "residue editing requires source_layout, target_layout, and edits"
+            )
+        with self._invocation():
+            residue_map = build_residue_map(
+                inputs["source_layout"],
+                inputs["target_layout"],
+                node_parameters["edits"],
+            )
+        return {"residue_map": residue_map}
+
+
+def _selected_track(inputs: Mapping[str, Any]) -> tuple[str, str, object]:
+    selected = [
+        (port, kind, inputs[port])
+        for port, kind in _TRACK_PORTS.items()
+        if port in inputs
+    ]
+    if len(selected) != 1:
+        raise ValueError("exactly one nominal per-residue track is required")
+    return selected[0]
+
+
+class MapResidueTrackImplementation(_Implementation):
+    def execute(
+        self,
+        *,
+        inputs: Mapping[str, Any],
+        node_parameters: Mapping[str, Any],
+        binding_parameters: Mapping[str, Any],
+    ) -> dict[str, Any]:
+        port, kind, track = _selected_track(inputs)
+        if (
+            set(inputs) != {"residue_map", port}
+            or node_parameters
+            or binding_parameters
+        ):
+            raise ValueError(
+                "track mapping requires one track and one residue_map"
+            )
+        with self._invocation():
+            converted = map_track(
+                track,
+                inputs["residue_map"],
+                kind=kind,
+            )
+        return {port: converted}
+
+
+class OverrideResidueTrackImplementation(_Implementation):
+    def execute(
+        self,
+        *,
+        inputs: Mapping[str, Any],
+        node_parameters: Mapping[str, Any],
+        binding_parameters: Mapping[str, Any],
+    ) -> dict[str, Any]:
+        port, kind, track = _selected_track(inputs)
+        if (
+            set(inputs) != {"target_layout", port}
+            or set(node_parameters) != {"overrides"}
+            or binding_parameters
+        ):
+            raise ValueError(
+                "track override requires target_layout, one track, and overrides"
+            )
+        with self._invocation():
+            result = override_track(
+                track,
+                inputs["target_layout"],
+                node_parameters["overrides"],
+                kind=kind,
+            )
+        return {port: result}

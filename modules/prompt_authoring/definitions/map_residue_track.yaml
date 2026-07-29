@@ -1,0 +1,58 @@
+schema_version: "2.0.0"
+node_type_id: prompt_authoring.map_residue_track
+version: "2.0.0"
+title: Map residue track
+summary: Explicitly converts one nominal per-residue track through a complete residue map.
+category: prompt_authoring
+inputs:
+  - name: residue_map
+    port_type_id: residue.map
+    port_type_version: "2.0.0"
+    required: true
+    multiplicity: one
+    scientific_meaning: Complete identity-preserving source-to-target residue conversion.
+  - name: track
+    port_type_id: residue.track
+    port_type_version: "2.0.0"
+    required: false
+    multiplicity: one
+    scientific_meaning: Generic nullable per-residue values aligned to the source layout.
+  - name: secondary_structure_track
+    port_type_id: residue.track.secondary_structure
+    port_type_version: "2.0.0"
+    required: false
+    multiplicity: one
+    scientific_meaning: Nullable SS8 values aligned to the source layout.
+  - name: sasa_track
+    port_type_id: residue.track.sasa
+    port_type_version: "2.0.0"
+    required: false
+    multiplicity: one
+    scientific_meaning: Nullable non-negative solvent-accessibility values aligned to the source layout.
+input_constraints:
+  - kind: exactly_one
+    ports:
+      - track
+      - secondary_structure_track
+      - sasa_track
+outputs:
+  - name: track
+    port_type_id: residue.track
+    port_type_version: "2.0.0"
+    required: false
+    multiplicity: one
+    scientific_meaning: Generic values explicitly mapped to the target layout.
+  - name: secondary_structure_track
+    port_type_id: residue.track.secondary_structure
+    port_type_version: "2.0.0"
+    required: false
+    multiplicity: one
+    scientific_meaning: SS8 values explicitly mapped to the target layout.
+  - name: sasa_track
+    port_type_id: residue.track.sasa
+    port_type_version: "2.0.0"
+    required: false
+    multiplicity: one
+    scientific_meaning: Solvent-accessibility values explicitly mapped to the target layout.
+parameter_groups: []
+node_parameters: {}

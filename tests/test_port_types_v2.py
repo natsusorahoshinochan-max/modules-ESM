@@ -159,6 +159,10 @@ def test_catalog_snapshot_publishes_exact_port_type_contracts() -> None:
         ("protein_io.import_structure.direct", "2.0.0", True),
         ("protein_io.export_sequence.direct", "2.0.0", True),
         ("protein_io.export_structure.direct", "2.0.0", True),
+        ("prompt_authoring.build_residue_layout.direct", "2.0.0", True),
+        ("prompt_authoring.edit_residue_layout.direct", "2.0.0", True),
+        ("prompt_authoring.map_residue_track.direct", "2.0.0", True),
+        ("prompt_authoring.override_residue_track.direct", "2.0.0", True),
     }
 
     contracts = [

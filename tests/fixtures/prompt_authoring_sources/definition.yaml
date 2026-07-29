@@ -1,0 +1,62 @@
+schema_version: "2.0.0"
+node_type_id: contract_test.prompt_authoring_values
+version: "2.0.0"
+title: Prompt authoring contract values
+summary: Supplies deterministic identity-complete layouts and tracks to the shared Contract Test Kit.
+category: contract_test
+inputs: []
+outputs:
+  - name: source_layout
+    port_type_id: residue.layout
+    port_type_version: "2.0.0"
+    required: true
+    multiplicity: one
+    scientific_meaning: Identity-complete pre-edit fixture layout.
+  - name: target_layout
+    port_type_id: residue.layout
+    port_type_version: "2.0.0"
+    required: true
+    multiplicity: one
+    scientific_meaning: Identity-complete post-edit fixture layout.
+  - name: source_track
+    port_type_id: residue.track
+    port_type_version: "2.0.0"
+    required: true
+    multiplicity: one
+    scientific_meaning: Nullable generic fixture values aligned to source_layout.
+  - name: source_visibility_track
+    port_type_id: residue.track
+    port_type_version: "2.0.0"
+    required: true
+    multiplicity: one
+    scientific_meaning: Nullable visibility fixture values aligned to source_layout.
+  - name: target_secondary_structure_track
+    port_type_id: residue.track.secondary_structure
+    port_type_version: "2.0.0"
+    required: true
+    multiplicity: one
+    scientific_meaning: Nullable SS8 fixture values aligned to target_layout.
+  - name: residue_map
+    port_type_id: residue.map
+    port_type_version: "2.0.0"
+    required: true
+    multiplicity: one
+    scientific_meaning: Complete explicit fixture conversion from source_layout to target_layout.
+parameter_groups:
+  - id: fixture
+    title: Fixture
+    parameters:
+      - fixture
+node_parameters:
+  fixture:
+    parameter_scope: scientific
+    scientific_meaning: Exact deterministic residue-layout fixture used by this test-only source.
+    type: string
+    enum:
+      - canonical
+      - source-track-length-drift
+      - overlapping-residue-map
+      - unmapped-residue-map
+      - noncontiguous-chain-layout
+      - boundary-edit
+    default: canonical

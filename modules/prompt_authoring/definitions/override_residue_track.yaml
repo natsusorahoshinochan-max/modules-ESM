@@ -1,0 +1,125 @@
+schema_version: "2.0.0"
+node_type_id: prompt_authoring.override_residue_track
+version: "2.0.0"
+title: Override residue track
+summary: Clears, preserves, or replaces identity-addressed values without shifting residue indices.
+category: prompt_authoring
+inputs:
+  - name: target_layout
+    port_type_id: residue.layout
+    port_type_version: "2.0.0"
+    required: true
+    multiplicity: one
+    scientific_meaning: Exact residue identities and chain boundaries for the input and output track.
+  - name: track
+    port_type_id: residue.track
+    port_type_version: "2.0.0"
+    required: false
+    multiplicity: one
+    scientific_meaning: Generic nullable per-residue values aligned to target_layout.
+  - name: secondary_structure_track
+    port_type_id: residue.track.secondary_structure
+    port_type_version: "2.0.0"
+    required: false
+    multiplicity: one
+    scientific_meaning: Nullable SS8 values aligned to target_layout.
+  - name: sasa_track
+    port_type_id: residue.track.sasa
+    port_type_version: "2.0.0"
+    required: false
+    multiplicity: one
+    scientific_meaning: Nullable non-negative solvent-accessibility values aligned to target_layout.
+input_constraints:
+  - kind: exactly_one
+    ports:
+      - track
+      - secondary_structure_track
+      - sasa_track
+outputs:
+  - name: track
+    port_type_id: residue.track
+    port_type_version: "2.0.0"
+    required: false
+    multiplicity: one
+    scientific_meaning: Generic values after explicit identity-addressed overrides.
+  - name: secondary_structure_track
+    port_type_id: residue.track.secondary_structure
+    port_type_version: "2.0.0"
+    required: false
+    multiplicity: one
+    scientific_meaning: SS8 values after explicit identity-addressed overrides.
+  - name: sasa_track
+    port_type_id: residue.track.sasa
+    port_type_version: "2.0.0"
+    required: false
+    multiplicity: one
+    scientific_meaning: Solvent-accessibility values after explicit identity-addressed overrides.
+parameter_groups:
+  - id: overrides
+    title: Residue overrides
+    parameters:
+      - overrides
+node_parameters:
+  overrides:
+    parameter_scope: scientific
+    scientific_meaning: Identity-addressed clear, preserve, or concrete replacement operations.
+    required: true
+    type: array
+    maxItems: 2000000
+    uniqueItems: true
+    items:
+      oneOf:
+        - type: object
+          additionalProperties: false
+          required:
+            - action
+            - residue_id
+          properties:
+            action:
+              field_scope: scientific
+              scientific_meaning: Explicitly make this residue value nullable.
+              const: clear
+            residue_id:
+              field_scope: scientific
+              scientific_meaning: Canonical chain-qualified residue identity to clear.
+              type: string
+              pattern: "^[A-Za-z0-9]:[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$"
+        - type: object
+          additionalProperties: false
+          required:
+            - action
+            - residue_id
+          properties:
+            action:
+              field_scope: scientific
+              scientific_meaning: Explicitly retain this residue's current value.
+              const: preserve
+            residue_id:
+              field_scope: scientific
+              scientific_meaning: Canonical chain-qualified residue identity to preserve.
+              type: string
+              pattern: "^[A-Za-z0-9]:[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$"
+        - type: object
+          additionalProperties: false
+          required:
+            - action
+            - residue_id
+            - value
+          properties:
+            action:
+              field_scope: scientific
+              scientific_meaning: Explicitly replace this residue's current value.
+              const: replace
+            residue_id:
+              field_scope: scientific
+              scientific_meaning: Canonical chain-qualified residue identity to replace.
+              type: string
+              pattern: "^[A-Za-z0-9]:[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$"
+            value:
+              field_scope: scientific
+              scientific_meaning: Concrete replacement value interpreted by the selected nominal track.
+              type:
+                - boolean
+                - integer
+                - number
+                - string
