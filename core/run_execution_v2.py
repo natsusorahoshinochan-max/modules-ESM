@@ -27,7 +27,7 @@ from protein_workbench_public import (
     validate_schema,
 )
 
-from core.artifacts import ArtifactPayload
+from core.artifacts import ArtifactPayload, is_valid_artifact_media_type
 from core.port_types import (
     FrozenCatalog,
     PortValueError,
@@ -4226,9 +4226,7 @@ class V2RunService:
             allow_nested=False,
         )
         if (
-            not isinstance(payload.media_type, str)
-            or "/" not in payload.media_type
-            or any(character.isspace() for character in payload.media_type)
+            not is_valid_artifact_media_type(payload.media_type)
             or payload.media_type not in accepted_media_types
         ):
             raise PortValueError(

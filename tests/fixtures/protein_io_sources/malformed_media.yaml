@@ -1,0 +1,18 @@
+schema_version: "2.0.0"
+node_type_id: contract_test.malformed_artifact_media
+version: "2.0.0"
+title: Malformed artifact media
+summary: Negative fixture for atomic Catalog media-contract validation.
+category: test_support
+inputs: []
+outputs:
+  - name: artifact
+    port_type_id: protein_io.artifact_payload
+    port_type_version: "2.0.0"
+    required: true
+    multiplicity: one
+    scientific_meaning: Deliberately malformed media declaration.
+    artifact_kind: standalone
+    artifact_media_type: text/plain/extra
+parameter_groups: []
+node_parameters: {}

@@ -14,6 +14,7 @@ from typing import Any, Literal
 
 import yaml
 
+from core.artifacts import is_valid_artifact_media_type
 from core.port_types import (
     CONTRACT_NAMESPACE,
     BehaviorReference,
@@ -1052,10 +1053,7 @@ def _parse_port(
         )
     if artifact_media_type is not None and (
         artifact_kind is None
-        or not isinstance(artifact_media_type, str)
-        or len(artifact_media_type) > 256
-        or "/" not in artifact_media_type
-        or any(character.isspace() for character in artifact_media_type)
+        or not is_valid_artifact_media_type(artifact_media_type)
     ):
         raise CatalogBuildError(
             f"{resource_name}.artifact_media_type is invalid"

@@ -12,6 +12,7 @@ from core import (
     ArtifactPayload,
     BehaviorReference,
     CatalogBuildError,
+    DefinitionResource,
     EnvironmentConfiguration,
     ModulePackageContractCase,
     ModulePackagePortCase,
@@ -235,6 +236,23 @@ def test_artifact_output_requires_a_nominal_publication_contract() -> None:
         CatalogBuildError,
         match="generic artifact publication contract",
     ):
+        build_frozen_catalog((malformed_package,))
+
+
+def test_artifact_media_contract_rejects_malformed_type_subtype() -> None:
+    malformed_package = replace(
+        PROTEIN_IO_PACKAGE,
+        package_id="malformed-media",
+        package_module="tests.fixtures.protein_io_sources",
+        node_definitions=(
+            DefinitionResource("malformed_media.yaml"),
+        ),
+        methods=(),
+        bindings=(),
+        port_types=(),
+    )
+
+    with pytest.raises(CatalogBuildError, match="artifact_media_type"):
         build_frozen_catalog((malformed_package,))
 
 

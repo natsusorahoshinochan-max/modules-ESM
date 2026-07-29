@@ -16,6 +16,7 @@ from typing import Any, Callable, Union, get_args, get_origin, get_type_hints
 
 import rfc8785
 
+from core.artifacts import is_valid_artifact_media_type
 from core.parameter_contract import (
     ParameterContractDefinitionError,
     validate_parameter_declarations,
@@ -1043,9 +1044,7 @@ class PortTypeDefinition:
             not media_types
             or tuple(sorted(set(media_types))) != media_types
             or any(
-                not isinstance(media_type, str)
-                or "/" not in media_type
-                or any(character.isspace() for character in media_type)
+                not is_valid_artifact_media_type(media_type)
                 for media_type in media_types
             )
         ):
