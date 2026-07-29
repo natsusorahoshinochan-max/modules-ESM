@@ -3,9 +3,15 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
+import math
 from typing import Any
 
-from datatypes import FunctionAnnotation, ProteinPrompt, ProteinSequence
+from datatypes import (
+    FunctionAnnotation,
+    ProteinPrompt,
+    ProteinSequence,
+    ProteinStructure,
+)
 from modules.prompt_authoring.prompts import validate_protein_prompt
 
 
@@ -55,6 +61,28 @@ _ATOM37_INDEX = {
 }
 _PROVIDER_SEQUENCE_ALPHABET = frozenset("ACDEFGHIKLMNPQRSTVWYXBZUO")
 _PROVIDER_SS8 = frozenset("GHITEBSC")
+_PDB_TO_SEQUENCE = {
+    "ALA": "A",
+    "ARG": "R",
+    "ASN": "N",
+    "ASP": "D",
+    "CYS": "C",
+    "GLN": "Q",
+    "GLU": "E",
+    "GLY": "G",
+    "HIS": "H",
+    "ILE": "I",
+    "LEU": "L",
+    "LYS": "K",
+    "MET": "M",
+    "PHE": "F",
+    "PRO": "P",
+    "SER": "S",
+    "THR": "T",
+    "TRP": "W",
+    "TYR": "Y",
+    "VAL": "V",
+}
 
 
 def _sequence_track(prompt: ProteinPrompt) -> str:
@@ -274,3 +302,141 @@ def reject_silent_sequence_fields(result: Any) -> None:
         raise ValueError(
             "ESM-3 sequence response contains confidence without structure"
         )
+
+
+def complete_structure(
+    result: Any,
+    prompt: ProteinPrompt,
+    *,
+    expected_sequence: str,
+) -> ProteinStructure:
+    """Validate provider coordinates and serialized residues before publication."""
+    sequence = complete_sequence(result, prompt).sequence
+    if sequence != expected_sequence:
+        raise ValueError(
+            "ESM-3 structure response is not the exact requested sequence"
+        )
+    coordinates = getattr(result, "coordinates", None)
+    try:
+        shape = tuple(coordinates.shape)
+    except (AttributeError, TypeError) as error:
+        raise ValueError(
+            "ESM-3 structure response has no coordinate tensor"
+        ) from error
+    if shape != (prompt.num_residues, 37, 3):
+        raise ValueError(
+            "ESM-3 coordinates do not match the exact atom37 residue axis"
+        )
+    try:
+        import torch
+
+        backbone = coordinates[:, (0, 1, 2), :]
+        complete_backbone = bool(torch.isfinite(backbone).all())
+    except (AttributeError, IndexError, TypeError) as error:
+        raise ValueError("ESM-3 coordinates are not a valid tensor") from error
+    if not complete_backbone:
+        raise ValueError(
+            "ESM-3 structure response lacks complete N, CA, and C coordinates"
+        )
+    try:
+        pdb_string = result.to_pdb_string()
+    except Exception as error:
+        raise ValueError(
+            "ESM-3 structure response could not be serialized"
+        ) from error
+    if not isinstance(pdb_string, str) or not pdb_string.strip():
+        raise ValueError("ESM-3 structure response has no PDB text")
+    residues: list[tuple[str, str, str, str]] = []
+    seen: set[tuple[str, str, str]] = set()
+    for line in pdb_string.splitlines():
+        if not line.startswith("ATOM  ") or len(line) < 27:
+            continue
+        identity = (line[21], line[22:26], line[26])
+        if identity in seen:
+            continue
+        seen.add(identity)
+        residue_name = line[17:20].strip()
+        symbol = _PDB_TO_SEQUENCE.get(residue_name)
+        if symbol is None:
+            raise ValueError(
+                "ESM-3 PDB contains an unsupported protein residue"
+            )
+        residues.append((*identity, symbol))
+    if (
+        len(residues) != prompt.num_residues
+        or "".join(residue[3] for residue in residues) != sequence
+    ):
+        raise ValueError(
+            "ESM-3 PDB residue identities contradict the response sequence"
+        )
+    return ProteinStructure(pdb_string=pdb_string, source="esm3")
+
+
+def normalized_confidence(
+    result: Any,
+    *,
+    residue_count: int,
+) -> tuple[float, list[float], float, list[list[float]] | None]:
+    """Normalize only exact documented ESM-3 confidence shapes."""
+    import torch
+
+    raw_ptm = getattr(result, "ptm", None)
+    if isinstance(raw_ptm, torch.Tensor):
+        if tuple(raw_ptm.shape) == ():
+            ptm = float(raw_ptm.detach().cpu().item())
+        elif tuple(raw_ptm.shape) == (1,):
+            ptm = float(raw_ptm.detach().cpu()[0].item())
+        else:
+            raise ValueError("ESM-3 pTM has an undocumented shape")
+    elif (
+        isinstance(raw_ptm, (int, float))
+        and not isinstance(raw_ptm, bool)
+    ):
+        ptm = float(raw_ptm)
+    else:
+        raise ValueError("ESM-3 structure response has no scalar pTM")
+    if not math.isfinite(ptm) or not 0 <= ptm <= 1:
+        raise ValueError("ESM-3 pTM is outside its native [0, 1] scale")
+
+    raw_plddt = getattr(result, "plddt", None)
+    if (
+        not isinstance(raw_plddt, torch.Tensor)
+        or tuple(raw_plddt.shape) != (residue_count,)
+        or not bool(torch.isfinite(raw_plddt).all())
+        or bool((raw_plddt < 0).any())
+        or bool((raw_plddt > 1).any())
+    ):
+        raise ValueError(
+            "ESM-3 pLDDT must be one native [0, 1] value per residue"
+        )
+    per_residue = [
+        float(value) * 100.0
+        for value in raw_plddt.detach().cpu().tolist()
+    ]
+    mean_residue = math.fsum(per_residue) / residue_count
+
+    raw_pae = getattr(result, "pae", None)
+    pae: list[list[float]] | None = None
+    if raw_pae is not None:
+        if not isinstance(raw_pae, torch.Tensor):
+            raise ValueError("ESM-3 PAE is not a tensor")
+        shape = tuple(raw_pae.shape)
+        if shape == (residue_count, residue_count):
+            normalized = raw_pae.detach().cpu()
+        elif shape == (1, residue_count + 2, residue_count + 2):
+            normalized = raw_pae.detach().cpu()[0, 1:-1, 1:-1]
+        else:
+            raise ValueError("ESM-3 PAE has an undocumented shape")
+        if (
+            not bool(torch.isfinite(normalized).all())
+            or bool((normalized < 0).any())
+            or bool((normalized > 31.5).any())
+        ):
+            raise ValueError(
+                "ESM-3 PAE is outside the locked angstrom scale"
+            )
+        pae = [
+            [float(value) for value in row]
+            for row in normalized.tolist()
+        ]
+    return ptm, per_residue, mean_residue, pae

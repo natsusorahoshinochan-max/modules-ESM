@@ -448,3 +448,94 @@ def test_sequence_generation_publishes_ordered_complete_candidates(
     public = str({"projection": projection, "events": events})
     assert "secret-must-never-publish" not in public
     assert "/private/esm3-runtime" not in public
+
+
+def _three_residue_pdb(sequence: str = "ACD") -> str:
+    residue_names = {
+        "A": "ALA",
+        "C": "CYS",
+        "D": "ASP",
+    }
+    lines: list[str] = []
+    serial = 1
+    for residue_index, symbol in enumerate(sequence, start=1):
+        for atom_name, offset in (
+            ("N", 0.0),
+            ("CA", 0.3),
+            ("C", 0.6),
+            ("O", 0.9),
+        ):
+            x = residue_index * 3.0 + offset
+            lines.append(
+                f"ATOM  {serial:5d} {atom_name:^4s} "
+                f"{residue_names[symbol]:>3s} A{residue_index:4d}    "
+                f"{x:8.3f}{1.0:8.3f}{2.0:8.3f}"
+                "  1.00 20.00           C"
+            )
+            serial += 1
+    return "\n".join([*lines, "TER", "END", ""])
+
+
+def test_structure_generation_normalizes_exact_confidence_before_publication(
+    tmp_path: Path,
+) -> None:
+    import torch
+
+    coordinates = torch.zeros((3, 37, 3), dtype=torch.float32)
+    client = _ProviderClient(
+        [
+            _ProviderResponse(
+                "ACD",
+                coordinates=coordinates,
+                ptm=torch.tensor([0.8]),
+                plddt=torch.tensor([0.8, 0.9, 1.0]),
+                pdb_string=_three_residue_pdb(),
+            )
+        ]
+    )
+
+    catalog, projection, events = _run_generation(
+        tmp_path,
+        operation="generate_structure",
+        client=client,
+        num_samples=1,
+        sequence="ACD",
+    )
+
+    assert projection["status"] == "succeeded"
+    outputs = {
+        item["output_port"]: item
+        for item in projection["outputs"]
+        if item["node_id"] == "generate"
+    }
+    structures = _decode_output(catalog, outputs["structure_candidates"])
+    assert len(structures.items) == 1
+    assert structures.items[0].data.pdb_string == _three_residue_pdb()
+    assert structures.items[0].data.source == "esm3"
+    assert structures.items[0].metadata["classification"] == "sampled_structure"
+    observations = _decode_output(
+        catalog,
+        outputs["confidence_observations"],
+    )
+    by_metric = {
+        observation.metric.contract_id: observation
+        for observation in observations.entries
+    }
+    assert by_metric["structure.ptm"].value == pytest.approx(0.8)
+    assert by_metric["structure.plddt.per_residue"].value == pytest.approx(
+        [80.0, 90.0, 100.0]
+    )
+    assert by_metric["structure.plddt.mean_residue"].value == pytest.approx(
+        90.0
+    )
+    assert {
+        observation.candidate_id
+        for observation in observations.entries
+    } == {structures.items[0].candidate_id}
+    assert [call[1].track for call in client.calls] == ["structure"]
+    assert [
+        event["event"]["engine_role"]
+        for event in events
+        if event["event"]["type"] == "engine_invocation_started"
+        and event["event"]["engine_role"] == "structure_sample"
+    ] == ["structure_sample"]

@@ -7,10 +7,18 @@ from typing import Any
 
 from core.provider_contract import BIOHUB_ESM3_MODEL
 from datatypes import Candidate, CandidateCollection, ProteinPrompt
+from datatypes import (
+    ExactContractReference,
+    IntrinsicObservationContext,
+    ScoreCollection,
+    ScoreObservation,
+)
 
 from .adapter import (
     complete_sequence,
+    complete_structure,
     generation_config,
+    normalized_confidence,
     protein_prompt_to_provider,
     reject_silent_sequence_fields,
     require_provider_protein,
@@ -102,6 +110,8 @@ class ESM3GenerationImplementation:
         parameters = self._parameters(node_parameters)
         if self._operation == "generate_sequence":
             return self._generate_sequence(prompt, parameters)
+        if self._operation == "generate_structure":
+            return self._generate_structure(prompt, parameters)
         raise NotImplementedError(
             f"ESM-3 operation {self._operation!r} is not implemented"
         )
@@ -182,4 +192,142 @@ class ESM3GenerationImplementation:
             raise NotImplementedError(
                 "coordinate-conditioned sequence reconstruction is not implemented"
             )
+        return outputs
+
+    def _contract_reference(
+        self,
+        kind: str,
+        contract_id: str,
+    ) -> ExactContractReference:
+        contract = self._catalog.require_contract(
+            kind,
+            contract_id,
+            "2.0.0",
+        )
+        return ExactContractReference(**contract.reference())
+
+    def _confidence_outputs(
+        self,
+        responses: list[tuple[Candidate, Any]],
+    ) -> tuple[ScoreCollection, ScoreCollection | None]:
+        method = self._contract_reference(
+            "method",
+            f"esm3.{self._operation}.esm3_medium_2024_08",
+        )
+        metric_references = {
+            metric_id: self._contract_reference("metric", metric_id)
+            for metric_id in (
+                "structure.ptm",
+                "structure.plddt.per_residue",
+                "structure.plddt.mean_residue",
+                "structure.pae",
+            )
+        }
+        confidence: list[ScoreObservation] = []
+        pae_observations: list[ScoreObservation] = []
+        for candidate, response in responses:
+            sequence = getattr(response, "sequence")
+            ptm, per_residue, mean_residue, pae = normalized_confidence(
+                response,
+                residue_count=len(sequence),
+            )
+            for metric_id, value in (
+                ("structure.ptm", ptm),
+                ("structure.plddt.per_residue", per_residue),
+                ("structure.plddt.mean_residue", mean_residue),
+            ):
+                confidence.append(
+                    ScoreObservation(
+                        candidate_id=candidate.candidate_id,
+                        metric=metric_references[metric_id],
+                        method=method,
+                        context=IntrinsicObservationContext(),
+                        value=value,
+                        source_partition="structure_confidence",
+                    )
+                )
+            if pae is not None:
+                pae_observations.append(
+                    ScoreObservation(
+                        candidate_id=candidate.candidate_id,
+                        metric=metric_references["structure.pae"],
+                        method=method,
+                        context=IntrinsicObservationContext(),
+                        value=pae,
+                        source_partition="structure_confidence",
+                    )
+                )
+        return (
+            ScoreCollection("esm3-confidence", confidence),
+            (
+                ScoreCollection("esm3-pae", pae_observations)
+                if pae_observations
+                else None
+            ),
+        )
+
+    @staticmethod
+    def _assigned_prompt_sequence(prompt: ProteinPrompt) -> str:
+        track = prompt.sequence_track
+        if (
+            track is None
+            or len(track.values) != prompt.num_residues
+            or any(
+                type(value) is not str or value == "_"
+                for value in track.values
+            )
+        ):
+            raise ValueError(
+                "structure generation requires a complete assigned sequence"
+            )
+        return "".join(track.values)
+
+    def _generate_structure(
+        self,
+        prompt: ProteinPrompt,
+        parameters: Mapping[str, Any],
+    ) -> dict[str, Any]:
+        expected_sequence = self._assigned_prompt_sequence(prompt)
+        client = self._client()
+        provider_prompt = protein_prompt_to_provider(prompt)
+        config = generation_config("structure", parameters)
+        candidates: list[Candidate] = []
+        confidence_sources: list[tuple[Candidate, Any]] = []
+        for sample_index in range(parameters["num_samples"]):
+            result = self._provider_call(
+                client,
+                provider_prompt,
+                config,
+                role="structure_sample",
+                operation="generate_structure",
+            )
+            structure = complete_structure(
+                result,
+                prompt,
+                expected_sequence=expected_sequence,
+            )
+            candidate = Candidate(
+                f"structure-{sample_index}",
+                structure,
+                [],
+                self._candidate_metadata(
+                    operation="generate_structure",
+                    sample_index=sample_index,
+                    classification="sampled_structure",
+                    parameters=parameters,
+                ),
+            )
+            candidates.append(candidate)
+            confidence_sources.append((candidate, result))
+        confidence, pae = self._confidence_outputs(confidence_sources)
+        outputs: dict[str, Any] = {
+            "structure_candidates": CandidateCollection(
+                "esm3-structure-candidates",
+                "protein.structure",
+                candidates,
+            ),
+            "confidence_observations": confidence,
+        }
+        if pae is not None:
+            outputs["pae_observations"] = pae
         return outputs
