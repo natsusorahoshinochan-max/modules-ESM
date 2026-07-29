@@ -94,12 +94,20 @@ _TRACK_PORT_CASES = (
         VERSION,
         AlignedResidueTrack(
             SOURCE_LAYOUT,
-            ({"CA": (1.0, 2.0, 3.0)}, None, (4.0, 5.0, 6.0)),
+            (
+                {"CA": (1.0, 2.0, 3.0)},
+                None,
+                {"CA": (4.0, 5.0, 6.0)},
+            ),
         ),
         (
             AlignedResidueTrack(
                 SOURCE_LAYOUT,
                 ({"bad atom": (1.0, 2.0, 3.0)}, None, None),
+            ),
+            AlignedResidueTrack(
+                SOURCE_LAYOUT,
+                ((1.0, 2.0, 3.0), None, None),
             ),
         ),
     ),

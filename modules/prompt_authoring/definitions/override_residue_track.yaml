@@ -143,16 +143,11 @@ node_parameters:
               pattern: "^[A-Za-z0-9]:[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$"
             value:
               field_scope: scientific
-              scientific_meaning: Concrete scalar, Cartesian coordinate, or named-atom coordinate replacement interpreted by the selected nominal track.
+              scientific_meaning: Concrete scalar or named-atom coordinate replacement interpreted by the selected nominal track.
               oneOf:
                 - type: boolean
                 - type: number
                 - type: string
-                - type: array
-                  minItems: 3
-                  maxItems: 3
-                  items:
-                    type: number
                 - type: object
                   additionalProperties: false
                   required:

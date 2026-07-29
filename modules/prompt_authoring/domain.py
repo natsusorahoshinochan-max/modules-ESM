@@ -377,13 +377,8 @@ def _validate_coordinate(value: object, *, subject: str) -> None:
 
 
 def _validate_structure_value(value: object, *, subject: str) -> None:
-    if isinstance(value, (list, tuple)):
-        _validate_coordinate(value, subject=subject)
-        return
     if not isinstance(value, Mapping) or not value:
-        raise ValueError(
-            f"{subject} must be one coordinate or named atom coordinate map"
-        )
+        raise ValueError(f"{subject} must be one named atom coordinate map")
     for atom_name, coordinate in value.items():
         if (
             not isinstance(atom_name, str)
@@ -503,8 +498,6 @@ def normalize_replacement(value: object, *, kind: TrackKind) -> object:
     """Normalize public structure authoring values to the domain shape."""
     if kind is not TrackKind.STRUCTURE:
         return value
-    if isinstance(value, list):
-        return tuple(value)
     if not isinstance(value, Mapping) or set(value) != {"atom_coordinates"}:
         return value
     raw_atoms = value["atom_coordinates"]
