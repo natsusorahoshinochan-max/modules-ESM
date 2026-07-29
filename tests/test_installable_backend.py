@@ -11,6 +11,7 @@ import subprocess
 import sys
 import tarfile
 import time
+import urllib.error
 import urllib.request
 import zipfile
 from hashlib import sha256
@@ -21,7 +22,14 @@ from websockets.exceptions import ConnectionClosed
 from websockets.sync.client import connect
 
 from core import build_discovered_frozen_catalog
-from protein_workbench_public import bundle_bytes, bundle_digest
+from protein_workbench_public import (
+    bundle_bytes,
+    bundle_digest,
+    prepare_rest_request,
+    validate_artifact_response,
+    validate_event,
+    validate_response,
+)
 
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
@@ -325,7 +333,7 @@ assert sorted(item.module_id for item in registry.list_all()) == {expected}
                 ) as response:
                     modules_payload = json.load(response)
                 break
-            except OSError:
+            except (OSError, json.JSONDecodeError):
                 time.sleep(0.1)
         if modules_payload is None:
             output = server.communicate(timeout=5)[0]
@@ -353,11 +361,41 @@ assert sorted(item.module_id for item in registry.list_all()) == {expected}
             installed_protocol_digest = response.headers["Digest"]
         assert installed_protocol_bytes == SOURCE_PROTOCOL_BYTES
         assert installed_protocol_digest == SOURCE_PROTOCOL_DIGEST
-        with urllib.request.urlopen(
-            f"http://127.0.0.1:{port}/api/v2/catalog",
-            timeout=2,
-        ) as response:
-            installed_catalog = json.load(response)
+
+        def request_json(
+            operation_id: str,
+            payload: dict,
+            *,
+            expected_status: int = 200,
+        ) -> dict:
+            prepared = prepare_rest_request(operation_id, payload)
+            encoded = (
+                json.dumps(prepared.json_body).encode("utf-8")
+                if prepared.json_body is not None
+                else None
+            )
+            request = urllib.request.Request(
+                f"http://127.0.0.1:{port}{prepared.route}",
+                data=encoded,
+                headers=(
+                    {"Content-Type": "application/json"}
+                    if encoded is not None
+                    else {}
+                ),
+                method=prepared.method,
+            )
+            try:
+                response = urllib.request.urlopen(request, timeout=2)
+            except urllib.error.HTTPError as error:
+                response = error
+            with response:
+                status = response.status
+                result = json.load(response)
+            assert status == expected_status
+            validate_response(operation_id, status, result)
+            return result
+
+        installed_catalog = request_json("catalog_snapshot", {})
         assert installed_catalog["catalog_contract_digest"] == (
             SOURCE_ZERO_CORE_CATALOG_DIGEST
         )
@@ -368,35 +406,19 @@ assert sorted(item.module_id for item in registry.list_all()) == {expected}
             for contract in installed_catalog["contracts"]
         )
 
-        def request_json(
-            method: str,
-            route: str,
-            payload: dict | None = None,
-        ) -> dict:
-            encoded = (
-                json.dumps(payload).encode("utf-8")
-                if payload is not None
-                else None
-            )
-            request = urllib.request.Request(
-                f"http://127.0.0.1:{port}{route}",
-                data=encoded,
-                headers=(
-                    {"Content-Type": "application/json"}
-                    if encoded is not None
-                    else {}
-                ),
-                method=method,
-            )
-            with urllib.request.urlopen(request, timeout=2) as response:
-                return json.load(response)
-
-        project = request_json(
-            "POST",
-            "/api/projects",
-            {"name": "installed v2 authoring"},
+        legacy_project_request = urllib.request.Request(
+            f"http://127.0.0.1:{port}/api/projects",
+            data=json.dumps(
+                {"name": "installed v2 authoring"}
+            ).encode("utf-8"),
+            headers={"Content-Type": "application/json"},
+            method="POST",
         )
-        project_id = project["id"]
+        with urllib.request.urlopen(
+            legacy_project_request,
+            timeout=2,
+        ) as response:
+            project_id = json.load(response)["id"]
         workflow = {
             "schema_version": "2.0.0",
             "workflow_id": project_id,
@@ -415,26 +437,34 @@ assert sorted(item.module_id for item in registry.list_all()) == {expected}
             "contract_lock": [],
         }
         saved = request_json(
-            "PUT",
-            f"/api/v2/projects/{project_id}/workflow",
+            "save_project_workflow",
             {
+                "project_id": project_id,
                 "expected_workflow_revision": 0,
                 "workflow": workflow,
             },
         )
         loaded = request_json(
-            "GET",
-            f"/api/v2/projects/{project_id}/workflow",
+            "project_workflow_snapshot",
+            {"project_id": project_id},
         )
         relocked = request_json(
-            "POST",
-            f"/api/v2/projects/{project_id}/workflow:relock",
-            {"workflow_revision": 1},
+            "relock_project_workflow",
+            {"project_id": project_id, "workflow_revision": 1},
+        )
+        rejected = request_json(
+            "workflow_compile",
+            {
+                "project_id": project_id,
+                "workflow_revision": 1,
+                "workflow": relocked["workflow"],
+            },
+            expected_status=422,
         )
         compiled = request_json(
-            "POST",
-            f"/api/v2/projects/{project_id}/workflow:compile",
+            "workflow_compile",
             {
+                "project_id": project_id,
                 "workflow_revision": 2,
                 "workflow": relocked["workflow"],
             },
@@ -442,21 +472,26 @@ assert sorted(item.module_id for item in registry.list_all()) == {expected}
         assert saved["workflow_revision"] == 1
         assert loaded == saved
         assert relocked["workflow_revision"] == 2
+        assert rejected["error"]["code"] == "compile_rejected"
         assert compiled["accepted"] is True
         assert compiled["workflow_revision"] == 2
         assert "execution_plan" not in compiled
         started = request_json(
-            "POST",
-            f"/api/v2/projects/{project_id}/runs",
+            "start_run",
             {
+                "project_id": project_id,
                 "workflow_revision": 2,
                 "compile_id": compiled["compile_id"],
                 "client_request_id": "installed-direct-request",
             },
+            expected_status=202,
         )
         projection = request_json(
-            "GET",
-            f"/api/v2/projects/{project_id}/runs/{started['run_id']}",
+            "run_projection",
+            {
+                "project_id": project_id,
+                "run_id": started["run_id"],
+            },
         )
         assert projection["status"] == "succeeded"
         assert projection["compile_id"] == compiled["compile_id"]
@@ -479,25 +514,66 @@ assert sorted(item.module_id for item in registry.list_all()) == {expected}
         } == {"text": ["INSTALLED"]}
         assert len(projection["artifact_index"]) == 1
         artifact = projection["artifact_index"][0]
+        artifact_request = prepare_rest_request(
+            "artifact_retrieval",
+            {
+                "project_id": project_id,
+                "run_id": started["run_id"],
+                "artifact_reference": artifact["artifact_reference"],
+            },
+        )
         with urllib.request.urlopen(
-            f"http://127.0.0.1:{port}/api/v2/projects/{project_id}/runs/"
-            f"{started['run_id']}/artifacts/{artifact['artifact_reference']}",
+            urllib.request.Request(
+                f"http://127.0.0.1:{port}{artifact_request.route}",
+                method=artifact_request.method,
+            ),
             timeout=2,
         ) as response:
             installed_artifact = response.read()
             installed_artifact_digest = response.headers["Digest"]
+            content_disposition = response.headers["Content-Disposition"]
+            artifact_headers = dict(response.headers)
+        validate_artifact_response(
+            {
+                "artifact": artifact,
+                "content_disposition": content_disposition,
+            },
+            artifact_headers,
+            installed_artifact,
+        )
         assert installed_artifact == b"INSTALLED"
         assert installed_artifact_digest == artifact["content_digest"]
+        derived = request_json(
+            "start_derived_run",
+            {
+                "project_id": project_id,
+                "source_run_id": started["run_id"],
+                "compile_id": compiled["compile_id"],
+                "policy": "force_selected",
+                "node_ids": ["synthetic-echo"],
+                "client_request_id": "installed-derived-request",
+            },
+            expected_status=202,
+        )
+        derived_projection = request_json(
+            "run_projection",
+            {
+                "project_id": project_id,
+                "run_id": derived["run_id"],
+            },
+        )
+        assert derived_projection["derived_from_run_id"] == started["run_id"]
 
         block_marker.write_text("block")
         interrupted = request_json(
-            "POST",
-            f"/api/v2/projects/{project_id}/runs",
+            "start_run",
             {
+                "project_id": project_id,
                 "workflow_revision": 2,
                 "compile_id": compiled["compile_id"],
                 "client_request_id": "installed-restart-request",
             },
+            expected_status=202,
         )
         interrupted_run_id = interrupted["run_id"]
         entered_marker = block_marker.with_suffix(".started")
@@ -518,6 +594,7 @@ assert sorted(item.module_id for item in registry.list_all()) == {expected}
             first_delivery = []
             while True:
                 message = json.loads(websocket.recv(timeout=5))
+                validate_event(message)
                 first_delivery.append(message)
                 if message["event"]["type"] == "replay_complete":
                     break
@@ -546,12 +623,14 @@ assert sorted(item.module_id for item in registry.list_all()) == {expected}
                 break
             try:
                 interrupted_projection = request_json(
-                    "GET",
-                    f"/api/v2/projects/{project_id}/runs/"
-                    f"{interrupted_run_id}",
+                    "run_projection",
+                    {
+                        "project_id": project_id,
+                        "run_id": interrupted_run_id,
+                    },
                 )
                 break
-            except OSError:
+            except (OSError, json.JSONDecodeError):
                 time.sleep(0.1)
         if interrupted_projection is None:
             output = server.communicate(timeout=5)[0]
@@ -571,9 +650,9 @@ assert sorted(item.module_id for item in registry.list_all()) == {expected}
             resumed = []
             try:
                 while True:
-                    resumed.append(
-                        json.loads(websocket.recv(timeout=5))
-                    )
+                    message = json.loads(websocket.recv(timeout=5))
+                    validate_event(message)
+                    resumed.append(message)
             except ConnectionClosed as closed:
                 assert closed.rcvd is not None
                 assert closed.rcvd.code == 1000
@@ -611,12 +690,14 @@ assert sorted(item.module_id for item in registry.list_all()) == {expected}
                 break
             try:
                 repeated_projection = request_json(
-                    "GET",
-                    f"/api/v2/projects/{project_id}/runs/"
-                    f"{interrupted_run_id}",
+                    "run_projection",
+                    {
+                        "project_id": project_id,
+                        "run_id": interrupted_run_id,
+                    },
                 )
                 break
-            except OSError:
+            except (OSError, json.JSONDecodeError):
                 time.sleep(0.1)
         if repeated_projection is None:
             output = server.communicate(timeout=5)[0]
@@ -630,9 +711,9 @@ assert sorted(item.module_id for item in registry.list_all()) == {expected}
             repeated_delivery = []
             try:
                 while True:
-                    repeated_delivery.append(
-                        json.loads(websocket.recv(timeout=5))
-                    )
+                    message = json.loads(websocket.recv(timeout=5))
+                    validate_event(message)
+                    repeated_delivery.append(message)
             except ConnectionClosed as closed:
                 assert closed.rcvd is not None
                 assert closed.rcvd.code == 1000

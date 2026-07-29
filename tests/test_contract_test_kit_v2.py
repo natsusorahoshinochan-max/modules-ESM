@@ -15,21 +15,28 @@ from starlette.websockets import WebSocketDisconnect
 
 from core import (
     CatalogBuildError,
-    LazyImplementationFactory,
     ModulePackageDiscoveryError,
     ModulePackageConformanceError,
     PortTypeDefinition,
-    ReadinessDeclaration,
     build_discovered_frozen_catalog,
     build_frozen_catalog,
     discover_module_packages,
     verify_module_package_contract,
 )
 from core.server import create_app
-from datatypes import ExactContractReference
+from protein_workbench_public import (
+    prepare_rest_request,
+    validate_artifact_response,
+    validate_event,
+    validate_response,
+)
 from tests.fixtures.zero_core_packages.synthetic_echo.tests.cases import (
     EXECUTION_CASE,
     PORT_CASE,
+)
+from tests.fixtures.zero_core_packages.synthetic_echo.tests.invalid_registrations import (
+    FALSE_READINESS_PACKAGE,
+    INCOMPLETE_PROVENANCE_PACKAGE,
 )
 
 
@@ -75,6 +82,31 @@ def test_contract_test_kit_executes_the_discovered_production_registration(
     published = json.dumps(report.to_public(), sort_keys=True)
     assert "contract-test-secret-must-not-publish" not in published
     assert "/private/contract-test-runtime" not in published
+
+
+def test_contract_test_case_rejects_a_path_like_case_identity() -> None:
+    with pytest.raises(
+        ModulePackageConformanceError,
+        match="case_id must be one safe path segment",
+    ):
+        replace(EXECUTION_CASE, case_id="../escaped-case")
+
+
+def test_contract_test_kit_requires_cases_for_every_owned_port_type(
+    tmp_path: Path,
+) -> None:
+    registration = discover_module_packages(FIXTURE_ROOT)[0]
+
+    with pytest.raises(
+        ModulePackageConformanceError,
+        match="Port cases must cover every package-owned Port Type",
+    ):
+        verify_module_package_contract(
+            registration,
+            execution_cases=(EXECUTION_CASE,),
+            port_cases=(),
+            work_root=tmp_path,
+        )
 
 
 def test_cases_and_fixtures_are_not_part_of_production_registration() -> None:
@@ -131,8 +163,27 @@ def test_source_public_journey_discovers_compiles_executes_replays_and_retrieves
     )
 
     with TestClient(app) as client:
-        catalog = client.get("/api/v2/catalog")
-        assert catalog.status_code == 200
+        def public_request(
+            operation_id: str,
+            request: dict,
+            *,
+            expected_status: int,
+        ):
+            prepared = prepare_rest_request(operation_id, request)
+            response = client.request(
+                prepared.method,
+                prepared.route,
+                json=prepared.json_body,
+            )
+            assert response.status_code == expected_status
+            validate_response(operation_id, expected_status, response.json())
+            return response
+
+        catalog = public_request(
+            "catalog_snapshot",
+            {},
+            expected_status=200,
+        )
         assert catalog.json()["catalog_contract_digest"] == (
             build_discovered_frozen_catalog(FIXTURE_ROOT).contract_digest
         )
@@ -158,41 +209,58 @@ def test_source_public_journey_discovers_compiles_executes_replays_and_retrieves
             "edges": [],
             "contract_lock": [],
         }
-        saved = client.put(
-            f"/api/v2/projects/{project_id}/workflow",
-            json={
+        saved = public_request(
+            "save_project_workflow",
+            {
+                "project_id": project_id,
                 "expected_workflow_revision": 0,
                 "workflow": workflow,
             },
+            expected_status=200,
         )
-        assert saved.status_code == 200
-        relocked = client.post(
-            f"/api/v2/projects/{project_id}/workflow:relock",
-            json={"workflow_revision": 1},
+        relocked = public_request(
+            "relock_project_workflow",
+            {
+                "project_id": project_id,
+                "workflow_revision": 1,
+            },
+            expected_status=200,
         )
-        assert relocked.status_code == 200
-        compiled = client.post(
-            f"/api/v2/projects/{project_id}/workflow:compile",
-            json={
+        rejected = public_request(
+            "workflow_compile",
+            {
+                "project_id": project_id,
+                "workflow_revision": 1,
+                "workflow": relocked.json()["workflow"],
+            },
+            expected_status=422,
+        )
+        assert rejected.json()["error"]["code"] == "compile_rejected"
+        compiled = public_request(
+            "workflow_compile",
+            {
+                "project_id": project_id,
                 "workflow_revision": 2,
                 "workflow": relocked.json()["workflow"],
             },
+            expected_status=200,
         )
-        assert compiled.status_code == 200
-        started = client.post(
-            f"/api/v2/projects/{project_id}/runs",
-            json={
+        started = public_request(
+            "start_run",
+            {
+                "project_id": project_id,
                 "workflow_revision": 2,
                 "compile_id": compiled.json()["compile_id"],
                 "client_request_id": "source-zero-core",
             },
+            expected_status=202,
         )
-        assert started.status_code == 202
         run_id = started.json()["run_id"]
-        projection = client.get(
-            f"/api/v2/projects/{project_id}/runs/{run_id}"
+        projection = public_request(
+            "run_projection",
+            {"project_id": project_id, "run_id": run_id},
+            expected_status=200,
         )
-        assert projection.status_code == 200
         payload = projection.json()
         assert payload["status"] == "succeeded"
         assert {
@@ -202,12 +270,51 @@ def test_source_public_journey_discovers_compiles_executes_replays_and_retrieves
         } == {"text": ["ECHOECHO"]}
         assert len(payload["artifact_index"]) == 1
         artifact = payload["artifact_index"][0]
-        retrieved = client.get(
-            f"/api/v2/projects/{project_id}/runs/{run_id}/artifacts/"
-            f"{artifact['artifact_reference']}"
+        artifact_request = prepare_rest_request(
+            "artifact_retrieval",
+            {
+                "project_id": project_id,
+                "run_id": run_id,
+                "artifact_reference": artifact["artifact_reference"],
+            },
+        )
+        retrieved = client.request(
+            artifact_request.method,
+            artifact_request.route,
         )
         assert retrieved.status_code == 200
+        validate_artifact_response(
+            {
+                "artifact": artifact,
+                "content_disposition": retrieved.headers[
+                    "content-disposition"
+                ],
+            },
+            retrieved.headers,
+            retrieved.content,
+        )
         assert retrieved.content == b"ECHOECHO"
+        derived = public_request(
+            "start_derived_run",
+            {
+                "project_id": project_id,
+                "source_run_id": run_id,
+                "compile_id": compiled.json()["compile_id"],
+                "policy": "force_selected",
+                "node_ids": ["synthetic-echo"],
+                "client_request_id": "source-zero-core-derived",
+            },
+            expected_status=202,
+        )
+        derived_projection = public_request(
+            "run_projection",
+            {
+                "project_id": project_id,
+                "run_id": derived.json()["run_id"],
+            },
+            expected_status=200,
+        )
+        assert derived_projection.json()["derived_from_run_id"] == run_id
         with client.websocket_connect(
             f"/api/v2/projects/{project_id}/runs/{run_id}/events"
         ) as websocket:
@@ -218,6 +325,8 @@ def test_source_public_journey_discovers_compiles_executes_replays_and_retrieves
             except WebSocketDisconnect as closed:
                 assert closed.code == 1000
 
+    for event in replay:
+        validate_event(event)
     replay_types = [item["event"]["type"] for item in replay]
     assert replay_types[0] == "replay_started"
     assert "replay_complete" in replay_types
@@ -240,28 +349,12 @@ def test_source_public_journey_discovers_compiles_executes_replays_and_retrieves
 def test_contract_test_kit_rejects_a_false_readiness_attestation(
     tmp_path: Path,
 ) -> None:
-    registration = discover_module_packages(FIXTURE_ROOT)[0]
-    binding = registration.bindings[0]
-    invalid = replace(
-        registration,
-        bindings=(
-            replace(
-                binding,
-                readiness=ReadinessDeclaration(
-                    behavior=binding.readiness.behavior,
-                    prerequisites=binding.readiness.prerequisites,
-                    check=lambda environment: False,
-                ),
-            ),
-        ),
-    )
-
     with pytest.raises(
         ModulePackageConformanceError,
         match="failed shared conformance",
     ):
         verify_module_package_contract(
-            invalid,
+            FALSE_READINESS_PACKAGE,
             execution_cases=(EXECUTION_CASE,),
             port_cases=(PORT_CASE,),
             work_root=tmp_path,
@@ -299,45 +392,12 @@ def test_contract_test_kit_rejects_an_invalid_package_codec(
 def test_contract_test_kit_rejects_incomplete_observation_provenance(
     tmp_path: Path,
 ) -> None:
-    registration = discover_module_packages(FIXTURE_ROOT)[0]
-    binding = registration.bindings[0]
-    original = binding.factory
-
-    def build_incomplete(**kwargs):
-        implementation = original.build(**kwargs)
-        original_execute = implementation.execute
-
-        def execute(**execute_kwargs):
-            outputs = original_execute(**execute_kwargs)
-            observation = outputs["scores"].entries[0]
-            outputs["scores"].entries[0] = replace(
-                observation,
-                method=ExactContractReference(
-                    contract_kind="method",
-                    contract_id="contract_test.synthetic_echo.method",
-                    contract_version="2.0.0",
-                    contract_digest="sha256:" + ("0" * 64),
-                ),
-            )
-            return outputs
-
-        implementation.execute = execute
-        return implementation
-
-    invalid_binding = replace(
-        binding,
-        factory=LazyImplementationFactory(
-            behavior=original.behavior,
-            build=build_incomplete,
-        ),
-    )
-
     with pytest.raises(
         ModulePackageConformanceError,
         match="execution did not succeed",
     ):
         verify_module_package_contract(
-            replace(registration, bindings=(invalid_binding,)),
+            INCOMPLETE_PROVENANCE_PACKAGE,
             execution_cases=(EXECUTION_CASE,),
             port_cases=(PORT_CASE,),
             work_root=tmp_path,

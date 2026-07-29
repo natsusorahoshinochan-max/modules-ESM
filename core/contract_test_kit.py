@@ -40,6 +40,7 @@ from datatypes import CandidateCollection, ScoreCollection, ScoreObservation
 
 
 _CANONICAL_DIGEST = re.compile(r"^sha256:[0-9a-f]{64}$")
+_CASE_IDENTIFIER = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$")
 
 
 class ModulePackageConformanceError(AssertionError):
@@ -84,6 +85,13 @@ class ModulePackageContractCase:
     forbidden_public_fragments: tuple[str, ...] = ()
 
     def __post_init__(self) -> None:
+        if (
+            not isinstance(self.case_id, str)
+            or _CASE_IDENTIFIER.fullmatch(self.case_id) is None
+        ):
+            raise ModulePackageConformanceError(
+                "case_id must be one safe path segment"
+            )
         for name in (
             "node_parameters",
             "binding_parameters",
@@ -183,6 +191,11 @@ def _verify_port_cases(
         (definition.type_id, definition.version)
         for definition in registration.port_types
     }
+    supplied = {(case.type_id, case.version) for case in cases}
+    if len(supplied) != len(cases) or supplied != owned:
+        raise ModulePackageConformanceError(
+            "Port cases must cover every package-owned Port Type exactly once"
+        )
     verified: list[str] = []
     for case in cases:
         identity = (case.type_id, case.version)
@@ -213,6 +226,44 @@ def _verify_port_cases(
             ) from error
         verified.append(f"{case.type_id}@{case.version}")
     return tuple(sorted(verified))
+
+
+def _verify_execution_case_coverage(
+    catalog: Any,
+    registration: ModulePackageRegistration,
+    cases: Sequence[ModulePackageContractCase],
+) -> None:
+    owned_keys = {
+        key
+        for key, owners in catalog.owners.items()
+        if registration.package_id in owners
+    }
+    expected_nodes = {
+        (contract_id, version)
+        for kind, contract_id, version in owned_keys
+        if kind == "node_type"
+    }
+    expected_bindings = {
+        (contract_id, version)
+        for kind, contract_id, version in owned_keys
+        if kind == "binding"
+    }
+    covered_nodes = {
+        (case.node_type_id, case.node_type_version)
+        for case in cases
+    }
+    covered_bindings = {
+        (case.binding_id, case.binding_version)
+        for case in cases
+    }
+    if covered_nodes != expected_nodes:
+        raise ModulePackageConformanceError(
+            "Execution cases must cover every package-owned Node Definition"
+        )
+    if covered_bindings != expected_bindings:
+        raise ModulePackageConformanceError(
+            "Execution cases must cover every package-owned Binding"
+        )
 
 
 def _availability_is_green(
@@ -482,6 +533,11 @@ def verify_module_package_contract(
         )
     try:
         catalog = build_frozen_catalog((registration,))
+        _verify_execution_case_coverage(
+            catalog,
+            registration,
+            case_tuple,
+        )
         verified_port_types = _verify_port_cases(
             catalog,
             registration,
