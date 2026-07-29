@@ -20,8 +20,8 @@ parameter_groups:
 node_parameters:
   project_input_ref:
     parameter_scope: scientific
+    resource_kind: project_input
     scientific_meaning: Opaque identity of one trusted Project-scoped input.
     type: string
     required: true
     pattern: "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$"
-

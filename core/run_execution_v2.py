@@ -85,6 +85,12 @@ RUN_LEDGER_SCHEMA_VERSION = "2.0.0"
 MAX_ARTIFACTS_PER_RUN = 2_048
 MAX_ARTIFACT_SIZE_BYTES = 64 * 1024 * 1024
 MAX_ARTIFACT_BYTES_PER_RUN = 256 * 1024 * 1024
+_LEGACY_ARTIFACT_MEDIA_TYPES = (
+    "application/json",
+    "application/octet-stream",
+    "chemical/x-pdb",
+    "text/x-fasta",
+)
 MAX_LEDGER_FACT_BYTES = 4 * 1024 * 1024
 MAX_BACKGROUND_RUNS = 8
 FAST_RUN_COMPLETION_GRACE_SECONDS = 0.25
@@ -603,8 +609,16 @@ class RunResources:
         repr=False,
         compare=False,
     )
-    _project_input_identities: list[dict[str, Any]] = field(
-        default_factory=list,
+    _project_inputs: Mapping[
+        str,
+        tuple[Mapping[str, Any], bytes],
+    ] = field(
+        default_factory=dict,
+        repr=False,
+        compare=False,
+    )
+    _project_input_identities: tuple[Mapping[str, Any], ...] = field(
+        default=(),
         repr=False,
         compare=False,
     )
@@ -633,26 +647,18 @@ class RunResources:
         input_reference: str,
     ) -> tuple[Mapping[str, Any], bytes]:
         """Read one trusted input from this Run's exact Project scope."""
-        descriptor, payload = self._projects.read_input(
-            self.project_id,
-            input_reference,
-        )
-        self._project_input_identities.append(
-            {
-                "resource_kind": "project_input",
-                "content_digest": descriptor["content_digest"],
-                "size": descriptor["size"],
-            }
-        )
-        return descriptor, payload
+        try:
+            descriptor, payload = self._project_inputs[input_reference]
+        except KeyError as error:
+            raise RuntimeError(
+                "Project input access was not declared by the Node contract"
+            ) from error
+        return dict(descriptor), payload
 
     @property
     def result_identity_inputs(self) -> tuple[Mapping[str, Any], ...]:
         """Return path-free immutable resource identities observed by this Node."""
-        return tuple(
-            dict(identity)
-            for identity in self._project_input_identities
-        )
+        return tuple(dict(identity) for identity in self._project_input_identities)
 
     def temporary_directory(self, *, prefix: str):
         """Delegate to the hardened legacy workspace primitive."""
@@ -817,6 +823,7 @@ class _PlanNodeEvidence:
     dependencies: tuple[str, ...]
     required_dependencies: tuple[str, ...]
     node_type: Mapping[str, Any] | None = None
+    artifact_outputs: tuple[Mapping[str, Any], ...] = ()
 
     def to_dict(self) -> dict[str, Any]:
         result = {
@@ -826,6 +833,17 @@ class _PlanNodeEvidence:
         }
         if self.node_type is not None:
             result["node_type"] = dict(self.node_type)
+        if self.artifact_outputs:
+            result["artifact_outputs"] = [
+                {
+                    **dict(output),
+                    "port_type": dict(output["port_type"]),
+                    "accepted_media_types": list(
+                        output["accepted_media_types"]
+                    ),
+                }
+                for output in self.artifact_outputs
+            ]
         return result
 
 
@@ -844,10 +862,9 @@ def _parse_plan_evidence(
         }
         if (
             not isinstance(item, Mapping)
-            or set(item) not in {
-                frozenset(allowed_fields),
-                frozenset({*allowed_fields, "node_type"}),
-            }
+            or not allowed_fields <= set(item)
+            or set(item) - allowed_fields
+            - {"node_type", "artifact_outputs"}
             or not isinstance(item["node_id"], str)
             or not isinstance(item["dependencies"], list)
             or not isinstance(item["required_dependencies"], list)
@@ -879,6 +896,79 @@ def _parse_plan_evidence(
             if node_type["contract_kind"] != "node_type":
                 raise ValueError("Run plan evidence is invalid")
             node_type = dict(node_type)
+        raw_artifact_outputs = item.get("artifact_outputs", [])
+        if not isinstance(raw_artifact_outputs, list):
+            raise ValueError("Run plan evidence is invalid")
+        artifact_outputs: list[Mapping[str, Any]] = []
+        artifact_output_names: set[str] = set()
+        for artifact_output in raw_artifact_outputs:
+            if (
+                not isinstance(artifact_output, Mapping)
+                or set(artifact_output)
+                != {
+                    "output_port",
+                    "artifact_kind",
+                    "artifact_media_type",
+                    "port_type",
+                    "accepted_media_types",
+                }
+                or artifact_output["artifact_kind"]
+                not in {"candidate", "standalone"}
+                or (
+                    artifact_output["artifact_media_type"] is not None
+                    and not is_valid_artifact_media_type(
+                        artifact_output["artifact_media_type"]
+                    )
+                )
+                or not isinstance(
+                    artifact_output["accepted_media_types"],
+                    list,
+                )
+            ):
+                raise ValueError("Run plan evidence is invalid")
+            output_port = validate_identifier(
+                artifact_output["output_port"],
+                "output_port",
+            )
+            media_types = tuple(
+                artifact_output["accepted_media_types"]
+            )
+            if (
+                output_port in artifact_output_names
+                or not media_types
+                or tuple(sorted(set(media_types))) != media_types
+                or any(
+                    not is_valid_artifact_media_type(media_type)
+                    for media_type in media_types
+                )
+                or (
+                    artifact_output["artifact_media_type"] is not None
+                    and artifact_output["artifact_media_type"]
+                    not in media_types
+                )
+            ):
+                raise ValueError("Run plan evidence is invalid")
+            try:
+                validate_schema(
+                    "#/$defs/ContractReference",
+                    artifact_output["port_type"],
+                )
+            except ProtocolValidationError as error:
+                raise ValueError("Run plan evidence is invalid") from error
+            if artifact_output["port_type"]["contract_kind"] != "port_type":
+                raise ValueError("Run plan evidence is invalid")
+            artifact_output_names.add(output_port)
+            artifact_outputs.append(
+                {
+                    "output_port": output_port,
+                    "artifact_kind": artifact_output["artifact_kind"],
+                    "artifact_media_type": artifact_output[
+                        "artifact_media_type"
+                    ],
+                    "port_type": dict(artifact_output["port_type"]),
+                    "accepted_media_types": media_types,
+                }
+            )
         seen.add(node_id)
         parsed.append(
             _PlanNodeEvidence(
@@ -886,6 +976,7 @@ def _parse_plan_evidence(
                 dependencies,
                 required,
                 node_type,
+                tuple(artifact_outputs),
             )
         )
     if any(
@@ -927,6 +1018,19 @@ class _RunEvidenceLedger:
                 dict(node.node_type)
                 if node.node_type is not None
                 else None
+            )
+            for node in plan_nodes
+        }
+        self._artifact_outputs = {
+            node.node_id: tuple(
+                {
+                    **dict(output),
+                    "port_type": dict(output["port_type"]),
+                    "accepted_media_types": tuple(
+                        output["accepted_media_types"]
+                    ),
+                }
+                for output in node.artifact_outputs
             )
             for node in plan_nodes
         }
@@ -979,6 +1083,7 @@ class _RunEvidenceLedger:
                 tuple(sorted(self._dependencies[node_id])),
                 tuple(sorted(self._required_dependencies[node_id])),
                 self._node_types[node_id],
+                self._artifact_outputs[node_id],
             )
             for node_id in self._plan_node_order
         )
@@ -1504,6 +1609,16 @@ class _RunEvidenceLedger:
                     else None
                 )
                 expected_node_type = self._node_types.get(node_id)
+                expected_artifact_outputs = [
+                    {
+                        **dict(output),
+                        "port_type": dict(output["port_type"]),
+                        "accepted_media_types": list(
+                            output["accepted_media_types"]
+                        ),
+                    }
+                    for output in self._artifact_outputs.get(node_id, ())
+                ]
                 expected_fields = {
                     "node_id",
                     "dependencies",
@@ -1511,6 +1626,8 @@ class _RunEvidenceLedger:
                 }
                 if expected_node_type is not None:
                     expected_fields.add("node_type")
+                if expected_artifact_outputs:
+                    expected_fields.add("artifact_outputs")
                 if (
                     not isinstance(item, Mapping)
                     or set(item) != expected_fields
@@ -1523,6 +1640,8 @@ class _RunEvidenceLedger:
                     and item["required_dependencies"]
                     == sorted(self._required_dependencies[node_id])
                     and item.get("node_type") == expected_node_type
+                    and item.get("artifact_outputs", [])
+                    == expected_artifact_outputs
                 )
 
             if (
@@ -2783,6 +2902,7 @@ def _result_identity_is_cache_safe(
     plan: ExecutionPlan,
     node: ExecutionPlanNode,
     inputs: Mapping[str, Any],
+    resolved_resource_inputs: tuple[Mapping[str, Any], ...] = (),
 ) -> bool:
     node_contract = catalog.require_contract(*node.node_type.key)
     binding_contract = catalog.require_contract(*node.binding.key)
@@ -2804,7 +2924,13 @@ def _result_identity_is_cache_safe(
     if _contains_unresolved_identity(inputs):
         return False
     if _contains_unresolved_identity(
-        _result_identity_descriptor(catalog, plan, node, inputs)
+        _result_identity_descriptor(
+            catalog,
+            plan,
+            node,
+            inputs,
+            resolved_resource_inputs,
+        )
     ):
         return False
     return all(
@@ -3333,12 +3459,47 @@ class V2RunService:
                 required_dependencies[edge.target_node_id].add(
                     edge.source_node_id
                 )
+
+        def artifact_outputs(
+            node: ExecutionPlanNode,
+        ) -> tuple[Mapping[str, Any], ...]:
+            contract = self._catalog.require_contract(*node.node_type.key)
+            evidence: list[Mapping[str, Any]] = []
+            for output in contract.descriptor.get("outputs", ()):
+                artifact_kind = output.get("artifact_kind")
+                if artifact_kind is None:
+                    continue
+                port_reference = output["port_type"]
+                port_type = self._catalog.require_port_type(
+                    port_reference["contract_id"],
+                    port_reference["contract_version"],
+                )
+                accepted_media_types = (
+                    port_type.artifact_media_types
+                    or _LEGACY_ARTIFACT_MEDIA_TYPES
+                )
+                evidence.append(
+                    {
+                        "output_port": output["name"],
+                        "artifact_kind": artifact_kind,
+                        "artifact_media_type": output.get(
+                            "artifact_media_type"
+                        ),
+                        "port_type": dict(port_reference),
+                        "accepted_media_types": tuple(
+                            accepted_media_types
+                        ),
+                    }
+                )
+            return tuple(evidence)
+
         return tuple(
             _PlanNodeEvidence(
                 node.node_id,
                 tuple(sorted(dependencies[node.node_id])),
                 tuple(sorted(required_dependencies[node.node_id])),
                 node.node_type.to_public(),
+                artifact_outputs(node),
             )
             for node in plan.nodes
         )
@@ -3770,6 +3931,43 @@ class V2RunService:
             else:
                 inputs[edge.target_port] = source_values[0]
         return inputs
+
+    def _resolve_project_inputs(
+        self,
+        project_id: str,
+        node: ExecutionPlanNode,
+    ) -> tuple[
+        dict[str, tuple[Mapping[str, Any], bytes]],
+        tuple[Mapping[str, Any], ...],
+    ]:
+        """Resolve declared Project resources before Result Identity lookup."""
+        node_contract = self._catalog.require_contract(*node.node_type.key)
+        resolved: dict[str, tuple[Mapping[str, Any], bytes]] = {}
+        identities: list[Mapping[str, Any]] = []
+        for parameter_name, declaration in sorted(
+            node_contract.descriptor.get("node_parameters", {}).items()
+        ):
+            if declaration.get("resource_kind") != "project_input":
+                continue
+            reference = node.node_parameters.get(parameter_name)
+            if not isinstance(reference, str):
+                raise PortValueError(
+                    f"Project input parameter {parameter_name!r} is invalid"
+                )
+            descriptor, payload = self._projects.read_input(
+                project_id,
+                reference,
+            )
+            resolved[reference] = (descriptor, payload)
+            identities.append(
+                {
+                    "resource_kind": "project_input",
+                    "parameter_name": parameter_name,
+                    "content_digest": descriptor["content_digest"],
+                    "size": descriptor["size"],
+                }
+            )
+        return resolved, tuple(identities)
 
     def _required_input_blockers(
         self,
@@ -4623,15 +4821,30 @@ class V2RunService:
             binding_contract = self._catalog.require_contract(
                 *node.binding.key,
             )
+            project_inputs: dict[
+                str,
+                tuple[Mapping[str, Any], bytes],
+            ] = {}
+            resource_identities: tuple[Mapping[str, Any], ...] = ()
+            resource_resolution_error: BaseException | None = None
+            try:
+                (
+                    project_inputs,
+                    resource_identities,
+                ) = self._resolve_project_inputs(project_id, node)
+            except BaseException as error:
+                resource_resolution_error = error
             result_identity: str | None = None
             cache_eligible = (
-                binding_contract.descriptor.get("cacheable") is True
+                resource_resolution_error is None
+                and binding_contract.descriptor.get("cacheable") is True
                 and binding_contract.descriptor.get("deterministic") is True
                 and _result_identity_is_cache_safe(
                     self._catalog,
                     plan,
                     node,
                     node_inputs,
+                    resource_identities,
                 )
             )
             cache_lookup_eligible = (
@@ -4643,6 +4856,7 @@ class V2RunService:
                     plan,
                     node,
                     node_inputs,
+                    resource_identities,
                 )
             replayed_published: list[dict[str, Any]] | None = None
             replayed_runtime: dict[
@@ -4848,34 +5062,37 @@ class V2RunService:
                 disposition_outcomes[node.node_id] = outcome
                 continue
             resources = RunResources(
-                project_id,
-                run_id,
-                node.node_id,
-                self._projects,
-                _OperationInvocationRecorder(
+                project_id=project_id,
+                run_id=run_id,
+                node_id=node.node_id,
+                _projects=self._projects,
+                _invocation_recorder=_OperationInvocationRecorder(
                     ledger=ledger,
                     operation_attempt_id=operation_attempt_id,
                     default_engine_identity=node.method.contract_digest,
                 ),
-                record.cancellation,
+                _cancellation_control=record.cancellation,
+                _project_inputs=project_inputs,
+                _project_input_identities=resource_identities,
             )
-            body_error: BaseException | None = None
+            body_error: BaseException | None = resource_resolution_error
             implementation: Any | None = None
             try:
-                environment = self._environment.for_binding(
-                    node.binding.contract_id,
-                    node.binding.contract_version,
-                )
-                factory = self._catalog.require_factory(
-                    node.binding.contract_id,
-                    node.binding.contract_version,
-                )
-                implementation = factory.build(
-                    execution_plan=plan,
-                    frozen_catalog=self._catalog,
-                    environment_configuration=environment.values,
-                    run_resources=resources,
-                )
+                if body_error is None:
+                    environment = self._environment.for_binding(
+                        node.binding.contract_id,
+                        node.binding.contract_version,
+                    )
+                    factory = self._catalog.require_factory(
+                        node.binding.contract_id,
+                        node.binding.contract_version,
+                    )
+                    implementation = factory.build(
+                        execution_plan=plan,
+                        frozen_catalog=self._catalog,
+                        environment_configuration=environment.values,
+                        run_resources=resources,
+                    )
             except PreScheduleTermination as termination:
                 cancellation_outcome: str | None = None
                 if ledger.cancellation_requested:
@@ -5645,24 +5862,16 @@ class V2RunService:
         try:
             if plan_node is None or plan_node.node_type is None:
                 raise KeyError("missing durable Node Type evidence")
-            node_reference = dict(plan_node.node_type)
-            node_contract = self._catalog.require_contract(
-                node_reference["contract_kind"],
-                node_reference["contract_id"],
-                node_reference["contract_version"],
-            )
-            if node_contract.reference() != node_reference:
-                raise KeyError("Node Type contract digest changed")
-            output_declaration = next(
+            output_evidence = next(
                 output
-                for output in node_contract.descriptor.get("outputs", ())
-                if output["name"] == descriptor["output_port"]
+                for output in plan_node.artifact_outputs
+                if output["output_port"] == descriptor["output_port"]
             )
-            declared_media_type = output_declaration.get(
+            declared_media_type = output_evidence.get(
                 "artifact_media_type"
             )
             if (
-                output_declaration.get("artifact_kind")
+                output_evidence["artifact_kind"]
                 != descriptor["artifact_kind"]
                 or (
                     declared_media_type is not None
@@ -5670,29 +5879,10 @@ class V2RunService:
                 )
             ):
                 raise KeyError("artifact output declaration changed")
-            port_reference = output_declaration["port_type"]
-            port_type = self._catalog.require_port_type(
-                port_reference["contract_id"],
-                port_reference["contract_version"],
-            )
-            media_types = port_type.artifact_media_types
-            if port_type.reference() != port_reference:
-                raise KeyError("artifact Port Type contract changed")
-            if media_types is None:
-                if (
-                    port_type.type_id
-                    not in {"file.path", "file.path.collection"}
-                    or declared_media_type is not None
-                    or descriptor["media_type"]
-                    not in {
-                        "application/json",
-                        "application/octet-stream",
-                        "chemical/x-pdb",
-                        "text/x-fasta",
-                    }
-                ):
-                    raise KeyError("artifact media contract changed")
-            elif descriptor["media_type"] not in media_types:
+            if (
+                descriptor["media_type"]
+                not in output_evidence["accepted_media_types"]
+            ):
                 raise KeyError("artifact media contract changed")
         except (KeyError, StopIteration, TypeError, ValueError) as error:
             raise V2RunError(

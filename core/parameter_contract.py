@@ -47,6 +47,7 @@ _PARAMETER_METADATA_KEYS = frozenset(
         "group",
         "meaning",
         "parameter_scope",
+        "resource_kind",
         "required",
         "scientific_meaning",
         "summary",
@@ -193,6 +194,12 @@ def validate_parameter_declarations(
             raise ParameterContractDefinitionError(
                 f"{declaration_path}.scientific_meaning must explicitly "
                 "describe the cross-Binding scientific parameter"
+            )
+        resource_kind = declaration.get("resource_kind")
+        if resource_kind is not None and resource_kind != "project_input":
+            raise ParameterContractDefinitionError(
+                f"{declaration_path}.resource_kind must equal "
+                "'project_input'"
             )
         value_contract = declaration.get("value_contract")
         if value_contract is None:
