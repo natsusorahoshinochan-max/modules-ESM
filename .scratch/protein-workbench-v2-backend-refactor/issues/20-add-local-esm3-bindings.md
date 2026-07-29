@@ -4,7 +4,7 @@
 
 **Blocked by:** 19 — Migrate remote ESM-3 generation.
 
-**Status:** awaiting-controller
+**Status:** completed
 
 - [x] Local Bindings reuse the three existing ESM-3 Node Definitions and Produced Observation contracts rather than copying or weakening them.
 - [x] Every local Binding fixes an exact Method, model/checkpoint/source identity, adapter/implementation identity, determinism contract, and cacheability declaration.
@@ -125,3 +125,44 @@ Ticket 20 remains `awaiting-controller`. Controller must rerun the cumulative
 Tickets 01–20 gates and the full `local-esm3-heavy-model` gate against the final
 clean revision, returning any further regression to this executor before
 Ticket 21 starts.
+
+## Controller evidence
+
+Controller accepted Ticket 20 only after its first entity-gate attempt exposed
+invalid focused readiness evidence, that regression was returned to the same
+executor, and the repaired revision added and passed a complete source-bound
+local ESM-3 heavy gate.
+
+- Previous accepted multi-ticket gate:
+  `2e245b09d5e4784bd6e30fab6bfcb15379582276`.
+- Final executor revision under test:
+  `84946a236528f55f1d5b68225dbf6504a449f50f`.
+- Repair-range `git diff --check` passed and the worktree was clean before
+  testing.
+- Tickets 01–20 v2 joint regression:
+  `uv run --no-sync pytest -q tests/*_v2.py` → `449 passed`.
+- Focused ESM-3/provider/tier regression:
+  `uv run --no-sync pytest -q tests/test_verification_tiers.py
+  tests/test_provider_evidence.py tests/test_esm3_local_v2.py
+  tests/test_esm3_v2.py` → `91 passed`.
+- Cumulative routine gate:
+  `uv run --no-sync python scripts/verify_backend.py routine` →
+  `1133 passed, 46 deselected`; retained result
+  `verification-results/routine/20260729T183417.710456Z-3565-9cfa77399d25a579`.
+- Deterministic acceptance:
+  `uv run --no-sync python scripts/verify_backend.py
+  deterministic-acceptance` → `10 passed, 5 deselected`; retained result
+  `verification-results/deterministic-acceptance/20260729T183806.541695Z-7856-f245f93d9d39828e`.
+- Installed artifact:
+  `uv run --no-sync python scripts/verify_backend.py installed-package` →
+  `3 passed`; retained result
+  `verification-results/installed-package/20260729T183806.541416Z-7855-c9c83a4e87106625`.
+- Required clean-source local ESM-3 entity gate:
+  `PROTEIN_WORKBENCH_APPROVED_SOURCE_REVISION=84946a236528f55f1d5b68225dbf6504a449f50f
+  uv run --no-sync python scripts/verify_backend.py
+  local-esm3-heavy-model` → `1 passed`, with complete provider evidence and
+  exact two sequence plus two structure calls; retained result
+  `verification-results/local-esm3-heavy-model/20260729T183910.786920Z-8459-9b21b736f5c53e82`.
+
+Ticket 21 may start only from the committed Controller gate containing this
+evidence.
