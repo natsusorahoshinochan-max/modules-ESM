@@ -681,7 +681,7 @@ def test_remote_and_local_bindings_pass_shared_contract_test_kit(
     simplefold_esm2_source.mkdir()
     simplefold_payloads = {
         name: f"fixture-{name}".encode()
-        for name in simplefold_adapter._FOLDING_ARTIFACTS
+        for name in simplefold_adapter.SIMPLEFOLD_FOLDING_ARTIFACTS
     }
     simplefold_esm2_payloads = {
         "esm2_t36_3B_UR50D.pt": b"fixture-esm2",

@@ -52,6 +52,9 @@ from core.provider_evidence import (
     validate_provider_call_manifest_details,
 )
 from core.run_manifest import _validate_score_details, sanitize_public_value
+from modules.folding.simplefold_adapter import (
+    simplefold_folding_artifact_sha256,
+)
 
 ROOT_VARIABLES = (
     "PROTEIN_WORKBENCH_PROJECT_ROOT",
@@ -327,6 +330,7 @@ class Tier:
     pytest_args: tuple[str, ...]
     requires_provider_evidence: bool = False
     provider_evidence_gate: str | None = None
+    provider_identity_profile: str | None = None
     required_calls: frozenset[tuple[str, str]] = frozenset()
     required_call_counts: tuple[tuple[str, str, int], ...] = ()
     expected_test_ids: frozenset[str] = frozenset()
@@ -470,7 +474,8 @@ TIERS = {
         "local_provider and slow",
     ),
         requires_provider_evidence=True,
-        provider_evidence_gate="heavy-model",
+        provider_evidence_gate="simplefold-v2-heavy-model",
+        provider_identity_profile="simplefold-v2-folding",
         required_call_counts=(
             ("simplefold", "fold_sequence", 1),
         ),
@@ -601,7 +606,16 @@ EXPECTED_STATIC_IDENTITIES = {
 }
 
 
-def _expected_provider_identity(provider: str) -> dict[str, object] | None:
+def _expected_provider_identity(
+    provider: str,
+    *,
+    profile: str | None = None,
+) -> dict[str, object] | None:
+    if provider == "simplefold" and profile == "simplefold-v2-folding":
+        return {
+            **EXPECTED_STATIC_IDENTITIES["simplefold"],
+            "artifact_sha256": simplefold_folding_artifact_sha256(),
+        }
     if provider == "biopython-svd":
         return {
             "biopython_version": importlib.metadata.version("biopython"),
@@ -1189,7 +1203,10 @@ def validate_provider_evidence(
         if event_type == "provider_readiness":
             readiness_provider = event.get("provider")
             expected_identity = (
-                _expected_provider_identity(readiness_provider)
+                _expected_provider_identity(
+                    readiness_provider,
+                    profile=tier.provider_identity_profile,
+                )
                 if isinstance(readiness_provider, str)
                 else None
             )
@@ -1319,7 +1336,10 @@ def validate_provider_evidence(
         test_id = call.get("test_id")
         if not isinstance(test_id, str) or test_id not in tier.expected_test_ids:
             return [], "provider call test identity mismatch"
-        expected_static = _expected_provider_identity(str(call["provider"]))
+        expected_static = _expected_provider_identity(
+            str(call["provider"]),
+            profile=tier.provider_identity_profile,
+        )
         if expected_static is not None and call["provider_identity"] != expected_static:
             return [], "provider call source identity mismatch"
     if not calls:

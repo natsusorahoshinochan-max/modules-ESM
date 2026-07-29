@@ -83,11 +83,19 @@ with the staged objects using explicit `weights_only=True` deserialization and a
 `argparse.Namespace` safe-global allowlist for the upstream metadata. It never
 invokes the upstream ESM2 network or `TORCH_HOME` checkpoint loader.
 
-A valid real-provider model root contains all six runtime filenames as regular
-non-symlink files. The adapter never invokes the SimpleFold downloader. It hashes
-the configured files, copies them through no-follow file descriptors into the
-isolated run root, rehashes the staged copies, and only then imports or invokes the
-provider.
+The legacy aggregate SimpleFold acceptance gate covers folding and confidence
+evaluation together, so its model root contains all six runtime filenames as
+regular non-symlink files. The v2 `folding.fold.simplefold_local` Binding has a
+narrower, source-bound closure: `simplefold_100M.ckpt`,
+`simplefold_1.6B.ckpt`, `plddt.ckpt`, and `ccd.pkl`, plus the two ESM2 objects
+and exact ESM2 source checkout above. It neither uses nor claims
+`simplefold_360M.ckpt` or `boltz1_conf.ckpt`; those remain requirements only
+for provider operations that actually load them.
+
+Neither adapter invokes the SimpleFold downloader. Each hashes its exact
+configured file set, copies it through no-follow file descriptors into the
+isolated run root, rehashes the staged copies, and only then imports or invokes
+the provider.
 
 ## mkdssp
 

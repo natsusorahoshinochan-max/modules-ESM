@@ -538,7 +538,10 @@ def test_local_esm3_has_a_source_bound_full_heavy_gate() -> None:
 
 
 def test_simplefold_v2_has_a_source_bound_full_heavy_gate() -> None:
-    from scripts.verify_backend import TIERS
+    from scripts.verify_backend import (
+        TIERS,
+        _expected_provider_identity,
+    )
 
     tier = TIERS["simplefold-v2-heavy-model"]
 
@@ -549,7 +552,8 @@ def test_simplefold_v2_has_a_source_bound_full_heavy_gate() -> None:
         "local_provider and slow",
     )
     assert tier.requires_provider_evidence is True
-    assert tier.provider_evidence_gate == "heavy-model"
+    assert tier.provider_evidence_gate == "simplefold-v2-heavy-model"
+    assert tier.provider_identity_profile == "simplefold-v2-folding"
     assert tier.requires_local_model_environment is True
     assert tier.requires_simplefold_environment is True
     assert tier.expected_call_counts == {
@@ -558,6 +562,17 @@ def test_simplefold_v2_has_a_source_bound_full_heavy_gate() -> None:
     assert tier.expected_test_ids == {
         "tests/acceptance/test_simplefold_v2.py::"
         "test_simplefold_v2_folds_3gb1_through_exact_binding"
+    }
+    identity = _expected_provider_identity(
+        "simplefold",
+        profile=tier.provider_identity_profile,
+    )
+    assert identity is not None
+    assert set(identity["artifact_sha256"]) == {
+        "ccd.pkl",
+        "plddt.ckpt",
+        "simplefold_1.6B.ckpt",
+        "simplefold_100M.ckpt",
     }
 
 

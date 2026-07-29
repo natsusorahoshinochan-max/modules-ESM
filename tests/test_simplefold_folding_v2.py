@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import hashlib
 import json
+import threading
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Any
 
@@ -13,6 +15,7 @@ from core import (
     EnvironmentConfiguration,
     ProjectManager,
     ReadinessResult,
+    ResultReplayHit,
     ResultReplaySource,
     V2RunService,
     WorkflowAuthoringService,
@@ -25,7 +28,14 @@ from core import (
 )
 from core.port_types import canonical_json_bytes
 from core.workflow_v2 import WorkflowEdge
-from datatypes import ProteinStructure, Score, ScoreCollection
+from datatypes import (
+    Candidate,
+    CandidateCollection,
+    ProteinSequence,
+    ProteinStructure,
+    Score,
+    ScoreCollection,
+)
 
 
 def test_simplefold_is_one_explicit_binding_of_the_shared_folding_node() -> None:
@@ -98,6 +108,16 @@ def test_simplefold_is_one_explicit_binding_of_the_shared_folding_node() -> None
         "device",
         "staging_directory",
     }.isdisjoint(simplefold.descriptor["binding_parameters"])
+    assert set(
+        method.descriptor["checkpoint_identity"][
+            "simplefold_artifact_sha256"
+        ]
+    ) == {
+        "ccd.pkl",
+        "plddt.ckpt",
+        "simplefold_1.6B.ckpt",
+        "simplefold_100M.ckpt",
+    }
 
 
 def test_simplefold_readiness_validates_assets_without_hiding_siblings(
@@ -116,6 +136,12 @@ def test_simplefold_readiness_validates_assets_without_hiding_siblings(
         True,
         proof_source="direct-observation",
     )
+    assert set(adapter.provider_identity()["artifact_sha256"]) == {
+        "ccd.pkl",
+        "plddt.ckpt",
+        "simplefold_1.6B.ckpt",
+        "simplefold_100M.ckpt",
+    }
     (environment["model_root"] / "simplefold_100M.ckpt").write_bytes(
         b"replacement"
     )
@@ -201,7 +227,7 @@ def _simplefold_environment(
     esm2_source_root.mkdir()
     model_payloads = {
         name: f"fixture-{name}".encode()
-        for name in adapter._FOLDING_ARTIFACTS
+        for name in adapter.SIMPLEFOLD_FOLDING_ARTIFACTS
     }
     esm2_payloads = {
         "esm2_t36_3B_UR50D.pt": b"fixture-esm2",
@@ -273,6 +299,8 @@ def _run_simplefold(
     client: Any,
     num_samples: int = 2,
     result_replay_source: ResultReplaySource | None = None,
+    environment_values: dict[str, Any] | None = None,
+    project_id: str = "simplefold",
 ) -> tuple[Any, dict[str, Any], tuple[dict[str, Any], ...]]:
     from modules.folding.package import MODULE_PACKAGE as FOLDING_PACKAGE
     from tests.fixtures.folding_sources.package import (
@@ -307,7 +335,7 @@ def _run_simplefold(
         output_root=tmp_path / "outputs",
         run_root=tmp_path / "runs",
     )
-    project = projects.create("simplefold")
+    project = projects.create(project_id)
     authoring = WorkflowAuthoringService(projects, catalog)
     workflow = WorkflowDocument(
         schema_version="2.0.0",
@@ -337,11 +365,12 @@ def _run_simplefold(
         workflow_revision=relocked["workflow_revision"],
         workflow=parse_workflow_document(relocked["workflow"]),
     )
-    environment_values = _simplefold_environment(
-        tmp_path,
-        monkeypatch,
-        client,
-    )
+    if environment_values is None:
+        environment_values = _simplefold_environment(
+            tmp_path,
+            monkeypatch,
+            client,
+        )
     environment = EnvironmentConfiguration({
         ("folding.fold.simplefold_local", "2.0.0"): {
             "values": environment_values,
@@ -485,7 +514,7 @@ def test_simplefold_preserves_high_level_plddt_and_exact_multi_sample_lineage(
     assert terminal[0]["status"] == "succeeded"
 
 
-def test_successive_runs_use_disjoint_staging_and_stable_candidate_identity(
+def test_source_cache_replay_preserves_noncacheable_simplefold_execution(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -515,30 +544,131 @@ def test_successive_runs_use_disjoint_staging_and_stable_candidate_identity(
                 ),
             )
 
-    class LookupRecorder(ResultReplaySource):
+    cached_source = CandidateCollection(
+        "fixture-sequences",
+        "protein.sequence",
+        [
+            Candidate(
+                "fixture-sequence",
+                ProteinSequence("AG", ["A:1", "A:2"]),
+                [],
+                {"source": "independent-literal"},
+            )
+        ],
+    )
+
+    class SourceReplay(ResultReplaySource):
         def __init__(self) -> None:
             self.node_ids: list[str] = []
 
-        def lookup(self, **kwargs: Any) -> None:
-            self.node_ids.append(kwargs["node"].node_id)
-            return None
+        def lookup(self, **kwargs: Any) -> ResultReplayHit:
+            node_id = kwargs["node"].node_id
+            self.node_ids.append(node_id)
+            assert node_id == "source", (
+                "the noncacheable SimpleFold Binding must bypass lookup"
+            )
+            return ResultReplayHit(
+                {"sequence_candidates": cached_source},
+                kwargs["result_identity"],
+                "cached-source-run",
+            )
 
     client = Client()
-    replay = LookupRecorder()
+    replay = SourceReplay()
     first_catalog, first_projection, _ = _run_simplefold(
-        tmp_path / "first",
+        tmp_path,
         monkeypatch,
         client=client,
         num_samples=1,
         result_replay_source=replay,
     )
-    second_catalog, second_projection, _ = _run_simplefold(
-        tmp_path / "second",
+
+    def candidate_id(catalog: Any, projection: dict[str, Any]) -> str:
+        output = next(
+            item
+            for item in projection["outputs"]
+            if item["node_id"] == "fold"
+            and item["output_port"] == "structure_candidates"
+        )
+        return _decode_output(catalog, output).items[0].candidate_id
+
+    assert first_projection["status"] == "succeeded"
+    assert candidate_id(first_catalog, first_projection)
+    dispositions = {
+        item["node_id"]: item
+        for item in first_projection["node_dispositions"]
+    }
+    assert dispositions["source"]["resolution"] == "cache_replayed"
+    assert dispositions["fold"]["resolution"] == "executed"
+    assert len(client.staging) == 1
+    assert all(not path.exists() for path in client.staging)
+    assert replay.node_ids == ["source"]
+
+
+def test_concurrent_runs_use_disjoint_live_staging_and_stable_identity(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    barrier = threading.Barrier(2)
+
+    class Client:
+        def __init__(self) -> None:
+            self.staging: list[Path] = []
+            self.lock = threading.Lock()
+
+        def fold(
+            self,
+            **kwargs: Any,
+        ) -> tuple[list[ProteinStructure], ScoreCollection]:
+            staging = kwargs["staging_directory"]
+            owned = staging / "fixed-provider-name"
+            assert not owned.exists()
+            owned.write_text("owned")
+            with self.lock:
+                self.staging.append(staging)
+            barrier.wait(timeout=5)
+            assert owned.read_text() == "owned"
+            return (
+                [ProteinStructure(_two_residue_pdb(), source="simplefold")],
+                ScoreCollection(
+                    "native-simplefold",
+                    [
+                        Score(
+                            "plddt",
+                            77.0,
+                            details={
+                                "per_residue": [71.0, 83.0],
+                                "sample_index": 0,
+                            },
+                        )
+                    ],
+                ),
+            )
+
+    client = Client()
+    environment_values = _simplefold_environment(
+        tmp_path,
         monkeypatch,
-        client=client,
-        num_samples=1,
-        result_replay_source=replay,
+        client,
     )
+    for root_name in ("projects", "cache", "outputs", "runs"):
+        (tmp_path / root_name).mkdir(exist_ok=True)
+
+    def run(project_id: str) -> tuple[Any, dict[str, Any], Any]:
+        return _run_simplefold(
+            tmp_path,
+            monkeypatch,
+            client=client,
+            num_samples=1,
+            environment_values=environment_values,
+            project_id=project_id,
+        )
+
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        first_future = executor.submit(run, "simplefold-concurrent-a")
+        second_future = executor.submit(run, "simplefold-concurrent-b")
+        first_catalog, first_projection, _ = first_future.result(timeout=20)
+        second_catalog, second_projection, _ = second_future.result(timeout=20)
 
     def candidate_id(catalog: Any, projection: dict[str, Any]) -> str:
         output = next(
@@ -557,7 +687,6 @@ def test_successive_runs_use_disjoint_staging_and_stable_candidate_identity(
     assert len(client.staging) == 2
     assert client.staging[0] != client.staging[1]
     assert all(not path.exists() for path in client.staging)
-    assert replay.node_ids == ["source", "source"]
 
 
 @pytest.mark.parametrize(

@@ -28,12 +28,27 @@ from datatypes import ProteinSequence, ProteinStructure
 
 SIMPLEFOLD_MODEL = "simplefold_100M"
 SIMPLEFOLD_DEVICE = "cpu"
-_FOLDING_ARTIFACTS = (
+SIMPLEFOLD_FOLDING_ARTIFACTS = (
     "ccd.pkl",
     "plddt.ckpt",
     "simplefold_1.6B.ckpt",
     "simplefold_100M.ckpt",
 )
+
+
+def simplefold_folding_artifact_sha256() -> dict[str, str]:
+    """Return the exact checkpoint closure used by the folding Binding."""
+    return {
+        name: SIMPLEFOLD_ARTIFACT_SHA256[name]
+        for name in SIMPLEFOLD_FOLDING_ARTIFACTS
+    }
+
+
+def simplefold_folding_provider_identity() -> dict[str, Any]:
+    """Return evidence for only the assets actually used by this Binding."""
+    return simplefold_provider_identity(
+        simplefold_folding_artifact_sha256()
+    )
 
 
 def configured_runtime_fingerprint() -> str:
@@ -43,10 +58,7 @@ def configured_runtime_fingerprint() -> str:
         "provider_source_revision": SIMPLEFOLD_REVISION,
         "model": SIMPLEFOLD_MODEL,
         "device": SIMPLEFOLD_DEVICE,
-        "simplefold_artifact_sha256": {
-            name: SIMPLEFOLD_ARTIFACT_SHA256[name]
-            for name in _FOLDING_ARTIFACTS
-        },
+        "simplefold_artifact_sha256": simplefold_folding_artifact_sha256(),
         "esm2_source_revision": SIMPLEFOLD_ESM2_REVISION,
         "esm2_source_tree_sha256": SIMPLEFOLD_ESM2_SOURCE_TREE_SHA256,
         "esm2_artifact_sha256": dict(
@@ -140,10 +152,7 @@ def validate_simplefold_folding_environment(
         raise RuntimeError("SimpleFold runtime fingerprint does not match")
     model_root = _validated_file_set(
         environment.get("model_root"),
-        {
-            name: SIMPLEFOLD_ARTIFACT_SHA256[name]
-            for name in _FOLDING_ARTIFACTS
-        },
+        simplefold_folding_artifact_sha256(),
         SIMPLEFOLD_ARTIFACT_IDENTITIES,
     )
     esm2_model_root = _validated_file_set(
@@ -192,7 +201,7 @@ def simplefold_readiness(
 
 
 def provider_identity() -> dict[str, Any]:
-    return simplefold_provider_identity(SIMPLEFOLD_ARTIFACT_SHA256)
+    return simplefold_folding_provider_identity()
 
 
 def fold(

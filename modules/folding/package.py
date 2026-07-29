@@ -48,6 +48,7 @@ from .adapter import (
 from .simplefold_adapter import (
     SIMPLEFOLD_DEVICE,
     SIMPLEFOLD_MODEL,
+    simplefold_folding_artifact_sha256,
     simplefold_readiness,
     simplefold_runtime_structurally_available,
 )
@@ -272,15 +273,9 @@ def _simplefold_method() -> MethodDefinition:
             "language_model": "esm2_t36_3B_UR50D",
         },
         checkpoint_identity={
-            "simplefold_artifact_sha256": {
-                name: SIMPLEFOLD_ARTIFACT_SHA256[name]
-                for name in (
-                    "ccd.pkl",
-                    "plddt.ckpt",
-                    "simplefold_1.6B.ckpt",
-                    "simplefold_100M.ckpt",
-                )
-            },
+            "simplefold_artifact_sha256": (
+                simplefold_folding_artifact_sha256()
+            ),
             "esm2_artifact_sha256": dict(
                 sorted(SIMPLEFOLD_ESM2_ARTIFACT_SHA256.items())
             ),
@@ -592,15 +587,9 @@ def _simplefold_binding() -> ExecutionBindingDefinition:
             ),
             prerequisites={
                 "simplefold_models": {
-                    "artifact_sha256": {
-                        name: SIMPLEFOLD_ARTIFACT_SHA256[name]
-                        for name in (
-                            "ccd.pkl",
-                            "plddt.ckpt",
-                            "simplefold_1.6B.ckpt",
-                            "simplefold_100M.ckpt",
-                        )
-                    },
+                    "artifact_sha256": (
+                        simplefold_folding_artifact_sha256()
+                    ),
                     "path_source": "trusted_environment_configuration",
                 },
                 "esm2_source": {
@@ -634,8 +623,9 @@ def _simplefold_binding() -> ExecutionBindingDefinition:
             "device": SIMPLEFOLD_DEVICE,
             "seed_control": "torch_local",
             "determinism_contract": (
-                "derived Torch seed per parent and sample; no cross-device "
-                "bitwise guarantee"
+                "one derived Torch seed per parent batched call; sample "
+                "slots follow provider order; no cross-device bitwise "
+                "guarantee"
             ),
             "cache_policy": (
                 "runtime-device-specific_diffusion_not_cacheable"

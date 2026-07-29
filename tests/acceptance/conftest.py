@@ -21,6 +21,7 @@ from datatypes import ProteinStructure
 from core.provider_contract import (
     ESM_SDK_REVISION,
     SIMPLEFOLD_ARTIFACT_SHA256,
+    SIMPLEFOLD_REVISION,
     esm_provider_identity,
     proteinmpnn_provider_identity,
     simplefold_provider_identity,
@@ -28,6 +29,12 @@ from core.provider_contract import (
     validate_local_esm3_snapshot,
 )
 from core.provider_evidence import record_provider_readiness
+from modules.folding.simplefold_adapter import (
+    SIMPLEFOLD_DEVICE,
+    configured_runtime_fingerprint,
+    simplefold_folding_artifact_sha256,
+    validate_simplefold_folding_environment,
+)
 
 # Project root is three levels up from this file
 PROJECT_ROOT = Path(__file__).parent.parent.parent
@@ -105,6 +112,42 @@ def _check_proteinmpnn_ready() -> bool:
 
 def _check_simplefold_ready() -> bool:
     """Check if SimpleFold and required gate artifacts are installed."""
+    if (
+        os.environ.get("PROTEIN_WORKBENCH_VERIFICATION_TIER")
+        == "simplefold-v2-heavy-model"
+    ):
+        try:
+            validate_installed_provider_checkout(
+                "simplefold",
+                SIMPLEFOLD_REVISION,
+            )
+            validate_simplefold_folding_environment({
+                "model_root": Path(
+                    os.environ["PROTEIN_WORKBENCH_SIMPLEFOLD_MODEL_ROOT"]
+                ),
+                "esm2_source_root": Path(
+                    os.environ["PROTEIN_WORKBENCH_SIMPLEFOLD_ESM2_ROOT"]
+                ),
+                "esm2_model_root": Path(
+                    os.environ[
+                        "PROTEIN_WORKBENCH_SIMPLEFOLD_ESM2_MODEL_ROOT"
+                    ]
+                ),
+                "device": SIMPLEFOLD_DEVICE,
+                "resolved_runtime_fingerprint": (
+                    configured_runtime_fingerprint()
+                ),
+            })
+        except (
+            FileNotFoundError,
+            ImportError,
+            KeyError,
+            OSError,
+            RuntimeError,
+            ValueError,
+        ):
+            return False
+        return True
     from modules.simplefold_adapter import (
         validated_simplefold_esm2_runtime,
         validated_simplefold_model_dir,
@@ -147,6 +190,14 @@ def readiness() -> dict:
         "simplefold": _check_simplefold_ready(),
         "alignment": _check_alignment_ready(),
     }
+    simplefold_identity = (
+        simplefold_provider_identity(
+            simplefold_folding_artifact_sha256()
+        )
+        if os.environ.get("PROTEIN_WORKBENCH_VERIFICATION_TIER")
+        == "simplefold-v2-heavy-model"
+        else simplefold_provider_identity(SIMPLEFOLD_ARTIFACT_SHA256)
+    )
     readiness_evidence = (
         (
             "biohub",
@@ -179,7 +230,7 @@ def readiness() -> dict:
         (
             "simplefold",
             status["simplefold"],
-            simplefold_provider_identity(SIMPLEFOLD_ARTIFACT_SHA256),
+            simplefold_identity,
             {
                 "artifact_contract_complete": status["simplefold"],
             },
@@ -214,6 +265,7 @@ def readiness() -> dict:
                 "local-proteinmpnn",
                 "simplefold",
             },
+            "simplefold-v2-heavy-model": {"simplefold"},
         }.get(os.environ.get("PROTEIN_WORKBENCH_VERIFICATION_TIER"), set())
     )
     for provider, ready, identity, details in readiness_evidence:

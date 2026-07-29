@@ -8,7 +8,6 @@ import math
 from typing import Any
 
 from core.provider_contract import (
-    SIMPLEFOLD_ARTIFACT_SHA256,
     SIMPLEFOLD_ESM2_ARTIFACT_SHA256,
     SIMPLEFOLD_REVISION,
     esm_provider_identity,
@@ -45,6 +44,7 @@ from .adapter import (
 from .simplefold_adapter import (
     SIMPLEFOLD_MODEL,
     fold as simplefold_fold,
+    simplefold_folding_artifact_sha256,
     provider_identity as simplefold_provider_identity,
 )
 
@@ -584,15 +584,9 @@ class SimpleFoldFoldingImplementation:
                             "route": "simplefold_local",
                             "model": SIMPLEFOLD_MODEL,
                             "source_revision": SIMPLEFOLD_REVISION,
-                            "checkpoint_sha256": {
-                                name: SIMPLEFOLD_ARTIFACT_SHA256[name]
-                                for name in (
-                                    "ccd.pkl",
-                                    "plddt.ckpt",
-                                    "simplefold_1.6B.ckpt",
-                                    "simplefold_100M.ckpt",
-                                )
-                            },
+                            "checkpoint_sha256": (
+                                simplefold_folding_artifact_sha256()
+                            ),
                             "esm2_artifact_sha256": dict(
                                 sorted(
                                     SIMPLEFOLD_ESM2_ARTIFACT_SHA256.items()
