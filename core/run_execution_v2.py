@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
+from contextlib import contextmanager
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 import hashlib
@@ -306,6 +307,11 @@ class RunResources:
     run_id: str
     node_id: str
     _projects: ProjectManager = field(repr=False, compare=False)
+    _invocation_recorder: "_OperationInvocationRecorder | None" = field(
+        default=None,
+        repr=False,
+        compare=False,
+    )
 
     @property
     def _output_root(self) -> Path:
@@ -342,6 +348,22 @@ class RunResources:
             self.node_id,
         )
         context.cleanup_temporary_work()
+
+    @contextmanager
+    def engine_invocation(
+        self,
+        *,
+        engine_role: str = "primary",
+        engine_identity: str | None = None,
+    ):
+        """Record one explicit crossing of a scientific engine boundary."""
+        if self._invocation_recorder is None:
+            raise RuntimeError("Engine Invocation is unavailable")
+        with self._invocation_recorder.invoke(
+            engine_role=engine_role,
+            engine_identity=engine_identity,
+        ) as invocation_id:
+            yield invocation_id
 
 
 class ResultReplaySource:
@@ -500,7 +522,6 @@ class _RunEvidenceLedger:
                 or attempt_id in self._node_attempts
                 or any(
                     upstream not in self._dispositions
-                    or self._dispositions[upstream]["outcome"] != "succeeded"
                     for upstream in self._dependencies[node_id]
                 )
             ):
@@ -586,12 +607,18 @@ class _RunEvidenceLedger:
                 for operation_id, operation in self._operations.items()
                 if operation["node_attempt_id"] == attempt_id
             ]
-            if child_operations and any(
-                invocation["operation_attempt_id"] in child_operations
-                and invocation["terminal"] != "succeeded"
-                for invocation in self._invocations.values()
-            ):
-                raise self._causal_error()
+            if child_operations:
+                if fact_type == "outputs_published" and any(
+                    self._operations[operation_id]["terminal"] != "succeeded"
+                    for operation_id in child_operations
+                ):
+                    raise self._causal_error()
+                if fact_type == "artifact_published" and any(
+                    invocation["operation_attempt_id"] in child_operations
+                    and invocation["terminal"] != "succeeded"
+                    for invocation in self._invocations.values()
+                ):
+                    raise self._causal_error()
             return
         if fact_type == "node_attempt_terminal":
             attempt_id = payload["node_attempt_id"]
@@ -617,6 +644,11 @@ class _RunEvidenceLedger:
                 )
                 or (
                     payload["resolution"] == "executed"
+                    and payload["status"] == "succeeded"
+                    and len(child_operations) != 1
+                )
+                or (
+                    payload["resolution"] == "executed"
                     and child_operations
                     and child_operations[-1]["terminal"]
                     != payload["status"]
@@ -637,21 +669,12 @@ class _RunEvidenceLedger:
             )
             if outcome == "blocked":
                 blocked_by = frozenset(payload["blocked_by"])
-                expected_blockers = frozenset(
-                    upstream
-                    for upstream in self._dependencies[node_id]
-                    if upstream in self._dispositions
-                    and self._dispositions[upstream]["outcome"]
-                    != "succeeded"
-                )
                 if (
                     attempt is not None
                     or not blocked_by
-                    or blocked_by != expected_blockers
+                    or not blocked_by <= self._dependencies[node_id]
                     or any(
                         upstream not in self._dispositions
-                        or self._dispositions[upstream]["outcome"]
-                        == "succeeded"
                         for upstream in blocked_by
                     )
                 ):
@@ -925,6 +948,58 @@ class _RunEvidenceLedger:
         self._facts.append(fact)
         self._apply(fact_type, safe_payload)
         return fact
+
+
+@dataclass(frozen=True, slots=True)
+class _OperationInvocationRecorder:
+    ledger: _RunEvidenceLedger
+    operation_attempt_id: str
+    default_engine_identity: str
+
+    @contextmanager
+    def invoke(
+        self,
+        *,
+        engine_role: str,
+        engine_identity: str | None,
+    ):
+        invocation_id = f"invocation-{uuid.uuid4().hex}"
+        self.ledger.append(
+            "engine_invocation_started",
+            {
+                "invocation_id": invocation_id,
+                "operation_attempt_id": self.operation_attempt_id,
+                "engine_role": engine_role,
+                "engine_identity": (
+                    engine_identity or self.default_engine_identity
+                ),
+            },
+        )
+        try:
+            yield invocation_id
+        except BaseException as error:
+            terminal_status = (
+                error.status
+                if isinstance(error, ExecutionTermination)
+                else "failed"
+            )
+            self.ledger.append(
+                "engine_invocation_terminal",
+                {
+                    "invocation_id": invocation_id,
+                    "status": terminal_status,
+                    "error": _public_failure(error),
+                },
+            )
+            raise
+        else:
+            self.ledger.append(
+                "engine_invocation_terminal",
+                {
+                    "invocation_id": invocation_id,
+                    "status": "succeeded",
+                },
+            )
 
 
 @dataclass(slots=True)
@@ -1369,7 +1444,6 @@ class V2RunService:
         for edge in plan.edges:
             if edge.target_node_id != node.node_id:
                 continue
-            source_values = values[(edge.source_node_id, edge.source_port)]
             node_contract = self._catalog.require_contract(
                 *node.node_type.key,
             )
@@ -1379,6 +1453,12 @@ class V2RunService:
                 "inputs",
                 edge.target_port,
             )
+            source_values = values.get(
+                (edge.source_node_id, edge.source_port),
+                [],
+            )
+            if not source_values:
+                continue
             for value in source_values:
                 port_type.decode(port_type.encode(value))
             if port["multiplicity"] == "many":
@@ -1386,6 +1466,34 @@ class V2RunService:
             else:
                 inputs[edge.target_port] = source_values[0]
         return inputs
+
+    def _required_input_blockers(
+        self,
+        plan: ExecutionPlan,
+        node: ExecutionPlanNode,
+        values: Mapping[tuple[str, str], list[Any]],
+    ) -> list[str]:
+        node_contract = self._catalog.require_contract(*node.node_type.key)
+        required_ports = {
+            port["name"]
+            for port in node_contract.descriptor.get("inputs", ())
+            if port.get("required") is True
+        }
+        blockers: set[str] = set()
+        for port_name in required_ports:
+            incoming = [
+                edge
+                for edge in plan.edges
+                if edge.target_node_id == node.node_id
+                and edge.target_port == port_name
+            ]
+            if any(
+                values.get((edge.source_node_id, edge.source_port))
+                for edge in incoming
+            ):
+                continue
+            blockers.update(edge.source_node_id for edge in incoming)
+        return sorted(blockers)
 
     def _validate_outputs(
         self,
@@ -1707,14 +1815,10 @@ class V2RunService:
         values: dict[tuple[str, str], list[Any]] = {}
         disposition_outcomes: dict[str, str] = {}
         for node in plan.nodes:
-            blocked_by = sorted(
-                {
-                    edge.source_node_id
-                    for edge in plan.edges
-                    if edge.target_node_id == node.node_id
-                    and disposition_outcomes.get(edge.source_node_id)
-                    != "succeeded"
-                }
+            blocked_by = self._required_input_blockers(
+                plan,
+                node,
+                values,
             )
             if blocked_by:
                 ledger.append(
@@ -1729,20 +1833,41 @@ class V2RunService:
                 continue
             node_attempt_id = f"node-attempt-{uuid.uuid4().hex}"
             operation_attempt_id = f"operation-{uuid.uuid4().hex}"
-            invocation_id = f"invocation-{uuid.uuid4().hex}"
             node_inputs = self._inputs_for(plan, node, values)
             binding_contract = self._catalog.require_contract(
                 *node.binding.key,
             )
-            replayed_outputs = None
+            replayed_published: list[dict[str, Any]] | None = None
+            replayed_runtime: dict[
+                tuple[str, str],
+                list[Any],
+            ] | None = None
             if binding_contract.descriptor.get("cacheable") is True:
-                replayed_outputs = self._result_replay_source.lookup(
-                    project_id=project_id,
-                    execution_plan=plan,
-                    node=node,
-                    inputs=node_inputs,
-                )
-            if replayed_outputs is not None:
+                try:
+                    replayed_outputs = self._result_replay_source.lookup(
+                        project_id=project_id,
+                        execution_plan=plan,
+                        node=node,
+                        inputs=node_inputs,
+                    )
+                    if replayed_outputs is not None:
+                        candidate_published, candidate_runtime = (
+                            self._validate_outputs(
+                                node,
+                                replayed_outputs,
+                            )
+                        )
+                        if not any(
+                            output["port_type"]["contract_id"]
+                            in {"file.path", "file.path.collection"}
+                            for output in candidate_published
+                        ):
+                            replayed_published = candidate_published
+                            replayed_runtime = candidate_runtime
+                except Exception:
+                    replayed_published = None
+                    replayed_runtime = None
+            if replayed_published is not None and replayed_runtime is not None:
                 ledger.append(
                     "node_attempt_started",
                     {
@@ -1750,27 +1875,11 @@ class V2RunService:
                         "node_attempt_id": node_attempt_id,
                     },
                 )
-                published, runtime = self._validate_outputs(
-                    node,
-                    replayed_outputs,
-                )
-                if any(
-                    output["port_type"]["contract_id"]
-                    in {"file.path", "file.path.collection"}
-                    for output in published
-                ):
-                    raise V2RunError(
-                        "internal_error",
-                        "Cache replay contained a path-valued result",
-                        details={
-                            "incident_id": f"incident-{uuid.uuid4().hex}"
-                        },
-                    )
                 ledger.append(
                     "outputs_published",
                     {
                         "node_id": node.node_id,
-                        "outputs": published,
+                        "outputs": replayed_published,
                         "artifacts": [],
                     },
                 )
@@ -1791,7 +1900,7 @@ class V2RunService:
                         "blocked_by": [],
                     },
                 )
-                values.update(runtime)
+                values.update(replayed_runtime)
                 disposition_outcomes[node.node_id] = "succeeded"
                 continue
             resources = RunResources(
@@ -1799,6 +1908,11 @@ class V2RunService:
                 run_id,
                 node.node_id,
                 self._projects,
+                _OperationInvocationRecorder(
+                    ledger=ledger,
+                    operation_attempt_id=operation_attempt_id,
+                    default_engine_identity=node.method.contract_digest,
+                ),
             )
             body_error: BaseException | None = None
             implementation: Any | None = None
@@ -1844,6 +1958,13 @@ class V2RunService:
                     "node_attempt_id": node_attempt_id,
                 },
             )
+            pending_runtime: dict[tuple[str, str], list[Any]] = {}
+            pending_typed_outputs: list[dict[str, Any]] = []
+            pending_artifacts: list[dict[str, Any]] = []
+            pending_artifact_records: dict[
+                str,
+                tuple[dict[str, Any], tuple[str, ...]],
+            ] = {}
             try:
                 if body_error is not None:
                     raise body_error
@@ -1854,75 +1975,31 @@ class V2RunService:
                         "node_attempt_id": node_attempt_id,
                     },
                 )
-                ledger.append(
-                    "engine_invocation_started",
-                    {
-                        "invocation_id": invocation_id,
-                        "operation_attempt_id": operation_attempt_id,
-                        "engine_role": "primary",
-                        "engine_identity": node.method.contract_digest,
-                    },
+                assert implementation is not None
+                raw_outputs = implementation.execute(
+                    inputs=node_inputs,
+                    node_parameters=dict(node.node_parameters),
+                    binding_parameters=dict(node.binding_parameters),
                 )
-                try:
-                    assert implementation is not None
-                    raw_outputs = implementation.execute(
-                        inputs=node_inputs,
-                        node_parameters=dict(node.node_parameters),
-                        binding_parameters=dict(node.binding_parameters),
-                    )
-                except BaseException as error:
-                    terminal_status = (
-                        error.status
-                        if isinstance(error, ExecutionTermination)
-                        else "failed"
-                    )
-                    ledger.append(
-                        "engine_invocation_terminal",
-                        {
-                            "invocation_id": invocation_id,
-                            "status": terminal_status,
-                            "error": _public_failure(error),
-                        },
-                    )
-                    raise
-                else:
-                    ledger.append(
-                        "engine_invocation_terminal",
-                        {
-                            "invocation_id": invocation_id,
-                            "status": "succeeded",
-                        },
-                    )
-                published, runtime = self._validate_outputs(
+                published, pending_runtime = self._validate_outputs(
                     node,
                     raw_outputs,
                 )
                 (
-                    typed_outputs,
-                    node_artifacts,
-                    node_artifact_records,
+                    pending_typed_outputs,
+                    pending_artifacts,
+                    pending_artifact_records,
                 ) = self._materialize_artifacts(
                     node=node,
                     resources=resources,
                     published=published,
-                    runtime=runtime,
+                    runtime=pending_runtime,
                     ledger=ledger,
                     current_artifact_count=len(all_artifacts),
                     current_artifact_bytes=sum(
                         artifact["size"]
                         for artifact in all_artifacts
                     ),
-                )
-                values.update(runtime)
-                all_artifacts.extend(node_artifacts)
-                artifact_records.update(node_artifact_records)
-                ledger.append(
-                    "outputs_published",
-                    {
-                        "node_id": node.node_id,
-                        "outputs": typed_outputs,
-                        "artifacts": node_artifacts,
-                    },
                 )
             except BaseException as error:
                 body_error = error
@@ -1995,6 +2072,17 @@ class V2RunService:
                     "status": "succeeded",
                 },
             )
+            ledger.append(
+                "outputs_published",
+                {
+                    "node_id": node.node_id,
+                    "outputs": pending_typed_outputs,
+                    "artifacts": pending_artifacts,
+                },
+            )
+            values.update(pending_runtime)
+            all_artifacts.extend(pending_artifacts)
+            artifact_records.update(pending_artifact_records)
             ledger.append(
                 "node_attempt_terminal",
                 {

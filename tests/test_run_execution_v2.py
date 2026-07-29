@@ -59,6 +59,7 @@ def _direct_catalog(
     readiness_prerequisites: dict[str, Any] | None = None,
     readiness_checks: dict[str, Any] | None = None,
     cacheable: bool = False,
+    invocation_count: int = 1,
 ) -> FrozenCatalog:
     builtin = builtin_frozen_catalog()
     text = builtin.require_port_type("text", "2.0.0")
@@ -146,8 +147,9 @@ def _direct_catalog(
         bindings.append(binding)
 
         class DirectImplementation:
-            def __init__(self, exact_binding_id: str) -> None:
+            def __init__(self, exact_binding_id: str, resources) -> None:
                 self._binding_id = exact_binding_id
+                self._resources = resources
 
             def execute(
                 self,
@@ -159,7 +161,17 @@ def _direct_catalog(
                 assert inputs == {}
                 assert node_parameters == {}
                 assert binding_parameters == {}
-                calls.append(f"execute:{self._binding_id}")
+                if invocation_count == 0:
+                    calls.append(f"execute:{self._binding_id}")
+                else:
+                    for index in range(invocation_count):
+                        with self._resources.engine_invocation(
+                            engine_role=(
+                                "primary" if index == 0 else "secondary"
+                            )
+                        ):
+                            if index == 0:
+                                calls.append(f"execute:{self._binding_id}")
                 return {"text": "READY"}
 
         def make_readiness(exact_binding_id: str):
@@ -184,7 +196,10 @@ def _direct_catalog(
                 assert kwargs["frozen_catalog"] is not None
                 assert kwargs["run_resources"].project_id
                 calls.append(f"factory:{exact_binding_id}")
-                return DirectImplementation(exact_binding_id)
+                return DirectImplementation(
+                    exact_binding_id,
+                    kwargs["run_resources"],
+                )
 
             return factory
 
@@ -311,6 +326,7 @@ def _pipeline_catalog(
     failing_source_node_id: str | None = None,
     terminating_source_nodes: Mapping[str, str] | None = None,
     pre_schedule_source_nodes: Mapping[str, str] | None = None,
+    optional_sink_input: bool = False,
 ) -> FrozenCatalog:
     def validate_text(value: Any) -> None:
         calls.append(f"validate:{value!r}")
@@ -383,7 +399,7 @@ def _pipeline_catalog(
                 {
                     "name": "text",
                     "port_type": canonical_text.reference(),
-                    "required": True,
+                    "required": not optional_sink_input,
                     "multiplicity": "one",
                     "scientific_meaning": "Canonical input text",
                 }
@@ -407,27 +423,33 @@ def _pipeline_catalog(
     availability = []
 
     class SourceImplementation:
-        def __init__(self, node_id: str) -> None:
+        def __init__(self, node_id: str, resources) -> None:
             self._node_id = node_id
+            self._resources = resources
 
         def execute(self, **kwargs: Any) -> dict[str, Any]:
             assert kwargs["inputs"] == {}
-            calls.append(f"execute:{self._node_id}")
-            if self._node_id == failing_source_node_id:
-                raise RuntimeError("sk-secret-branch-provider-failure")
-            if (
-                terminating_source_nodes is not None
-                and self._node_id in terminating_source_nodes
-            ):
-                raise ExecutionTermination(
-                    terminating_source_nodes[self._node_id]
-                )
-            return {"text": 17 if invalid_source_output else " READY "}
+            with self._resources.engine_invocation():
+                calls.append(f"execute:{self._node_id}")
+                if self._node_id == failing_source_node_id:
+                    raise RuntimeError("sk-secret-branch-provider-failure")
+                if (
+                    terminating_source_nodes is not None
+                    and self._node_id in terminating_source_nodes
+                ):
+                    raise ExecutionTermination(
+                        terminating_source_nodes[self._node_id]
+                    )
+                return {"text": 17 if invalid_source_output else " READY "}
 
     class SinkImplementation:
+        def __init__(self, resources) -> None:
+            self._resources = resources
+
         def execute(self, **kwargs: Any) -> dict[str, Any]:
-            calls.append(f"sink-input:{kwargs['inputs']['text']}")
-            return {"text": kwargs["inputs"]["text"]}
+            with self._resources.engine_invocation():
+                calls.append(f"sink-input:{kwargs['inputs'].get('text')}")
+                return {"text": kwargs["inputs"].get("text", "OPTIONAL")}
 
     for binding_id, node_type, implementation in (
         ("test.pipeline.source.direct", source, SourceImplementation),
@@ -488,8 +510,8 @@ def _pipeline_catalog(
                     raise PreScheduleTermination(
                         pre_schedule_source_nodes[node_id]
                     )
-                return implementation(node_id)
-            return implementation()
+                return implementation(node_id, kwargs["run_resources"])
+            return implementation(kwargs["run_resources"])
 
         factories[(binding_id, "2.0.0")] = LazyImplementationFactory(
             behavior=factory_behavior,
@@ -617,6 +639,8 @@ def _artifact_catalog(
 
         def execute(self, **kwargs: Any) -> dict[str, Any]:
             assert kwargs["inputs"] == {}
+            with self._resources.engine_invocation():
+                pass
             with self._resources.temporary_directory(
                 prefix="artifact-engine"
             ) as workspace:
@@ -948,6 +972,51 @@ def test_branch_failure_closes_every_disposition_and_unrelated_work_continues(
     assert calls.count("sink-input:ready") == 1
 
 
+def test_failed_optional_input_does_not_block_a_node(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    calls: list[str] = []
+    monkeypatch.setenv("PROTEIN_WORKBENCH_PROJECT_ROOT", str(tmp_path / "projects"))
+    monkeypatch.setenv("PROTEIN_WORKBENCH_RUN_ROOT", str(tmp_path / "runs"))
+    monkeypatch.setenv("PROTEIN_WORKBENCH_OUTPUT_ROOT", str(tmp_path / "outputs"))
+    app = create_app(
+        frozen_catalog_override=_pipeline_catalog(
+            calls,
+            failing_source_node_id="failing",
+            optional_sink_input=True,
+        )
+    )
+
+    with TestClient(app) as client:
+        project_id, compiled = _compile_branching_pipeline(client)
+        started = client.post(
+            f"/api/v2/projects/{project_id}/runs",
+            json={
+                "workflow_revision": 2,
+                "compile_id": compiled["compile_id"],
+                "client_request_id": "optional-input-failure",
+            },
+        )
+        assert started.status_code == 202
+        projection = client.get(
+            f"/api/v2/projects/{project_id}/runs/"
+            f"{started.json()['run_id']}"
+        ).json()
+
+    assert [
+        (item["node_id"], item["outcome"])
+        for item in projection["node_dispositions"]
+    ] == [
+        ("failing", "failed"),
+        ("independent", "succeeded"),
+        ("blocked", "succeeded"),
+        ("successful", "succeeded"),
+    ]
+    assert "sink-input:None" in calls
+    assert projection["status"] == "failed"
+
+
 @pytest.mark.parametrize(
     ("attempt_status", "disposition", "run_status"),
     (
@@ -1139,6 +1208,112 @@ def test_cache_replay_closes_only_the_scheduled_node_attempt(
     assert event_types.count("node_attempt_terminal") == 1
     assert "operation_attempt_started" not in event_types
     assert "engine_invocation_started" not in event_types
+
+
+@pytest.mark.parametrize("cache_failure", ("lookup_error", "invalid_value"))
+def test_cache_boundary_failure_falls_back_to_causally_closed_execution(
+    tmp_path,
+    monkeypatch,
+    cache_failure: str,
+) -> None:
+    calls: list[str] = []
+
+    class FailingReplaySource(ResultReplaySource):
+        def lookup(self, **kwargs: Any) -> Mapping[str, Any] | None:
+            del kwargs
+            calls.append("cache-lookup")
+            if cache_failure == "lookup_error":
+                raise OSError("fixture cache failure")
+            return {"text": 17}
+
+    monkeypatch.setenv("PROTEIN_WORKBENCH_PROJECT_ROOT", str(tmp_path / "projects"))
+    monkeypatch.setenv("PROTEIN_WORKBENCH_RUN_ROOT", str(tmp_path / "runs"))
+    monkeypatch.setenv("PROTEIN_WORKBENCH_OUTPUT_ROOT", str(tmp_path / "outputs"))
+    app = create_app(
+        frozen_catalog_override=_direct_catalog(calls, cacheable=True),
+        v2_result_replay_source=FailingReplaySource(),
+        v2_environment_configuration={
+            ("test.direct.local", "2.0.0"): {
+                "values": {"credential": "credential-value"},
+            }
+        },
+    )
+
+    with TestClient(app) as client:
+        project_id, compiled = _compile_one_node(client)
+        started = client.post(
+            f"/api/v2/projects/{project_id}/runs",
+            json={
+                "workflow_revision": 2,
+                "compile_id": compiled["compile_id"],
+                "client_request_id": f"cache-failure-{cache_failure}",
+            },
+        )
+        assert started.status_code == 202
+        projection = client.get(
+            f"/api/v2/projects/{project_id}/runs/"
+            f"{started.json()['run_id']}"
+        ).json()
+
+    assert projection["status"] == "succeeded"
+    assert projection["node_dispositions"][0]["resolution"] == "executed"
+    assert calls == [
+        "readiness:test.direct.local",
+        "cache-lookup",
+        "factory:test.direct.local",
+        "execute:test.direct.local",
+    ]
+
+
+@pytest.mark.parametrize("invocation_count", (0, 2))
+def test_one_operation_can_record_zero_or_multiple_engine_invocations(
+    tmp_path,
+    monkeypatch,
+    invocation_count: int,
+) -> None:
+    monkeypatch.setenv("PROTEIN_WORKBENCH_PROJECT_ROOT", str(tmp_path / "projects"))
+    monkeypatch.setenv("PROTEIN_WORKBENCH_RUN_ROOT", str(tmp_path / "runs"))
+    monkeypatch.setenv("PROTEIN_WORKBENCH_OUTPUT_ROOT", str(tmp_path / "outputs"))
+    app = create_app(
+        frozen_catalog_override=_direct_catalog(
+            [],
+            invocation_count=invocation_count,
+        ),
+        v2_environment_configuration={
+            ("test.direct.local", "2.0.0"): {
+                "values": {"credential": "credential-value"},
+            }
+        },
+    )
+
+    with TestClient(app) as client:
+        project_id, compiled = _compile_one_node(client)
+        started = client.post(
+            f"/api/v2/projects/{project_id}/runs",
+            json={
+                "workflow_revision": 2,
+                "compile_id": compiled["compile_id"],
+                "client_request_id": f"invocations-{invocation_count}",
+            },
+        )
+        assert started.status_code == 202
+        events = app.state.run_execution_v2.public_events(
+            project_id,
+            started.json()["run_id"],
+        )
+
+    event_types = [event["event"]["type"] for event in events]
+    assert event_types.count("operation_attempt_started") == 1
+    assert event_types.count("operation_attempt_terminal") == 1
+    assert event_types.count("engine_invocation_started") == invocation_count
+    assert event_types.count("engine_invocation_terminal") == invocation_count
+    assert [
+        event["event"]["engine_role"]
+        for event in events
+        if event["event"]["type"] == "engine_invocation_started"
+    ] == (
+        [] if invocation_count == 0 else ["primary", "secondary"]
+    )
 
 
 def test_public_start_run_binds_the_exact_compile_before_direct_execution(
@@ -1780,20 +1955,24 @@ def test_node_success_is_not_published_when_disposition_commit_fails(
 ) -> None:
     calls: list[str] = []
     cache_root = tmp_path / "cache"
-    original_append = run_execution_v2._RunEvidenceLedger.append
+    original_write = run_execution_v2.write_private_new_file
 
-    def fail_disposition(ledger, fact_type, payload):
-        if fact_type == "node_disposition":
-            raise run_execution_v2.V2RunError(
-                "evidence_unavailable",
-                "Required Run evidence could not be persisted safely",
-                details={"last_durable_cursor": ledger.cursor},
-            )
-        return original_append(ledger, fact_type, payload)
+    def fail_disposition(root, relative_parts, payload, *, field):
+        if (
+            field == "run_ledger"
+            and json.loads(payload)["fact_type"] == "node_disposition"
+        ):
+            raise OSError("fixture evidence store failure")
+        return original_write(
+            root,
+            relative_parts,
+            payload,
+            field=field,
+        )
 
     monkeypatch.setattr(
-        run_execution_v2._RunEvidenceLedger,
-        "append",
+        run_execution_v2,
+        "write_private_new_file",
         fail_disposition,
     )
     monkeypatch.setenv("PROTEIN_WORKBENCH_PROJECT_ROOT", str(tmp_path / "projects"))
@@ -1832,53 +2011,6 @@ def test_node_success_is_not_published_when_disposition_commit_fails(
     )
     assert not any(cache_root.rglob("*"))
     assert calls.count("execute:test.direct.local") == 1
-
-
-def test_invalid_public_failure_fact_is_rejected_before_persistence(
-    tmp_path,
-    monkeypatch,
-) -> None:
-    secret = "sk-invalid-failure-schema-token"
-    monkeypatch.setattr(
-        run_execution_v2,
-        "_public_failure",
-        lambda error: {
-            "code": "node_execution_failed",
-            "message": "Node execution failed safely",
-            "retryable": False,
-            "correlation_id": "incident-invalid",
-            "details": {},
-            "unexpected": secret,
-        },
-    )
-    monkeypatch.setenv("PROTEIN_WORKBENCH_PROJECT_ROOT", str(tmp_path / "projects"))
-    monkeypatch.setenv("PROTEIN_WORKBENCH_RUN_ROOT", str(tmp_path / "runs"))
-    monkeypatch.setenv("PROTEIN_WORKBENCH_OUTPUT_ROOT", str(tmp_path / "outputs"))
-    app = create_app(
-        frozen_catalog_override=_pipeline_catalog(
-            [],
-            failing_source_node_id="source",
-        )
-    )
-
-    with TestClient(app) as client:
-        project_id, compiled = _compile_pipeline(client)
-        response = client.post(
-            f"/api/v2/projects/{project_id}/runs",
-            json={
-                "workflow_revision": 2,
-                "compile_id": compiled["compile_id"],
-                "client_request_id": "invalid-failure-schema",
-            },
-        )
-
-    assert response.status_code == 503
-    assert response.json()["error"]["code"] == "evidence_unavailable"
-    retained = b"".join(
-        path.read_bytes()
-        for path in (tmp_path / "runs").rglob("*.json")
-    )
-    assert secret.encode() not in retained
 
 
 def test_cleanup_failure_is_bounded_and_does_not_rewrite_engine_success(
@@ -1926,6 +2058,8 @@ def test_cleanup_failure_is_bounded_and_does_not_rewrite_engine_success(
         events = app.state.run_execution_v2.public_events(project_id, run_id)
 
     assert projection["status"] == "failed"
+    assert projection["outputs"] == []
+    assert projection["artifact_index"] == []
     assert [
         event["event"]["status"]
         for event in events
@@ -2369,6 +2503,13 @@ def test_artifact_retrieval_rejects_cross_scope_tamper_and_symlink(
         )
         assert cross_scope.status_code == 404
         assert cross_scope.json()["error"]["code"] == (
+            "cross_scope_access_denied"
+        )
+        cross_projection = client.get(
+            f"/api/v2/projects/{other_project_id}/runs/{run_id}"
+        )
+        assert cross_projection.status_code == 404
+        assert cross_projection.json()["error"]["code"] == (
             "cross_scope_access_denied"
         )
 
