@@ -4,7 +4,7 @@
 
 **Blocked by:** 04 — Compile contract-locked v2 Workflows.
 
-**Status:** implementation-complete-awaiting-controller-gate
+**Status:** completed
 
 - [x] Start Run binds an exact Project, Workflow revision, Contract Lock, compile identity, and FrozenCatalog before execution.
 - [x] Trusted Environment Configuration supplies credentials, endpoints, devices, binaries, and runtime paths by Binding scope without persisting secrets or private paths in the Workflow or public evidence.
@@ -56,3 +56,22 @@ acceptance is still required before Ticket 06 may start.
 The executor did not start Ticket 06. The Controller must now run the cumulative
 Tickets 01–05 joint gate; any new regression must be returned to this Ticket 05
 executor before Ticket 06 begins.
+
+## Controller cumulative acceptance
+
+Before Ticket 06 started, the Controller independently accepted implementation
+commit `1f0333d67d2b1b61d8c955963f9015767fa8c654` together with the completed
+Tickets 01–04 surfaces:
+
+- Joint Ticket 01–05 focused suites: `177 passed`.
+- Cumulative routine: `862 passed, 44 deselected`, with retained result
+  `verification-results/routine/20260729T020123.501218Z-55075-85642345796d9b3c`.
+- Deterministic acceptance: `9 passed, 5 deselected`, with retained result
+  `verification-results/deterministic-acceptance/20260729T020302.757579Z-56123-563c08465d89d735`.
+- Installed artifact: `3 passed`, with retained result
+  `verification-results/installed-package/20260729T020353.904556Z-56266-1b1382c56509e37f`.
+- `git diff --check 08b5935...1f0333d` passed and the worktree was clean before
+  the Controller recorded this acceptance.
+
+No Controller regression was returned to the executor. Ticket 06 may start from
+this accepted state.
