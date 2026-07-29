@@ -1315,6 +1315,65 @@ def test_unresolvable_declared_effective_seed_disables_cross_run_cache(
     assert not list((cache_root / project_id).rglob("*.json"))
 
 
+def test_null_declared_effective_seed_disables_cross_run_cache(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    calls: list[str] = []
+    cache_root = tmp_path / "cache"
+    monkeypatch.setenv(
+        "PROTEIN_WORKBENCH_PROJECT_ROOT",
+        str(tmp_path / "projects"),
+    )
+    monkeypatch.setenv("PROTEIN_WORKBENCH_CACHE_ROOT", str(cache_root))
+    monkeypatch.setenv("PROTEIN_WORKBENCH_RUN_ROOT", str(tmp_path / "runs"))
+    monkeypatch.setenv(
+        "PROTEIN_WORKBENCH_OUTPUT_ROOT",
+        str(tmp_path / "outputs"),
+    )
+    app = create_app(
+        frozen_catalog_override=_direct_catalog(
+            calls,
+            cacheable=True,
+            node_parameter_declarations={
+                "effective_seed": {
+                    "parameter_scope": "scientific",
+                    "scientific_meaning": (
+                        "Fixture seed whose effective value is null."
+                    ),
+                    "type": "null",
+                    "default": None,
+                },
+            },
+            effective_randomness_parameters=("effective_seed",),
+        ),
+        v2_environment_configuration={
+            ("test.direct.local", "2.0.0"): {
+                "values": {"credential": "credential-value"},
+            }
+        },
+    )
+
+    with TestClient(app) as client:
+        project_id, compiled = _compile_one_node(client)
+        first, _ = _start_run(client, project_id, compiled, "randomness-null-a")
+        second, _ = _start_run(client, project_id, compiled, "randomness-null-b")
+
+    assert (
+        first["outputs"][0]["result_identity"]
+        == second["outputs"][0]["result_identity"]
+    )
+    assert first["node_dispositions"][0]["resolution"] == "executed"
+    assert second["node_dispositions"][0]["resolution"] == "executed"
+    assert [
+        item for item in calls if item == "execute:test.direct.local"
+    ] == [
+        "execute:test.direct.local",
+        "execute:test.direct.local",
+    ]
+    assert not list((cache_root / project_id).rglob("*.json"))
+
+
 def test_unresolved_port_behavior_identity_disables_cross_run_cache(
     tmp_path,
     monkeypatch,

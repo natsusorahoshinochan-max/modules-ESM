@@ -1219,6 +1219,11 @@ class FrozenCatalog:
         repr=False,
         compare=False,
     )
+    effective_randomness_resolvers: Mapping[tuple[str, str], Any] = field(
+        default_factory=dict,
+        repr=False,
+        compare=False,
+    )
     utility_transforms: Mapping[tuple[str, str], Any] = field(
         default_factory=dict,
         repr=False,
@@ -1346,6 +1351,11 @@ class FrozenCatalog:
             self,
             "readiness_declarations",
             MappingProxyType(dict(self.readiness_declarations)),
+        )
+        object.__setattr__(
+            self,
+            "effective_randomness_resolvers",
+            MappingProxyType(dict(self.effective_randomness_resolvers)),
         )
         object.__setattr__(
             self,
@@ -1486,6 +1496,16 @@ class FrozenCatalog:
             raise CatalogBuildError(
                 f"Unknown Binding readiness {binding_id}@{binding_version}"
             ) from error
+
+    def get_effective_randomness_resolver(
+        self,
+        binding_id: str,
+        binding_version: str,
+    ) -> Any | None:
+        """Return a Binding's optional pre-Cache randomness resolver."""
+        return self.effective_randomness_resolvers.get(
+            (binding_id, binding_version)
+        )
 
     def require_utility_transform(
         self,

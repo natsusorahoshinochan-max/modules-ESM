@@ -111,6 +111,22 @@ def test_randomness_declaration_has_one_unambiguous_parameter_scope() -> None:
         )
 
 
+def test_randomness_declaration_is_bounded_like_the_public_contract() -> None:
+    binding = next(
+        binding
+        for binding in MODULE_PACKAGE.bindings
+        if binding.binding_id == "prompt_authoring.random_mask.direct"
+    )
+
+    with pytest.raises(CatalogBuildError, match="at most 256"):
+        replace(
+            binding,
+            effective_randomness_parameters=tuple(
+                f"randomness_{index}" for index in range(257)
+            ),
+        )
+
+
 def test_random_mask_clears_only_seeded_assigned_sequence_positions(
     tmp_path: Path,
 ) -> None:
@@ -188,24 +204,24 @@ def test_masked_insertion_handles_repeated_chain_boundary_choices(
         "A,B",
         6,
         [
-            "A:1",
             "A:masked.1.2",
-            "A:masked.1.3",
+            "A:1",
             "A:2",
-            "A:masked.1.1",
+            "B:masked.1.1",
+            "B:masked.1.3",
             "B:1",
         ],
     )
     assert inserted.sequence_track == ResidueTrack(
-        ["A", None, None, "G", None, "S"],
+        [None, "A", "G", None, None, "S"],
         None,
     )
     assert inserted.secondary_structure_track == ResidueTrack(
-        ["H", None, None, "E", None, "-"],
+        [None, "H", "E", None, None, "-"],
         None,
     )
     assert inserted.structure_visibility_track == ResidueTrack(
-        [True, None, None, True, None, False],
+        [None, True, True, None, None, False],
         None,
     )
     assert [
@@ -216,13 +232,13 @@ def test_masked_insertion_handles_repeated_chain_boundary_choices(
             annotation.end_residue_id,
         )
         for annotation in inserted.function_annotations.annotations
-    ] == [(1, 4, "A:1", "A:2")]
+    ] == [(2, 3, "A:1", "A:2")]
     residue_map = decoded_output(catalog, outputs["residue_map"])
     assert residue_map.mappings == [
-        (0, 0, "match"),
-        (-1, 1, "insert"),
-        (-1, 2, "insert"),
-        (1, 3, "match"),
+        (-1, 0, "insert"),
+        (0, 1, "match"),
+        (1, 2, "match"),
+        (-1, 3, "insert"),
         (-1, 4, "insert"),
         (2, 5, "match"),
     ]
@@ -340,6 +356,119 @@ def test_every_stochastic_parameter_participates_in_result_identity(
     assert len(set(identities[:5])) == 5
     assert identities[-1] == identities[0]
     assert values[-1] == values[0]
+
+
+@pytest.mark.parametrize(
+    ("operation", "first_eligibility", "second_eligibility"),
+    (
+        (
+            "random_mask",
+            ["B:1", "A:2", "A:1"],
+            ["A:1", "A:2", "B:1"],
+        ),
+        (
+            "random_insert_masked",
+            ["B", "A"],
+            ["A", "B"],
+        ),
+    ),
+)
+def test_effective_eligibility_set_order_does_not_change_result_identity(
+    tmp_path: Path,
+    operation: str,
+    first_eligibility: list[str],
+    second_eligibility: list[str],
+) -> None:
+    parameter_name = (
+        "eligible_residue_ids"
+        if operation == "random_mask"
+        else "eligible_chain_ids"
+    )
+    common = {"effective_seed": 73, "count": 1}
+    if operation == "random_mask":
+        common["track"] = "sequence"
+    identities = []
+    values = []
+    for label, eligibility in (
+        ("first", first_eligibility),
+        ("second", second_eligibility),
+    ):
+        _, projection, _ = run_operation(
+            tmp_path / label,
+            operation=operation,
+            node_parameters={**common, parameter_name: eligibility},
+            source_edges=(
+                WorkflowEdge(
+                    "source",
+                    "protein_prompt",
+                    "author",
+                    "protein_prompt",
+                ),
+            ),
+        )
+        output = next(
+            output
+            for output in projection["outputs"]
+            if output["node_id"] == "author"
+            and output["output_port"] == "protein_prompt"
+        )
+        identities.append(output["result_identity"])
+        values.append(output["values"])
+
+    assert identities[0] == identities[1]
+    assert values[0] == values[1]
+
+
+@pytest.mark.parametrize(
+    ("operation", "explicit_eligibility"),
+    (
+        ("random_mask", ["A:1", "A:2", "B:1"]),
+        ("random_insert_masked", ["A", "B"]),
+    ),
+)
+def test_empty_eligibility_resolves_to_the_same_effective_full_set(
+    tmp_path: Path,
+    operation: str,
+    explicit_eligibility: list[str],
+) -> None:
+    parameter_name = (
+        "eligible_residue_ids"
+        if operation == "random_mask"
+        else "eligible_chain_ids"
+    )
+    common = {"effective_seed": 73, "count": 1}
+    if operation == "random_mask":
+        common["track"] = "sequence"
+    identities = []
+    values = []
+    for label, eligibility in (
+        ("shorthand", []),
+        ("explicit", explicit_eligibility),
+    ):
+        _, projection, _ = run_operation(
+            tmp_path / label,
+            operation=operation,
+            node_parameters={**common, parameter_name: eligibility},
+            source_edges=(
+                WorkflowEdge(
+                    "source",
+                    "protein_prompt",
+                    "author",
+                    "protein_prompt",
+                ),
+            ),
+        )
+        output = next(
+            output
+            for output in projection["outputs"]
+            if output["node_id"] == "author"
+            and output["output_port"] == "protein_prompt"
+        )
+        identities.append(output["result_identity"])
+        values.append(output["values"])
+
+    assert identities[0] == identities[1]
+    assert values[0] == values[1]
 
 
 def test_zero_and_full_masks_preserve_nullable_track_semantics(
@@ -691,7 +820,7 @@ def test_canonical_3gb1_mask_and_insert_intent_is_an_ordinary_regression(
         "protein.prompt",
         "2.1.0",
     ).content_digest(inserted) == (
-        "sha256:6b15097b6d529e25fe70f3e7f369a96801db0453a7d9293e571c64248f83a8b4"
+        "sha256:9f1c46bbd5f298883e6f3dfb3c90106eba08dcdb020248b0169bc48049a1ce62"
     )
     method = catalog.require_contract(
         "method",
@@ -699,7 +828,7 @@ def test_canonical_3gb1_mask_and_insert_intent_is_an_ordinary_regression(
         VERSION,
     )
     assert method.descriptor["algorithm_identity"]["sampling"] == (
-        "sha256-counter-modulo-v1"
+        "sha256-boundary-set-digest-counter-modulo-v1"
     )
 
 

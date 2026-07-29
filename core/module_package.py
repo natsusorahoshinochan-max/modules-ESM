@@ -282,6 +282,23 @@ class LazyImplementationFactory:
 
 
 @dataclass(frozen=True, slots=True)
+class EffectiveRandomnessResolver:
+    """Private pre-Cache resolver paired with a stable behavior identity."""
+
+    behavior: BehaviorReference
+    resolve: Callable[..., Mapping[str, Any]] = field(
+        repr=False,
+        compare=False,
+    )
+
+    def __post_init__(self) -> None:
+        if not callable(self.resolve):
+            raise CatalogBuildError(
+                "effective randomness resolver must be callable"
+            )
+
+
+@dataclass(frozen=True, slots=True)
 class AvailabilityResult:
     """One structured startup Availability conclusion."""
 
@@ -659,6 +676,11 @@ class ExecutionBindingDefinition:
     adapter_behavior: BehaviorReference | None = None
     observation_propagation: ObservationPropagationDefinition | None = None
     effective_randomness_parameters: tuple[str, ...] = ()
+    effective_randomness_resolver: EffectiveRandomnessResolver | None = field(
+        default=None,
+        repr=False,
+        compare=False,
+    )
 
     def __post_init__(self) -> None:
         _require_identifier(self.binding_id, "binding_id")
@@ -693,10 +715,21 @@ class ExecutionBindingDefinition:
             raise CatalogBuildError(
                 "effective_randomness_parameters must contain unique names"
             )
+        if len(randomness_parameters) > 256:
+            raise CatalogBuildError(
+                "effective_randomness_parameters must contain at most 256 names"
+            )
         for parameter in randomness_parameters:
             _require_identifier(
                 parameter,
                 "effective randomness parameter",
+            )
+        if (
+            self.effective_randomness_resolver is not None
+            and not randomness_parameters
+        ):
+            raise CatalogBuildError(
+                "effective randomness resolver requires declared parameters"
             )
         object.__setattr__(
             self,
@@ -757,6 +790,10 @@ class ExecutionBindingDefinition:
         if self.adapter_behavior is not None:
             implementation_identity["adapter"] = (
                 self.adapter_behavior.descriptor()
+            )
+        if self.effective_randomness_resolver is not None:
+            implementation_identity["effective_randomness_resolver"] = (
+                self.effective_randomness_resolver.behavior.descriptor()
             )
         descriptor = {
             "schema_namespace": CONTRACT_NAMESPACE,
@@ -1981,6 +2018,10 @@ def build_frozen_catalog(
         tuple[str, str],
         ReadinessDeclaration,
     ] = {}
+    effective_randomness_resolvers: dict[
+        tuple[str, str],
+        EffectiveRandomnessResolver,
+    ] = {}
     for key in sorted(bindings_by_key):
         _, binding = bindings_by_key[key]
         contract = resolved[key]
@@ -2018,6 +2059,10 @@ def build_frozen_catalog(
         runtime_key = (binding.binding_id, binding.version)
         factories[runtime_key] = binding.factory
         readiness[runtime_key] = binding.readiness
+        if binding.effective_randomness_resolver is not None:
+            effective_randomness_resolvers[runtime_key] = (
+                binding.effective_randomness_resolver
+            )
 
     owners = {
         key: frozenset(owner_set)
@@ -2033,6 +2078,7 @@ def build_frozen_catalog(
         availability_observed_at=observation_time,
         factories=factories,
         readiness_declarations=readiness,
+        effective_randomness_resolvers=effective_randomness_resolvers,
         utility_transforms=utility_runtime,
         owners=owners,
     )

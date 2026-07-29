@@ -2640,22 +2640,50 @@ def _result_identity_descriptor(
         "effective_randomness_parameters"
     )
     if declared_randomness:
-        effective_randomness: dict[str, Any] = {}
-        for parameter_name in declared_randomness:
-            node_has_parameter = parameter_name in resolved_node_parameters
-            binding_has_parameter = parameter_name in resolved_binding_parameters
-            if node_has_parameter == binding_has_parameter:
-                effective_randomness[parameter_name] = {
-                    "resolution": "unresolved",
-                }
-            elif node_has_parameter:
-                effective_randomness[parameter_name] = (
+        resolver = catalog.get_effective_randomness_resolver(
+            node.binding.contract_id,
+            node.binding.contract_version,
+        )
+        if resolver is None:
+            resolved_randomness: Mapping[str, Any] = {
+                parameter_name: (
                     resolved_node_parameters[parameter_name]
+                    if parameter_name in resolved_node_parameters
+                    and parameter_name not in resolved_binding_parameters
+                    else (
+                        resolved_binding_parameters[parameter_name]
+                        if parameter_name in resolved_binding_parameters
+                        and parameter_name not in resolved_node_parameters
+                        else {"resolution": "unresolved"}
+                    )
                 )
-            else:
-                effective_randomness[parameter_name] = (
-                    resolved_binding_parameters[parameter_name]
+                for parameter_name in declared_randomness
+            }
+        else:
+            resolved_randomness = resolver.resolve(
+                inputs=inputs,
+                node_parameters=resolved_node_parameters,
+                binding_parameters=resolved_binding_parameters,
+            )
+            if (
+                not isinstance(resolved_randomness, Mapping)
+                or set(resolved_randomness) != set(declared_randomness)
+            ):
+                raise ValueError(
+                    "effective randomness resolver must return every "
+                    "declared parameter exactly once"
                 )
+        effective_randomness = {
+            parameter_name: (
+                {"resolution": "unresolved"}
+                if resolved_randomness[parameter_name] is None
+                else _plain_json(resolved_randomness[parameter_name])
+            )
+            for parameter_name in declared_randomness
+        }
+        for parameter_name in declared_randomness:
+            resolved_node_parameters.pop(parameter_name, None)
+            resolved_binding_parameters.pop(parameter_name, None)
     else:
         effective_randomness = {
             key: value

@@ -8,6 +8,7 @@ from core import (
     BehaviorReference,
     ContractIdentity,
     DefinitionResource,
+    EffectiveRandomnessResolver,
     ExecutionBindingDefinition,
     LazyImplementationFactory,
     MethodDefinition,
@@ -27,6 +28,10 @@ from .implementation import (
     UpdatePromptSequenceImplementation,
 )
 from .prompt_types import PROMPT_PORT_TYPES
+from .stochastic import (
+    resolve_random_insert_effective_randomness,
+    resolve_random_mask_effective_randomness,
+)
 from .track_types import ALIGNED_TRACK_PORT_TYPES
 
 
@@ -107,14 +112,16 @@ def _method(operation: str) -> MethodDefinition:
         },
         "random_insert_masked": {
             "name": "seeded-chain-local-masked-residue-insertion",
-            "sampling": "sha256-counter-modulo-v1",
+            "sampling": "sha256-boundary-set-digest-counter-modulo-v1",
             "replacement": "with-replacement-across-eligible-boundaries",
+            "eligibility": "canonical-unordered-effective-chain-set-v1",
             "inserted_values": "explicit-null-on-every-present-track",
         },
         "random_mask": {
             "name": "seeded-assigned-residue-masking",
             "sampling": "sha256-residue-ranking-v1",
             "replacement": "without-replacement",
+            "eligibility": "canonical-unordered-assigned-residue-set-v1",
             "masked_value": "explicit-null",
         },
         "update_prompt_sequence": {
@@ -152,6 +159,10 @@ def _binding(operation: str) -> ExecutionBindingDefinition:
             "eligible_chain_ids",
         ),
     }.get(operation, ())
+    randomness_resolvers = {
+        "random_mask": resolve_random_mask_effective_randomness,
+        "random_insert_masked": resolve_random_insert_effective_randomness,
+    }
     return ExecutionBindingDefinition(
         binding_id=f"prompt_authoring.{operation}.direct",
         version=_VERSION,
@@ -200,6 +211,18 @@ def _binding(operation: str) -> ExecutionBindingDefinition:
             "source": "repository-owned",
         },
         effective_randomness_parameters=randomness_parameters,
+        effective_randomness_resolver=(
+            EffectiveRandomnessResolver(
+                behavior=BehaviorReference(
+                    f"prompt_authoring.{operation}/effective-randomness",
+                    _VERSION,
+                    {"normalization": "canonical-effective-set-v1"},
+                ),
+                resolve=randomness_resolvers[operation],
+            )
+            if operation in randomness_resolvers
+            else None
+        ),
     )
 
 

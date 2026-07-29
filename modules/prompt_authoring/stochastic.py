@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
 import hashlib
+from typing import Any
 
 from core.port_types import canonical_json_bytes
 from datatypes import (
@@ -91,6 +92,145 @@ def _copy_prompt(
     )
 
 
+def _resolved_seed_and_count(
+    effective_seed: object,
+    count: object,
+) -> tuple[int, int]:
+    if (
+        type(effective_seed) is not int
+        or effective_seed < 0
+        or effective_seed > 9_007_199_254_740_991
+    ):
+        raise ValueError("effective_seed must be a resolved I-JSON integer")
+    if type(count) is not int or count < 0:
+        raise ValueError("count must be a non-negative integer")
+    return effective_seed, count
+
+
+def _unique_string_sequence(
+    value: object,
+    *,
+    parameter_name: str,
+    identity_kind: str,
+) -> tuple[str, ...]:
+    if not isinstance(value, Sequence) or isinstance(
+        value,
+        (str, bytes, bytearray),
+    ):
+        raise ValueError(f"{parameter_name} must be an array")
+    if (
+        any(not isinstance(item, str) for item in value)
+        or len(set(value)) != len(value)
+    ):
+        raise ValueError(
+            f"{parameter_name} must contain unique {identity_kind} identities"
+        )
+    return tuple(value)
+
+
+def _resolved_mask_parameters(
+    prompt: object,
+    *,
+    effective_seed: object,
+    count: object,
+    track: object,
+    eligible_residue_ids: object,
+) -> tuple[
+    ProteinPrompt,
+    int,
+    int,
+    str,
+    tuple[str, ...],
+]:
+    source = validate_protein_prompt(prompt)
+    resolved_seed, resolved_count = _resolved_seed_and_count(
+        effective_seed,
+        count,
+    )
+    if track not in _TRACK_ATTRIBUTE:
+        raise ValueError("track must identify one declared ProteinPrompt track")
+    declared_eligibility = _unique_string_sequence(
+        eligible_residue_ids,
+        parameter_name="eligible_residue_ids",
+        identity_kind="residue",
+    )
+    target_layout = source.target_layout
+    assert target_layout is not None
+    residue_ids = tuple(target_layout.residue_ids or ())
+    residue_index = {
+        residue_id: index for index, residue_id in enumerate(residue_ids)
+    }
+    if set(declared_eligibility) - set(residue_index):
+        raise ValueError("eligible_residue_ids contains an unknown residue")
+    attribute = _TRACK_ATTRIBUTE[track]
+    selected_track = getattr(source, attribute)
+    if selected_track is None:
+        raise ValueError(f"protein_prompt has no {track} track to mask")
+    allowed = declared_eligibility or residue_ids
+    effective_eligibility = tuple(sorted(
+        residue_id
+        for residue_id in allowed
+        if selected_track.values[residue_index[residue_id]] is not None
+    ))
+    if resolved_count > len(effective_eligibility):
+        raise ValueError("count exceeds assigned eligible track positions")
+    return (
+        source,
+        resolved_seed,
+        resolved_count,
+        track,
+        effective_eligibility,
+    )
+
+
+def resolve_random_mask_effective_randomness(
+    *,
+    inputs: Mapping[str, Any],
+    node_parameters: Mapping[str, Any],
+    binding_parameters: Mapping[str, Any],
+) -> dict[str, Any]:
+    """Resolve the canonical effective random-mask set before Cache lookup."""
+    if binding_parameters:
+        raise ValueError("random_mask accepts no Binding parameters")
+    source = validate_protein_prompt(inputs["protein_prompt"])
+    seed = node_parameters.get("effective_seed")
+    count = node_parameters.get("count")
+    track = node_parameters.get("track")
+    declared_eligibility = _unique_string_sequence(
+        node_parameters.get("eligible_residue_ids"),
+        parameter_name="eligible_residue_ids",
+        identity_kind="residue",
+    )
+    target_layout = source.target_layout
+    assert target_layout is not None
+    residue_ids = tuple(target_layout.residue_ids or ())
+    residue_index = {
+        residue_id: index for index, residue_id in enumerate(residue_ids)
+    }
+    selected_track = (
+        getattr(source, _TRACK_ATTRIBUTE[track])
+        if track in _TRACK_ATTRIBUTE
+        else None
+    )
+    if (
+        selected_track is None
+        or set(declared_eligibility) - set(residue_index)
+    ):
+        eligibility = tuple(sorted(declared_eligibility))
+    else:
+        eligibility = tuple(sorted(
+            residue_id
+            for residue_id in (declared_eligibility or residue_ids)
+            if selected_track.values[residue_index[residue_id]] is not None
+        ))
+    return {
+        "effective_seed": seed,
+        "count": count,
+        "track": track,
+        "eligible_residue_ids": list(eligibility),
+    }
+
+
 def random_mask_prompt(
     prompt: object,
     *,
@@ -100,54 +240,32 @@ def random_mask_prompt(
     eligible_residue_ids: object,
 ) -> ProteinPrompt:
     """Clear exactly ``count`` seeded assigned values on one declared track."""
-    source = validate_protein_prompt(prompt)
-    if (
-        type(effective_seed) is not int
-        or effective_seed < 0
-        or effective_seed > 9_007_199_254_740_991
-    ):
-        raise ValueError("effective_seed must be a resolved I-JSON integer")
-    if type(count) is not int or count < 0:
-        raise ValueError("count must be a non-negative integer")
-    if track not in _TRACK_ATTRIBUTE:
-        raise ValueError("track must identify one declared ProteinPrompt track")
-    if not isinstance(eligible_residue_ids, Sequence) or isinstance(
-        eligible_residue_ids,
-        (str, bytes, bytearray),
-    ):
-        raise ValueError("eligible_residue_ids must be an ordered array")
-    if (
-        any(not isinstance(item, str) for item in eligible_residue_ids)
-        or len(set(eligible_residue_ids)) != len(eligible_residue_ids)
-    ):
-        raise ValueError("eligible_residue_ids must be unique residue identities")
-
+    (
+        source,
+        effective_seed,
+        count,
+        track,
+        effective_eligibility,
+    ) = _resolved_mask_parameters(
+        prompt,
+        effective_seed=effective_seed,
+        count=count,
+        track=track,
+        eligible_residue_ids=eligible_residue_ids,
+    )
     target_layout = source.target_layout
     assert target_layout is not None
     residue_ids = tuple(target_layout.residue_ids or ())
     residue_index = {
         residue_id: index for index, residue_id in enumerate(residue_ids)
     }
-    unknown = set(eligible_residue_ids) - set(residue_index)
-    if unknown:
-        raise ValueError("eligible_residue_ids contains an unknown residue")
-
     attribute = _TRACK_ATTRIBUTE[track]
     selected_track = getattr(source, attribute)
-    if selected_track is None:
-        raise ValueError(f"protein_prompt has no {track} track to mask")
-    allowed = (
-        tuple(eligible_residue_ids)
-        if eligible_residue_ids
-        else residue_ids
-    )
+    assert selected_track is not None
     candidates = [
         residue_index[residue_id]
-        for residue_id in allowed
-        if selected_track.values[residue_index[residue_id]] is not None
+        for residue_id in effective_eligibility
     ]
-    if count > len(candidates):
-        raise ValueError("count exceeds assigned eligible track positions")
 
     chosen = set(
         sorted(
@@ -174,6 +292,77 @@ def random_mask_prompt(
     return validate_protein_prompt(result)
 
 
+def _resolved_insert_parameters(
+    prompt: object,
+    *,
+    effective_seed: object,
+    count: object,
+    eligible_chain_ids: object,
+) -> tuple[ProteinPrompt, int, int, tuple[str, ...]]:
+    source = validate_protein_prompt(prompt)
+    resolved_seed, resolved_count = _resolved_seed_and_count(
+        effective_seed,
+        count,
+    )
+    declared_eligibility = _unique_string_sequence(
+        eligible_chain_ids,
+        parameter_name="eligible_chain_ids",
+        identity_kind="chain",
+    )
+    source_layout = source.target_layout
+    assert source_layout is not None
+    if source_layout.length + resolved_count > 2_000_000:
+        raise ValueError("inserted layout exceeds the supported residue bound")
+    chain_order = tuple(source_layout.chain_id.split(","))
+    if set(declared_eligibility) - set(chain_order):
+        raise ValueError("eligible_chain_ids contains an unknown chain")
+    effective_eligibility = tuple(sorted(
+        declared_eligibility or chain_order
+    ))
+    if resolved_count and not effective_eligibility:
+        raise ValueError("no eligible chain-local insertion boundary exists")
+    return (
+        source,
+        resolved_seed,
+        resolved_count,
+        effective_eligibility,
+    )
+
+
+def resolve_random_insert_effective_randomness(
+    *,
+    inputs: Mapping[str, Any],
+    node_parameters: Mapping[str, Any],
+    binding_parameters: Mapping[str, Any],
+) -> dict[str, Any]:
+    """Resolve the canonical effective insertion set before Cache lookup."""
+    if binding_parameters:
+        raise ValueError("random_insert_masked accepts no Binding parameters")
+    source = validate_protein_prompt(inputs["protein_prompt"])
+    seed = node_parameters.get("effective_seed")
+    count = node_parameters.get("count")
+    declared_eligibility = _unique_string_sequence(
+        node_parameters.get("eligible_chain_ids"),
+        parameter_name="eligible_chain_ids",
+        identity_kind="chain",
+    )
+    source_layout = source.target_layout
+    assert source_layout is not None
+    chain_order = tuple(source_layout.chain_id.split(","))
+    eligibility = tuple(sorted(
+        (
+            declared_eligibility
+            if set(declared_eligibility) - set(chain_order)
+            else (declared_eligibility or chain_order)
+        )
+    ))
+    return {
+        "effective_seed": seed,
+        "count": count,
+        "eligible_chain_ids": list(eligibility),
+    }
+
+
 def random_insert_masked(
     prompt: object,
     *,
@@ -182,41 +371,18 @@ def random_insert_masked(
     eligible_chain_ids: object,
 ) -> tuple[ProteinPrompt, ResidueMap]:
     """Insert seeded chain-local nullable residues across every present track."""
-    source = validate_protein_prompt(prompt)
-    if (
-        type(effective_seed) is not int
-        or effective_seed < 0
-        or effective_seed > 9_007_199_254_740_991
-    ):
-        raise ValueError("effective_seed must be a resolved I-JSON integer")
-    if type(count) is not int or count < 0:
-        raise ValueError("count must be a non-negative integer")
-    if not isinstance(eligible_chain_ids, Sequence) or isinstance(
-        eligible_chain_ids,
-        (str, bytes, bytearray),
-    ):
-        raise ValueError("eligible_chain_ids must be an ordered array")
-    if (
-        any(not isinstance(item, str) for item in eligible_chain_ids)
-        or len(set(eligible_chain_ids)) != len(eligible_chain_ids)
-    ):
-        raise ValueError("eligible_chain_ids must be unique chain identities")
-
+    source, effective_seed, count, selected_chains = (
+        _resolved_insert_parameters(
+            prompt,
+            effective_seed=effective_seed,
+            count=count,
+            eligible_chain_ids=eligible_chain_ids,
+        )
+    )
     source_layout = source.target_layout
     assert source_layout is not None
-    if source_layout.length + count > 2_000_000:
-        raise ValueError("inserted layout exceeds the supported residue bound")
     source_ids = tuple(source_layout.residue_ids or ())
     chain_order = tuple(source_layout.chain_id.split(","))
-    if set(eligible_chain_ids) - set(chain_order):
-        raise ValueError("eligible_chain_ids contains an unknown chain")
-    selected_chains = (
-        tuple(eligible_chain_ids)
-        if eligible_chain_ids
-        else chain_order
-    )
-    if count and not selected_chains:
-        raise ValueError("no eligible chain-local insertion boundary exists")
 
     positions_by_chain: dict[str, list[int]] = {
         chain_id: [] for chain_id in chain_order
@@ -237,6 +403,24 @@ def random_insert_masked(
     if count and not boundaries:
         raise ValueError("no eligible insertion boundary exists")
 
+    boundary_set_digest = (
+        "sha256:"
+        + hashlib.sha256(
+            canonical_json_bytes(
+                {
+                    "schema_namespace": _RANDOMNESS_NAMESPACE,
+                    "operation": "random_insert_masked",
+                    "eligible_boundaries": [
+                        {
+                            "chain_id": chain_id,
+                            "source_position": source_position,
+                        }
+                        for chain_id, source_position in boundaries
+                    ],
+                }
+            )
+        ).hexdigest()
+    )
     selections = [
         (
             *boundaries[
@@ -246,13 +430,7 @@ def random_insert_masked(
                         effective_seed=effective_seed,
                         draw=ordinal,
                         candidate={
-                            "eligible_boundaries": [
-                                {
-                                    "chain_id": chain_id,
-                                    "source_position": source_position,
-                                }
-                                for chain_id, source_position in boundaries
-                            ],
+                            "eligible_boundaries_digest": boundary_set_digest,
                         },
                     ),
                     "big",
