@@ -4,7 +4,7 @@
 
 **Blocked by:** 07 — Replay events and reconcile backend restart.
 
-**Status:** awaiting-controller
+**Status:** completed
 
 - [x] Cancel Run is idempotent and reports a deterministic result for repeated requests, already-terminal Runs, and cancellation/completion races using Ledger ordering.
 - [x] Cancellation prevents unscheduled Nodes from starting, requests cleanup of active work, and produces correct Attempt terminals and Node Dispositions without false Invocation success.
@@ -51,3 +51,33 @@ this state.
   artifact cleanup gaps, and an artifact retrieval visibility window. The
   executor repaired all findings, added focused regressions, and both final
   review axes returned `APPROVE` at `f8f84cb`.
+
+## Controller cumulative acceptance
+
+Before Ticket 09 started, Controller independently accepted executor commit
+`72669f8103eab3a7f19545d21f63a84d51fd6574` against the previously accepted
+Tickets 01–07 gate `8bd3362e9178d55f5d1d13ce9b9cfbb41001ac4e`.
+
+- Joint Tickets 01–08 focused suites:
+  `uv run --no-sync python -m pytest -q tests/test_public_protocol_v2.py
+  tests/test_port_types_v2.py tests/test_module_packages_v2.py
+  tests/test_workflow_compiler_v2.py tests/test_run_execution_v2.py
+  tests/test_run_cancel_derive_v2.py` → `221 passed`.
+- Cumulative routine gate:
+  `uv run --no-sync python scripts/verify_backend.py routine` →
+  `907 passed, 44 deselected`; retained result
+  `verification-results/routine/20260729T044107.894486Z-90019-87f6cd8d8e8fd0ab`.
+- Deterministic acceptance:
+  `uv run --no-sync python scripts/verify_backend.py
+  deterministic-acceptance` → `9 passed, 5 deselected`; retained result
+  `verification-results/deterministic-acceptance/20260729T044256.434151Z-90760-4d1edd097bd636b8`.
+- Installed artifact:
+  `uv run --no-sync python scripts/verify_backend.py installed-package` →
+  `3 passed`; retained result
+  `verification-results/installed-package/20260729T044344.454512Z-90907-bc23c20a29997c99`.
+- `git diff --check
+  8bd3362e9178d55f5d1d13ce9b9cfbb41001ac4e...72669f8103eab3a7f19545d21f63a84d51fd6574`
+  passed.
+
+No Controller regression was found, so Ticket 08 is accepted and Ticket 09
+may start.
