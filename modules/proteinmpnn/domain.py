@@ -20,6 +20,50 @@ _RESIDUE_ID = re.compile(
     r"(?P<label>[A-Za-z0-9][A-Za-z0-9_.-]{0,63})$"
 )
 _MAX_SEED = 9_007_199_254_740_991
+_CANONICAL_AMINO_ACIDS = frozenset("ACDEFGHIKLMNPQRSTVWY")
+
+
+def normalize_design_parameters(
+    node_parameters: Mapping[str, Any],
+    binding_parameters: Mapping[str, Any],
+) -> dict[str, int | float]:
+    """Validate and normalize the one shared v2 design parameter contract."""
+    if binding_parameters or set(node_parameters) != {
+        "effective_seed",
+        "num_sequences",
+        "temperature",
+        "backbone_noise",
+    }:
+        raise ValueError(
+            "ProteinMPNN design parameters are not fully resolved"
+        )
+    seed = node_parameters["effective_seed"]
+    count = node_parameters["num_sequences"]
+    temperature = node_parameters["temperature"]
+    noise = node_parameters["backbone_noise"]
+    if (
+        type(seed) is not int
+        or not 0 <= seed <= _MAX_SEED
+        or type(count) is not int
+        or not 1 <= count <= 100
+        or isinstance(temperature, bool)
+        or not isinstance(temperature, (int, float))
+        or not math.isfinite(float(temperature))
+        or not 0 < float(temperature) <= 10
+        or isinstance(noise, bool)
+        or not isinstance(noise, (int, float))
+        or not math.isfinite(float(noise))
+        or not 0 <= float(noise) <= 10
+    ):
+        raise ValueError(
+            "ProteinMPNN design parameters are outside their contract"
+        )
+    return {
+        "effective_seed": seed,
+        "num_sequences": count,
+        "temperature": float(temperature),
+        "backbone_noise": float(noise),
+    }
 
 
 def validate_layout(
@@ -180,6 +224,12 @@ def validate_constraints_against_layout(
 ) -> None:
     """Apply every layout- and chain-dependent constraint invariant."""
     validate_proteinmpnn_constraints(constraints)
+    if _CANONICAL_AMINO_ACIDS <= set(
+        constraints.omit_amino_acids or ()
+    ):
+        raise ValueError(
+            "omit_amino_acids must leave at least one canonical amino acid"
+        )
     if chain_order is None or residue_chains is None:
         _, resolved_order, resolved_residue_chains = validate_layout(layout)
         chain_order = resolved_order

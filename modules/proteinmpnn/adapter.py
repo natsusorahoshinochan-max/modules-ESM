@@ -207,6 +207,7 @@ class ProteinMPNNProvider(Protocol):
     """External provider boundary used by the adapter."""
 
     provider_identity: str
+    provider_contract_identity: str
 
     def parse_structure(self, pdb_string: str) -> list[dict[str, Any]]:
         """Parse a PDB string into ProteinMPNN's structure representation."""

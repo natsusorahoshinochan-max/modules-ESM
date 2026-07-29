@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
+from dataclasses import replace
 import hashlib
 import importlib.metadata
 import json
@@ -66,6 +67,8 @@ def proteinmpnn_readiness(
         if (
             not callable(getattr(client, "parse_structure", None))
             or not callable(getattr(client, "design", None))
+            or getattr(client, "provider_contract_identity", None)
+            != configured_runtime_fingerprint()
         ):
             return ReadinessResult(
                 False,
@@ -122,6 +125,16 @@ def provider_for_environment(
     """Resolve the declared provider seam without accepting Workflow paths."""
     client = environment.get("provider_client")
     if client is not None:
+        if (
+            not callable(getattr(client, "parse_structure", None))
+            or not callable(getattr(client, "design", None))
+            or getattr(client, "provider_contract_identity", None)
+            != configured_runtime_fingerprint()
+        ):
+            raise RuntimeError(
+                "ProteinMPNN provider client does not match the locked "
+                "provider contract identity"
+            )
         return client
     provider_root = environment.get("provider_root")
     if not isinstance(provider_root, Path):
@@ -148,8 +161,21 @@ def prepare_design_request(
     """Normalize all public design inputs into one provider request."""
     if type(structure) is not ProteinStructure:
         raise ValueError("structure must be one complete ProteinStructure")
+    if constraints is not None and _CANONICAL_AMINO_ACIDS <= set(
+        constraints.omit_amino_acids or ()
+    ):
+        raise ValueError(
+            "omit_amino_acids must leave at least one canonical amino acid"
+        )
+    if (
+        reference_sequence is not None
+        and not set(reference_sequence.sequence) <= _CANONICAL_AMINO_ACIDS
+    ):
+        raise ValueError(
+            "reference sequence must contain only canonical amino acids"
+        )
     parsed = provider.parse_structure(structure.pdb_string)
-    return _prepare_design_request(
+    request = _prepare_design_request(
         parsed,
         PROTEINMPNN_MODEL,
         num_sequences,
@@ -163,6 +189,17 @@ def prepare_design_request(
             else None
         ),
     )
+    if reference_sequence is not None and (
+        reference_sequence.residue_ids != _target_residue_ids(request)
+    ):
+        raise ValueError(
+            "reference sequence residue layout does not match the "
+            "parsed structure layout"
+        )
+    omitted = list(request.omit_amino_acids)
+    if "X" not in omitted:
+        omitted.append("X")
+    return replace(request, omit_amino_acids=omitted)
 
 
 def _target_residue_ids(

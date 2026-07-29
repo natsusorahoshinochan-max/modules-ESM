@@ -28,6 +28,7 @@ from datatypes import (
     CandidateCollection,
     ProteinMPNNConstraints,
     ProteinSequence,
+    ProteinStructure,
 )
 
 
@@ -390,6 +391,11 @@ class _CapturingProteinMPNN:
     provider_identity = "fixture-proteinmpnn-v_48_020"
 
     def __init__(self) -> None:
+        from modules.proteinmpnn.v2_adapter import (
+            configured_runtime_fingerprint,
+        )
+
+        self.provider_contract_identity = configured_runtime_fingerprint()
         self.parsed: list[str] = []
         self.requests: list[Any] = []
 
@@ -593,7 +599,7 @@ def test_design_produces_canonical_three_parent_by_five_child_lineage(
         == {"target": {"A": [2], "B": [2]}}
         and request.tied_positions_dict
         == {"target": [{"A": [1], "B": [1]}]}
-        and request.omit_amino_acids == ["C", "M"]
+        and request.omit_amino_acids == ["C", "M", "X"]
         and request.reference_sequences == {"A": "AG", "B": "STW"}
         and request.bias_by_res_dict is not None
         and request.bias_by_res_dict["target"]["B"][2][
@@ -731,6 +737,54 @@ def test_readiness_validates_the_exact_checkout_checkpoint_and_runtime(
         }
     ).passing is False
 
+    provider = _CapturingProteinMPNN()
+    provider.provider_contract_identity = "sha256:" + "0" * 64
+    assert proteinmpnn_readiness(
+        {
+            "device": "cpu",
+            "resolved_runtime_fingerprint": (
+                configured_runtime_fingerprint()
+            ),
+            "provider_client": provider,
+        }
+    ).passing is False
+
+
+def test_design_rejects_noncanonical_sampling_and_reference_layout_drift() -> None:
+    from modules.proteinmpnn.v2_adapter import prepare_design_request
+
+    provider = _CapturingProteinMPNN()
+    structure = ProteinStructure("REMARK exact-layout\nEND\n")
+
+    with pytest.raises(ValueError, match="canonical amino acid"):
+        prepare_design_request(
+            provider=provider,
+            structure=structure,
+            num_sequences=1,
+            temperature=0.1,
+            backbone_noise=0,
+            seed=1603,
+            constraints=ProteinMPNNConstraints(
+                omit_amino_acids=list("ACDEFGHIKLMNPQRSTVWY"),
+            ),
+            reference_sequence=None,
+        )
+
+    with pytest.raises(ValueError, match="residue layout"):
+        prepare_design_request(
+            provider=provider,
+            structure=structure,
+            num_sequences=1,
+            temperature=0.1,
+            backbone_noise=0,
+            seed=1603,
+            constraints=None,
+            reference_sequence=ProteinSequence(
+                "AGSTW",
+                ["B:3", "B:2", "B:1", "A:2", "A:1"],
+            ),
+        )
+
 
 def test_design_normalizes_one_standalone_structure_without_inventing_a_parent(
     tmp_path: Path,
@@ -786,6 +840,75 @@ def test_design_normalizes_one_standalone_structure_without_inventing_a_parent(
     assert len(candidates.items) == 1
     assert candidates.items[0].parent_ids == []
     assert len(provider.requests) == 1
+
+
+def test_standalone_design_seed_and_result_ignore_node_instance_rename(
+    tmp_path: Path,
+) -> None:
+    from modules.proteinmpnn.package import (
+        MODULE_PACKAGE as PROTEINMPNN_PACKAGE,
+    )
+    from tests.fixtures.protein_io_sources.package import (
+        MODULE_PACKAGE as SOURCE_PACKAGE,
+    )
+
+    def run(design_node_id: str) -> tuple[str, CandidateCollection, int]:
+        provider = _CapturingProteinMPNN()
+        nodes = (
+            WorkflowNodeInstance(
+                node_id="source",
+                node_type_id="contract_test.protein_structure",
+                node_type_version="2.0.0",
+                binding_id="contract_test.protein_structure.direct",
+                binding_version="2.0.0",
+                node_parameters={},
+                binding_parameters={},
+            ),
+            WorkflowNodeInstance(
+                node_id=design_node_id,
+                node_type_id="proteinmpnn.design",
+                node_type_version="2.0.0",
+                binding_id="proteinmpnn.design.local",
+                binding_version="2.0.0",
+                node_parameters={
+                    "effective_seed": 1603,
+                    "num_sequences": 1,
+                    "temperature": 0.1,
+                    "backbone_noise": 0,
+                },
+                binding_parameters={},
+            ),
+        )
+        catalog, projection, events = _run(
+            tmp_path,
+            nodes=nodes,
+            edges=(
+                WorkflowEdge(
+                    "source",
+                    "structure",
+                    design_node_id,
+                    "structure",
+                ),
+            ),
+            registrations=(PROTEINMPNN_PACKAGE, SOURCE_PACKAGE),
+            environment=_proteinmpnn_environment(provider),
+        )
+        assert projection["status"] == "succeeded", events
+        output = next(
+            item
+            for item in projection["outputs"]
+            if item["node_id"] == design_node_id
+        )
+        return (
+            output["result_identity"],
+            _decode_output(catalog, output),
+            provider.requests[0].seed,
+        )
+
+    original = run("design-original")
+    renamed = run("design-renamed")
+
+    assert original == renamed
 
 
 def test_design_replay_is_stable_and_changed_seed_changes_result_identity(

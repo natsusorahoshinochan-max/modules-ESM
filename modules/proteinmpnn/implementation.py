@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 import hashlib
-import math
 from typing import Any
 
 from core.run_context import RunContext
@@ -16,7 +15,11 @@ from datatypes import (
     ProteinStructure,
 )
 
-from .domain import author_constraints, random_fixed_positions
+from .domain import (
+    author_constraints,
+    normalize_design_parameters,
+    random_fixed_positions,
+)
 from .v2_adapter import (
     PROTEINMPNN_MODEL,
     prepare_design_request,
@@ -110,7 +113,10 @@ class ProteinMPNNDesignImplementation:
         self._catalog = catalog
 
     @staticmethod
-    def _parents(inputs: Mapping[str, Any], node_id: str) -> list[Candidate]:
+    def _parents(
+        inputs: Mapping[str, Any],
+        node_id: str,
+    ) -> list[tuple[Candidate, str]]:
         allowed = {
             "structure",
             "structure_candidates",
@@ -129,14 +135,15 @@ class ProteinMPNNDesignImplementation:
             structure = inputs["structure"]
             if type(structure) is not ProteinStructure:
                 raise ValueError("structure input is incomplete")
-            return [
+            return [(
                 Candidate(
                     node_id,
                     structure,
                     [],
                     {"input_mode": "standalone"},
-                )
-            ]
+                ),
+                "standalone-structure",
+            )]
         collection = inputs["structure_candidates"]
         if (
             type(collection) is not CandidateCollection
@@ -147,7 +154,7 @@ class ProteinMPNNDesignImplementation:
                 "structure_candidates must be non-empty protein structures"
             )
         parent_ids: set[str] = set()
-        parents: list[Candidate] = []
+        parents: list[tuple[Candidate, str]] = []
         for candidate in collection.items:
             if (
                 type(candidate) is not Candidate
@@ -159,7 +166,7 @@ class ProteinMPNNDesignImplementation:
                     "structure_candidates contain incomplete or duplicate parents"
                 )
             parent_ids.add(candidate.candidate_id)
-            parents.append(candidate)
+            parents.append((candidate, candidate.candidate_id))
         return parents
 
     @staticmethod
@@ -167,42 +174,22 @@ class ProteinMPNNDesignImplementation:
         node_parameters: Mapping[str, Any],
         binding_parameters: Mapping[str, Any],
     ) -> tuple[int, int, float, float]:
-        if binding_parameters or set(node_parameters) != {
-            "effective_seed",
-            "num_sequences",
-            "temperature",
-            "backbone_noise",
-        }:
-            raise ValueError(
-                "ProteinMPNN design parameters are not fully resolved"
-            )
-        seed = node_parameters["effective_seed"]
-        count = node_parameters["num_sequences"]
-        temperature = node_parameters["temperature"]
-        noise = node_parameters["backbone_noise"]
-        if (
-            type(seed) is not int
-            or not 0 <= seed <= 9_007_199_254_740_991
-            or type(count) is not int
-            or not 1 <= count <= 100
-            or isinstance(temperature, bool)
-            or not isinstance(temperature, (int, float))
-            or not math.isfinite(float(temperature))
-            or not 0 < float(temperature) <= 10
-            or isinstance(noise, bool)
-            or not isinstance(noise, (int, float))
-            or not math.isfinite(float(noise))
-            or not 0 <= float(noise) <= 10
-        ):
-            raise ValueError(
-                "ProteinMPNN design parameters are outside their contract"
-            )
-        return seed, count, float(temperature), float(noise)
+        normalized = normalize_design_parameters(
+            node_parameters,
+            binding_parameters,
+        )
+        return (
+            int(normalized["effective_seed"]),
+            int(normalized["num_sequences"]),
+            float(normalized["temperature"]),
+            float(normalized["backbone_noise"]),
+        )
 
     @staticmethod
     def _call_seed(
         effective_seed: int,
         parent: Candidate,
+        parent_seed_identity: str,
     ) -> int:
         structure = parent.data
         assert type(structure) is ProteinStructure
@@ -210,7 +197,7 @@ class ProteinMPNNDesignImplementation:
             (
                 "protein-workbench-proteinmpnn-parent-seed/v2\0"
                 f"{effective_seed}\0"
-                f"{parent.candidate_id}\0"
+                f"{parent_seed_identity}\0"
                 + hashlib.sha256(
                     structure.pdb_string.encode()
                 ).hexdigest()
@@ -254,10 +241,14 @@ class ProteinMPNNDesignImplementation:
         effective_constraints = constraints or ProteinMPNNConstraints()
         constraint_digest = self._constraint_digest(effective_constraints)
         candidates: list[Candidate] = []
-        for parent_index, parent in enumerate(parents):
+        for parent_index, (parent, parent_seed_identity) in enumerate(parents):
             structure = parent.data
             assert type(structure) is ProteinStructure
-            call_seed = self._call_seed(seed, parent)
+            call_seed = self._call_seed(
+                seed,
+                parent,
+                parent_seed_identity,
+            )
             raw_ids = [
                 (
                     f"proteinmpnn-parent-{parent_index}-"
@@ -334,7 +325,7 @@ class ProteinMPNNDesignImplementation:
                 )
         if len(candidates) != len(parents) * count:
             raise RuntimeError("ProteinMPNN design children are incomplete")
-        for parent in parents:
+        for parent, _ in parents:
             children = [
                 candidate
                 for candidate in candidates
