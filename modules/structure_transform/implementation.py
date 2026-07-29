@@ -355,37 +355,61 @@ def validate_backbone_structure(value: object) -> None:
         raise ValueError("backbone contains a noncanonical record")
     if any(line.startswith("HETATM") for line in lines):
         raise ValueError("backbone cannot contain HETATM records")
-    records = [_atom_record(line) for line in coordinate_lines]
-    if any(record.altloc != " " for record in records):
-        raise ValueError("backbone alternate-location markers must be resolved")
-    grouped: list[list[_AtomRecord]] = []
-    for record in records:
-        if (
-            not grouped
-            or grouped[-1][0].residue_identity != record.residue_identity
-        ):
-            grouped.append([])
-        grouped[-1].append(record)
-    if any(
-        tuple(record.atom_name for record in residue) != _BACKBONE_ATOMS
-        for residue in grouped
-    ):
-        raise ValueError("every backbone residue must contain N, CA, C, O")
+    records: list[_AtomRecord] = []
+    current_chain: str | None = None
+    current_residue: tuple[str, str, str] | None = None
+    expected_atom_index = 0
+    segment_has_atoms = False
+    for line in lines[:-1]:
+        if line.startswith("ATOM  "):
+            record = _atom_record(line)
+            records.append(record)
+            if record.altloc != " ":
+                raise ValueError(
+                    "backbone alternate-location markers must be resolved"
+                )
+            if current_chain is None:
+                current_chain = record.chain_id
+            elif record.chain_id != current_chain:
+                raise ValueError(
+                    "backbone chain changes must be separated by TER"
+                )
+            if current_residue != record.residue_identity:
+                if current_residue is not None and (
+                    expected_atom_index != len(_BACKBONE_ATOMS)
+                ):
+                    raise ValueError(
+                        "backbone TER or residue boundary split a residue"
+                    )
+                current_residue = record.residue_identity
+                expected_atom_index = 0
+            if (
+                expected_atom_index >= len(_BACKBONE_ATOMS)
+                or record.atom_name
+                != _BACKBONE_ATOMS[expected_atom_index]
+            ):
+                raise ValueError(
+                    "every backbone residue must contain N, CA, C, O"
+                )
+            expected_atom_index += 1
+            segment_has_atoms = True
+            continue
+        if line == "TER":
+            if (
+                not segment_has_atoms
+                or current_residue is None
+                or expected_atom_index != len(_BACKBONE_ATOMS)
+            ):
+                raise ValueError("backbone contains an empty chain segment")
+            current_chain = None
+            current_residue = None
+            expected_atom_index = 0
+            segment_has_atoms = False
+    if current_chain is not None or segment_has_atoms:
+        raise ValueError("every backbone segment must terminate with TER")
     serials = [int(record.line[6:11]) for record in records]
     if serials != list(range(1, len(records) + 1)):
         raise ValueError("backbone atom serials must be canonical")
-    segment_atom_counts: list[int] = []
-    count = 0
-    for line in lines[:-1]:
-        if line.startswith("ATOM  "):
-            count += 1
-        elif line == "TER":
-            if count == 0:
-                raise ValueError("backbone contains an empty chain segment")
-            segment_atom_counts.append(count)
-            count = 0
-    if count or sum(segment_atom_counts) != len(records):
-        raise ValueError("every backbone segment must terminate with TER")
 
 
 class StructureTransformImplementation:

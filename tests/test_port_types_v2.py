@@ -171,19 +171,22 @@ def test_catalog_snapshot_publishes_exact_port_type_contracts() -> None:
         ),
         ("prompt_authoring.build_residue_layout.direct", "2.0.0", True),
         ("prompt_authoring.edit_residue_layout.direct", "2.0.0", True),
-            ("prompt_authoring.map_residue_track.direct", "2.0.0", True),
-            ("prompt_authoring.override_residue_track.direct", "2.0.0", True),
-            (
-                "prompt_authoring.random_insert_masked.direct",
-                "2.0.0",
-                True,
-            ),
-            ("prompt_authoring.random_mask.direct", "2.0.0", True),
-            (
-                "prompt_authoring.update_prompt_sequence.direct",
+        ("prompt_authoring.map_residue_track.direct", "2.0.0", True),
+        ("prompt_authoring.override_residue_track.direct", "2.0.0", True),
+        (
+            "prompt_authoring.random_insert_masked.direct",
             "2.0.0",
             True,
         ),
+        ("prompt_authoring.random_mask.direct", "2.0.0", True),
+        (
+            "prompt_authoring.update_prompt_sequence.direct",
+            "2.0.0",
+            True,
+        ),
+        ("structure_transform.select_chains.direct", "2.0.0", True),
+        ("structure_transform.extract_backbone.direct", "2.0.0", True),
+        ("structure_transform.extract_sequence.direct", "2.0.0", True),
     }
 
     contracts = [

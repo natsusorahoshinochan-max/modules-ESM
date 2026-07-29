@@ -57,6 +57,28 @@ _BACKBONE = ProteinStructure(
     ),
     source="structure_transform.extract_backbone",
 )
+_MID_RESIDUE_BREAK = ProteinStructure(
+    pdb_string=_BACKBONE.pdb_string.replace(
+        "\nATOM      2  CA",
+        "\nTER\nATOM      2  CA",
+    ),
+    source="structure_transform.extract_backbone",
+)
+_MISSING_CHAIN_BREAK = ProteinStructure(
+    pdb_string=(
+        _BACKBONE.pdb_string.removesuffix("TER\nEND\n")
+        + "ATOM      5  N   GLY B   1       5.000   2.000   3.000"
+        "  1.00 20.00           N\n"
+        "ATOM      6  CA  GLY B   1       6.000   2.000   3.000"
+        "  1.00 20.00           C\n"
+        "ATOM      7  C   GLY B   1       7.000   2.000   3.000"
+        "  1.00 20.00           C\n"
+        "ATOM      8  O   GLY B   1       8.000   2.000   3.000"
+        "  1.00 20.00           O\n"
+        "TER\nEND\n"
+    ),
+    source="structure_transform.extract_backbone",
+)
 
 
 def test_structure_transform_is_one_package_with_three_nodes() -> None:
@@ -208,6 +230,8 @@ def test_all_three_nodes_pass_the_shared_contract_test_kit(
                         source=_BACKBONE.source,
                     ),
                     ProteinStructure("END\n"),
+                    _MID_RESIDUE_BREAK,
+                    _MISSING_CHAIN_BREAK,
                 ),
             ),
         ),
