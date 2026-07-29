@@ -1,0 +1,22 @@
+schema_version: "2.0.0"
+node_type_id: structure_annotation.dssp_compute
+version: "2.0.0"
+title: Compute DSSP annotations
+summary: Runs the exact bound DSSP binary and reconciles its annotations to the structure residue layout.
+category: structure_annotation
+inputs:
+  - name: structure
+    port_type_id: protein.structure
+    port_type_version: "2.0.0"
+    required: true
+    multiplicity: one
+    scientific_meaning: Single-model PDB structure whose exact ordered residues define the annotation layout.
+outputs:
+  - name: annotations
+    port_type_id: structure_annotation.dssp_annotations
+    port_type_version: "2.0.0"
+    required: true
+    multiplicity: one
+    scientific_meaning: DSSP secondary structure and SASA reconciled to every exact structure residue identity.
+parameter_groups: []
+node_parameters: {}
