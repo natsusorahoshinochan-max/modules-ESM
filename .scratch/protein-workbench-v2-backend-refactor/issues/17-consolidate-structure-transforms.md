@@ -4,7 +4,7 @@
 
 **Blocked by:** 13 — Consolidate protein I/O.
 
-**Status:** awaiting-controller
+**Status:** completed
 
 - [x] Chain selection, backbone extraction, and sequence extraction each have one independent v2 Node Definition and share one cohesive package registration.
 - [x] Exact nominal input/output Port Types make every conversion visible in the Workflow and prevent implicit structure-to-sequence or full-atom-to-backbone coercion.
@@ -69,3 +69,47 @@ executor for repair before that next Ticket starts.
   backbone nominal export bridging, deterministic chain serial numbering,
   and alternate-location preservation. Both final review axes returned
   `APPROVE` at `0388a50`.
+
+## Controller cumulative acceptance
+
+Before Ticket 18 started, Controller independently accepted executor commit
+`1a9a9408aea982f00a1e0dec743f60181bb04507` against the previously accepted
+Tickets 01–16 gate `62c3688862d4b60a9941f204ac31c0e77f8c16ab`.
+
+- Joint Tickets 01–17 focused suites:
+  `uv run --no-sync python -m pytest --disable-warnings -q
+  tests/test_public_protocol_v2.py tests/test_port_types_v2.py
+  tests/test_module_packages_v2.py tests/test_workflow_compiler_v2.py
+  tests/test_run_execution_v2.py tests/test_run_cancel_derive_v2.py
+  tests/test_result_cache_v2.py tests/test_scoring_v2.py
+  tests/test_pairwise_scoring_v2.py tests/test_contract_test_kit_v2.py
+  tests/test_protein_io_v2.py tests/test_protein_io_artifacts_v2.py
+  tests/test_prompt_authoring_v2.py
+  tests/test_prompt_authoring_behavior_v2.py
+  tests/test_prompt_authoring_prompt_v2.py
+  tests/test_prompt_stochastic_registration_v2.py
+  tests/test_prompt_stochastic_cache_v2.py
+  tests/test_prompt_random_mask_v2.py
+  tests/test_prompt_random_insert_masked_v2.py
+  tests/test_prompt_stochastic_public_v2.py
+  tests/test_structure_transform_v2.py
+  tests/test_structure_transform_behavior_v2.py
+  tests/test_structure_transform_public_v2.py` → `406 passed`.
+- Cumulative routine gate:
+  `uv run --no-sync python scripts/verify_backend.py routine` →
+  `1088 passed, 44 deselected`; retained result
+  `verification-results/routine/20260729T140331.236556Z-89121-35fd6e8aa058a44d`.
+- Deterministic acceptance:
+  `uv run --no-sync python scripts/verify_backend.py
+  deterministic-acceptance` → `9 passed, 5 deselected`; retained result
+  `verification-results/deterministic-acceptance/20260729T140552.927269Z-89765-419ef009c57f1772`.
+- Installed artifact:
+  `uv run --no-sync python scripts/verify_backend.py installed-package` →
+  `3 passed`; retained result
+  `verification-results/installed-package/20260729T140642.085399Z-89887-1c3a6e064665feaf`.
+- `git diff --check
+  62c3688862d4b60a9941f204ac31c0e77f8c16ab...1a9a9408aea982f00a1e0dec743f60181bb04507`
+  passed.
+
+No Controller regression was found, so Ticket 17 is accepted and Ticket 18
+may start.
