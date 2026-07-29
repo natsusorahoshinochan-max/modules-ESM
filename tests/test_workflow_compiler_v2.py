@@ -909,6 +909,33 @@ def test_catalog_rejects_malformed_supported_parameter_contracts(
 
 
 @pytest.mark.parametrize(
+    "incomplete_contract",
+    [
+        {"value_contract": {}},
+        {
+            "type": "object",
+            "additionalProperties": False,
+            "properties": {
+                "measurement": {
+                    "field_scope": "scientific",
+                    "scientific_meaning": "Incomplete scientific field",
+                }
+            },
+        },
+    ],
+)
+def test_catalog_rejects_parameter_contracts_without_a_discriminator(
+    incomplete_contract: dict,
+) -> None:
+    with pytest.raises(CatalogBuildError, match="must declare"):
+        _workflow_catalog(
+            source_node_parameter_overrides={
+                "incomplete_contract": incomplete_contract,
+            }
+        )
+
+
+@pytest.mark.parametrize(
     "classification",
     [
         {"parameter_scope": "environment"},
@@ -1134,6 +1161,18 @@ def test_public_v2_mutation_failures_use_the_structured_error_vocabulary(
                 "workflow": workflow,
             },
         )
+        alias_workflow = _unlocked_workflow().to_public()
+        alias_workflow["workflow_id"] = project_id
+        alias_workflow["nodes"][0]["node_parameters"]["nested"] = {
+            "sessionCookie": "must-not-persist",
+        }
+        credential_alias = client.put(
+            f"/api/v2/projects/{project_id}/workflow",
+            json={
+                "expected_workflow_revision": 0,
+                "workflow": alias_workflow,
+            },
+        )
         after_credential = client.get(
             f"/api/v2/projects/{project_id}/workflow",
         )
@@ -1154,6 +1193,9 @@ def test_public_v2_mutation_failures_use_the_structured_error_vocabulary(
     assert credential.status_code == 400
     validate_error(credential.json(), status=400)
     assert credential.json()["error"]["code"] == "malformed_request"
+    assert credential_alias.status_code == 422
+    validate_error(credential_alias.json(), status=422)
+    assert credential_alias.json()["error"]["code"] == "compile_rejected"
     assert after_credential.status_code == 404
     validate_error(after_credential.json(), status=404)
 

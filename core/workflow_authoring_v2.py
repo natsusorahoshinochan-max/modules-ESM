@@ -14,10 +14,12 @@ from core.port_types import FrozenCatalog
 from core.project import ProjectManager, ProtectedProjectError
 from core.workflow_v2 import (
     CompiledWorkflow,
+    WorkflowCompileError,
     WorkflowDocument,
     compile_workflow,
     parse_workflow_document,
     relock_workflow,
+    validate_workflow_parameter_values,
 )
 
 
@@ -187,6 +189,14 @@ class WorkflowAuthoringService:
                             ]
                         },
                     )
+        try:
+            validate_workflow_parameter_values(workflow, self._catalog)
+        except WorkflowCompileError as error:
+            raise WorkflowAuthoringError(
+                "compile_rejected",
+                "Workflow parameter values do not match exact Catalog contracts",
+                details={"issues": [error.issue()]},
+            ) from error
         try:
             self._projects.assert_writable(project_id)
         except ProtectedProjectError as error:

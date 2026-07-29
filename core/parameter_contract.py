@@ -256,6 +256,11 @@ def _validate_value_contract_schema(
             f"{path} has unsupported value-contract keywords "
             f"{sorted(unexpected)!r}"
         )
+    discriminators = {"allOf", "anyOf", "const", "enum", "oneOf", "type"}
+    if not set(schema).intersection(discriminators):
+        raise ParameterContractDefinitionError(
+            f"{path} must declare type, const, enum, or a schema combinator"
+        )
     expected_type = schema.get("type")
     supported_types = {
         "array",

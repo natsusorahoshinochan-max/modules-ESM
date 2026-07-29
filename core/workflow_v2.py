@@ -516,6 +516,44 @@ def _validate_parameter_values(
     return resolved
 
 
+def validate_workflow_parameter_values(
+    workflow: WorkflowDocument,
+    catalog: FrozenCatalog,
+) -> None:
+    """Validate exact scientific parameter paths without repairing the Lock."""
+    for index, node in enumerate(workflow.nodes):
+        try:
+            node_contract = catalog.require_contract(
+                "node_type",
+                node.node_type_id,
+                node.node_type_version,
+            )
+            binding_contract = catalog.require_contract(
+                "binding",
+                node.binding_id,
+                node.binding_version,
+            )
+        except CatalogBuildError as error:
+            raise WorkflowCompileError(
+                "unknown_contract",
+                "Workflow parameter paths require exact current contracts",
+                node_id=node.node_id,
+                field_path=("nodes", index),
+            ) from error
+        _validate_parameter_values(
+            node.node_parameters,
+            node_contract.descriptor.get("node_parameters", {}),
+            node_id=node.node_id,
+            field_name="node_parameters",
+        )
+        _validate_parameter_values(
+            node.binding_parameters,
+            binding_contract.descriptor.get("binding_parameters", {}),
+            node_id=node.node_id,
+            field_name="binding_parameters",
+        )
+
+
 def _validate_static_semantics(
     workflow: WorkflowDocument,
     catalog: FrozenCatalog,
