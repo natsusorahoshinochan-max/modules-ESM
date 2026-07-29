@@ -82,12 +82,23 @@ class _Source:
                     )
                 ],
             )
+            references = CandidateCollection(
+                collection_id="fixture-structure-references",
+                item_type="protein.structure",
+                items=[
+                    Candidate(
+                        candidate_id="fixture-structure-reference",
+                        data=structure,
+                    )
+                ],
+            )
         return {
             "structure": structure,
             "annotations": annotations,
             "expected": expected,
             "observed": observed,
             "subjects": subjects,
+            "references": references,
         }
 
 

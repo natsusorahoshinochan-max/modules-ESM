@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import re
-import shutil
 
 from fastapi.testclient import TestClient
 import pytest
@@ -196,7 +195,7 @@ def test_catalog_snapshot_publishes_exact_port_type_contracts() -> None:
         (
             "structure_annotation.dssp_compute.direct",
             "2.0.0",
-            shutil.which("mkdssp") is not None,
+            True,
         ),
         (
             "structure_annotation.secondary_structure_extract.direct",

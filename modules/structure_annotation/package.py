@@ -235,16 +235,6 @@ def _track_from_wire(kind: str):
     return decode
 
 
-def _dssp_available() -> AvailabilityResult:
-    if shutil.which(_DSSP_BINARY) is None:
-        return AvailabilityResult.unavailable(
-            "binary_not_found",
-            "The declared mkdssp binary is not available at startup.",
-            retryable=True,
-        )
-    return AvailabilityResult.available()
-
-
 def _available() -> AvailabilityResult:
     return AvailabilityResult.available()
 
@@ -271,8 +261,14 @@ def _dssp_ready(environment: object) -> bool:
     except (OSError, subprocess.SubprocessError):
         return False
     version_text = f"{result.stdout}\n{result.stderr}"
-    return result.returncode == 0 and (
-        f"mkdssp version {_DSSP_VERSION}" in version_text
+    match = re.search(
+        r"(?m)^mkdssp version (?P<version>\S+)\s*$",
+        version_text,
+    )
+    return (
+        result.returncode == 0
+        and match is not None
+        and match.group("version") == _DSSP_VERSION
     )
 
 
@@ -305,7 +301,8 @@ def _method(operation: str) -> MethodDefinition:
                 "chain-qualified-label-sequence-to-exact-PDB-layout"
             ),
             "missing_value": "_",
-            "coil_conversion": "DSSP '-' or '.' to SS8 C",
+            "coil_conversion": "DSSP '-' to SS8 C",
+            "absent_markers": [".", "?", "_"],
         },
         "secondary_structure_extract": {
             "name": "exact-DSSP-SS8-track-extraction",
@@ -356,11 +353,19 @@ def _binding(operation: str) -> ExecutionBindingDefinition:
                     "structure_annotation.secondary_structure_agreement",
                     _VERSION,
                 ),
-                context_profile={"kind": "intrinsic"},
+                context_profile={
+                    "kind": "pairwise",
+                    "subject_role": "subject",
+                    "reference_role": "reference",
+                    "pairing_mode": "fixed_reference",
+                    "normalization": "exact-SS8-present-residue",
+                },
                 subject_grain="candidate",
                 source_role="subject",
                 subject_direction="input",
                 subject_port="subjects",
+                reference_direction="input",
+                reference_port="references",
                 guaranteed_multiplicity="one",
             ),
         )
@@ -392,15 +397,15 @@ def _binding(operation: str) -> ExecutionBindingDefinition:
             ),
             prerequisites=(
                 {
-                    "binary": {
+                    "binary_configuration": {
                         "name": _DSSP_BINARY,
-                        "required_version": _DSSP_VERSION,
+                        "path_source": "trusted_environment_configuration",
                     }
                 }
                 if is_dssp
                 else {}
             ),
-            check=_dssp_available if is_dssp else _available,
+            check=_available,
         ),
         readiness=ReadinessDeclaration(
             behavior=BehaviorReference(

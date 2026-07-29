@@ -2,7 +2,7 @@ schema_version: "2.0.0"
 node_type_id: structure_annotation.secondary_structure_agreement
 version: "2.0.0"
 title: Observe secondary-structure agreement
-summary: Observes exact SS8 agreement for one identified Candidate on one identical residue layout.
+summary: Observes exact SS8 agreement for one identified subject against one identified reference on one identical residue layout.
 category: structure_annotation
 inputs:
   - name: subjects
@@ -11,6 +11,12 @@ inputs:
     required: true
     multiplicity: one
     scientific_meaning: Exactly one Candidate whose annotation agreement is being observed.
+  - name: references
+    port_type_id: candidate.collection
+    port_type_version: "2.0.0"
+    required: true
+    multiplicity: one
+    scientific_meaning: Exactly one reference Candidate that supplied the expected annotation.
   - name: expected
     port_type_id: structure_annotation.secondary_structure_track
     port_type_version: "2.0.0"
@@ -29,6 +35,6 @@ outputs:
     port_type_version: "2.0.0"
     required: true
     multiplicity: one
-    scientific_meaning: One typed intrinsic secondary-structure agreement Observation for the exact subject Candidate.
+    scientific_meaning: One typed pairwise secondary-structure agreement Observation for the exact subject and reference Candidates.
 parameter_groups: []
 node_parameters: {}

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections import defaultdict
+from dataclasses import dataclass
 from io import StringIO
 import math
 from pathlib import Path
@@ -16,7 +17,8 @@ from Bio.PDB.MMCIF2Dict import MMCIF2Dict
 from datatypes import (
     CandidateCollection,
     ExactContractReference,
-    IntrinsicObservationContext,
+    PairwiseObservationContext,
+    PairwiseParticipant,
     ProteinStructure,
     ResidueLayout,
     ScoreCollection,
@@ -30,7 +32,22 @@ _SS8 = frozenset("GHITEBSC")
 _PDB_RESIDUE_LABEL = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$")
 
 
-def _structure_layout(structure: ProteinStructure) -> ResidueLayout:
+@dataclass(frozen=True, slots=True)
+class _ParsedStructure:
+    layout: ResidueLayout
+    residue_names: tuple[str, ...]
+
+
+@dataclass(frozen=True, slots=True)
+class _DSSPRow:
+    chain_id: str
+    chain_ordinal: int
+    residue_name: str
+    secondary_structure: str
+    accessibility: str
+
+
+def _structure_layout(structure: ProteinStructure) -> _ParsedStructure:
     """Derive exact ordered residue identities from one PDB model."""
     if type(structure) is not ProteinStructure:
         raise ValueError("DSSP computation requires one ProteinStructure")
@@ -42,6 +59,7 @@ def _structure_layout(structure: ProteinStructure) -> ResidueLayout:
         raise ValueError("DSSP computation requires a single-model structure")
 
     residues: list[tuple[str, str]] = []
+    residue_names: list[str] = []
     seen: set[tuple[str, str]] = set()
     previous: tuple[str, str] | None = None
     closed_chains: set[str] = set()
@@ -55,10 +73,13 @@ def _structure_layout(structure: ProteinStructure) -> ResidueLayout:
         chain = line[21].strip()
         sequence_label = line[22:26].strip()
         insertion_code = line[26].strip()
+        residue_name = line[17:20].strip()
         if (
             len(chain) != 1
             or not chain.isalnum()
             or not sequence_label
+            or not residue_name
+            or not residue_name.isalpha()
         ):
             raise ValueError(
                 "structure residue identity cannot be represented exactly"
@@ -85,17 +106,21 @@ def _structure_layout(structure: ProteinStructure) -> ResidueLayout:
             chain_order.append(chain)
             previous_chain = chain
         residues.append(identity)
+        residue_names.append(residue_name.upper())
         seen.add(identity)
         previous = identity
     if not residues:
         raise ValueError("structure contains no protein ATOM residues")
-    return ResidueLayout(
-        chain_id=",".join(chain_order),
-        length=len(residues),
-        residue_ids=[
-            f"{chain}:{residue_label}"
-            for chain, residue_label in residues
-        ],
+    return _ParsedStructure(
+        layout=ResidueLayout(
+            chain_id=",".join(chain_order),
+            length=len(residues),
+            residue_ids=[
+                f"{chain}:{residue_label}"
+                for chain, residue_label in residues
+            ],
+        ),
+        residue_names=tuple(residue_names),
     )
 
 
@@ -117,12 +142,10 @@ def _column(
     return values
 
 
-def _parse_dssp_output(
-    text: str,
-    *,
-    layout: ResidueLayout,
-) -> DSSPAnnotation:
-    """Parse DSSP mmCIF and fail closed while reconciling by chain ordinal."""
+def _parse_dssp_rows(text: str) -> tuple[_DSSPRow, ...]:
+    """Parse the one shared closed DSSP mmCIF row contract."""
+    if not text.lstrip().startswith("data_"):
+        text = f"data_structure_annotation\n{text}"
     try:
         parsed = MMCIF2Dict(StringIO(text))
     except Exception as error:
@@ -135,6 +158,10 @@ def _parse_dssp_output(
         parsed,
         "_dssp_struct_summary.label_seq_id",
     )
+    residue_names = _column(
+        parsed,
+        "_dssp_struct_summary.label_comp_id",
+    )
     secondary_values = _column(
         parsed,
         "_dssp_struct_summary.secondary_structure",
@@ -146,29 +173,24 @@ def _parse_dssp_output(
     lengths = {
         len(chain_values),
         len(sequence_values),
+        len(residue_names),
         len(secondary_values),
         len(accessibility_values),
     }
     if len(lengths) != 1:
         raise ValueError("DSSP output columns have inconsistent lengths")
-
-    residue_ids = layout.residue_ids or []
-    layout_indices_by_chain: dict[str, list[int]] = defaultdict(list)
-    for index, residue_id in enumerate(residue_ids):
-        chain, _ = residue_id.split(":", 1)
-        layout_indices_by_chain[chain].append(index)
-    secondary = ["_"] * layout.length
-    sasa: list[float | None] = [None] * layout.length
-    mapped: set[int] = set()
+    rows: list[_DSSPRow] = []
     for row_index, (
         chain,
         sequence_number,
+        residue_name,
         raw_secondary,
         raw_accessibility,
     ) in enumerate(
         zip(
             chain_values,
             sequence_values,
+            residue_names,
             secondary_values,
             accessibility_values,
             strict=True,
@@ -180,25 +202,68 @@ def _parse_dssp_output(
             raise ValueError(
                 f"DSSP row {row_index} has an invalid residue ordinal"
             ) from error
-        chain_indices = layout_indices_by_chain.get(chain)
+        if (
+            len(chain) != 1
+            or not chain.isalnum()
+            or ordinal < 1
+            or not residue_name
+            or not residue_name.isalpha()
+        ):
+            raise ValueError(f"DSSP row {row_index} has invalid residue identity")
+        rows.append(
+            _DSSPRow(
+                chain_id=chain,
+                chain_ordinal=ordinal,
+                residue_name=residue_name.upper(),
+                secondary_structure=raw_secondary,
+                accessibility=raw_accessibility,
+            )
+        )
+    return tuple(rows)
+
+
+def _parse_dssp_output(
+    text: str,
+    *,
+    structure: _ParsedStructure,
+) -> DSSPAnnotation:
+    """Parse DSSP mmCIF and fail closed while reconciling exact residues."""
+    layout = structure.layout
+    rows = _parse_dssp_rows(text)
+
+    residue_ids = layout.residue_ids or []
+    layout_indices_by_chain: dict[str, list[int]] = defaultdict(list)
+    for index, residue_id in enumerate(residue_ids):
+        chain, _ = residue_id.split(":", 1)
+        layout_indices_by_chain[chain].append(index)
+    secondary = ["_"] * layout.length
+    sasa: list[float | None] = [None] * layout.length
+    mapped: set[int] = set()
+    for row_index, row in enumerate(rows):
+        chain_indices = layout_indices_by_chain.get(row.chain_id)
         if (
             chain_indices is None
-            or ordinal < 1
-            or ordinal > len(chain_indices)
+            or row.chain_ordinal > len(chain_indices)
         ):
             raise ValueError(
                 f"DSSP row {row_index} cannot be reconciled to the structure"
             )
-        layout_index = chain_indices[ordinal - 1]
+        layout_index = chain_indices[row.chain_ordinal - 1]
         if layout_index in mapped:
             raise ValueError(
                 f"DSSP row {row_index} duplicates one structure residue"
             )
         mapped.add(layout_index)
+        if structure.residue_names[layout_index] != row.residue_name:
+            raise ValueError(
+                f"DSSP row {row_index} residue identity contradicts "
+                "the structure"
+            )
 
-        if raw_secondary in {".", "-"}:
+        raw_secondary = row.secondary_structure
+        if raw_secondary == "-":
             normalized_secondary = "C"
-        elif raw_secondary in {"_", "?"}:
+        elif raw_secondary in {".", "_", "?"}:
             normalized_secondary = "_"
         elif raw_secondary in _SS8:
             normalized_secondary = raw_secondary
@@ -208,6 +273,7 @@ def _parse_dssp_output(
             )
         secondary[layout_index] = normalized_secondary
 
+        raw_accessibility = row.accessibility
         if raw_accessibility in {".", "?", "_"}:
             accessibility = None
         else:
@@ -277,7 +343,7 @@ class StructureAnnotationImplementation:
                 "DSSP computation requires exactly one structure input"
             )
         structure = inputs["structure"]
-        layout = _structure_layout(structure)
+        parsed_structure = _structure_layout(structure)
         configured = self._environment.get("dssp_binary")
         binary = (
             configured
@@ -323,7 +389,10 @@ class StructureAnnotationImplementation:
                     raise ValueError(
                         "mkdssp output is not UTF-8 mmCIF"
                     ) from error
-            annotation = _parse_dssp_output(output, layout=layout)
+            annotation = _parse_dssp_output(
+                output,
+                structure=parsed_structure,
+            )
         return {"annotations": annotation}
 
     def _annotation_input(
@@ -386,12 +455,18 @@ class StructureAnnotationImplementation:
         self,
         inputs: Mapping[str, Any],
     ) -> dict[str, Any]:
-        if set(inputs) != {"subjects", "expected", "observed"}:
+        if set(inputs) != {
+            "subjects",
+            "references",
+            "expected",
+            "observed",
+        }:
             raise ValueError(
-                "secondary-structure agreement requires subjects, expected, "
-                "and observed"
+                "secondary-structure agreement requires subjects, references, "
+                "expected, and observed"
             )
         subjects = inputs["subjects"]
+        references = inputs["references"]
         expected = inputs["expected"]
         observed = inputs["observed"]
         if (
@@ -402,6 +477,15 @@ class StructureAnnotationImplementation:
             raise ValueError(
                 "secondary-structure agreement requires exactly one "
                 "identified Candidate"
+            )
+        if (
+            type(references) is not CandidateCollection
+            or len(references.items) != 1
+            or not references.items[0].candidate_id
+        ):
+            raise ValueError(
+                "secondary-structure agreement requires exactly one "
+                "identified reference Candidate"
             )
         if (
             type(expected) is not StructureAnnotationTrack
@@ -443,6 +527,15 @@ class StructureAnnotationImplementation:
                 for expected_value, observed_value in compared
             ) / len(compared)
             subject = subjects.items[0]
+            reference = references.items[0]
+            subject_digest = self._catalog.require_port_type(
+                subjects.item_type,
+                "2.0.0",
+            ).content_digest(subject.data)
+            reference_digest = self._catalog.require_port_type(
+                references.item_type,
+                "2.0.0",
+            ).content_digest(reference.data)
             observation = ScoreObservation(
                 candidate_id=subject.candidate_id,
                 metric=self._contract_reference(
@@ -456,7 +549,20 @@ class StructureAnnotationImplementation:
                         "secondary_structure_agreement.method"
                     ),
                 ),
-                context=IntrinsicObservationContext(),
+                context=PairwiseObservationContext(
+                    subject=PairwiseParticipant(
+                        role="subject",
+                        candidate_id=subject.candidate_id,
+                        content_digest=subject_digest,
+                    ),
+                    reference=PairwiseParticipant(
+                        role="reference",
+                        candidate_id=reference.candidate_id,
+                        content_digest=reference_digest,
+                    ),
+                    pairing_mode="fixed_reference",
+                    normalization="exact-SS8-present-residue",
+                ),
                 value=agreement,
             )
         return {

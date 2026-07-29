@@ -36,5 +36,11 @@ outputs:
     required: true
     multiplicity: one
     scientific_meaning: Exactly one independently identified subject Candidate.
+  - name: references
+    port_type_id: candidate.collection
+    port_type_version: "2.0.0"
+    required: true
+    multiplicity: one
+    scientific_meaning: Exactly one independently identified reference Candidate.
 parameter_groups: []
 node_parameters: {}

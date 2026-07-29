@@ -134,6 +134,14 @@ def test_dssp_binary_is_binding_environment_not_workflow_parameter() -> None:
         "path_source": "environment_configuration",
         "required_version": "4.6.1",
     }
+    assert binding.descriptor["availability_declaration"][
+        "prerequisites"
+    ] == {
+        "binary_configuration": {
+            "name": "mkdssp",
+            "path_source": "trusted_environment_configuration",
+        }
+    }
     published = binding.descriptor_bytes.decode("utf-8")
     assert "dssp_binary" not in published
     assert "/opt/" not in published
@@ -144,12 +152,13 @@ def _fake_dssp_binary(
     *,
     output: str,
     exit_code: int = 0,
+    version: str = "4.6.1",
 ) -> Path:
     binary = path / "mkdssp-fixture"
     binary.write_text(
         "#!/bin/sh\n"
         "if [ \"$1\" = \"--version\" ]; then\n"
-        "  printf '%s\\n' 'mkdssp version 4.6.1'\n"
+        f"  printf '%s\\n' 'mkdssp version {version}'\n"
         "  exit 0\n"
         "fi\n"
         "cat <<'DSSP_OUTPUT'\n"
@@ -191,11 +200,21 @@ def _run_dssp(
     dssp_output: str,
     configured_binary: str | None = None,
     result_replay_source: ResultReplaySource | None = None,
+    binary_version: str = "4.6.1",
+    discover_binary: bool = True,
 ) -> tuple[Any, dict[str, Any], tuple[dict[str, Any], ...], str]:
-    binary = _fake_dssp_binary(tmp_path, output=dssp_output)
+    binary = _fake_dssp_binary(
+        tmp_path,
+        output=dssp_output,
+        version=binary_version,
+    )
     monkeypatch.setattr(
         "modules.structure_annotation.package.shutil.which",
-        lambda name: str(binary) if name == "mkdssp" else None,
+        lambda name: (
+            str(binary)
+            if discover_binary and name == "mkdssp"
+            else None
+        ),
     )
     catalog = build_frozen_catalog(
         (PROTEIN_IO_PACKAGE, STRUCTURE_ANNOTATION_PACKAGE)
@@ -350,6 +369,110 @@ fixture B 2 THR G .
     )
 
 
+def test_environment_only_binary_path_is_available_and_ready(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _, projection, _, _ = _run_dssp(
+        tmp_path,
+        monkeypatch,
+        pdb_text=(
+            "ATOM      1  CA  GLY A   1       "
+            "1.000   2.000   3.000  1.00 20.00           C\n"
+            "TER\nEND\n"
+        ),
+        dssp_output="""\
+data_fixture
+loop_
+_dssp_struct_summary.entry_id
+_dssp_struct_summary.label_asym_id
+_dssp_struct_summary.label_seq_id
+_dssp_struct_summary.label_comp_id
+_dssp_struct_summary.secondary_structure
+_dssp_struct_summary.accessibility
+fixture A 1 GLY H 10.0
+#
+""",
+        discover_binary=False,
+    )
+
+    assert projection["status"] == "succeeded"
+
+
+def test_dssp_dash_is_coil_but_dot_is_absent(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    catalog, projection, _, _ = _run_dssp(
+        tmp_path,
+        monkeypatch,
+        pdb_text=(
+            "ATOM      1  CA  GLY A   1       "
+            "1.000   2.000   3.000  1.00 20.00           C\n"
+            "ATOM      2  CA  ALA A   2       "
+            "2.000   3.000   4.000  1.00 20.00           C\n"
+            "TER\nEND\n"
+        ),
+        dssp_output="""\
+data_fixture
+loop_
+_dssp_struct_summary.entry_id
+_dssp_struct_summary.label_asym_id
+_dssp_struct_summary.label_seq_id
+_dssp_struct_summary.label_comp_id
+_dssp_struct_summary.secondary_structure
+_dssp_struct_summary.accessibility
+fixture A 1 GLY . 10.0
+fixture A 2 ALA - 20.0
+#
+""",
+    )
+
+    assert projection["status"] == "succeeded"
+    output = next(
+        item
+        for item in projection["outputs"]
+        if item["node_id"] == "annotate"
+    )
+    annotation = _decode_output(catalog, output)
+    assert annotation.secondary_structure == ("_", "C")
+
+
+def test_dssp_readiness_rejects_version_prefix_collision(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    cache = type(
+        "LookupRecorder",
+        (ResultReplaySource,),
+        {
+            "lookups": 0,
+            "lookup": lambda self, **kwargs: setattr(
+                self,
+                "lookups",
+                self.lookups + 1,
+            ),
+        },
+    )()
+
+    with pytest.raises(V2RunError) as rejected:
+        _run_dssp(
+            tmp_path,
+            monkeypatch,
+            pdb_text=(
+                "ATOM      1  CA  GLY A   1       "
+                "1.000   2.000   3.000  1.00 20.00           C\n"
+                "TER\nEND\n"
+            ),
+            dssp_output="unused\n",
+            binary_version="4.6.10",
+            result_replay_source=cache,
+        )
+
+    assert rejected.value.code == "readiness_rejected"
+    assert cache.lookups == 0
+
+
 @pytest.mark.parametrize(
     "dssp_output",
     (
@@ -364,6 +487,18 @@ _dssp_struct_summary.label_comp_id
 _dssp_struct_summary.secondary_structure
 _dssp_struct_summary.accessibility
 fixture Z 1 GLY H 10.0
+#
+""",
+        """\
+data_fixture
+loop_
+_dssp_struct_summary.entry_id
+_dssp_struct_summary.label_asym_id
+_dssp_struct_summary.label_seq_id
+_dssp_struct_summary.label_comp_id
+_dssp_struct_summary.secondary_structure
+_dssp_struct_summary.accessibility
+fixture A 1 ALA H 10.0
 #
 """,
     ),
@@ -585,6 +720,12 @@ fixture A 2 ALA - 20.0
                 ),
                 WorkflowEdge(
                     "source",
+                    "references",
+                    "contract-test-node",
+                    "references",
+                ),
+                WorkflowEdge(
+                    "source",
                     "expected",
                     "contract-test-node",
                     "expected",
@@ -701,6 +842,7 @@ def test_agreement_emits_one_exact_subject_metric_method_observation(
         ),
         edges=(
             WorkflowEdge("source", "subjects", "agreement", "subjects"),
+            WorkflowEdge("source", "references", "agreement", "references"),
             WorkflowEdge("source", "expected", "agreement", "expected"),
             WorkflowEdge("source", "observed", "agreement", "observed"),
         ),
@@ -741,12 +883,19 @@ def test_agreement_emits_one_exact_subject_metric_method_observation(
         if output["node_id"] == "source"
         and output["output_port"] == "subjects"
     )
+    reference_output = next(
+        output
+        for output in projection["outputs"]
+        if output["node_id"] == "source"
+        and output["output_port"] == "references"
+    )
     score_output = next(
         output
         for output in projection["outputs"]
         if output["node_id"] == "agreement"
     )
     subjects = _decode_output(catalog, subject_output)
+    references = _decode_output(catalog, reference_output)
     scores = _decode_output(catalog, score_output)
     assert len(subjects.items) == 1
     assert len(scores.entries) == 1
@@ -758,5 +907,25 @@ def test_agreement_emits_one_exact_subject_metric_method_observation(
     assert observation.method.contract_id == (
         "structure_annotation.secondary_structure_agreement.method"
     )
-    assert observation.context.to_public() == {"kind": "intrinsic"}
+    assert observation.context.to_public() == {
+        "kind": "pairwise",
+        "subject": {
+            "role": "subject",
+            "candidate_id": subjects.items[0].candidate_id,
+            "content_digest": catalog.require_port_type(
+                subjects.item_type,
+                "2.0.0",
+            ).content_digest(subjects.items[0].data),
+        },
+        "reference": {
+            "role": "reference",
+            "candidate_id": references.items[0].candidate_id,
+            "content_digest": catalog.require_port_type(
+                references.item_type,
+                "2.0.0",
+            ).content_digest(references.items[0].data),
+        },
+        "pairing_mode": "fixed_reference",
+        "normalization": "exact-SS8-present-residue",
+    }
     assert observation.value == 0.5
