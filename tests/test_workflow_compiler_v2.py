@@ -55,6 +55,7 @@ def _workflow_catalog(
     source_algorithm: str = "source",
     sink_port_type_id: str = "text",
     factory_calls: list[str] | None = None,
+    source_node_parameter_overrides: dict | None = None,
 ) -> FrozenCatalog:
     builtin = builtin_frozen_catalog()
     text = builtin.require_port_type("text", "2.0.0")
@@ -114,7 +115,8 @@ def _workflow_catalog(
                 "label": {
                     "type": "string",
                     "default": "default-label",
-                }
+                },
+                **(source_node_parameter_overrides or {}),
             },
         },
     )
@@ -313,12 +315,18 @@ def test_compile_returns_an_immutable_private_plan_and_compact_receipt() -> None
         "issues",
     }
     assert compiled.receipt["accepted"] is True
-    assert compiled.receipt["issues"] == []
-    validate_response("workflow_compile", 200, compiled.receipt)
+    assert compiled.receipt["issues"] == ()
+    validate_response(
+        "workflow_compile",
+        200,
+        compiled.public_receipt(),
+    )
     with pytest.raises(FrozenInstanceError):
         compiled.execution_plan.workflow_revision = 3  # type: ignore[misc]
     with pytest.raises(TypeError):
         compiled.execution_plan.nodes[0].node_parameters["uppercase"] = False
+    with pytest.raises(TypeError):
+        compiled.receipt["accepted"] = False
 
 
 @pytest.mark.parametrize(
@@ -644,6 +652,161 @@ def test_compile_validates_dag_binding_ownership_parameters_ports_and_availabili
         with pytest.raises(WorkflowCompileError) as captured:
             compile_workflow(locked, workflow_revision=2, catalog=catalog)
         assert captured.value.code == expected_code
+
+
+@pytest.mark.parametrize(
+    ("declaration", "value"),
+    [
+        ({"type": "string", "enum": ["safe"]}, "unsafe"),
+        ({"type": "number", "maximum": 1}, 1.5),
+        (
+            {
+                "type": "array",
+                "minItems": 2,
+                "items": {"type": "string", "minLength": 2},
+            },
+            ["x"],
+        ),
+        (
+            {
+                "type": "object",
+                "additionalProperties": False,
+                "required": ["count"],
+                "properties": {
+                    "count": {"type": "integer", "minimum": 1},
+                },
+            },
+            {"count": 0, "extra": True},
+        ),
+    ],
+)
+def test_compile_enforces_complete_nested_parameter_value_contract(
+    declaration: dict,
+    value: object,
+) -> None:
+    catalog = _workflow_catalog(
+        source_node_parameter_overrides={"options": declaration}
+    )
+    workflow = _unlocked_workflow()
+    source, sink = workflow.nodes
+    workflow = replace(
+        workflow,
+        nodes=(
+            replace(
+                source,
+                node_parameters={
+                    **source.node_parameters,
+                    "options": value,
+                },
+            ),
+            sink,
+        ),
+    )
+
+    with pytest.raises(WorkflowCompileError) as captured:
+        compile_workflow(
+            relock_workflow(workflow, catalog),
+            workflow_revision=2,
+            catalog=catalog,
+        )
+
+    assert captured.value.code == "invalid_parameter"
+
+
+@pytest.mark.parametrize(
+    "forbidden_name",
+    ["token", "access_token", "base_url", "gpu_device"],
+)
+def test_compile_rejects_nested_environment_configuration_fields(
+    forbidden_name: str,
+) -> None:
+    catalog = _workflow_catalog(
+        source_node_parameter_overrides={
+            "scientific_options": {
+                "type": "object",
+                "additionalProperties": True,
+            }
+        }
+    )
+    workflow = _unlocked_workflow()
+    source, sink = workflow.nodes
+    workflow = replace(
+        workflow,
+        nodes=(
+            replace(
+                source,
+                node_parameters={
+                    **source.node_parameters,
+                    "scientific_options": {
+                        "sampling": {
+                            forbidden_name: "must-not-persist",
+                        },
+                    },
+                },
+            ),
+            sink,
+        ),
+    )
+
+    with pytest.raises(WorkflowCompileError) as captured:
+        compile_workflow(
+            relock_workflow(workflow, catalog),
+            workflow_revision=2,
+            catalog=catalog,
+        )
+
+    assert captured.value.code == "environment_parameter_forbidden"
+
+
+def test_public_v2_mutation_failures_use_the_structured_error_vocabulary(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path,
+) -> None:
+    for name in ("PROJECT", "CACHE", "OUTPUT", "RUN"):
+        monkeypatch.setenv(
+            f"PROTEIN_WORKBENCH_{name}_ROOT",
+            str(tmp_path / name.lower()),
+        )
+    app = create_app(frozen_catalog_override=_workflow_catalog())
+
+    with TestClient(app) as client:
+        protected_workflow = _unlocked_workflow().to_public()
+        protected_workflow["workflow_id"] = "canonical-3gb1"
+        protected = client.put(
+            "/api/v2/projects/canonical-3gb1/workflow",
+            json={
+                "expected_workflow_revision": 0,
+                "workflow": protected_workflow,
+            },
+        )
+        project_id = client.post(
+            "/api/projects",
+            json={"name": "origin policy"},
+        ).json()["id"]
+        workflow = _unlocked_workflow().to_public()
+        workflow["workflow_id"] = project_id
+        untrusted = client.put(
+            f"/api/v2/projects/{project_id}/workflow",
+            json={
+                "expected_workflow_revision": 0,
+                "workflow": workflow,
+            },
+            headers={"Origin": "https://untrusted.example"},
+        )
+        missing_body = client.post(
+            f"/api/v2/projects/{project_id}/workflow:relock",
+        )
+
+    for response in (protected, untrusted):
+        assert response.status_code == 404
+        validate_error(response.json(), status=404)
+        assert (
+            response.json()["error"]["code"]
+            == "cross_scope_access_denied"
+        )
+    assert missing_body.status_code == 400
+    validate_error(missing_body.json(), status=400)
+    assert missing_body.json()["error"]["code"] == "malformed_request"
 
 
 def test_public_save_load_relock_compile_journey_is_revisioned_and_exact(

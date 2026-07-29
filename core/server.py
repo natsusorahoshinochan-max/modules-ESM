@@ -601,6 +601,25 @@ def create_app(
             request.method not in {"GET", "HEAD", "OPTIONS"}
             and not _is_trusted_browser_origin(request)
         ):
+            if request.url.path.startswith("/api/v2/projects/"):
+                path_parts = request.url.path.split("/")
+                requested_project_id = (
+                    path_parts[4]
+                    if len(path_parts) > 4
+                    else "unknown-project"
+                )
+                try:
+                    validate_identifier(
+                        requested_project_id,
+                        "project_id",
+                    )
+                except StoragePathError:
+                    requested_project_id = "unknown-project"
+                return public_error_response(
+                    "cross_scope_access_denied",
+                    "Browser origin is not allowed",
+                    {"requested_project_id": requested_project_id},
+                )
             return JSONResponse(
                 status_code=403,
                 content={
@@ -683,11 +702,20 @@ def create_app(
         request: Request,
         error: RequestValidationError,
     ) -> JSONResponse:
-        del request
         body_error = any(
             item.get("loc", (None,))[0] == "body"
             for item in error.errors()
         )
+        if request.url.path.startswith("/api/v2/"):
+            return public_error_response(
+                "malformed_request",
+                (
+                    "Request body is invalid"
+                    if body_error
+                    else "Request is invalid"
+                ),
+                {"field_path": []},
+            )
         return JSONResponse(
             status_code=422,
             content={
@@ -942,7 +970,7 @@ def create_app(
                 str(error),
                 {"issues": [error.issue()]},
             )
-        receipt = dict(compiled.receipt)
+        receipt = compiled.public_receipt()
         validate_response("workflow_compile", 200, receipt)
         return receipt
 

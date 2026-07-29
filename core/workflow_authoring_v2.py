@@ -10,7 +10,7 @@ import tempfile
 from typing import Any
 
 from core.port_types import FrozenCatalog
-from core.project import ProjectManager
+from core.project import ProjectManager, ProtectedProjectError
 from core.workflow_v2 import (
     CompiledWorkflow,
     WorkflowDocument,
@@ -162,7 +162,14 @@ class WorkflowAuthoringService:
     ) -> dict[str, Any]:
         """Persist an author-supplied document without changing its Lock."""
         self._require_project(project_id)
-        self._projects.assert_writable(project_id)
+        try:
+            self._projects.assert_writable(project_id)
+        except ProtectedProjectError as error:
+            raise WorkflowAuthoringError(
+                "cross_scope_access_denied",
+                "Protected Project cannot be changed through this scope",
+                details={"requested_project_id": project_id},
+            ) from error
         path = self._path(project_id)
         if path.exists():
             current = self.load(project_id)
@@ -202,6 +209,11 @@ class WorkflowAuthoringService:
                 "workflow": workflow.to_public(),
             },
         )
+        self._plans = {
+            key: compiled
+            for key, compiled in self._plans.items()
+            if key[0] != project_id
+        }
         return self._snapshot(project_id, revision, workflow)
 
     def relock(

@@ -5,6 +5,7 @@ from __future__ import annotations
 from collections import deque
 from collections.abc import Mapping
 from dataclasses import dataclass, replace
+import re
 from types import MappingProxyType
 from typing import Any
 
@@ -18,17 +19,49 @@ CONTRACT_LOCK_NAMESPACE = "protein-workbench-contract-lock/v2"
 EXECUTION_PLAN_NAMESPACE = "protein-workbench-execution-plan/v2"
 _FORBIDDEN_WORKFLOW_PARAMETER_NAMES = frozenset(
     {
+        "access_token",
         "api_key",
+        "auth_token",
+        "base_url",
+        "bearer_token",
+        "checkpoint",
+        "checkpoint_id",
         "credential",
         "credentials",
+        "cuda_device",
+        "deployment",
+        "deployment_id",
         "device",
         "endpoint",
         "environment",
+        "gpu_device",
+        "model",
+        "model_id",
         "model_name",
         "model_path",
+        "provider",
         "runtime_path",
         "secret",
+        "secret_key",
         "token",
+    }
+)
+_FORBIDDEN_WORKFLOW_PARAMETER_COMPONENTS = frozenset(
+    {
+        "checkpoint",
+        "credential",
+        "credentials",
+        "deployment",
+        "device",
+        "endpoint",
+        "environment",
+        "model",
+        "path",
+        "provider",
+        "runtime",
+        "secret",
+        "token",
+        "url",
     }
 )
 
@@ -255,6 +288,13 @@ class CompiledWorkflow:
     execution_plan: ExecutionPlan
     receipt: Mapping[str, Any]
 
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "receipt", _freeze_json(self.receipt))
+
+    def public_receipt(self) -> dict[str, Any]:
+        """Return an isolated mutable wire copy of the compact receipt."""
+        return _thaw_json(self.receipt)
+
 
 class WorkflowCompileError(ValueError):
     """A Workflow failed static v2 compilation."""
@@ -433,18 +473,21 @@ def _validate_parameter_values(
     node_id: str,
     field_name: str,
 ) -> dict[str, Any]:
-    forbidden = sorted(
-        set(values).intersection(_FORBIDDEN_WORKFLOW_PARAMETER_NAMES)
-    )
-    if forbidden:
+    supplied_forbidden_path = _find_forbidden_environment_field(values)
+    if supplied_forbidden_path is not None:
         raise WorkflowCompileError(
             "environment_parameter_forbidden",
             (
                 f"{field_name} contains Environment Configuration or "
-                f"model identity fields: {forbidden}"
+                f"model identity field {supplied_forbidden_path[-1]!r}"
             ),
             node_id=node_id,
-            field_path=("nodes", node_id, field_name),
+            field_path=(
+                "nodes",
+                node_id,
+                field_name,
+                *supplied_forbidden_path,
+            ),
         )
     unknown = sorted(set(values) - set(contract))
     if unknown:
@@ -460,6 +503,22 @@ def _validate_parameter_values(
         if isinstance(declaration, Mapping) and "default" in declaration
     }
     resolved.update(_thaw_json(values))
+    forbidden_path = _find_forbidden_environment_field(resolved)
+    if forbidden_path is not None:
+        raise WorkflowCompileError(
+            "environment_parameter_forbidden",
+            (
+                f"{field_name} contains Environment Configuration or "
+                f"model identity field {forbidden_path[-1]!r}"
+            ),
+            node_id=node_id,
+            field_path=(
+                "nodes",
+                node_id,
+                field_name,
+                *forbidden_path,
+            ),
+        )
     for name, declaration in contract.items():
         if (
             isinstance(declaration, Mapping)
@@ -476,32 +535,217 @@ def _validate_parameter_values(
         if name not in resolved or not isinstance(declaration, Mapping):
             continue
         value = resolved[name]
-        expected_type = declaration.get("type")
-        valid_type = {
-            "boolean": type(value) is bool,
-            "integer": type(value) is int,
-            "number": isinstance(value, (int, float))
-            and not isinstance(value, bool),
-            "string": type(value) is str,
-            "array": type(value) is list,
-            "object": type(value) is dict,
-        }.get(expected_type, True)
-        if not valid_type:
+        value_contract = declaration.get("value_contract", declaration)
+        if not isinstance(value_contract, Mapping):
             raise WorkflowCompileError(
                 "invalid_parameter",
-                f"{field_name}.{name} must be {expected_type}",
+                f"{field_name}.{name} has an invalid value contract",
                 node_id=node_id,
                 field_path=("nodes", node_id, field_name, name),
             )
-        minimum = declaration.get("minimum")
-        if minimum is not None and value < minimum:
+        violation = _parameter_contract_violation(
+            value,
+            value_contract,
+            path=(name,),
+        )
+        if violation is not None:
+            path, reason = violation
             raise WorkflowCompileError(
                 "invalid_parameter",
-                f"{field_name}.{name} must be at least {minimum}",
+                f"{field_name}.{'.'.join(map(str, path))} {reason}",
                 node_id=node_id,
-                field_path=("nodes", node_id, field_name, name),
+                field_path=("nodes", node_id, field_name, *path),
             )
     return resolved
+
+
+def _find_forbidden_environment_field(
+    value: Any,
+    *,
+    path: tuple[str | int, ...] = (),
+) -> tuple[str | int, ...] | None:
+    if isinstance(value, Mapping):
+        for name, item in value.items():
+            normalized = name.strip().lower().replace("-", "_")
+            item_path = (*path, name)
+            components = frozenset(normalized.split("_"))
+            if (
+                normalized in _FORBIDDEN_WORKFLOW_PARAMETER_NAMES
+                or components.intersection(
+                    _FORBIDDEN_WORKFLOW_PARAMETER_COMPONENTS
+                )
+            ):
+                return item_path
+            nested = _find_forbidden_environment_field(
+                item,
+                path=item_path,
+            )
+            if nested is not None:
+                return nested
+    elif isinstance(value, (list, tuple)):
+        for index, item in enumerate(value):
+            nested = _find_forbidden_environment_field(
+                item,
+                path=(*path, index),
+            )
+            if nested is not None:
+                return nested
+    return None
+
+
+def _parameter_contract_violation(
+    value: Any,
+    schema: Mapping[str, Any],
+    *,
+    path: tuple[str | int, ...],
+) -> tuple[tuple[str | int, ...], str] | None:
+    """Return the first violation of one closed parameter value contract."""
+    if "const" in schema and value != schema["const"]:
+        return path, f"must equal {schema['const']!r}"
+    if "enum" in schema and value not in schema["enum"]:
+        return path, f"must be one of {_thaw_json(schema['enum'])!r}"
+
+    for keyword in ("allOf", "anyOf", "oneOf"):
+        alternatives = schema.get(keyword)
+        if alternatives is None:
+            continue
+        results = [
+            _parameter_contract_violation(value, item, path=path)
+            for item in alternatives
+            if isinstance(item, Mapping)
+        ]
+        matches = sum(result is None for result in results)
+        if keyword == "allOf" and any(result is not None for result in results):
+            return next(result for result in results if result is not None)
+        if keyword == "anyOf" and matches == 0:
+            return path, "must match at least one value-contract alternative"
+        if keyword == "oneOf" and matches != 1:
+            return path, "must match exactly one value-contract alternative"
+
+    expected_type = schema.get("type")
+    if isinstance(expected_type, (list, tuple)):
+        valid_type = any(
+            _parameter_type_matches(value, candidate)
+            for candidate in expected_type
+        )
+    else:
+        valid_type = (
+            True
+            if expected_type is None
+            else _parameter_type_matches(value, expected_type)
+        )
+    if not valid_type:
+        return path, f"must be {expected_type}"
+
+    if isinstance(value, (int, float)) and not isinstance(value, bool):
+        minimum = schema.get("minimum")
+        maximum = schema.get("maximum")
+        exclusive_minimum = schema.get("exclusiveMinimum")
+        exclusive_maximum = schema.get("exclusiveMaximum")
+        if minimum is not None and value < minimum:
+            return path, f"must be at least {minimum}"
+        if maximum is not None and value > maximum:
+            return path, f"must be at most {maximum}"
+        if exclusive_minimum is not None and value <= exclusive_minimum:
+            return path, f"must be greater than {exclusive_minimum}"
+        if exclusive_maximum is not None and value >= exclusive_maximum:
+            return path, f"must be less than {exclusive_maximum}"
+
+    if isinstance(value, str):
+        if (
+            schema.get("minLength") is not None
+            and len(value) < schema["minLength"]
+        ):
+            return path, f"must contain at least {schema['minLength']} characters"
+        if (
+            schema.get("maxLength") is not None
+            and len(value) > schema["maxLength"]
+        ):
+            return path, f"must contain at most {schema['maxLength']} characters"
+        pattern = schema.get("pattern")
+        if pattern is not None:
+            try:
+                matches = re.search(pattern, value) is not None
+            except re.error:
+                return path, "uses an invalid pattern in its value contract"
+            if not matches:
+                return path, f"must match {pattern!r}"
+
+    if isinstance(value, (list, tuple)):
+        if (
+            schema.get("minItems") is not None
+            and len(value) < schema["minItems"]
+        ):
+            return path, f"must contain at least {schema['minItems']} items"
+        if (
+            schema.get("maxItems") is not None
+            and len(value) > schema["maxItems"]
+        ):
+            return path, f"must contain at most {schema['maxItems']} items"
+        if schema.get("uniqueItems") is True:
+            for index, item in enumerate(value):
+                if item in value[:index]:
+                    return (*path, index), "must be unique"
+        item_schema = schema.get("items")
+        if isinstance(item_schema, Mapping):
+            for index, item in enumerate(value):
+                violation = _parameter_contract_violation(
+                    item,
+                    item_schema,
+                    path=(*path, index),
+                )
+                if violation is not None:
+                    return violation
+
+    if isinstance(value, Mapping):
+        properties = schema.get("properties", {})
+        required = schema.get("required", ())
+        if isinstance(required, (list, tuple)):
+            missing = [name for name in required if name not in value]
+            if missing:
+                return path, f"must contain required fields {missing!r}"
+        if (
+            schema.get("minProperties") is not None
+            and len(value) < schema["minProperties"]
+        ):
+            return path, f"must contain at least {schema['minProperties']} fields"
+        if (
+            schema.get("maxProperties") is not None
+            and len(value) > schema["maxProperties"]
+        ):
+            return path, f"must contain at most {schema['maxProperties']} fields"
+        additional = schema.get("additionalProperties", True)
+        for name, item in value.items():
+            item_schema = (
+                properties.get(name)
+                if isinstance(properties, Mapping)
+                else None
+            )
+            if item_schema is None:
+                if additional is False:
+                    return (*path, name), "is not an allowed field"
+                item_schema = additional if isinstance(additional, Mapping) else None
+            if isinstance(item_schema, Mapping):
+                violation = _parameter_contract_violation(
+                    item,
+                    item_schema,
+                    path=(*path, name),
+                )
+                if violation is not None:
+                    return violation
+    return None
+
+
+def _parameter_type_matches(value: Any, expected_type: Any) -> bool:
+    return {
+        "null": value is None,
+        "boolean": type(value) is bool,
+        "integer": type(value) is int,
+        "number": isinstance(value, (int, float)) and not isinstance(value, bool),
+        "string": type(value) is str,
+        "array": isinstance(value, (list, tuple)),
+        "object": isinstance(value, Mapping),
+    }.get(expected_type, False)
 
 
 def _validate_static_semantics(
