@@ -28,7 +28,6 @@ from core.provider_contract import (
     validate_installed_provider_checkout,
 )
 from datatypes import ProteinStructure
-from modules.simplefold_adapter import validated_simplefold_esm2_root
 
 
 SIMPLEFOLD_CONFIDENCE_ARTIFACTS = (
@@ -46,6 +45,17 @@ SIMPLEFOLD_CONFIDENCE_FEATURIZATION = (
 SIMPLEFOLD_CONFIDENCE_ADAPTER = (
     "protein-workbench-simplefold-confidence-adapter/v1"
 )
+
+
+def validated_simplefold_esm2_root(
+    source_root: Path | None = None,
+) -> Path:
+    """Lazily cross the installed ESM2 source validator boundary."""
+    from modules.simplefold_adapter import (
+        validated_simplefold_esm2_root as validate,
+    )
+
+    return validate(source_root)
 
 
 def simplefold_confidence_artifact_sha256() -> dict[str, str]:
