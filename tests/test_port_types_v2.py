@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import re
+import shutil
 
 from fastapi.testclient import TestClient
 import pytest
@@ -189,6 +190,22 @@ def test_catalog_snapshot_publishes_exact_port_type_contracts() -> None:
         ("structure_transform.extract_sequence.direct", "2.0.0", True),
         (
             "structure_transform.backbone_to_structure.direct",
+            "2.0.0",
+            True,
+        ),
+        (
+            "structure_annotation.dssp_compute.direct",
+            "2.0.0",
+            shutil.which("mkdssp") is not None,
+        ),
+        (
+            "structure_annotation.secondary_structure_extract.direct",
+            "2.0.0",
+            True,
+        ),
+        ("structure_annotation.sasa_compute.direct", "2.0.0", True),
+        (
+            "structure_annotation.secondary_structure_agreement.direct",
             "2.0.0",
             True,
         ),
