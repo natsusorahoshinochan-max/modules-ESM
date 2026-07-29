@@ -16,26 +16,35 @@ from core import (
 )
 
 from .implementation import (
+    AddFunctionAnnotationImplementation,
+    AssembleProteinPromptImplementation,
     BuildResidueLayoutImplementation,
     EditResidueLayoutImplementation,
     MapResidueTrackImplementation,
     OverrideResidueTrackImplementation,
+    UpdatePromptSequenceImplementation,
 )
 from .track_types import ALIGNED_TRACK_PORT_TYPES
 
 
 _VERSION = "2.0.0"
 _OPERATIONS = (
+    "add_function_annotation",
+    "assemble_protein_prompt",
     "build_residue_layout",
     "edit_residue_layout",
     "map_residue_track",
     "override_residue_track",
+    "update_prompt_sequence",
 )
 _IMPLEMENTATIONS = {
+    "add_function_annotation": AddFunctionAnnotationImplementation,
+    "assemble_protein_prompt": AssembleProteinPromptImplementation,
     "build_residue_layout": BuildResidueLayoutImplementation,
     "edit_residue_layout": EditResidueLayoutImplementation,
     "map_residue_track": MapResidueTrackImplementation,
     "override_residue_track": OverrideResidueTrackImplementation,
+    "update_prompt_sequence": UpdatePromptSequenceImplementation,
 }
 
 
@@ -58,6 +67,17 @@ def _build(operation: str):
 
 def _method(operation: str) -> MethodDefinition:
     algorithm_identity = {
+        "add_function_annotation": {
+            "name": "chain-qualified-function-interval-authoring",
+            "interval_indexing": "one-based-inclusive-provider-axis",
+            "ordering": "global-start-global-end-label-and-provenance",
+            "overlap_policy": "explicit-workflow-choice",
+        },
+        "assemble_protein_prompt": {
+            "name": "validated-residue-aligned-protein-prompt-assembly",
+            "track_layout": "exact-effective-residue-layout",
+            "optional_tracks": "absent-or-explicitly-nullable",
+        },
         "build_residue_layout": {
             "name": "canonical-residue-layout-construction",
             "residue_identity": "<chain>:<one-based-generated-label>",
@@ -77,6 +97,11 @@ def _method(operation: str) -> MethodDefinition:
             "name": "identity-addressed-track-override",
             "actions": ["clear", "preserve", "replace"],
             "nullable_semantics": "JSON null means unspecified",
+        },
+        "update_prompt_sequence": {
+            "name": "generic-protein-prompt-sequence-replacement",
+            "preservation": "layout-and-all-unaffected-tracks",
+            "residue_identity": "exact-layout-order",
         },
     }[operation]
     return MethodDefinition(
@@ -151,10 +176,13 @@ MODULE_PACKAGE = ModulePackageRegistration(
     package_version=_VERSION,
     package_module=__package__,
     node_definitions=(
+        DefinitionResource("definitions/add_function_annotation.yaml"),
+        DefinitionResource("definitions/assemble_protein_prompt.yaml"),
         DefinitionResource("definitions/build_residue_layout.yaml"),
         DefinitionResource("definitions/edit_residue_layout.yaml"),
         DefinitionResource("definitions/map_residue_track.yaml"),
         DefinitionResource("definitions/override_residue_track.yaml"),
+        DefinitionResource("definitions/update_prompt_sequence.yaml"),
     ),
     methods=tuple(_method(operation) for operation in _OPERATIONS),
     bindings=tuple(_binding(operation) for operation in _OPERATIONS),

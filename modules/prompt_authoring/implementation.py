@@ -6,11 +6,14 @@ from collections.abc import Mapping
 from typing import Any
 
 from .domain import (
+    add_function_annotation,
+    assemble_protein_prompt,
     build_layout,
     build_residue_map,
     map_track,
     override_track,
     TrackKind,
+    update_prompt_sequence,
 )
 
 
@@ -140,3 +143,89 @@ class OverrideResidueTrackImplementation(_Implementation):
                 kind=kind,
             )
         return {port: result}
+
+
+class AssembleProteinPromptImplementation(_Implementation):
+    def execute(
+        self,
+        *,
+        inputs: Mapping[str, Any],
+        node_parameters: Mapping[str, Any],
+        binding_parameters: Mapping[str, Any],
+    ) -> dict[str, Any]:
+        allowed_inputs = {"layout", "function_annotations", *_TRACK_PORTS}
+        if (
+            "layout" not in inputs
+            or not set(inputs) <= allowed_inputs
+            or node_parameters
+            or binding_parameters
+        ):
+            raise ValueError(
+                "prompt assembly accepts only layout and declared optional tracks"
+            )
+        tracks = {
+            name: inputs[name]
+            for name in _TRACK_PORTS
+            if name in inputs
+        }
+        with self._invocation():
+            prompt = assemble_protein_prompt(
+                inputs["layout"],
+                tracks,
+                inputs.get("function_annotations"),
+            )
+        return {"protein_prompt": prompt}
+
+
+class AddFunctionAnnotationImplementation(_Implementation):
+    def execute(
+        self,
+        *,
+        inputs: Mapping[str, Any],
+        node_parameters: Mapping[str, Any],
+        binding_parameters: Mapping[str, Any],
+    ) -> dict[str, Any]:
+        if (
+            set(inputs) not in (
+                {"layout"},
+                {"layout", "existing_annotations"},
+            )
+            or set(node_parameters) != {"annotation", "overlap_policy"}
+            or binding_parameters
+        ):
+            raise ValueError(
+                "function annotation requires layout, annotation, overlap_policy, "
+                "and optional existing_annotations"
+            )
+        with self._invocation():
+            annotations = add_function_annotation(
+                inputs["layout"],
+                inputs.get("existing_annotations"),
+                node_parameters["annotation"],
+                overlap_policy=node_parameters["overlap_policy"],
+            )
+        return {"function_annotations": annotations}
+
+
+class UpdatePromptSequenceImplementation(_Implementation):
+    def execute(
+        self,
+        *,
+        inputs: Mapping[str, Any],
+        node_parameters: Mapping[str, Any],
+        binding_parameters: Mapping[str, Any],
+    ) -> dict[str, Any]:
+        if (
+            set(inputs) != {"protein_prompt", "sequence"}
+            or node_parameters
+            or binding_parameters
+        ):
+            raise ValueError(
+                "sequence update requires only protein_prompt and sequence"
+            )
+        with self._invocation():
+            prompt = update_prompt_sequence(
+                inputs["protein_prompt"],
+                inputs["sequence"],
+            )
+        return {"protein_prompt": prompt}

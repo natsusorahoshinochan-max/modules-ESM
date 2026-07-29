@@ -9,7 +9,14 @@ import math
 import re
 from typing import Any
 
-from datatypes import ResidueLayout, ResidueMap
+from datatypes import (
+    FunctionAnnotations,
+    ProteinPrompt,
+    ProteinSequence,
+    ResidueLayout,
+    ResidueMap,
+    ResidueTrack,
+)
 
 
 _CHAIN_ID = re.compile(r"^[A-Za-z0-9]$")
@@ -17,7 +24,17 @@ _RESIDUE_ID = re.compile(
     r"^(?P<chain>[A-Za-z0-9]):(?P<label>[A-Za-z0-9][A-Za-z0-9_.-]{0,63})$"
 )
 _SECONDARY_STRUCTURE = frozenset({"H", "B", "E", "G", "I", "T", "S", "-"})
+_AMINO_ACID_CODES = frozenset("ACDEFGHIKLMNPQRSTVWYBXZJUO")
 _MAX_RESIDUES = 2_000_000
+_CANONICAL_ANNOTATION_FIELDS = {
+    "label",
+    "start",
+    "end",
+    "chain_id",
+    "start_residue_id",
+    "end_residue_id",
+    "overlap_policy",
+}
 
 
 class TrackKind(Enum):
@@ -36,6 +53,349 @@ class AlignedResidueTrack:
 
     layout: ResidueLayout
     values: tuple[Any, ...]
+
+
+def validate_function_annotations(
+    value: object,
+    layout: object,
+    *,
+    overlap_policy: str | None = None,
+) -> FunctionAnnotations:
+    """Validate canonical one-based intervals against one exact layout."""
+    target = validate_layout(layout, subject="annotation layout")
+    if type(value) is not FunctionAnnotations:
+        raise ValueError("function_annotations must be FunctionAnnotations")
+    if overlap_policy is not None and overlap_policy not in {"allow", "reject"}:
+        raise ValueError("overlap_policy must be allow or reject")
+
+    residue_ids = tuple(target.residue_ids or ())
+    residue_index = {
+        residue_id: index for index, residue_id in enumerate(residue_ids)
+    }
+    previous_key: tuple[object, ...] | None = None
+    resolved_policy = overlap_policy
+    previous_end = 0
+    for index, annotation in enumerate(value.annotations):
+        subject = f"function_annotations[{index}]"
+        if (
+            not isinstance(annotation, Mapping)
+            or set(annotation) != _CANONICAL_ANNOTATION_FIELDS
+        ):
+            raise ValueError(
+                f"{subject} must retain the canonical interval provenance"
+            )
+        label = annotation["label"]
+        if (
+            not isinstance(label, str)
+            or not label
+            or label != label.strip()
+            or len(label) > 256
+            or any(ord(character) < 32 for character in label)
+        ):
+            raise ValueError(f"{subject}.label is invalid")
+        chain_id = annotation["chain_id"]
+        start_residue_id = annotation["start_residue_id"]
+        end_residue_id = annotation["end_residue_id"]
+        if (
+            not isinstance(chain_id, str)
+            or _CHAIN_ID.fullmatch(chain_id) is None
+            or not isinstance(start_residue_id, str)
+            or not isinstance(end_residue_id, str)
+            or start_residue_id not in residue_index
+            or end_residue_id not in residue_index
+            or residue_chain(start_residue_id) != chain_id
+            or residue_chain(end_residue_id) != chain_id
+        ):
+            raise ValueError(
+                f"{subject} endpoints do not correspond to one layout chain"
+            )
+        start_position = residue_index[start_residue_id]
+        end_position = residue_index[end_residue_id]
+        if start_position > end_position or any(
+            residue_chain(residue_ids[position]) != chain_id
+            for position in range(start_position, end_position + 1)
+        ):
+            raise ValueError(
+                f"{subject} interval is not ordered within one chain"
+            )
+        expected_start = start_position + 1
+        expected_end = end_position + 1
+        if (
+            type(annotation["start"]) is not int
+            or type(annotation["end"]) is not int
+            or annotation["start"] != expected_start
+            or annotation["end"] != expected_end
+        ):
+            raise ValueError(
+                f"{subject} provider interval contradicts residue provenance"
+            )
+        annotation_policy = annotation["overlap_policy"]
+        if annotation_policy not in {"allow", "reject"}:
+            raise ValueError(f"{subject}.overlap_policy is invalid")
+        if resolved_policy is None:
+            resolved_policy = annotation_policy
+        elif annotation_policy != resolved_policy:
+            raise ValueError(
+                "function_annotations cannot mix overlap policies"
+            )
+        key = (
+            expected_start,
+            expected_end,
+            label,
+            chain_id,
+            start_residue_id,
+            end_residue_id,
+        )
+        if previous_key is not None and key <= previous_key:
+            raise ValueError(
+                "function_annotations must use unique canonical ordering"
+            )
+        if resolved_policy == "reject" and expected_start <= previous_end:
+            raise ValueError(
+                "function_annotations overlap under the reject policy"
+            )
+        previous_key = key
+        previous_end = max(previous_end, expected_end)
+    return value
+
+
+def add_function_annotation(
+    layout: object,
+    existing: object | None,
+    annotation: object,
+    *,
+    overlap_policy: object,
+) -> FunctionAnnotations:
+    """Add one chain-qualified annotation and canonicalize its ordering."""
+    target = validate_layout(layout, subject="annotation layout")
+    if overlap_policy not in {"allow", "reject"}:
+        raise ValueError("overlap_policy must be allow or reject")
+    if existing is None:
+        current = FunctionAnnotations()
+    else:
+        current = validate_function_annotations(
+            existing,
+            target,
+            overlap_policy=overlap_policy,
+        )
+    if not isinstance(annotation, Mapping) or set(annotation) != {
+        "label",
+        "chain_id",
+        "start_residue_id",
+        "end_residue_id",
+    }:
+        raise ValueError(
+            "annotation must contain only label, chain_id, and residue endpoints"
+        )
+    residue_ids = tuple(target.residue_ids or ())
+    residue_index = {
+        residue_id: index for index, residue_id in enumerate(residue_ids)
+    }
+    start_residue_id = annotation["start_residue_id"]
+    end_residue_id = annotation["end_residue_id"]
+    start = (
+        residue_index[start_residue_id] + 1
+        if isinstance(start_residue_id, str)
+        and start_residue_id in residue_index
+        else -1
+    )
+    end = (
+        residue_index[end_residue_id] + 1
+        if isinstance(end_residue_id, str)
+        and end_residue_id in residue_index
+        else -1
+    )
+    appended = FunctionAnnotations(
+        annotations=[
+            *[dict(item) for item in current.annotations],
+            {
+                "label": annotation["label"],
+                "start": start,
+                "end": end,
+                "chain_id": annotation["chain_id"],
+                "start_residue_id": start_residue_id,
+                "end_residue_id": end_residue_id,
+                "overlap_policy": overlap_policy,
+            },
+        ]
+    )
+    appended.annotations.sort(
+        key=lambda item: (
+            item.get("start"),
+            item.get("end"),
+            item.get("label"),
+            item.get("chain_id"),
+            item.get("start_residue_id"),
+            item.get("end_residue_id"),
+        )
+    )
+    return validate_function_annotations(
+        appended,
+        target,
+        overlap_policy=overlap_policy,
+    )
+
+
+def assemble_protein_prompt(
+    layout: object,
+    tracks: Mapping[str, object],
+    function_annotations: object | None,
+) -> ProteinPrompt:
+    """Assemble only explicit aligned values into one validated Prompt."""
+    target = validate_layout(layout, subject="prompt layout")
+    expected_kinds = {
+        "sequence_track": TrackKind.SEQUENCE,
+        "structure_track": TrackKind.STRUCTURE,
+        "visibility_track": TrackKind.VISIBILITY,
+        "secondary_structure_track": TrackKind.SECONDARY_STRUCTURE,
+        "sasa_track": TrackKind.SASA,
+    }
+    if not set(tracks) <= set(expected_kinds):
+        raise ValueError("prompt assembly received an undeclared track")
+    normalized: dict[str, ResidueTrack | None] = {
+        name: None for name in expected_kinds
+    }
+    for name, track in tracks.items():
+        aligned = validate_track(
+            track,
+            kind=expected_kinds[name],
+            subject=name,
+            expected_layout=target,
+        )
+        normalized[name] = ResidueTrack(
+            values=list(aligned.values),
+            sentinel=None,
+        )
+    if function_annotations is None:
+        annotations = FunctionAnnotations()
+    else:
+        annotations = validate_function_annotations(
+            function_annotations,
+            target,
+        )
+        annotations = FunctionAnnotations(
+            [dict(annotation) for annotation in annotations.annotations]
+        )
+    return ProteinPrompt(
+        target_layout=target,
+        sequence_track=normalized["sequence_track"],
+        structure_track=normalized["structure_track"],
+        structure_visibility_track=normalized["visibility_track"],
+        secondary_structure_track=normalized[
+            "secondary_structure_track"
+        ],
+        sasa_track=normalized["sasa_track"],
+        function_annotations=annotations,
+    )
+
+
+def validate_protein_prompt(value: object) -> ProteinPrompt:
+    """Validate one canonical Prompt independent of any provider Adapter."""
+    if type(value) is not ProteinPrompt or value.target_layout is None:
+        raise ValueError(
+            "protein_prompt must carry one identity-complete target layout"
+        )
+    target = validate_layout(
+        value.target_layout,
+        subject="protein_prompt target layout",
+    )
+    prompt_tracks = {
+        "sequence_track": (value.sequence_track, TrackKind.SEQUENCE),
+        "structure_track": (value.structure_track, TrackKind.STRUCTURE),
+        "visibility_track": (
+            value.structure_visibility_track,
+            TrackKind.VISIBILITY,
+        ),
+        "secondary_structure_track": (
+            value.secondary_structure_track,
+            TrackKind.SECONDARY_STRUCTURE,
+        ),
+        "sasa_track": (value.sasa_track, TrackKind.SASA),
+    }
+    for name, (track, kind) in prompt_tracks.items():
+        if track is None:
+            continue
+        if type(track) is not ResidueTrack or track.sentinel is not None:
+            raise ValueError(
+                f"protein_prompt {name} must use explicit JSON null semantics"
+            )
+        validate_track(
+            AlignedResidueTrack(target, tuple(track.values)),
+            kind=kind,
+            subject=f"protein_prompt {name}",
+            expected_layout=target,
+        )
+    validate_function_annotations(
+        value.function_annotations,
+        target,
+    )
+    return value
+
+
+def update_prompt_sequence(
+    prompt: object,
+    sequence: object,
+) -> ProteinPrompt:
+    """Replace only sequence assignments on one canonical Prompt layout."""
+    source = validate_protein_prompt(prompt)
+    return validate_protein_prompt(
+        replace_prompt_sequence(source, sequence)
+    )
+
+
+def replace_prompt_sequence(
+    prompt: object,
+    sequence: object,
+) -> ProteinPrompt:
+    """Perform the provider-independent sequence-only replacement."""
+    if type(prompt) is not ProteinPrompt or prompt.target_layout is None:
+        raise ValueError("protein_prompt input is required")
+    if type(sequence) is not ProteinSequence:
+        raise ValueError("sequence input is required")
+    source = prompt
+    target = prompt.target_layout
+    if (
+        type(sequence.sequence) is not str
+        or len(sequence.sequence) != target.length
+    ):
+        raise ValueError(
+            "sequence length must equal the protein_prompt target layout"
+        )
+    if (
+        sequence.residue_ids is not None
+        and target.residue_ids is not None
+        and tuple(sequence.residue_ids) != tuple(target.residue_ids)
+    ):
+        raise ValueError(
+            "sequence residue identities must equal the protein_prompt layout"
+        )
+    if any(character not in _AMINO_ACID_CODES for character in sequence.sequence):
+        raise ValueError("sequence contains an illegal amino-acid change")
+
+    def copy_track(track: ResidueTrack | None) -> ResidueTrack | None:
+        if track is None:
+            return None
+        return ResidueTrack(list(track.values), track.sentinel)
+
+    updated = ProteinPrompt(
+        target_layout=target,
+        sequence_track=ResidueTrack(list(sequence.sequence), None),
+        structure_track=copy_track(source.structure_track),
+        structure_visibility_track=copy_track(
+            source.structure_visibility_track
+        ),
+        secondary_structure_track=copy_track(
+            source.secondary_structure_track
+        ),
+        sasa_track=copy_track(source.sasa_track),
+        function_annotations=FunctionAnnotations(
+            [
+                dict(annotation)
+                for annotation in source.function_annotations.annotations
+            ]
+        ),
+    )
+    return updated
 
 
 def residue_chain(residue_id: str) -> str:
@@ -332,7 +692,7 @@ def validate_track(
             if (
                 type(item) is not str
                 or len(item) != 1
-                or item not in "ACDEFGHIKLMNPQRSTVWYBXZJUO"
+                or item not in _AMINO_ACID_CODES
             ):
                 raise ValueError(
                     f"{subject}[{index}] is not one amino-acid code"

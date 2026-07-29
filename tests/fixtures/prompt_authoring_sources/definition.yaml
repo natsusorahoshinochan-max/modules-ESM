@@ -24,6 +24,12 @@ outputs:
     required: true
     multiplicity: one
     scientific_meaning: Nullable amino-acid fixture values carrying source_layout.
+  - name: source_structure_track
+    port_type_id: prompt_authoring.track.structure
+    port_type_version: "2.0.0"
+    required: true
+    multiplicity: one
+    scientific_meaning: Nullable named-atom coordinate fixture values carrying source_layout.
   - name: source_visibility_track
     port_type_id: prompt_authoring.track.visibility
     port_type_version: "2.0.0"
@@ -36,6 +42,12 @@ outputs:
     required: true
     multiplicity: one
     scientific_meaning: Nullable SS8 fixture values carrying source_layout.
+  - name: source_sasa_track
+    port_type_id: prompt_authoring.track.sasa
+    port_type_version: "2.0.0"
+    required: true
+    multiplicity: one
+    scientific_meaning: Nullable solvent-accessibility fixture values carrying source_layout.
   - name: target_secondary_structure_track
     port_type_id: prompt_authoring.track.secondary_structure
     port_type_version: "2.0.0"
@@ -54,6 +66,24 @@ outputs:
     required: true
     multiplicity: one
     scientific_meaning: Complete explicit fixture conversion from source_layout to target_layout.
+  - name: function_annotations
+    port_type_id: function.annotations
+    port_type_version: "2.0.0"
+    required: true
+    multiplicity: one
+    scientific_meaning: Canonical chain-qualified function-interval fixture.
+  - name: protein_prompt
+    port_type_id: protein.prompt
+    port_type_version: "2.0.0"
+    required: true
+    multiplicity: one
+    scientific_meaning: Canonical multi-track ProteinPrompt fixture.
+  - name: protein_sequence
+    port_type_id: protein.sequence
+    port_type_version: "2.0.0"
+    required: true
+    multiplicity: one
+    scientific_meaning: Complete sequence fixture aligned to source_layout.
 parameter_groups:
   - id: fixture
     title: Fixture
@@ -72,4 +102,13 @@ node_parameters:
       - noncontiguous-chain-layout
       - boundary-edit
       - contradictory-residue-map
+      - annotation-overlap
+      - annotation-out-of-order
+      - annotation-cross-chain
+      - annotation-allow
+      - prompt-illegal-sequence
+      - sequence-length-drift
+      - sequence-identity-drift
+      - sequence-illegal-symbol
+      - adapter-boundary
     default: canonical

@@ -368,12 +368,25 @@ def _validate_domain_value(value: Any, *, path: str) -> None:
         return
 
     if type(value) is FunctionAnnotations:
-        expected_fields = {"label", "start", "end"}
+        canonical_fields = {
+            "label",
+            "start",
+            "end",
+            "chain_id",
+            "start_residue_id",
+            "end_residue_id",
+            "overlap_policy",
+        }
+        canonical_policy: str | None = None
+        previous_key: tuple[object, ...] | None = None
+        previous_end = 0
         for index, annotation in enumerate(value.annotations):
             annotation_path = f"{path}.annotations[{index}]"
-            if set(annotation) != expected_fields:
+            fields = set(annotation)
+            if fields != canonical_fields:
                 raise PortValueError(
-                    f"{annotation_path} must contain label, start, and end"
+                    f"{annotation_path} must be one closed canonical "
+                    "function interval"
                 )
             if type(annotation["label"]) is not str or not annotation["label"]:
                 raise PortValueError(f"{annotation_path}.label must be non-empty text")
@@ -386,6 +399,84 @@ def _validate_domain_value(value: Any, *, path: str) -> None:
                 raise PortValueError(
                     f"{annotation_path} range must be ordered non-negative integers"
                 )
+            label = annotation["label"]
+            if (
+                label != label.strip()
+                or len(label) > 256
+                or any(ord(character) < 32 for character in label)
+            ):
+                raise PortValueError(
+                    f"{annotation_path}.label is not canonical text"
+                )
+            for field_name in (
+                "chain_id",
+                "start_residue_id",
+                "end_residue_id",
+            ):
+                if (
+                    type(annotation[field_name]) is not str
+                    or not annotation[field_name]
+                ):
+                    raise PortValueError(
+                        f"{annotation_path}.{field_name} must be non-empty text"
+                    )
+            chain_id = annotation["chain_id"]
+            start_residue_id = annotation["start_residue_id"]
+            end_residue_id = annotation["end_residue_id"]
+            if (
+                re.fullmatch(r"^[A-Za-z0-9]$", chain_id) is None
+                or re.fullmatch(
+                    r"^[A-Za-z0-9]:[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$",
+                    start_residue_id,
+                )
+                is None
+                or re.fullmatch(
+                    r"^[A-Za-z0-9]:[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$",
+                    end_residue_id,
+                )
+                is None
+                or not start_residue_id.startswith(f"{chain_id}:")
+                or not end_residue_id.startswith(f"{chain_id}:")
+            ):
+                raise PortValueError(
+                    f"{annotation_path} chain-qualified provenance is invalid"
+                )
+            policy = annotation["overlap_policy"]
+            if policy not in {"allow", "reject"}:
+                raise PortValueError(
+                    f"{annotation_path}.overlap_policy must be allow or reject"
+                )
+            if canonical_policy is None:
+                canonical_policy = policy
+            elif policy != canonical_policy:
+                raise PortValueError(
+                    f"{path} cannot mix canonical overlap policies"
+                )
+            if annotation["start"] < 1:
+                raise PortValueError(
+                    f"{annotation_path} canonical range must be one-based"
+                )
+            key = (
+                annotation["start"],
+                annotation["end"],
+                label,
+                chain_id,
+                start_residue_id,
+                end_residue_id,
+            )
+            if previous_key is not None and key <= previous_key:
+                raise PortValueError(
+                    f"{path} canonical intervals are not uniquely ordered"
+                )
+            if (
+                canonical_policy == "reject"
+                and annotation["start"] <= previous_end
+            ):
+                raise PortValueError(
+                    f"{path} canonical intervals overlap under reject policy"
+                )
+            previous_key = key
+            previous_end = max(previous_end, annotation["end"])
         return
 
     if type(value) is ProteinPrompt:
@@ -1562,16 +1653,34 @@ _BUILTIN_VALUE_KINDS = (
 
 def _builtin_port_type(type_id: str, value_kind: str) -> PortTypeDefinition:
     behavior_prefix = f"protein-workbench.port-type/{type_id}"
+    validator_parameters: dict[str, Any] = {
+        "accepted_value_kind": value_kind,
+        "complete_values_only": True,
+    }
+    if value_kind == "function_annotations":
+        validator_parameters["canonical_interval_contract"] = {
+            "fields": [
+                "chain_id",
+                "end",
+                "end_residue_id",
+                "label",
+                "overlap_policy",
+                "start",
+                "start_residue_id",
+            ],
+            "indexing": "one-based-inclusive",
+            "ordering": (
+                "start,end,label,chain-and-residue-provenance"
+            ),
+            "overlap_policy": ["allow", "reject"],
+        }
     return PortTypeDefinition(
         type_id=type_id,
         version=PORT_TYPE_VERSION,
         validator=BehaviorReference(
             behavior_id=f"{behavior_prefix}/validate",
             behavior_version=PORT_TYPE_VERSION,
-            parameters={
-                "accepted_value_kind": value_kind,
-                "complete_values_only": True,
-            },
+            parameters=validator_parameters,
         ),
         codec=BehaviorReference(
             behavior_id=f"{behavior_prefix}/canonical-json-codec",

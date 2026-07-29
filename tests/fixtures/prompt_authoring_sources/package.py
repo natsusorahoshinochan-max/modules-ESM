@@ -17,7 +17,14 @@ from core import (
     ModulePackageRegistration,
     ReadinessDeclaration,
 )
-from datatypes import ResidueLayout, ResidueMap
+from datatypes import (
+    FunctionAnnotations,
+    ProteinPrompt,
+    ProteinSequence,
+    ResidueLayout,
+    ResidueMap,
+    ResidueTrack,
+)
 from modules.prompt_authoring.domain import AlignedResidueTrack
 
 
@@ -79,6 +86,103 @@ class _Source:
                 source,
                 (True, True, False),
             )
+            source_structure_track = AlignedResidueTrack(
+                source,
+                (
+                    {"N": (0.0, 0.0, 0.0), "CA": (1.0, 0.0, 0.0)},
+                    None,
+                    {"CA": (2.0, 0.0, 0.0)},
+                ),
+            )
+            source_sasa_track = AlignedResidueTrack(
+                source,
+                (12.5, None, 30.0),
+            )
+            function_annotations = FunctionAnnotations(
+                [{
+                    "label": "binding_site",
+                    "start": 1,
+                    "end": 2,
+                    "chain_id": "A",
+                    "start_residue_id": "A:1",
+                    "end_residue_id": "A:2",
+                    "overlap_policy": "reject",
+                }]
+            )
+            sequence_value = "AGS"
+            if fixture == "annotation-overlap":
+                function_annotations = FunctionAnnotations([
+                    {
+                        "label": "binding_site",
+                        "start": 1,
+                        "end": 2,
+                        "chain_id": "A",
+                        "start_residue_id": "A:1",
+                        "end_residue_id": "A:2",
+                        "overlap_policy": "reject",
+                    },
+                    {
+                        "label": "active_site",
+                        "start": 2,
+                        "end": 2,
+                        "chain_id": "A",
+                        "start_residue_id": "A:2",
+                        "end_residue_id": "A:2",
+                        "overlap_policy": "reject",
+                    },
+                ])
+            elif fixture == "annotation-out-of-order":
+                function_annotations = FunctionAnnotations([
+                    {
+                        "label": "chain_b_site",
+                        "start": 3,
+                        "end": 3,
+                        "chain_id": "B",
+                        "start_residue_id": "B:1",
+                        "end_residue_id": "B:1",
+                        "overlap_policy": "allow",
+                    },
+                    {
+                        "label": "chain_a_site",
+                        "start": 1,
+                        "end": 1,
+                        "chain_id": "A",
+                        "start_residue_id": "A:1",
+                        "end_residue_id": "A:1",
+                        "overlap_policy": "allow",
+                    },
+                ])
+            elif fixture == "annotation-cross-chain":
+                function_annotations = FunctionAnnotations([
+                    {
+                        "label": "cross_chain",
+                        "start": 2,
+                        "end": 3,
+                        "chain_id": "A",
+                        "start_residue_id": "A:2",
+                        "end_residue_id": "B:1",
+                        "overlap_policy": "reject",
+                    },
+                ])
+            elif fixture == "annotation-allow":
+                function_annotations = FunctionAnnotations([
+                    {
+                        "label": "binding_site",
+                        "start": 1,
+                        "end": 2,
+                        "chain_id": "A",
+                        "start_residue_id": "A:1",
+                        "end_residue_id": "A:2",
+                        "overlap_policy": "allow",
+                    },
+                ])
+            elif fixture == "prompt-illegal-sequence":
+                sequence_value = "A?S"
+            if fixture == "adapter-boundary":
+                source_secondary_structure_track = AlignedResidueTrack(
+                    source,
+                    ("H", "E", None),
+                )
             if fixture == "source-track-length-drift":
                 source_track = AlignedResidueTrack(
                     source,
@@ -171,6 +275,7 @@ class _Source:
             "source_layout": source,
             "target_layout": target,
             "source_sequence_track": source_track,
+            "source_structure_track": source_structure_track,
             "source_visibility_track": visibility_track,
             "source_secondary_structure_track": (
                 source_secondary_structure_track
@@ -194,7 +299,50 @@ class _Source:
                     for _ in range(target.length)
                 ),
             ),
+            "source_sasa_track": source_sasa_track,
             "residue_map": residue_map,
+            "function_annotations": function_annotations,
+            "protein_prompt": ProteinPrompt(
+                target_layout=source,
+                sequence_track=ResidueTrack(list(sequence_value), None),
+                structure_track=ResidueTrack(
+                    list(source_structure_track.values),
+                    None,
+                ),
+                structure_visibility_track=ResidueTrack(
+                    list(visibility_track.values),
+                    None,
+                ),
+                secondary_structure_track=ResidueTrack(
+                    list(source_secondary_structure_track.values),
+                    None,
+                ),
+                sasa_track=ResidueTrack(
+                    list(source_sasa_track.values),
+                    None,
+                ),
+                function_annotations=function_annotations,
+            ),
+            "protein_sequence": ProteinSequence(
+                (
+                    "WF"
+                    if fixture == "sequence-length-drift"
+                    else (
+                        "W?C"
+                        if fixture == "sequence-illegal-symbol"
+                        else "WFC"
+                    )
+                ),
+                (
+                    ["A:2", "A:1", "B:1"]
+                    if fixture == "sequence-identity-drift"
+                    else (
+                        ["A:1", "A:2"]
+                        if fixture == "sequence-length-drift"
+                        else list(source.residue_ids or ())
+                    )
+                ),
+            ),
         }
 
 

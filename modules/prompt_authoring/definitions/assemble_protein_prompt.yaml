@@ -1,0 +1,58 @@
+schema_version: "2.0.0"
+node_type_id: prompt_authoring.assemble_protein_prompt
+version: "2.0.0"
+title: Assemble ProteinPrompt
+summary: Combines one exact residue layout with independently aligned optional scientific tracks.
+category: prompt_authoring
+inputs:
+  - name: layout
+    port_type_id: residue.layout
+    port_type_version: "2.0.0"
+    required: true
+    multiplicity: one
+    scientific_meaning: Identity-complete effective residue layout shared by every present track and annotation.
+  - name: sequence_track
+    port_type_id: prompt_authoring.track.sequence
+    port_type_version: "2.0.0"
+    required: false
+    multiplicity: one
+    scientific_meaning: Nullable amino-acid assignments aligned to the effective layout.
+  - name: structure_track
+    port_type_id: prompt_authoring.track.structure
+    port_type_version: "2.0.0"
+    required: false
+    multiplicity: one
+    scientific_meaning: Nullable named-atom coordinates aligned to the effective layout.
+  - name: visibility_track
+    port_type_id: prompt_authoring.track.visibility
+    port_type_version: "2.0.0"
+    required: false
+    multiplicity: one
+    scientific_meaning: Nullable structure-visibility choices aligned to the effective layout.
+  - name: secondary_structure_track
+    port_type_id: prompt_authoring.track.secondary_structure
+    port_type_version: "2.0.0"
+    required: false
+    multiplicity: one
+    scientific_meaning: Nullable SS8 assignments aligned to the effective layout.
+  - name: sasa_track
+    port_type_id: prompt_authoring.track.sasa
+    port_type_version: "2.0.0"
+    required: false
+    multiplicity: one
+    scientific_meaning: Nullable non-negative solvent-accessibility assignments aligned to the effective layout.
+  - name: function_annotations
+    port_type_id: function.annotations
+    port_type_version: "2.0.0"
+    required: false
+    multiplicity: one
+    scientific_meaning: Canonically ordered chain-qualified inclusive function intervals for the effective layout.
+outputs:
+  - name: protein_prompt
+    port_type_id: protein.prompt
+    port_type_version: "2.0.0"
+    required: true
+    multiplicity: one
+    scientific_meaning: Validated residue-aligned multi-track ProteinPrompt.
+parameter_groups: []
+node_parameters: {}

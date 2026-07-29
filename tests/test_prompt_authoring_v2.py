@@ -27,7 +27,7 @@ from tests.fixtures.prompt_authoring_v2 import (
 )
 
 
-def test_prompt_authoring_is_one_package_with_four_independent_nodes() -> None:
+def test_prompt_authoring_is_one_package_with_seven_independent_nodes() -> None:
     registrations = {
         registration.package_id: registration
         for registration in discover_module_packages()
@@ -38,10 +38,13 @@ def test_prompt_authoring_is_one_package_with_four_independent_nodes() -> None:
     assert {
         resource.resource for resource in registration.node_definitions
     } == {
+        "definitions/add_function_annotation.yaml",
+        "definitions/assemble_protein_prompt.yaml",
         "definitions/build_residue_layout.yaml",
         "definitions/edit_residue_layout.yaml",
         "definitions/map_residue_track.yaml",
         "definitions/override_residue_track.yaml",
+        "definitions/update_prompt_sequence.yaml",
     }
 
     catalog = build_discovered_frozen_catalog()
@@ -53,10 +56,13 @@ def test_prompt_authoring_is_one_package_with_four_independent_nodes() -> None:
             (kind, contract_id, version)
         ]
     } == {
+        ("prompt_authoring.add_function_annotation", VERSION),
+        ("prompt_authoring.assemble_protein_prompt", VERSION),
         ("prompt_authoring.build_residue_layout", VERSION),
         ("prompt_authoring.edit_residue_layout", VERSION),
         ("prompt_authoring.map_residue_track", VERSION),
         ("prompt_authoring.override_residue_track", VERSION),
+        ("prompt_authoring.update_prompt_sequence", VERSION),
     }
 
 
@@ -132,12 +138,78 @@ _TRACK_PORT_CASES = (
 )
 
 
-def test_all_four_nodes_execute_through_shared_contract_kit(
+def test_all_seven_nodes_execute_through_shared_contract_kit(
     tmp_path: Path,
 ) -> None:
     report = verify_module_package_contract(
         MODULE_PACKAGE,
         execution_cases=(
+            ModulePackageContractCase(
+                case_id="prompt-authoring-add-function",
+                node_type_id="prompt_authoring.add_function_annotation",
+                node_type_version=VERSION,
+                binding_id=(
+                    "prompt_authoring.add_function_annotation.direct"
+                ),
+                binding_version=VERSION,
+                node_parameters={
+                    "annotation": {
+                        "label": "active_site",
+                        "chain_id": "A",
+                        "start_residue_id": "A:1",
+                        "end_residue_id": "A:2",
+                    },
+                    "overlap_policy": "reject",
+                },
+                binding_parameters={},
+                environment_values={},
+                safe_environment_fingerprint="provider-free",
+                invalidation_token="prompt-authoring-function-v1",
+                workflow_nodes=(_SOURCE,),
+                workflow_edges=(
+                    WorkflowEdge(
+                        "source",
+                        "source_layout",
+                        "contract-test-node",
+                        "layout",
+                    ),
+                ),
+            ),
+            ModulePackageContractCase(
+                case_id="prompt-authoring-assemble",
+                node_type_id="prompt_authoring.assemble_protein_prompt",
+                node_type_version=VERSION,
+                binding_id=(
+                    "prompt_authoring.assemble_protein_prompt.direct"
+                ),
+                binding_version=VERSION,
+                node_parameters={},
+                binding_parameters={},
+                environment_values={},
+                safe_environment_fingerprint="provider-free",
+                invalidation_token="prompt-authoring-assemble-v1",
+                workflow_nodes=(_SOURCE,),
+                workflow_edges=(
+                    WorkflowEdge(
+                        "source",
+                        "source_layout",
+                        "contract-test-node",
+                        "layout",
+                    ),
+                    WorkflowEdge(
+                        "source",
+                        "source_sequence_track",
+                        "contract-test-node",
+                        "sequence_track",
+                    ),
+                    WorkflowEdge(
+                        "source",
+                        "function_annotations",
+                        "contract-test-node",
+                        "function_annotations",
+                    ),
+                ),
+            ),
             ModulePackageContractCase(
                 case_id="prompt-authoring-build-layout",
                 node_type_id="prompt_authoring.build_residue_layout",
@@ -292,6 +364,35 @@ def test_all_four_nodes_execute_through_shared_contract_kit(
                     ),
                 },
             ),
+            ModulePackageContractCase(
+                case_id="prompt-authoring-update-sequence",
+                node_type_id="prompt_authoring.update_prompt_sequence",
+                node_type_version=VERSION,
+                binding_id=(
+                    "prompt_authoring.update_prompt_sequence.direct"
+                ),
+                binding_version=VERSION,
+                node_parameters={},
+                binding_parameters={},
+                environment_values={},
+                safe_environment_fingerprint="provider-free",
+                invalidation_token="prompt-authoring-update-v1",
+                workflow_nodes=(_SOURCE,),
+                workflow_edges=(
+                    WorkflowEdge(
+                        "source",
+                        "protein_prompt",
+                        "contract-test-node",
+                        "protein_prompt",
+                    ),
+                    WorkflowEdge(
+                        "source",
+                        "protein_sequence",
+                        "contract-test-node",
+                        "sequence",
+                    ),
+                ),
+            ),
         ),
         port_cases=_TRACK_PORT_CASES,
         supporting_registrations=(SOURCE_PACKAGE,),
@@ -299,6 +400,9 @@ def test_all_four_nodes_execute_through_shared_contract_kit(
     )
 
     assert [case.status for case in report.case_reports] == [
+        "succeeded",
+        "succeeded",
+        "succeeded",
         "succeeded",
         "succeeded",
         "succeeded",

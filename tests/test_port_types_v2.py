@@ -74,7 +74,7 @@ EXPECTED_PORT_TYPE_DIGESTS = {
         "sha256:9b136ff44781a1e762a481cd9a7dbdbf4381e17475373229af57b856de8a6357"
     ),
     "function.annotations": (
-        "sha256:81b9d7d9c345101657abb0f229b08a8db0827336b3b145cb146702f3c44865f9"
+        "sha256:d73313f24a82ae147a26b16022ad7ea9e4504abf96152900abda48147dbf90f1"
     ),
     "protein.prompt": (
         "sha256:1a8c19fdc37c71839d234b7785c35d430fa960939be768710f2a16b1fc30afd9"
@@ -159,10 +159,25 @@ def test_catalog_snapshot_publishes_exact_port_type_contracts() -> None:
         ("protein_io.import_structure.direct", "2.0.0", True),
         ("protein_io.export_sequence.direct", "2.0.0", True),
         ("protein_io.export_structure.direct", "2.0.0", True),
+        (
+            "prompt_authoring.add_function_annotation.direct",
+            "2.0.0",
+            True,
+        ),
+        (
+            "prompt_authoring.assemble_protein_prompt.direct",
+            "2.0.0",
+            True,
+        ),
         ("prompt_authoring.build_residue_layout.direct", "2.0.0", True),
         ("prompt_authoring.edit_residue_layout.direct", "2.0.0", True),
         ("prompt_authoring.map_residue_track.direct", "2.0.0", True),
         ("prompt_authoring.override_residue_track.direct", "2.0.0", True),
+        (
+            "prompt_authoring.update_prompt_sequence.direct",
+            "2.0.0",
+            True,
+        ),
     }
 
     contracts = [
@@ -259,7 +274,15 @@ def test_every_builtin_port_type_round_trips_its_runtime_value() -> None:
         "file.path": "artifacts/result.pdb",
         "file.path.collection": ["artifacts/a.pdb", "artifacts/b.pdb"],
         "function.annotations": FunctionAnnotations(
-            [{"label": "binding", "start": 0, "end": 2}]
+            [{
+                "label": "binding",
+                "start": 1,
+                "end": 2,
+                "chain_id": "A",
+                "start_residue_id": "A:1",
+                "end_residue_id": "A:2",
+                "overlap_policy": "reject",
+            }]
         ),
         "protein.prompt": ProteinPrompt(
             target_layout=layout,
@@ -594,7 +617,7 @@ def test_builtin_port_type_contract_digests_match_golden_vectors() -> None:
         for definition in catalog.port_types
     } == EXPECTED_PORT_TYPE_DIGESTS
     assert catalog.contract_digest == (
-        "sha256:0729c64c7b63854bcdbf091ae048bbe829a0355a0f0c1a593dbdbcc1b8768f8f"
+        "sha256:3850e8e7dd7db0a2db9bfd004136c418cb0569e80b88f2496d8892a0b26e7009"
     )
 
 
