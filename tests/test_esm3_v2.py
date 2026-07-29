@@ -541,6 +541,97 @@ def test_structure_generation_normalizes_exact_confidence_before_publication(
     ] == ["structure_sample"]
 
 
+def test_structure_generation_publishes_exact_provider_pae_matrix(
+    tmp_path: Path,
+) -> None:
+    import torch
+
+    pae = torch.tensor(
+        [
+            [0.0, 1.0, 2.0],
+            [3.0, 4.0, 5.0],
+            [6.0, 7.0, 8.0],
+        ]
+    )
+    client = _ProviderClient(
+        [
+            _ProviderResponse(
+                "ACD",
+                coordinates=torch.zeros((3, 37, 3)),
+                ptm=torch.tensor(0.75),
+                plddt=torch.tensor([0.7, 0.8, 0.9]),
+                pae=pae,
+                pdb_string=_three_residue_pdb(),
+            )
+        ]
+    )
+
+    catalog, projection, _ = _run_generation(
+        tmp_path,
+        operation="generate_structure",
+        client=client,
+        num_samples=1,
+        sequence="ACD",
+    )
+
+    assert projection["status"] == "succeeded"
+    output = next(
+        item
+        for item in projection["outputs"]
+        if item["node_id"] == "generate"
+        and item["output_port"] == "pae_observations"
+    )
+    observations = _decode_output(catalog, output)
+    assert len(observations.entries) == 1
+    assert observations.entries[0].value == pae.tolist()
+
+
+def test_invalid_confidence_fails_after_call_without_publication(
+    tmp_path: Path,
+) -> None:
+    import torch
+
+    client = _ProviderClient(
+        [
+            _ProviderResponse(
+                "ACD",
+                coordinates=torch.zeros((3, 37, 3)),
+                ptm=torch.tensor(0.75),
+                plddt=torch.tensor([0.7, 0.8]),
+                pdb_string=_three_residue_pdb(),
+            )
+        ]
+    )
+
+    _, projection, events = _run_generation(
+        tmp_path,
+        operation="generate_structure",
+        client=client,
+        num_samples=1,
+        sequence="ACD",
+    )
+
+    assert projection["status"] == "failed"
+    assert not [
+        output
+        for output in projection["outputs"]
+        if output["node_id"] == "generate"
+    ]
+    invocation_ids = {
+        event["event"]["invocation_id"]
+        for event in events
+        if event["event"]["type"] == "engine_invocation_started"
+        and event["event"]["engine_role"] == "structure_sample"
+    }
+    terminals = [
+        event["event"]
+        for event in events
+        if event["event"]["type"] == "engine_invocation_terminal"
+        and event["event"]["invocation_id"] in invocation_ids
+    ]
+    assert [event["status"] for event in terminals] == ["succeeded"]
+
+
 def test_paired_generation_publishes_ten_exact_counterparts_and_real_calls(
     tmp_path: Path,
 ) -> None:

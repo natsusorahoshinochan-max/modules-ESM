@@ -448,6 +448,31 @@ def _validate_metric_value(
                 "Per-residue Metric value does not align with its exact "
                 "subject residue layout"
             )
+    elif shape == "residue_pair_matrix":
+        if not isinstance(value, (list, tuple)):
+            raise SelectionError(
+                "Residue-pair Metric value must be an ordered matrix"
+            )
+        residue_count = (
+            _subject_residue_count(subject)
+            if subject is not None
+            else None
+        )
+        if residue_count is None or len(value) != residue_count:
+            raise SelectionError(
+                "Residue-pair Metric value does not align with its exact "
+                "subject residue layout"
+            )
+        rows = tuple(value)
+        if any(
+            not isinstance(row, (list, tuple))
+            or len(row) != residue_count
+            for row in rows
+        ):
+            raise SelectionError(
+                "Residue-pair Metric value must be a square residue matrix"
+            )
+        values = tuple(item for row in rows for item in row)
     else:
         raise SelectionError(
             f"Selection does not support Metric value shape {shape!r}"
