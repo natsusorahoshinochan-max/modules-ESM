@@ -573,7 +573,6 @@ def verify_module_package_contract(
             raise ModulePackageConformanceError(
                 "supporting_registrations must contain Module Packages"
             )
-        package_catalog = build_frozen_catalog((registration,))
         catalog = build_frozen_catalog((registration, *support))
         _verify_execution_case_coverage(
             catalog,
@@ -619,7 +618,7 @@ def verify_module_package_contract(
     return ModulePackageContractReport(
         package_id=registration.package_id,
         package_version=registration.package_version,
-        catalog_contract_digest=package_catalog.contract_digest,
+        catalog_contract_digest=catalog.contract_digest,
         case_reports=reports,
         verified_port_types=verified_port_types,
     )

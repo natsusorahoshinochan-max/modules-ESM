@@ -11,6 +11,7 @@ import pytest
 
 from core import (
     EnvironmentConfiguration,
+    ModulePackageContractCase,
     ProjectManager,
     ResultReplaySource,
     V2RunError,
@@ -22,6 +23,7 @@ from core import (
     build_frozen_catalog,
     discover_module_packages,
     parse_workflow_document,
+    verify_module_package_contract,
 )
 from core.port_types import canonical_json_bytes
 from core.workflow_v2 import WorkflowEdge
@@ -923,3 +925,142 @@ def test_paired_generation_publishes_ten_exact_counterparts_and_real_calls(
     ]
     assert len(terminals) >= 20
     assert all(event["status"] == "succeeded" for event in terminals)
+
+
+def test_remote_esm3_passes_shared_ctk_for_all_three_nodes(
+    tmp_path: Path,
+) -> None:
+    import torch
+
+    from modules.esm3.package import MODULE_PACKAGE as ESM3_PACKAGE
+    from modules.prompt_authoring.package import (
+        MODULE_PACKAGE as PROMPT_AUTHORING_PACKAGE,
+    )
+    from tests.fixtures.esm3_sources.package import (
+        MODULE_PACKAGE as SOURCE_PACKAGE,
+    )
+
+    def source_node(mode: str) -> WorkflowNodeInstance:
+        return WorkflowNodeInstance(
+            node_id="source",
+            node_type_id="contract_test.esm3_prompt_source",
+            node_type_version="2.0.0",
+            binding_id="contract_test.esm3_prompt_source.direct",
+            binding_version="2.0.0",
+            node_parameters={"mode": mode},
+            binding_parameters={},
+        )
+
+    def environment(client: _ProviderClient) -> dict[str, Any]:
+        return {
+            "endpoint_id": "biohub",
+            "credential_handle": object(),
+            "provider_client": client,
+            "private_token": "ctk-secret-must-not-publish",
+        }
+
+    structure_response = lambda: _ProviderResponse(
+        "ACD",
+        coordinates=torch.zeros((3, 37, 3)),
+        ptm=torch.tensor(0.75),
+        plddt=torch.tensor([0.7, 0.8, 0.9]),
+        pdb_string=_three_residue_pdb(),
+    )
+    paired_responses = [
+        response
+        for _ in range(10)
+        for response in (_ProviderResponse("ACD"), structure_response())
+    ]
+    common = {
+        "node_type_version": "2.0.0",
+        "binding_version": "2.0.0",
+        "binding_parameters": {},
+        "safe_environment_fingerprint": "esm3-ctk-fixture-v1",
+        "invalidation_token": "esm3-ctk-fixture-v1",
+        "forbidden_public_fragments": (
+            "ctk-secret-must-not-publish",
+        ),
+    }
+    cases = (
+        ModulePackageContractCase(
+            case_id="sequence",
+            node_type_id="esm3.generate_sequence",
+            binding_id="esm3.generate_sequence.biohub_medium",
+            node_parameters={"effective_seed": 1603, "num_samples": 1},
+            environment_values=environment(
+                _ProviderClient([_ProviderResponse("ACD")])
+            ),
+            workflow_nodes=(source_node("unassigned"),),
+            workflow_edges=(
+                WorkflowEdge(
+                    "source",
+                    "protein_prompt",
+                    "contract-test-node",
+                    "protein_prompt",
+                ),
+            ),
+            expected_candidate_counts={"sequence_candidates": 1},
+            **common,
+        ),
+        ModulePackageContractCase(
+            case_id="structure",
+            node_type_id="esm3.generate_structure",
+            binding_id="esm3.generate_structure.biohub_medium",
+            node_parameters={"effective_seed": 1603, "num_samples": 1},
+            environment_values=environment(
+                _ProviderClient([structure_response()])
+            ),
+            workflow_nodes=(source_node("assigned_sequence"),),
+            workflow_edges=(
+                WorkflowEdge(
+                    "source",
+                    "protein_prompt",
+                    "contract-test-node",
+                    "protein_prompt",
+                ),
+            ),
+            expected_candidate_counts={"structure_candidates": 1},
+            expected_observation_counts={"confidence_observations": 3},
+            **common,
+        ),
+        ModulePackageContractCase(
+            case_id="paired",
+            node_type_id="esm3.generate_paired",
+            binding_id="esm3.generate_paired.biohub_medium",
+            node_parameters={"effective_seed": 1603, "num_samples": 10},
+            environment_values=environment(
+                _ProviderClient(paired_responses)
+            ),
+            workflow_nodes=(source_node("unassigned"),),
+            workflow_edges=(
+                WorkflowEdge(
+                    "source",
+                    "protein_prompt",
+                    "contract-test-node",
+                    "protein_prompt",
+                ),
+            ),
+            expected_candidate_counts={
+                "sequence_candidates": 10,
+                "structure_candidates": 10,
+            },
+            expected_observation_counts={"confidence_observations": 30},
+            **common,
+        ),
+    )
+
+    report = verify_module_package_contract(
+        ESM3_PACKAGE,
+        execution_cases=cases,
+        supporting_registrations=(
+            PROMPT_AUTHORING_PACKAGE,
+            SOURCE_PACKAGE,
+        ),
+        work_root=tmp_path / "ctk",
+    )
+
+    assert [case.status for case in report.case_reports] == [
+        "succeeded",
+        "succeeded",
+        "succeeded",
+    ]
