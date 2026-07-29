@@ -32,7 +32,11 @@ from core.workflow_v2 import (
     WorkflowDocumentError,
     parse_workflow_document,
 )
-from protein_workbench_public import validate_response, validate_schema
+from protein_workbench_public import (
+    validate_event,
+    validate_response,
+    validate_schema,
+)
 from datatypes import (
     Candidate,
     CandidateCollection,
@@ -1277,6 +1281,8 @@ def test_selection_failure_is_public_and_survives_ledger_reload(
         for message in messages
         if message["event"]["type"] == "selection_terminal"
     ]
+    for message in messages:
+        validate_event(message)
     assert selection_events == [
         {
             "type": "selection_terminal",

@@ -187,10 +187,12 @@ def test_bundle_freezes_event_replay_close_and_error_vocabulary() -> None:
         "internal_error",
         "invalid_cursor",
         "malformed_request",
+        "node_execution_failed",
         "project_not_found",
         "protocol_mismatch",
         "readiness_rejected",
         "run_not_found",
+        "selection_failed",
         "unsupported_schema_version",
         "workflow_not_found",
     }
@@ -255,6 +257,23 @@ def test_availability_and_schema_version_fail_closed() -> None:
             },
         },
         status=400,
+    )
+    validate_error(
+        {
+            "schema_namespace": "protein-workbench-public/v2",
+            "error": {
+                "code": "selection_failed",
+                "message": "Workflow selection failed safely",
+                "retryable": False,
+                "correlation_id": "incident-selection",
+                "details": {
+                    "reason": (
+                        "Utility Transform output must be within [0, 1]"
+                    )
+                },
+            },
+        },
+        status=422,
     )
 
 

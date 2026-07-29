@@ -657,6 +657,18 @@
       ],
       "type": "object"
     },
+    "ExceptionErrorDetails": {
+      "additionalProperties": false,
+      "properties": {
+        "exception_type": {
+          "$ref": "#/$defs/Identifier"
+        }
+      },
+      "required": [
+        "exception_type"
+      ],
+      "type": "object"
+    },
     "InternalErrorDetails": {
       "additionalProperties": false,
       "properties": {
@@ -2215,6 +2227,27 @@
       ],
       "type": "object"
     },
+    "SelectionErrorDetails": {
+      "oneOf": [
+        {
+          "additionalProperties": false,
+          "properties": {
+            "reason": {
+              "maxLength": 2048,
+              "minLength": 1,
+              "type": "string"
+            }
+          },
+          "required": [
+            "reason"
+          ],
+          "type": "object"
+        },
+        {
+          "$ref": "#/$defs/ExceptionErrorDetails"
+        }
+      ]
+    },
     "SelectionTerminalEvent": {
       "oneOf": [
         {
@@ -2883,6 +2916,12 @@
         "http_status": 400,
         "retryable": false
       },
+      "node_execution_failed": {
+        "code": "node_execution_failed",
+        "details_schema": "#/$defs/ExceptionErrorDetails",
+        "http_status": 500,
+        "retryable": false
+      },
       "project_not_found": {
         "code": "project_not_found",
         "details_schema": "#/$defs/ResourceNotFoundDetails",
@@ -2905,6 +2944,12 @@
         "code": "run_not_found",
         "details_schema": "#/$defs/ResourceNotFoundDetails",
         "http_status": 404,
+        "retryable": false
+      },
+      "selection_failed": {
+        "code": "selection_failed",
+        "details_schema": "#/$defs/SelectionErrorDetails",
+        "http_status": 422,
         "retryable": false
       },
       "unsupported_schema_version": {

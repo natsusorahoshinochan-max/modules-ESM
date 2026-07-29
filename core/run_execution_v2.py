@@ -2068,7 +2068,7 @@ class _RunEvidenceLedger:
             "message": "Execution outcome is unavailable after backend restart",
             "retryable": False,
             "correlation_id": f"restart-{self._run_id}",
-            "details": {"reason": "backend_restart"},
+            "details": {"exception_type": "BackendRestart"},
         }
         for invocation_id, invocation in tuple(self._invocations.items()):
             if invocation["terminal"] is None:

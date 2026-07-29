@@ -297,6 +297,14 @@ def validate_request(operation_id: str, payload: Any) -> None:
 def validate_event(payload: Any) -> None:
     """Validate one durable/replay Run Event Stream envelope."""
     validate_schema("#/$defs/RunEventEnvelope", payload)
+    event = payload["event"]
+    if "error" in event:
+        validate_error(
+            {
+                "schema_namespace": PUBLIC_PROTOCOL_NAMESPACE,
+                "error": event["error"],
+            }
+        )
 
 
 def validate_artifact_response(
@@ -391,3 +399,13 @@ def validate_response(operation_id: str, status: int, payload: Any) -> None:
             f"{operation_id} is a binary response; validate its metadata instead",
         )
     validate_schema(response["schema"], payload)
+    if (
+        operation_id == "run_projection"
+        and "selection_error" in payload
+    ):
+        validate_error(
+            {
+                "schema_namespace": PUBLIC_PROTOCOL_NAMESPACE,
+                "error": payload["selection_error"],
+            }
+        )
