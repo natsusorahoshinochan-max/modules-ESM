@@ -573,6 +573,70 @@ def test_cancel_terminates_registered_process_group_children_and_temp_work(
     assert not temp_node_root.exists()
 
 
+def test_process_group_registered_after_cancel_uses_full_cleanup_protocol(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    spawned = threading.Event()
+    allow_registration = threading.Event()
+    worker_pid: dict[str, int] = {}
+
+    def register_after_cancel(resources) -> None:
+        worker = subprocess.Popen(
+            [
+                sys.executable,
+                "-c",
+                (
+                    "import signal,time;"
+                    "signal.signal(signal.SIGTERM,signal.SIG_IGN);"
+                    "time.sleep(30)"
+                ),
+            ],
+            start_new_session=True,
+        )
+        worker_pid["value"] = worker.pid
+        spawned.set()
+        assert allow_registration.wait(timeout=3)
+        with resources.cancellable_process_group(os.getpgid(worker.pid)):
+            worker.wait(timeout=5)
+
+    monkeypatch.setenv("PROTEIN_WORKBENCH_PROJECT_ROOT", str(tmp_path / "projects"))
+    monkeypatch.setenv("PROTEIN_WORKBENCH_RUN_ROOT", str(tmp_path / "runs"))
+    monkeypatch.setenv("PROTEIN_WORKBENCH_OUTPUT_ROOT", str(tmp_path / "outputs"))
+    app = create_app(
+        frozen_catalog_override=_direct_catalog(
+            [],
+            execution_action=register_after_cancel,
+        ),
+        v2_environment_configuration={
+            ("test.direct.local", "2.0.0"): {
+                "values": {"credential": "credential-value"},
+            }
+        },
+    )
+
+    with TestClient(app) as client:
+        project_id, compiled = _compile_one_node(client)
+        receipt = _start(client, project_id, compiled, "cancel-late-group")
+        assert spawned.wait(timeout=2)
+        cancelled = client.post(
+            f"/api/v2/projects/{project_id}/runs/{receipt['run_id']}:cancel",
+            json={},
+        )
+        allow_registration.set()
+        projection = _wait_terminal(client, project_id, receipt["run_id"])
+
+    assert cancelled.status_code == 200
+    assert projection["status"] == "cancelled"
+    process_status = subprocess.run(
+        ["ps", "-p", str(worker_pid["value"]), "-o", "stat="],
+        check=False,
+        capture_output=True,
+        text=True,
+    ).stdout.strip()
+    assert process_status in {"", "Z"}
+
+
 def test_cancel_factory_cleanup_failure_is_interrupted_without_false_attempt(
     tmp_path,
     monkeypatch,
@@ -693,6 +757,39 @@ def test_cancel_during_artifact_materialization_removes_uncommitted_files(
         fact["fact_type"] in {"artifact_published", "outputs_published"}
         for fact in facts
     )
+    published_root = (
+        tmp_path / "outputs" / project_id / receipt["run_id"] / "published"
+    )
+    assert not published_root.exists() or not any(published_root.iterdir())
+
+
+def test_normal_temp_cleanup_failure_rolls_back_uncommitted_artifact(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    def fail_cleanup(resources) -> None:
+        del resources
+        raise PermissionError("private-normal-cleanup-detail")
+
+    monkeypatch.setattr(
+        "core.run_execution_v2.RunResources.cleanup_temporary_work",
+        fail_cleanup,
+    )
+    monkeypatch.setenv("PROTEIN_WORKBENCH_PROJECT_ROOT", str(tmp_path / "projects"))
+    monkeypatch.setenv("PROTEIN_WORKBENCH_RUN_ROOT", str(tmp_path / "runs"))
+    monkeypatch.setenv("PROTEIN_WORKBENCH_OUTPUT_ROOT", str(tmp_path / "outputs"))
+    app = create_app(frozen_catalog_override=_artifact_catalog([]))
+
+    with TestClient(app) as client:
+        project_id, compiled = _compile_artifact_node(client)
+        receipt = _start(client, project_id, compiled, "cleanup-artifact")
+        projection = _wait_terminal(client, project_id, receipt["run_id"])
+
+    assert projection["status"] == "failed"
+    assert projection["artifact_index"] == []
+    assert projection["outputs"] == []
+    retained = json.dumps(_facts(app, project_id, receipt["run_id"]))
+    assert "private-normal-cleanup-detail" not in retained
     published_root = (
         tmp_path / "outputs" / project_id / receipt["run_id"] / "published"
     )
@@ -821,6 +918,10 @@ def test_derived_artifacts_and_source_run_remain_independently_immutable(
         source = _start(client, project_id, compiled, "artifact-source")
         source_projection = _wait_terminal(client, project_id, source["run_id"])
         source_artifact = source_projection["artifact_index"][0]
+        app.state.run_execution_v2._require_record(
+            project_id,
+            source["run_id"],
+        ).artifacts.clear()
         source_download = client.get(
             f"/api/v2/projects/{project_id}/runs/{source['run_id']}/"
             f"artifacts/{source_artifact['artifact_reference']}"

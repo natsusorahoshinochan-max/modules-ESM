@@ -398,6 +398,8 @@ class _CancellationControl:
 
     def __init__(self) -> None:
         self._condition = threading.Condition(threading.RLock())
+        self._cleanup_lock = threading.Lock()
+        self._cleanup_complete = threading.Event()
         self._requested = False
         self._next_registration = 0
         self._cleanup_error: BaseException | None = None
@@ -417,22 +419,19 @@ class _CancellationControl:
         with self._condition:
             self._next_registration += 1
             registration = self._next_registration
-            if not self._requested:
-                self._process_groups[registration] = (
-                    process_group,
-                    fallback,
-                )
-                return registration
-        try:
-            signal_process_group(
+            self._process_groups[registration] = (
                 process_group,
-                signal.SIGTERM,
-                fallback=fallback,
+                fallback,
             )
-        except BaseException as error:
-            with self._condition:
-                if self._cleanup_error is None:
-                    self._cleanup_error = error
+            requested = self._requested
+            if requested:
+                self._cleanup_complete.clear()
+        if requested:
+            threading.Thread(
+                target=self.request,
+                name=f"run-cancellation-cleanup-{registration}",
+                daemon=True,
+            ).start()
         return registration
 
     def unregister_process_group(self, registration: int) -> None:
@@ -493,18 +492,38 @@ class _CancellationControl:
             return True
 
     def request(self) -> None:
-        with self._condition:
-            self._requested = True
-        self._signal_all(signal.SIGTERM)
-        if self._wait_for_exit(CANCELLATION_TERM_GRACE_SECONDS):
-            return
-        self._signal_all(signal.SIGKILL)
-        if self._wait_for_exit(CANCELLATION_KILL_GRACE_SECONDS):
+        with self._cleanup_lock:
+            self._cleanup_complete.clear()
+            try:
+                with self._condition:
+                    self._requested = True
+                self._signal_all(signal.SIGTERM)
+                if self._wait_for_exit(CANCELLATION_TERM_GRACE_SECONDS):
+                    return
+                self._signal_all(signal.SIGKILL)
+                if self._wait_for_exit(CANCELLATION_KILL_GRACE_SECONDS):
+                    return
+                with self._condition:
+                    if self._cleanup_error is None:
+                        self._cleanup_error = RuntimeError(
+                            "Run process-group cleanup could not be confirmed"
+                        )
+            finally:
+                self._cleanup_complete.set()
+
+    def wait_for_cleanup(self) -> None:
+        """Wait until the cancellation owner reaches a bounded conclusion."""
+        timeout = (
+            CANCELLATION_TERM_GRACE_SECONDS
+            + CANCELLATION_KILL_GRACE_SECONDS
+            + 0.25
+        )
+        if self._cleanup_complete.wait(timeout):
             return
         with self._condition:
             if self._cleanup_error is None:
                 self._cleanup_error = RuntimeError(
-                    "Run process-group cleanup could not be confirmed"
+                    "Run cancellation cleanup did not reach a conclusion"
                 )
 
     @property
@@ -2982,6 +3001,13 @@ class V2RunService:
             ledger=ledger,
             artifacts=artifact_records,
         )
+
+        def require_cancellation_cleanup() -> None:
+            record.cancellation.wait_for_cleanup()
+            cleanup_error = record.cancellation.cleanup_error
+            if cleanup_error is not None:
+                raise cleanup_error
+
         self._runs[(project_id, run_id)] = record
         self._run_owners[run_id] = project_id
         receipt = {
@@ -3000,15 +3026,21 @@ class V2RunService:
         disposition_outcomes: dict[str, str] = {}
         for node in plan.nodes:
             if ledger.cancellation_requested:
+                record.cancellation.wait_for_cleanup()
+                cancellation_outcome = (
+                    "interrupted"
+                    if record.cancellation.cleanup_error is not None
+                    else "cancelled"
+                )
                 ledger.append(
                     "node_disposition",
                     {
                         "node_id": node.node_id,
-                        "outcome": "cancelled",
+                        "outcome": cancellation_outcome,
                         "blocked_by": [],
                     },
                 )
-                disposition_outcomes[node.node_id] = "cancelled"
+                disposition_outcomes[node.node_id] = cancellation_outcome
                 continue
             blocked_by = self._required_input_blockers(
                 plan,
@@ -3067,15 +3099,23 @@ class V2RunService:
                     replayed_runtime = None
             if replayed_published is not None and replayed_runtime is not None:
                 if ledger.cancellation_requested:
+                    record.cancellation.wait_for_cleanup()
+                    cancellation_outcome = (
+                        "interrupted"
+                        if record.cancellation.cleanup_error is not None
+                        else "cancelled"
+                    )
                     ledger.append(
                         "node_disposition",
                         {
                             "node_id": node.node_id,
-                            "outcome": "cancelled",
+                            "outcome": cancellation_outcome,
                             "blocked_by": [],
                         },
                     )
-                    disposition_outcomes[node.node_id] = "cancelled"
+                    disposition_outcomes[node.node_id] = (
+                        cancellation_outcome
+                    )
                     continue
                 ledger.append(
                     "node_attempt_started",
@@ -3090,6 +3130,7 @@ class V2RunService:
                     resolution="cache_replayed",
                     outputs=replayed_published,
                     artifacts=[],
+                    cancel_cleanup=require_cancellation_cleanup,
                 )
                 if outcome == "succeeded":
                     values.update(replayed_runtime)
@@ -3125,6 +3166,14 @@ class V2RunService:
                     run_resources=resources,
                 )
             except PreScheduleTermination as termination:
+                cancellation_outcome: str | None = None
+                if ledger.cancellation_requested:
+                    record.cancellation.wait_for_cleanup()
+                    cancellation_outcome = (
+                        "interrupted"
+                        if record.cancellation.cleanup_error is not None
+                        else "cancelled"
+                    )
                 try:
                     resources.cleanup_temporary_work()
                 except BaseException as cleanup_error:
@@ -3132,19 +3181,25 @@ class V2RunService:
                         "Run workspace cleanup also failed: "
                         f"{type(cleanup_error).__name__}"
                     )
+                    if cancellation_outcome is not None:
+                        cancellation_outcome = "interrupted"
+                disposition_outcome = (
+                    cancellation_outcome or termination.outcome
+                )
                 ledger.append(
                     "node_disposition",
                     {
                         "node_id": node.node_id,
-                        "outcome": termination.outcome,
+                        "outcome": disposition_outcome,
                         "blocked_by": [],
                     },
                 )
-                disposition_outcomes[node.node_id] = termination.outcome
+                disposition_outcomes[node.node_id] = disposition_outcome
                 continue
             except BaseException as error:
                 body_error = error
             if ledger.cancellation_requested:
+                record.cancellation.wait_for_cleanup()
                 cancellation_outcome = "cancelled"
                 try:
                     resources.cleanup_temporary_work()
@@ -3183,7 +3238,10 @@ class V2RunService:
             ] = {}
 
             def cleanup_cancelled_publication() -> None:
-                cleanup_error = record.cancellation.cleanup_error
+                cleanup_error: BaseException | None = None
+                if ledger.cancellation_requested:
+                    record.cancellation.wait_for_cleanup()
+                    cleanup_error = record.cancellation.cleanup_error
                 for _, stored_parts in pending_artifact_records.values():
                     try:
                         remove_private_regular_file(
@@ -3249,7 +3307,7 @@ class V2RunService:
                         )
                     else:
                         body_error = cleanup_error
-                if ledger.cancellation_requested:
+                if body_error is not None or ledger.cancellation_requested:
                     try:
                         cleanup_cancelled_publication()
                     except BaseException as cleanup_error:
@@ -3273,6 +3331,8 @@ class V2RunService:
                         )
                     body_error = cancellation_cleanup_error
             if body_error is not None:
+                if ledger.cancellation_requested:
+                    record.cancellation.wait_for_cleanup()
                 if (
                     isinstance(body_error, V2RunError)
                     and body_error.code == "evidence_unavailable"
@@ -3664,32 +3724,24 @@ class V2RunService:
         artifact_reference: str,
     ) -> tuple[dict[str, Any], bytes]:
         record = self._require_record(project_id, run_id)
-        try:
-            descriptor, stored_parts = record.artifacts[artifact_reference]
-        except KeyError as error:
-            projected = next(
-                (
-                    artifact
-                    for artifact in record.ledger.projection()[
-                        "artifact_index"
-                    ]
-                    if artifact["artifact_reference"]
-                    == artifact_reference
-                ),
-                None,
+        descriptor = next(
+            (
+                artifact
+                for artifact in record.ledger.projection()["artifact_index"]
+                if artifact["artifact_reference"] == artifact_reference
+            ),
+            None,
+        )
+        if descriptor is None:
+            raise V2RunError(
+                "artifact_not_found",
+                "Artifact was not found",
+                details={
+                    "resource_kind": "artifact",
+                    "resource_id": artifact_reference,
+                },
             )
-            if projected is not None:
-                descriptor = projected
-                stored_parts = ("published", artifact_reference)
-            else:
-                raise V2RunError(
-                    "artifact_not_found",
-                    "Artifact was not found",
-                    details={
-                        "resource_kind": "artifact",
-                        "resource_id": artifact_reference,
-                    },
-                ) from error
+        stored_parts = ("published", artifact_reference)
         output_root = self._projects.output_dir(project_id, run_id).parent
         try:
             payload = _read_stable_private_file(
