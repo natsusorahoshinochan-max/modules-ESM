@@ -4,7 +4,7 @@
 
 **Blocked by:** 21 — Unify remote and local ESMFold2 folding.
 
-**Status:** awaiting-controller
+**Status:** completed
 
 - [x] SimpleFold reuses the established folding Node Definition while fixing its own Method, checkpoint/source/featurization identity, implementation identity, parameters, Readiness, determinism, and cacheability.
 - [x] SimpleFold-specific adjustable parameters belong to the Binding contract; model identity, checkpoint path, device, and staging directory are not free Workflow parameters.
@@ -70,3 +70,53 @@ executor for repair before that next Ticket starts.
   replay, process-global SimpleFold concurrency isolation, supported evidence
   gate aliasing, and truthful post-Invocation decode failure.
 - Ticket 23 has not started.
+
+## Controller evidence
+
+Controller independently located and hash-verified the external model assets,
+provided their exact paths back to the same executor, and accepted Ticket 22
+only after the final clean revision passed all cumulative and real-provider
+gates.
+
+- Previous accepted multi-ticket gate:
+  `e0e8034b79d6940e81b6ff892824276a6a48f035`.
+- Final executor revision under test:
+  `e77b9f055cd24dd9ea5fca686f364a66440ad6f5`.
+- Ticket-range `git diff --check` passed and the worktree was clean before
+  testing.
+- Tickets 01–22 v2 joint regression:
+  `uv run --no-sync pytest -q tests/*_v2.py` → `471 passed`.
+- Focused folding/contract regression:
+  `uv run --no-sync pytest -q tests/test_simplefold_folding_v2.py
+  tests/test_folding_v2.py tests/test_port_types_v2.py
+  tests/test_module_packages_v2.py` → `85 passed`.
+- Focused SimpleFold provider evidence:
+  `uv run --no-sync pytest -q tests/test_provider_evidence.py -k
+  simplefold` → `13 passed, 27 deselected`.
+- Verification-tier regression:
+  `uv run --no-sync pytest -q tests/test_verification_tiers.py` →
+  `25 passed`.
+- Cumulative routine gate:
+  `uv run --no-sync python scripts/verify_backend.py routine` →
+  `1159 passed, 49 deselected`; retained result
+  `verification-results/routine/20260729T210106.392545Z-83998-0d33208206356c4e`.
+- Deterministic acceptance:
+  `uv run --no-sync python scripts/verify_backend.py
+  deterministic-acceptance` → `10 passed, 5 deselected`; retained result
+  `verification-results/deterministic-acceptance/20260729T210541.598491Z-89981-35d47af8e15fc54c`.
+- Installed artifact:
+  `uv run --no-sync python scripts/verify_backend.py installed-package` →
+  `3 passed`; retained result
+  `verification-results/installed-package/20260729T210541.598518Z-89982-980eae4b892f182a`.
+- Required clean-source SimpleFold entity gate, using the exact reviewed
+  four-file folding closure, exact ESM2 checkpoints, and clean locked ESM2
+  source checkout:
+  `PROTEIN_WORKBENCH_APPROVED_SOURCE_REVISION=e77b9f055cd24dd9ea5fca686f364a66440ad6f5
+  uv run --no-sync python scripts/verify_backend.py
+  simplefold-v2-heavy-model` → `1 passed, 0 skipped`, with
+  `provider-summary.complete=true` and exactly one successful
+  `fold_sequence` call; retained result
+  `verification-results/simplefold-v2-heavy-model/20260729T210708.671740Z-90738-a46c0a754f4f8926`.
+
+Ticket 23 may start only from the committed Controller gate containing this
+evidence.
