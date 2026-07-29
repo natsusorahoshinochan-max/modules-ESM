@@ -84,6 +84,149 @@ EXPECTED_MODULE_IDS = {
 }
 
 
+def _installed_direct_server_probe(port: int) -> str:
+    """Build an installed-only synthetic direct Binding server bootstrap."""
+    return r'''
+from datetime import datetime, timezone
+import uvicorn
+from core import (
+    BehaviorReference,
+    CatalogContract,
+    FrozenCatalog,
+    LazyImplementationFactory,
+    ReadinessDeclaration,
+    builtin_frozen_catalog,
+)
+from core.server import create_app
+
+def contract(kind, identity, descriptor):
+    return CatalogContract(
+        contract_kind=kind,
+        contract_id=identity,
+        contract_version="2.0.0",
+        descriptor={
+            "schema_namespace": "protein-workbench-contract/v2",
+            "contract_kind": kind,
+            "contract_id": identity,
+            "contract_version": "2.0.0",
+            **descriptor,
+        },
+    )
+
+builtin = builtin_frozen_catalog()
+text = builtin.require_port_type("text", "2.0.0")
+method = contract("method", "installed.direct.method", {
+    "algorithm_identity": {"name": "installed-deterministic-text"},
+    "model_identity": {"kind": "none"},
+    "checkpoint_identity": {"kind": "none"},
+    "featurization_identity": {"kind": "none"},
+    "source_identity": {"kind": "installed-acceptance"},
+    "scale_contract": {"kind": "identity"},
+})
+node = contract("node_type", "installed.direct", {
+    "title": "Installed deterministic direct Node",
+    "summary": "Validates installed readiness-gated direct execution.",
+    "category": "acceptance",
+    "inputs": [],
+    "outputs": [{
+        "name": "text",
+        "port_type": text.reference(),
+        "required": True,
+        "multiplicity": "one",
+        "scientific_meaning": "Installed canonical text",
+    }],
+    "parameter_groups": [],
+    "node_parameters": {},
+})
+factory_behavior = BehaviorReference(
+    "installed.direct/factory",
+    "2.0.0",
+    {},
+)
+readiness_behavior = BehaviorReference(
+    "installed.direct/readiness",
+    "2.0.0",
+    {},
+)
+binding = contract("binding", "installed.direct.local", {
+    "node_type": node.reference(),
+    "method": method.reference(),
+    "binding_parameters": {},
+    "execution_route": "direct",
+    "route_behavior": factory_behavior.descriptor(),
+    "availability_declaration": {
+        "behavior": {
+            "behavior_id": "installed.direct/availability",
+            "behavior_version": "2.0.0",
+            "parameters": {},
+        },
+        "prerequisites": {},
+    },
+    "readiness_declaration": {
+        "behavior": readiness_behavior.descriptor(),
+        "prerequisites": {"installed_runtime": "required"},
+    },
+    "deterministic": True,
+    "cacheable": False,
+    "implementation_identity": {
+        "name": "installed.direct.local",
+        "factory": factory_behavior.descriptor(),
+    },
+    "produced_observations": [],
+})
+
+class Implementation:
+    def execute(self, *, inputs, node_parameters, binding_parameters):
+        assert inputs == {}
+        assert node_parameters == {}
+        assert binding_parameters == {}
+        return {"text": "INSTALLED_READY"}
+
+def build(**kwargs):
+    assert kwargs["environment_configuration"]["installed_runtime"] is True
+    return Implementation()
+
+def ready(environment):
+    return environment["installed_runtime"] is True
+
+observed = datetime(2026, 7, 29, 10, 0, tzinfo=timezone.utc)
+catalog = FrozenCatalog(
+    builtin.port_types,
+    contracts=(method, node, binding),
+    availability=({
+        "binding": binding.reference(),
+        "observed_at": observed.isoformat(),
+        "available": True,
+    },),
+    availability_observed_at=observed,
+    factories={
+        ("installed.direct.local", "2.0.0"): LazyImplementationFactory(
+            behavior=factory_behavior,
+            build=build,
+        ),
+    },
+    readiness_declarations={
+        ("installed.direct.local", "2.0.0"): ReadinessDeclaration(
+            behavior=readiness_behavior,
+            prerequisites={"installed_runtime": "required"},
+            check=ready,
+        ),
+    },
+)
+app = create_app(
+    frozen_catalog_override=catalog,
+    v2_environment_configuration={
+        ("installed.direct.local", "2.0.0"): {
+            "values": {"installed_runtime": True},
+            "safe_fingerprint": "installed-runtime-v1",
+            "invalidation_token": "installed-assets-v1",
+        },
+    },
+)
+uvicorn.run(app, host="127.0.0.1", port=__PORT__, log_level="warning")
+'''.replace("__PORT__", str(port))
+
+
 def _build_artifacts(output_dir: Path) -> tuple[Path, Path]:
     subprocess.run(
         [
@@ -249,13 +392,8 @@ assert sorted(item.module_id for item in registry.list_all()) == {expected}
         [
             str(python),
             "-I",
-            "-m",
-            "uvicorn",
-            "core.server:app",
-            "--host",
-            "127.0.0.1",
-            "--port",
-            str(port),
+            "-c",
+            _installed_direct_server_probe(port),
         ],
         cwd=run_dir,
         env=env,
@@ -309,13 +447,12 @@ assert sorted(item.module_id for item in registry.list_all()) == {expected}
             timeout=2,
         ) as response:
             installed_catalog = json.load(response)
-        assert installed_catalog["catalog_contract_digest"] == (
-            SOURCE_PORT_CATALOG_DIGEST
+        assert any(
+            contract["reference"]["contract_kind"] == "binding"
+            and contract["reference"]["contract_id"]
+            == "installed.direct.local"
+            for contract in installed_catalog["contracts"]
         )
-        assert installed_catalog["contracts"] == [
-            definition.public_contract()
-            for definition in SOURCE_PORT_CATALOG.port_types
-        ]
 
         def request_json(
             method: str,
@@ -349,7 +486,17 @@ assert sorted(item.module_id for item in registry.list_all()) == {expected}
         workflow = {
             "schema_version": "2.0.0",
             "workflow_id": project_id,
-            "nodes": [],
+            "nodes": [
+                {
+                    "node_id": "installed-direct",
+                    "node_type_id": "installed.direct",
+                    "node_type_version": "2.0.0",
+                    "binding_id": "installed.direct.local",
+                    "binding_version": "2.0.0",
+                    "node_parameters": {},
+                    "binding_parameters": {},
+                }
+            ],
             "edges": [],
             "contract_lock": [],
         }
@@ -384,6 +531,35 @@ assert sorted(item.module_id for item in registry.list_all()) == {expected}
         assert compiled["accepted"] is True
         assert compiled["workflow_revision"] == 2
         assert "execution_plan" not in compiled
+        started = request_json(
+            "POST",
+            f"/api/v2/projects/{project_id}/runs",
+            {
+                "workflow_revision": 2,
+                "compile_id": compiled["compile_id"],
+                "client_request_id": "installed-direct-request",
+            },
+        )
+        projection = request_json(
+            "GET",
+            f"/api/v2/projects/{project_id}/runs/{started['run_id']}",
+        )
+        assert projection["status"] == "succeeded"
+        assert projection["compile_id"] == compiled["compile_id"]
+        assert projection["workflow_revision"] == 2
+        assert projection["node_dispositions"] == [
+            {
+                "node_id": "installed-direct",
+                "outcome": "succeeded",
+                "resolution": "executed",
+                "terminal_sequence": projection[
+                    "node_dispositions"
+                ][0]["terminal_sequence"],
+                "blocked_by": [],
+            }
+        ]
+        assert projection["outputs"][0]["values"] == ["INSTALLED_READY"]
+        assert projection["artifact_index"] == []
     finally:
         if server.poll() is None:
             server.terminate()

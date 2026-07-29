@@ -61,6 +61,16 @@ from core.port_types import (
     canonical_sha256,
 )
 from core.run_context import RunContext
+from core.run_execution_v2 import (
+    BindingEnvironment,
+    EnvironmentConfiguration,
+    ReadinessCheckInput,
+    ReadinessResult,
+    ReusableReadinessProof,
+    RunResources,
+    V2RunError,
+    V2RunService,
+)
 from core.run_manifest import RunManifest, RunManifestStore, read_run_manifest
 from core.type_registry import TypeInfo, TypeRegistry
 from core.workflow_module import WorkflowModule
@@ -112,6 +122,14 @@ __all__ = [
     "ProjectManager",
     "ProjectMeta",
     "RunContext",
+    "BindingEnvironment",
+    "EnvironmentConfiguration",
+    "ReadinessCheckInput",
+    "ReadinessResult",
+    "ReusableReadinessProof",
+    "RunResources",
+    "V2RunError",
+    "V2RunService",
     "RunCapacityError",
     "RunEventBroker",
     "RunEventStream",

@@ -58,6 +58,13 @@ from core.provider_readiness import (
     assess_workflow_readiness,
 )
 from core.run_manifest import create_run_manifest_store
+from core.run_execution_v2 import (
+    EnvironmentConfiguration,
+    V2RunError,
+    V2RunService,
+    run_cursor,
+    run_timestamp,
+)
 from core.recovery import RunRecoveryError, RunRecoveryService
 from core.recovery_types import RecoveryAction, RecoveryProvenance
 from core.storage import (
@@ -81,9 +88,12 @@ from protein_workbench_public import (
     bundle_bytes,
     bundle_digest,
     load_bundle,
+    validate_artifact_response,
     validate_error,
+    validate_event,
     validate_request,
     validate_response,
+    validate_schema,
 )
 
 # Global registries, initialized at startup
@@ -412,6 +422,9 @@ def create_app(
     provider_aliases: Mapping[str, str] | None = None,
     module_packages_package: str = "modules",
     frozen_catalog_override: FrozenCatalog | None = None,
+    v2_environment_configuration: (
+        Mapping[tuple[str, str], Mapping[str, Any]] | None
+    ) = None,
 ) -> FastAPI:
     """Create the backend, optionally replacing external-boundary Modules."""
     trusted_readiness_resolver = (
@@ -578,6 +591,12 @@ def create_app(
         app.state.workflow_authoring_v2 = WorkflowAuthoringService(
             project_manager,
             catalog_candidate,
+        )
+        app.state.run_execution_v2 = V2RunService(
+            project_manager,
+            catalog_candidate,
+            app.state.workflow_authoring_v2,
+            EnvironmentConfiguration(v2_environment_configuration),
         )
         yield
         for active_run in tuple(_active_runs.values()):
@@ -973,6 +992,225 @@ def create_app(
         receipt = compiled.public_receipt()
         validate_response("workflow_compile", 200, receipt)
         return receipt
+
+    @app.post(
+        "/api/v2/projects/{project_id}/runs",
+        include_in_schema=False,
+    )
+    async def public_start_run(
+        request: Request,
+        project_id: str,
+        payload: Any = Body(...),
+    ) -> Any:
+        try:
+            combined = {"project_id": project_id, **payload}
+            validate_request("start_run", combined)
+            receipt = request.app.state.run_execution_v2.start(
+                project_id,
+                workflow_revision=payload["workflow_revision"],
+                compile_id=payload["compile_id"],
+                client_request_id=payload["client_request_id"],
+            )
+        except (ProtocolValidationError, TypeError) as error:
+            return public_error_response(
+                "malformed_request",
+                str(error),
+                {"field_path": []},
+            )
+        except WorkflowAuthoringError as error:
+            return authoring_error_response(error)
+        except V2RunError as error:
+            return public_error_response(
+                error.code,
+                str(error),
+                error.details,
+            )
+        validate_response("start_run", 202, receipt)
+        return JSONResponse(status_code=202, content=receipt)
+
+    @app.get(
+        "/api/v2/projects/{project_id}/runs/{run_id}",
+        include_in_schema=False,
+    )
+    async def public_run_projection(
+        request: Request,
+        project_id: str,
+        run_id: str,
+    ) -> Any:
+        try:
+            validate_request(
+                "run_projection",
+                {"project_id": project_id, "run_id": run_id},
+            )
+            projection = request.app.state.run_execution_v2.projection(
+                project_id,
+                run_id,
+            )
+        except ProtocolValidationError as error:
+            return public_error_response(
+                "malformed_request",
+                str(error),
+                {"field_path": []},
+            )
+        except V2RunError as error:
+            return public_error_response(
+                error.code,
+                str(error),
+                error.details,
+            )
+        validate_response("run_projection", 200, projection)
+        return projection
+
+    @app.get(
+        "/api/v2/projects/{project_id}/runs/{run_id}/artifacts/"
+        "{artifact_reference}",
+        include_in_schema=False,
+    )
+    async def public_v2_artifact(
+        request: Request,
+        project_id: str,
+        run_id: str,
+        artifact_reference: str,
+    ) -> Any:
+        try:
+            validate_request(
+                "artifact_retrieval",
+                {
+                    "project_id": project_id,
+                    "run_id": run_id,
+                    "artifact_reference": artifact_reference,
+                },
+            )
+            artifact, body = request.app.state.run_execution_v2.artifact(
+                project_id,
+                run_id,
+                artifact_reference,
+            )
+        except ProtocolValidationError as error:
+            return public_error_response(
+                "malformed_request",
+                str(error),
+                {"field_path": []},
+            )
+        except V2RunError as error:
+            return public_error_response(
+                error.code,
+                str(error),
+                error.details,
+            )
+        content_disposition = (
+            f'attachment; filename="{artifact_reference}.bin"'
+        )
+        headers = {
+            "Content-Disposition": content_disposition,
+            "Content-Length": str(artifact["size"]),
+            "Content-Type": artifact["media_type"],
+            "Digest": artifact["content_digest"],
+        }
+        validate_artifact_response(
+            {
+                "artifact": artifact,
+                "content_disposition": content_disposition,
+            },
+            headers,
+            body,
+        )
+        return Response(
+            content=body,
+            media_type=None,
+            headers=headers,
+        )
+
+    @app.websocket(
+        "/api/v2/projects/{project_id}/runs/{run_id}/events"
+    )
+    async def public_v2_run_events(
+        websocket: WebSocket,
+        project_id: str,
+        run_id: str,
+    ) -> None:
+        if not _is_trusted_browser_origin(websocket):
+            await websocket.close(code=4403)
+            return
+        await websocket.accept()
+        try:
+            after_sequence = websocket.query_params.get("after_sequence")
+            request_payload: dict[str, Any] = {
+                "project_id": project_id,
+                "run_id": run_id,
+            }
+            if after_sequence is not None:
+                request_payload["after_sequence"] = after_sequence
+            validate_schema(
+                "#/$defs/RunEventStreamRequest",
+                request_payload,
+            )
+            events = websocket.app.state.run_execution_v2.public_events(
+                project_id,
+                run_id,
+            )
+            ledger_cursor = (
+                websocket.app.state.run_execution_v2.ledger_cursor(
+                    project_id,
+                    run_id,
+                )
+            )
+            minimum_sequence = 0
+            if after_sequence is not None:
+                if (
+                    not after_sequence.startswith("cursor-")
+                    or not after_sequence.removeprefix("cursor-").isdigit()
+                ):
+                    raise ProtocolValidationError(
+                        "$.after_sequence",
+                        "cursor is invalid",
+                    )
+                minimum_sequence = int(
+                    after_sequence.removeprefix("cursor-")
+                )
+            replay_started = {
+                "schema_namespace": "protein-workbench-public/v2",
+                "project_id": project_id,
+                "run_id": run_id,
+                "sequence": 0,
+                "cursor": run_cursor(0),
+                "emitted_at": run_timestamp(),
+                "event": {
+                    "type": "replay_started",
+                    "replay_through_cursor": ledger_cursor,
+                    **(
+                        {"after_sequence": after_sequence}
+                        if after_sequence is not None
+                        else {}
+                    ),
+                },
+            }
+            validate_event(replay_started)
+            await websocket.send_json(replay_started)
+            for event in events:
+                if event["sequence"] <= minimum_sequence:
+                    continue
+                validate_event(event)
+                await websocket.send_json(event)
+            replay_complete = {
+                "schema_namespace": "protein-workbench-public/v2",
+                "project_id": project_id,
+                "run_id": run_id,
+                "sequence": (
+                    int(ledger_cursor.removeprefix("cursor-")) + 1
+                ),
+                "cursor": ledger_cursor,
+                "emitted_at": run_timestamp(),
+                "event": {
+                    "type": "replay_complete",
+                    "live_from_cursor": ledger_cursor,
+                },
+            }
+            validate_event(replay_complete)
+            await websocket.send_json(replay_complete)
+            await websocket.close(code=1000)
+        except (ProtocolValidationError, V2RunError):
+            await websocket.close(code=1008)
 
     # ── modules & types ──────────────────────────────────────────────
 

@@ -324,3 +324,58 @@ class WorkflowAuthoringService:
         )
         self._plans[key] = compiled
         return compiled
+
+    def require_compiled(
+        self,
+        project_id: str,
+        *,
+        workflow_revision: int,
+        compile_id: str,
+    ) -> CompiledWorkflow:
+        """Resolve one exact private plan retained by a successful compile."""
+        self._require_project(project_id)
+        key = (project_id, workflow_revision, compile_id)
+        try:
+            compiled = self._plans[key]
+        except KeyError as error:
+            raise WorkflowAuthoringError(
+                "compile_rejected",
+                "Start Run requires an exact retained compile identity",
+                details={
+                    "issues": [
+                        {
+                            "code": "compile_identity_not_found",
+                            "severity": "error",
+                            "message": (
+                                "No successful compile matches the requested "
+                                "Project, Workflow revision, and compile ID"
+                            ),
+                            "field_path": ["compile_id"],
+                        }
+                    ]
+                },
+            ) from error
+        current = self.load(project_id)
+        plan = compiled.execution_plan
+        if (
+            current["workflow_revision"] != workflow_revision
+            or current["workflow_digest"] != plan.workflow_digest
+        ):
+            raise WorkflowAuthoringError(
+                "compile_rejected",
+                "The retained compile no longer matches the saved Workflow",
+                details={
+                    "issues": [
+                        {
+                            "code": "workflow_revision_conflict",
+                            "severity": "error",
+                            "message": (
+                                "Start Run requires the exact persisted "
+                                "Workflow revision and digest"
+                            ),
+                            "field_path": ["workflow_revision"],
+                        }
+                    ]
+                },
+            )
+        return compiled
