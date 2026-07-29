@@ -4,7 +4,7 @@
 
 **Blocked by:** 06 — Close dispositions across branch failures.
 
-**Status:** awaiting-controller
+**Status:** completed
 
 - [x] Durable Ledger facts receive monotonic sequence identities before any public projection or event publication.
 - [x] Run Event Stream switches from replay to live delivery without omitting or duplicating a public event and rejects malformed, stale, or cross-scope cursors safely.
@@ -55,3 +55,33 @@ this state.
   exposure. The executor repaired every CRITICAL/HIGH finding plus the
   projection finding; both follow-up review axes returned `APPROVE` at
   `876f7be`.
+
+## Controller cumulative acceptance
+
+Before Ticket 08 started, Controller independently accepted executor commit
+`2fcd2b4e36925d205a478fca432532ff13a70930` against the previously accepted
+Tickets 01–06 gate `7c01eb7ae1921a1fd2bb48d365e5ec8dbccc4d6e`.
+
+- Joint Tickets 01–07 focused suites:
+  `uv run --no-sync python -m pytest -q tests/test_public_protocol_v2.py
+  tests/test_port_types_v2.py tests/test_module_packages_v2.py
+  tests/test_workflow_compiler_v2.py tests/test_run_execution_v2.py` →
+  `205 passed`.
+- Cumulative routine gate:
+  `uv run --no-sync python scripts/verify_backend.py routine` →
+  `891 passed, 44 deselected`; retained result
+  `verification-results/routine/20260729T035329.754065Z-79157-6dc239a89a5a5d1d`.
+- Deterministic acceptance:
+  `uv run --no-sync python scripts/verify_backend.py
+  deterministic-acceptance` → `9 passed, 5 deselected`; retained result
+  `verification-results/deterministic-acceptance/20260729T035510.760483Z-79782-88d8a52323f0f541`.
+- Installed artifact:
+  `uv run --no-sync python scripts/verify_backend.py installed-package` →
+  `3 passed`; retained result
+  `verification-results/installed-package/20260729T035554.477338Z-79908-1dc3c17ec97704ec`.
+- `git diff --check
+  7c01eb7ae1921a1fd2bb48d365e5ec8dbccc4d6e...2fcd2b4e36925d205a478fca432532ff13a70930`
+  passed.
+
+No Controller regression was found, so Ticket 07 is accepted and Ticket 08
+may start.
