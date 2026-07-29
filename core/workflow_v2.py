@@ -9,6 +9,7 @@ import re
 from types import MappingProxyType
 from typing import Any
 
+from core.parameter_contract import is_environment_parameter_name
 from core.port_types import CatalogBuildError, FrozenCatalog, canonical_sha256
 from protein_workbench_public import ProtocolValidationError, validate_schema
 
@@ -17,53 +18,6 @@ WORKFLOW_SCHEMA_VERSION = "2.0.0"
 WORKFLOW_DIGEST_NAMESPACE = "protein-workbench-workflow/v2"
 CONTRACT_LOCK_NAMESPACE = "protein-workbench-contract-lock/v2"
 EXECUTION_PLAN_NAMESPACE = "protein-workbench-execution-plan/v2"
-_FORBIDDEN_WORKFLOW_PARAMETER_NAMES = frozenset(
-    {
-        "access_token",
-        "api_key",
-        "auth_token",
-        "base_url",
-        "bearer_token",
-        "checkpoint",
-        "checkpoint_id",
-        "credential",
-        "credentials",
-        "cuda_device",
-        "deployment",
-        "deployment_id",
-        "device",
-        "endpoint",
-        "environment",
-        "gpu_device",
-        "model",
-        "model_id",
-        "model_name",
-        "model_path",
-        "provider",
-        "runtime_path",
-        "secret",
-        "secret_key",
-        "token",
-    }
-)
-_FORBIDDEN_WORKFLOW_PARAMETER_COMPONENTS = frozenset(
-    {
-        "checkpoint",
-        "credential",
-        "credentials",
-        "deployment",
-        "device",
-        "endpoint",
-        "environment",
-        "model",
-        "path",
-        "provider",
-        "runtime",
-        "secret",
-        "token",
-        "url",
-    }
-)
 
 
 def _freeze_json(value: Any) -> Any:
@@ -566,15 +520,8 @@ def _find_forbidden_environment_field(
 ) -> tuple[str | int, ...] | None:
     if isinstance(value, Mapping):
         for name, item in value.items():
-            normalized = name.strip().lower().replace("-", "_")
             item_path = (*path, name)
-            components = frozenset(normalized.split("_"))
-            if (
-                normalized in _FORBIDDEN_WORKFLOW_PARAMETER_NAMES
-                or components.intersection(
-                    _FORBIDDEN_WORKFLOW_PARAMETER_COMPONENTS
-                )
-            ):
+            if is_environment_parameter_name(name):
                 return item_path
             nested = _find_forbidden_environment_field(
                 item,

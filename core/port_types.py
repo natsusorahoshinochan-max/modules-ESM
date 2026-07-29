@@ -16,6 +16,10 @@ from typing import Any, Callable, Union, get_args, get_origin, get_type_hints
 
 import rfc8785
 
+from core.parameter_contract import (
+    ParameterContractDefinitionError,
+    validate_parameter_declarations,
+)
 from datatypes import (
     Candidate,
     CandidateCollection,
@@ -1005,6 +1009,30 @@ class FrozenCatalog:
                     f"{identity[0]}:{identity[1]}@{identity[2]}"
                 )
             canonical_json_bytes(contract.public_contract())
+            if identity[0] in {"node_type", "binding"}:
+                declaration_field = (
+                    "node_parameters"
+                    if identity[0] == "node_type"
+                    else "binding_parameters"
+                )
+                declarations = contract.descriptor.get(
+                    declaration_field,
+                    {},
+                )
+                if not isinstance(declarations, Mapping):
+                    raise CatalogBuildError(
+                        f"{declaration_field} must be an object"
+                    )
+                try:
+                    validate_parameter_declarations(
+                        declarations,
+                        path=(
+                            f"{identity[0]}:{identity[1]}"
+                            f"@{identity[2]}.{declaration_field}"
+                        ),
+                    )
+                except ParameterContractDefinitionError as error:
+                    raise CatalogBuildError(str(error)) from error
             contracts_by_identity[identity] = contract
         observation_time = self.availability_observed_at
         if (

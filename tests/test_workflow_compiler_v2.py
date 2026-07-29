@@ -10,6 +10,7 @@ from fastapi.testclient import TestClient
 
 from core import (
     BehaviorReference,
+    CatalogBuildError,
     CatalogContract,
     FrozenCatalog,
     LazyImplementationFactory,
@@ -715,7 +716,15 @@ def test_compile_enforces_complete_nested_parameter_value_contract(
 
 @pytest.mark.parametrize(
     "forbidden_name",
-    ["token", "access_token", "base_url", "gpu_device"],
+    [
+        "apiToken",
+        "baseURL",
+        "credentialHandle",
+        "gpuDevice",
+        "modelPath",
+        "runtime.path",
+        "auth_header",
+    ],
 )
 def test_compile_rejects_nested_environment_configuration_fields(
     forbidden_name: str,
@@ -756,6 +765,51 @@ def test_compile_rejects_nested_environment_configuration_fields(
         )
 
     assert captured.value.code == "environment_parameter_forbidden"
+
+
+@pytest.mark.parametrize(
+    "unsupported_contract",
+    [
+        {"type": "integer", "multipleOf": 2},
+        {"not": {"const": "x"}},
+        {"type": "array", "contains": {"const": "x"}},
+        {"if": {"const": "x"}, "then": {"const": "y"}},
+        {"type": "object", "patternProperties": {"^x": {"type": "string"}}},
+        {"type": "object", "dependentRequired": {"x": ["y"]}},
+    ],
+)
+def test_catalog_rejects_unsupported_parameter_contract_keywords(
+    unsupported_contract: dict,
+) -> None:
+    with pytest.raises(CatalogBuildError, match="unsupported"):
+        _workflow_catalog(
+            source_node_parameter_overrides={
+                "closed_contract": unsupported_contract,
+            }
+        )
+
+
+@pytest.mark.parametrize(
+    "environment_name",
+    [
+        "apiToken",
+        "baseURL",
+        "credentialHandle",
+        "gpuDevice",
+        "modelPath",
+        "runtime.path",
+        "auth_header",
+    ],
+)
+def test_catalog_rejects_environment_parameter_declarations(
+    environment_name: str,
+) -> None:
+    with pytest.raises(CatalogBuildError, match="Environment Configuration"):
+        _workflow_catalog(
+            source_node_parameter_overrides={
+                environment_name: {"type": "string"},
+            }
+        )
 
 
 def test_public_v2_mutation_failures_use_the_structured_error_vocabulary(
