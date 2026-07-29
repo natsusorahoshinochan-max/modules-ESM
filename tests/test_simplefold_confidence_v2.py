@@ -59,8 +59,23 @@ def _two_chain_pdb() -> str:
     )
 
 
+def _blank_and_named_chain_pdb() -> str:
+    return "\n".join(
+        (
+            "ATOM      1  CA  ALA     1       0.000   0.000   0.000  1.00 20.00           C",
+            "TER",
+            "ATOM      2  CA  GLY A   1       1.000   0.000   0.000  1.00 20.00           C",
+            "END",
+            "",
+        )
+    )
+
+
 def test_existing_structure_parser_preserves_chain_breaks() -> None:
-    from modules.folding.simplefold_confidence_adapter import _pdb_residues
+    from modules.folding.simplefold_confidence_adapter import (
+        _pdb_residues,
+        _provider_chain_ids,
+    )
 
     parsed = _pdb_residues(_two_chain_pdb())
 
@@ -73,6 +88,8 @@ def test_existing_structure_parser_preserves_chain_breaks() -> None:
         for chain in parsed.chains
         for residue in chain.residues
     ] == ["A", "B"]
+    blank_and_named = _pdb_residues(_blank_and_named_chain_pdb())
+    assert _provider_chain_ids(blank_and_named.chains) == ("B", "A")
 
 
 def _confidence_environment(

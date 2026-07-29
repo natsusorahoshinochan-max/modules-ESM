@@ -557,6 +557,39 @@ def _pdb_residues(
     )
 
 
+def _provider_chain_ids(
+    chains: tuple[_PDBChain, ...],
+) -> tuple[str, ...]:
+    reserved = {
+        chain.chain_id.strip()
+        for chain in chains
+        if chain.chain_id.strip()
+    }
+    assigned: list[str] = []
+    for chain in chains:
+        chain_id = chain.chain_id.strip()
+        if not chain_id:
+            chain_id = next(
+                (
+                    candidate
+                    for candidate in (
+                        "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
+                        "abcdefghijklmnopqrstuvwxyz"
+                        "0123456789"
+                    )
+                    if candidate not in reserved
+                ),
+                "",
+            )
+            if not chain_id:
+                raise ValueError(
+                    "SimpleFold confidence cannot assign a blank chain"
+                )
+            reserved.add(chain_id)
+        assigned.append(chain_id)
+    return tuple(assigned)
+
+
 def _native_existing_structure_confidence(
     *,
     structure: ProteinStructure,
@@ -628,9 +661,13 @@ def _native_existing_structure_confidence(
             fasta_path = cache / "existing.fasta"
             fasta_path.write_text(
                 "".join(
-                    f">{chain.chain_id.strip() or 'A'}|Protein\n"
+                    f">{chain_id}|Protein\n"
                     f"{chain.sequence}\n"
-                    for chain in parsed_structure.chains
+                    for chain_id, chain in zip(
+                        _provider_chain_ids(parsed_structure.chains),
+                        parsed_structure.chains,
+                        strict=True,
+                    )
                 )
             )
             with (cache / "ccd.pkl").open("rb") as handle:
