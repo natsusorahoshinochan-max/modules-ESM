@@ -65,3 +65,63 @@ executor for repair before that next Ticket starts.
   default-loader path, staged-weight lifecycle, and cleanup error precedence.
   Both final review axes returned `APPROVE` at `a889e22`.
 - Ticket 21 has not started.
+
+## Controller return repair
+
+Controller returned executor revision
+`654bc4b76ec3b200247857d27ad27718da462485` after the exact focused
+heavy-model diagnostic passed all three real local ESM-3 modes but failed
+provider-evidence validation before publishing `provider-summary.json`. Ticket
+21 remained unstarted throughout the repair.
+
+- The raw heavy-tier readiness inventory truthfully contained
+  `local_open: ready`, `local-proteinmpnn: unready`, and
+  `simplefold: unready`. The validator incorrectly required every readiness
+  event to be green before applying its existing focused-mode rule that missing
+  uncalled providers are allowed.
+- TDD repair commit `3ccfff3` permits a focused diagnostic to retain exact,
+  false readiness for uncalled providers while still requiring every called
+  provider to be green. Full provider gates remain fail-closed.
+- The Controller's exact focused command at clean repair revision `3ccfff3`
+  now runs `1 passed`, validates and publishes all readiness plus the exact two
+  sequence and two structure calls, and returns incomplete only because focused
+  diagnostics cannot satisfy a full gate. Retained result:
+  `verification-results/heavy-model/20260729T180515.022428Z-83999-2e86b9c70e1421fb`.
+- Review repair commit `f79bc60` adds the hard-coded, source-bound
+  `local-esm3-heavy-model` full gate without modifying Core or weakening the
+  aggregate `heavy-model` tier. It requires only `local_open` readiness, the
+  exact all-modes test, zero skips, clean approved-source pre/post attestation,
+  and exactly two sequence plus two structure provider calls.
+- Required full local ESM-3 heavy gate at clean approved revision
+  `f79bc60ab33462ca0e9a0c9bca604fff337ca30a`:
+  `uv run --no-sync python scripts/verify_backend.py
+  local-esm3-heavy-model` → `1 passed`; retained provider summary is
+  `complete: true`. Retained result:
+  `verification-results/local-esm3-heavy-model/20260729T181929.216814Z-93065-4333e0e5ccf72ada`.
+- Final focused ESM-3/provider/tier regression:
+  `uv run --no-sync pytest -q tests/test_verification_tiers.py
+  tests/test_provider_evidence.py tests/test_esm3_local_v2.py
+  tests/test_esm3_v2.py` → `91 passed`.
+- Final Tickets 01–20 v2 regression:
+  `uv run --no-sync pytest -q tests/*_v2.py` → `449 passed`.
+- Final cumulative routine gate:
+  `uv run --no-sync python scripts/verify_backend.py routine` →
+  `1133 passed, 46 deselected`; retained result
+  `verification-results/routine/20260729T182208.362097Z-94814-e0d582b877722b4d`.
+- Final deterministic acceptance:
+  `uv run --no-sync python scripts/verify_backend.py
+  deterministic-acceptance` → `10 passed, 5 deselected`; retained result
+  `verification-results/deterministic-acceptance/20260729T182555.140308Z-99117-a988f37696d30938`.
+- Final installed artifact:
+  `uv run --no-sync python scripts/verify_backend.py installed-package` →
+  `3 passed`; retained result
+  `verification-results/installed-package/20260729T182657.590899Z-99615-97498c05167f61b0`.
+- `compileall`, `uv lock --check`, `uv pip check`, `git diff --check`, and
+  the zero-`core/` diff check passed at the final source revision.
+- Final `/code-review` Standards and Spec axes both returned `APPROVE` at
+  `f79bc60`; all Controller-return CRITICAL/HIGH findings are closed.
+
+Ticket 20 remains `awaiting-controller`. Controller must rerun the cumulative
+Tickets 01–20 gates and the full `local-esm3-heavy-model` gate against the final
+clean revision, returning any further regression to this executor before
+Ticket 21 starts.
