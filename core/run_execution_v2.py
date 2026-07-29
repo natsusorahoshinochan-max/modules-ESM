@@ -2309,7 +2309,9 @@ def _result_identity_descriptor(
         input_identities.append(
             {
                 "input_port": port_name,
-                "port_type": port_type.reference(),
+                "port_type": _identity_without_digest(
+                    port_type.reference()
+                ),
                 "multiplicity": declaration["multiplicity"],
                 "value_content_digests": [
                     _input_content_digest(port_type, value)
@@ -2355,15 +2357,22 @@ def _result_identity_descriptor(
         "output_contracts": [
             {
                 "output_port": port["name"],
-                "port_type": _plain_json(port["port_type"]),
+                "port_type": _identity_without_digest(
+                    port["port_type"]
+                ),
                 "required": port["required"],
                 "multiplicity": port["multiplicity"],
                 "scientific_meaning": port["scientific_meaning"],
             }
             for port in node_contract.descriptor.get("outputs", ())
         ],
-        "produced_observations": _plain_json(
-            binding_contract.descriptor.get("produced_observations", ())
+        "produced_observations": _normalize_nested_contract_references(
+            _plain_json(
+                binding_contract.descriptor.get(
+                    "produced_observations",
+                    (),
+                )
+            )
         ),
     }
 
