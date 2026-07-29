@@ -44,6 +44,42 @@ marker expression.
 | Live remote provider | `.venv/bin/python scripts/verify_backend.py live-provider` | Makes remote provider calls and requires both zero skips and provider-call evidence. Readiness alone cannot satisfy this gate. |
 | Fresh canonical 3GB1 | `.venv/bin/python scripts/verify_backend.py fresh-remote-3gb1` | Runs the protected canonical Workflow once through REST and its run-scoped WebSocket against local ESM3, Biohub ESMFold2, ProteinMPNN, mkdssp, Biopython SVD, and tmtools, then retrieves and seals exactly 15 run-bound PDBs. |
 
+## Module Package maintainer contract
+
+A repository-owned extension has one production entry point,
+`modules/<package>/package.py:MODULE_PACKAGE`. Maintainers pass that exact
+`ModulePackageRegistration` to `verify_module_package_contract` together with
+independent `ModulePackageContractCase` and `ModulePackagePortCase` values.
+Cases, fixtures, and package-local tests are not registration fields and are
+not production wheel content.
+
+The shared Contract Test Kit builds a temporary `FrozenCatalog`, validates a
+package-owned Port Type codec, saves and relocks a minimal Workflow, compiles
+it, obtains run-scoped Readiness, executes through the normal v2 direct
+interface, replays durable public events, decodes Candidates and typed
+Observations, verifies Result Identity and producer provenance, and retrieves
+declared artifacts. It rejects unsafe public diagnostics, including fixture
+credentials and private runtime paths. This executable contract is the
+maintainer workflow; there is no second package template or package-specific
+Core dispatch path.
+
+Run the focused source contract and the source-versus-installed public journey
+with:
+
+```bash
+.venv/bin/pytest -q tests/test_contract_test_kit_v2.py
+.venv/bin/python scripts/verify_backend.py installed-package
+```
+
+The source-local synthetic package lives only under
+`tests/fixtures/zero_core_packages`. The installed gate copies its production
+registration and resources, but not its local cases or tests, outside the
+source checkout. The installed backend discovers that package, proves the same
+Catalog contract digest as source, and completes Catalog query, Workflow
+compile, Run execution, cursor replay, Run Projection, and Artifact Retrieval
+without a Core dispatch edit. Ordinary production discovery does not expose
+the synthetic capability.
+
 The complete real gates require these exact successful adapter-boundary calls:
 
 - `local-provider`: `biopython-svd:structure_align`,
@@ -235,9 +271,9 @@ checks with:
 
 The installed-package probe compares Catalog canonical bytes, every Port Type
 descriptor byte sequence, every Port Type digest, and the Catalog digest before
-querying the same public contracts from the installed backend. This Port Type
-slice does not claim that the subsequent Module Package discovery, Compiler,
-Run, Ledger, or Cache implementations already exist.
+querying the same public contracts from the installed backend. It also proves
+that a source-local conforming Module Package retains equivalent contract and
+behavior identities when discovered by the installed artifact.
 
 ## Deterministic public-protocol acceptance
 

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import os
+import shutil
 import socket
 import stat
 import subprocess
@@ -29,6 +30,10 @@ SOURCE_PROTOCOL_DIGEST = bundle_digest()
 SOURCE_PORT_CATALOG = build_discovered_frozen_catalog()
 SOURCE_PORT_CATALOG_BYTES = SOURCE_PORT_CATALOG.catalog_descriptor_bytes
 SOURCE_PORT_CATALOG_DIGEST = SOURCE_PORT_CATALOG.contract_digest
+SOURCE_ZERO_CORE_CATALOG = build_discovered_frozen_catalog(
+    "tests.fixtures.zero_core_packages"
+)
+SOURCE_ZERO_CORE_CATALOG_DIGEST = SOURCE_ZERO_CORE_CATALOG.contract_digest
 SOURCE_PORT_TYPE_BYTES = {
     definition.type_id: definition.descriptor_bytes.hex()
     for definition in SOURCE_PORT_CATALOG.port_types
@@ -87,157 +92,29 @@ EXPECTED_MODULE_IDS = {
 
 
 def _installed_direct_server_probe(port: int) -> str:
-    """Build an installed-only synthetic direct Binding server bootstrap."""
+    """Start an installed backend with one externally discovered package."""
     return r'''
-from datetime import datetime, timezone
 import os
 from pathlib import Path
-import time
+import sys
 import uvicorn
-from core import (
-    BehaviorReference,
-    CatalogContract,
-    FrozenCatalog,
-    LazyImplementationFactory,
-    ReadinessDeclaration,
-    builtin_frozen_catalog,
-)
 from core.server import create_app
 
-def contract(kind, identity, descriptor):
-    return CatalogContract(
-        contract_kind=kind,
-        contract_id=identity,
-        contract_version="2.0.0",
-        descriptor={
-            "schema_namespace": "protein-workbench-contract/v2",
-            "contract_kind": kind,
-            "contract_id": identity,
-            "contract_version": "2.0.0",
-            **descriptor,
-        },
-    )
-
-builtin = builtin_frozen_catalog()
-text = builtin.require_port_type("text", "2.0.0")
-method = contract("method", "installed.direct.method", {
-    "algorithm_identity": {"name": "installed-deterministic-text"},
-    "model_identity": {"kind": "none"},
-    "checkpoint_identity": {"kind": "none"},
-    "featurization_identity": {"kind": "none"},
-    "source_identity": {"kind": "installed-acceptance"},
-    "scale_contract": {"kind": "identity"},
-})
-node = contract("node_type", "installed.direct", {
-    "title": "Installed deterministic direct Node",
-    "summary": "Validates installed readiness-gated direct execution.",
-    "category": "acceptance",
-    "inputs": [],
-    "outputs": [{
-        "name": "text",
-        "port_type": text.reference(),
-        "required": True,
-        "multiplicity": "one",
-        "scientific_meaning": "Installed canonical text",
-    }],
-    "parameter_groups": [],
-    "node_parameters": {},
-})
-factory_behavior = BehaviorReference(
-    "installed.direct/factory",
-    "2.0.0",
-    {},
-)
-readiness_behavior = BehaviorReference(
-    "installed.direct/readiness",
-    "2.0.0",
-    {},
-)
-binding = contract("binding", "installed.direct.local", {
-    "node_type": node.reference(),
-    "method": method.reference(),
-    "binding_parameters": {},
-    "execution_route": "direct",
-    "route_behavior": factory_behavior.descriptor(),
-    "availability_declaration": {
-        "behavior": {
-            "behavior_id": "installed.direct/availability",
-            "behavior_version": "2.0.0",
-            "parameters": {},
-        },
-        "prerequisites": {},
-    },
-    "readiness_declaration": {
-        "behavior": readiness_behavior.descriptor(),
-        "prerequisites": {"installed_runtime": "required"},
-    },
-    "deterministic": True,
-    "cacheable": False,
-    "implementation_identity": {
-        "name": "installed.direct.local",
-        "factory": factory_behavior.descriptor(),
-    },
-    "produced_observations": [],
-})
-
-class Implementation:
-    def __init__(self, resources):
-        self._resources = resources
-
-    def execute(self, *, inputs, node_parameters, binding_parameters):
-        assert inputs == {}
-        assert node_parameters == {}
-        assert binding_parameters == {}
-        with self._resources.engine_invocation(
-            engine_identity="installed.direct.method/2.0.0",
-        ):
-            marker = Path(
-                os.environ["PROTEIN_WORKBENCH_INSTALLED_BLOCK_MARKER"]
-            )
-            if marker.exists():
-                marker.with_suffix(".started").write_text("started")
-                while marker.exists():
-                    time.sleep(0.05)
-            return {"text": "INSTALLED_READY"}
-
-def build(**kwargs):
-    assert kwargs["environment_configuration"]["installed_runtime"] is True
-    return Implementation(kwargs["run_resources"])
-
-def ready(environment):
-    return environment["installed_runtime"] is True
-
-observed = datetime(2026, 7, 29, 10, 0, tzinfo=timezone.utc)
-catalog = FrozenCatalog(
-    builtin.port_types,
-    contracts=(method, node, binding),
-    availability=({
-        "binding": binding.reference(),
-        "observed_at": observed.isoformat(),
-        "available": True,
-    },),
-    availability_observed_at=observed,
-    factories={
-        ("installed.direct.local", "2.0.0"): LazyImplementationFactory(
-            behavior=factory_behavior,
-            build=build,
-        ),
-    },
-    readiness_declarations={
-        ("installed.direct.local", "2.0.0"): ReadinessDeclaration(
-            behavior=readiness_behavior,
-            prerequisites={"installed_runtime": "required"},
-            check=ready,
-        ),
-    },
-)
+sys.path.insert(0, str(Path.cwd()))
 app = create_app(
-    frozen_catalog_override=catalog,
+    module_packages_package="zero_core_packages",
     v2_environment_configuration={
-        ("installed.direct.local", "2.0.0"): {
-            "values": {"installed_runtime": True},
-            "safe_fingerprint": "installed-runtime-v1",
-            "invalidation_token": "installed-assets-v1",
+        ("contract_test.synthetic_echo.direct", "2.0.0"): {
+            "values": {
+                "fixture_ready": True,
+                "credential": "installed-secret-must-not-publish",
+                "runtime_path": "/private/installed-runtime",
+                "block_marker": os.environ[
+                    "PROTEIN_WORKBENCH_INSTALLED_BLOCK_MARKER"
+                ],
+            },
+            "safe_fingerprint": "installed-synthetic-echo-v1",
+            "invalidation_token": "installed-synthetic-assets-v1",
         },
     },
 )
@@ -308,6 +185,10 @@ def test_built_artifacts_contain_backend_definitions_and_canonical_assets(
         )
         for name in wheel_names
     )
+    assert not any(
+        name.startswith("tests/fixtures/zero_core_packages/")
+        for name in wheel_names
+    )
     assert all(
         not name.startswith("/") and ".." not in Path(name).parts
         for name in wheel_names | sdist_names
@@ -352,6 +233,11 @@ def test_wheel_runs_discovery_canonical_validation_and_api_outside_source_tree(
 
     run_dir = tmp_path / "outside-source"
     run_dir.mkdir()
+    shutil.copytree(
+        PROJECT_ROOT / "tests" / "fixtures" / "zero_core_packages",
+        run_dir / "zero_core_packages",
+        ignore=shutil.ignore_patterns("tests", "__pycache__", "*.pyc"),
+    )
     env = os.environ.copy()
     env.pop("PYTHONPATH", None)
     env["PROTEIN_WORKBENCH_SOURCE_ROOT"] = str(PROJECT_ROOT)
@@ -472,10 +358,13 @@ assert sorted(item.module_id for item in registry.list_all()) == {expected}
             timeout=2,
         ) as response:
             installed_catalog = json.load(response)
+        assert installed_catalog["catalog_contract_digest"] == (
+            SOURCE_ZERO_CORE_CATALOG_DIGEST
+        )
         assert any(
             contract["reference"]["contract_kind"] == "binding"
             and contract["reference"]["contract_id"]
-            == "installed.direct.local"
+            == "contract_test.synthetic_echo.direct"
             for contract in installed_catalog["contracts"]
         )
 
@@ -513,13 +402,13 @@ assert sorted(item.module_id for item in registry.list_all()) == {expected}
             "workflow_id": project_id,
             "nodes": [
                 {
-                    "node_id": "installed-direct",
-                    "node_type_id": "installed.direct",
+                    "node_id": "synthetic-echo",
+                    "node_type_id": "contract_test.synthetic_echo",
                     "node_type_version": "2.0.0",
-                    "binding_id": "installed.direct.local",
+                    "binding_id": "contract_test.synthetic_echo.direct",
                     "binding_version": "2.0.0",
-                    "node_parameters": {},
-                    "binding_parameters": {},
+                    "node_parameters": {"message": "INSTALLED"},
+                    "binding_parameters": {"repeat_count": 1},
                 }
             ],
             "edges": [],
@@ -574,7 +463,7 @@ assert sorted(item.module_id for item in registry.list_all()) == {expected}
         assert projection["workflow_revision"] == 2
         assert projection["node_dispositions"] == [
             {
-                "node_id": "installed-direct",
+                "node_id": "synthetic-echo",
                 "outcome": "succeeded",
                 "resolution": "executed",
                 "terminal_sequence": projection[
@@ -583,8 +472,22 @@ assert sorted(item.module_id for item in registry.list_all()) == {expected}
                 "blocked_by": [],
             }
         ]
-        assert projection["outputs"][0]["values"] == ["INSTALLED_READY"]
-        assert projection["artifact_index"] == []
+        assert {
+            output["output_port"]: output["values"]
+            for output in projection["outputs"]
+            if output["output_port"] == "text"
+        } == {"text": ["INSTALLED"]}
+        assert len(projection["artifact_index"]) == 1
+        artifact = projection["artifact_index"][0]
+        with urllib.request.urlopen(
+            f"http://127.0.0.1:{port}/api/v2/projects/{project_id}/runs/"
+            f"{started['run_id']}/artifacts/{artifact['artifact_reference']}",
+            timeout=2,
+        ) as response:
+            installed_artifact = response.read()
+            installed_artifact_digest = response.headers["Digest"]
+        assert installed_artifact == b"INSTALLED"
+        assert installed_artifact_digest == artifact["content_digest"]
 
         block_marker.write_text("block")
         interrupted = request_json(
@@ -737,6 +640,17 @@ assert sorted(item.module_id for item in registry.list_all()) == {expected}
             message["event"]["type"]
             for message in repeated_delivery
         } == {"replay_started", "replay_complete"}
+        public_evidence = json.dumps(
+            {
+                "catalog": installed_catalog,
+                "projection": projection,
+                "interrupted": interrupted_projection,
+                "replayed": resumed,
+            },
+            sort_keys=True,
+        )
+        assert "installed-secret-must-not-publish" not in public_evidence
+        assert "/private/installed-runtime" not in public_evidence
         assert not any((tmp_path / "cache").rglob("*"))
     finally:
         if server.poll() is None:

@@ -1,4 +1,12 @@
 from core.cache_store import CachePublishStatus, CacheStore
+from core.contract_test_kit import (
+    ModulePackageCaseReport,
+    ModulePackageConformanceError,
+    ModulePackageContractCase,
+    ModulePackageContractReport,
+    ModulePackagePortCase,
+    verify_module_package_contract,
+)
 from core.executor import Executor
 from core.lifecycle_events import (
     RunEventBroker,
@@ -124,6 +132,11 @@ __all__ = [
     "ModuleDefinition",
     "ModuleDiscoveryError",
     "ModulePackageDiscoveryError",
+    "ModulePackageCaseReport",
+    "ModulePackageConformanceError",
+    "ModulePackageContractCase",
+    "ModulePackageContractReport",
+    "ModulePackagePortCase",
     "ModulePackageRegistration",
     "ObservationPropagationDefinition",
     "ModuleRegistry",
@@ -194,6 +207,7 @@ __all__ = [
     "read_run_manifest",
     "select_candidates",
     "validate_produced_score_collection",
+    "verify_module_package_contract",
     "LazyImplementationFactory",
     "CompiledWorkflow",
     "ContractLockEntry",
