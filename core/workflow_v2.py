@@ -5,6 +5,7 @@ from __future__ import annotations
 from collections import deque
 from collections.abc import Mapping
 from dataclasses import dataclass, replace
+import math
 from types import MappingProxyType
 from typing import Any
 
@@ -771,10 +772,28 @@ def _validate_selection_objectives(
             "Selection Objective IDs must be unique",
             field_path=("selection_objectives",),
         )
-    if objectives and sum(objective.weight for objective in objectives) <= 0:
+    try:
+        objective_weight_total = math.fsum(
+            float(objective.weight) for objective in objectives
+        )
+    except (OverflowError, ValueError):
+        objective_weight_total = math.inf
+    if objectives and (
+        not math.isfinite(objective_weight_total)
+        or objective_weight_total <= 0
+    ):
         raise WorkflowCompileError(
             "invalid_selection_objective",
-            "Selection Objectives require at least one positive weight",
+            "Selection Objectives require a finite positive total weight",
+            field_path=("selection_objectives",),
+        )
+    candidate_inputs = {
+        objective.candidate_input for objective in objectives
+    }
+    if len(candidate_inputs) > 1:
+        raise WorkflowCompileError(
+            "invalid_selection_objective",
+            "Weighted Selection Objectives must use one exact Candidate input",
             field_path=("selection_objectives",),
         )
     for index, objective in enumerate(objectives):
@@ -807,11 +826,12 @@ def _validate_selection_objectives(
                 output is None
                 or output.get("port_type", {}).get("contract_id")
                 != expected_type
+                or output.get("multiplicity") != "one"
             ):
                 raise WorkflowCompileError(
                     "invalid_selection_objective",
-                    f"{field_name} must reference an exact {expected_type} "
-                    "output Port",
+                    f"{field_name} must reference one exact {expected_type} "
+                    "output value",
                     node_id=node.node_id,
                     field_path=(*objective_path, field_name, "output_port"),
                 )
@@ -851,6 +871,29 @@ def _validate_selection_objectives(
             and declaration.get("subject_grain") == "candidate"
             and declaration.get("source_role") == "subject"
             and declaration.get("guaranteed_multiplicity") == "one"
+            and (
+                (
+                    declaration.get("subject_direction") == "output"
+                    and objective.candidate_input.node_id
+                    == objective.score_collection_input.node_id
+                    and declaration.get("subject_port")
+                    == objective.candidate_input.output_port
+                )
+                or (
+                    declaration.get("subject_direction") == "input"
+                    and any(
+                        edge.source_node_id
+                        == objective.candidate_input.node_id
+                        and edge.source_port
+                        == objective.candidate_input.output_port
+                        and edge.target_node_id
+                        == objective.score_collection_input.node_id
+                        and edge.target_port
+                        == declaration.get("subject_port")
+                        for edge in workflow.edges
+                    )
+                )
+            )
         ]
         if len(produced) != 1:
             raise WorkflowCompileError(

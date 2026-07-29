@@ -91,14 +91,19 @@ class SelectionObjective:
     missing_policy: str = "error"
 
     def __post_init__(self) -> None:
+        try:
+            canonical_json_bytes(self.weight)
+            numeric_weight = float(self.weight)
+        except (CatalogBuildError, OverflowError, TypeError, ValueError):
+            numeric_weight = math.nan
         if (
             isinstance(self.weight, bool)
             or not isinstance(self.weight, (int, float))
-            or not math.isfinite(self.weight)
-            or self.weight < 0
+            or not math.isfinite(numeric_weight)
+            or numeric_weight < 0
             or (
-                self.weight == 0
-                and math.copysign(1.0, self.weight) < 0
+                numeric_weight == 0
+                and math.copysign(1.0, numeric_weight) < 0
             )
         ):
             raise SelectionError(
@@ -189,6 +194,9 @@ class SelectionResult:
     candidates: CandidateCollection
     provenance: Mapping[str, Any] = field(compare=False)
 
+    def public_provenance(self) -> dict[str, Any]:
+        return _thaw_json(self.provenance)
+
 
 def _reference_public(
     contract_kind: str,
@@ -274,7 +282,7 @@ def _resolved_utility_parameters(
 def resolve_selection_objective(
     objective: SelectionObjective,
     catalog: FrozenCatalog,
-) -> tuple[Any, Any, Any, dict[str, Any]]:
+) -> tuple[Any, Any, Any, Mapping[str, Any]]:
     metric = _require_exact_contract(catalog, "metric", objective.metric)
     method = _require_exact_contract(catalog, "method", objective.method)
     utility = _require_exact_contract(
@@ -304,18 +312,22 @@ def resolve_selection_objective(
         parameter_declaration,
         objective.utility_parameters,
     )
-    return metric, method, utility, parameters
+    return metric, method, utility, _freeze_json(parameters)
 
 
 def _validate_metric_value(metric: Any, value: object) -> None:
     shape = metric.descriptor.get("value_shape")
+    validation = metric.descriptor.get("validation_contract")
+    if not isinstance(validation, Mapping):
+        raise SelectionError("Metric validation contract is malformed")
     if shape == "scalar":
-        if (
-            isinstance(value, bool)
-            or not isinstance(value, (int, float))
-            or not math.isfinite(value)
-        ):
-            raise SelectionError("Scalar Metric value must be finite numeric")
+        values = (value,)
+    elif shape in {"per_residue", "residue_vector"}:
+        if not isinstance(value, (list, tuple)):
+            raise SelectionError(
+                "Per-residue Metric value must be an ordered array"
+            )
+        values = tuple(value)
     else:
         raise SelectionError(
             f"Selection does not support Metric value shape {shape!r}"
@@ -330,10 +342,26 @@ def _validate_metric_value(metric: Any, value: object) -> None:
         or isinstance(minimum, bool)
         or not isinstance(maximum, (int, float))
         or isinstance(maximum, bool)
-        or value < minimum
-        or value > maximum
     ):
-        raise SelectionError("Metric value is outside its canonical range")
+        raise SelectionError("Metric canonical range is malformed")
+    masking = validation.get("masking")
+    allow_null = (
+        isinstance(masking, Mapping)
+        and masking.get("allow_null") is True
+    )
+    for item in values:
+        if item is None and allow_null:
+            continue
+        if (
+            isinstance(item, bool)
+            or not isinstance(item, (int, float))
+            or (validation.get("finite") is True and not math.isfinite(item))
+        ):
+            raise SelectionError(
+                "Metric value does not satisfy its validity/masking contract"
+            )
+        if item < minimum or item > maximum:
+            raise SelectionError("Metric value is outside its canonical range")
 
 
 def _deduplicated_observations(
@@ -384,10 +412,15 @@ def select_candidates(
         raise SelectionError("Selection Objective IDs must be unique")
     if type(limit) is not int or limit < 1:
         raise SelectionError("Selection limit must be a positive integer")
-    declared_total = sum(objective.weight for objective in objective_tuple)
-    if declared_total <= 0:
+    try:
+        declared_total = math.fsum(
+            float(objective.weight) for objective in objective_tuple
+        )
+    except (OverflowError, ValueError):
+        declared_total = math.inf
+    if not math.isfinite(declared_total) or declared_total <= 0:
         raise SelectionError(
-            "Selection requires at least one positive objective weight"
+            "Selection requires a finite positive total objective weight"
         )
     candidate_references = {
         objective.candidate_input for objective in objective_tuple
@@ -405,7 +438,9 @@ def select_candidates(
     if len(candidate_ids) != len(set(candidate_ids)):
         raise SelectionError("Selection Candidate input has duplicate identities")
 
-    resolved: list[tuple[SelectionObjective, Any, Any, Any, dict[str, Any]]] = []
+    resolved: list[
+        tuple[SelectionObjective, Any, Any, Any, Mapping[str, Any]]
+    ] = []
     provenance: list[dict[str, Any]] = []
     for objective in objective_tuple:
         metric, method, utility, parameters = resolve_selection_objective(
@@ -419,13 +454,17 @@ def select_candidates(
         provenance.append(
             {
                 "objective_id": objective.objective_id,
+                "candidate_input": objective.candidate_input.to_public(),
+                "score_collection_input": (
+                    objective.score_collection_input.to_public()
+                ),
                 "metric": metric.reference(),
                 "method": method.reference(),
                 "context_selector": (
                     objective.context_selector.to_public()
                 ),
                 "utility_transform": utility.reference(),
-                "utility_parameters": parameters,
+                "utility_parameters": _thaw_json(parameters),
                 "declared_weight": objective.weight,
                 "effective_weight": effective_weight,
                 "match_cardinality": objective.match_cardinality,
@@ -506,7 +545,7 @@ def select_candidates(
             item_type=candidates.item_type,
             items=list(selected),
         ),
-        MappingProxyType({"objectives": provenance}),
+        _freeze_json({"objectives": provenance}),
     )
 
 
@@ -516,7 +555,8 @@ def validate_produced_score_collection(
     binding: Any,
     output_port: str,
     collection: ScoreCollection,
-    expected_candidate_ids: Sequence[str] = (),
+    inputs: Mapping[str, Any],
+    outputs: Mapping[str, Any],
 ) -> None:
     """Validate one scoring Binding output against its closed declaration."""
     declarations = [
@@ -585,23 +625,69 @@ def validate_produced_score_collection(
         except SelectionError as error:
             raise PortValueError(str(error)) from error
 
-    subject_ids = tuple(dict.fromkeys(expected_candidate_ids))
-    if not subject_ids:
-        subject_ids = tuple(
-            dict.fromkeys(
-                observation.candidate_id for observation in observations
-            )
-        )
     for declaration in declarations:
+        source = (
+            inputs
+            if declaration.get("subject_direction") == "input"
+            else outputs
+            if declaration.get("subject_direction") == "output"
+            else None
+        )
+        subject_value = (
+            source.get(declaration.get("subject_port"))
+            if source is not None
+            else None
+        )
+        if isinstance(subject_value, CandidateCollection):
+            subject_ids = tuple(
+                candidate.candidate_id for candidate in subject_value.items
+            )
+        elif (
+            isinstance(subject_value, (list, tuple))
+            and all(
+                isinstance(item, CandidateCollection)
+                for item in subject_value
+            )
+        ):
+            subject_ids = tuple(
+                candidate.candidate_id
+                for collection_value in subject_value
+                for candidate in collection_value.items
+            )
+        else:
+            raise PortValueError(
+                "Binding Produced Observation subject source is unavailable"
+            )
+        if len(subject_ids) != len(set(subject_ids)):
+            raise PortValueError(
+                "Binding Produced Observation subject source has duplicates"
+            )
+        declared_metric = declaration.get("metric")
+        declared_context = declaration.get("context_profile")
+        matching_observations = [
+            observation
+            for observation in observations
+            if _reference_public("metric", observation.metric)
+            == declared_metric
+            and observation.context.to_public() == declared_context
+        ]
+        ghost_subjects = sorted(
+            {
+                observation.candidate_id
+                for observation in matching_observations
+            }
+            - set(subject_ids)
+        )
+        if ghost_subjects:
+            raise PortValueError(
+                "Binding emitted an Observation outside its declared subject "
+                "source"
+            )
         for candidate_id in subject_ids:
             matches = [
                 observation
-                for observation in observations
+                for observation in matching_observations
                 if observation.candidate_id == candidate_id
-                and _reference_public("metric", observation.metric)
-                == declaration.get("metric")
-                and observation.context.to_public()
-                == declaration.get("context_profile")
             ]
             multiplicity = declaration.get("guaranteed_multiplicity")
             if multiplicity == "one" and len(matches) != 1:

@@ -223,6 +223,8 @@ MODULE_PACKAGE = ModulePackageRegistration(
                     context_profile={"kind": "intrinsic"},
                     subject_grain="candidate",
                     source_role="subject",
+                    subject_direction="output",
+                    subject_port="value",
                     guaranteed_multiplicity="one",
                 ),
             ),
@@ -233,7 +235,7 @@ MODULE_PACKAGE = ModulePackageRegistration(
 
 EXPECTED_SYNTHETIC_CONTRACT_DIGESTS = {
     ("binding", "synthetic.echo.direct"): (
-        "sha256:2ebeda294b7a7d70ceea671b21e2dd5b0d2f9271579a6b546fb02cc059682135"
+        "sha256:a95cfa4856d51343c95df8a557df6c630ddf3480180eb165419caaa89bf252e8"
     ),
     ("method", "synthetic.echo"): (
         "sha256:1e44eccb730679996c9c9e2d65c61dc26745a8812c950b62c6c9a5963de2a176"
@@ -536,6 +538,8 @@ def test_binding_rejects_an_observation_for_an_unknown_output_port(
                     context_profile={"kind": "intrinsic"},
                     subject_grain="candidate",
                     source_role="subject",
+                    subject_direction="output",
+                    subject_port="value",
                     guaranteed_multiplicity="one",
                 ),
             ),

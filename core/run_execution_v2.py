@@ -24,6 +24,7 @@ import uuid
 from protein_workbench_public import (
     ProtocolValidationError,
     validate_event,
+    validate_schema,
 )
 
 from core.port_types import (
@@ -35,7 +36,12 @@ from core.port_types import (
 from core.process_control import signal_process_group
 from core.project import ProjectManager
 from core.run_manifest import sanitize_public_value
-from core.scoring_v2 import validate_produced_score_collection
+from core.scoring_v2 import (
+    SelectionError,
+    SelectionInput,
+    select_candidates,
+    validate_produced_score_collection,
+)
 from core.storage import (
     StoragePathError,
     open_private_regular_file,
@@ -845,6 +851,8 @@ class _RunEvidenceLedger:
         self._outputs_published: set[str] = set()
         self._run_admitted = False
         self._run_started = False
+        self._selection_required = False
+        self._selection_terminal: dict[str, Any] | None = None
         self._run_terminal = False
         self._cancellation_sequence: int | None = None
         self._restart_reconciled = False
@@ -1218,6 +1226,19 @@ class _RunEvidenceLedger:
             ):
                 raise self._causal_error()
             return
+        if fact_type == "selection_terminal":
+            if (
+                not self._run_started
+                or not self._selection_required
+                or self._selection_terminal is not None
+                or set(self._dispositions) != set(self._plan_nodes)
+                or any(
+                    disposition["outcome"] != "succeeded"
+                    for disposition in self._dispositions.values()
+                )
+            ):
+                raise self._causal_error()
+            return
         if fact_type == "run_terminal":
             outcomes = {
                 disposition["outcome"]
@@ -1232,6 +1253,11 @@ class _RunEvidenceLedger:
                 if "interrupted" in outcomes
                 else "cancelled"
                 if "cancelled" in outcomes
+                else "failed"
+                if (
+                    self._selection_terminal is not None
+                    and self._selection_terminal["status"] == "failed"
+                )
                 else "succeeded"
             )
             if (
@@ -1248,6 +1274,14 @@ class _RunEvidenceLedger:
                 or any(
                     invocation["terminal"] is None
                     for invocation in self._invocations.values()
+                )
+                or (
+                    self._selection_required
+                    and not self._restart_reconciled
+                    and not outcomes.intersection(
+                        {"failed", "interrupted", "cancelled"}
+                    )
+                    and self._selection_terminal is None
                 )
                 or payload["status"] != expected_status
             ):
@@ -1274,7 +1308,7 @@ class _RunEvidenceLedger:
                         "plan_nodes",
                     }
                 ),
-                frozenset({"derived_from"}),
+                frozenset({"derived_from", "selection_required"}),
             ),
             "availability_bound": (
                 frozenset(
@@ -1354,6 +1388,10 @@ class _RunEvidenceLedger:
                 frozenset({"node_id", "outcome", "blocked_by"}),
                 frozenset({"resolution"}),
             ),
+            "selection_terminal": (
+                frozenset({"status"}),
+                frozenset({"result", "error"}),
+            ),
             "run_terminal": (frozenset({"status"}), frozenset()),
         }
         try:
@@ -1402,6 +1440,11 @@ class _RunEvidenceLedger:
                 or any(not valid_plan_node(item) for item in plan_nodes)
             ):
                 raise self._causal_error()
+            if (
+                "selection_required" in payload
+                and type(payload["selection_required"]) is not bool
+            ):
+                raise self._causal_error()
             derived_from = payload.get("derived_from")
             if derived_from is not None and (
                 not isinstance(derived_from, Mapping)
@@ -1444,9 +1487,35 @@ class _RunEvidenceLedger:
                 payload["outcome"] == "succeeded"
             ) != ("resolution" in payload):
                 raise self._causal_error()
+        if fact_type == "selection_terminal":
+            status = payload["status"]
+            if (
+                status not in {"succeeded", "failed"}
+                or (status == "succeeded")
+                != ("result" in payload and "error" not in payload)
+                or (status == "failed")
+                != ("error" in payload and "result" not in payload)
+            ):
+                raise self._causal_error()
+            try:
+                validate_schema(
+                    (
+                        "#/$defs/SelectionResult"
+                        if status == "succeeded"
+                        else "#/$defs/StructuredError"
+                    ),
+                    payload["result" if status == "succeeded" else "error"],
+                )
+            except ProtocolValidationError as error:
+                raise self._causal_error() from error
 
     def _apply(self, fact_type: str, payload: Mapping[str, Any]) -> None:
-        if fact_type == "run_admitted":
+        if fact_type == "run_scope_bound":
+            self._selection_required = payload.get(
+                "selection_required",
+                False,
+            )
+        elif fact_type == "run_admitted":
             self._run_admitted = True
         elif fact_type == "run_started":
             self._run_started = True
@@ -1490,6 +1559,8 @@ class _RunEvidenceLedger:
             self._outputs_published.add(payload["node_id"])
         elif fact_type == "node_disposition":
             self._dispositions[payload["node_id"]] = dict(payload)
+        elif fact_type == "selection_terminal":
+            self._selection_terminal = dict(payload)
         elif fact_type == "run_terminal":
             self._run_terminal = True
 
@@ -1503,6 +1574,7 @@ class _RunEvidenceLedger:
             tuple[list[dict[str, Any]], list[dict[str, Any]]],
         ] = {}
         status = "admitted"
+        selection_results: list[dict[str, Any]] = []
         terminal_sequence: int | None = None
         for fact in self._facts:
             payload = fact["payload"]
@@ -1517,6 +1589,11 @@ class _RunEvidenceLedger:
                     payload["outputs"],
                     payload["artifacts"],
                 )
+            elif (
+                fact["fact_type"] == "selection_terminal"
+                and payload["status"] == "succeeded"
+            ):
+                selection_results.append(payload["result"])
             elif fact["fact_type"] == "run_terminal":
                 status = payload["status"]
                 terminal_sequence = fact["sequence"]
@@ -1549,6 +1626,8 @@ class _RunEvidenceLedger:
             "outputs": outputs,
             "artifact_index": artifacts,
         }
+        if scope.get("selection_required", False):
+            projection["selection_results"] = selection_results
         if terminal_sequence is not None:
             projection["terminal_sequence"] = terminal_sequence
         derived_from = scope.get("derived_from")
@@ -3860,18 +3939,14 @@ class V2RunService:
             ]
             if port_type.type_id == "score.collection":
                 binding = self._catalog.require_contract(*node.binding.key)
-                expected_candidate_ids = [
-                    candidate.candidate_id
-                    for input_value in inputs.values()
-                    for candidate in self._candidate_values(input_value)
-                ]
                 for value in decoded:
                     validate_produced_score_collection(
                         catalog=self._catalog,
                         binding=binding,
                         output_port=port_name,
                         collection=value,
-                        expected_candidate_ids=expected_candidate_ids,
+                        inputs=inputs,
+                        outputs=outputs,
                     )
             runtime[(node.node_id, port_name)] = decoded
             published.append(
@@ -4113,6 +4188,7 @@ class V2RunService:
                 entry.to_public()
                 for entry in plan.resolved_contracts
             ],
+            "selection_required": bool(plan.selection_objectives),
             "plan_nodes": [
                 node.to_dict()
                 for node in plan_evidence
@@ -4742,9 +4818,95 @@ class V2RunService:
                 all_artifacts.extend(pending_artifacts)
                 artifact_records.update(pending_artifact_records)
             disposition_outcomes[node.node_id] = outcome
+        selection_failed = False
+        if (
+            plan.selection_objectives
+            and all(
+                outcome == "succeeded"
+                for outcome in disposition_outcomes.values()
+            )
+        ):
+            try:
+                candidate_inputs: dict[
+                    SelectionInput,
+                    CandidateCollection,
+                ] = {}
+                score_collection_inputs: dict[
+                    SelectionInput,
+                    ScoreCollection,
+                ] = {}
+                for objective in plan.selection_objectives:
+                    for reference, expected_type, destination in (
+                        (
+                            objective.candidate_input,
+                            CandidateCollection,
+                            candidate_inputs,
+                        ),
+                        (
+                            objective.score_collection_input,
+                            ScoreCollection,
+                            score_collection_inputs,
+                        ),
+                    ):
+                        resolved_values = values.get(
+                            (reference.node_id, reference.output_port),
+                            [],
+                        )
+                        if (
+                            len(resolved_values) != 1
+                            or type(resolved_values[0]) is not expected_type
+                        ):
+                            raise SelectionError(
+                                "Selection input did not resolve to one exact "
+                                f"{expected_type.__name__}"
+                            )
+                        destination[reference] = resolved_values[0]
+                candidate_reference = plan.selection_objectives[
+                    0
+                ].candidate_input
+                candidate_collection = candidate_inputs[
+                    candidate_reference
+                ]
+                selection = select_candidates(
+                    candidate_inputs=candidate_inputs,
+                    score_collection_inputs=score_collection_inputs,
+                    objectives=plan.selection_objectives,
+                    catalog=self._catalog,
+                    limit=max(1, len(candidate_collection.items)),
+                )
+                provenance = selection.public_provenance()
+                ledger.append(
+                    "selection_terminal",
+                    {
+                        "status": "succeeded",
+                        "result": {
+                            "status": "succeeded",
+                            "candidate_input": (
+                                candidate_reference.to_public()
+                            ),
+                            "selected_collection_id": (
+                                selection.candidates.collection_id
+                            ),
+                            "selected_candidate_ids": [
+                                candidate.candidate_id
+                                for candidate in selection.candidates.items
+                            ],
+                            "objectives": provenance["objectives"],
+                        },
+                    },
+                )
+            except Exception as error:
+                selection_failed = True
+                ledger.append(
+                    "selection_terminal",
+                    {
+                        "status": "failed",
+                        "error": _public_failure(error),
+                    },
+                )
         run_status = (
             "failed"
-            if "failed" in disposition_outcomes.values()
+            if selection_failed or "failed" in disposition_outcomes.values()
             else "interrupted"
             if "interrupted" in disposition_outcomes.values()
             else "cancelled"

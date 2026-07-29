@@ -184,6 +184,10 @@ def _workflow_catalog(
                     "output_port": "text",
                     "metric": metric.reference(),
                     "context_profile": {"kind": "intrinsic"},
+                    "subject_grain": "candidate",
+                    "source_role": "subject",
+                    "subject_direction": "output",
+                    "subject_port": "text",
                     "guaranteed_multiplicity": "one",
                 }
             ],

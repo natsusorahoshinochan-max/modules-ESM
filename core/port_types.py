@@ -514,6 +514,14 @@ def _validate_domain_value(value: Any, *, path: str) -> None:
     if type(value) is ScoreObservation:
         if not value.candidate_id:
             raise PortValueError(f"{path}.candidate_id must not be empty")
+        if value.metric.contract_kind != "metric":
+            raise PortValueError(
+                f"{path}.metric must be an exact metric reference"
+            )
+        if value.method.contract_kind != "method":
+            raise PortValueError(
+                f"{path}.method must be an exact method reference"
+            )
         _validate_domain_value(value.metric, path=f"{path}.metric")
         _validate_domain_value(value.method, path=f"{path}.method")
         _validate_domain_value(value.context, path=f"{path}.context")
@@ -523,35 +531,13 @@ def _validate_domain_value(value: Any, *, path: str) -> None:
         if not value.collection_id:
             raise PortValueError(f"{path}.collection_id must not be empty")
         entry_types = {type(score) for score in value.entries}
-        if Score in entry_types and ScoreObservation in entry_types:
+        if Score in entry_types:
             raise PortValueError(
-                f"{path}.entries cannot mix legacy scores and typed Observations"
+                f"{path}.entries cannot contain legacy score_id values"
             )
-        deduplicated: list[Score | ScoreObservation] = []
-        typed_by_identity: dict[tuple[object, ...], bytes] = {}
         for index, score in enumerate(value.entries):
             _validate_domain_value(score, path=f"{path}.entries[{index}]")
-            if type(score) is not ScoreObservation:
-                deduplicated.append(score)
-                continue
-            encoded_value = canonical_json_bytes(
-                _value_to_wire(
-                    score.value,
-                    path=f"{path}.entries[{index}].value",
-                )
-            )
-            existing = typed_by_identity.get(score.identity)
-            if existing is not None:
-                if existing != encoded_value:
-                    raise PortValueError(
-                        f"{path}.entries contains one Observation identity "
-                        "with conflicting values"
-                    )
-                continue
-            typed_by_identity[score.identity] = encoded_value
-            deduplicated.append(score)
-        if len(deduplicated) != len(value.entries):
-            value.entries[:] = deduplicated
+        _deduplicated_score_entries(value, path=path)
         return
 
     if type(value) is StructureAlignment:
@@ -678,6 +664,11 @@ def _value_to_wire(value: Any, *, path: str = "$.value") -> Any:
         ]
         entries.sort(key=lambda entry: canonical_json_bytes(entry[0]))
         return {"$map": entries}
+    if type(value) is ScoreCollection:
+        value = ScoreCollection(
+            collection_id=value.collection_id,
+            entries=_deduplicated_score_entries(value, path=path),
+        )
     if is_dataclass(value) and not isinstance(value, type):
         value_type = type(value)
         tag = _TAG_BY_DATACLASS.get(value_type)
@@ -700,6 +691,37 @@ def _value_to_wire(value: Any, *, path: str = "$.value") -> Any:
         f"{path} contains an unsupported runtime value "
         f"{type(value).__name__}"
     )
+
+
+def _deduplicated_score_entries(
+    collection: ScoreCollection,
+    *,
+    path: str,
+) -> list[ScoreObservation]:
+    deduplicated: list[ScoreObservation] = []
+    typed_by_identity: dict[tuple[object, ...], bytes] = {}
+    for index, score in enumerate(collection.entries):
+        if not isinstance(score, ScoreObservation):
+            raise PortValueError(
+                f"{path}.entries cannot contain legacy score_id values"
+            )
+        encoded_value = canonical_json_bytes(
+            _value_to_wire(
+                score.value,
+                path=f"{path}.entries[{index}].value",
+            )
+        )
+        existing = typed_by_identity.get(score.identity)
+        if existing is not None:
+            if existing != encoded_value:
+                raise PortValueError(
+                    f"{path}.entries contains one Observation identity "
+                    "with conflicting values"
+                )
+            continue
+        typed_by_identity[score.identity] = encoded_value
+        deduplicated.append(score)
+    return deduplicated
 
 
 def _wire_to_value(value: Any, *, path: str = "$.value") -> Any:

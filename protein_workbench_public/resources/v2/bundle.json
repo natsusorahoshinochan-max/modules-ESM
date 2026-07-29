@@ -1441,7 +1441,16 @@
         "source_role": {
           "$ref": "#/$defs/Identifier"
         },
+        "subject_direction": {
+          "enum": [
+            "input",
+            "output"
+          ]
+        },
         "subject_grain": {
+          "$ref": "#/$defs/Identifier"
+        },
+        "subject_port": {
           "$ref": "#/$defs/Identifier"
         }
       },
@@ -1451,6 +1460,8 @@
         "context_profile",
         "subject_grain",
         "source_role",
+        "subject_direction",
+        "subject_port",
         "guaranteed_multiplicity"
       ],
       "type": "object"
@@ -1809,6 +1820,13 @@
         },
         "run_id": {
           "$ref": "#/$defs/Identifier"
+        },
+        "selection_results": {
+          "items": {
+            "$ref": "#/$defs/SelectionResult"
+          },
+          "maxItems": 64,
+          "type": "array"
         },
         "status": {
           "enum": [
@@ -2188,6 +2206,103 @@
       "required": [
         "node_id",
         "output_port"
+      ],
+      "type": "object"
+    },
+    "SelectionObjectiveProvenance": {
+      "additionalProperties": false,
+      "properties": {
+        "candidate_input": {
+          "$ref": "#/$defs/SelectionInput"
+        },
+        "context_selector": {
+          "$ref": "#/$defs/IntrinsicObservationContext"
+        },
+        "declared_weight": {
+          "minimum": 0,
+          "type": "number"
+        },
+        "effective_weight": {
+          "maximum": 1,
+          "minimum": 0,
+          "type": "number"
+        },
+        "match_cardinality": {
+          "const": "exactly_one"
+        },
+        "method": {
+          "$ref": "#/$defs/ContractReference"
+        },
+        "metric": {
+          "$ref": "#/$defs/ContractReference"
+        },
+        "missing_policy": {
+          "const": "error"
+        },
+        "objective_id": {
+          "$ref": "#/$defs/Identifier"
+        },
+        "score_collection_input": {
+          "$ref": "#/$defs/SelectionInput"
+        },
+        "utility_parameters": {
+          "$ref": "#/$defs/JsonObject"
+        },
+        "utility_transform": {
+          "$ref": "#/$defs/ContractReference"
+        }
+      },
+      "required": [
+        "objective_id",
+        "candidate_input",
+        "score_collection_input",
+        "metric",
+        "method",
+        "context_selector",
+        "utility_transform",
+        "utility_parameters",
+        "declared_weight",
+        "effective_weight",
+        "match_cardinality",
+        "missing_policy"
+      ],
+      "type": "object"
+    },
+    "SelectionResult": {
+      "additionalProperties": false,
+      "properties": {
+        "candidate_input": {
+          "$ref": "#/$defs/SelectionInput"
+        },
+        "objectives": {
+          "items": {
+            "$ref": "#/$defs/SelectionObjectiveProvenance"
+          },
+          "maxItems": 64,
+          "minItems": 1,
+          "type": "array"
+        },
+        "selected_candidate_ids": {
+          "items": {
+            "$ref": "#/$defs/Identifier"
+          },
+          "maxItems": 8192,
+          "type": "array",
+          "uniqueItems": true
+        },
+        "selected_collection_id": {
+          "$ref": "#/$defs/Identifier"
+        },
+        "status": {
+          "const": "succeeded"
+        }
+      },
+      "required": [
+        "status",
+        "candidate_input",
+        "selected_collection_id",
+        "selected_candidate_ids",
+        "objectives"
       ],
       "type": "object"
     },

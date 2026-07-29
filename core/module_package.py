@@ -412,6 +412,8 @@ class ProducedObservationDefinition:
     context_profile: Mapping[str, Any]
     subject_grain: str
     source_role: str
+    subject_direction: Literal["input", "output"]
+    subject_port: str
     guaranteed_multiplicity: Literal[
         "one",
         "one_or_more",
@@ -434,6 +436,11 @@ class ProducedObservationDefinition:
         )
         _require_identifier(self.subject_grain, "subject_grain")
         _require_identifier(self.source_role, "source_role")
+        if self.subject_direction not in {"input", "output"}:
+            raise CatalogBuildError(
+                "Produced Observation subject_direction must be input or output"
+            )
+        _require_identifier(self.subject_port, "subject_port")
         if self.guaranteed_multiplicity not in {
             "one",
             "one_or_more",
@@ -450,6 +457,8 @@ class ProducedObservationDefinition:
             "context_profile": self.context_profile,
             "subject_grain": self.subject_grain,
             "source_role": self.source_role,
+            "subject_direction": self.subject_direction,
+            "subject_port": self.subject_port,
             "guaranteed_multiplicity": self.guaranteed_multiplicity,
         }
 
@@ -1389,12 +1398,27 @@ def build_frozen_catalog(
                 output["name"]
                 for output in node_definition.outputs
             }
+            input_names = {
+                input_port["name"]
+                for input_port in node_definition.inputs
+            }
             for observation in binding.produced_observations:
                 if observation.output_port not in output_names:
                     raise CatalogBuildError(
                         f"Binding {binding.binding_id} Produced Observation "
                         f"references unknown Node output Port "
                         f"{observation.output_port!r}"
+                    )
+                subject_ports = (
+                    input_names
+                    if observation.subject_direction == "input"
+                    else output_names
+                )
+                if observation.subject_port not in subject_ports:
+                    raise CatalogBuildError(
+                        f"Binding {binding.binding_id} Produced Observation "
+                        f"references unknown subject {observation.subject_direction} "
+                        f"Port {observation.subject_port!r}"
                     )
                 metric_entry = entry_by_key.get(observation.metric.key)
                 if metric_entry is None:

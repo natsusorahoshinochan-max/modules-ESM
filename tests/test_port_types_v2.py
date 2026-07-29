@@ -22,7 +22,9 @@ from core.server import create_app
 from datatypes import (
     Candidate,
     CandidateCollection,
+    ExactContractReference,
     FunctionAnnotations,
+    IntrinsicObservationContext,
     ProteinMPNNConstraints,
     ProteinPrompt,
     ProteinSequence,
@@ -30,8 +32,8 @@ from datatypes import (
     ResidueLayout,
     ResidueMap,
     ResidueTrack,
-    Score,
     ScoreCollection,
+    ScoreObservation,
     StructureAlignment,
 )
 from protein_workbench_public import validate_response
@@ -105,6 +107,26 @@ EXPECTED_PORT_TYPE_DIGESTS = {
         "sha256:f5f7a90c1c9c0743fd50abfba417d2e444f680b02bca120be0f7719da31a5ea0"
     ),
 }
+
+
+def _typed_observation(value: object) -> ScoreObservation:
+    return ScoreObservation(
+        candidate_id="candidate-1",
+        metric=ExactContractReference(
+            "metric",
+            "metric.plddt",
+            "2.0.0",
+            "sha256:" + ("1" * 64),
+        ),
+        method=ExactContractReference(
+            "method",
+            "method.fixture",
+            "2.0.0",
+            "sha256:" + ("2" * 64),
+        ),
+        context=IntrinsicObservationContext(),
+        value=value,
+    )
 
 
 def test_catalog_snapshot_publishes_exact_port_type_contracts() -> None:
@@ -240,7 +262,7 @@ def test_every_builtin_port_type_round_trips_its_runtime_value() -> None:
         ),
         "score.collection": ScoreCollection(
             "scores",
-            [Score("metric.plddt", 83.5, ["candidate-1"], {"unit": "%"})],
+            [_typed_observation(83.5)],
         ),
         "structure.alignment": StructureAlignment(
             residue_map=[("A:1", "A:1")],
@@ -323,10 +345,6 @@ def test_codec_rejects_malformed_and_noncanonical_values() -> None:
                 "protein.sequence",
                 [Candidate("candidate-1", ProteinStructure("ATOM\n"))],
             ),
-        ),
-        (
-            "score.collection",
-            ScoreCollection("scores", [Score("metric", "not-a-number")]),
         ),
         ("residue.track.sasa", ResidueTrack(["buried"], None)),
     ],
@@ -439,7 +457,7 @@ def test_codec_rejects_non_i_json_numbers(invalid_value: float) -> None:
     )
     value = ScoreCollection(
         "scores",
-        [Score("metric.invalid", invalid_value)],
+        [_typed_observation(invalid_value)],
     )
 
     with pytest.raises(PortValueError, match="negative zero|NaN|Infinity"):
