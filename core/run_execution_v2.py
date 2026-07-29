@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+import base64
+import binascii
+from collections.abc import Callable, Mapping
 from contextlib import contextmanager
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
@@ -12,6 +14,7 @@ import os
 from pathlib import Path
 import re
 import stat
+import threading
 from types import MappingProxyType
 from typing import Any
 import uuid
@@ -32,6 +35,8 @@ from core.run_manifest import sanitize_public_value
 from core.storage import (
     StoragePathError,
     open_private_regular_file,
+    replace_private_regular_file,
+    validate_identifier,
     validate_relative_path,
     write_private_new_file,
 )
@@ -46,6 +51,7 @@ RUN_LEDGER_SCHEMA_VERSION = "2.0.0"
 MAX_ARTIFACTS_PER_RUN = 2_048
 MAX_ARTIFACT_SIZE_BYTES = 64 * 1024 * 1024
 MAX_ARTIFACT_BYTES_PER_RUN = 256 * 1024 * 1024
+FAST_RUN_COMPLETION_GRACE_SECONDS = 0.25
 _PUBLIC_IDENTIFIER = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.:/+-]*$")
 _ATTEMPT_TERMINALS = frozenset(
     {
@@ -70,8 +76,78 @@ def run_timestamp(value: datetime | None = None) -> str:
     return observed.astimezone(timezone.utc).isoformat()
 
 
-def run_cursor(sequence: int) -> str:
-    return f"cursor-{sequence:020d}"
+def _cursor_fact_digest(fact: Mapping[str, Any] | None) -> str:
+    if fact is None:
+        return "origin"
+    return canonical_sha256(dict(fact))
+
+
+def run_cursor(
+    sequence: int,
+    *,
+    project_id: str = "unavailable",
+    run_id: str = "unavailable",
+    fact: Mapping[str, Any] | None = None,
+) -> str:
+    """Encode a scope-bound durable position without exposing its structure."""
+    payload = canonical_json_bytes(
+        {
+            "schema_namespace": "protein-workbench-run-cursor/v2",
+            "scope_digest": canonical_sha256(
+                {
+                    "schema_namespace": "protein-workbench-run-scope/v2",
+                    "project_id": project_id,
+                    "run_id": run_id,
+                }
+            ),
+            "sequence": sequence,
+            "fact_digest": _cursor_fact_digest(fact),
+        }
+    )
+    encoded = base64.urlsafe_b64encode(payload).decode("ascii").rstrip("=")
+    return f"pw2.{encoded}"
+
+
+def _decode_run_cursor(value: str) -> Mapping[str, Any]:
+    if not isinstance(value, str) or not value.startswith("pw2."):
+        raise ValueError("cursor prefix is invalid")
+    encoded = value.removeprefix("pw2.")
+    if not encoded or not re.fullmatch(r"[A-Za-z0-9_-]+", encoded):
+        raise ValueError("cursor encoding is invalid")
+    padding = "=" * (-len(encoded) % 4)
+    try:
+        decoded = base64.b64decode(
+            encoded + padding,
+            altchars=b"-_",
+            validate=True,
+        )
+        payload = json.loads(decoded)
+    except (binascii.Error, UnicodeDecodeError, json.JSONDecodeError) as error:
+        raise ValueError("cursor encoding is invalid") from error
+    if (
+        not isinstance(payload, dict)
+        or set(payload)
+        != {
+            "schema_namespace",
+            "scope_digest",
+            "sequence",
+            "fact_digest",
+        }
+        or payload["schema_namespace"]
+        != "protein-workbench-run-cursor/v2"
+        or not isinstance(payload["scope_digest"], str)
+        or type(payload["sequence"]) is not int
+        or payload["sequence"] < 0
+        or not isinstance(payload["fact_digest"], str)
+    ):
+        raise ValueError("cursor payload is invalid")
+    return payload
+
+
+def _safe_cursor_detail(value: Any) -> str:
+    if not isinstance(value, str) or not value:
+        return "invalid"
+    return value[:512]
 
 
 def _public_failure(error: BaseException) -> dict[str, Any]:
@@ -133,7 +209,12 @@ def _public_event_from_fact(
         "project_id": project_id,
         "run_id": run_id,
         "sequence": fact["sequence"],
-        "cursor": run_cursor(fact["sequence"]),
+        "cursor": run_cursor(
+            fact["sequence"],
+            project_id=project_id,
+            run_id=run_id,
+            fact=fact,
+        ),
         "emitted_at": fact["recorded_at"],
         "event": event,
     }
@@ -421,6 +502,20 @@ class PreScheduleTermination(RuntimeError):
         super().__init__("Node was not scheduled")
 
 
+@dataclass(frozen=True, slots=True)
+class _PlanNodeEvidence:
+    node_id: str
+    dependencies: tuple[str, ...]
+    required_dependencies: tuple[str, ...]
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "node_id": self.node_id,
+            "dependencies": list(self.dependencies),
+            "required_dependencies": list(self.required_dependencies),
+        }
+
+
 class _RunEvidenceLedger:
     """Schema-checked, causally closed owner-only facts for one Run."""
 
@@ -429,22 +524,22 @@ class _RunEvidenceLedger:
         projects: ProjectManager,
         project_id: str,
         run_id: str,
-        plan: ExecutionPlan,
+        plan_nodes: tuple[_PlanNodeEvidence, ...],
     ) -> None:
         run_dir = projects.run_dir(project_id, run_id)
         self._root = run_dir.parent
         self._project_id = project_id
         self._run_id = run_id
         self._facts: list[dict[str, Any]] = []
-        self._plan_nodes = frozenset(node.node_id for node in plan.nodes)
-        dependencies: dict[str, set[str]] = {
-            node.node_id: set() for node in plan.nodes
-        }
-        for edge in plan.edges:
-            dependencies[edge.target_node_id].add(edge.source_node_id)
+        self._plan_node_order = tuple(node.node_id for node in plan_nodes)
+        self._plan_nodes = frozenset(self._plan_node_order)
         self._dependencies = {
-            node_id: frozenset(upstream)
-            for node_id, upstream in dependencies.items()
+            node.node_id: frozenset(node.dependencies)
+            for node in plan_nodes
+        }
+        self._required_dependencies = {
+            node.node_id: frozenset(node.required_dependencies)
+            for node in plan_nodes
         }
         self._node_attempts: dict[str, dict[str, Any]] = {}
         self._node_attempt_by_node: dict[str, str] = {}
@@ -455,14 +550,91 @@ class _RunEvidenceLedger:
         self._run_admitted = False
         self._run_started = False
         self._run_terminal = False
+        self._restart_reconciled = False
+        self._condition = threading.Condition(threading.RLock())
+        self._projection_error: BaseException | None = None
 
     @property
     def facts(self) -> tuple[dict[str, Any], ...]:
-        return tuple(dict(fact) for fact in self._facts)
+        with self._condition:
+            return tuple(json.loads(json.dumps(fact)) for fact in self._facts)
 
     @property
     def cursor(self) -> str:
-        return run_cursor(len(self._facts))
+        with self._condition:
+            return self._cursor_at(len(self._facts))
+
+    @property
+    def terminal(self) -> bool:
+        with self._condition:
+            return self._run_terminal
+
+    @property
+    def started(self) -> bool:
+        with self._condition:
+            return self._run_started
+
+    @property
+    def plan_nodes(self) -> tuple[_PlanNodeEvidence, ...]:
+        return tuple(
+            _PlanNodeEvidence(
+                node_id,
+                tuple(sorted(self._dependencies[node_id])),
+                tuple(sorted(self._required_dependencies[node_id])),
+            )
+            for node_id in self._plan_node_order
+        )
+
+    def _cursor_at(self, sequence: int) -> str:
+        fact = self._facts[sequence - 1] if sequence else None
+        return run_cursor(
+            sequence,
+            project_id=self._project_id,
+            run_id=self._run_id,
+            fact=fact,
+        )
+
+    def sequence_for_cursor(self, cursor: str | None) -> int:
+        if cursor is None:
+            return 0
+        try:
+            payload = _decode_run_cursor(cursor)
+        except ValueError as error:
+            raise V2RunError(
+                "invalid_cursor",
+                "Run Event Stream cursor is invalid",
+                details={"after_sequence": _safe_cursor_detail(cursor)},
+            ) from error
+        sequence = payload["sequence"]
+        with self._condition:
+            expected = (
+                self._cursor_at(sequence)
+                if sequence <= len(self._facts)
+                else None
+            )
+        if (
+            payload["scope_digest"]
+            != canonical_sha256(
+                {
+                    "schema_namespace": "protein-workbench-run-scope/v2",
+                    "project_id": self._project_id,
+                    "run_id": self._run_id,
+                }
+            )
+            or expected != cursor
+        ):
+            raise V2RunError(
+                "invalid_cursor",
+                "Run Event Stream cursor is stale or belongs to another scope",
+                details={"after_sequence": _safe_cursor_detail(cursor)},
+            )
+        return sequence
+
+    def cursor_at(self, sequence: int) -> str:
+        with self._condition:
+            if sequence < 0 or sequence > len(self._facts):
+                raise ValueError("Ledger cursor sequence is outside the Run")
+            return self._cursor_at(sequence)
 
     def _require_fields(
         self,
@@ -494,7 +666,11 @@ class _RunEvidenceLedger:
         if self._run_terminal:
             raise self._causal_error()
         if fact_type == "run_scope_bound":
-            if self._facts:
+            if (
+                self._facts
+                or payload["project_id"] != self._project_id
+                or payload["run_id"] != self._run_id
+            ):
                 raise self._causal_error()
             return
         if not self._facts or self._facts[0]["fact_type"] != "run_scope_bound":
@@ -509,6 +685,14 @@ class _RunEvidenceLedger:
             return
         if fact_type == "run_started":
             if not self._run_admitted or self._run_started:
+                raise self._causal_error()
+            return
+        if fact_type == "restart_reconciliation_started":
+            if (
+                not self._run_started
+                or self._run_terminal
+                or self._restart_reconciled
+            ):
                 raise self._causal_error()
             return
         if fact_type == "node_attempt_started":
@@ -638,8 +822,16 @@ class _RunEvidenceLedger:
                 or (
                     payload["resolution"] == "cache_replayed"
                     and (
-                        payload["status"] != "succeeded"
-                        or child_operations
+                        child_operations
+                        or attempt["node_id"] not in self._outputs_published
+                        or (
+                            payload["status"] != "succeeded"
+                            and not (
+                                self._restart_reconciled
+                                and payload["status"]
+                                in {"interrupted", "outcome_unknown"}
+                            )
+                        )
                     )
                 )
                 or (
@@ -652,6 +844,11 @@ class _RunEvidenceLedger:
                     and child_operations
                     and child_operations[-1]["terminal"]
                     != payload["status"]
+                    and not (
+                        self._restart_reconciled
+                        and payload["status"]
+                        in {"interrupted", "outcome_unknown"}
+                    )
                 )
             ):
                 raise self._causal_error()
@@ -704,7 +901,9 @@ class _RunEvidenceLedger:
                 for disposition in self._dispositions.values()
             }
             expected_status = (
-                "failed"
+                "interrupted"
+                if self._restart_reconciled
+                else "failed"
                 if "failed" in outcomes
                 else "interrupted"
                 if "interrupted" in outcomes
@@ -749,6 +948,7 @@ class _RunEvidenceLedger:
                         "execution_plan_digest",
                         "catalog_contract_digest",
                         "resolved_contracts",
+                        "plan_nodes",
                     }
                 ),
                 frozenset(),
@@ -780,6 +980,10 @@ class _RunEvidenceLedger:
                 frozenset(),
             ),
             "run_started": (frozenset({"started_at"}), frozenset()),
+            "restart_reconciliation_started": (
+                frozenset({"restarted_at"}),
+                frozenset(),
+            ),
             "node_attempt_started": (
                 frozenset({"node_id", "node_attempt_id"}),
                 frozenset(),
@@ -838,6 +1042,39 @@ class _RunEvidenceLedger:
             required=required,
             optional=optional,
         )
+        if fact_type == "run_scope_bound":
+            plan_nodes = payload["plan_nodes"]
+            def valid_plan_node(item: Any) -> bool:
+                if (
+                    not isinstance(item, Mapping)
+                    or set(item)
+                    != {
+                        "node_id",
+                        "dependencies",
+                        "required_dependencies",
+                    }
+                    or item["node_id"] not in self._dependencies
+                ):
+                    return False
+                node_id = item["node_id"]
+                return (
+                    item["dependencies"]
+                    == sorted(self._dependencies[node_id])
+                    and item["required_dependencies"]
+                    == sorted(self._required_dependencies[node_id])
+                )
+
+            if (
+                not isinstance(plan_nodes, list)
+                or [
+                    item.get("node_id")
+                    for item in plan_nodes
+                    if isinstance(item, Mapping)
+                ]
+                != list(self._plan_node_order)
+                or any(not valid_plan_node(item) for item in plan_nodes)
+            ):
+                raise self._causal_error()
         if (
             fact_type.endswith("_terminal")
             and fact_type != "run_terminal"
@@ -862,6 +1099,8 @@ class _RunEvidenceLedger:
             self._run_admitted = True
         elif fact_type == "run_started":
             self._run_started = True
+        elif fact_type == "restart_reconciliation_started":
+            self._restart_reconciled = True
         elif fact_type == "node_attempt_started":
             record = {
                 "node_id": payload["node_id"],
@@ -901,53 +1140,354 @@ class _RunEvidenceLedger:
         elif fact_type == "run_terminal":
             self._run_terminal = True
 
-    def append(self, fact_type: str, payload: Mapping[str, Any]) -> dict[str, Any]:
-        sequence = len(self._facts) + 1
-        safe_payload = sanitize_public_value(dict(payload))
-        fact = {
-            "schema_version": RUN_LEDGER_SCHEMA_VERSION,
-            "sequence": sequence,
-            "recorded_at": run_timestamp(),
-            "fact_type": fact_type,
-            "payload": safe_payload,
+    def _projection(self) -> dict[str, Any]:
+        if not self._facts or self._facts[0]["fact_type"] != "run_scope_bound":
+            raise self._causal_error()
+        scope = self._facts[0]["payload"]
+        dispositions: list[dict[str, Any]] = []
+        published_by_node: dict[
+            str,
+            tuple[list[dict[str, Any]], list[dict[str, Any]]],
+        ] = {}
+        status = "admitted"
+        terminal_sequence: int | None = None
+        for fact in self._facts:
+            payload = fact["payload"]
+            if fact["fact_type"] == "run_started":
+                status = "running"
+            elif fact["fact_type"] == "node_disposition":
+                disposition = dict(payload)
+                disposition["terminal_sequence"] = fact["sequence"]
+                dispositions.append(disposition)
+            elif fact["fact_type"] == "outputs_published":
+                published_by_node[payload["node_id"]] = (
+                    payload["outputs"],
+                    payload["artifacts"],
+                )
+            elif fact["fact_type"] == "run_terminal":
+                status = payload["status"]
+                terminal_sequence = fact["sequence"]
+        successful_nodes = {
+            disposition["node_id"]
+            for disposition in dispositions
+            if disposition["outcome"] == "succeeded"
         }
-        self._validate_schema(fact_type, safe_payload)
-        self._validate_causality(fact_type, safe_payload)
-        event = _public_event_from_fact(
-            project_id=self._project_id,
-            run_id=self._run_id,
-            fact=fact,
+        outputs = [
+            output
+            for node_id in self._plan_node_order
+            if node_id in successful_nodes
+            for output in published_by_node.get(node_id, ([], []))[0]
+        ]
+        artifacts = [
+            artifact
+            for node_id in self._plan_node_order
+            if node_id in successful_nodes
+            for artifact in published_by_node.get(node_id, ([], []))[1]
+        ]
+        projection = {
+            "project_id": self._project_id,
+            "run_id": self._run_id,
+            "workflow_revision": scope["workflow_revision"],
+            "workflow_digest": scope["workflow_digest"],
+            "compile_id": scope["compile_id"],
+            "status": status,
+            "ledger_cursor": self._cursor_at(len(self._facts)),
+            "node_dispositions": dispositions,
+            "outputs": outputs,
+            "artifact_index": artifacts,
+        }
+        if terminal_sequence is not None:
+            projection["terminal_sequence"] = terminal_sequence
+        return projection
+
+    def projection(self) -> dict[str, Any]:
+        with self._condition:
+            return json.loads(json.dumps(self._projection()))
+
+    def _refresh_projections(self) -> None:
+        manifest = canonical_json_bytes(self._projection())
+        lifecycle = b"".join(
+            canonical_json_bytes(event) + b"\n"
+            for fact in self._facts
+            if (
+                event := _public_event_from_fact(
+                    project_id=self._project_id,
+                    run_id=self._run_id,
+                    fact=fact,
+                )
+            )
+            is not None
         )
-        if event is not None:
+        replace_private_regular_file(
+            self._root,
+            (self._run_id, "manifest.json"),
+            manifest,
+            field="run_manifest_projection",
+        )
+        replace_private_regular_file(
+            self._root,
+            (self._run_id, "lifecycle.jsonl"),
+            lifecycle,
+            field="run_lifecycle_projection",
+        )
+
+    def rebuild_projections(self) -> None:
+        with self._condition:
+            self._refresh_projections()
+            self._projection_error = None
+
+    def append(self, fact_type: str, payload: Mapping[str, Any]) -> dict[str, Any]:
+        with self._condition:
+            sequence = len(self._facts) + 1
+            safe_payload = sanitize_public_value(dict(payload))
+            fact = {
+                "schema_version": RUN_LEDGER_SCHEMA_VERSION,
+                "sequence": sequence,
+                "recorded_at": run_timestamp(),
+                "fact_type": fact_type,
+                "payload": safe_payload,
+            }
+            self._validate_schema(fact_type, safe_payload)
+            self._validate_causality(fact_type, safe_payload)
+            event = _public_event_from_fact(
+                project_id=self._project_id,
+                run_id=self._run_id,
+                fact=fact,
+            )
+            if event is not None:
+                try:
+                    validate_event(event)
+                except ProtocolValidationError as error:
+                    raise V2RunError(
+                        "evidence_unavailable",
+                        "Required Run evidence failed public schema validation",
+                        details={"last_durable_cursor": self.cursor},
+                    ) from error
+            encoded = canonical_json_bytes(fact)
             try:
-                validate_event(event)
-            except ProtocolValidationError as error:
+                write_private_new_file(
+                    self._root,
+                    (
+                        self._run_id,
+                        "ledger",
+                        f"{sequence:020d}.json",
+                    ),
+                    encoded,
+                    field="run_ledger",
+                )
+            except (OSError, StoragePathError) as error:
                 raise V2RunError(
                     "evidence_unavailable",
-                    "Required Run evidence failed public schema validation",
+                    "Required Run evidence could not be persisted safely",
                     details={"last_durable_cursor": self.cursor},
                 ) from error
-        encoded = canonical_json_bytes(fact)
-        try:
-            write_private_new_file(
-                self._root,
-                (
-                    self._run_id,
-                    "ledger",
-                    f"{sequence:020d}.json",
-                ),
-                encoded,
-                field="run_ledger",
+            self._facts.append(fact)
+            self._apply(fact_type, safe_payload)
+            try:
+                self._refresh_projections()
+            except (OSError, StoragePathError) as error:
+                self._projection_error = error
+            self._condition.notify_all()
+            return json.loads(json.dumps(fact))
+
+    def load_fact(self, fact: Mapping[str, Any], encoded: bytes) -> None:
+        with self._condition:
+            if (
+                not isinstance(fact, Mapping)
+                or set(fact)
+                != {
+                    "schema_version",
+                    "sequence",
+                    "recorded_at",
+                    "fact_type",
+                    "payload",
+                }
+                or fact["schema_version"] != RUN_LEDGER_SCHEMA_VERSION
+                or fact["sequence"] != len(self._facts) + 1
+                or not isinstance(fact["recorded_at"], str)
+                or not isinstance(fact["fact_type"], str)
+                or not isinstance(fact["payload"], Mapping)
+                or canonical_json_bytes(dict(fact)) != encoded
+            ):
+                raise self._causal_error()
+            fact_type = fact["fact_type"]
+            payload = dict(fact["payload"])
+            self._validate_schema(fact_type, payload)
+            self._validate_causality(fact_type, payload)
+            event = _public_event_from_fact(
+                project_id=self._project_id,
+                run_id=self._run_id,
+                fact=fact,
             )
-        except (OSError, StoragePathError) as error:
-            raise V2RunError(
-                "evidence_unavailable",
-                "Required Run evidence could not be persisted safely",
-                details={"last_durable_cursor": self.cursor},
-            ) from error
-        self._facts.append(fact)
-        self._apply(fact_type, safe_payload)
-        return fact
+            if event is not None:
+                validate_event(event)
+            retained = json.loads(json.dumps(fact))
+            self._facts.append(retained)
+            self._apply(fact_type, payload)
+
+    def public_events(
+        self,
+        *,
+        after_sequence: int = 0,
+        through_sequence: int | None = None,
+    ) -> tuple[dict[str, Any], ...]:
+        with self._condition:
+            upper = (
+                len(self._facts)
+                if through_sequence is None
+                else min(through_sequence, len(self._facts))
+            )
+            return tuple(
+                event
+                for fact in self._facts[after_sequence:upper]
+                if (
+                    event := _public_event_from_fact(
+                        project_id=self._project_id,
+                        run_id=self._run_id,
+                        fact=fact,
+                    )
+                )
+                is not None
+            )
+
+    def replay_window(
+        self,
+        cursor: str | None,
+    ) -> tuple[int, str, int, str, tuple[dict[str, Any], ...], bool]:
+        after_sequence = self.sequence_for_cursor(cursor)
+        with self._condition:
+            through_sequence = len(self._facts)
+            through_cursor = self._cursor_at(through_sequence)
+            events = self.public_events(
+                after_sequence=after_sequence,
+                through_sequence=through_sequence,
+            )
+            return (
+                after_sequence,
+                self._cursor_at(after_sequence),
+                through_sequence,
+                through_cursor,
+                events,
+                self._run_terminal,
+            )
+
+    def wait_for_public_events(
+        self,
+        after_sequence: int,
+        *,
+        timeout_seconds: float,
+    ) -> tuple[tuple[dict[str, Any], ...], int, bool]:
+        with self._condition:
+            if len(self._facts) <= after_sequence and not self._run_terminal:
+                self._condition.wait(timeout_seconds)
+            return (
+                self.public_events(after_sequence=after_sequence),
+                len(self._facts),
+                self._run_terminal,
+            )
+
+    def reconcile_restart(self) -> None:
+        with self._condition:
+            if not self._run_started or self._run_terminal:
+                return
+        if not self._restart_reconciled:
+            self.append(
+                "restart_reconciliation_started",
+                {"restarted_at": run_timestamp()},
+            )
+        restart_error = {
+            "code": "node_execution_failed",
+            "message": "Execution outcome is unavailable after backend restart",
+            "retryable": False,
+            "correlation_id": f"restart-{self._run_id}",
+            "details": {"reason": "backend_restart"},
+        }
+        for invocation_id, invocation in tuple(self._invocations.items()):
+            if invocation["terminal"] is None:
+                self.append(
+                    "engine_invocation_terminal",
+                    {
+                        "invocation_id": invocation_id,
+                        "status": "outcome_unknown",
+                        "error": restart_error,
+                    },
+                )
+        for operation_id, operation in tuple(self._operations.items()):
+            if operation["terminal"] is not None:
+                continue
+            child_statuses = [
+                invocation["terminal"]
+                for invocation in self._invocations.values()
+                if invocation["operation_attempt_id"] == operation_id
+            ]
+            self.append(
+                "operation_attempt_terminal",
+                {
+                    "operation_attempt_id": operation_id,
+                    "status": (
+                        "outcome_unknown"
+                        if "outcome_unknown" in child_statuses
+                        else "interrupted"
+                    ),
+                    "error": restart_error,
+                },
+            )
+        for attempt_id, attempt in tuple(self._node_attempts.items()):
+            if attempt["terminal"] is not None:
+                continue
+            child_statuses = [
+                operation["terminal"]
+                for operation in self._operations.values()
+                if operation["node_attempt_id"] == attempt_id
+            ]
+            node_id = attempt["node_id"]
+            resolution = (
+                "cache_replayed"
+                if node_id in self._outputs_published and not child_statuses
+                else "executed"
+            )
+            self.append(
+                "node_attempt_terminal",
+                {
+                    "node_attempt_id": attempt_id,
+                    "status": (
+                        "outcome_unknown"
+                        if "outcome_unknown" in child_statuses
+                        else "interrupted"
+                    ),
+                    "resolution": resolution,
+                    "error": restart_error,
+                },
+            )
+        for node_id in self._plan_node_order:
+            if node_id in self._dispositions:
+                continue
+            attempt_id = self._node_attempt_by_node.get(node_id)
+            if attempt_id is not None:
+                self.append(
+                    "node_disposition",
+                    {
+                        "node_id": node_id,
+                        "outcome": "interrupted",
+                        "blocked_by": [],
+                    },
+                )
+                continue
+            blocked_by = sorted(
+                dependency
+                for dependency in self._required_dependencies[node_id]
+                if self._dispositions.get(dependency, {}).get("outcome")
+                != "succeeded"
+            )
+            self.append(
+                "node_disposition",
+                {
+                    "node_id": node_id,
+                    "outcome": "blocked" if blocked_by else "interrupted",
+                    "blocked_by": blocked_by,
+                },
+            )
+        self.append("run_terminal", {"status": "interrupted"})
 
 
 @dataclass(frozen=True, slots=True)
@@ -1004,10 +1544,11 @@ class _OperationInvocationRecorder:
 
 @dataclass(slots=True)
 class _RunRecord:
-    compiled: CompiledWorkflow
+    compiled: CompiledWorkflow | None
     ledger: _RunEvidenceLedger
-    projection: dict[str, Any]
     artifacts: dict[str, tuple[dict[str, Any], tuple[str, ...]]]
+    finished: threading.Event = field(default_factory=threading.Event)
+    execution_error: BaseException | None = None
 
 
 def _port_contract(
@@ -1130,6 +1671,194 @@ class V2RunService:
             tuple[str, str, str, str],
             ReusableReadinessProof,
         ] = {}
+        self._load_persisted_runs()
+
+    def _plan_evidence(
+        self,
+        plan: ExecutionPlan,
+    ) -> tuple[_PlanNodeEvidence, ...]:
+        dependencies: dict[str, set[str]] = {
+            node.node_id: set() for node in plan.nodes
+        }
+        required_dependencies: dict[str, set[str]] = {
+            node.node_id: set() for node in plan.nodes
+        }
+        nodes = {node.node_id: node for node in plan.nodes}
+        for edge in plan.edges:
+            dependencies[edge.target_node_id].add(edge.source_node_id)
+            target = nodes[edge.target_node_id]
+            contract = self._catalog.require_contract(*target.node_type.key)
+            ports = {
+                port["name"]: port
+                for port in contract.descriptor.get("inputs", ())
+            }
+            if ports[edge.target_port]["required"] is True:
+                required_dependencies[edge.target_node_id].add(
+                    edge.source_node_id
+                )
+        return tuple(
+            _PlanNodeEvidence(
+                node.node_id,
+                tuple(sorted(dependencies[node.node_id])),
+                tuple(sorted(required_dependencies[node.node_id])),
+            )
+            for node in plan.nodes
+        )
+
+    @staticmethod
+    def _parse_plan_evidence(
+        value: Any,
+    ) -> tuple[_PlanNodeEvidence, ...]:
+        if not isinstance(value, list):
+            raise ValueError("Run plan evidence is invalid")
+        parsed: list[_PlanNodeEvidence] = []
+        seen: set[str] = set()
+        for item in value:
+            if (
+                not isinstance(item, Mapping)
+                or set(item)
+                != {
+                    "node_id",
+                    "dependencies",
+                    "required_dependencies",
+                }
+                or not isinstance(item["node_id"], str)
+                or not isinstance(item["dependencies"], list)
+                or not isinstance(item["required_dependencies"], list)
+                or not all(
+                    isinstance(dependency, str)
+                    for dependency in (
+                        *item["dependencies"],
+                        *item["required_dependencies"],
+                    )
+                )
+                or item["node_id"] in seen
+            ):
+                raise ValueError("Run plan evidence is invalid")
+            node_id = validate_identifier(item["node_id"], "node_id")
+            dependencies = tuple(sorted(set(item["dependencies"])))
+            required = tuple(sorted(set(item["required_dependencies"])))
+            if (
+                list(dependencies) != item["dependencies"]
+                or list(required) != item["required_dependencies"]
+                or not set(required) <= set(dependencies)
+            ):
+                raise ValueError("Run plan evidence is invalid")
+            seen.add(node_id)
+            parsed.append(_PlanNodeEvidence(node_id, dependencies, required))
+        if any(
+            dependency not in seen
+            for node in parsed
+            for dependency in node.dependencies
+        ):
+            raise ValueError("Run plan evidence is invalid")
+        return tuple(parsed)
+
+    def _run_directories(self):
+        for project in self._projects.list_projects():
+            project_id = validate_identifier(project.id, "project_id")
+            run_parent = (
+                self._projects.run_root / project_id
+                if self._projects.run_root is not None
+                else self._projects.project_dir(project_id) / "runs"
+            )
+            if (
+                not run_parent.is_dir()
+                or run_parent.is_symlink()
+            ):
+                continue
+            for run_dir in sorted(run_parent.iterdir()):
+                if (
+                    not run_dir.is_dir()
+                    or run_dir.is_symlink()
+                    or not (run_dir / "ledger").is_dir()
+                    or (run_dir / "ledger").is_symlink()
+                ):
+                    continue
+                try:
+                    run_id = validate_identifier(run_dir.name, "run_id")
+                except StoragePathError:
+                    continue
+                yield project_id, run_id, run_parent
+
+    def _load_persisted_runs(self) -> None:
+        for project_id, run_id, run_parent in self._run_directories():
+            ledger_dir = run_parent / run_id / "ledger"
+            fact_paths = sorted(ledger_dir.glob("*.json"))
+            if not fact_paths:
+                continue
+            encoded_facts: list[bytes] = []
+            parsed_facts: list[Mapping[str, Any]] = []
+            for expected_sequence, path in enumerate(fact_paths, start=1):
+                if path.name != f"{expected_sequence:020d}.json":
+                    raise RuntimeError("Run Ledger sequence is not contiguous")
+                encoded = _read_stable_private_file(
+                    run_parent,
+                    (run_id, "ledger", path.name),
+                    field="run_ledger",
+                    maximum_size=4 * 1024 * 1024,
+                )
+                try:
+                    parsed = json.loads(encoded)
+                except json.JSONDecodeError as error:
+                    raise RuntimeError("Run Ledger fact is invalid") from error
+                if not isinstance(parsed, Mapping):
+                    raise RuntimeError("Run Ledger fact is invalid")
+                encoded_facts.append(encoded)
+                parsed_facts.append(parsed)
+            first = parsed_facts[0]
+            try:
+                plan_nodes = self._parse_plan_evidence(
+                    first["payload"]["plan_nodes"]
+                )
+            except (KeyError, TypeError, ValueError, StoragePathError) as error:
+                raise RuntimeError("Run Ledger plan evidence is invalid") from error
+            ledger = _RunEvidenceLedger(
+                self._projects,
+                project_id,
+                run_id,
+                plan_nodes,
+            )
+            try:
+                for fact, encoded in zip(
+                    parsed_facts,
+                    encoded_facts,
+                    strict=True,
+                ):
+                    ledger.load_fact(fact, encoded)
+            except (ProtocolValidationError, V2RunError, ValueError) as error:
+                raise RuntimeError("Run Ledger validation failed") from error
+            if not ledger.started:
+                continue
+            if (
+                run_id in self._run_owners
+                and self._run_owners[run_id] != project_id
+            ):
+                raise RuntimeError("Run identity appears in multiple Projects")
+            ledger.reconcile_restart()
+            try:
+                ledger.rebuild_projections()
+            except (OSError, StoragePathError):
+                pass
+            artifacts: dict[
+                str,
+                tuple[dict[str, Any], tuple[str, ...]],
+            ] = {}
+            for descriptor in ledger.projection()["artifact_index"]:
+                reference = descriptor["artifact_reference"]
+                artifacts[reference] = (
+                    descriptor,
+                    ("published", reference),
+                )
+            record = _RunRecord(
+                compiled=None,
+                ledger=ledger,
+                artifacts=artifacts,
+            )
+            if ledger.terminal:
+                record.finished.set()
+            self._runs[(project_id, run_id)] = record
+            self._run_owners[run_id] = project_id
 
     def _require_record(
         self,
@@ -1175,53 +1904,6 @@ class V2RunService:
                 "reason_code": "availability_missing",
             },
         )
-
-    @staticmethod
-    def _project_terminal_run(
-        *,
-        project_id: str,
-        run_id: str,
-        workflow_revision: int,
-        compile_id: str,
-        plan: ExecutionPlan,
-        ledger: _RunEvidenceLedger,
-    ) -> dict[str, Any]:
-        dispositions: list[dict[str, Any]] = []
-        outputs: list[dict[str, Any]] = []
-        artifacts: list[dict[str, Any]] = []
-        terminal_status: str | None = None
-        terminal_sequence: int | None = None
-        for fact in ledger.facts:
-            payload = fact["payload"]
-            if fact["fact_type"] == "node_disposition":
-                disposition = dict(payload)
-                disposition["terminal_sequence"] = fact["sequence"]
-                dispositions.append(disposition)
-            elif fact["fact_type"] == "outputs_published":
-                outputs.extend(payload["outputs"])
-                artifacts.extend(payload["artifacts"])
-            elif fact["fact_type"] == "run_terminal":
-                terminal_status = payload["status"]
-                terminal_sequence = fact["sequence"]
-        if terminal_status is None or terminal_sequence is None:
-            raise V2RunError(
-                "evidence_unavailable",
-                "Run projection requires a causally closed terminal Ledger",
-                details={"last_durable_cursor": ledger.cursor},
-            )
-        return {
-            "project_id": project_id,
-            "run_id": run_id,
-            "workflow_revision": workflow_revision,
-            "workflow_digest": plan.workflow_digest,
-            "compile_id": compile_id,
-            "status": terminal_status,
-            "terminal_sequence": terminal_sequence,
-            "ledger_cursor": ledger.cursor,
-            "node_dispositions": dispositions,
-            "outputs": outputs,
-            "artifact_index": artifacts,
-        }
 
     @staticmethod
     def _proof_contract(
@@ -1712,6 +2394,11 @@ class V2RunService:
         workflow_revision: int,
         compile_id: str,
         client_request_id: str,
+        _on_admitted: Callable[
+            [dict[str, Any], _RunRecord],
+            None,
+        ]
+        | None = None,
     ) -> dict[str, Any]:
         del client_request_id
         compiled = self._authoring.require_compiled(
@@ -1739,12 +2426,13 @@ class V2RunService:
                 },
             )
         run_id = f"run-{uuid.uuid4().hex}"
+        plan_evidence = self._plan_evidence(plan)
         try:
             ledger = _RunEvidenceLedger(
                 self._projects,
                 project_id,
                 run_id,
-                plan,
+                plan_evidence,
             )
         except (OSError, StoragePathError) as error:
             raise V2RunError(
@@ -1766,6 +2454,10 @@ class V2RunService:
                 "resolved_contracts": [
                     entry.to_public()
                     for entry in plan.resolved_contracts
+                ],
+                "plan_nodes": [
+                    node.to_dict()
+                    for node in plan_evidence
                 ],
             },
         )
@@ -1812,6 +2504,23 @@ class V2RunService:
             str,
             tuple[dict[str, Any], tuple[str, ...]],
         ] = {}
+        record = _RunRecord(
+            compiled=compiled,
+            ledger=ledger,
+            artifacts=artifact_records,
+        )
+        self._runs[(project_id, run_id)] = record
+        self._run_owners[run_id] = project_id
+        receipt = {
+            "project_id": project_id,
+            "run_id": run_id,
+            "workflow_revision": workflow_revision,
+            "compile_id": compile_id,
+            "admitted_sequence": admitted["sequence"],
+            "event_cursor": ledger.cursor_at(admitted["sequence"]),
+        }
+        if _on_admitted is not None:
+            _on_admitted(receipt, record)
         values: dict[tuple[str, str], list[Any]] = {}
         disposition_outcomes: dict[str, str] = {}
         for node in plan.nodes:
@@ -2111,33 +2820,67 @@ class V2RunService:
             else "succeeded"
         )
         ledger.append("run_terminal", {"status": run_status})
-        projection = self._project_terminal_run(
-            project_id=project_id,
-            run_id=run_id,
-            workflow_revision=workflow_revision,
-            compile_id=compile_id,
-            plan=plan,
-            ledger=ledger,
-        )
-        self._runs[(project_id, run_id)] = _RunRecord(
-            compiled=compiled,
-            ledger=ledger,
-            projection=projection,
-            artifacts=artifact_records,
-        )
-        self._run_owners[run_id] = project_id
-        return {
-            "project_id": project_id,
-            "run_id": run_id,
-            "workflow_revision": workflow_revision,
-            "compile_id": compile_id,
-            "admitted_sequence": admitted["sequence"],
-            "event_cursor": run_cursor(admitted["sequence"]),
-        }
+        record.finished.set()
+        return receipt
+
+    def start_background(
+        self,
+        project_id: str,
+        *,
+        workflow_revision: int,
+        compile_id: str,
+        client_request_id: str,
+    ) -> dict[str, Any]:
+        """Admit synchronously, then execute without blocking event delivery."""
+        admitted = threading.Event()
+        state: dict[str, Any] = {}
+
+        def on_admitted(
+            receipt: dict[str, Any],
+            record: _RunRecord,
+        ) -> None:
+            state["receipt"] = json.loads(json.dumps(receipt))
+            state["record"] = record
+            admitted.set()
+
+        def execute() -> None:
+            try:
+                self.start(
+                    project_id,
+                    workflow_revision=workflow_revision,
+                    compile_id=compile_id,
+                    client_request_id=client_request_id,
+                    _on_admitted=on_admitted,
+                )
+            except BaseException as error:
+                state["error"] = error
+                record = state.get("record")
+                if isinstance(record, _RunRecord):
+                    record.execution_error = error
+                    record.finished.set()
+            finally:
+                admitted.set()
+
+        threading.Thread(
+            target=execute,
+            name=f"v2-run-admission-{project_id}",
+            daemon=True,
+        ).start()
+        admitted.wait()
+        error = state.get("error")
+        if "receipt" not in state:
+            assert isinstance(error, BaseException)
+            raise error
+        record = state["record"]
+        assert isinstance(record, _RunRecord)
+        record.finished.wait(FAST_RUN_COMPLETION_GRACE_SECONDS)
+        if record.finished.is_set() and record.execution_error is not None:
+            raise record.execution_error
+        return state["receipt"]
 
     def projection(self, project_id: str, run_id: str) -> dict[str, Any]:
         record = self._require_record(project_id, run_id)
-        return json.loads(json.dumps(record.projection))
+        return record.ledger.projection()
 
     def artifact(
         self,
@@ -2194,16 +2937,34 @@ class V2RunService:
         run_id: str,
     ) -> tuple[dict[str, Any], ...]:
         record = self._require_record(project_id, run_id)
-        events: list[dict[str, Any]] = []
-        for fact in record.ledger.facts:
-            event = _public_event_from_fact(
-                project_id=project_id,
-                run_id=run_id,
-                fact=fact,
-            )
-            if event is not None:
-                events.append(event)
-        return tuple(events)
+        return record.ledger.public_events()
 
     def ledger_cursor(self, project_id: str, run_id: str) -> str:
         return self._require_record(project_id, run_id).ledger.cursor
+
+    def replay_window(
+        self,
+        project_id: str,
+        run_id: str,
+        cursor: str | None,
+    ) -> tuple[int, str, int, str, tuple[dict[str, Any], ...], bool]:
+        return self._require_record(
+            project_id,
+            run_id,
+        ).ledger.replay_window(cursor)
+
+    def wait_for_public_events(
+        self,
+        project_id: str,
+        run_id: str,
+        after_sequence: int,
+        *,
+        timeout_seconds: float = 1.0,
+    ) -> tuple[tuple[dict[str, Any], ...], int, bool]:
+        return self._require_record(
+            project_id,
+            run_id,
+        ).ledger.wait_for_public_events(
+            after_sequence,
+            timeout_seconds=timeout_seconds,
+        )

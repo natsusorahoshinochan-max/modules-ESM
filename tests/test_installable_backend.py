@@ -16,6 +16,8 @@ from hashlib import sha256
 from pathlib import Path
 
 import pytest
+from websockets.exceptions import ConnectionClosed
+from websockets.sync.client import connect
 
 from core import build_discovered_frozen_catalog
 from protein_workbench_public import bundle_bytes, bundle_digest
@@ -88,6 +90,9 @@ def _installed_direct_server_probe(port: int) -> str:
     """Build an installed-only synthetic direct Binding server bootstrap."""
     return r'''
 from datetime import datetime, timezone
+import os
+from pathlib import Path
+import time
 import uvicorn
 from core import (
     BehaviorReference,
@@ -176,15 +181,28 @@ binding = contract("binding", "installed.direct.local", {
 })
 
 class Implementation:
+    def __init__(self, resources):
+        self._resources = resources
+
     def execute(self, *, inputs, node_parameters, binding_parameters):
         assert inputs == {}
         assert node_parameters == {}
         assert binding_parameters == {}
-        return {"text": "INSTALLED_READY"}
+        with self._resources.engine_invocation(
+            engine_identity="installed.direct.method/2.0.0",
+        ):
+            marker = Path(
+                os.environ["PROTEIN_WORKBENCH_INSTALLED_BLOCK_MARKER"]
+            )
+            if marker.exists():
+                marker.with_suffix(".started").write_text("started")
+                while marker.exists():
+                    time.sleep(0.05)
+            return {"text": "INSTALLED_READY"}
 
 def build(**kwargs):
     assert kwargs["environment_configuration"]["installed_runtime"] is True
-    return Implementation()
+    return Implementation(kwargs["run_resources"])
 
 def ready(environment):
     return environment["installed_runtime"] is True
@@ -341,6 +359,8 @@ def test_wheel_runs_discovery_canonical_validation_and_api_outside_source_tree(
         root = tmp_path / name.lower()
         root.mkdir()
         env[f"PROTEIN_WORKBENCH_{name}_ROOT"] = str(root)
+    block_marker = tmp_path / "installed-run.block"
+    env["PROTEIN_WORKBENCH_INSTALLED_BLOCK_MARKER"] = str(block_marker)
 
     expected = repr(sorted(EXPECTED_MODULE_IDS))
     probe = f"""
@@ -388,19 +408,24 @@ assert sorted(item.module_id for item in registry.list_all()) == {expected}
     with socket.socket() as listener:
         listener.bind(("127.0.0.1", 0))
         port = listener.getsockname()[1]
-    server = subprocess.Popen(
-        [
-            str(python),
-            "-I",
-            "-c",
-            _installed_direct_server_probe(port),
-        ],
-        cwd=run_dir,
-        env=env,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.STDOUT,
-        text=True,
-    )
+    server_command = [
+        str(python),
+        "-I",
+        "-c",
+        _installed_direct_server_probe(port),
+    ]
+
+    def launch_server() -> subprocess.Popen[str]:
+        return subprocess.Popen(
+            server_command,
+            cwd=run_dir,
+            env=env,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+        )
+
+    server = launch_server()
     try:
         deadline = time.monotonic() + 20
         modules_payload = None
@@ -560,6 +585,159 @@ assert sorted(item.module_id for item in registry.list_all()) == {expected}
         ]
         assert projection["outputs"][0]["values"] == ["INSTALLED_READY"]
         assert projection["artifact_index"] == []
+
+        block_marker.write_text("block")
+        interrupted = request_json(
+            "POST",
+            f"/api/v2/projects/{project_id}/runs",
+            {
+                "workflow_revision": 2,
+                "compile_id": compiled["compile_id"],
+                "client_request_id": "installed-restart-request",
+            },
+        )
+        interrupted_run_id = interrupted["run_id"]
+        entered_marker = block_marker.with_suffix(".started")
+        deadline = time.monotonic() + 5
+        while time.monotonic() < deadline and not entered_marker.exists():
+            time.sleep(0.05)
+        assert entered_marker.is_file()
+
+        websocket_url = (
+            f"ws://127.0.0.1:{port}/api/v2/projects/{project_id}/runs/"
+            f"{interrupted_run_id}/events"
+        )
+        with connect(
+            websocket_url,
+            open_timeout=5,
+            close_timeout=2,
+        ) as websocket:
+            first_delivery = []
+            while True:
+                message = json.loads(websocket.recv(timeout=5))
+                first_delivery.append(message)
+                if message["event"]["type"] == "replay_complete":
+                    break
+        first_durable = [
+            message
+            for message in first_delivery
+            if message["event"]["type"] not in {
+                "replay_started",
+                "replay_complete",
+            }
+        ]
+        invocation_started = next(
+            message
+            for message in first_durable
+            if message["event"]["type"] == "engine_invocation_started"
+        )
+        resume_cursor = first_delivery[-1]["cursor"]
+
+        server.kill()
+        server.communicate(timeout=5)
+        server = launch_server()
+        deadline = time.monotonic() + 20
+        interrupted_projection = None
+        while time.monotonic() < deadline:
+            if server.poll() is not None:
+                break
+            try:
+                interrupted_projection = request_json(
+                    "GET",
+                    f"/api/v2/projects/{project_id}/runs/"
+                    f"{interrupted_run_id}",
+                )
+                break
+            except OSError:
+                time.sleep(0.1)
+        if interrupted_projection is None:
+            output = server.communicate(timeout=5)[0]
+            pytest.fail(f"Restarted installed API did not recover:\n{output}")
+        assert interrupted_projection["status"] == "interrupted"
+        assert interrupted_projection["outputs"] == []
+        assert interrupted_projection["artifact_index"] == []
+        assert interrupted_projection["node_dispositions"][0]["outcome"] == (
+            "interrupted"
+        )
+
+        with connect(
+            f"{websocket_url}?after_sequence={resume_cursor}",
+            open_timeout=5,
+            close_timeout=2,
+        ) as websocket:
+            resumed = []
+            try:
+                while True:
+                    resumed.append(
+                        json.loads(websocket.recv(timeout=5))
+                    )
+            except ConnectionClosed as closed:
+                assert closed.rcvd is not None
+                assert closed.rcvd.code == 1000
+        resumed_durable = [
+            message
+            for message in resumed
+            if message["event"]["type"] not in {
+                "replay_started",
+                "replay_complete",
+            }
+        ]
+        invocation_terminal = next(
+            message
+            for message in resumed_durable
+            if message["event"]["type"] == "engine_invocation_terminal"
+            and message["event"]["invocation_id"]
+            == invocation_started["event"]["invocation_id"]
+        )
+        assert invocation_terminal["event"]["status"] == "outcome_unknown"
+        delivered_sequences = [
+            message["sequence"]
+            for message in (*first_durable, *resumed_durable)
+        ]
+        assert len(delivered_sequences) == len(set(delivered_sequences))
+        terminal_cursor = interrupted_projection["ledger_cursor"]
+
+        block_marker.unlink()
+        server.kill()
+        server.communicate(timeout=5)
+        server = launch_server()
+        deadline = time.monotonic() + 20
+        repeated_projection = None
+        while time.monotonic() < deadline:
+            if server.poll() is not None:
+                break
+            try:
+                repeated_projection = request_json(
+                    "GET",
+                    f"/api/v2/projects/{project_id}/runs/"
+                    f"{interrupted_run_id}",
+                )
+                break
+            except OSError:
+                time.sleep(0.1)
+        if repeated_projection is None:
+            output = server.communicate(timeout=5)[0]
+            pytest.fail(f"Second installed restart did not recover:\n{output}")
+        assert repeated_projection == interrupted_projection
+        with connect(
+            f"{websocket_url}?after_sequence={terminal_cursor}",
+            open_timeout=5,
+            close_timeout=2,
+        ) as websocket:
+            repeated_delivery = []
+            try:
+                while True:
+                    repeated_delivery.append(
+                        json.loads(websocket.recv(timeout=5))
+                    )
+            except ConnectionClosed as closed:
+                assert closed.rcvd is not None
+                assert closed.rcvd.code == 1000
+        assert {
+            message["event"]["type"]
+            for message in repeated_delivery
+        } == {"replay_started", "replay_complete"}
+        assert not any((tmp_path / "cache").rglob("*"))
     finally:
         if server.poll() is None:
             server.terminate()

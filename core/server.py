@@ -63,7 +63,6 @@ from core.run_execution_v2 import (
     ResultReplaySource,
     V2RunError,
     V2RunService,
-    run_cursor,
     run_timestamp,
 )
 from core.recovery import RunRecoveryError, RunRecoveryService
@@ -793,11 +792,11 @@ def create_app(
         )
         return payload
 
-    def public_error_response(
+    def public_error_payload(
         code: str,
         message: str,
         details: Mapping[str, Any],
-    ) -> JSONResponse:
+    ) -> tuple[int, dict[str, Any]]:
         definition = load_bundle()["structured_errors"]["vocabulary"][code]
         payload = {
             "schema_namespace": "protein-workbench-public/v2",
@@ -811,6 +810,14 @@ def create_app(
         }
         status = definition["http_status"]
         validate_error(payload, status=status)
+        return status, payload
+
+    def public_error_response(
+        code: str,
+        message: str,
+        details: Mapping[str, Any],
+    ) -> JSONResponse:
+        status, payload = public_error_payload(code, message, details)
         return JSONResponse(status_code=status, content=payload)
 
     def workflow_document_error_response(
@@ -1008,7 +1015,7 @@ def create_app(
         try:
             combined = {"project_id": project_id, **payload}
             validate_request("start_run", combined)
-            receipt = request.app.state.run_execution_v2.start(
+            receipt = request.app.state.run_execution_v2.start_background(
                 project_id,
                 workflow_revision=payload["workflow_revision"],
                 compile_id=payload["compile_id"],
@@ -1148,39 +1155,28 @@ def create_app(
                 "#/$defs/RunEventStreamRequest",
                 request_payload,
             )
-            events = websocket.app.state.run_execution_v2.public_events(
+            (
+                replay_after_sequence,
+                replay_after_cursor,
+                replay_through_sequence,
+                replay_through_cursor,
+                events,
+                terminal,
+            ) = websocket.app.state.run_execution_v2.replay_window(
                 project_id,
                 run_id,
+                after_sequence,
             )
-            ledger_cursor = (
-                websocket.app.state.run_execution_v2.ledger_cursor(
-                    project_id,
-                    run_id,
-                )
-            )
-            minimum_sequence = 0
-            if after_sequence is not None:
-                if (
-                    not after_sequence.startswith("cursor-")
-                    or not after_sequence.removeprefix("cursor-").isdigit()
-                ):
-                    raise ProtocolValidationError(
-                        "$.after_sequence",
-                        "cursor is invalid",
-                    )
-                minimum_sequence = int(
-                    after_sequence.removeprefix("cursor-")
-                )
             replay_started = {
                 "schema_namespace": "protein-workbench-public/v2",
                 "project_id": project_id,
                 "run_id": run_id,
-                "sequence": 0,
-                "cursor": run_cursor(0),
+                "sequence": replay_after_sequence,
+                "cursor": replay_after_cursor,
                 "emitted_at": run_timestamp(),
                 "event": {
                     "type": "replay_started",
-                    "replay_through_cursor": ledger_cursor,
+                    "replay_through_cursor": replay_through_cursor,
                     **(
                         {"after_sequence": after_sequence}
                         if after_sequence is not None
@@ -1191,28 +1187,55 @@ def create_app(
             validate_event(replay_started)
             await websocket.send_json(replay_started)
             for event in events:
-                if event["sequence"] <= minimum_sequence:
-                    continue
                 validate_event(event)
                 await websocket.send_json(event)
             replay_complete = {
                 "schema_namespace": "protein-workbench-public/v2",
                 "project_id": project_id,
                 "run_id": run_id,
-                "sequence": (
-                    int(ledger_cursor.removeprefix("cursor-")) + 1
-                ),
-                "cursor": ledger_cursor,
+                "sequence": replay_through_sequence,
+                "cursor": replay_through_cursor,
                 "emitted_at": run_timestamp(),
                 "event": {
                     "type": "replay_complete",
-                    "live_from_cursor": ledger_cursor,
+                    "live_from_cursor": replay_through_cursor,
                 },
             }
             validate_event(replay_complete)
             await websocket.send_json(replay_complete)
+            live_after_sequence = replay_through_sequence
+            while not terminal:
+                live_events, observed_sequence, terminal = await asyncio.to_thread(
+                    websocket.app.state.run_execution_v2.wait_for_public_events,
+                    project_id,
+                    run_id,
+                    live_after_sequence,
+                    timeout_seconds=1.0,
+                )
+                for event in live_events:
+                    validate_event(event)
+                    await websocket.send_json(event)
+                live_after_sequence = observed_sequence
             await websocket.close(code=1000)
-        except (ProtocolValidationError, V2RunError):
+        except (ProtocolValidationError, V2RunError) as error:
+            if isinstance(error, V2RunError):
+                code = error.code
+                message = str(error)
+                details = error.details
+            else:
+                code = "invalid_cursor"
+                message = "Run Event Stream cursor is invalid"
+                details = {
+                    "after_sequence": (
+                        after_sequence
+                        if isinstance(after_sequence, str)
+                        and 1 <= len(after_sequence) <= 512
+                        else "invalid"
+                    )
+                }
+            _, payload = public_error_payload(code, message, details)
+            with suppress(RuntimeError, WebSocketDisconnect):
+                await websocket.send_json(payload)
             await websocket.close(code=1008)
 
     # ── modules & types ──────────────────────────────────────────────

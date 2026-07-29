@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 import re
+import secrets
 import stat
 from pathlib import Path
 from pathlib import PurePosixPath
@@ -240,6 +241,131 @@ def write_private_new_file(
     finally:
         if descriptor is not None:
             os.close(descriptor)
+        os.close(current_fd)
+
+
+def replace_private_regular_file(
+    root: str | Path,
+    relative_parts: tuple[str, ...],
+    payload: bytes,
+    *,
+    field: str,
+) -> Path:
+    """Atomically replace one contained owner-only projection file.
+
+    The durable source file must use ``write_private_new_file`` instead. This
+    replacement primitive is reserved for rebuildable projections whose prior
+    bytes are not authoritative.
+    """
+    if not relative_parts:
+        raise StoragePathError(field, f"Invalid {field}")
+    absolute_root = _absolute_storage_root(root, field)
+    directory_flags = os.O_RDONLY | getattr(os, "O_DIRECTORY", 0)
+    directory_flags |= getattr(os, "O_NOFOLLOW", 0)
+    current_fd = os.open(absolute_root.anchor, directory_flags)
+    descriptor: int | None = None
+    temporary_name = (
+        f".{relative_parts[-1]}.{secrets.token_hex(12)}.tmp"
+    )
+    created = False
+    try:
+        for component in absolute_root.parts[1:]:
+            try:
+                next_fd = os.open(
+                    component,
+                    directory_flags,
+                    dir_fd=current_fd,
+                )
+            except FileNotFoundError:
+                os.mkdir(component, mode=0o700, dir_fd=current_fd)
+                next_fd = os.open(
+                    component,
+                    directory_flags,
+                    dir_fd=current_fd,
+                )
+            os.close(current_fd)
+            current_fd = next_fd
+        root_metadata = os.fstat(current_fd)
+        if (
+            not stat.S_ISDIR(root_metadata.st_mode)
+            or root_metadata.st_uid != os.getuid()
+        ):
+            raise StoragePathError(field, f"Invalid {field}")
+        os.fchmod(current_fd, 0o700)
+        for component in relative_parts[:-1]:
+            try:
+                os.mkdir(component, mode=0o700, dir_fd=current_fd)
+            except FileExistsError:
+                pass
+            next_fd = os.open(
+                component,
+                directory_flags,
+                dir_fd=current_fd,
+            )
+            metadata = os.fstat(next_fd)
+            if (
+                not stat.S_ISDIR(metadata.st_mode)
+                or metadata.st_uid != os.getuid()
+            ):
+                os.close(next_fd)
+                raise StoragePathError(field, f"Invalid {field}")
+            os.fchmod(next_fd, 0o700)
+            os.close(current_fd)
+            current_fd = next_fd
+
+        descriptor = os.open(
+            temporary_name,
+            os.O_WRONLY
+            | os.O_CREAT
+            | os.O_EXCL
+            | getattr(os, "O_NOFOLLOW", 0),
+            0o600,
+            dir_fd=current_fd,
+        )
+        created = True
+        with os.fdopen(descriptor, "wb", closefd=False) as destination:
+            destination.write(payload)
+            destination.flush()
+            os.fsync(destination.fileno())
+        metadata = os.fstat(descriptor)
+        if (
+            not stat.S_ISREG(metadata.st_mode)
+            or metadata.st_uid != os.getuid()
+            or metadata.st_nlink != 1
+            or stat.S_IMODE(metadata.st_mode) != 0o600
+        ):
+            raise StoragePathError(field, f"Invalid {field}")
+        try:
+            current = os.stat(
+                relative_parts[-1],
+                dir_fd=current_fd,
+                follow_symlinks=False,
+            )
+        except FileNotFoundError:
+            current = None
+        if current is not None and (
+            not stat.S_ISREG(current.st_mode)
+            or current.st_uid != os.getuid()
+            or current.st_nlink != 1
+        ):
+            raise StoragePathError(field, f"Invalid {field}")
+        os.replace(
+            temporary_name,
+            relative_parts[-1],
+            src_dir_fd=current_fd,
+            dst_dir_fd=current_fd,
+        )
+        created = False
+        os.fsync(current_fd)
+        return absolute_root.joinpath(*relative_parts)
+    finally:
+        if descriptor is not None:
+            os.close(descriptor)
+        if created:
+            try:
+                os.unlink(temporary_name, dir_fd=current_fd)
+            except FileNotFoundError:
+                pass
         os.close(current_fd)
 
 

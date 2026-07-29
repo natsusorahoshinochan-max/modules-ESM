@@ -6,6 +6,8 @@ from datetime import datetime, timedelta, timezone
 import hashlib
 import json
 import stat
+import threading
+import time
 from typing import Any, Mapping
 
 from fastapi.testclient import TestClient
@@ -29,7 +31,11 @@ from core import (
 )
 from core.server import create_app
 import core.run_execution_v2 as run_execution_v2
-from protein_workbench_public import validate_response, validate_schema
+from protein_workbench_public import (
+    validate_error,
+    validate_response,
+    validate_schema,
+)
 
 
 def _contract(
@@ -60,6 +66,7 @@ def _direct_catalog(
     readiness_checks: dict[str, Any] | None = None,
     cacheable: bool = False,
     invocation_count: int = 1,
+    execution_gate: tuple[threading.Event, threading.Event] | None = None,
 ) -> FrozenCatalog:
     builtin = builtin_frozen_catalog()
     text = builtin.require_port_type("text", "2.0.0")
@@ -172,6 +179,13 @@ def _direct_catalog(
                         ):
                             if index == 0:
                                 calls.append(f"execute:{self._binding_id}")
+                                if execution_gate is not None:
+                                    entered, release = execution_gate
+                                    entered.set()
+                                    if not release.wait(timeout=2):
+                                        raise TimeoutError(
+                                            "fixture execution gate timed out"
+                                        )
                 return {"text": "READY"}
 
         def make_readiness(exact_binding_id: str):
@@ -327,6 +341,9 @@ def _pipeline_catalog(
     terminating_source_nodes: Mapping[str, str] | None = None,
     pre_schedule_source_nodes: Mapping[str, str] | None = None,
     optional_sink_input: bool = False,
+    execution_gates: (
+        Mapping[str, tuple[threading.Event, threading.Event]] | None
+    ) = None,
 ) -> FrozenCatalog:
     def validate_text(value: Any) -> None:
         calls.append(f"validate:{value!r}")
@@ -431,6 +448,16 @@ def _pipeline_catalog(
             assert kwargs["inputs"] == {}
             with self._resources.engine_invocation():
                 calls.append(f"execute:{self._node_id}")
+                if (
+                    execution_gates is not None
+                    and self._node_id in execution_gates
+                ):
+                    entered, release = execution_gates[self._node_id]
+                    entered.set()
+                    if not release.wait(timeout=5):
+                        raise TimeoutError(
+                            "fixture execution gate timed out"
+                        )
                 if self._node_id == failing_source_node_id:
                     raise RuntimeError("sk-secret-branch-provider-failure")
                 if (
@@ -1210,6 +1237,108 @@ def test_cache_replay_closes_only_the_scheduled_node_attempt(
     assert "engine_invocation_started" not in event_types
 
 
+def test_restart_does_not_publish_unclosed_cache_replay_output(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    class FixtureReplaySource(ResultReplaySource):
+        def lookup(self, **kwargs: Any) -> Mapping[str, Any] | None:
+            del kwargs
+            return {"text": "UNCOMMITTED_CACHE_REPLAY"}
+
+    entered = threading.Event()
+    paused = threading.Event()
+    release = threading.Event()
+    original_write = run_execution_v2.write_private_new_file
+
+    def pause_before_attempt_terminal(root, relative_parts, payload, *, field):
+        if (
+            field == "run_ledger"
+            and json.loads(payload)["fact_type"] == "node_attempt_terminal"
+            and not paused.is_set()
+        ):
+            paused.set()
+            entered.set()
+            if not release.wait(timeout=5):
+                raise TimeoutError("fixture cache replay gate timed out")
+        return original_write(
+            root,
+            relative_parts,
+            payload,
+            field=field,
+        )
+
+    monkeypatch.setattr(
+        run_execution_v2,
+        "write_private_new_file",
+        pause_before_attempt_terminal,
+    )
+    monkeypatch.setenv(
+        "PROTEIN_WORKBENCH_PROJECT_ROOT",
+        str(tmp_path / "projects"),
+    )
+    monkeypatch.setenv("PROTEIN_WORKBENCH_RUN_ROOT", str(tmp_path / "runs"))
+    monkeypatch.setenv(
+        "PROTEIN_WORKBENCH_OUTPUT_ROOT",
+        str(tmp_path / "outputs"),
+    )
+    catalog = _direct_catalog([], cacheable=True)
+    environment = {
+        ("test.direct.local", "2.0.0"): {
+            "values": {"credential": "credential-value"},
+        }
+    }
+
+    try:
+        with TestClient(
+            create_app(
+                frozen_catalog_override=catalog,
+                v2_result_replay_source=FixtureReplaySource(),
+                v2_environment_configuration=environment,
+            )
+        ) as first:
+            project_id, compiled = _compile_one_node(first)
+            started = first.post(
+                f"/api/v2/projects/{project_id}/runs",
+                json={
+                    "workflow_revision": 2,
+                    "compile_id": compiled["compile_id"],
+                    "client_request_id": "cache-replay-restart",
+                },
+            )
+            assert started.status_code == 202
+            assert entered.wait(timeout=1)
+            run_id = started.json()["run_id"]
+
+        with TestClient(
+            create_app(
+                frozen_catalog_override=catalog,
+                v2_environment_configuration=environment,
+            )
+        ) as restarted:
+            projection = restarted.get(
+                f"/api/v2/projects/{project_id}/runs/{run_id}"
+            ).json()
+            events = restarted.app.state.run_execution_v2.public_events(
+                project_id,
+                run_id,
+            )
+    finally:
+        release.set()
+
+    node_terminal = next(
+        event["event"]
+        for event in events
+        if event["event"]["type"] == "node_attempt_terminal"
+    )
+    assert node_terminal["status"] == "interrupted"
+    assert node_terminal["resolution"] == "cache_replayed"
+    assert projection["status"] == "interrupted"
+    assert projection["outputs"] == []
+    assert projection["artifact_index"] == []
+    assert projection["node_dispositions"][0]["outcome"] == "interrupted"
+
+
 @pytest.mark.parametrize("cache_failure", ("lookup_error", "invalid_value"))
 def test_cache_boundary_failure_falls_back_to_causally_closed_execution(
     tmp_path,
@@ -1932,7 +2061,7 @@ def test_reusable_proof_is_cached_only_after_durable_attestation(
     assert calls == [False, False, True]
     readiness_facts = [
         json.loads(path.read_text())
-        for path in (tmp_path / "runs").rglob("*.json")
+        for path in (tmp_path / "runs").rglob("ledger/*.json")
         if json.loads(path.read_text())["fact_type"] == "readiness_attested"
     ]
     assert {
@@ -2003,7 +2132,7 @@ def test_node_success_is_not_published_when_disposition_commit_fails(
     assert response.json()["error"]["code"] == "evidence_unavailable"
     facts = [
         json.loads(path.read_text())
-        for path in (tmp_path / "runs").rglob("*.json")
+        for path in (tmp_path / "runs").rglob("ledger/*.json")
     ]
     assert not any(
         fact["fact_type"] in {"node_disposition", "run_terminal"}
@@ -2170,7 +2299,7 @@ def test_invalid_output_never_publishes_success_or_a_public_result(
     ]
     durable_facts = [
         json.loads(path.read_text())
-        for path in sorted((tmp_path / "runs").rglob("*.json"))
+        for path in sorted((tmp_path / "runs").rglob("ledger/*.json"))
     ]
     assert not any(
         fact["fact_type"] == "outputs_published"
@@ -2315,7 +2444,7 @@ def test_run_artifact_count_and_aggregate_size_are_bounded(
     assert count_projection["artifact_index"] == []
     assert not any(
         json.loads(path.read_text())["fact_type"] == "artifact_published"
-        for path in (tmp_path / "runs").rglob("*.json")
+        for path in (tmp_path / "runs").rglob("ledger/*.json")
     )
 
     monkeypatch.setattr(run_execution_v2, "MAX_ARTIFACTS_PER_RUN", 2)
@@ -2349,7 +2478,7 @@ def test_run_artifact_count_and_aggregate_size_are_bounded(
     assert aggregate_projection["artifact_index"] == []
     assert sum(
         json.loads(path.read_text())["fact_type"] == "artifact_published"
-        for path in aggregate_root.rglob("*.json")
+        for path in aggregate_root.rglob("ledger/*.json")
     ) == 1
 
 
@@ -2444,7 +2573,7 @@ def test_success_ledger_projects_validated_events_and_opaque_artifact(
         assert payload["terminal_sequence"] == projected_events[-1]["sequence"]
         assert payload["ledger_cursor"] == projected_events[-1]["cursor"]
 
-    fact_paths = sorted(run_root.rglob("*.json"))
+    fact_paths = sorted(run_root.rglob("ledger/*.json"))
     facts = [json.loads(path.read_text()) for path in fact_paths]
     assert [fact["sequence"] for fact in facts] == list(
         range(1, len(facts) + 1)
@@ -2578,3 +2707,700 @@ def test_symlinked_run_workspace_fails_before_readiness_without_outside_write(
     assert response.json()["error"]["code"] == "evidence_unavailable"
     assert calls == []
     assert list(outside.iterdir()) == []
+
+
+def test_terminal_run_projection_and_events_rebuild_after_backend_restart(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    project_root = tmp_path / "projects"
+    run_root = tmp_path / "runs"
+    output_root = tmp_path / "outputs"
+    monkeypatch.setenv("PROTEIN_WORKBENCH_PROJECT_ROOT", str(project_root))
+    monkeypatch.setenv("PROTEIN_WORKBENCH_RUN_ROOT", str(run_root))
+    monkeypatch.setenv("PROTEIN_WORKBENCH_OUTPUT_ROOT", str(output_root))
+    catalog = _direct_catalog([])
+    environment = {
+        ("test.direct.local", "2.0.0"): {
+            "values": {"credential": "credential-value"},
+        }
+    }
+
+    with TestClient(
+        create_app(
+            frozen_catalog_override=catalog,
+            v2_environment_configuration=environment,
+        )
+    ) as client:
+        project_id, compiled = _compile_one_node(client)
+        started = client.post(
+            f"/api/v2/projects/{project_id}/runs",
+            json={
+                "workflow_revision": 2,
+                "compile_id": compiled["compile_id"],
+                "client_request_id": "restart-terminal",
+            },
+        )
+        assert started.status_code == 202
+        run_id = started.json()["run_id"]
+        before = client.get(
+            f"/api/v2/projects/{project_id}/runs/{run_id}"
+        ).json()
+        before_events = client.app.state.run_execution_v2.public_events(
+            project_id,
+            run_id,
+        )
+        resume_cursor = before_events[3]["cursor"]
+
+    with TestClient(
+        create_app(
+            frozen_catalog_override=catalog,
+            v2_environment_configuration=environment,
+        )
+    ) as restarted:
+        after_response = restarted.get(
+            f"/api/v2/projects/{project_id}/runs/{run_id}"
+        )
+        assert after_response.status_code == 200
+        after = after_response.json()
+        with restarted.websocket_connect(
+            f"/api/v2/projects/{project_id}/runs/{run_id}/events"
+            f"?after_sequence={resume_cursor}"
+        ) as websocket:
+            resumed: list[dict[str, Any]] = []
+            try:
+                while True:
+                    resumed.append(websocket.receive_json())
+            except WebSocketDisconnect as closed:
+                assert closed.code == 1000
+
+    assert after == before
+    resumed_facts = [
+        message
+        for message in resumed
+        if message["event"]["type"] not in {
+            "replay_started",
+            "replay_complete",
+        }
+    ]
+    expected_sequences = {
+        event["sequence"]
+        for event in before_events
+        if event["sequence"] > before_events[3]["sequence"]
+    }
+    assert {event["sequence"] for event in resumed_facts} == expected_sequences
+    assert len(resumed_facts) == len(expected_sequences)
+
+
+def test_running_event_reconnect_switches_from_replay_to_live_without_loss(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    entered = threading.Event()
+    release = threading.Event()
+    monkeypatch.setenv(
+        "PROTEIN_WORKBENCH_PROJECT_ROOT",
+        str(tmp_path / "projects"),
+    )
+    monkeypatch.setenv("PROTEIN_WORKBENCH_RUN_ROOT", str(tmp_path / "runs"))
+    monkeypatch.setenv(
+        "PROTEIN_WORKBENCH_OUTPUT_ROOT",
+        str(tmp_path / "outputs"),
+    )
+    app = create_app(
+        frozen_catalog_override=_direct_catalog(
+            [],
+            execution_gate=(entered, release),
+        ),
+        v2_environment_configuration={
+            ("test.direct.local", "2.0.0"): {
+                "values": {"credential": "credential-value"},
+            }
+        },
+    )
+
+    with TestClient(app) as client:
+        project_id, compiled = _compile_one_node(client)
+        started_at = time.monotonic()
+        started = client.post(
+            f"/api/v2/projects/{project_id}/runs",
+            json={
+                "workflow_revision": 2,
+                "compile_id": compiled["compile_id"],
+                "client_request_id": "replay-live",
+            },
+        )
+        elapsed = time.monotonic() - started_at
+        assert started.status_code == 202
+        assert elapsed < 1
+        assert entered.wait(timeout=1)
+        run_id = started.json()["run_id"]
+        assert client.get(
+            f"/api/v2/projects/{project_id}/runs/{run_id}"
+        ).json()["status"] == "running"
+
+        first_delivery: list[dict[str, Any]] = []
+        with client.websocket_connect(
+            f"/api/v2/projects/{project_id}/runs/{run_id}/events"
+        ) as websocket:
+            while True:
+                message = websocket.receive_json()
+                first_delivery.append(message)
+                if message["event"]["type"] == "replay_complete":
+                    break
+        durable_first = [
+            message
+            for message in first_delivery
+            if message["event"]["type"] not in {
+                "replay_started",
+                "replay_complete",
+            }
+        ]
+        cursor = first_delivery[-1]["cursor"]
+        release.set()
+
+        with client.websocket_connect(
+            f"/api/v2/projects/{project_id}/runs/{run_id}/events"
+            f"?after_sequence={cursor}"
+        ) as websocket:
+            resumed: list[dict[str, Any]] = []
+            try:
+                while True:
+                    resumed.append(websocket.receive_json())
+            except WebSocketDisconnect as closed:
+                assert closed.code == 1000
+        durable_resumed = [
+            message
+            for message in resumed
+            if message["event"]["type"] not in {
+                "replay_started",
+                "replay_complete",
+            }
+        ]
+        projected = app.state.run_execution_v2.public_events(
+            project_id,
+            run_id,
+        )
+        projection = client.get(
+            f"/api/v2/projects/{project_id}/runs/{run_id}"
+        ).json()
+
+    delivered_sequences = [
+        event["sequence"]
+        for event in (*durable_first, *durable_resumed)
+    ]
+    assert delivered_sequences == [
+        event["sequence"]
+        for event in projected
+    ]
+    assert len(delivered_sequences) == len(set(delivered_sequences))
+    assert projection["status"] == "succeeded"
+
+
+def test_restart_reconciliation_closes_started_work_without_guessing_success(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    entered = threading.Event()
+    release = threading.Event()
+    project_root = tmp_path / "projects"
+    run_root = tmp_path / "runs"
+    output_root = tmp_path / "outputs"
+    cache_root = tmp_path / "cache"
+    monkeypatch.setenv("PROTEIN_WORKBENCH_PROJECT_ROOT", str(project_root))
+    monkeypatch.setenv("PROTEIN_WORKBENCH_RUN_ROOT", str(run_root))
+    monkeypatch.setenv("PROTEIN_WORKBENCH_OUTPUT_ROOT", str(output_root))
+    monkeypatch.setenv("PROTEIN_WORKBENCH_CACHE_ROOT", str(cache_root))
+    catalog = _direct_catalog(
+        [],
+        execution_gate=(entered, release),
+    )
+    environment = {
+        ("test.direct.local", "2.0.0"): {
+            "values": {"credential": "credential-value"},
+        }
+    }
+
+    try:
+        with TestClient(
+            create_app(
+                frozen_catalog_override=catalog,
+                v2_environment_configuration=environment,
+            )
+        ) as first:
+            project_id, compiled = _compile_one_node(first)
+            started = first.post(
+                f"/api/v2/projects/{project_id}/runs",
+                json={
+                    "workflow_revision": 2,
+                    "compile_id": compiled["compile_id"],
+                    "client_request_id": "restart-incomplete",
+                },
+            )
+            assert started.status_code == 202
+            assert entered.wait(timeout=1)
+            run_id = started.json()["run_id"]
+            before_events = first.app.state.run_execution_v2.public_events(
+                project_id,
+                run_id,
+            )
+            invocation_started = next(
+                event
+                for event in before_events
+                if event["event"]["type"] == "engine_invocation_started"
+            )
+
+        with TestClient(
+            create_app(
+                frozen_catalog_override=catalog,
+                v2_environment_configuration=environment,
+            )
+        ) as restarted:
+            projection = restarted.get(
+                f"/api/v2/projects/{project_id}/runs/{run_id}"
+            ).json()
+            reconciled_events = (
+                restarted.app.state.run_execution_v2.public_events(
+                    project_id,
+                    run_id,
+                )
+            )
+
+        with TestClient(
+            create_app(
+                frozen_catalog_override=catalog,
+                v2_environment_configuration=environment,
+            )
+        ) as restarted_again:
+            repeated_projection = restarted_again.get(
+                f"/api/v2/projects/{project_id}/runs/{run_id}"
+            ).json()
+            repeated_events = (
+                restarted_again.app.state.run_execution_v2.public_events(
+                    project_id,
+                    run_id,
+                )
+            )
+    finally:
+        release.set()
+
+    invocation_terminal = next(
+        event
+        for event in reconciled_events
+        if event["event"]["type"] == "engine_invocation_terminal"
+        and event["event"]["invocation_id"]
+        == invocation_started["event"]["invocation_id"]
+    )
+    operation_started = next(
+        event
+        for event in reconciled_events
+        if event["event"]["type"] == "operation_attempt_started"
+    )
+    operation_terminal = next(
+        event
+        for event in reconciled_events
+        if event["event"]["type"] == "operation_attempt_terminal"
+        and event["event"]["operation_attempt_id"]
+        == operation_started["event"]["operation_attempt_id"]
+    )
+    node_started = next(
+        event
+        for event in reconciled_events
+        if event["event"]["type"] == "node_attempt_started"
+    )
+    node_terminal = next(
+        event
+        for event in reconciled_events
+        if event["event"]["type"] == "node_attempt_terminal"
+        and event["event"]["node_attempt_id"]
+        == node_started["event"]["node_attempt_id"]
+    )
+    assert invocation_terminal["event"]["status"] == "outcome_unknown"
+    assert operation_terminal["event"]["status"] == "outcome_unknown"
+    assert node_terminal["event"]["status"] == "outcome_unknown"
+    assert projection["status"] == "interrupted"
+    assert projection["node_dispositions"] == [
+        {
+            "node_id": "direct",
+            "outcome": "interrupted",
+            "blocked_by": [],
+            "terminal_sequence": projection["node_dispositions"][0][
+                "terminal_sequence"
+            ],
+        }
+    ]
+    assert projection["outputs"] == []
+    assert projection["artifact_index"] == []
+    assert not any(cache_root.rglob("*"))
+    assert repeated_projection == projection
+    assert repeated_events == reconciled_events
+
+    run_dir = run_root / project_id / run_id
+    assert json.loads((run_dir / "manifest.json").read_text()) == projection
+    persisted_events = [
+        json.loads(line)
+        for line in (run_dir / "lifecycle.jsonl").read_text().splitlines()
+    ]
+    assert persisted_events == list(reconciled_events)
+
+
+def test_run_event_stream_rejects_malformed_stale_and_cross_scope_cursors(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    monkeypatch.setenv(
+        "PROTEIN_WORKBENCH_PROJECT_ROOT",
+        str(tmp_path / "projects"),
+    )
+    monkeypatch.setenv("PROTEIN_WORKBENCH_RUN_ROOT", str(tmp_path / "runs"))
+    monkeypatch.setenv(
+        "PROTEIN_WORKBENCH_OUTPUT_ROOT",
+        str(tmp_path / "outputs"),
+    )
+    environment = {
+        ("test.direct.local", "2.0.0"): {
+            "values": {"credential": "credential-value"},
+        }
+    }
+    app = create_app(
+        frozen_catalog_override=_direct_catalog([]),
+        v2_environment_configuration=environment,
+    )
+
+    with TestClient(app) as client:
+        project_a, compiled_a = _compile_one_node(client)
+        started_a = client.post(
+            f"/api/v2/projects/{project_a}/runs",
+            json={
+                "workflow_revision": 2,
+                "compile_id": compiled_a["compile_id"],
+                "client_request_id": "cursor-a",
+            },
+        ).json()
+        project_b, compiled_b = _compile_one_node(client)
+        started_b = client.post(
+            f"/api/v2/projects/{project_b}/runs",
+            json={
+                "workflow_revision": 2,
+                "compile_id": compiled_b["compile_id"],
+                "client_request_id": "cursor-b",
+            },
+        ).json()
+        cursor_a = app.state.run_execution_v2.ledger_cursor(
+            project_a,
+            started_a["run_id"],
+        )
+        stale_cursor = cursor_a[:-1] + (
+            "A" if cursor_a[-1] != "A" else "B"
+        )
+
+        cases = (
+            (
+                project_a,
+                started_a["run_id"],
+                "not-an-opaque-cursor",
+            ),
+            (
+                project_a,
+                started_a["run_id"],
+                stale_cursor,
+            ),
+            (
+                project_b,
+                started_b["run_id"],
+                cursor_a,
+            ),
+        )
+        for project_id, run_id, cursor in cases:
+            with client.websocket_connect(
+                f"/api/v2/projects/{project_id}/runs/{run_id}/events"
+                f"?after_sequence={cursor}"
+            ) as websocket:
+                error = websocket.receive_json()
+                validate_error(error)
+                assert error["error"]["code"] == "invalid_cursor"
+                with pytest.raises(WebSocketDisconnect) as closed:
+                    websocket.receive_json()
+                assert closed.value.code == 1008
+
+
+def test_projection_failure_leaves_facts_intact_and_restart_rebuilds_outputs(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    project_root = tmp_path / "projects"
+    run_root = tmp_path / "runs"
+    output_root = tmp_path / "outputs"
+    monkeypatch.setenv("PROTEIN_WORKBENCH_PROJECT_ROOT", str(project_root))
+    monkeypatch.setenv("PROTEIN_WORKBENCH_RUN_ROOT", str(run_root))
+    monkeypatch.setenv("PROTEIN_WORKBENCH_OUTPUT_ROOT", str(output_root))
+    original_replace = run_execution_v2.replace_private_regular_file
+    fail_terminal_lifecycle = {"pending": True}
+
+    def replace_projection(root, relative_parts, payload, *, field):
+        if (
+            field == "run_lifecycle_projection"
+            and fail_terminal_lifecycle["pending"]
+            and b'"type":"run_terminal"' in payload
+        ):
+            fail_terminal_lifecycle["pending"] = False
+            raise OSError("fixture projection failure")
+        return original_replace(
+            root,
+            relative_parts,
+            payload,
+            field=field,
+        )
+
+    monkeypatch.setattr(
+        run_execution_v2,
+        "replace_private_regular_file",
+        replace_projection,
+    )
+    catalog = _direct_catalog([])
+    environment = {
+        ("test.direct.local", "2.0.0"): {
+            "values": {"credential": "credential-value"},
+        }
+    }
+    with TestClient(
+        create_app(
+            frozen_catalog_override=catalog,
+            v2_environment_configuration=environment,
+        )
+    ) as client:
+        project_id, compiled = _compile_one_node(client)
+        started = client.post(
+            f"/api/v2/projects/{project_id}/runs",
+            json={
+                "workflow_revision": 2,
+                "compile_id": compiled["compile_id"],
+                "client_request_id": "projection-failure",
+            },
+        ).json()
+        run_id = started["run_id"]
+        projection = client.get(
+            f"/api/v2/projects/{project_id}/runs/{run_id}"
+        ).json()
+        assert projection["status"] == "succeeded"
+    ledger_paths = sorted(
+        (run_root / project_id / run_id / "ledger").glob("*.json")
+    )
+    before_restart = [path.read_bytes() for path in ledger_paths]
+    assert fail_terminal_lifecycle["pending"] is False
+
+    with TestClient(
+        create_app(
+            frozen_catalog_override=catalog,
+            v2_environment_configuration=environment,
+        )
+    ) as restarted:
+        rebuilt = restarted.get(
+            f"/api/v2/projects/{project_id}/runs/{run_id}"
+        ).json()
+        events = restarted.app.state.run_execution_v2.public_events(
+            project_id,
+            run_id,
+        )
+
+    assert rebuilt == projection
+    assert events[-1]["event"] == {
+        "type": "run_terminal",
+        "status": "succeeded",
+    }
+    assert [path.read_bytes() for path in ledger_paths] == before_restart
+    run_dir = run_root / project_id / run_id
+    assert json.loads((run_dir / "manifest.json").read_text()) == rebuilt
+    assert [
+        json.loads(line)
+        for line in (run_dir / "lifecycle.jsonl").read_text().splitlines()
+    ] == list(events)
+
+
+@pytest.mark.parametrize(
+    ("blocked_fact_type", "started_type", "terminal_type"),
+    (
+        (
+            "operation_attempt_started",
+            "node_attempt_started",
+            "node_attempt_terminal",
+        ),
+        (
+            "engine_invocation_started",
+            "operation_attempt_started",
+            "operation_attempt_terminal",
+        ),
+        (
+            "node_attempt_terminal",
+            "node_attempt_started",
+            "node_attempt_terminal",
+        ),
+    ),
+)
+def test_restart_reconciliation_closes_each_started_outer_attempt(
+    tmp_path,
+    monkeypatch,
+    blocked_fact_type: str,
+    started_type: str,
+    terminal_type: str,
+) -> None:
+    entered = threading.Event()
+    paused = threading.Event()
+    release = threading.Event()
+    original_write = run_execution_v2.write_private_new_file
+
+    def pause_before_next_attempt(root, relative_parts, payload, *, field):
+        if (
+            field == "run_ledger"
+            and json.loads(payload)["fact_type"] == blocked_fact_type
+            and not paused.is_set()
+            and not release.is_set()
+        ):
+            paused.set()
+            entered.set()
+            if not release.wait(timeout=5):
+                raise TimeoutError("fixture restart gate timed out")
+        return original_write(
+            root,
+            relative_parts,
+            payload,
+            field=field,
+        )
+
+    monkeypatch.setattr(
+        run_execution_v2,
+        "write_private_new_file",
+        pause_before_next_attempt,
+    )
+    project_root = tmp_path / "projects"
+    run_root = tmp_path / "runs"
+    monkeypatch.setenv("PROTEIN_WORKBENCH_PROJECT_ROOT", str(project_root))
+    monkeypatch.setenv("PROTEIN_WORKBENCH_RUN_ROOT", str(run_root))
+    monkeypatch.setenv(
+        "PROTEIN_WORKBENCH_OUTPUT_ROOT",
+        str(tmp_path / "outputs"),
+    )
+    catalog = _direct_catalog([])
+    environment = {
+        ("test.direct.local", "2.0.0"): {
+            "values": {"credential": "credential-value"},
+        }
+    }
+
+    try:
+        with TestClient(
+            create_app(
+                frozen_catalog_override=catalog,
+                v2_environment_configuration=environment,
+            )
+        ) as first:
+            project_id, compiled = _compile_one_node(first)
+            started = first.post(
+                f"/api/v2/projects/{project_id}/runs",
+                json={
+                    "workflow_revision": 2,
+                    "compile_id": compiled["compile_id"],
+                    "client_request_id": blocked_fact_type,
+                },
+            )
+            assert started.status_code == 202
+            assert entered.wait(timeout=1)
+            run_id = started.json()["run_id"]
+
+        with TestClient(
+            create_app(
+                frozen_catalog_override=catalog,
+                v2_environment_configuration=environment,
+            )
+        ) as restarted:
+            projection = restarted.get(
+                f"/api/v2/projects/{project_id}/runs/{run_id}"
+            ).json()
+            events = restarted.app.state.run_execution_v2.public_events(
+                project_id,
+                run_id,
+            )
+    finally:
+        release.set()
+
+    started_event = next(
+        event["event"]
+        for event in events
+        if event["event"]["type"] == started_type
+    )
+    identity_field = {
+        "node_attempt_started": "node_attempt_id",
+        "operation_attempt_started": "operation_attempt_id",
+    }[started_type]
+    terminal_event = next(
+        event["event"]
+        for event in events
+        if event["event"]["type"] == terminal_type
+        and event["event"][identity_field] == started_event[identity_field]
+    )
+    assert terminal_event["status"] == "interrupted"
+    assert projection["status"] == "interrupted"
+    assert projection["node_dispositions"][0]["outcome"] == "interrupted"
+    assert projection["outputs"] == []
+
+
+def test_restart_reconciliation_disposes_every_plan_node_by_direct_cause(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    entered = threading.Event()
+    release = threading.Event()
+    project_root = tmp_path / "projects"
+    run_root = tmp_path / "runs"
+    monkeypatch.setenv("PROTEIN_WORKBENCH_PROJECT_ROOT", str(project_root))
+    monkeypatch.setenv("PROTEIN_WORKBENCH_RUN_ROOT", str(run_root))
+    monkeypatch.setenv(
+        "PROTEIN_WORKBENCH_OUTPUT_ROOT",
+        str(tmp_path / "outputs"),
+    )
+    catalog = _pipeline_catalog(
+        [],
+        execution_gates={"failing": (entered, release)},
+    )
+
+    try:
+        with TestClient(
+            create_app(frozen_catalog_override=catalog)
+        ) as first:
+            project_id, compiled = _compile_branching_pipeline(first)
+            started = first.post(
+                f"/api/v2/projects/{project_id}/runs",
+                json={
+                    "workflow_revision": 2,
+                    "compile_id": compiled["compile_id"],
+                    "client_request_id": "restart-branching",
+                },
+            )
+            assert started.status_code == 202
+            assert entered.wait(timeout=1)
+            run_id = started.json()["run_id"]
+
+        with TestClient(
+            create_app(frozen_catalog_override=catalog)
+        ) as restarted:
+            projection = restarted.get(
+                f"/api/v2/projects/{project_id}/runs/{run_id}"
+            ).json()
+    finally:
+        release.set()
+
+    dispositions = {
+        item["node_id"]: item
+        for item in projection["node_dispositions"]
+    }
+    assert set(dispositions) == {
+        "failing",
+        "independent",
+        "blocked",
+        "successful",
+    }
+    assert dispositions["failing"]["outcome"] == "interrupted"
+    assert dispositions["independent"]["outcome"] == "interrupted"
+    assert dispositions["blocked"]["blocked_by"] == ["failing"]
+    assert dispositions["successful"]["blocked_by"] == ["independent"]
+    assert projection["status"] == "interrupted"

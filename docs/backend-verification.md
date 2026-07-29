@@ -35,7 +35,7 @@ marker expression.
 | --- | --- | --- |
 | Routine backend regression | `.venv/bin/python scripts/verify_backend.py routine` | Fast deterministic tests only; excludes acceptance, remote providers, local providers, heavy models, and intentionally red reproductions. |
 | Deterministic backend acceptance | `.venv/bin/python scripts/verify_backend.py deterministic-acceptance` | Runs the canonical provider-fixture Workflow and failure variants through a real backend process using only REST, run-scoped WebSocket, manifest, Cache, and artifact APIs. |
-| Installed backend artifact | `.venv/bin/python scripts/verify_backend.py installed-package` | Builds wheel and sdist, checks required YAML and canonical assets, installs the wheel with dependencies into a brand-new venv, then discovers all 45 Modules and starts the API from outside the source checkout. |
+| Installed backend artifact | `.venv/bin/python scripts/verify_backend.py installed-package` | Builds wheel and sdist, checks required YAML and canonical assets, installs the wheel with dependencies into a brand-new venv, then discovers all 45 Modules, starts the API outside the source checkout, and proves durable v2 Run replay and conservative restart reconciliation. |
 | Scientific reproduction | `.venv/bin/python scripts/verify_backend.py scientific-repro` | Runs the deterministic SCI-001 reproduction and confirms that legal amino-acid symbols reach the ESM3 boundary unchanged. |
 | Post-review repair findings | `.venv/bin/python scripts/verify_backend.py repair-findings` | Intentionally red cumulative gate for the four independently confirmed post-handoff findings. It must report exactly the shifted final secondary-structure layout, cross-run sequence-export path reuse, repeated SimpleFold staging collisions, and incomplete public readiness/call evidence until their repair tickets land. |
 | Mocked Workflow | `.venv/bin/python scripts/verify_backend.py mocked-workflow` | Runs the current deterministic 3GB1 Workflow tests with provider boundaries replaced by fixtures. |
@@ -200,6 +200,10 @@ Run the focused source contract and the isolated source-versus-wheel gate with:
 The installed-package gate checks the bundle resource in both wheel and sdist,
 loads it from outside the source checkout, compares canonical bytes and digest
 to the source result, and retrieves the same bytes from the installed backend.
+It also kills that backend during an actual Engine Invocation, restarts it
+against the same private storage roots, and verifies cursor-exclusive replay,
+conservative outcome-unknown/interrupted closure, empty outputs and Cache, and
+idempotent projection and terminal-stream recovery after a second restart.
 
 The first v2 Catalog slice is available from `GET /api/v2/catalog`. It publishes
 the exact `2.0.0` nominal Port Type contracts used by the backend, including
