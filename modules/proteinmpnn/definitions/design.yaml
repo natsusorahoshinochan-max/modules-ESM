@@ -78,4 +78,3 @@ node_parameters:
     minimum: 0
     maximum: 10
     default: 0
-

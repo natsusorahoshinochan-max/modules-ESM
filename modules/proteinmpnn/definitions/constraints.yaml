@@ -117,4 +117,3 @@ node_parameters:
           field_scope: scientific
           scientific_meaning: Finite additive ProteinMPNN sampling-logit bias.
           type: number
-
