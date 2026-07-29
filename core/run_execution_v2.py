@@ -13,6 +13,7 @@ import json
 import os
 from pathlib import Path
 import re
+import signal
 import stat
 import threading
 from types import MappingProxyType
@@ -30,6 +31,7 @@ from core.port_types import (
     canonical_json_bytes,
     canonical_sha256,
 )
+from core.process_control import signal_process_group
 from core.project import ProjectManager
 from core.run_manifest import sanitize_public_value
 from core.storage import (
@@ -41,7 +43,12 @@ from core.storage import (
     write_private_new_file,
 )
 from core.workflow_authoring_v2 import WorkflowAuthoringService
-from core.workflow_v2 import CompiledWorkflow, ExecutionPlan, ExecutionPlanNode
+from core.workflow_v2 import (
+    CompiledWorkflow,
+    ExecutionPlan,
+    ExecutionPlanNode,
+    parse_workflow_document,
+)
 
 
 READINESS_ATTESTATION_NAMESPACE = (
@@ -382,6 +389,65 @@ class ReadinessResult:
     reusable_proof: ReusableReadinessProof | None = None
 
 
+class _CancellationControl:
+    """Thread-safe owner of active process groups for one Run."""
+
+    def __init__(self) -> None:
+        self._condition = threading.Condition(threading.RLock())
+        self._requested = False
+        self._next_registration = 0
+        self._process_groups: dict[
+            int,
+            tuple[int, Callable[[], None] | None],
+        ] = {}
+
+    @property
+    def requested(self) -> bool:
+        with self._condition:
+            return self._requested
+
+    def register_process_group(
+        self,
+        process_group: int,
+        *,
+        fallback: Callable[[], None] | None,
+    ) -> int:
+        if type(process_group) is not int:
+            raise ValueError("Process-group identity must be an integer")
+        with self._condition:
+            self._next_registration += 1
+            registration = self._next_registration
+            if not self._requested:
+                self._process_groups[registration] = (
+                    process_group,
+                    fallback,
+                )
+                return registration
+        signal_process_group(
+            process_group,
+            signal.SIGTERM,
+            fallback=fallback,
+        )
+        return registration
+
+    def unregister_process_group(self, registration: int) -> None:
+        with self._condition:
+            self._process_groups.pop(registration, None)
+
+    def request(self) -> None:
+        with self._condition:
+            if self._requested:
+                return
+            self._requested = True
+            active = tuple(self._process_groups.values())
+        for process_group, fallback in active:
+            signal_process_group(
+                process_group,
+                signal.SIGTERM,
+                fallback=fallback,
+            )
+
+
 @dataclass(frozen=True, slots=True)
 class RunResources:
     """Project/Run-contained resources available to one lazy direct factory."""
@@ -391,6 +457,11 @@ class RunResources:
     node_id: str
     _projects: ProjectManager = field(repr=False, compare=False)
     _invocation_recorder: "_OperationInvocationRecorder | None" = field(
+        default=None,
+        repr=False,
+        compare=False,
+    )
+    _cancellation_control: "_CancellationControl | None" = field(
         default=None,
         repr=False,
         compare=False,
@@ -431,6 +502,25 @@ class RunResources:
             self.node_id,
         )
         context.cleanup_temporary_work()
+
+    @contextmanager
+    def cancellable_process_group(
+        self,
+        process_group: int,
+        *,
+        fallback: Callable[[], None] | None = None,
+    ):
+        """Register one isolated process group for Run cancellation."""
+        if self._cancellation_control is None:
+            raise RuntimeError("Run cancellation control is unavailable")
+        registration = self._cancellation_control.register_process_group(
+            process_group,
+            fallback=fallback,
+        )
+        try:
+            yield
+        finally:
+            self._cancellation_control.unregister_process_group(registration)
 
     @contextmanager
     def engine_invocation(
@@ -552,6 +642,7 @@ class _RunEvidenceLedger:
         self._run_admitted = False
         self._run_started = False
         self._run_terminal = False
+        self._cancellation_sequence: int | None = None
         self._restart_reconciled = False
         self._condition = threading.Condition(threading.RLock())
         self._projection_error: BaseException | None = None
@@ -575,6 +666,11 @@ class _RunEvidenceLedger:
     def started(self) -> bool:
         with self._condition:
             return self._run_started
+
+    @property
+    def cancellation_requested(self) -> bool:
+        with self._condition:
+            return self._cancellation_sequence is not None
 
     @property
     def plan_nodes(self) -> tuple[_PlanNodeEvidence, ...]:
@@ -687,6 +783,13 @@ class _RunEvidenceLedger:
             return
         if fact_type == "run_started":
             if not self._run_admitted or self._run_started:
+                raise self._causal_error()
+            return
+        if fact_type == "cancellation_requested":
+            if (
+                not self._run_started
+                or self._cancellation_sequence is not None
+            ):
                 raise self._causal_error()
             return
         if fact_type == "restart_reconciliation_started":
@@ -825,13 +928,23 @@ class _RunEvidenceLedger:
                     payload["resolution"] == "cache_replayed"
                     and (
                         child_operations
-                        or attempt["node_id"] not in self._outputs_published
+                        or (
+                            attempt["node_id"] not in self._outputs_published
+                            and not (
+                                self._cancellation_sequence is not None
+                                and payload["status"] == "cancelled"
+                            )
+                        )
                         or (
                             payload["status"] != "succeeded"
                             and not (
                                 self._restart_reconciled
                                 and payload["status"]
                                 in {"interrupted", "outcome_unknown"}
+                            )
+                            and not (
+                                self._cancellation_sequence is not None
+                                and payload["status"] == "cancelled"
                             )
                         )
                     )
@@ -850,6 +963,10 @@ class _RunEvidenceLedger:
                         self._restart_reconciled
                         and payload["status"]
                         in {"interrupted", "outcome_unknown"}
+                    )
+                    and not (
+                        self._cancellation_sequence is not None
+                        and payload["status"] == "cancelled"
                     )
                 )
             ):
@@ -953,7 +1070,7 @@ class _RunEvidenceLedger:
                         "plan_nodes",
                     }
                 ),
-                frozenset(),
+                frozenset({"derived_from"}),
             ),
             "availability_bound": (
                 frozenset(
@@ -982,6 +1099,10 @@ class _RunEvidenceLedger:
                 frozenset(),
             ),
             "run_started": (frozenset({"started_at"}), frozenset()),
+            "cancellation_requested": (
+                frozenset({"requested_at"}),
+                frozenset(),
+            ),
             "restart_reconciliation_started": (
                 frozenset({"restarted_at"}),
                 frozenset(),
@@ -1077,6 +1198,30 @@ class _RunEvidenceLedger:
                 or any(not valid_plan_node(item) for item in plan_nodes)
             ):
                 raise self._causal_error()
+            derived_from = payload.get("derived_from")
+            if derived_from is not None and (
+                not isinstance(derived_from, Mapping)
+                or set(derived_from)
+                != {
+                    "source_run_id",
+                    "policy",
+                    "selected_node_ids",
+                    "forced_node_ids",
+                }
+                or derived_from["policy"]
+                not in {"retry_failed", "force_selected"}
+                or not isinstance(derived_from["source_run_id"], str)
+                or not isinstance(derived_from["selected_node_ids"], list)
+                or not isinstance(derived_from["forced_node_ids"], list)
+                or not all(
+                    isinstance(node_id, str)
+                    for node_id in (
+                        *derived_from["selected_node_ids"],
+                        *derived_from["forced_node_ids"],
+                    )
+                )
+            ):
+                raise self._causal_error()
         if (
             fact_type.endswith("_terminal")
             and fact_type != "run_terminal"
@@ -1101,6 +1246,8 @@ class _RunEvidenceLedger:
             self._run_admitted = True
         elif fact_type == "run_started":
             self._run_started = True
+        elif fact_type == "cancellation_requested":
+            self._cancellation_sequence = len(self._facts)
         elif fact_type == "restart_reconciliation_started":
             self._restart_reconciled = True
         elif fact_type == "node_attempt_started":
@@ -1200,7 +1347,55 @@ class _RunEvidenceLedger:
         }
         if terminal_sequence is not None:
             projection["terminal_sequence"] = terminal_sequence
+        derived_from = scope.get("derived_from")
+        if isinstance(derived_from, Mapping):
+            projection["derived_from_run_id"] = derived_from["source_run_id"]
         return projection
+
+    def request_cancellation(
+        self,
+        after_cursor: str | None,
+    ) -> dict[str, Any]:
+        """Persist one cancellation decision under the Ledger ordering lock."""
+        observed_sequence = self.sequence_for_cursor(after_cursor)
+        with self._condition:
+            if self._cancellation_sequence is not None:
+                decision_sequence = self._cancellation_sequence
+                return {
+                    "outcome": "already_requested",
+                    "decision_sequence": decision_sequence,
+                    "cursor": self._cursor_at(decision_sequence),
+                }
+            if self._run_terminal:
+                terminal_sequence = len(self._facts)
+                return {
+                    "outcome": (
+                        "completed_before_cancel"
+                        if (
+                            after_cursor is not None
+                            and observed_sequence < terminal_sequence
+                        )
+                        else "already_terminal"
+                    ),
+                    "decision_sequence": terminal_sequence,
+                    "cursor": self._cursor_at(terminal_sequence),
+                }
+            if set(self._dispositions) == set(self._plan_nodes):
+                decision_sequence = len(self._facts)
+                return {
+                    "outcome": "completed_before_cancel",
+                    "decision_sequence": decision_sequence,
+                    "cursor": self._cursor_at(decision_sequence),
+                }
+            fact = self.append(
+                "cancellation_requested",
+                {"requested_at": run_timestamp()},
+            )
+            return {
+                "outcome": "cancellation_requested",
+                "decision_sequence": fact["sequence"],
+                "cursor": self._cursor_at(fact["sequence"]),
+            }
 
     def projection(self) -> dict[str, Any]:
         with self._condition:
@@ -1321,6 +1516,32 @@ class _RunEvidenceLedger:
                     break
             self._condition.notify_all()
             return json.loads(json.dumps(fact))
+
+    def append_terminal_from_success(
+        self,
+        fact_type: str,
+        identity: Mapping[str, Any],
+    ) -> str:
+        """Order successful completion against cancellation atomically."""
+        with self._condition:
+            status = (
+                "cancelled"
+                if self._cancellation_sequence is not None
+                else "succeeded"
+            )
+            self.append(fact_type, {**identity, "status": status})
+            return status
+
+    def append_outputs_if_active(
+        self,
+        payload: Mapping[str, Any],
+    ) -> bool:
+        """Publish typed outputs only when cancellation has not won ordering."""
+        with self._condition:
+            if self._cancellation_sequence is not None:
+                return False
+            self.append("outputs_published", payload)
+            return True
 
     def load_fact(self, fact: Mapping[str, Any], encoded: bytes) -> None:
         with self._condition:
@@ -1566,7 +1787,9 @@ class _OperationInvocationRecorder:
             yield invocation_id
         except BaseException as error:
             terminal_status = (
-                error.status
+                "cancelled"
+                if self.ledger.cancellation_requested
+                else error.status
                 if isinstance(error, ExecutionTermination)
                 else "failed"
             )
@@ -1580,13 +1803,14 @@ class _OperationInvocationRecorder:
             )
             raise
         else:
-            self.ledger.append(
+            terminal_status = self.ledger.append_terminal_from_success(
                 "engine_invocation_terminal",
                 {
                     "invocation_id": invocation_id,
-                    "status": "succeeded",
                 },
             )
+            if terminal_status == "cancelled":
+                raise ExecutionTermination("cancelled")
 
 
 @dataclass(slots=True)
@@ -1594,6 +1818,9 @@ class _RunRecord:
     compiled: CompiledWorkflow | None
     ledger: _RunEvidenceLedger
     artifacts: dict[str, tuple[dict[str, Any], tuple[str, ...]]]
+    cancellation: _CancellationControl = field(
+        default_factory=_CancellationControl,
+    )
     finished: threading.Event = field(default_factory=threading.Event)
     execution_error: BaseException | None = None
 
@@ -2480,6 +2707,8 @@ class V2RunService:
         ]
         | None = None,
         _before_execute: Callable[[], None] | None = None,
+        _derived_from: Mapping[str, Any] | None = None,
+        _cache_bypass_nodes: frozenset[str] = frozenset(),
     ) -> dict[str, Any]:
         del client_request_id
         compiled = self._authoring.require_compiled(
@@ -2521,26 +2750,29 @@ class V2RunService:
                 "Required Run evidence workspace is unavailable",
                 details={"last_durable_cursor": run_cursor(0)},
             ) from error
+        scope_payload: dict[str, Any] = {
+            "project_id": project_id,
+            "run_id": run_id,
+            "workflow_revision": workflow_revision,
+            "workflow_digest": plan.workflow_digest,
+            "contract_lock_digest": plan.contract_lock_digest,
+            "compile_id": compile_id,
+            "execution_plan_digest": plan.execution_plan_digest,
+            "catalog_contract_digest": plan.catalog_contract_digest,
+            "resolved_contracts": [
+                entry.to_public()
+                for entry in plan.resolved_contracts
+            ],
+            "plan_nodes": [
+                node.to_dict()
+                for node in plan_evidence
+            ],
+        }
+        if _derived_from is not None:
+            scope_payload["derived_from"] = dict(_derived_from)
         ledger.append(
             "run_scope_bound",
-            {
-                "project_id": project_id,
-                "run_id": run_id,
-                "workflow_revision": workflow_revision,
-                "workflow_digest": plan.workflow_digest,
-                "contract_lock_digest": plan.contract_lock_digest,
-                "compile_id": compile_id,
-                "execution_plan_digest": plan.execution_plan_digest,
-                "catalog_contract_digest": plan.catalog_contract_digest,
-                "resolved_contracts": [
-                    entry.to_public()
-                    for entry in plan.resolved_contracts
-                ],
-                "plan_nodes": [
-                    node.to_dict()
-                    for node in plan_evidence
-                ],
-            },
+            scope_payload,
         )
         distinct: dict[tuple[str, str], ExecutionPlanNode] = {}
         for node in plan.nodes:
@@ -2607,6 +2839,17 @@ class V2RunService:
         values: dict[tuple[str, str], list[Any]] = {}
         disposition_outcomes: dict[str, str] = {}
         for node in plan.nodes:
+            if ledger.cancellation_requested:
+                ledger.append(
+                    "node_disposition",
+                    {
+                        "node_id": node.node_id,
+                        "outcome": "cancelled",
+                        "blocked_by": [],
+                    },
+                )
+                disposition_outcomes[node.node_id] = "cancelled"
+                continue
             blocked_by = self._required_input_blockers(
                 plan,
                 node,
@@ -2634,7 +2877,10 @@ class V2RunService:
                 tuple[str, str],
                 list[Any],
             ] | None = None
-            if binding_contract.descriptor.get("cacheable") is True:
+            if (
+                binding_contract.descriptor.get("cacheable") is True
+                and node.node_id not in _cache_bypass_nodes
+            ):
                 try:
                     replayed_outputs = self._result_replay_source.lookup(
                         project_id=project_id,
@@ -2660,6 +2906,17 @@ class V2RunService:
                     replayed_published = None
                     replayed_runtime = None
             if replayed_published is not None and replayed_runtime is not None:
+                if ledger.cancellation_requested:
+                    ledger.append(
+                        "node_disposition",
+                        {
+                            "node_id": node.node_id,
+                            "outcome": "cancelled",
+                            "blocked_by": [],
+                        },
+                    )
+                    disposition_outcomes[node.node_id] = "cancelled"
+                    continue
                 ledger.append(
                     "node_attempt_started",
                     {
@@ -2667,22 +2924,49 @@ class V2RunService:
                         "node_attempt_id": node_attempt_id,
                     },
                 )
-                ledger.append(
-                    "outputs_published",
+                if not ledger.append_outputs_if_active(
                     {
                         "node_id": node.node_id,
                         "outputs": replayed_published,
                         "artifacts": [],
                     },
-                )
-                ledger.append(
+                ):
+                    ledger.append(
+                        "node_attempt_terminal",
+                        {
+                            "node_attempt_id": node_attempt_id,
+                            "status": "cancelled",
+                            "resolution": "cache_replayed",
+                        },
+                    )
+                    ledger.append(
+                        "node_disposition",
+                        {
+                            "node_id": node.node_id,
+                            "outcome": "cancelled",
+                            "blocked_by": [],
+                        },
+                    )
+                    disposition_outcomes[node.node_id] = "cancelled"
+                    continue
+                node_status = ledger.append_terminal_from_success(
                     "node_attempt_terminal",
                     {
                         "node_attempt_id": node_attempt_id,
-                        "status": "succeeded",
                         "resolution": "cache_replayed",
                     },
                 )
+                if node_status == "cancelled":
+                    ledger.append(
+                        "node_disposition",
+                        {
+                            "node_id": node.node_id,
+                            "outcome": "cancelled",
+                            "blocked_by": [],
+                        },
+                    )
+                    disposition_outcomes[node.node_id] = "cancelled"
+                    continue
                 ledger.append(
                     "node_disposition",
                     {
@@ -2705,6 +2989,7 @@ class V2RunService:
                     operation_attempt_id=operation_attempt_id,
                     default_engine_identity=node.method.contract_digest,
                 ),
+                record.cancellation,
             )
             body_error: BaseException | None = None
             implementation: Any | None = None
@@ -2743,6 +3028,25 @@ class V2RunService:
                 continue
             except BaseException as error:
                 body_error = error
+            if ledger.cancellation_requested:
+                try:
+                    resources.cleanup_temporary_work()
+                except BaseException as cleanup_error:
+                    if body_error is not None:
+                        body_error.add_note(
+                            "Run workspace cleanup also failed: "
+                            f"{type(cleanup_error).__name__}"
+                        )
+                ledger.append(
+                    "node_disposition",
+                    {
+                        "node_id": node.node_id,
+                        "outcome": "cancelled",
+                        "blocked_by": [],
+                    },
+                )
+                disposition_outcomes[node.node_id] = "cancelled"
+                continue
             ledger.append(
                 "node_attempt_started",
                 {
@@ -2773,6 +3077,8 @@ class V2RunService:
                     node_parameters=dict(node.node_parameters),
                     binding_parameters=dict(node.binding_parameters),
                 )
+                if ledger.cancellation_requested:
+                    raise ExecutionTermination("cancelled")
                 published, pending_runtime = self._validate_outputs(
                     node,
                     raw_outputs,
@@ -2793,6 +3099,8 @@ class V2RunService:
                         for artifact in all_artifacts
                     ),
                 )
+                if ledger.cancellation_requested:
+                    raise ExecutionTermination("cancelled")
             except BaseException as error:
                 body_error = error
             finally:
@@ -2813,7 +3121,9 @@ class V2RunService:
                 ):
                     raise body_error
                 terminal_status = (
-                    body_error.status
+                    "cancelled"
+                    if ledger.cancellation_requested
+                    else body_error.status
                     if isinstance(body_error, ExecutionTermination)
                     else "failed"
                 )
@@ -2857,32 +3167,78 @@ class V2RunService:
                 )
                 disposition_outcomes[node.node_id] = disposition_outcome
                 continue
-            ledger.append(
+            operation_status = ledger.append_terminal_from_success(
                 "operation_attempt_terminal",
                 {
                     "operation_attempt_id": operation_attempt_id,
-                    "status": "succeeded",
                 },
             )
-            ledger.append(
-                "outputs_published",
+            if operation_status == "cancelled":
+                ledger.append(
+                    "node_attempt_terminal",
+                    {
+                        "node_attempt_id": node_attempt_id,
+                        "status": "cancelled",
+                        "resolution": "executed",
+                    },
+                )
+                ledger.append(
+                    "node_disposition",
+                    {
+                        "node_id": node.node_id,
+                        "outcome": "cancelled",
+                        "blocked_by": [],
+                    },
+                )
+                disposition_outcomes[node.node_id] = "cancelled"
+                continue
+            published_outputs = ledger.append_outputs_if_active(
                 {
                     "node_id": node.node_id,
                     "outputs": pending_typed_outputs,
                     "artifacts": pending_artifacts,
                 },
             )
-            values.update(pending_runtime)
-            all_artifacts.extend(pending_artifacts)
-            artifact_records.update(pending_artifact_records)
-            ledger.append(
+            if not published_outputs:
+                ledger.append(
+                    "node_attempt_terminal",
+                    {
+                        "node_attempt_id": node_attempt_id,
+                        "status": "cancelled",
+                        "resolution": "executed",
+                    },
+                )
+                ledger.append(
+                    "node_disposition",
+                    {
+                        "node_id": node.node_id,
+                        "outcome": "cancelled",
+                        "blocked_by": [],
+                    },
+                )
+                disposition_outcomes[node.node_id] = "cancelled"
+                continue
+            node_status = ledger.append_terminal_from_success(
                 "node_attempt_terminal",
                 {
                     "node_attempt_id": node_attempt_id,
-                    "status": "succeeded",
                     "resolution": "executed",
                 },
             )
+            if node_status == "cancelled":
+                ledger.append(
+                    "node_disposition",
+                    {
+                        "node_id": node.node_id,
+                        "outcome": "cancelled",
+                        "blocked_by": [],
+                    },
+                )
+                disposition_outcomes[node.node_id] = "cancelled"
+                continue
+            values.update(pending_runtime)
+            all_artifacts.extend(pending_artifacts)
+            artifact_records.update(pending_artifact_records)
             ledger.append(
                 "node_disposition",
                 {
@@ -2913,6 +3269,8 @@ class V2RunService:
         workflow_revision: int,
         compile_id: str,
         client_request_id: str,
+        _derived_from: Mapping[str, Any] | None = None,
+        _cache_bypass_nodes: frozenset[str] = frozenset(),
     ) -> dict[str, Any]:
         """Admit synchronously, then execute without blocking event delivery."""
         admitted = threading.Event()
@@ -2939,6 +3297,8 @@ class V2RunService:
                     client_request_id=client_request_id,
                     _on_admitted=on_admitted,
                     _before_execute=acquire_execution_slot,
+                    _derived_from=_derived_from,
+                    _cache_bypass_nodes=_cache_bypass_nodes,
                 )
             except BaseException as error:
                 state["error"] = error
@@ -2992,6 +3352,202 @@ class V2RunService:
         if record.finished.is_set() and record.execution_error is not None:
             raise record.execution_error
         return state["receipt"]
+
+    @staticmethod
+    def _forced_node_closure(
+        plan: ExecutionPlan,
+        selected_node_ids: frozenset[str],
+    ) -> frozenset[str]:
+        forced = set(selected_node_ids)
+        changed = True
+        while changed:
+            changed = False
+            for edge in plan.edges:
+                if (
+                    edge.source_node_id in forced
+                    and edge.target_node_id not in forced
+                ):
+                    forced.add(edge.target_node_id)
+                    changed = True
+        return frozenset(forced)
+
+    def start_derived_background(
+        self,
+        project_id: str,
+        *,
+        source_run_id: str,
+        compile_id: str,
+        policy: str,
+        node_ids: list[str],
+        client_request_id: str,
+    ) -> dict[str, Any]:
+        """Start a new Run from one immutable terminal source reference."""
+        source = self._require_record(project_id, source_run_id)
+        source_projection = source.ledger.projection()
+        terminal_sequence = source_projection.get("terminal_sequence")
+        if terminal_sequence is None:
+            raise V2RunError(
+                "malformed_request",
+                "Start Derived Run requires a terminal source Run",
+                details={"field_path": ["source_run_id"]},
+            )
+        if compile_id != source_projection["compile_id"]:
+            raise V2RunError(
+                "contract_digest_mismatch",
+                "Start Derived Run requires the source compile identity",
+                details={
+                    "issues": [
+                        {
+                            "code": "source_compile_identity_mismatch",
+                            "severity": "error",
+                            "message": (
+                                "Derived Run compile_id must equal the "
+                                "immutable source Run compile_id"
+                            ),
+                            "field_path": ["compile_id"],
+                        }
+                    ]
+                },
+            )
+        current = self._authoring.load(project_id)
+        if (
+            current["workflow_revision"]
+            != source_projection["workflow_revision"]
+            or current["workflow_digest"]
+            != source_projection["workflow_digest"]
+        ):
+            raise V2RunError(
+                "contract_digest_mismatch",
+                "Saved Workflow no longer matches the source Run",
+                details={
+                    "issues": [
+                        {
+                            "code": "source_workflow_identity_mismatch",
+                            "severity": "error",
+                            "message": (
+                                "Derived Run requires the exact persisted "
+                                "source Workflow revision and digest"
+                            ),
+                            "field_path": ["source_run_id"],
+                        }
+                    ]
+                },
+            )
+        compiled = self._authoring.compile(
+            project_id,
+            workflow_revision=current["workflow_revision"],
+            workflow=parse_workflow_document(current["workflow"]),
+        )
+        if compiled.receipt["compile_id"] != compile_id:
+            raise V2RunError(
+                "contract_digest_mismatch",
+                "Recompiled source Workflow identity does not match",
+                details={
+                    "issues": [
+                        {
+                            "code": "source_compile_reconstruction_mismatch",
+                            "severity": "error",
+                            "message": (
+                                "The immutable source compile identity could "
+                                "not be reconstructed from the saved Workflow"
+                            ),
+                            "field_path": ["compile_id"],
+                        }
+                    ]
+                },
+            )
+        plan = compiled.execution_plan
+        plan_node_ids = tuple(node.node_id for node in plan.nodes)
+        selected = frozenset(node_ids)
+        if (
+            not node_ids
+            or len(selected) != len(node_ids)
+            or not selected <= frozenset(plan_node_ids)
+        ):
+            raise V2RunError(
+                "compile_rejected",
+                "Derived Run selection is not a closed Plan selection",
+                details={
+                    "issues": [
+                        {
+                            "code": "invalid_derived_node_selection",
+                            "severity": "error",
+                            "message": (
+                                "node_ids must be unique Node Instances in "
+                                "the immutable source Execution Plan"
+                            ),
+                            "field_path": ["node_ids"],
+                        }
+                    ]
+                },
+            )
+        source_outcomes = {
+            disposition["node_id"]: disposition["outcome"]
+            for disposition in source_projection["node_dispositions"]
+        }
+        if policy == "retry_failed" and any(
+            source_outcomes.get(node_id) != "failed"
+            for node_id in selected
+        ):
+            raise V2RunError(
+                "compile_rejected",
+                "retry_failed may select only failed source Nodes",
+                details={
+                    "issues": [
+                        {
+                            "code": "retry_requires_failed_source_node",
+                            "severity": "error",
+                            "message": (
+                                "retry_failed node_ids must identify failed "
+                                "source Run Node Dispositions"
+                            ),
+                            "field_path": ["node_ids"],
+                        }
+                    ]
+                },
+            )
+        forced = (
+            selected
+            if policy == "retry_failed"
+            else self._forced_node_closure(plan, selected)
+        )
+        selected_in_plan_order = [
+            node_id for node_id in plan_node_ids if node_id in selected
+        ]
+        forced_in_plan_order = [
+            node_id for node_id in plan_node_ids if node_id in forced
+        ]
+        return self.start_background(
+            project_id,
+            workflow_revision=source_projection["workflow_revision"],
+            compile_id=compile_id,
+            client_request_id=client_request_id,
+            _derived_from={
+                "source_run_id": source_run_id,
+                "policy": policy,
+                "selected_node_ids": selected_in_plan_order,
+                "forced_node_ids": forced_in_plan_order,
+            },
+            _cache_bypass_nodes=forced,
+        )
+
+    def cancel(
+        self,
+        project_id: str,
+        run_id: str,
+        *,
+        after_cursor: str | None,
+    ) -> dict[str, Any]:
+        """Persist cancellation before signalling active work."""
+        record = self._require_record(project_id, run_id)
+        decision = record.ledger.request_cancellation(after_cursor)
+        if decision["outcome"] == "cancellation_requested":
+            record.cancellation.request()
+        return {
+            "project_id": project_id,
+            "run_id": run_id,
+            **decision,
+        }
 
     def shutdown(self) -> None:
         """Stop admission and wait until every tracked Run writer is closed."""

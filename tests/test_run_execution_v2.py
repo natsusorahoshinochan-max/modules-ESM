@@ -67,6 +67,7 @@ def _direct_catalog(
     cacheable: bool = False,
     invocation_count: int = 1,
     execution_gate: tuple[threading.Event, threading.Event] | None = None,
+    execution_action: Any | None = None,
 ) -> FrozenCatalog:
     builtin = builtin_frozen_catalog()
     text = builtin.require_port_type("text", "2.0.0")
@@ -179,6 +180,8 @@ def _direct_catalog(
                         ):
                             if index == 0:
                                 calls.append(f"execute:{self._binding_id}")
+                                if execution_action is not None:
+                                    execution_action(self._resources)
                                 if execution_gate is not None:
                                     entered, release = execution_gate
                                     entered.set()
@@ -341,6 +344,7 @@ def _pipeline_catalog(
     terminating_source_nodes: Mapping[str, str] | None = None,
     pre_schedule_source_nodes: Mapping[str, str] | None = None,
     optional_sink_input: bool = False,
+    cacheable: bool = False,
     execution_gates: (
         Mapping[str, tuple[threading.Event, threading.Event]] | None
     ) = None,
@@ -514,7 +518,7 @@ def _pipeline_catalog(
                     "prerequisites": {},
                 },
                 "deterministic": True,
-                "cacheable": False,
+                "cacheable": cacheable,
                 "implementation_identity": {
                     "name": binding_id,
                     "factory": factory_behavior.descriptor(),

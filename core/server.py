@@ -1041,6 +1041,82 @@ def create_app(
         validate_response("start_run", 202, receipt)
         return JSONResponse(status_code=202, content=receipt)
 
+    @app.post(
+        "/api/v2/projects/{project_id}/runs/{run_id}:cancel",
+        include_in_schema=False,
+    )
+    async def public_cancel_run(
+        request: Request,
+        project_id: str,
+        run_id: str,
+        payload: Any = Body(...),
+    ) -> Any:
+        try:
+            combined = {
+                "project_id": project_id,
+                "run_id": run_id,
+                **payload,
+            }
+            validate_request("cancel_run", combined)
+            receipt = request.app.state.run_execution_v2.cancel(
+                project_id,
+                run_id,
+                after_cursor=payload.get("after_sequence"),
+            )
+        except (ProtocolValidationError, TypeError) as error:
+            return public_error_response(
+                "malformed_request",
+                str(error),
+                {"field_path": []},
+            )
+        except V2RunError as error:
+            return public_error_response(
+                error.code,
+                str(error),
+                error.details,
+            )
+        validate_response("cancel_run", 200, receipt)
+        return receipt
+
+    @app.post(
+        "/api/v2/projects/{project_id}/runs:derive",
+        include_in_schema=False,
+    )
+    async def public_start_derived_run(
+        request: Request,
+        project_id: str,
+        payload: Any = Body(...),
+    ) -> Any:
+        try:
+            combined = {"project_id": project_id, **payload}
+            validate_request("start_derived_run", combined)
+            receipt = (
+                request.app.state.run_execution_v2.start_derived_background(
+                    project_id,
+                    source_run_id=payload["source_run_id"],
+                    compile_id=payload["compile_id"],
+                    policy=payload["policy"],
+                    node_ids=payload["node_ids"],
+                    client_request_id=payload["client_request_id"],
+                )
+            )
+        except (ProtocolValidationError, TypeError) as error:
+            return public_error_response(
+                "malformed_request",
+                str(error),
+                {"field_path": []},
+            )
+        except WorkflowAuthoringError as error:
+            return authoring_error_response(error)
+        except V2RunError as error:
+            return public_error_response(
+                error.code,
+                str(error),
+                error.details,
+            )
+        validate_response("start_derived_run", 202, receipt)
+        return JSONResponse(status_code=202, content=receipt)
+
     @app.get(
         "/api/v2/projects/{project_id}/runs/{run_id}",
         include_in_schema=False,
