@@ -4,7 +4,7 @@
 
 **Blocked by:** 13 — Consolidate protein I/O.
 
-**Status:** awaiting-controller
+**Status:** completed
 
 - [x] One folding Node Definition owns the cross-Binding scientific inputs, outputs, and parameters; remote and local ESMFold2 are explicit Bindings rather than separate scientific Node Types.
 - [x] Each Binding fixes its execution route, Method, model/source identity, adapter/implementation identity, Readiness, determinism, and cacheability without a mutable `model_name`.
@@ -57,3 +57,43 @@ executor for repair before that next Ticket starts.
   `APPROVE` after the source-authoritative PAE upper bound was corrected to
   `31.75` and exercised through both public v2 routes.
 - Ticket 22 has not started.
+
+## Controller evidence
+
+Controller independently accepted the final Ticket 21 revision only after all
+Tickets 01–21 joint tests and both explicit ESMFold2 gates passed.
+
+- Previous accepted multi-ticket gate:
+  `c31027e067ea07f6df637473c4f03e3ab403cdce`.
+- Final executor revision under test:
+  `891e143ab4c4c2e891b445f9df4e62868080a6d9`.
+- Ticket-range `git diff --check` passed and the worktree was clean before
+  testing.
+- Tickets 01–21 v2 joint regression:
+  `uv run --no-sync pytest -q tests/*_v2.py` → `462 passed`.
+- Focused folding regression:
+  `uv run --no-sync pytest -q tests/test_folding_v2.py` → `13 passed`.
+- Cumulative routine gate:
+  `uv run --no-sync python scripts/verify_backend.py routine` →
+  `1147 passed, 48 deselected`; retained result
+  `verification-results/routine/20260729T194408.477525Z-38503-c9a2758f734a18f2`.
+- Deterministic acceptance:
+  `uv run --no-sync python scripts/verify_backend.py
+  deterministic-acceptance` → `10 passed, 5 deselected`; retained result
+  `verification-results/deterministic-acceptance/20260729T194825.177626Z-43980-e08280b89008c511`.
+- Installed artifact:
+  `uv run --no-sync python scripts/verify_backend.py installed-package` →
+  `3 passed`; retained result
+  `verification-results/installed-package/20260729T194825.176700Z-43981-7da2dd6b39b1d565`.
+- Local source-contract gate:
+  `uv run --no-sync python scripts/verify_backend.py
+  local-esmfold2-v2-contract` → `5 passed`; retained result
+  `verification-results/local-esmfold2-v2-contract/20260729T194825.177167Z-43979-75070462be0c21f8`.
+- Required clean-source remote provider gate:
+  `PROTEIN_WORKBENCH_APPROVED_SOURCE_REVISION=891e143ab4c4c2e891b445f9df4e62868080a6d9
+  uv run --no-sync python scripts/verify_backend.py remote-esmfold2-v2` →
+  `1 passed` with complete Biohub folding evidence; retained result
+  `verification-results/remote-esmfold2-v2/20260729T194944.157636Z-44735-733029c4a18aa5a6`.
+
+Ticket 22 may start only from the committed Controller gate containing this
+evidence.
