@@ -65,48 +65,68 @@ def test_remote_esm3_is_one_package_with_three_fixed_generation_nodes() -> None:
         ("esm3.generate_paired", "2.0.0"),
     }
 
-    for operation in ("generate_sequence", "generate_structure", "generate_paired"):
+    models = (
+        (
+            "biohub_medium",
+            "medium_2024_08",
+            "esm3-medium-2024-08",
+        ),
+        (
+            "biohub_open",
+            "open_2024_03",
+            "esm3-open-2024-03",
+        ),
+    )
+    for operation in (
+        "generate_sequence",
+        "generate_structure",
+        "generate_paired",
+    ):
         node = catalog.require_contract(
             "node_type",
             f"esm3.{operation}",
             "2.0.0",
         )
-        binding = catalog.require_contract(
-            "binding",
-            f"esm3.{operation}.biohub_medium",
-            "2.0.0",
-        )
         assert "model_name" not in node.descriptor["node_parameters"]
-        assert "model_name" not in binding.descriptor["binding_parameters"]
-        assert binding.descriptor["execution_route"] == "adapter"
-        assert binding.descriptor["method"]["contract_id"] == (
-            f"esm3.{operation}.esm3_medium_2024_08"
-        )
-        assert binding.descriptor["implementation_identity"]["model"] == (
-            "esm3-medium-2024-08"
-        )
-        assert binding.descriptor["availability_declaration"][
-            "prerequisites"
-        ]["provider_sdk"]["source_revision"] == (
-            "917af90b624535eed1e072d343c717e3ec11fef4"
-        )
-        assert binding.descriptor["readiness_declaration"][
-            "prerequisites"
-        ] == {
-            "credential": {
-                "source": "trusted_environment_configuration",
-            },
-            "endpoint": {
-                "endpoint_id": "biohub",
-                "source": "trusted_environment_configuration",
-            },
-            "provider_sdk": {
-                "name": "esm",
-                "source_revision": (
-                    "917af90b624535eed1e072d343c717e3ec11fef4"
-                ),
-            },
-        }
+        for route, method_suffix, model_name in models:
+            binding = catalog.require_contract(
+                "binding",
+                f"esm3.{operation}.{route}",
+                "2.0.0",
+            )
+            assert "model_name" not in (
+                binding.descriptor["binding_parameters"]
+            )
+            assert binding.descriptor["execution_route"] == "adapter"
+            assert binding.descriptor["method"]["contract_id"] == (
+                f"esm3.{operation}.esm3_{method_suffix}"
+            )
+            assert (
+                binding.descriptor["implementation_identity"]["model"]
+                == model_name
+            )
+            assert binding.descriptor["availability_declaration"][
+                "prerequisites"
+            ]["provider_sdk"]["source_revision"] == (
+                "917af90b624535eed1e072d343c717e3ec11fef4"
+            )
+            assert binding.descriptor["readiness_declaration"][
+                "prerequisites"
+            ] == {
+                "credential": {
+                    "source": "trusted_environment_configuration",
+                },
+                "endpoint": {
+                    "endpoint_id": "biohub",
+                    "source": "trusted_environment_configuration",
+                },
+                "provider_sdk": {
+                    "name": "esm",
+                    "source_revision": (
+                        "917af90b624535eed1e072d343c717e3ec11fef4"
+                    ),
+                },
+            }
 
 
 def test_adapter_preserves_every_representable_prompt_track_and_symbol() -> None:
@@ -242,6 +262,7 @@ def _run_generation(
     environment_overrides: dict[str, Any] | None = None,
     result_replay_source: ResultReplaySource | None = None,
     generation_parameters: dict[str, Any] | None = None,
+    binding_route: str = "biohub_medium",
 ) -> tuple[Any, dict[str, Any], tuple[dict[str, Any], ...]]:
     from modules.esm3.package import MODULE_PACKAGE as ESM3_PACKAGE
     from modules.prompt_authoring.package import (
@@ -334,7 +355,7 @@ def _run_generation(
             node_id="generate",
             node_type_id=f"esm3.{operation}",
             node_type_version="2.0.0",
-            binding_id=f"esm3.{operation}.biohub_medium",
+            binding_id=f"esm3.{operation}.{binding_route}",
             binding_version="2.0.0",
             node_parameters=resolved_generation_parameters,
             binding_parameters={},
@@ -391,10 +412,10 @@ def _run_generation(
     environment_values.update(environment_overrides or {})
     environment = EnvironmentConfiguration(
         {
-            (f"esm3.{operation}.biohub_medium", "2.0.0"): {
+            (f"esm3.{operation}.{binding_route}", "2.0.0"): {
                 "values": environment_values,
-                "safe_fingerprint": "biohub-medium-fixture-v1",
-                "invalidation_token": "biohub-medium-fixture-v1",
+                "safe_fingerprint": f"{binding_route}-fixture-v1",
+                "invalidation_token": f"{binding_route}-fixture-v1",
             }
         }
     )
@@ -450,6 +471,89 @@ def test_readiness_rejects_before_cache_lookup_or_provider_call(
     assert client.calls == []
 
 
+def test_readiness_has_no_implicit_process_credential_fallback(
+    tmp_path: Path,
+) -> None:
+    from modules.esm3.package import _ready
+
+    credential_file = tmp_path / "biohub-token"
+    credential_file.write_text("must-not-be-read\n", encoding="utf-8")
+
+    assert not _ready(
+        {
+            "endpoint_id": "biohub",
+            "credential_file": credential_file,
+        }
+    )
+
+
+def test_provider_availability_is_reobserved_without_process_cache(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import modules.esm3.package as package
+
+    validations: list[tuple[str, str]] = []
+    monkeypatch.setattr(
+        package.importlib.util,
+        "find_spec",
+        lambda name: SimpleNamespace(name=name),
+    )
+    monkeypatch.setattr(
+        package,
+        "validate_installed_provider_checkout",
+        lambda name, revision: validations.append((name, revision)),
+    )
+
+    assert package._available().is_available
+    assert package._available().is_available
+    assert validations == [
+        ("esm", package.ESM_SDK_REVISION),
+        ("esm", package.ESM_SDK_REVISION),
+    ]
+
+
+def test_open_binding_factory_receives_its_exact_model(
+    tmp_path: Path,
+) -> None:
+    created_with: list[dict[str, Any]] = []
+    client = _ProviderClient([_ProviderResponse("ACD")])
+
+    def factory(**kwargs: Any) -> _ProviderClient:
+        created_with.append(kwargs)
+        return client
+
+    catalog, projection, events = _run_generation(
+        tmp_path,
+        operation="generate_sequence",
+        client=_ProviderClient([]),
+        num_samples=1,
+        binding_route="biohub_open",
+        environment_overrides={
+            "provider_client": None,
+            "client_factory": factory,
+        },
+    )
+
+    assert projection["status"] == "succeeded"
+    output = next(
+        item
+        for item in projection["outputs"]
+        if item["node_id"] == "generate"
+        and item["output_port"] == "sequence_candidates"
+    )
+    candidates = _decode_output(catalog, output)
+    assert candidates.items[0].metadata["model"] == "esm3-open-2024-03"
+    assert len(created_with) == 1
+    assert created_with[0]["model_name"] == "esm3-open-2024-03"
+    assert created_with[0]["endpoint_id"] == "biohub"
+    assert created_with[0]["credential_handle"] is not None
+    assert any(
+        event["event"].get("engine_identity")
+        == "esm3.biohub.esm3-open-2024-03.generate_sequence"
+        for event in events
+    )
+
+
 def _run_generation_from_prompt_fixture(
     tmp_path: Path,
     *,
@@ -457,6 +561,7 @@ def _run_generation_from_prompt_fixture(
     mode: str,
     client: _ProviderClient,
     num_samples: int = 1,
+    binding_route: str = "biohub_medium",
 ) -> tuple[Any, dict[str, Any], tuple[dict[str, Any], ...]]:
     from modules.esm3.package import MODULE_PACKAGE as ESM3_PACKAGE
     from modules.prompt_authoring.package import (
@@ -494,7 +599,7 @@ def _run_generation_from_prompt_fixture(
                 node_id="generate",
                 node_type_id=f"esm3.{operation}",
                 node_type_version="2.0.0",
-                binding_id=f"esm3.{operation}.biohub_medium",
+                binding_id=f"esm3.{operation}.{binding_route}",
                 binding_version="2.0.0",
                 node_parameters={
                     "effective_seed": 1603,
@@ -529,14 +634,14 @@ def _run_generation_from_prompt_fixture(
     )
     environment = EnvironmentConfiguration(
         {
-            (f"esm3.{operation}.biohub_medium", "2.0.0"): {
+            (f"esm3.{operation}.{binding_route}", "2.0.0"): {
                 "values": {
                     "endpoint_id": "biohub",
                     "credential_handle": object(),
                     "provider_client": client,
                 },
-                "safe_fingerprint": "biohub-medium-fixture-v1",
-                "invalidation_token": "biohub-medium-fixture-v1",
+                "safe_fingerprint": f"{binding_route}-fixture-v1",
+                "invalidation_token": f"{binding_route}-fixture-v1",
             }
         }
     )
@@ -589,7 +694,7 @@ def test_coordinate_conditioned_sequence_returns_prompt_reconstruction(
     sequences = _decode_output(catalog, outputs["sequence_candidates"])
     structures = _decode_output(
         catalog,
-        outputs["reconstructed_structure_candidates"],
+        outputs["sequence_reconstruction_candidates"],
     )
     confidence = _decode_output(
         catalog,
@@ -603,6 +708,61 @@ def test_coordinate_conditioned_sequence_returns_prompt_reconstruction(
         "prompt_reconstruction"
     )
     assert len(confidence.entries) == 3
+
+
+def test_coordinate_conditioned_paired_generation_retains_reconstruction(
+    tmp_path: Path,
+) -> None:
+    import torch
+
+    response = lambda: _ProviderResponse(
+        "ACD",
+        coordinates=torch.zeros((3, 37, 3)),
+        ptm=torch.tensor(0.75),
+        plddt=torch.tensor([0.7, 0.8, 0.9]),
+        pdb_string=_three_residue_pdb(),
+    )
+    catalog, projection, _ = _run_generation_from_prompt_fixture(
+        tmp_path,
+        operation="generate_paired",
+        mode="coordinate_conditioned",
+        client=_ProviderClient([response(), response()]),
+    )
+
+    assert projection["status"] == "succeeded"
+    outputs = {
+        item["output_port"]: item
+        for item in projection["outputs"]
+        if item["node_id"] == "generate"
+    }
+    sequences = _decode_output(catalog, outputs["sequence_candidates"])
+    reconstructions = _decode_output(
+        catalog,
+        outputs["sequence_reconstruction_candidates"],
+    )
+    counterparts = _decode_output(
+        catalog,
+        outputs["structure_candidates"],
+    )
+    reconstruction_confidence = _decode_output(
+        catalog,
+        outputs[
+            "sequence_reconstruction_confidence_observations"
+        ],
+    )
+    assert len(sequences.items) == 1
+    assert len(reconstructions.items) == 1
+    assert len(counterparts.items) == 1
+    assert reconstructions.items[0].parent_ids == [
+        sequences.items[0].candidate_id
+    ]
+    assert reconstructions.items[0].metadata["classification"] == (
+        "prompt_reconstruction"
+    )
+    assert counterparts.items[0].metadata["classification"] == (
+        "sampled_structure"
+    )
+    assert len(reconstruction_confidence.entries) == 3
 
 
 def test_sequence_generation_publishes_ordered_complete_candidates(
@@ -909,18 +1069,23 @@ def test_paired_generation_publishes_ten_exact_counterparts_and_real_calls(
         for _ in range(10)
         for track in ("sequence", "structure")
     ]
-    generation_roles = [
-        event["event"]["engine_role"]
+    generation_events = [
+        event["event"]
         for event in events
         if event["event"]["type"] == "engine_invocation_started"
         and event["event"]["engine_role"]
         in {"sequence_parent", "structure_child"}
     ]
-    assert generation_roles == [
+    assert [event["engine_role"] for event in generation_events] == [
         role
         for _ in range(10)
         for role in ("sequence_parent", "structure_child")
     ]
+    for sample_index in range(10):
+        parent = generation_events[sample_index * 2]
+        child = generation_events[sample_index * 2 + 1]
+        assert "parent_invocation_id" not in parent
+        assert child["parent_invocation_id"] == parent["invocation_id"]
     terminals = [
         event["event"]
         for event in events
@@ -1050,6 +1215,73 @@ def test_remote_esm3_passes_shared_ctk_for_all_three_nodes(
             expected_observation_counts={"confidence_observations": 30},
             **common,
         ),
+        ModulePackageContractCase(
+            case_id="sequence-open",
+            node_type_id="esm3.generate_sequence",
+            binding_id="esm3.generate_sequence.biohub_open",
+            node_parameters={"effective_seed": 1603, "num_samples": 1},
+            environment_values=environment(
+                _ProviderClient([_ProviderResponse("ACD")])
+            ),
+            workflow_nodes=(source_node("unassigned"),),
+            workflow_edges=(
+                WorkflowEdge(
+                    "source",
+                    "protein_prompt",
+                    "contract-test-node",
+                    "protein_prompt",
+                ),
+            ),
+            expected_candidate_counts={"sequence_candidates": 1},
+            **common,
+        ),
+        ModulePackageContractCase(
+            case_id="structure-open",
+            node_type_id="esm3.generate_structure",
+            binding_id="esm3.generate_structure.biohub_open",
+            node_parameters={"effective_seed": 1603, "num_samples": 1},
+            environment_values=environment(
+                _ProviderClient([structure_response()])
+            ),
+            workflow_nodes=(source_node("assigned_sequence"),),
+            workflow_edges=(
+                WorkflowEdge(
+                    "source",
+                    "protein_prompt",
+                    "contract-test-node",
+                    "protein_prompt",
+                ),
+            ),
+            expected_candidate_counts={"structure_candidates": 1},
+            expected_observation_counts={"confidence_observations": 3},
+            **common,
+        ),
+        ModulePackageContractCase(
+            case_id="paired-open",
+            node_type_id="esm3.generate_paired",
+            binding_id="esm3.generate_paired.biohub_open",
+            node_parameters={"effective_seed": 1603, "num_samples": 1},
+            environment_values=environment(
+                _ProviderClient(
+                    [_ProviderResponse("ACD"), structure_response()]
+                )
+            ),
+            workflow_nodes=(source_node("unassigned"),),
+            workflow_edges=(
+                WorkflowEdge(
+                    "source",
+                    "protein_prompt",
+                    "contract-test-node",
+                    "protein_prompt",
+                ),
+            ),
+            expected_candidate_counts={
+                "sequence_candidates": 1,
+                "structure_candidates": 1,
+            },
+            expected_observation_counts={"confidence_observations": 3},
+            **common,
+        ),
     )
 
     report = verify_module_package_contract(
@@ -1063,6 +1295,9 @@ def test_remote_esm3_passes_shared_ctk_for_all_three_nodes(
     )
 
     assert [case.status for case in report.case_reports] == [
+        "succeeded",
+        "succeeded",
+        "succeeded",
         "succeeded",
         "succeeded",
         "succeeded",

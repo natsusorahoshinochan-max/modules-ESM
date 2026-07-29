@@ -18,7 +18,7 @@ outputs:
     required: true
     multiplicity: one
     scientific_meaning: Ordered complete sequence Candidates produced by sequence-track generation.
-  - name: reconstructed_structure_candidates
+  - name: sequence_reconstruction_candidates
     port_type_id: candidate.collection
     port_type_version: "2.0.0"
     required: false

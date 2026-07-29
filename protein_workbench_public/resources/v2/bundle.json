@@ -609,6 +609,9 @@
         "operation_attempt_id": {
           "$ref": "#/$defs/Identifier"
         },
+        "parent_invocation_id": {
+          "$ref": "#/$defs/Identifier"
+        },
         "type": {
           "const": "engine_invocation_started"
         }

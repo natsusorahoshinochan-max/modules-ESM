@@ -2,7 +2,7 @@ schema_version: "2.0.0"
 metric_id: structure.pae
 version: "2.0.0"
 title: Predicted aligned error
-description: Exact ESM-3 residue-pair PAE matrix in angstroms after only the documented local special-token normalization.
+description: Residue-pair predicted aligned error matrix in angstroms on the exact subject residue axis.
 value_shape: residue_pair_matrix
 unit: angstrom
 direction: lower_is_better

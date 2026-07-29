@@ -5,7 +5,6 @@ from __future__ import annotations
 from collections.abc import Mapping
 from typing import Any
 
-from core.provider_contract import BIOHUB_ESM3_MODEL
 from datatypes import (
     Candidate,
     CandidateCollection,
@@ -45,11 +44,16 @@ class ESM3GenerationImplementation:
         operation: str,
         environment: Mapping[str, Any],
         catalog: Any,
+        *,
+        model_name: str,
+        method_id: str,
     ) -> None:
         self._run_resources = run_resources
         self._operation = operation
         self._environment = environment
         self._catalog = catalog
+        self._model_name = model_name
+        self._method_id = method_id
 
     def _client(self) -> Any:
         client = self._environment.get("provider_client")
@@ -58,13 +62,14 @@ class ESM3GenerationImplementation:
         client_factory = self._environment.get("client_factory")
         if callable(client_factory):
             return client_factory(
-                model_name=BIOHUB_ESM3_MODEL,
+                model_name=self._model_name,
                 endpoint_id=self._environment["endpoint_id"],
                 credential_handle=self._environment["credential_handle"],
             )
-        from modules.esm3_adapter import create_esm3_client
-
-        return create_esm3_client(BIOHUB_ESM3_MODEL)
+        raise RuntimeError(
+            "remote ESM-3 requires an injected provider client or client "
+            "factory"
+        )
 
     @staticmethod
     def _parameters(parameters: Mapping[str, Any]) -> dict[str, Any]:
@@ -92,13 +97,15 @@ class ESM3GenerationImplementation:
         *,
         role: str,
         operation: str,
-    ) -> Any:
+        parent_invocation_id: str | None = None,
+    ) -> tuple[Any, str]:
         with self._run_resources.engine_invocation(
             engine_role=role,
             engine_identity=(
-                f"esm3.biohub.{BIOHUB_ESM3_MODEL}.{operation}"
+                f"esm3.biohub.{self._model_name}.{operation}"
             ),
-        ):
+            parent_invocation_id=parent_invocation_id,
+        ) as invocation_id:
             from modules.esm3_adapter import call_esm3_provider
 
             result = call_esm3_provider(
@@ -109,9 +116,9 @@ class ESM3GenerationImplementation:
                     "generate_sequence": "generate(track=sequence)",
                     "generate_structure": "generate(track=structure)",
                 }[operation],
-                model_name=BIOHUB_ESM3_MODEL,
+                model_name=self._model_name,
             )
-            return require_provider_protein(result, operation)
+            return require_provider_protein(result, operation), invocation_id
 
     def execute(
         self,
@@ -150,7 +157,7 @@ class ESM3GenerationImplementation:
     ) -> dict[str, Any]:
         return {
             "provider": "biohub",
-            "model": BIOHUB_ESM3_MODEL,
+            "model": self._model_name,
             "operation": operation,
             "sample_index": sample_index,
             "classification": classification,
@@ -186,7 +193,7 @@ class ESM3GenerationImplementation:
         candidates: list[Candidate] = []
         structure_responses: list[tuple[int, Any, Candidate]] = []
         for sample_index in range(parameters["num_samples"]):
-            result = self._provider_call(
+            result, _ = self._provider_call(
                 client,
                 provider_prompt,
                 config,
@@ -248,7 +255,7 @@ class ESM3GenerationImplementation:
                 reconstructed.append(structure_candidate)
                 confidence_sources.append((structure_candidate, response))
             confidence, pae = self._confidence_outputs(confidence_sources)
-            outputs["reconstructed_structure_candidates"] = CandidateCollection(
+            outputs["sequence_reconstruction_candidates"] = CandidateCollection(
                 "esm3-reconstructed-structures",
                 "protein.structure",
                 reconstructed,
@@ -273,10 +280,12 @@ class ESM3GenerationImplementation:
     def _confidence_outputs(
         self,
         responses: list[tuple[Candidate, Any]],
+        *,
+        output_partition: str = "structure_confidence",
     ) -> tuple[ScoreCollection, ScoreCollection | None]:
         method = self._contract_reference(
             "method",
-            f"esm3.{self._operation}.esm3_medium_2024_08",
+            self._method_id,
         )
         metric_references = {
             metric_id: self._contract_reference("metric", metric_id)
@@ -307,7 +316,7 @@ class ESM3GenerationImplementation:
                         method=method,
                         context=IntrinsicObservationContext(),
                         value=value,
-                        source_partition="structure_confidence",
+                        source_partition=output_partition,
                     )
                 )
             if pae is not None:
@@ -318,7 +327,7 @@ class ESM3GenerationImplementation:
                         method=method,
                         context=IntrinsicObservationContext(),
                         value=pae,
-                        source_partition="structure_confidence",
+                        source_partition=output_partition,
                     )
                 )
         return (
@@ -358,7 +367,7 @@ class ESM3GenerationImplementation:
         candidates: list[Candidate] = []
         confidence_sources: list[tuple[Candidate, Any]] = []
         for sample_index in range(parameters["num_samples"]):
-            result = self._provider_call(
+            result, _ = self._provider_call(
                 client,
                 provider_prompt,
                 config,
@@ -424,15 +433,16 @@ class ESM3GenerationImplementation:
         structure_candidates: list[Candidate] = []
         pairing_entries: list[PairwiseCandidateMatch] = []
         confidence_sources: list[tuple[Candidate, Any]] = []
+        reconstruction_candidates: list[Candidate] = []
+        reconstruction_confidence_sources: list[tuple[Candidate, Any]] = []
         for sample_index in range(parameters["num_samples"]):
-            sequence_result = self._provider_call(
+            sequence_result, sequence_invocation_id = self._provider_call(
                 client,
                 provider_prompt,
                 sequence_config,
                 role="sequence_parent",
                 operation="generate_sequence",
             )
-            reject_silent_sequence_fields(sequence_result)
             sequence = complete_sequence(sequence_result, prompt)
             sequence_candidate = Candidate(
                 f"sequence-{sample_index}",
@@ -446,16 +456,45 @@ class ESM3GenerationImplementation:
                     call_track="sequence",
                 ),
             )
+            if response_has_structure(sequence_result):
+                if getattr(provider_prompt, "coordinates", None) is None:
+                    raise ValueError(
+                        "paired sequence generation returned structure fields "
+                        "without coordinate-conditioned input"
+                    )
+                reconstruction_candidate = Candidate(
+                    f"reconstructed-structure-{sample_index}",
+                    complete_structure(
+                        sequence_result,
+                        prompt,
+                        expected_sequence=sequence.sequence,
+                    ),
+                    [sequence_candidate.candidate_id],
+                    self._candidate_metadata(
+                        operation="generate_sequence",
+                        sample_index=sample_index,
+                        classification="prompt_reconstruction",
+                        parameters=parameters,
+                        call_track="sequence",
+                    ),
+                )
+                reconstruction_candidates.append(reconstruction_candidate)
+                reconstruction_confidence_sources.append(
+                    (reconstruction_candidate, sequence_result)
+                )
+            else:
+                reject_silent_sequence_fields(sequence_result)
             structure_prompt = structure_prompt_for_sequence(
                 provider_prompt,
                 sequence.sequence,
             )
-            structure_result = self._provider_call(
+            structure_result, _ = self._provider_call(
                 client,
                 structure_prompt,
                 structure_config,
                 role="structure_child",
                 operation="generate_structure",
+                parent_invocation_id=sequence_invocation_id,
             )
             structure = complete_structure(
                 structure_result,
@@ -508,4 +547,25 @@ class ESM3GenerationImplementation:
         }
         if pae is not None:
             outputs["pae_observations"] = pae
+        if reconstruction_candidates:
+            reconstruction_confidence, reconstruction_pae = (
+                self._confidence_outputs(
+                    reconstruction_confidence_sources,
+                    output_partition="sequence_reconstruction_confidence",
+                )
+            )
+            outputs["sequence_reconstruction_candidates"] = (
+                CandidateCollection(
+                    "esm3-paired-sequence-reconstructions",
+                    "protein.structure",
+                    reconstruction_candidates,
+                )
+            )
+            outputs[
+                "sequence_reconstruction_confidence_observations"
+            ] = reconstruction_confidence
+            if reconstruction_pae is not None:
+                outputs[
+                    "sequence_reconstruction_pae_observations"
+                ] = reconstruction_pae
         return outputs

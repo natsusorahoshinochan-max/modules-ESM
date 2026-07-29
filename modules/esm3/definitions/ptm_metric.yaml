@@ -2,7 +2,7 @@ schema_version: "2.0.0"
 metric_id: structure.ptm
 version: "2.0.0"
 title: Predicted template modelling score
-description: Provider-native ESM-3 pTM normalized only from its documented scalar representation.
+description: Global predicted template modelling confidence on the canonical zero-to-one scale.
 value_shape: scalar
 unit: dimensionless
 direction: higher_is_better

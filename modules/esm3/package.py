@@ -3,9 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
-from functools import lru_cache
 import importlib.util
-from pathlib import Path
 from typing import Any
 
 from core import (
@@ -24,8 +22,8 @@ from core import (
 )
 from core.provider_contract import (
     BIOHUB_ESM3_MODEL,
+    BIOHUB_ESM3_OPEN_MODEL,
     ESM_SDK_REVISION,
-    validate_biohub_token_file,
     validate_installed_provider_checkout,
 )
 
@@ -43,9 +41,24 @@ _CONFIDENCE_METRICS = (
     "structure.plddt.per_residue",
     "structure.plddt.mean_residue",
 )
+_MODELS = (
+    {
+        "suffix": "medium_2024_08",
+        "route": "biohub_medium",
+        "model": BIOHUB_ESM3_MODEL,
+        "scale": "medium",
+        "release": "2024-08",
+    },
+    {
+        "suffix": "open_2024_03",
+        "route": "biohub_open",
+        "model": BIOHUB_ESM3_OPEN_MODEL,
+        "scale": "open",
+        "release": "2024-03",
+    },
+)
 
 
-@lru_cache(maxsize=1)
 def _provider_installation_is_exact() -> bool:
     if importlib.util.find_spec("esm") is None:
         return False
@@ -73,16 +86,10 @@ def _ready(environment: object) -> bool:
         return False
     client = environment.get("provider_client")
     client_factory = environment.get("client_factory")
-    if callable(getattr(client, "generate", None)) or callable(client_factory):
-        return environment.get("credential_handle") is not None
-    credential_file = environment.get("credential_file")
-    if not isinstance(credential_file, (str, Path)):
-        return False
-    try:
-        validate_biohub_token_file(credential_file)
-    except (OSError, ValueError):
-        return False
-    return _provider_installation_is_exact()
+    return (
+        callable(getattr(client, "generate", None))
+        or callable(client_factory)
+    ) and environment.get("credential_handle") is not None
 
 
 def _resolve_effective_randomness(
@@ -104,19 +111,29 @@ def _resolve_effective_randomness(
     return {"effective_seed": seed}
 
 
-def _build(operation: str):
+def _build(
+    operation: str,
+    *,
+    model_name: str,
+    method_id: str,
+):
     def factory(**kwargs: object) -> object:
         return ESM3GenerationImplementation(
             kwargs["run_resources"],
             operation,
             kwargs["environment_configuration"],
             kwargs["frozen_catalog"],
+            model_name=model_name,
+            method_id=method_id,
         )
 
     return factory
 
 
-def _method(operation: str) -> MethodDefinition:
+def _method(
+    operation: str,
+    model: Mapping[str, str],
+) -> MethodDefinition:
     provider_operation = {
         "generate_sequence": "generate(track=sequence)",
         "generate_structure": "generate(track=structure)",
@@ -124,8 +141,9 @@ def _method(operation: str) -> MethodDefinition:
             "generate(track=sequence) then generate(track=structure)"
         ),
     }[operation]
+    method_id = f"esm3.{operation}.esm3_{model['suffix']}"
     return MethodDefinition(
-        method_id=f"esm3.{operation}.esm3_medium_2024_08",
+        method_id=method_id,
         version=_VERSION,
         algorithm_identity={
             "name": "ESM-3 iterative masked-track generation",
@@ -138,14 +156,14 @@ def _method(operation: str) -> MethodDefinition:
             ),
         },
         model_identity={
-            "model": BIOHUB_ESM3_MODEL,
+            "model": model["model"],
             "source": "Biohub",
-            "scale": "medium",
-            "release": "2024-08",
+            "scale": model["scale"],
+            "release": model["release"],
         },
         checkpoint_identity={
             "kind": "provider_managed_exact_model_id",
-            "model": BIOHUB_ESM3_MODEL,
+            "model": model["model"],
         },
         featurization_identity={
             "input": "ESMProtein",
@@ -171,7 +189,7 @@ def _produced_observations(
     operation: str,
 ) -> tuple[ProducedObservationDefinition, ...]:
     subject_port = (
-        "reconstructed_structure_candidates"
+        "sequence_reconstruction_candidates"
         if operation == "generate_sequence"
         else "structure_candidates"
     )
@@ -198,16 +216,52 @@ def _produced_observations(
             source_role="subject",
             subject_direction="output",
             subject_port=subject_port,
-            guaranteed_multiplicity="one",
+            guaranteed_multiplicity="zero_or_more",
             output_partition="structure_confidence",
         )
     )
+    if operation == "generate_paired":
+        observations.extend(
+            ProducedObservationDefinition(
+                output_port="sequence_reconstruction_confidence_observations",
+                metric=ContractIdentity("metric", metric, _VERSION),
+                context_profile={"kind": "intrinsic"},
+                subject_grain="candidate",
+                source_role="subject",
+                subject_direction="output",
+                subject_port="sequence_reconstruction_candidates",
+                guaranteed_multiplicity="one",
+                output_partition="sequence_reconstruction_confidence",
+            )
+            for metric in _CONFIDENCE_METRICS
+        )
+        observations.append(
+            ProducedObservationDefinition(
+                output_port="sequence_reconstruction_pae_observations",
+                metric=ContractIdentity(
+                    "metric",
+                    "structure.pae",
+                    _VERSION,
+                ),
+                context_profile={"kind": "intrinsic"},
+                subject_grain="candidate",
+                source_role="subject",
+                subject_direction="output",
+                subject_port="sequence_reconstruction_candidates",
+                guaranteed_multiplicity="zero_or_more",
+                output_partition="sequence_reconstruction_confidence",
+            )
+        )
     return tuple(observations)
 
 
-def _binding(operation: str) -> ExecutionBindingDefinition:
+def _binding(
+    operation: str,
+    model: Mapping[str, str],
+) -> ExecutionBindingDefinition:
+    method_id = f"esm3.{operation}.esm3_{model['suffix']}"
     return ExecutionBindingDefinition(
-        binding_id=f"esm3.{operation}.biohub_medium",
+        binding_id=f"esm3.{operation}.{model['route']}",
         version=_VERSION,
         node_type=ContractIdentity(
             "node_type",
@@ -216,7 +270,7 @@ def _binding(operation: str) -> ExecutionBindingDefinition:
         ),
         method=ContractIdentity(
             "method",
-            f"esm3.{operation}.esm3_medium_2024_08",
+            method_id,
             _VERSION,
         ),
         binding_parameters={},
@@ -227,10 +281,14 @@ def _binding(operation: str) -> ExecutionBindingDefinition:
                 _VERSION,
                 {
                     "route": "biohub",
-                    "model": BIOHUB_ESM3_MODEL,
+                    "model": model["model"],
                 },
             ),
-            build=_build(operation),
+            build=_build(
+                operation,
+                model_name=model["model"],
+                method_id=method_id,
+            ),
         ),
         adapter_behavior=BehaviorReference(
             "esm3.biohub/adapter",
@@ -282,7 +340,7 @@ def _binding(operation: str) -> ExecutionBindingDefinition:
         cacheable=False,
         implementation_identity={
             "name": f"esm3.{operation}.biohub-adapter",
-            "model": BIOHUB_ESM3_MODEL,
+            "model": model["model"],
             "source": "Biohub",
             "provider_seed_control": "unsupported_by_provider",
             "cache_policy": "uncontrolled_remote_generation_is_not_cacheable",
@@ -319,6 +377,14 @@ MODULE_PACKAGE = ModulePackageRegistration(
         DefinitionResource("definitions/ptm_metric.yaml"),
         DefinitionResource("definitions/pae_metric.yaml"),
     ),
-    methods=tuple(_method(operation) for operation in _OPERATIONS),
-    bindings=tuple(_binding(operation) for operation in _OPERATIONS),
+    methods=tuple(
+        _method(operation, model)
+        for model in _MODELS
+        for operation in _OPERATIONS
+    ),
+    bindings=tuple(
+        _binding(operation, model)
+        for model in _MODELS
+        for operation in _OPERATIONS
+    ),
 )

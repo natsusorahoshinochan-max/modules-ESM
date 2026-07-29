@@ -702,6 +702,7 @@ class RunResources:
         *,
         engine_role: str = "primary",
         engine_identity: str | None = None,
+        parent_invocation_id: str | None = None,
     ):
         """Record one explicit crossing of a scientific engine boundary."""
         if self._invocation_recorder is None:
@@ -709,6 +710,7 @@ class RunResources:
         with self._invocation_recorder.invoke(
             engine_role=engine_role,
             engine_identity=engine_identity,
+            parent_invocation_id=parent_invocation_id,
         ) as invocation_id:
             yield invocation_id
 
@@ -1239,11 +1241,25 @@ class _RunEvidenceLedger:
         if fact_type == "engine_invocation_started":
             operation_id = payload["operation_attempt_id"]
             invocation_id = payload["invocation_id"]
+            parent_invocation_id = payload.get("parent_invocation_id")
             operation = self._operations.get(operation_id)
+            parent = (
+                self._invocations.get(parent_invocation_id)
+                if parent_invocation_id is not None
+                else None
+            )
             if (
                 operation is None
                 or operation["terminal"] is not None
                 or invocation_id in self._invocations
+                or (
+                    parent_invocation_id is not None
+                    and (
+                        parent is None
+                        or parent["operation_attempt_id"] != operation_id
+                        or parent["terminal"] != "succeeded"
+                    )
+                )
             ):
                 raise self._causal_error()
             return
@@ -1555,7 +1571,7 @@ class _RunEvidenceLedger:
                         "engine_identity",
                     }
                 ),
-                frozenset(),
+                frozenset({"parent_invocation_id"}),
             ),
             "engine_invocation_terminal": (
                 frozenset({"invocation_id", "status"}),
@@ -1756,6 +1772,9 @@ class _RunEvidenceLedger:
         elif fact_type == "engine_invocation_started":
             self._invocations[payload["invocation_id"]] = {
                 "operation_attempt_id": payload["operation_attempt_id"],
+                "parent_invocation_id": payload.get(
+                    "parent_invocation_id"
+                ),
                 "terminal": None,
             }
         elif fact_type == "engine_invocation_terminal":
@@ -2377,18 +2396,22 @@ class _OperationInvocationRecorder:
         *,
         engine_role: str,
         engine_identity: str | None,
+        parent_invocation_id: str | None,
     ):
         invocation_id = f"invocation-{uuid.uuid4().hex}"
+        payload = {
+            "invocation_id": invocation_id,
+            "operation_attempt_id": self.operation_attempt_id,
+            "engine_role": engine_role,
+            "engine_identity": (
+                engine_identity or self.default_engine_identity
+            ),
+        }
+        if parent_invocation_id is not None:
+            payload["parent_invocation_id"] = parent_invocation_id
         self.ledger.append(
             "engine_invocation_started",
-            {
-                "invocation_id": invocation_id,
-                "operation_attempt_id": self.operation_attempt_id,
-                "engine_role": engine_role,
-                "engine_identity": (
-                    engine_identity or self.default_engine_identity
-                ),
-            },
+            payload,
         )
         try:
             yield invocation_id
@@ -4172,7 +4195,6 @@ class V2RunService:
         }
         normalized_ids: dict[str, str] = {}
         seen_raw_candidate_ids: set[str] = set()
-        pending: list[tuple[str, int, int, Candidate]] = []
         for output_port in sorted(outputs):
             supplied = outputs[output_port]
             output_values = (
@@ -4189,116 +4211,68 @@ class V2RunService:
                             "Candidate output reuses one producer identity"
                         )
                     seen_raw_candidate_ids.add(raw_candidate_id)
-                    pending.append(
-                        (
-                            output_port,
-                            value_index,
-                            sample_index,
-                            candidate,
-                        )
+                    parents: list[str] = []
+                    for parent_id in candidate.parent_ids:
+                        if parent_id in normalized_ids:
+                            parents.append(normalized_ids[parent_id])
+                        elif parent_id in input_candidates:
+                            parents.append(parent_id)
+                        elif (
+                            not input_candidates
+                            and parent_id == node.node_id
+                        ):
+                            continue
+                        else:
+                            raise PortValueError(
+                                "Candidate parent identity is not a resolved "
+                                "input Candidate"
+                            )
+                    parents = list(dict.fromkeys(parents))
+                    content_digest = self._candidate_content_digest(candidate)
+                    sample_slot = f"{value_index}:{sample_index}"
+                    candidate_identity = canonical_sha256(
+                        {
+                            "schema_namespace": (
+                                "protein-workbench-candidate/v2"
+                            ),
+                            "producer_result_identity": result_identity,
+                            "output_port": output_port,
+                            "sample_slot": sample_slot,
+                            "parent_candidate_identities": parents,
+                            "content_digest": content_digest,
+                        }
                     )
-        remaining = pending
-        while remaining:
-            deferred: list[tuple[str, int, int, Candidate]] = []
-            made_progress = False
-            for output_port, value_index, sample_index, candidate in remaining:
-                raw_candidate_id = candidate.candidate_id
-                unresolved = [
-                    parent_id
-                    for parent_id in candidate.parent_ids
-                    if parent_id not in normalized_ids
-                    and parent_id not in input_candidates
-                    and not (
-                        not input_candidates
-                        and parent_id == node.node_id
+                    candidate.candidate_id = (
+                        "candidate-" + candidate_identity.removeprefix("sha256:")
                     )
-                ]
-                if unresolved and all(
-                    parent_id in seen_raw_candidate_ids
-                    for parent_id in unresolved
-                ):
-                    deferred.append(
-                        (
-                            output_port,
-                            value_index,
-                            sample_index,
-                            candidate,
-                        )
-                    )
-                    continue
-                if unresolved:
-                    raise PortValueError(
-                        "Candidate parent identity is not a resolved input "
-                        "or producer Candidate"
-                    )
-                parents = [
-                    normalized_ids.get(parent_id, parent_id)
-                    for parent_id in candidate.parent_ids
-                    if not (
-                        not input_candidates
-                        and parent_id == node.node_id
-                    )
-                ]
-                parents = list(dict.fromkeys(parents))
-                content_digest = self._candidate_content_digest(candidate)
-                sample_slot = f"{value_index}:{sample_index}"
-                candidate_identity = canonical_sha256(
-                    {
-                        "schema_namespace": (
-                            "protein-workbench-candidate/v2"
-                        ),
+                    candidate.parent_ids = parents
+                    runtime_metadata_keys = {
+                        "run",
+                        "run_id",
+                        "node",
+                        "node_id",
+                        "timestamp",
+                        "created_at",
+                        "updated_at",
+                        "credential",
+                        "credentials",
+                        "private_path",
+                        "runtime_path",
+                        "presentation",
+                        "performance",
+                    }
+                    candidate.metadata = {
+                        **{
+                            key: item
+                            for key, item in candidate.metadata.items()
+                            if key not in runtime_metadata_keys
+                        },
                         "producer_result_identity": result_identity,
                         "output_port": output_port,
                         "sample_slot": sample_slot,
-                        "parent_candidate_identities": parents,
                         "content_digest": content_digest,
                     }
-                )
-                candidate.candidate_id = (
-                    "candidate-" + candidate_identity.removeprefix("sha256:")
-                )
-                candidate.parent_ids = parents
-                runtime_metadata_keys = {
-                    "run",
-                    "run_id",
-                    "node",
-                    "node_id",
-                    "timestamp",
-                    "created_at",
-                    "updated_at",
-                    "credential",
-                    "credentials",
-                    "private_path",
-                    "runtime_path",
-                    "presentation",
-                    "performance",
-                }
-                candidate.metadata = {
-                    **{
-                        key: item
-                        for key, item in candidate.metadata.items()
-                        if key not in runtime_metadata_keys
-                    },
-                    "producer_result_identity": result_identity,
-                    "output_port": output_port,
-                    "sample_slot": sample_slot,
-                    "content_digest": content_digest,
-                }
-                normalized_ids[raw_candidate_id] = candidate.candidate_id
-                made_progress = True
-            if not made_progress:
-                raise PortValueError(
-                    "Candidate output lineage contains a cycle"
-                )
-            remaining = deferred
-        for output_port in sorted(outputs):
-            supplied = outputs[output_port]
-            output_values = (
-                list(supplied)
-                if isinstance(supplied, (list, tuple))
-                else [supplied]
-            )
-            for value_index, value in enumerate(output_values):
+                    normalized_ids[raw_candidate_id] = candidate.candidate_id
                 if type(value) is CandidateCollection:
                     value.collection_id = (
                         "collection-"

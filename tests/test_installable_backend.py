@@ -312,6 +312,9 @@ assert {{
     ("binding", "esm3.generate_sequence.biohub_medium", "2.0.0"),
     ("binding", "esm3.generate_structure.biohub_medium", "2.0.0"),
     ("binding", "esm3.generate_paired.biohub_medium", "2.0.0"),
+    ("binding", "esm3.generate_sequence.biohub_open", "2.0.0"),
+    ("binding", "esm3.generate_structure.biohub_open", "2.0.0"),
+    ("binding", "esm3.generate_paired.biohub_open", "2.0.0"),
 }}
 
 registry = ModuleRegistry(TypeRegistry())
