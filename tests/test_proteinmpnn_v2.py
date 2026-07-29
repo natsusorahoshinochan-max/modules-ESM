@@ -391,11 +391,6 @@ class _CapturingProteinMPNN:
     provider_identity = "fixture-proteinmpnn-v_48_020"
 
     def __init__(self) -> None:
-        from modules.proteinmpnn.v2_adapter import (
-            configured_runtime_fingerprint,
-        )
-
-        self.provider_contract_identity = configured_runtime_fingerprint()
         self.parsed: list[str] = []
         self.requests: list[Any] = []
 
@@ -431,8 +426,25 @@ class _CapturingProteinMPNN:
         )
 
 
-def _proteinmpnn_environment(
+def _install_test_provider(
+    monkeypatch: pytest.MonkeyPatch,
     provider: Any,
+) -> None:
+    monkeypatch.setattr(
+        "modules.proteinmpnn.implementation.provider_for_environment",
+        lambda environment, *, staging_directory: provider,
+    )
+
+
+def _proteinmpnn_provider_root() -> Path:
+    return (
+        Path(__file__).resolve().parent.parent
+        / "repositories"
+        / "ProteinMPNN"
+    )
+
+
+def _proteinmpnn_environment(
 ) -> EnvironmentConfiguration:
     from modules.proteinmpnn.v2_adapter import (
         configured_runtime_fingerprint,
@@ -445,7 +457,7 @@ def _proteinmpnn_environment(
                 "values": {
                     "device": "cpu",
                     "resolved_runtime_fingerprint": fingerprint,
-                    "provider_client": provider,
+                    "provider_root": _proteinmpnn_provider_root(),
                     "private_token": "proteinmpnn-secret-must-not-publish",
                 },
                 "safe_fingerprint": "proteinmpnn-fixture-v1",
@@ -538,6 +550,7 @@ def _design_workflow() -> tuple[
 
 def test_design_produces_canonical_three_parent_by_five_child_lineage(
     tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     from modules.prompt_authoring.package import (
         MODULE_PACKAGE as PROMPT_AUTHORING_PACKAGE,
@@ -551,6 +564,7 @@ def test_design_produces_canonical_three_parent_by_five_child_lineage(
     )
 
     provider = _CapturingProteinMPNN()
+    _install_test_provider(monkeypatch, provider)
     nodes, edges = _design_workflow()
     catalog, projection, events = _run(
         tmp_path,
@@ -561,7 +575,7 @@ def test_design_produces_canonical_three_parent_by_five_child_lineage(
             PROTEINMPNN_PACKAGE,
             SOURCE_PACKAGE,
         ),
-        environment=_proteinmpnn_environment(provider),
+        environment=_proteinmpnn_environment(),
     )
 
     assert projection["status"] == "succeeded", events
@@ -785,9 +799,22 @@ def test_design_rejects_noncanonical_sampling_and_reference_layout_drift() -> No
             ),
         )
 
+    request = prepare_design_request(
+        provider=provider,
+        structure=structure,
+        num_sequences=1,
+        temperature=0.1,
+        backbone_noise=0,
+        seed=1603,
+        constraints=None,
+        reference_sequence=ProteinSequence("AGSTW"),
+    )
+    assert request.reference_sequences == {"A": "AG", "B": "STW"}
+
 
 def test_design_normalizes_one_standalone_structure_without_inventing_a_parent(
     tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     from modules.proteinmpnn.package import (
         MODULE_PACKAGE as PROTEINMPNN_PACKAGE,
@@ -797,6 +824,7 @@ def test_design_normalizes_one_standalone_structure_without_inventing_a_parent(
     )
 
     provider = _CapturingProteinMPNN()
+    _install_test_provider(monkeypatch, provider)
     nodes = (
         WorkflowNodeInstance(
             node_id="source",
@@ -827,7 +855,7 @@ def test_design_normalizes_one_standalone_structure_without_inventing_a_parent(
         nodes=nodes,
         edges=(WorkflowEdge("source", "structure", "design", "structure"),),
         registrations=(PROTEINMPNN_PACKAGE, SOURCE_PACKAGE),
-        environment=_proteinmpnn_environment(provider),
+        environment=_proteinmpnn_environment(),
     )
 
     assert projection["status"] == "succeeded", events
@@ -844,6 +872,7 @@ def test_design_normalizes_one_standalone_structure_without_inventing_a_parent(
 
 def test_standalone_design_seed_and_result_ignore_node_instance_rename(
     tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     from modules.proteinmpnn.package import (
         MODULE_PACKAGE as PROTEINMPNN_PACKAGE,
@@ -854,6 +883,7 @@ def test_standalone_design_seed_and_result_ignore_node_instance_rename(
 
     def run(design_node_id: str) -> tuple[str, CandidateCollection, int]:
         provider = _CapturingProteinMPNN()
+        _install_test_provider(monkeypatch, provider)
         nodes = (
             WorkflowNodeInstance(
                 node_id="source",
@@ -891,7 +921,7 @@ def test_standalone_design_seed_and_result_ignore_node_instance_rename(
                 ),
             ),
             registrations=(PROTEINMPNN_PACKAGE, SOURCE_PACKAGE),
-            environment=_proteinmpnn_environment(provider),
+            environment=_proteinmpnn_environment(),
         )
         assert projection["status"] == "succeeded", events
         output = next(
@@ -913,6 +943,7 @@ def test_standalone_design_seed_and_result_ignore_node_instance_rename(
 
 def test_design_replay_is_stable_and_changed_seed_changes_result_identity(
     tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     from modules.prompt_authoring.package import (
         MODULE_PACKAGE as PROMPT_AUTHORING_PACKAGE,
@@ -926,6 +957,7 @@ def test_design_replay_is_stable_and_changed_seed_changes_result_identity(
 
     def run(seed: int) -> tuple[str, CandidateCollection]:
         provider = _CapturingProteinMPNN()
+        _install_test_provider(monkeypatch, provider)
         nodes, edges = _design_workflow()
         design = nodes[-1]
         nodes = (
@@ -952,7 +984,7 @@ def test_design_replay_is_stable_and_changed_seed_changes_result_identity(
                 PROTEINMPNN_PACKAGE,
                 SOURCE_PACKAGE,
             ),
-            environment=_proteinmpnn_environment(provider),
+            environment=_proteinmpnn_environment(),
         )
         assert projection["status"] == "succeeded", events
         output = next(
@@ -1003,6 +1035,7 @@ def test_design_replay_is_stable_and_changed_seed_changes_result_identity(
 def test_partial_or_malformed_provider_results_fail_without_publication(
     tmp_path: Path,
     raw_result: tuple[list[ProteinSequence], list[float]],
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     from modules.prompt_authoring.package import (
         MODULE_PACKAGE as PROMPT_AUTHORING_PACKAGE,
@@ -1030,6 +1063,7 @@ def test_partial_or_malformed_provider_results_fail_without_publication(
             self.published.append(kwargs["node"].node_id)
 
     provider = Provider()
+    _install_test_provider(monkeypatch, provider)
     replay = Replay()
     nodes, edges = _design_workflow()
     _, projection, events = _run(
@@ -1041,7 +1075,7 @@ def test_partial_or_malformed_provider_results_fail_without_publication(
             PROTEINMPNN_PACKAGE,
             SOURCE_PACKAGE,
         ),
-        environment=_proteinmpnn_environment(provider),
+        environment=_proteinmpnn_environment(),
         result_replay_source=replay,
     )
 
@@ -1071,6 +1105,7 @@ def test_partial_or_malformed_provider_results_fail_without_publication(
 
 def test_proteinmpnn_passes_the_shared_contract_test_kit(
     tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     from modules.prompt_authoring.package import (
         MODULE_PACKAGE as PROMPT_AUTHORING_PACKAGE,
@@ -1111,6 +1146,7 @@ def test_proteinmpnn_passes_the_shared_contract_test_kit(
         binding_parameters={},
     )
     design_provider = _CapturingProteinMPNN()
+    _install_test_provider(monkeypatch, design_provider)
     cases = (
         ModulePackageContractCase(
             case_id="constraints",
@@ -1182,7 +1218,7 @@ def test_proteinmpnn_passes_the_shared_contract_test_kit(
                 "resolved_runtime_fingerprint": (
                     configured_runtime_fingerprint()
                 ),
-                "provider_client": design_provider,
+                "provider_root": _proteinmpnn_provider_root(),
                 "private_token": "ctk-proteinmpnn-secret",
             },
             safe_environment_fingerprint="proteinmpnn-fixture-v1",

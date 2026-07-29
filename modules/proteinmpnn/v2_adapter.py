@@ -64,18 +64,11 @@ def proteinmpnn_readiness(
         )
     client = environment.get("provider_client")
     if client is not None:
-        if (
-            not callable(getattr(client, "parse_structure", None))
-            or not callable(getattr(client, "design", None))
-            or getattr(client, "provider_contract_identity", None)
-            != configured_runtime_fingerprint()
-        ):
-            return ReadinessResult(
-                False,
-                proof_source="direct-observation",
-                reason_code="proteinmpnn_runtime_unavailable",
-            )
-        return ReadinessResult(True, proof_source="direct-observation")
+        return ReadinessResult(
+            False,
+            proof_source="direct-observation",
+            reason_code="proteinmpnn_runtime_unavailable",
+        )
     provider_root = environment.get("provider_root")
     if not isinstance(provider_root, Path):
         return ReadinessResult(
@@ -125,25 +118,31 @@ def provider_for_environment(
     """Resolve the declared provider seam without accepting Workflow paths."""
     client = environment.get("provider_client")
     if client is not None:
-        if (
-            not callable(getattr(client, "parse_structure", None))
-            or not callable(getattr(client, "design", None))
-            or getattr(client, "provider_contract_identity", None)
-            != configured_runtime_fingerprint()
-        ):
-            raise RuntimeError(
-                "ProteinMPNN provider client does not match the locked "
-                "provider contract identity"
-            )
-        return client
+        raise RuntimeError(
+            "ProteinMPNN design does not accept injected provider clients"
+        )
     provider_root = environment.get("provider_root")
     if not isinstance(provider_root, Path):
         raise FileNotFoundError(
             "ProteinMPNN provider root is unavailable"
         )
+    readiness = check_proteinmpnn_readiness(
+        PROTEINMPNN_MODEL,
+        provider_root,
+    )
+    if (
+        not readiness.ready
+        or readiness.provider_root is None
+        or readiness.checkpoint_path is None
+        or readiness.checkpoint_path.name != "v_48_020.pt"
+    ):
+        raise RuntimeError(
+            "ProteinMPNN provider root does not match the locked "
+            "source and checkpoint identity"
+        )
     return _LocalProteinMPNNProvider(
         temp_dir=staging_directory,
-        provider_root=provider_root,
+        provider_root=readiness.provider_root,
     )
 
 
@@ -189,8 +188,10 @@ def prepare_design_request(
             else None
         ),
     )
-    if reference_sequence is not None and (
-        reference_sequence.residue_ids != _target_residue_ids(request)
+    if (
+        reference_sequence is not None
+        and reference_sequence.residue_ids is not None
+        and reference_sequence.residue_ids != _target_residue_ids(request)
     ):
         raise ValueError(
             "reference sequence residue layout does not match the "
