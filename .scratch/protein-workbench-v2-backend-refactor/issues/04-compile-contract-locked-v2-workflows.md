@@ -4,7 +4,7 @@
 
 **Blocked by:** 03 — Discover atomic Module Packages.
 
-**Status:** implementation-complete-awaiting-controller-gate
+**Status:** completed
 
 - [x] Workflow and Node Instance schemas require v2 schema identity, exact Node Type and Binding ID/version, separate Node and Binding parameters, named Ports, and no duplicated Method choice.
 - [x] The Workflow Contract Lock contains exactly the reachable Node, Binding, Method, Metric, Port Type, and Utility contracts with expected digests, in canonical deterministic order.
@@ -47,3 +47,22 @@
   including the final retained result above.
 - Executor completion does not constitute Controller acceptance. Ticket 05
   remains blocked until the Controller runs the Tickets 01–04 joint gate.
+
+## Controller cumulative acceptance
+
+Before Ticket 05 started, the Controller independently accepted implementation
+commit `e42244f8ad5cc3b9d51e1269819a35b8ca0e6377` together with the completed
+Tickets 01–03 surfaces:
+
+- Joint Ticket 01–04 focused suites: `158 passed`.
+- Cumulative routine: `843 passed, 44 deselected`, with retained result
+  `verification-results/routine/20260729T004305.144501Z-42522-1bf39e75d176a998`.
+- Deterministic acceptance: `9 passed, 5 deselected`, with retained result
+  `verification-results/deterministic-acceptance/20260729T004934.188219Z-44044-91838dbb51fa4da4`.
+- Installed artifact: `3 passed`, with retained result
+  `verification-results/installed-package/20260729T005022.246028Z-44166-548c41d31376b5fb`.
+- `git diff --check 461f0bd...e42244f` passed and the worktree was clean before
+  the Controller recorded this acceptance.
+
+No Controller regression was returned to the executor. Ticket 05 may start from
+this accepted state.
