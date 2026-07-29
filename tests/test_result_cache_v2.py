@@ -11,6 +11,7 @@ import pytest
 
 from core import (
     BehaviorReference,
+    EffectiveRandomnessResolver,
     ExecutionTermination,
     FrozenCatalog,
     LazyImplementationFactory,
@@ -1372,6 +1373,84 @@ def test_null_declared_effective_seed_disables_cross_run_cache(
         "execute:test.direct.local",
     ]
     assert not list((cache_root / project_id).rglob("*.json"))
+
+
+def test_effective_randomness_is_resolved_once_and_drives_execution(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    calls: list[str] = []
+    resolver_calls: list[int] = []
+    monkeypatch.setenv(
+        "PROTEIN_WORKBENCH_PROJECT_ROOT",
+        str(tmp_path / "projects"),
+    )
+    monkeypatch.setenv(
+        "PROTEIN_WORKBENCH_CACHE_ROOT",
+        str(tmp_path / "cache"),
+    )
+    monkeypatch.setenv("PROTEIN_WORKBENCH_RUN_ROOT", str(tmp_path / "runs"))
+    monkeypatch.setenv(
+        "PROTEIN_WORKBENCH_OUTPUT_ROOT",
+        str(tmp_path / "outputs"),
+    )
+
+    def resolve_randomness(
+        *,
+        inputs,
+        node_parameters,
+        binding_parameters,
+    ):
+        assert inputs == {}
+        assert binding_parameters == {}
+        resolver_calls.append(node_parameters["effective_seed"])
+        return {"effective_seed": node_parameters["effective_seed"] + 1}
+
+    resolver = EffectiveRandomnessResolver(
+        behavior=BehaviorReference(
+            "test.direct/effective-randomness",
+            "2.0.0",
+            {"normalization": "increment-fixture"},
+        ),
+        resolve=resolve_randomness,
+    )
+    app = create_app(
+        frozen_catalog_override=_direct_catalog(
+            calls,
+            cacheable=True,
+            node_parameter_declarations={
+                "effective_seed": {
+                    "parameter_scope": "scientific",
+                    "scientific_meaning": "Fixture seed normalized before use.",
+                    "type": "integer",
+                    "default": 4,
+                },
+            },
+            effective_randomness_parameters=("effective_seed",),
+            effective_randomness_resolver=resolver,
+        ),
+        v2_environment_configuration={
+            ("test.direct.local", "2.0.0"): {
+                "values": {"credential": "credential-value"},
+            }
+        },
+    )
+
+    with TestClient(app) as client:
+        project_id, compiled = _compile_one_node(client)
+        first, _ = _start_run(client, project_id, compiled, "resolved-once-a")
+        second, _ = _start_run(client, project_id, compiled, "resolved-once-b")
+
+    assert resolver_calls == [4, 4]
+    assert [item for item in calls if item.startswith("parameters:")] == [
+        "parameters:{'effective_seed': 5}",
+    ]
+    assert (
+        first["outputs"][0]["result_identity"]
+        == second["outputs"][0]["result_identity"]
+    )
+    assert first["node_dispositions"][0]["resolution"] == "executed"
+    assert second["node_dispositions"][0]["resolution"] == "cache_replayed"
 
 
 def test_unresolved_port_behavior_identity_disables_cross_run_cache(

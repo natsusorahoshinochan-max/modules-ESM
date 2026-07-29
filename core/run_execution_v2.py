@@ -2529,6 +2529,115 @@ def _plain_json(value: Any) -> Any:
     return value
 
 
+def _freeze_runtime_json(value: Any) -> Any:
+    if isinstance(value, Mapping):
+        return MappingProxyType({
+            str(key): _freeze_runtime_json(item)
+            for key, item in value.items()
+        })
+    if isinstance(value, (list, tuple)):
+        return tuple(_freeze_runtime_json(item) for item in value)
+    return value
+
+
+@dataclass(frozen=True, slots=True)
+class _EffectiveRandomnessSnapshot:
+    effective_randomness: Mapping[str, Any]
+    node_parameters: Mapping[str, Any]
+    binding_parameters: Mapping[str, Any]
+
+
+def _resolve_effective_randomness(
+    catalog: FrozenCatalog,
+    node: ExecutionPlanNode,
+    inputs: Mapping[str, Any],
+) -> _EffectiveRandomnessSnapshot:
+    binding_contract = catalog.require_contract(*node.binding.key)
+    node_parameters = _plain_json(node.node_parameters)
+    binding_parameters = _plain_json(node.binding_parameters)
+    declared_randomness = tuple(
+        binding_contract.descriptor.get(
+            "effective_randomness_parameters",
+            (),
+        )
+    )
+    if declared_randomness:
+        resolver = catalog.get_effective_randomness_resolver(
+            node.binding.contract_id,
+            node.binding.contract_version,
+        )
+        if resolver is None:
+            resolved_randomness: Mapping[str, Any] = {
+                parameter_name: (
+                    node_parameters[parameter_name]
+                    if parameter_name in node_parameters
+                    and parameter_name not in binding_parameters
+                    else (
+                        binding_parameters[parameter_name]
+                        if parameter_name in binding_parameters
+                        and parameter_name not in node_parameters
+                        else {"resolution": "unresolved"}
+                    )
+                )
+                for parameter_name in declared_randomness
+            }
+        else:
+            resolved_randomness = resolver.resolve(
+                inputs=inputs,
+                node_parameters=node_parameters,
+                binding_parameters=binding_parameters,
+            )
+            if (
+                not isinstance(resolved_randomness, Mapping)
+                or set(resolved_randomness) != set(declared_randomness)
+            ):
+                raise ValueError(
+                    "effective randomness resolver must return every "
+                    "declared parameter exactly once"
+                )
+        effective_randomness = {}
+        for parameter_name in declared_randomness:
+            resolved_value = _plain_json(
+                resolved_randomness[parameter_name]
+            )
+            effective_randomness[parameter_name] = (
+                {"resolution": "unresolved"}
+                if resolved_value is None
+                else resolved_value
+            )
+            if (
+                parameter_name in node_parameters
+                and parameter_name not in binding_parameters
+            ):
+                node_parameters[parameter_name] = resolved_value
+            elif (
+                parameter_name in binding_parameters
+                and parameter_name not in node_parameters
+            ):
+                binding_parameters[parameter_name] = resolved_value
+    else:
+        effective_randomness = {
+            key: value
+            for key, value in {
+                **node_parameters,
+                **binding_parameters,
+            }.items()
+            if key in {"seed", "random_seed", "effective_seed"}
+        }
+    canonical_json_bytes(
+        {
+            "effective_randomness": effective_randomness,
+            "node_parameters": node_parameters,
+            "binding_parameters": binding_parameters,
+        }
+    )
+    return _EffectiveRandomnessSnapshot(
+        effective_randomness=_freeze_runtime_json(effective_randomness),
+        node_parameters=_freeze_runtime_json(node_parameters),
+        binding_parameters=_freeze_runtime_json(binding_parameters),
+    )
+
+
 def _read_stable_private_file(
     root: Path,
     parts: tuple[str, ...],
@@ -2585,6 +2694,7 @@ def _result_identity_descriptor(
     node: ExecutionPlanNode,
     inputs: Mapping[str, Any],
     resolved_resource_inputs: tuple[Mapping[str, Any], ...] = (),
+    effective_randomness_snapshot: _EffectiveRandomnessSnapshot | None = None,
 ) -> dict[str, Any]:
     """Build the closed scientific identity of one resolved Node result."""
     node_contract = catalog.require_contract(*node.node_type.key)
@@ -2634,65 +2744,31 @@ def _result_identity_descriptor(
         )
         for key in relevant_keys
     }
-    resolved_node_parameters = _plain_json(node.node_parameters)
-    resolved_binding_parameters = _plain_json(node.binding_parameters)
+    randomness_snapshot = (
+        effective_randomness_snapshot
+        if effective_randomness_snapshot is not None
+        else _resolve_effective_randomness(catalog, node, inputs)
+    )
+    resolved_node_parameters = _plain_json(
+        randomness_snapshot.node_parameters
+    )
+    resolved_binding_parameters = _plain_json(
+        randomness_snapshot.binding_parameters
+    )
     declared_randomness = binding_contract.descriptor.get(
         "effective_randomness_parameters"
     )
     if declared_randomness:
-        resolver = catalog.get_effective_randomness_resolver(
-            node.binding.contract_id,
-            node.binding.contract_version,
+        effective_randomness = _plain_json(
+            randomness_snapshot.effective_randomness
         )
-        if resolver is None:
-            resolved_randomness: Mapping[str, Any] = {
-                parameter_name: (
-                    resolved_node_parameters[parameter_name]
-                    if parameter_name in resolved_node_parameters
-                    and parameter_name not in resolved_binding_parameters
-                    else (
-                        resolved_binding_parameters[parameter_name]
-                        if parameter_name in resolved_binding_parameters
-                        and parameter_name not in resolved_node_parameters
-                        else {"resolution": "unresolved"}
-                    )
-                )
-                for parameter_name in declared_randomness
-            }
-        else:
-            resolved_randomness = resolver.resolve(
-                inputs=inputs,
-                node_parameters=resolved_node_parameters,
-                binding_parameters=resolved_binding_parameters,
-            )
-            if (
-                not isinstance(resolved_randomness, Mapping)
-                or set(resolved_randomness) != set(declared_randomness)
-            ):
-                raise ValueError(
-                    "effective randomness resolver must return every "
-                    "declared parameter exactly once"
-                )
-        effective_randomness = {
-            parameter_name: (
-                {"resolution": "unresolved"}
-                if resolved_randomness[parameter_name] is None
-                else _plain_json(resolved_randomness[parameter_name])
-            )
-            for parameter_name in declared_randomness
-        }
         for parameter_name in declared_randomness:
             resolved_node_parameters.pop(parameter_name, None)
             resolved_binding_parameters.pop(parameter_name, None)
     else:
-        effective_randomness = {
-            key: value
-            for key, value in {
-                **resolved_node_parameters,
-                **resolved_binding_parameters,
-            }.items()
-            if key in {"seed", "random_seed", "effective_seed"}
-        }
+        effective_randomness = _plain_json(
+            randomness_snapshot.effective_randomness
+        )
     descriptor = {
         "schema_namespace": RESULT_IDENTITY_NAMESPACE,
         "node_type": _identity_without_digest(node.node_type.to_public()),
@@ -2859,6 +2935,7 @@ def _result_identity(
     node: ExecutionPlanNode,
     inputs: Mapping[str, Any],
     resolved_resource_inputs: tuple[Mapping[str, Any], ...] = (),
+    effective_randomness_snapshot: _EffectiveRandomnessSnapshot | None = None,
 ) -> str:
     return canonical_sha256(
         _result_identity_descriptor(
@@ -2867,6 +2944,7 @@ def _result_identity(
             node,
             inputs,
             resolved_resource_inputs,
+            effective_randomness_snapshot,
         )
     )
 
@@ -2955,6 +3033,7 @@ def _result_identity_is_cache_safe(
     node: ExecutionPlanNode,
     inputs: Mapping[str, Any],
     resolved_resource_inputs: tuple[Mapping[str, Any], ...] = (),
+    effective_randomness_snapshot: _EffectiveRandomnessSnapshot | None = None,
 ) -> bool:
     node_contract = catalog.require_contract(*node.node_type.key)
     binding_contract = catalog.require_contract(*node.binding.key)
@@ -2982,6 +3061,7 @@ def _result_identity_is_cache_safe(
             node,
             inputs,
             resolved_resource_inputs,
+            effective_randomness_snapshot,
         )
     ):
         return False
@@ -4886,9 +4966,26 @@ class V2RunService:
                 ) = self._resolve_project_inputs(project_id, node)
             except BaseException as error:
                 resource_resolution_error = error
+            effective_randomness_snapshot: (
+                _EffectiveRandomnessSnapshot | None
+            ) = None
+            randomness_resolution_error: BaseException | None = None
+            if resource_resolution_error is None:
+                try:
+                    effective_randomness_snapshot = (
+                        _resolve_effective_randomness(
+                            self._catalog,
+                            node,
+                            node_inputs,
+                        )
+                    )
+                except BaseException as error:
+                    randomness_resolution_error = error
             result_identity: str | None = None
             cache_eligible = (
                 resource_resolution_error is None
+                and randomness_resolution_error is None
+                and effective_randomness_snapshot is not None
                 and binding_contract.descriptor.get("cacheable") is True
                 and binding_contract.descriptor.get("deterministic") is True
                 and _result_identity_is_cache_safe(
@@ -4897,6 +4994,7 @@ class V2RunService:
                     node,
                     node_inputs,
                     resource_identities,
+                    effective_randomness_snapshot,
                 )
             )
             cache_lookup_eligible = (
@@ -4909,6 +5007,7 @@ class V2RunService:
                     node,
                     node_inputs,
                     resource_identities,
+                    effective_randomness_snapshot,
                 )
             replayed_published: list[dict[str, Any]] | None = None
             replayed_runtime: dict[
@@ -5127,7 +5226,9 @@ class V2RunService:
                 _project_inputs=project_inputs,
                 _project_input_identities=resource_identities,
             )
-            body_error: BaseException | None = resource_resolution_error
+            body_error: BaseException | None = (
+                resource_resolution_error or randomness_resolution_error
+            )
             implementation: Any | None = None
             try:
                 if body_error is None:
@@ -5247,10 +5348,15 @@ class V2RunService:
                     },
                 )
                 assert implementation is not None
+                assert effective_randomness_snapshot is not None
                 raw_outputs = implementation.execute(
                     inputs=node_inputs,
-                    node_parameters=dict(node.node_parameters),
-                    binding_parameters=dict(node.binding_parameters),
+                    node_parameters=dict(
+                        effective_randomness_snapshot.node_parameters
+                    ),
+                    binding_parameters=dict(
+                        effective_randomness_snapshot.binding_parameters
+                    ),
                 )
                 if ledger.cancellation_requested:
                     raise ExecutionTermination("cancelled")
@@ -5261,6 +5367,7 @@ class V2RunService:
                         node,
                         node_inputs,
                         resources.result_identity_inputs,
+                        effective_randomness_snapshot,
                     )
                 if isinstance(raw_outputs, Mapping):
                     raw_outputs = self._normalize_candidate_outputs(

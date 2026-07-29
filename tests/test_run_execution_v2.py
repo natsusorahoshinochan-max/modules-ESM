@@ -17,6 +17,7 @@ from starlette.websockets import WebSocketDisconnect
 from core import (
     BehaviorReference,
     CatalogContract,
+    EffectiveRandomnessResolver,
     ExecutionTermination,
     FrozenCatalog,
     LazyImplementationFactory,
@@ -78,6 +79,7 @@ def _direct_catalog(
     node_parameter_declarations: Mapping[str, Any] | None = None,
     node_title: str = "Deterministic direct test Node",
     effective_randomness_parameters: tuple[str, ...] = (),
+    effective_randomness_resolver: EffectiveRandomnessResolver | None = None,
 ) -> FrozenCatalog:
     builtin = builtin_frozen_catalog()
     text = builtin.require_port_type("text", "2.0.0")
@@ -168,6 +170,15 @@ def _direct_catalog(
                         else {}
                     ),
                     "factory": binding_factory_behavior.descriptor(),
+                    **(
+                        {
+                            "effective_randomness_resolver": (
+                                effective_randomness_resolver.behavior.descriptor()
+                            )
+                        }
+                        if effective_randomness_resolver is not None
+                        else {}
+                    ),
                 },
                 "produced_observations": [],
                 **(
@@ -289,6 +300,14 @@ def _direct_catalog(
         availability_observed_at=observed_at,
         factories=factories,
         readiness_declarations=readiness_declarations,
+        effective_randomness_resolvers=(
+            {
+                (binding_id, "2.0.0"): effective_randomness_resolver
+                for binding_id in binding_ids
+            }
+            if effective_randomness_resolver is not None
+            else {}
+        ),
     )
 
 
