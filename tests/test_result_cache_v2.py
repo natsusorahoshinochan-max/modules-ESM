@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
+import json
 from typing import Any
 
 from fastapi.testclient import TestClient
@@ -19,6 +20,7 @@ from core import (
     builtin_frozen_catalog,
 )
 from core.server import create_app
+import core.run_execution_v2 as run_execution_v2
 from datatypes import Candidate, CandidateCollection, ProteinSequence
 from tests.test_run_execution_v2 import (
     _artifact_catalog,
@@ -431,6 +433,107 @@ def test_publication_conflict_closes_node_and_run_as_failed(
     assert run_terminal["status"] == "failed"
 
 
+def test_stale_manifest_cannot_unlock_provisional_cache_entry(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    calls: list[str] = []
+    failure = {"enabled": True}
+    cache_root = tmp_path / "cache"
+    run_root = tmp_path / "runs"
+    original_write = run_execution_v2.write_private_new_file
+    original_remove = run_execution_v2.remove_private_regular_file
+
+    def fail_first_disposition(root, relative_parts, payload, *, field):
+        if (
+            failure["enabled"]
+            and field == "run_ledger"
+            and json.loads(payload)["fact_type"] == "node_disposition"
+        ):
+            raise OSError("fixture evidence store failure")
+        return original_write(
+            root,
+            relative_parts,
+            payload,
+            field=field,
+        )
+
+    def leave_provisional_entry(root, relative_parts, *, field):
+        if failure["enabled"] and field == "result_cache_entry":
+            raise OSError("fixture rollback failure")
+        return original_remove(root, relative_parts, field=field)
+
+    monkeypatch.setattr(
+        run_execution_v2,
+        "write_private_new_file",
+        fail_first_disposition,
+    )
+    monkeypatch.setattr(
+        run_execution_v2,
+        "remove_private_regular_file",
+        leave_provisional_entry,
+    )
+    monkeypatch.setenv(
+        "PROTEIN_WORKBENCH_PROJECT_ROOT",
+        str(tmp_path / "projects"),
+    )
+    monkeypatch.setenv("PROTEIN_WORKBENCH_CACHE_ROOT", str(cache_root))
+    monkeypatch.setenv("PROTEIN_WORKBENCH_RUN_ROOT", str(run_root))
+    monkeypatch.setenv(
+        "PROTEIN_WORKBENCH_OUTPUT_ROOT",
+        str(tmp_path / "outputs"),
+    )
+    app = create_app(
+        frozen_catalog_override=_direct_catalog(calls, cacheable=True),
+        v2_environment_configuration={
+            ("test.direct.local", "2.0.0"): {
+                "values": {"credential": "credential-value"},
+            }
+        },
+    )
+
+    with TestClient(app) as client:
+        project_id, compiled = _compile_one_node(client)
+        failed = client.post(
+            f"/api/v2/projects/{project_id}/runs",
+            json={
+                "workflow_revision": compiled["workflow_revision"],
+                "compile_id": compiled["compile_id"],
+                "client_request_id": "provisional-cache",
+            },
+        )
+        assert failed.status_code == 503
+        provisional = next(
+            (cache_root / project_id / "v2").rglob("*.json")
+        )
+        failed_run_dir = next((run_root / project_id).iterdir())
+        manifest_path = failed_run_dir / "manifest.json"
+        manifest = json.loads(manifest_path.read_bytes())
+        manifest["status"] = "succeeded"
+        manifest["node_dispositions"] = [
+            {
+                "node_id": "direct",
+                "outcome": "succeeded",
+                "resolution": "executed",
+                "blocked_by": [],
+                "terminal_sequence": 999,
+            }
+        ]
+        manifest_path.write_text(json.dumps(manifest))
+        failure["enabled"] = False
+        recovered, _ = _start_run(
+            client,
+            project_id,
+            compiled,
+            "ledger-gated-recovery",
+        )
+
+    assert provisional.is_file()
+    assert recovered["status"] == "succeeded"
+    assert recovered["node_dispositions"][0]["resolution"] == "executed"
+    assert calls.count("execute:test.direct.local") == 2
+
+
 def test_candidate_identity_is_run_independent_and_preserved_on_replay(
     tmp_path,
     monkeypatch,
@@ -800,7 +903,8 @@ def test_changed_implementation_identity_misses_the_existing_project_cache(
             frozen_catalog_override=_direct_catalog(
                 first_calls,
                 cacheable=True,
-                implementation_variant="algorithm-a",
+                implementation_variant="algorithm",
+                implementation_label="algorithm-a",
             ),
             v2_environment_configuration=environment,
         )
@@ -820,7 +924,8 @@ def test_changed_implementation_identity_misses_the_existing_project_cache(
                 second_calls,
                 cacheable=True,
                 execution_output="READY-B",
-                implementation_variant="algorithm-b",
+                implementation_variant="algorithm",
+                implementation_label="algorithm-b",
             ),
             v2_environment_configuration=environment,
         )

@@ -72,6 +72,7 @@ def _direct_catalog(
     factory_action: Any | None = None,
     execution_output: Any = "READY",
     implementation_variant: str = "default",
+    implementation_label: str | None = None,
     deterministic: bool = True,
     source_identity: Mapping[str, Any] | None = None,
     node_parameter_declarations: Mapping[str, Any] | None = None,
@@ -160,6 +161,11 @@ def _direct_catalog(
                 "implementation_identity": {
                     "name": binding_id,
                     "variant": implementation_variant,
+                    **(
+                        {"label": implementation_label}
+                        if implementation_label is not None
+                        else {}
+                    ),
                     "factory": binding_factory_behavior.descriptor(),
                 },
                 "produced_observations": [],

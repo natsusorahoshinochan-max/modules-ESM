@@ -66,19 +66,10 @@ READINESS_ATTESTATION_NAMESPACE = (
 )
 RESULT_IDENTITY_NAMESPACE = "protein-workbench-cache/v2"
 RESULT_CACHE_ENTRY_NAMESPACE = "protein-workbench-cache-entry/v2"
-_PRESENTATION_CONTRACT_FIELDS = frozenset(
-    {
-        "category",
-        "description",
-        "display_name",
-        "label",
-        "presentation",
-        "presentation_metadata",
-        "summary",
-        "title",
-        "ui",
-    }
-)
+_PRESENTATION_CONTRACT_FIELDS = {
+    "node_type": frozenset({"title", "summary", "category"}),
+    "metric": frozenset({"title", "description"}),
+}
 RUN_LEDGER_SCHEMA_VERSION = "2.0.0"
 MAX_ARTIFACTS_PER_RUN = 2_048
 MAX_ARTIFACT_SIZE_BYTES = 64 * 1024 * 1024
@@ -768,6 +759,55 @@ class _PlanNodeEvidence:
             "dependencies": list(self.dependencies),
             "required_dependencies": list(self.required_dependencies),
         }
+
+
+def _parse_plan_evidence(
+    value: Any,
+) -> tuple[_PlanNodeEvidence, ...]:
+    if not isinstance(value, list):
+        raise ValueError("Run plan evidence is invalid")
+    parsed: list[_PlanNodeEvidence] = []
+    seen: set[str] = set()
+    for item in value:
+        if (
+            not isinstance(item, Mapping)
+            or set(item)
+            != {
+                "node_id",
+                "dependencies",
+                "required_dependencies",
+            }
+            or not isinstance(item["node_id"], str)
+            or not isinstance(item["dependencies"], list)
+            or not isinstance(item["required_dependencies"], list)
+            or not all(
+                isinstance(dependency, str)
+                for dependency in (
+                    *item["dependencies"],
+                    *item["required_dependencies"],
+                )
+            )
+            or item["node_id"] in seen
+        ):
+            raise ValueError("Run plan evidence is invalid")
+        node_id = validate_identifier(item["node_id"], "node_id")
+        dependencies = tuple(sorted(set(item["dependencies"])))
+        required = tuple(sorted(set(item["required_dependencies"])))
+        if (
+            list(dependencies) != item["dependencies"]
+            or list(required) != item["required_dependencies"]
+            or not set(required) <= set(dependencies)
+        ):
+            raise ValueError("Run plan evidence is invalid")
+        seen.add(node_id)
+        parsed.append(_PlanNodeEvidence(node_id, dependencies, required))
+    if any(
+        dependency not in seen
+        for node in parsed
+        for dependency in node.dependencies
+    ):
+        raise ValueError("Run plan evidence is invalid")
+    return tuple(parsed)
 
 
 class _RunEvidenceLedger:
@@ -2091,6 +2131,57 @@ class _RunRecord:
     execution_error: BaseException | None = None
 
 
+def _read_run_evidence_ledger(
+    projects: ProjectManager,
+    project_id: str,
+    run_id: str,
+) -> _RunEvidenceLedger | None:
+    """Load and causally validate one Run's append-only evidence facts."""
+    run_dir = projects.run_dir(project_id, run_id)
+    ledger_dir = run_dir / "ledger"
+    if (
+        not ledger_dir.is_dir()
+        or ledger_dir.is_symlink()
+    ):
+        return None
+    fact_paths = sorted(ledger_dir.glob("*.json"))
+    if not fact_paths:
+        return None
+    encoded_facts: list[bytes] = []
+    parsed_facts: list[Mapping[str, Any]] = []
+    for expected_sequence, path in enumerate(fact_paths, start=1):
+        if path.name != f"{expected_sequence:020d}.json":
+            raise RuntimeError("Run Ledger sequence is not contiguous")
+        encoded = _read_stable_private_file(
+            run_dir.parent,
+            (run_id, "ledger", path.name),
+            field="run_ledger",
+            maximum_size=MAX_LEDGER_FACT_BYTES,
+        )
+        parsed = json.loads(encoded)
+        if not isinstance(parsed, Mapping):
+            raise RuntimeError("Run Ledger fact is invalid")
+        encoded_facts.append(encoded)
+        parsed_facts.append(parsed)
+    first = parsed_facts[0]
+    plan_nodes = _parse_plan_evidence(
+        first["payload"]["plan_nodes"]
+    )
+    ledger = _RunEvidenceLedger(
+        projects,
+        project_id,
+        run_id,
+        plan_nodes,
+    )
+    for fact, encoded in zip(
+        parsed_facts,
+        encoded_facts,
+        strict=True,
+    ):
+        ledger.load_fact(fact, encoded)
+    return ledger
+
+
 def _port_contract(
     catalog: FrozenCatalog,
     node_contract: Any,
@@ -2221,12 +2312,13 @@ def _result_identity_descriptor(
                 "port_type": port_type.reference(),
                 "multiplicity": declaration["multiplicity"],
                 "value_content_digests": [
-                    _input_content_digest(catalog, port_type, value)
+                    _input_content_digest(port_type, value)
                     for value in values
                 ],
             }
         )
     relevant_keys = _relevant_result_contract_keys(
+        catalog,
         plan,
         node,
         node_contract,
@@ -2284,22 +2376,60 @@ def _identity_without_digest(reference: Mapping[str, Any]) -> dict[str, Any]:
     }
 
 
-def _strip_presentation_contract_fields(value: Any) -> Any:
+def _normalize_nested_contract_references(value: Any) -> Any:
     if isinstance(value, Mapping):
+        fields = set(value)
+        is_contract_reference = fields == {
+            "contract_kind",
+            "contract_id",
+            "contract_version",
+            "contract_digest",
+        }
         return {
-            str(key): _strip_presentation_contract_fields(item)
+            str(key): _normalize_nested_contract_references(item)
             for key, item in value.items()
-            if (
-                key not in _PRESENTATION_CONTRACT_FIELDS
-                and key != "contract_digest"
-            )
+            if not (is_contract_reference and key == "contract_digest")
         }
     if isinstance(value, (list, tuple)):
         return [
-            _strip_presentation_contract_fields(item)
+            _normalize_nested_contract_references(item)
             for item in value
         ]
     return value
+
+
+def _nested_contract_reference_keys(
+    value: Any,
+) -> set[tuple[str, str, str]]:
+    keys: set[tuple[str, str, str]] = set()
+    if isinstance(value, Mapping):
+        if set(value) == {
+            "contract_kind",
+            "contract_id",
+            "contract_version",
+            "contract_digest",
+        } and all(
+            isinstance(value[field], str)
+            for field in (
+                "contract_kind",
+                "contract_id",
+                "contract_version",
+                "contract_digest",
+            )
+        ):
+            keys.add(
+                (
+                    value["contract_kind"],
+                    value["contract_id"],
+                    value["contract_version"],
+                )
+            )
+        for item in value.values():
+            keys.update(_nested_contract_reference_keys(item))
+    elif isinstance(value, (list, tuple)):
+        for item in value:
+            keys.update(_nested_contract_reference_keys(item))
+    return keys
 
 
 def _result_affecting_contract(contract: Any) -> dict[str, Any]:
@@ -2308,11 +2438,22 @@ def _result_affecting_contract(contract: Any) -> dict[str, Any]:
         if callable(contract.descriptor)
         else contract.descriptor
     )
+    contract_kind = descriptor["contract_kind"]
+    presentation_fields = _PRESENTATION_CONTRACT_FIELDS.get(
+        contract_kind,
+        (),
+    )
     return {
-        "contract_kind": descriptor["contract_kind"],
+        "contract_kind": contract_kind,
         "contract_id": descriptor["contract_id"],
         "contract_version": descriptor["contract_version"],
-        "descriptor": _strip_presentation_contract_fields(descriptor),
+        "descriptor": _normalize_nested_contract_references(
+            {
+                key: value
+                for key, value in descriptor.items()
+                if key not in presentation_fields
+            }
+        ),
     }
 
 
@@ -2336,48 +2477,10 @@ def _candidate_data_content_digest(
 
 
 def _input_content_digest(
-    catalog: FrozenCatalog,
     port_type: Any,
     value: Any,
 ) -> str:
-    """Identify scientific input content without runtime/presentation labels."""
-    if type(value) is CandidateCollection:
-        return canonical_sha256(
-            {
-                "schema_namespace": (
-                    "protein-workbench-candidate-input/v2"
-                ),
-                "item_type": value.item_type,
-                "candidates": [
-                    {
-                        "candidate_id": candidate.candidate_id,
-                        "parent_candidate_identities": (
-                            list(candidate.parent_ids)
-                        ),
-                        "content_digest": _candidate_data_content_digest(
-                            catalog,
-                            candidate,
-                        ),
-                    }
-                    for candidate in value.items
-                ],
-            }
-        )
-    if type(value) is ScoreCollection:
-        return canonical_sha256(
-            {
-                "schema_namespace": "protein-workbench-score-input/v2",
-                "observations": [
-                    {
-                        "score_id": score.score_id,
-                        "value": score.value,
-                        "subjects": list(score.subjects),
-                        "details": dict(score.details),
-                    }
-                    for score in value.entries
-                ],
-            }
-        )
+    """Identify every typed scientific input through its registered codec."""
     return port_type.content_digest(value)
 
 
@@ -2393,12 +2496,13 @@ def _result_identity(
 
 
 def _relevant_result_contract_keys(
+    catalog: FrozenCatalog,
     plan: ExecutionPlan,
     node: ExecutionPlanNode,
     node_contract: Any,
     binding_contract: Any,
 ) -> set[tuple[str, str, str]]:
-    return {
+    keys = {
         node.node_type.key,
         node.binding.key,
         node.method.key,
@@ -2428,6 +2532,23 @@ def _relevant_result_contract_keys(
             if entry.contract_kind == "utility_transform"
         },
     }
+    unresolved = list(keys)
+    while unresolved:
+        key = unresolved.pop()
+        contract = catalog.require_contract(*key)
+        descriptor = (
+            contract.descriptor()
+            if callable(contract.descriptor)
+            else contract.descriptor
+        )
+        for reference in _nested_contract_reference_keys(descriptor):
+            if (
+                reference not in keys
+                and catalog.get_contract(*reference) is not None
+            ):
+                keys.add(reference)
+                unresolved.append(reference)
+    return keys
 
 
 def _contains_unresolved_identity(value: Any) -> bool:
@@ -2461,6 +2582,7 @@ def _result_identity_is_cache_safe(
     node_contract = catalog.require_contract(*node.node_type.key)
     binding_contract = catalog.require_contract(*node.binding.key)
     keys = _relevant_result_contract_keys(
+        catalog,
         plan,
         node,
         node_contract,
@@ -2495,6 +2617,7 @@ def _result_contract_metadata(
     node_contract = catalog.require_contract(*node.node_type.key)
     binding_contract = catalog.require_contract(*node.binding.key)
     relevant_keys = _relevant_result_contract_keys(
+        catalog,
         plan,
         node,
         node_contract,
@@ -2621,7 +2744,7 @@ class _ProjectResultCache(ResultReplaySource):
         project_id: str,
         producer: Mapping[str, Any],
     ) -> bool:
-        """Expose a provisional entry only after its producer Node commits."""
+        """Expose a provisional entry only after Ledger-proven Node success."""
         try:
             producer_run_id = validate_identifier(
                 producer["producer_run_id"],
@@ -2631,35 +2754,30 @@ class _ProjectResultCache(ResultReplaySource):
                 producer["producer_node_id"],
                 "producer_node_id",
             )
-            run_dir = self._projects.run_dir(
+            ledger = _read_run_evidence_ledger(
+                self._projects,
                 project_id,
                 producer_run_id,
             )
-            encoded = _read_stable_private_file(
-                run_dir.parent,
-                (producer_run_id, "manifest.json"),
-                field="run_manifest_projection",
-                maximum_size=MAX_ARTIFACT_BYTES_PER_RUN,
-            )
-            projection = json.loads(encoded)
         except (
             FileNotFoundError,
             KeyError,
             OSError,
+            ProtocolValidationError,
+            RuntimeError,
             StoragePathError,
             TypeError,
-            UnicodeDecodeError,
-            json.JSONDecodeError,
+            V2RunError,
+            ValueError,
         ):
             return False
-        if not isinstance(projection, Mapping):
+        if ledger is None:
             return False
-        dispositions = projection.get("node_dispositions")
-        return isinstance(dispositions, list) and any(
-            isinstance(disposition, Mapping)
-            and disposition.get("node_id") == producer_node_id
-            and disposition.get("outcome") == "succeeded"
-            for disposition in dispositions
+        return any(
+            fact["fact_type"] == "node_disposition"
+            and fact["payload"]["node_id"] == producer_node_id
+            and fact["payload"]["outcome"] == "succeeded"
+            for fact in ledger.facts
         )
 
     def lookup(
@@ -3011,50 +3129,7 @@ class V2RunService:
     def _parse_plan_evidence(
         value: Any,
     ) -> tuple[_PlanNodeEvidence, ...]:
-        if not isinstance(value, list):
-            raise ValueError("Run plan evidence is invalid")
-        parsed: list[_PlanNodeEvidence] = []
-        seen: set[str] = set()
-        for item in value:
-            if (
-                not isinstance(item, Mapping)
-                or set(item)
-                != {
-                    "node_id",
-                    "dependencies",
-                    "required_dependencies",
-                }
-                or not isinstance(item["node_id"], str)
-                or not isinstance(item["dependencies"], list)
-                or not isinstance(item["required_dependencies"], list)
-                or not all(
-                    isinstance(dependency, str)
-                    for dependency in (
-                        *item["dependencies"],
-                        *item["required_dependencies"],
-                    )
-                )
-                or item["node_id"] in seen
-            ):
-                raise ValueError("Run plan evidence is invalid")
-            node_id = validate_identifier(item["node_id"], "node_id")
-            dependencies = tuple(sorted(set(item["dependencies"])))
-            required = tuple(sorted(set(item["required_dependencies"])))
-            if (
-                list(dependencies) != item["dependencies"]
-                or list(required) != item["required_dependencies"]
-                or not set(required) <= set(dependencies)
-            ):
-                raise ValueError("Run plan evidence is invalid")
-            seen.add(node_id)
-            parsed.append(_PlanNodeEvidence(node_id, dependencies, required))
-        if any(
-            dependency not in seen
-            for node in parsed
-            for dependency in node.dependencies
-        ):
-            raise ValueError("Run plan evidence is invalid")
-        return tuple(parsed)
+        return _parse_plan_evidence(value)
 
     def _run_directories(self):
         for project in self._projects.list_projects():
