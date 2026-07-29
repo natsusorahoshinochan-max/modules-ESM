@@ -650,7 +650,7 @@ class ResultReplaySource:
         node: ExecutionPlanNode,
         inputs: Mapping[str, Any],
         result_identity: str,
-    ) -> Mapping[str, Any] | None:
+    ) -> ResultReplayHit | None:
         del project_id, execution_plan, node, inputs, result_identity
         return None
 
@@ -694,7 +694,9 @@ class ResultReplaySource:
 
 
 @dataclass(frozen=True, slots=True)
-class _ResultReplayHit:
+class ResultReplayHit:
+    """One identity-bound typed replay with durable producer provenance."""
+
     outputs: Mapping[str, Any]
     result_identity: str
     producer_run_id: str
@@ -2193,35 +2195,16 @@ def _result_identity_descriptor(
                 ],
             }
         )
+    relevant_keys = _relevant_result_contract_keys(
+        plan,
+        node,
+        node_contract,
+        binding_contract,
+    )
     relevant_contracts = {
         entry.key: entry.to_public()
         for entry in plan.resolved_contracts
-        if entry.key
-        in {
-            node.node_type.key,
-            node.binding.key,
-            node.method.key,
-            *{
-                (
-                    port["port_type"]["contract_kind"],
-                    port["port_type"]["contract_id"],
-                    port["port_type"]["contract_version"],
-                )
-                for direction in ("inputs", "outputs")
-                for port in node_contract.descriptor.get(direction, ())
-            },
-            *{
-                (
-                    observation["metric"]["contract_kind"],
-                    observation["metric"]["contract_id"],
-                    observation["metric"]["contract_version"],
-                )
-                for observation in binding_contract.descriptor.get(
-                    "produced_observations",
-                    (),
-                )
-            },
-        }
+        if entry.key in relevant_keys
     }
     return {
         "schema_namespace": RESULT_IDENTITY_NAMESPACE,
@@ -2272,6 +2255,44 @@ def _result_identity(
     )
 
 
+def _relevant_result_contract_keys(
+    plan: ExecutionPlan,
+    node: ExecutionPlanNode,
+    node_contract: Any,
+    binding_contract: Any,
+) -> set[tuple[str, str, str]]:
+    return {
+        node.node_type.key,
+        node.binding.key,
+        node.method.key,
+        *{
+            (
+                port["port_type"]["contract_kind"],
+                port["port_type"]["contract_id"],
+                port["port_type"]["contract_version"],
+            )
+            for direction in ("inputs", "outputs")
+            for port in node_contract.descriptor.get(direction, ())
+        },
+        *{
+            (
+                observation["metric"]["contract_kind"],
+                observation["metric"]["contract_id"],
+                observation["metric"]["contract_version"],
+            )
+            for observation in binding_contract.descriptor.get(
+                "produced_observations",
+                (),
+            )
+        },
+        *{
+            entry.key
+            for entry in plan.resolved_contracts
+            if entry.contract_kind == "utility_transform"
+        },
+    }
+
+
 def _contains_unresolved_identity(value: Any) -> bool:
     if isinstance(value, Mapping):
         if value.get("identity_complete") is False:
@@ -2291,16 +2312,32 @@ def _contains_unresolved_identity(value: Any) -> bool:
 
 def _result_identity_is_cache_safe(
     catalog: FrozenCatalog,
+    plan: ExecutionPlan,
     node: ExecutionPlanNode,
+    inputs: Mapping[str, Any],
 ) -> bool:
-    contracts = (
-        catalog.require_contract(*node.node_type.key),
-        catalog.require_contract(*node.binding.key),
-        catalog.require_contract(*node.method.key),
+    node_contract = catalog.require_contract(*node.node_type.key)
+    binding_contract = catalog.require_contract(*node.binding.key)
+    keys = _relevant_result_contract_keys(
+        plan,
+        node,
+        node_contract,
+        binding_contract,
     )
-    return not any(
+    contracts = tuple(catalog.require_contract(*key) for key in keys)
+    if any(
         _contains_unresolved_identity(contract.descriptor)
         for contract in contracts
+    ):
+        return False
+    if _contains_unresolved_identity(
+        _result_identity_descriptor(catalog, plan, node, inputs)
+    ):
+        return False
+    return all(
+        not _contains_unresolved_identity(candidate.candidate_id)
+        for value in inputs.values()
+        for candidate in V2RunService._candidate_values(value)
     )
 
 
@@ -2429,7 +2466,7 @@ class _ProjectResultCache(ResultReplaySource):
         node: ExecutionPlanNode,
         inputs: Mapping[str, Any],
         result_identity: str,
-    ) -> _ResultReplayHit | None:
+    ) -> ResultReplayHit | None:
         del execution_plan, inputs
         entry = self._load_entry(project_id, result_identity)
         if entry is None:
@@ -2510,7 +2547,7 @@ class _ProjectResultCache(ResultReplaySource):
             for port_name, declaration in declarations.items()
         ):
             return None
-        return _ResultReplayHit(
+        return ResultReplayHit(
             outputs=decoded_outputs,
             result_identity=result_identity,
             producer_run_id=entry["producer"]["producer_run_id"],
@@ -3275,6 +3312,7 @@ class V2RunService:
             for candidate in self._candidate_values(value)
         }
         normalized_ids: dict[str, str] = {}
+        seen_raw_candidate_ids: set[str] = set()
         for output_port in sorted(outputs):
             supplied = outputs[output_port]
             output_values = (
@@ -3286,6 +3324,11 @@ class V2RunService:
                 candidates = self._candidate_values(value)
                 for sample_index, candidate in enumerate(candidates):
                     raw_candidate_id = candidate.candidate_id
+                    if raw_candidate_id in seen_raw_candidate_ids:
+                        raise PortValueError(
+                            "Candidate output reuses one producer identity"
+                        )
+                    seen_raw_candidate_ids.add(raw_candidate_id)
                     parents: list[str] = []
                     for parent_id in candidate.parent_ids:
                         if parent_id in normalized_ids:
@@ -3297,8 +3340,6 @@ class V2RunService:
                             and parent_id == node.node_id
                         ):
                             continue
-                        elif len(input_candidates) == 1:
-                            parents.append(next(iter(input_candidates)))
                         else:
                             raise PortValueError(
                                 "Candidate parent identity is not a resolved "
@@ -3817,22 +3858,14 @@ class V2RunService:
                 *node.binding.key,
             )
             result_identity: str | None = None
-            controlled_randomness = any(
-                key in {
-                    **_plain_json(node.node_parameters),
-                    **_plain_json(node.binding_parameters),
-                }
-                for key in {"seed", "random_seed", "effective_seed"}
-            )
             cache_eligible = (
                 binding_contract.descriptor.get("cacheable") is True
-                and (
-                    binding_contract.descriptor.get("deterministic") is True
-                    or controlled_randomness
-                )
+                and binding_contract.descriptor.get("deterministic") is True
                 and _result_identity_is_cache_safe(
                     self._catalog,
+                    plan,
                     node,
+                    node_inputs,
                 )
             )
             cache_lookup_eligible = (
@@ -3861,7 +3894,7 @@ class V2RunService:
                         inputs=node_inputs,
                         result_identity=result_identity,
                     )
-                    if isinstance(replayed, _ResultReplayHit):
+                    if isinstance(replayed, ResultReplayHit):
                         if replayed.result_identity != result_identity:
                             raise V2RunError(
                                 "cache_identity_conflict",
@@ -3872,8 +3905,27 @@ class V2RunService:
                             )
                         replayed_outputs = replayed.outputs
                         replay_producer_run_id = replayed.producer_run_id
+                        try:
+                            validate_identifier(
+                                replay_producer_run_id,
+                                "producer_run_id",
+                            )
+                        except StoragePathError as error:
+                            raise V2RunError(
+                                "cache_identity_conflict",
+                                "Cache replay producer provenance is invalid",
+                                details={
+                                    "result_identity": result_identity,
+                                },
+                            ) from error
+                    elif replayed is None:
+                        replayed_outputs = None
                     else:
-                        replayed_outputs = replayed
+                        raise V2RunError(
+                            "cache_identity_conflict",
+                            "Cache replay lacks identity-bound provenance",
+                            details={"result_identity": result_identity},
+                        )
                     if replayed_outputs is not None:
                         candidate_published, candidate_runtime = (
                             self._validate_outputs(
@@ -3890,9 +3942,7 @@ class V2RunService:
                                 candidate_published,
                                 result_identity=result_identity,
                                 current_run_id=run_id,
-                                producer_run_id=(
-                                    replay_producer_run_id or "external"
-                                ),
+                                producer_run_id=replay_producer_run_id,
                                 resolution="cache_replayed",
                             )
                             replayed_runtime = candidate_runtime

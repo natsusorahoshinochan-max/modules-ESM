@@ -12,7 +12,7 @@ from typing import Any
 
 from fastapi.testclient import TestClient
 
-from core import ResultReplaySource
+from core import ResultReplayHit, ResultReplaySource
 import core.run_execution_v2 as run_execution_v2
 from core.server import create_app
 from protein_workbench_public import validate_response
@@ -262,10 +262,13 @@ class _ControllableReplay(ResultReplaySource):
         self.lookups: list[str] = []
 
     def lookup(self, *, node, **kwargs):
-        del kwargs
         self.lookups.append(node.node_id)
         if self.enabled:
-            return {"text": "REPLAYED"}
+            return ResultReplayHit(
+                {"text": "REPLAYED"},
+                kwargs["result_identity"],
+                "fixture-producer",
+            )
         return None
 
 

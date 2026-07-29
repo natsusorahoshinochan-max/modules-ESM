@@ -14,6 +14,7 @@ from core import (
     FrozenCatalog,
     LazyImplementationFactory,
     ReadinessDeclaration,
+    ResultReplaySource,
     builtin_frozen_catalog,
 )
 from core.server import create_app
@@ -53,7 +54,11 @@ def _start_run(
     return projection, events
 
 
-def _candidate_catalog(calls: list[str]) -> FrozenCatalog:
+def _candidate_catalog(
+    calls: list[str],
+    *,
+    duplicate_output_ids: bool = False,
+) -> FrozenCatalog:
     builtin = builtin_frozen_catalog()
     candidates = builtin.require_port_type("candidate.collection", "2.0.0")
     method = _contract(
@@ -139,22 +144,32 @@ def _candidate_catalog(calls: list[str]) -> FrozenCatalog:
             calls.append(self._resources.run_id)
             with self._resources.engine_invocation():
                 pass
+            produced = Candidate(
+                candidate_id=f"candidate-{self._resources.run_id}",
+                data=ProteinSequence("ACDE"),
+                parent_ids=[self._resources.node_id],
+                metadata={
+                    "run_id": self._resources.run_id,
+                    "scientific_label": "fixture",
+                },
+            )
             return {
                 "candidates": CandidateCollection(
                     collection_id=f"collection-{self._resources.run_id}",
                     item_type="protein.sequence",
                     items=[
-                        Candidate(
-                            candidate_id=(
-                                f"candidate-{self._resources.run_id}"
-                            ),
-                            data=ProteinSequence("ACDE"),
-                            parent_ids=[self._resources.node_id],
-                            metadata={
-                                "run_id": self._resources.run_id,
-                                "scientific_label": "fixture",
-                            },
-                        )
+                        produced,
+                        *(
+                            [
+                                Candidate(
+                                    candidate_id=produced.candidate_id,
+                                    data=ProteinSequence("WXYZ"),
+                                    parent_ids=[self._resources.node_id],
+                                )
+                            ]
+                            if duplicate_output_ids
+                            else []
+                        ),
                     ],
                 )
             }
@@ -300,6 +315,56 @@ def test_deterministic_result_replays_from_project_cache_after_readiness(
     assert "engine_invocation_started" not in replay_event_types
 
 
+def test_replay_without_identity_bound_producer_provenance_is_rejected(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    class AmbiguousReplay(ResultReplaySource):
+        def lookup(self, **_kwargs: Any):
+            return {"text": "AMBIGUOUS"}
+
+    monkeypatch.setenv(
+        "PROTEIN_WORKBENCH_PROJECT_ROOT",
+        str(tmp_path / "projects"),
+    )
+    monkeypatch.setenv("PROTEIN_WORKBENCH_RUN_ROOT", str(tmp_path / "runs"))
+    monkeypatch.setenv(
+        "PROTEIN_WORKBENCH_OUTPUT_ROOT",
+        str(tmp_path / "outputs"),
+    )
+    app = create_app(
+        frozen_catalog_override=_direct_catalog([], cacheable=True),
+        v2_result_replay_source=AmbiguousReplay(),
+        v2_environment_configuration={
+            ("test.direct.local", "2.0.0"): {
+                "values": {"credential": "credential-value"},
+            }
+        },
+    )
+
+    with TestClient(app) as client:
+        project_id, compiled = _compile_one_node(client)
+        projection, events = _start_run(
+            client,
+            project_id,
+            compiled,
+            "ambiguous-replay",
+        )
+
+    terminal = next(
+        item["event"]
+        for item in events
+        if item["event"]["type"] == "node_attempt_terminal"
+    )
+    assert projection["status"] == "failed"
+    assert projection["outputs"] == []
+    assert terminal["error"]["code"] == "cache_identity_conflict"
+    assert not any(
+        item["event"]["type"] == "operation_attempt_started"
+        for item in events
+    )
+
+
 def test_candidate_identity_is_run_independent_and_preserved_on_replay(
     tmp_path,
     monkeypatch,
@@ -356,6 +421,50 @@ def test_candidate_identity_is_run_independent_and_preserved_on_replay(
     assert calls == [source["run_id"], forced_projection["run_id"]]
     assert forced_projection["node_dispositions"][0]["resolution"] == "executed"
     assert replayed["node_dispositions"][0]["resolution"] == "cache_replayed"
+
+
+def test_duplicate_candidate_producer_identity_fails_closed(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    monkeypatch.setenv(
+        "PROTEIN_WORKBENCH_PROJECT_ROOT",
+        str(tmp_path / "projects"),
+    )
+    monkeypatch.setenv(
+        "PROTEIN_WORKBENCH_CACHE_ROOT",
+        str(tmp_path / "cache"),
+    )
+    monkeypatch.setenv("PROTEIN_WORKBENCH_RUN_ROOT", str(tmp_path / "runs"))
+    monkeypatch.setenv(
+        "PROTEIN_WORKBENCH_OUTPUT_ROOT",
+        str(tmp_path / "outputs"),
+    )
+    app = create_app(
+        frozen_catalog_override=_candidate_catalog(
+            [],
+            duplicate_output_ids=True,
+        )
+    )
+
+    with TestClient(app) as client:
+        project_id, compiled = _compile_candidate_node(client)
+        projection, events = _start_run(
+            client,
+            project_id,
+            compiled,
+            "duplicate-candidate",
+        )
+
+    terminal = next(
+        item["event"]
+        for item in events
+        if item["event"]["type"] == "node_attempt_terminal"
+    )
+    assert projection["status"] == "failed"
+    assert projection["outputs"] == []
+    assert terminal["error"]["code"] == "node_execution_failed"
+    assert terminal["error"]["details"]["exception_type"] == "PortValueError"
 
 
 def test_same_result_identity_is_physically_isolated_between_projects(

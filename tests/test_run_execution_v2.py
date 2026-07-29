@@ -25,6 +25,7 @@ from core import (
     PreScheduleTermination,
     ReadinessResult,
     ReadinessDeclaration,
+    ResultReplayHit,
     ResultReplaySource,
     ReusableReadinessProof,
     builtin_frozen_catalog,
@@ -1207,12 +1208,16 @@ def test_cache_replay_closes_only_the_scheduled_node_attempt(
     calls: list[str] = []
 
     class FixtureReplaySource(ResultReplaySource):
-        def lookup(self, **kwargs: Any) -> Mapping[str, Any] | None:
+        def lookup(self, **kwargs: Any) -> ResultReplayHit | None:
             assert kwargs["project_id"]
             assert kwargs["node"].node_id == "direct"
             assert kwargs["inputs"] == {}
             calls.append("cache-lookup")
-            return {"text": "CACHED"}
+            return ResultReplayHit(
+                {"text": "CACHED"},
+                kwargs["result_identity"],
+                "fixture-producer",
+            )
 
     monkeypatch.setenv("PROTEIN_WORKBENCH_PROJECT_ROOT", str(tmp_path / "projects"))
     monkeypatch.setenv("PROTEIN_WORKBENCH_RUN_ROOT", str(tmp_path / "runs"))
@@ -1269,9 +1274,12 @@ def test_restart_does_not_publish_unclosed_cache_replay_output(
     monkeypatch,
 ) -> None:
     class FixtureReplaySource(ResultReplaySource):
-        def lookup(self, **kwargs: Any) -> Mapping[str, Any] | None:
-            del kwargs
-            return {"text": "UNCOMMITTED_CACHE_REPLAY"}
+        def lookup(self, **kwargs: Any) -> ResultReplayHit | None:
+            return ResultReplayHit(
+                {"text": "UNCOMMITTED_CACHE_REPLAY"},
+                kwargs["result_identity"],
+                "fixture-producer",
+            )
 
     entered = threading.Event()
     paused = threading.Event()
@@ -1376,12 +1384,15 @@ def test_cache_boundary_failure_falls_back_to_causally_closed_execution(
     calls: list[str] = []
 
     class FailingReplaySource(ResultReplaySource):
-        def lookup(self, **kwargs: Any) -> Mapping[str, Any] | None:
-            del kwargs
+        def lookup(self, **kwargs: Any) -> ResultReplayHit | None:
             calls.append("cache-lookup")
             if cache_failure == "lookup_error":
                 raise OSError("fixture cache failure")
-            return {"text": 17}
+            return ResultReplayHit(
+                {"text": 17},
+                kwargs["result_identity"],
+                "fixture-producer",
+            )
 
     monkeypatch.setenv("PROTEIN_WORKBENCH_PROJECT_ROOT", str(tmp_path / "projects"))
     monkeypatch.setenv("PROTEIN_WORKBENCH_RUN_ROOT", str(tmp_path / "runs"))
