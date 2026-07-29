@@ -208,6 +208,23 @@ class IntrinsicObservationContext:
 
 
 @dataclass(frozen=True, slots=True)
+class PairwiseCandidateMatch:
+    """One explicit subject-to-reference Candidate relationship."""
+
+    subject_candidate_id: str
+    subject_content_digest: str
+    reference_candidate_id: str
+    reference_content_digest: str
+
+
+@dataclass
+class PairwiseCandidateMapping:
+    """Closed per-subject counterpart mapping carried through a typed Port."""
+
+    entries: list[PairwiseCandidateMatch] = field(default_factory=list)
+
+
+@dataclass(frozen=True, slots=True)
 class PairwiseParticipant:
     """One role-labelled Candidate participating in a pairwise observation."""
 

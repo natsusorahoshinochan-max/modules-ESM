@@ -1463,6 +1463,29 @@
         "output_partition": {
           "$ref": "#/$defs/Identifier"
         },
+        "pairing_direction": {
+          "oneOf": [
+            {
+              "enum": [
+                "input",
+                "output"
+              ]
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "pairing_port": {
+          "oneOf": [
+            {
+              "$ref": "#/$defs/Identifier"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
         "reference_direction": {
           "oneOf": [
             {
@@ -1513,6 +1536,8 @@
         "subject_port",
         "reference_direction",
         "reference_port",
+        "pairing_direction",
+        "pairing_port",
         "guaranteed_multiplicity"
       ],
       "type": "object"
@@ -1523,7 +1548,7 @@
         "filter": {
           "oneOf": [
             {
-              "$ref": "#/$defs/JsonObject"
+              "$ref": "#/$defs/ObservationPropagationFilter"
             },
             {
               "type": "null"
@@ -1560,6 +1585,24 @@
         "input_ports",
         "filter"
       ],
+      "type": "object"
+    },
+    "ObservationPropagationFilter": {
+      "additionalProperties": false,
+      "properties": {
+        "context_profile": {
+          "$ref": "#/$defs/JsonObject"
+        },
+        "method": {
+          "$ref": "#/$defs/ContractReference"
+        },
+        "metric": {
+          "$ref": "#/$defs/ContractReference"
+        },
+        "source_partition": {
+          "$ref": "#/$defs/Identifier"
+        }
+      },
       "type": "object"
     },
     "PublicContractDescriptor": {

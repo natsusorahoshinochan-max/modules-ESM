@@ -25,6 +25,8 @@ from datatypes import (
     ExactContractReference,
     FunctionAnnotations,
     IntrinsicObservationContext,
+    PairwiseCandidateMapping,
+    PairwiseCandidateMatch,
     ProteinMPNNConstraints,
     ProteinPrompt,
     ProteinSequence,
@@ -41,6 +43,7 @@ from protein_workbench_public import validate_response
 
 EXPECTED_PORT_TYPE_IDS = {
     "candidate.collection",
+    "candidate.pairing",
     "file.path",
     "file.path.collection",
     "function.annotations",
@@ -60,6 +63,9 @@ EXPECTED_PORT_TYPE_IDS = {
 EXPECTED_PORT_TYPE_DIGESTS = {
     "candidate.collection": (
         "sha256:9bb806e8f171a89c82e89d47e0e47da4eed2c4977ad09899d4d60dc7e28bda00"
+    ),
+    "candidate.pairing": (
+        "sha256:6c7ef38ba52f660d189f4a0d4cffd57acf564f3243f4334e164d746ee57b6865"
     ),
     "file.path": (
         "sha256:1076b1d3c0159655b5a558dc81dac3069d894720634f743e1a124cca1ac91e91"
@@ -283,6 +289,16 @@ def test_every_builtin_port_type_round_trips_its_runtime_value() -> None:
                 aligned_mobile_coordinates=[[0.0, 0.0, 0.0]],
                 aligned_distances=[0.0],
             ),
+        "candidate.pairing": PairwiseCandidateMapping(
+            entries=[
+                PairwiseCandidateMatch(
+                    subject_candidate_id="candidate-1",
+                    subject_content_digest="sha256:" + "1" * 64,
+                    reference_candidate_id="reference-1",
+                    reference_content_digest="sha256:" + "2" * 64,
+                )
+            ]
+        ),
         "text": "α-helix",
     }
     catalog = builtin_frozen_catalog()
@@ -557,7 +573,7 @@ def test_builtin_port_type_contract_digests_match_golden_vectors() -> None:
         for definition in catalog.port_types
     } == EXPECTED_PORT_TYPE_DIGESTS
     assert catalog.contract_digest == (
-        "sha256:2e9cf22693fb9cd74b689c401f125a99e20512ab4bcf8f513b2274e2baea9e3d"
+        "sha256:0729c64c7b63854bcdbf091ae048bbe829a0355a0f0c1a593dbdbcc1b8768f8f"
     )
 
 

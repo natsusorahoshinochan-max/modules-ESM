@@ -1,4 +1,4 @@
-"""Typed intrinsic Observations and explicit Utility-based selection."""
+"""Typed Observations and explicit Utility-based selection."""
 
 from __future__ import annotations
 
@@ -23,6 +23,7 @@ from datatypes import (
     ExactContractReference,
     IntrinsicObservationContext,
     PairwiseObservationContext,
+    PairwiseCandidateMapping,
     ProteinSequence,
     ProteinStructure,
     Score,
@@ -32,7 +33,7 @@ from datatypes import (
 
 
 class SelectionError(ValueError):
-    """An intrinsic Selection Objective is unsafe or unsatisfied."""
+    """A Selection Objective is unsafe or unsatisfied."""
 
 
 def _freeze_json(value: Any) -> Any:
@@ -137,7 +138,7 @@ class PairwiseContextSelector:
 
 @dataclass(frozen=True, slots=True)
 class SelectionObjective:
-    """One exact Workflow-owned intrinsic preference."""
+    """One exact Workflow-owned preference."""
 
     objective_id: str
     candidate_input: SelectionInput
@@ -193,7 +194,7 @@ class SelectionObjective:
             )
         if self.missing_policy != "error":
             raise SelectionError(
-                "Intrinsic Selection Objective missing policy must be error"
+                "Selection Objective missing policy must be error"
             )
         if not isinstance(self.utility_parameters, Mapping):
             raise SelectionError("Utility parameters must be an object")
@@ -1124,5 +1125,52 @@ def validate_produced_score_collection(
                                 "Pairwise Context reference source does not "
                                 "contain one exact Candidate counterpart"
                             )
+                        if (
+                            context.pairing_mode
+                            == "per_subject_counterpart"
+                        ):
+                            pairing_source = (
+                                inputs
+                                if declaration.get("pairing_direction")
+                                == "input"
+                                else outputs
+                                if declaration.get("pairing_direction")
+                                == "output"
+                                else None
+                            )
+                            pairing = (
+                                pairing_source.get(
+                                    declaration.get("pairing_port")
+                                )
+                                if pairing_source is not None
+                                else None
+                            )
+                            if not isinstance(
+                                pairing,
+                                PairwiseCandidateMapping,
+                            ):
+                                raise SelectionError(
+                                    "Pairwise Candidate pairing source is "
+                                    "unavailable"
+                                )
+                            mapping_matches = [
+                                entry
+                                for entry in pairing.entries
+                                if (
+                                    entry.subject_candidate_id
+                                    == context.subject.candidate_id
+                                    and entry.subject_content_digest
+                                    == context.subject.content_digest
+                                    and entry.reference_candidate_id
+                                    == context.reference.candidate_id
+                                    and entry.reference_content_digest
+                                    == context.reference.content_digest
+                                )
+                            ]
+                            if len(mapping_matches) != 1:
+                                raise SelectionError(
+                                    "Pairwise Context does not match one exact "
+                                    "entry in its declared pairing source"
+                                )
                 except SelectionError as error:
                     raise PortValueError(str(error)) from error

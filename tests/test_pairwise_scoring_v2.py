@@ -34,10 +34,16 @@ from datatypes import (
     CandidateCollection,
     ExactContractReference,
     PairwiseObservationContext,
+    PairwiseCandidateMatch,
+    PairwiseCandidateMapping,
     PairwiseParticipant,
     ProteinSequence,
     ScoreCollection,
     ScoreObservation,
+)
+from protein_workbench_public import (
+    ProtocolValidationError,
+    validate_schema,
 )
 
 
@@ -282,6 +288,45 @@ def _pairwise_observation(
         value=value,
         source_partition=source_partition,
     )
+
+
+def _pairing_map(
+    catalog: FrozenCatalog,
+    pairs: list[tuple[Candidate, Candidate]],
+) -> PairwiseCandidateMapping:
+    candidate_type = catalog.require_port_type("protein.sequence", "2.0.0")
+    return PairwiseCandidateMapping(
+        entries=[
+            PairwiseCandidateMatch(
+                subject_candidate_id=subject.candidate_id,
+                subject_content_digest=candidate_type.content_digest(
+                    subject.data
+                ),
+                reference_candidate_id=reference.candidate_id,
+                reference_content_digest=candidate_type.content_digest(
+                    reference.data
+                ),
+            )
+            for subject, reference in pairs
+        ]
+    )
+
+
+def test_candidate_pairing_port_is_canonical_and_one_to_one() -> None:
+    catalog, _ = _pairwise_catalog()
+    subject = Candidate("subject-a", ProteinSequence("AA"))
+    reference = Candidate("reference-a", ProteinSequence("AT"))
+    pairing_type = catalog.require_port_type("candidate.pairing", "2.0.0")
+    mapping = _pairing_map(catalog, [(subject, reference)])
+
+    assert pairing_type.decode(pairing_type.encode(mapping)) == mapping
+
+    with pytest.raises(PortValueError, match="multiple counterparts"):
+        pairing_type.encode(
+            PairwiseCandidateMapping(
+                entries=[mapping.entries[0], mapping.entries[0]]
+            )
+        )
 
 
 def _reference_from_contract(
@@ -535,6 +580,8 @@ def _pairwise_binding(
                     "subject_port": "subjects",
                     "reference_direction": "input",
                     "reference_port": "counterparts",
+                    "pairing_direction": "input",
+                    "pairing_port": "pairings",
                     "guaranteed_multiplicity": "one",
                 }
             ],
@@ -568,6 +615,7 @@ def test_pairwise_output_requires_exact_subject_and_reference_candidates() -> No
             "protein.sequence",
             [reference],
         ),
+        "pairings": _pairing_map(catalog, [(subject, reference)]),
     }
 
     validate_produced_score_collection(
@@ -592,6 +640,7 @@ def test_pairwise_output_requires_exact_subject_and_reference_candidates() -> No
                     "protein.sequence",
                     [impostor],
                 ),
+                "pairings": _pairing_map(catalog, [(subject, impostor)]),
             },
             outputs={},
         )
@@ -634,6 +683,67 @@ def test_per_subject_pairing_rejects_one_global_implicit_reference() -> None:
                     "counterparts",
                     "protein.sequence",
                     [shared_reference],
+                ),
+                "pairings": _pairing_map(
+                    catalog,
+                    [
+                        (subject_a, shared_reference),
+                        (subject_b, shared_reference),
+                    ],
+                ),
+            },
+            outputs={},
+        )
+
+
+def test_per_subject_pairing_rejects_a_swapped_bijection() -> None:
+    catalog, contracts = _pairwise_catalog()
+    subject_a = Candidate("subject-a", ProteinSequence("AA"))
+    subject_b = Candidate("subject-b", ProteinSequence("GG"))
+    reference_a = Candidate("reference-a", ProteinSequence("AT"))
+    reference_b = Candidate("reference-b", ProteinSequence("GT"))
+    scores = ScoreCollection(
+        "swapped-bijection",
+        [
+            _pairwise_observation(
+                catalog=catalog,
+                contracts=contracts,
+                subject=subject,
+                reference=reference,
+                pairing_mode="per_subject_counterpart",
+                source_partition="per-subject",
+                value=value,
+            )
+            for subject, reference, value in (
+                (subject_a, reference_a, 0.7),
+                (subject_b, reference_b, 0.8),
+            )
+        ],
+    )
+
+    with pytest.raises(PortValueError, match="pairing source"):
+        validate_produced_score_collection(
+            catalog=catalog,
+            binding=_pairwise_binding(contracts),
+            output_port="scores",
+            collection=scores,
+            inputs={
+                "subjects": CandidateCollection(
+                    "subjects",
+                    "protein.sequence",
+                    [subject_a, subject_b],
+                ),
+                "counterparts": CandidateCollection(
+                    "counterparts",
+                    "protein.sequence",
+                    [reference_a, reference_b],
+                ),
+                "pairings": _pairing_map(
+                    catalog,
+                    [
+                        (subject_a, reference_b),
+                        (subject_b, reference_a),
+                    ],
                 ),
             },
             outputs={},
@@ -700,6 +810,56 @@ def test_controlled_union_preserves_partitions_and_rejects_invented_entries() ->
                 "union",
                 [fixed, replace(paired, source_partition="invented")],
             ),
+            inputs=inputs,
+            outputs={},
+        )
+
+
+def test_controlled_pass_through_requires_the_exact_source_collection() -> None:
+    catalog, contracts = _pairwise_catalog()
+    subject = Candidate("subject-a", ProteinSequence("AA"))
+    reference = Candidate("reference-a", ProteinSequence("AT"))
+    observation = _pairwise_observation(
+        catalog=catalog,
+        contracts=contracts,
+        subject=subject,
+        reference=reference,
+        pairing_mode="fixed_reference",
+        source_partition="fixed-reference",
+        value=0.4,
+    )
+    binding = _contract(
+        "binding",
+        "score.pass-through",
+        {
+            "method": contracts["tm-align"].reference(),
+            "produced_observations": [],
+            "observation_propagation": {
+                "schema_version": "2.0.0",
+                "mode": "pass_through",
+                "output_port": "scores",
+                "input_ports": ["source"],
+                "filter": None,
+            },
+        },
+    )
+    inputs = {"source": ScoreCollection("source", [observation])}
+
+    validate_produced_score_collection(
+        catalog=catalog,
+        binding=binding,
+        output_port="scores",
+        collection=ScoreCollection("copied", [observation]),
+        inputs=inputs,
+        outputs={},
+    )
+
+    with pytest.raises(PortValueError, match="cannot omit"):
+        validate_produced_score_collection(
+            catalog=catalog,
+            binding=binding,
+            output_port="scores",
+            collection=ScoreCollection("copied", []),
             inputs=inputs,
             outputs={},
         )
@@ -786,6 +946,8 @@ def test_produced_pairwise_and_propagation_contracts_are_closed_descriptors() ->
         subject_port="subjects",
         reference_direction="input",
         reference_port="counterparts",
+        pairing_direction="input",
+        pairing_port="pairings",
         guaranteed_multiplicity="one",
     )
     propagation = ObservationPropagationDefinition(
@@ -796,6 +958,7 @@ def test_produced_pairwise_and_propagation_contracts_are_closed_descriptors() ->
 
     assert produced.descriptor_template()["output_partition"] == "per-subject"
     assert produced.descriptor_template()["reference_port"] == "counterparts"
+    assert produced.descriptor_template()["pairing_port"] == "pairings"
     assert propagation.descriptor_template() == {
         "schema_version": "2.0.0",
         "mode": "union",
@@ -814,10 +977,36 @@ def test_produced_pairwise_and_propagation_contracts_are_closed_descriptors() ->
     with pytest.raises(CatalogBuildError, match="both reference"):
         replace(produced, reference_port=None)
 
+    with pytest.raises(CatalogBuildError, match="both pairing"):
+        replace(produced, pairing_port=None)
+
+    propagation_public = {
+        **propagation.descriptor_template(),
+        "input_ports": list(propagation.input_ports),
+    }
+    validate_schema(
+        "#/$defs/ObservationPropagationDeclaration",
+        propagation_public,
+    )
+    with pytest.raises(ProtocolValidationError, match="unexpected"):
+        validate_schema(
+            "#/$defs/ObservationPropagationDeclaration",
+            {
+                **propagation_public,
+                "mode": "filter",
+                "input_ports": ["fixed_scores"],
+                "filter": {
+                    "source_partition": "fixed-reference",
+                    "unexpected": True,
+                },
+            },
+        )
+
 
 def _compiler_catalog() -> tuple[FrozenCatalog, dict[str, CatalogContract]]:
     base, scoring = _pairwise_catalog()
     candidate_type = base.require_port_type("candidate.collection", "2.0.0")
+    pairing_type = base.require_port_type("candidate.pairing", "2.0.0")
     score_type = base.require_port_type("score.collection", "2.0.0")
     producer_node = _contract(
         "node_type",
@@ -840,6 +1029,12 @@ def _compiler_catalog() -> tuple[FrozenCatalog, dict[str, CatalogContract]]:
                 {
                     "name": "scores",
                     "port_type": score_type.reference(),
+                    "required": True,
+                    "multiplicity": "one",
+                },
+                {
+                    "name": "pairings",
+                    "port_type": pairing_type.reference(),
                     "required": True,
                     "multiplicity": "one",
                 },
@@ -914,6 +1109,8 @@ def _compiler_catalog() -> tuple[FrozenCatalog, dict[str, CatalogContract]]:
                     "subject_port": "candidates",
                     "reference_direction": "output",
                     "reference_port": "references",
+                    "pairing_direction": "output",
+                    "pairing_port": "pairings",
                     "guaranteed_multiplicity": "one",
                 },
             ],

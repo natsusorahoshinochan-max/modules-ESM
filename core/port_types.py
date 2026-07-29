@@ -26,6 +26,8 @@ from datatypes import (
     ExactContractReference,
     FunctionAnnotations,
     IntrinsicObservationContext,
+    PairwiseCandidateMapping,
+    PairwiseCandidateMatch,
     PairwiseObservationContext,
     PairwiseParticipant,
     ProteinMPNNConstraints,
@@ -154,6 +156,8 @@ _DATACLASS_BY_TAG = {
     "exact_contract_reference": ExactContractReference,
     "function_annotations": FunctionAnnotations,
     "intrinsic_observation_context": IntrinsicObservationContext,
+    "pairwise_candidate_mapping": PairwiseCandidateMapping,
+    "pairwise_candidate_match": PairwiseCandidateMatch,
     "pairwise_observation_context": PairwiseObservationContext,
     "pairwise_participant": PairwiseParticipant,
     "protein_prompt": ProteinPrompt,
@@ -173,6 +177,7 @@ _TAG_BY_DATACLASS = {
 }
 _VALUE_TYPE_BY_KIND = {
     "candidate_collection": CandidateCollection,
+    "pairwise_candidate_mapping": PairwiseCandidateMapping,
     "file_path": str,
     "file_path_collection": list,
     "function_annotations": FunctionAnnotations,
@@ -528,6 +533,47 @@ def _validate_domain_value(value: Any, *, path: str) -> None:
             raise PortValueError(
                 f"{path}.content_digest must be an exact SHA-256 digest"
             )
+        return
+
+    if type(value) is PairwiseCandidateMatch:
+        for name, candidate_id in (
+            ("subject_candidate_id", value.subject_candidate_id),
+            ("reference_candidate_id", value.reference_candidate_id),
+        ):
+            if not candidate_id:
+                raise PortValueError(f"{path}.{name} must not be empty")
+        for name, digest in (
+            ("subject_content_digest", value.subject_content_digest),
+            ("reference_content_digest", value.reference_content_digest),
+        ):
+            if re.fullmatch(r"sha256:[0-9a-f]{64}", digest) is None:
+                raise PortValueError(
+                    f"{path}.{name} must be an exact SHA-256 digest"
+                )
+        return
+
+    if type(value) is PairwiseCandidateMapping:
+        subject_ids: set[str] = set()
+        pair_identities: set[tuple[str, str]] = set()
+        for index, entry in enumerate(value.entries):
+            _validate_domain_value(
+                entry,
+                path=f"{path}.entries[{index}]",
+            )
+            if entry.subject_candidate_id in subject_ids:
+                raise PortValueError(
+                    f"{path} contains multiple counterparts for one subject"
+                )
+            subject_ids.add(entry.subject_candidate_id)
+            identity = (
+                entry.reference_candidate_id,
+                entry.reference_content_digest,
+            )
+            if identity in pair_identities:
+                raise PortValueError(
+                    f"{path} reuses one counterpart for multiple subjects"
+                )
+            pair_identities.add(identity)
         return
 
     if type(value) is PairwiseObservationContext:
@@ -1433,6 +1479,7 @@ class FrozenCatalog:
 
 _BUILTIN_VALUE_KINDS = (
     ("candidate.collection", "candidate_collection"),
+    ("candidate.pairing", "pairwise_candidate_mapping"),
     ("file.path", "file_path"),
     ("file.path.collection", "file_path_collection"),
     ("function.annotations", "function_annotations"),

@@ -533,6 +533,8 @@ class ProducedObservationDefinition:
     output_partition: str = "default"
     reference_direction: Literal["input", "output"] | None = None
     reference_port: str | None = None
+    pairing_direction: Literal["input", "output"] | None = None
+    pairing_port: str | None = None
 
     def __post_init__(self) -> None:
         _require_identifier(self.output_port, "output_port")
@@ -588,6 +590,35 @@ class ProducedObservationDefinition:
             raise CatalogBuildError(
                 "only pairwise Produced Observations declare a reference source"
             )
+        if (self.pairing_direction is None) != (self.pairing_port is None):
+            raise CatalogBuildError(
+                "Produced Observation must declare both pairing direction and "
+                "pairing Port"
+            )
+        if self.pairing_direction is not None:
+            if self.pairing_direction not in {"input", "output"}:
+                raise CatalogBuildError(
+                    "Produced Observation pairing_direction must be input or "
+                    "output"
+                )
+            _require_identifier(self.pairing_port, "pairing_port")
+        pairing_mode = self.context_profile.get("pairing_mode")
+        if (
+            context_kind == "pairwise"
+            and pairing_mode == "per_subject_counterpart"
+            and self.pairing_port is None
+        ):
+            raise CatalogBuildError(
+                "per-subject Produced Observation requires an explicit "
+                "Candidate pairing source"
+            )
+        if (
+            pairing_mode != "per_subject_counterpart"
+            and self.pairing_port is not None
+        ):
+            raise CatalogBuildError(
+                "only per-subject Produced Observations declare a pairing source"
+            )
 
     def descriptor_template(self) -> dict[str, Any]:
         return {
@@ -601,6 +632,8 @@ class ProducedObservationDefinition:
             "subject_port": self.subject_port,
             "reference_direction": self.reference_direction,
             "reference_port": self.reference_port,
+            "pairing_direction": self.pairing_direction,
+            "pairing_port": self.pairing_port,
             "guaranteed_multiplicity": self.guaranteed_multiplicity,
         }
 
@@ -1651,6 +1684,34 @@ def build_frozen_catalog(
                             f"Binding {binding.binding_id} Produced "
                             "Observation reference source must use exact "
                             "candidate.collection@2.0.0"
+                        )
+                if observation.pairing_port is not None:
+                    pairing_ports = (
+                        inputs_by_name
+                        if observation.pairing_direction == "input"
+                        else outputs_by_name
+                    )
+                    pairing_declaration = pairing_ports.get(
+                        observation.pairing_port
+                    )
+                    pairing_type = (
+                        pairing_declaration.get("port_type")
+                        if isinstance(pairing_declaration, Mapping)
+                        else None
+                    )
+                    if (
+                        not isinstance(pairing_type, ContractIdentity)
+                        or pairing_type.key
+                        != (
+                            "port_type",
+                            "candidate.pairing",
+                            "2.0.0",
+                        )
+                    ):
+                        raise CatalogBuildError(
+                            f"Binding {binding.binding_id} Produced "
+                            "Observation pairing source must use exact "
+                            "candidate.pairing@2.0.0"
                         )
             propagation = binding.observation_propagation
             if propagation is not None:

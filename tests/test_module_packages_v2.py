@@ -242,7 +242,7 @@ MODULE_PACKAGE = ModulePackageRegistration(
 
 EXPECTED_SYNTHETIC_CONTRACT_DIGESTS = {
     ("binding", "synthetic.echo.direct"): (
-        "sha256:ed6d00a6bde59f312c58f860f87ab864d054e0d6502085152cadbee257588b0a"
+        "sha256:c507f1c5ab95c78d1ca69c60f251dfb08e0f28fb2ab9a1697e62598c71ebe20f"
     ),
     ("method", "synthetic.echo"): (
         "sha256:1e44eccb730679996c9c9e2d65c61dc26745a8812c950b62c6c9a5963de2a176"

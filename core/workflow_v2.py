@@ -887,6 +887,11 @@ def _validate_selection_objectives(
                 != "pairwise"
                 or capability.get("reference_source") is not None
             )
+            and (
+                objective.context_selector.to_public().get("pairing_mode")
+                != "per_subject_counterpart"
+                or capability.get("pairing_source") is not None
+            )
         ]
         if len(produced) != 1:
             if any(
@@ -1023,6 +1028,12 @@ def _derive_observation_capabilities(
                     node_id=node_id,
                     direction=declaration.get("reference_direction"),
                     port=declaration.get("reference_port"),
+                ),
+                "pairing_source": _capability_source(
+                    workflow,
+                    node_id=node_id,
+                    direction=declaration.get("pairing_direction"),
+                    port=declaration.get("pairing_port"),
                 ),
             }
             key = (node_id, output_port)
