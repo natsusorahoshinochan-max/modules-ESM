@@ -4,7 +4,7 @@
 
 **Blocked by:** 05 — Run a readiness-gated direct Node.
 
-**Status:** awaiting-controller
+**Status:** completed
 
 - [x] Every Plan Node receives exactly one immutable disposition: succeeded, failed, blocked, cancelled, or interrupted; successful dispositions distinguish executed from cache-replayed resolution.
 - [x] A scheduled Node creates a Node Execution Attempt, an actual implementation call creates an Operation Attempt, and only crossing a declared scientific engine seam creates an Engine Invocation.
@@ -51,3 +51,22 @@ this state.
   unconditional one-Invocation conflation. The executor repaired every
   hard/high finding, documented the accepted v2 refinement of ADR-0015, and
   both follow-up review axes returned `APPROVE`.
+
+## Controller cumulative acceptance
+
+Before Ticket 07 started, the Controller independently accepted implementation
+commit `2a1aece17092598a02e9139918eaad4db8f305f0` together with the completed
+Tickets 01–05 surfaces:
+
+- Joint Ticket 01–06 focused suites: `192 passed`.
+- Cumulative routine: `877 passed, 44 deselected`, with retained result
+  `verification-results/routine/20260729T024722.588134Z-65372-e3a0686d2dabe329`.
+- Deterministic acceptance: `9 passed, 5 deselected`, with retained result
+  `verification-results/deterministic-acceptance/20260729T024900.995417Z-66019-2617340d82873cab`.
+- Installed artifact: `3 passed`, with retained result
+  `verification-results/installed-package/20260729T024954.535828Z-66164-b19612120618e857`.
+- `git diff --check f602211...2a1aece` passed and the worktree was clean before
+  the Controller recorded this acceptance.
+
+No Controller regression was returned to the executor. Ticket 07 may start from
+this accepted state.
