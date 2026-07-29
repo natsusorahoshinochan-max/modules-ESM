@@ -9,7 +9,7 @@ from types import MappingProxyType
 from typing import Any
 
 from core.parameter_contract import (
-    is_environment_parameter_name,
+    find_environment_parameter_field,
     parameter_contract_violation,
 )
 from core.port_types import CatalogBuildError, FrozenCatalog, canonical_sha256
@@ -429,7 +429,7 @@ def _validate_parameter_values(
     node_id: str,
     field_name: str,
 ) -> dict[str, Any]:
-    supplied_forbidden_path = _find_forbidden_environment_field(values)
+    supplied_forbidden_path = find_environment_parameter_field(values)
     if supplied_forbidden_path is not None:
         raise WorkflowCompileError(
             "environment_parameter_forbidden",
@@ -459,7 +459,7 @@ def _validate_parameter_values(
         if isinstance(declaration, Mapping) and "default" in declaration
     }
     resolved.update(_thaw_json(values))
-    forbidden_path = _find_forbidden_environment_field(resolved)
+    forbidden_path = find_environment_parameter_field(resolved)
     if forbidden_path is not None:
         raise WorkflowCompileError(
             "environment_parameter_forbidden",
@@ -513,33 +513,6 @@ def _validate_parameter_values(
                 field_path=("nodes", node_id, field_name, *path),
             )
     return resolved
-
-
-def _find_forbidden_environment_field(
-    value: Any,
-    *,
-    path: tuple[str | int, ...] = (),
-) -> tuple[str | int, ...] | None:
-    if isinstance(value, Mapping):
-        for name, item in value.items():
-            item_path = (*path, name)
-            if is_environment_parameter_name(name):
-                return item_path
-            nested = _find_forbidden_environment_field(
-                item,
-                path=item_path,
-            )
-            if nested is not None:
-                return nested
-    elif isinstance(value, (list, tuple)):
-        for index, item in enumerate(value):
-            nested = _find_forbidden_environment_field(
-                item,
-                path=(*path, index),
-            )
-            if nested is not None:
-                return nested
-    return None
 
 
 def _validate_static_semantics(

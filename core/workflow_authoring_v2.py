@@ -9,6 +9,7 @@ from pathlib import Path
 import tempfile
 from typing import Any
 
+from core.parameter_contract import find_environment_parameter_field
 from core.port_types import FrozenCatalog
 from core.project import ProjectManager, ProtectedProjectError
 from core.workflow_v2 import (
@@ -162,6 +163,30 @@ class WorkflowAuthoringService:
     ) -> dict[str, Any]:
         """Persist an author-supplied document without changing its Lock."""
         self._require_project(project_id)
+        for index, node in enumerate(workflow.nodes):
+            for field_name, values in (
+                ("node_parameters", node.node_parameters),
+                ("binding_parameters", node.binding_parameters),
+            ):
+                unsafe_path = find_environment_parameter_field(values)
+                if unsafe_path is not None:
+                    raise WorkflowAuthoringError(
+                        "malformed_request",
+                        (
+                            "Workflow parameters cannot contain Environment "
+                            "Configuration, credentials, runtime paths, or "
+                            "model identity"
+                        ),
+                        details={
+                            "field_path": [
+                                "workflow",
+                                "nodes",
+                                index,
+                                field_name,
+                                *unsafe_path,
+                            ]
+                        },
+                    )
         try:
             self._projects.assert_writable(project_id)
         except ProtectedProjectError as error:

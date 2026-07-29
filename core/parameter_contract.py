@@ -113,6 +113,34 @@ def is_environment_parameter_name(name: str) -> bool:
     )
 
 
+def find_environment_parameter_field(
+    value: Any,
+    *,
+    path: tuple[str | int, ...] = (),
+) -> tuple[str | int, ...] | None:
+    """Find an unsafe nested key in one author-controlled JSON value."""
+    if isinstance(value, Mapping):
+        for name, item in value.items():
+            item_path = (*path, name)
+            if is_environment_parameter_name(name):
+                return item_path
+            nested = find_environment_parameter_field(
+                item,
+                path=item_path,
+            )
+            if nested is not None:
+                return nested
+    elif isinstance(value, (list, tuple)):
+        for index, item in enumerate(value):
+            nested = find_environment_parameter_field(
+                item,
+                path=(*path, index),
+            )
+            if nested is not None:
+                return nested
+    return None
+
+
 def validate_parameter_declarations(
     declarations: Mapping[str, Any],
     *,
@@ -212,7 +240,7 @@ def _validate_value_contract_schema(
         "object",
         "string",
     }
-    if expected_type is not None:
+    if "type" in schema:
         types = (
             tuple(expected_type)
             if isinstance(expected_type, (list, tuple))
@@ -229,7 +257,7 @@ def _validate_value_contract_schema(
     else:
         types = ()
     enum = schema.get("enum")
-    if enum is not None and (
+    if "enum" in schema and (
         not isinstance(enum, (list, tuple)) or not enum
     ):
         raise ParameterContractDefinitionError(
@@ -252,8 +280,10 @@ def _validate_value_contract_schema(
         "exclusiveMinimum",
         "exclusiveMaximum",
     ):
-        bound = schema.get(keyword)
-        if bound is not None and (
+        if keyword not in schema:
+            continue
+        bound = schema[keyword]
+        if (
             not isinstance(bound, (int, float))
             or isinstance(bound, bool)
         ):
@@ -279,9 +309,11 @@ def _validate_value_contract_schema(
         ("minItems", "maxItems"),
         ("minProperties", "maxProperties"),
     ):
-        minimum = schema.get(minimum_keyword)
-        maximum = schema.get(maximum_keyword)
-        if minimum is not None and maximum is not None and minimum > maximum:
+        if (
+            minimum_keyword in schema
+            and maximum_keyword in schema
+            and schema[minimum_keyword] > schema[maximum_keyword]
+        ):
             raise ParameterContractDefinitionError(
                 f"{path}.{minimum_keyword} must not exceed {maximum_keyword}"
             )
@@ -293,8 +325,10 @@ def _validate_value_contract_schema(
         "minProperties",
         "maxProperties",
     ):
-        limit = schema.get(keyword)
-        if limit is not None and (
+        if keyword not in schema:
+            continue
+        limit = schema[keyword]
+        if (
             type(limit) is not int or limit < 0
         ):
             raise ParameterContractDefinitionError(
@@ -338,7 +372,7 @@ def _validate_value_contract_schema(
                 f"type {required_type!r}"
             )
     pattern = schema.get("pattern")
-    if pattern is not None:
+    if "pattern" in schema:
         if not isinstance(pattern, str):
             raise ParameterContractDefinitionError(
                 f"{path}.pattern must be a string"
@@ -350,11 +384,11 @@ def _validate_value_contract_schema(
                 f"{path}.pattern is invalid"
             ) from error
     unique_items = schema.get("uniqueItems")
-    if unique_items is not None and type(unique_items) is not bool:
+    if "uniqueItems" in schema and type(unique_items) is not bool:
         raise ParameterContractDefinitionError(
             f"{path}.uniqueItems must be boolean"
         )
-    if required is not None:
+    if "required" in schema:
         parameter_required = (
             allow_parameter_required and type(required) is bool
         )
@@ -368,9 +402,9 @@ def _validate_value_contract_schema(
                 f"{path}.required must be a unique array of field names"
             )
     for keyword in ("allOf", "anyOf", "oneOf"):
-        alternatives = schema.get(keyword)
-        if alternatives is None:
+        if keyword not in schema:
             continue
+        alternatives = schema[keyword]
         if not isinstance(alternatives, (list, tuple)) or not alternatives:
             raise ParameterContractDefinitionError(
                 f"{path}.{keyword} must be a non-empty array"
@@ -385,7 +419,7 @@ def _validate_value_contract_schema(
                 path=f"{path}.{keyword}[{index}]",
             )
     item_schema = schema.get("items")
-    if item_schema is not None:
+    if "items" in schema:
         if not isinstance(item_schema, Mapping):
             raise ParameterContractDefinitionError(
                 f"{path}.items must be an object"
@@ -395,7 +429,7 @@ def _validate_value_contract_schema(
             path=f"{path}.items",
         )
     properties = schema.get("properties")
-    if properties is not None:
+    if "properties" in schema:
         if not isinstance(properties, Mapping):
             raise ParameterContractDefinitionError(
                 f"{path}.properties must be an object"
@@ -435,7 +469,10 @@ def _validate_value_contract_schema(
             f"{path}.additionalProperties must explicitly be false "
             "for Workflow object parameters"
         )
-    if additional is not None and type(additional) is not bool:
+    if (
+        "additionalProperties" in schema
+        and type(additional) is not bool
+    ):
         raise ParameterContractDefinitionError(
             f"{path}.additionalProperties must be boolean"
         )

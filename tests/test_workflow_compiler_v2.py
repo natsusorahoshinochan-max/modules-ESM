@@ -869,6 +869,15 @@ def test_catalog_rejects_environment_parameter_declarations(
         {"type": "array", "uniqueItems": "yes"},
         {"type": "bogus"},
         {"type": "integer", "minimum": 1, "default": 0},
+        {"type": "string", "enum": None},
+        {"type": None},
+        {"type": "number", "maximum": None},
+        {"type": "string", "pattern": None},
+        {"type": "array", "uniqueItems": None},
+        {"value_contract": {"type": "object", "required": None}},
+        {"type": "array", "items": None},
+        {"type": "object", "properties": None},
+        {"type": "object", "additionalProperties": None},
     ],
 )
 def test_catalog_rejects_malformed_supported_parameter_contracts(
@@ -938,6 +947,19 @@ def test_public_v2_mutation_failures_use_the_structured_error_vocabulary(
             },
             headers={"Origin": "https://untrusted.example"},
         )
+        workflow["nodes"][0]["node_parameters"]["nested"] = {
+            "password": "must-not-persist",
+        }
+        credential = client.put(
+            f"/api/v2/projects/{project_id}/workflow",
+            json={
+                "expected_workflow_revision": 0,
+                "workflow": workflow,
+            },
+        )
+        after_credential = client.get(
+            f"/api/v2/projects/{project_id}/workflow",
+        )
         missing_body = client.post(
             f"/api/v2/projects/{project_id}/workflow:relock",
         )
@@ -952,6 +974,11 @@ def test_public_v2_mutation_failures_use_the_structured_error_vocabulary(
     assert missing_body.status_code == 400
     validate_error(missing_body.json(), status=400)
     assert missing_body.json()["error"]["code"] == "malformed_request"
+    assert credential.status_code == 400
+    validate_error(credential.json(), status=400)
+    assert credential.json()["error"]["code"] == "malformed_request"
+    assert after_credential.status_code == 404
+    validate_error(after_credential.json(), status=404)
 
 
 def test_public_save_load_relock_compile_journey_is_revisioned_and_exact(
