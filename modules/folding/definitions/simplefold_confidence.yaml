@@ -1,0 +1,22 @@
+schema_version: "2.0.0"
+node_type_id: folding.simplefold_confidence
+version: "2.0.0"
+title: Evaluate existing-structure SimpleFold confidence
+summary: Evaluates each supplied existing protein structure with one fixed direct SimpleFold confidence head without folding or generating coordinates.
+category: evaluation
+inputs:
+  - name: structure_candidates
+    port_type_id: candidate.collection
+    port_type_version: "2.0.0"
+    required: true
+    multiplicity: one
+    scientific_meaning: Ordered complete existing protein-structure Candidates whose supplied coordinates are evaluated without refolding.
+outputs:
+  - name: confidence_observations
+    port_type_id: score.collection
+    port_type_version: "2.0.0"
+    required: true
+    multiplicity: one
+    scientific_meaning: Exactly one canonical per-residue and one mean-residue intrinsic pLDDT Observation for every supplied structure Candidate.
+parameter_groups: []
+node_parameters: {}

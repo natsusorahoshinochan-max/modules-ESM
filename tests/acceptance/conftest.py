@@ -35,6 +35,12 @@ from modules.folding.simplefold_adapter import (
     simplefold_folding_artifact_sha256,
     validate_simplefold_folding_environment,
 )
+from modules.folding.simplefold_confidence_adapter import (
+    SIMPLEFOLD_CONFIDENCE_DEVICE,
+    configured_runtime_fingerprint as confidence_runtime_fingerprint,
+    provider_identity as confidence_provider_identity,
+    validate_simplefold_confidence_environment,
+)
 
 # Project root is three levels up from this file
 PROJECT_ROOT = Path(__file__).parent.parent.parent
@@ -114,6 +120,42 @@ def _check_simplefold_ready() -> bool:
     """Check if SimpleFold and required gate artifacts are installed."""
     if (
         os.environ.get("PROTEIN_WORKBENCH_PROVIDER_IDENTITY_PROFILE")
+        == "simplefold-v2-confidence"
+    ):
+        try:
+            validate_installed_provider_checkout(
+                "simplefold",
+                SIMPLEFOLD_REVISION,
+            )
+            validate_simplefold_confidence_environment({
+                "model_root": Path(
+                    os.environ["PROTEIN_WORKBENCH_SIMPLEFOLD_MODEL_ROOT"]
+                ),
+                "esm2_source_root": Path(
+                    os.environ["PROTEIN_WORKBENCH_SIMPLEFOLD_ESM2_ROOT"]
+                ),
+                "esm2_model_root": Path(
+                    os.environ[
+                        "PROTEIN_WORKBENCH_SIMPLEFOLD_ESM2_MODEL_ROOT"
+                    ]
+                ),
+                "device": SIMPLEFOLD_CONFIDENCE_DEVICE,
+                "resolved_runtime_fingerprint": (
+                    confidence_runtime_fingerprint()
+                ),
+            })
+        except (
+            FileNotFoundError,
+            ImportError,
+            KeyError,
+            OSError,
+            RuntimeError,
+            ValueError,
+        ):
+            return False
+        return True
+    if (
+        os.environ.get("PROTEIN_WORKBENCH_PROVIDER_IDENTITY_PROFILE")
         == "simplefold-v2-folding"
     ):
         try:
@@ -190,14 +232,19 @@ def readiness() -> dict:
         "simplefold": _check_simplefold_ready(),
         "alignment": _check_alignment_ready(),
     }
-    simplefold_identity = (
-        simplefold_provider_identity(
+    identity_profile = os.environ.get(
+        "PROTEIN_WORKBENCH_PROVIDER_IDENTITY_PROFILE"
+    )
+    if identity_profile == "simplefold-v2-confidence":
+        simplefold_identity = confidence_provider_identity()
+    elif identity_profile == "simplefold-v2-folding":
+        simplefold_identity = simplefold_provider_identity(
             simplefold_folding_artifact_sha256()
         )
-        if os.environ.get("PROTEIN_WORKBENCH_PROVIDER_IDENTITY_PROFILE")
-        == "simplefold-v2-folding"
-        else simplefold_provider_identity(SIMPLEFOLD_ARTIFACT_SHA256)
-    )
+    else:
+        simplefold_identity = simplefold_provider_identity(
+            SIMPLEFOLD_ARTIFACT_SHA256
+        )
     readiness_evidence = (
         (
             "biohub",

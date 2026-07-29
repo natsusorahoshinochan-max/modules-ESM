@@ -1,0 +1,24 @@
+schema_version: "2.0.0"
+node_type_id: contract_test.folding_structure_source
+version: "2.0.0"
+title: Folding structure source
+summary: Emits one deterministic existing-structure Candidate for confidence conformance.
+category: contract_test
+inputs: []
+outputs:
+  - name: structure_candidates
+    port_type_id: candidate.collection
+    port_type_version: "2.0.0"
+    required: true
+    multiplicity: one
+    scientific_meaning: One independently defined existing protein-structure Candidate.
+parameter_groups:
+  - id: fixture
+    title: Fixture
+    parameters: [pdb_string]
+node_parameters:
+  pdb_string:
+    parameter_scope: scientific
+    scientific_meaning: Exact existing PDB structure used by this independent test source.
+    type: string
+    pattern: "(?s).*ATOM.*"

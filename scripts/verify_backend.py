@@ -55,6 +55,9 @@ from core.run_manifest import _validate_score_details, sanitize_public_value
 from modules.folding.simplefold_adapter import (
     simplefold_folding_artifact_sha256,
 )
+from modules.folding.simplefold_confidence_adapter import (
+    provider_identity as simplefold_confidence_provider_identity,
+)
 
 ROOT_VARIABLES = (
     "PROTEIN_WORKBENCH_PROJECT_ROOT",
@@ -486,6 +489,25 @@ TIERS = {
         requires_local_model_environment=True,
         requires_simplefold_environment=True,
     ),
+    "simplefold-confidence-v2-heavy-model": Tier((
+        "tests/acceptance/test_simplefold_confidence_v2.py::"
+        "test_simplefold_confidence_v2_evaluates_3gb1_exact_assets_without_refold",
+        "-m",
+        "local_provider and slow",
+    ),
+        requires_provider_evidence=True,
+        provider_evidence_gate="heavy-model",
+        provider_identity_profile="simplefold-v2-confidence",
+        required_call_counts=(
+            ("simplefold", "evaluate_structure", 1),
+        ),
+        expected_test_ids=frozenset({
+            "tests/acceptance/test_simplefold_confidence_v2.py::"
+            "test_simplefold_confidence_v2_evaluates_3gb1_exact_assets_without_refold",
+        }),
+        requires_local_model_environment=True,
+        requires_simplefold_environment=True,
+    ),
     "heavy-model": Tier((
         "tests/acceptance/test_local_esm3.py::test_local_esm3_all_generation_modes",
         "tests/acceptance/test_proteinmpnn_design.py::TestProteinMPNNDesign::test_design_3gb1",
@@ -616,6 +638,8 @@ def _expected_provider_identity(
             **EXPECTED_STATIC_IDENTITIES["simplefold"],
             "artifact_sha256": simplefold_folding_artifact_sha256(),
         }
+    if provider == "simplefold" and profile == "simplefold-v2-confidence":
+        return simplefold_confidence_provider_identity()
     if provider == "biopython-svd":
         return {
             "biopython_version": importlib.metadata.version("biopython"),
@@ -1331,7 +1355,16 @@ def validate_provider_evidence(
         key = (str(call["provider"]), str(call["operation"]))
         if key not in tier.expected_call_counts:
             return [], "unexpected provider call evidence"
-        if call.get("model") != EXPECTED_MODELS[key]:
+        expected_model = (
+            "simplefold_confidence_1.6B"
+            if (
+                tier.provider_identity_profile
+                == "simplefold-v2-confidence"
+                and key == ("simplefold", "evaluate_structure")
+            )
+            else EXPECTED_MODELS[key]
+        )
+        if call.get("model") != expected_model:
             return [], "provider call model identity mismatch"
         test_id = call.get("test_id")
         if not isinstance(test_id, str) or test_id not in tier.expected_test_ids:

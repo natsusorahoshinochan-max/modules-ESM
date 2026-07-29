@@ -52,6 +52,16 @@ from .simplefold_adapter import (
     simplefold_readiness,
     simplefold_runtime_structurally_available,
 )
+from .simplefold_confidence_adapter import (
+    SIMPLEFOLD_CONFIDENCE_ADAPTER,
+    SIMPLEFOLD_CONFIDENCE_DEVICE,
+    SIMPLEFOLD_CONFIDENCE_FEATURIZATION,
+    configured_runtime_fingerprint as confidence_runtime_fingerprint,
+    simplefold_confidence_artifact_sha256,
+    simplefold_confidence_esm2_artifact_sha256,
+    simplefold_confidence_readiness,
+    simplefold_confidence_runtime_structurally_available,
+)
 
 
 _VERSION = "2.0.0"
@@ -96,6 +106,18 @@ def _simplefold_available() -> AvailabilityResult:
     return AvailabilityResult.unavailable(
         code="simplefold_runtime_unavailable",
         message="The exact local SimpleFold runtime is unavailable.",
+        retryable=False,
+    )
+
+
+def _simplefold_confidence_available() -> AvailabilityResult:
+    if simplefold_confidence_runtime_structurally_available():
+        return AvailabilityResult.available()
+    return AvailabilityResult.unavailable(
+        code="simplefold_confidence_runtime_unavailable",
+        message=(
+            "The exact local SimpleFold confidence runtime is unavailable."
+        ),
         retryable=False,
     )
 
@@ -158,6 +180,20 @@ def _build_simplefold(method_id: str):
         from .implementation import SimpleFoldFoldingImplementation
 
         return SimpleFoldFoldingImplementation(
+            kwargs["run_resources"],
+            kwargs["environment_configuration"],
+            kwargs["frozen_catalog"],
+            method_id=method_id,
+        )
+
+    return factory
+
+
+def _build_simplefold_confidence(method_id: str):
+    def factory(**kwargs: object) -> object:
+        from .implementation import SimpleFoldConfidenceImplementation
+
+        return SimpleFoldConfidenceImplementation(
             kwargs["run_resources"],
             kwargs["environment_configuration"],
             kwargs["frozen_catalog"],
@@ -295,6 +331,54 @@ def _simplefold_method() -> MethodDefinition:
         },
         scale_contract={
             "plddt": "provider_high_level_[0,100]_identity",
+        },
+    )
+
+
+def _simplefold_confidence_method() -> MethodDefinition:
+    return MethodDefinition(
+        method_id=(
+            "folding.simplefold_confidence."
+            "existing_structure_1_6b_c7a5570"
+        ),
+        version=_VERSION,
+        algorithm_identity={
+            "name": "SimpleFold direct existing-structure confidence",
+            "operation": "confidence_only_no_coordinate_generation",
+            "latent_time": 1.0,
+            "valid_residue_mask": (
+                "protein_and_token_present_and_resolved_CA"
+            ),
+        },
+        model_identity={
+            "confidence_latent_model": "simplefold_1.6B.ckpt",
+            "confidence_output_head": "plddt_module_1.6B.ckpt",
+            "language_model": "esm2_t36_3B_UR50D.pt",
+        },
+        checkpoint_identity={
+            "simplefold_artifact_sha256": (
+                simplefold_confidence_artifact_sha256()
+            ),
+            "esm2_artifact_sha256": (
+                simplefold_confidence_esm2_artifact_sha256()
+            ),
+        },
+        featurization_identity={
+            "contract": SIMPLEFOLD_CONFIDENCE_FEATURIZATION,
+            "input": "existing protein-only PDB coordinates",
+            "ccd_sha256": SIMPLEFOLD_ARTIFACT_SHA256["ccd.pkl"],
+            "processor_scale": 16.0,
+            "processor_reference_scale": 5.0,
+            "encoder_mode": "representation_only_no_contacts",
+        },
+        source_identity={
+            "provider": "ml-simplefold",
+            "source_revision": SIMPLEFOLD_REVISION,
+            "esm2_source_revision": SIMPLEFOLD_ESM2_REVISION,
+            "esm2_source_tree_sha256": SIMPLEFOLD_ESM2_SOURCE_TREE_SHA256,
+        },
+        scale_contract={
+            "plddt": "direct_confidence_head_[0,1]_multiply_100",
         },
     )
 
@@ -652,22 +736,168 @@ def _simplefold_binding() -> ExecutionBindingDefinition:
     )
 
 
+def _simplefold_confidence_binding() -> ExecutionBindingDefinition:
+    method_id = (
+        "folding.simplefold_confidence."
+        "existing_structure_1_6b_c7a5570"
+    )
+    return ExecutionBindingDefinition(
+        binding_id="folding.simplefold_confidence.simplefold_local",
+        version=_VERSION,
+        node_type=ContractIdentity(
+            "node_type",
+            "folding.simplefold_confidence",
+            _VERSION,
+        ),
+        method=ContractIdentity("method", method_id, _VERSION),
+        binding_parameters={},
+        execution_route="adapter",
+        factory=LazyImplementationFactory(
+            behavior=BehaviorReference(
+                "folding.simplefold_confidence/factory",
+                _VERSION,
+                {
+                    "route": "simplefold_local",
+                    "operation": "existing_structure_confidence",
+                },
+            ),
+            build=_build_simplefold_confidence(method_id),
+        ),
+        adapter_behavior=BehaviorReference(
+            "folding.simplefold_confidence/adapter",
+            _VERSION,
+            {
+                "adapter_identity": SIMPLEFOLD_CONFIDENCE_ADAPTER,
+                "provider_contract": (
+                    f"ml-simplefold@{SIMPLEFOLD_REVISION}"
+                ),
+                "featurization": SIMPLEFOLD_CONFIDENCE_FEATURIZATION,
+                "native_scale": "[0,1]_multiply_100",
+                "coordinate_operation": "existing_input_only_no_refold",
+                "esm2_operation": "representations_only_no_contacts",
+            },
+        ),
+        availability=AvailabilityDeclaration(
+            behavior=BehaviorReference(
+                "folding.simplefold_confidence/availability",
+                _VERSION,
+                {"observation": "startup", "model_load": "forbidden"},
+            ),
+            prerequisites={
+                "provider": {
+                    "name": "simplefold",
+                    "source_revision": SIMPLEFOLD_REVISION,
+                },
+                "runtime": {"name": "torch"},
+            },
+            check=_simplefold_confidence_available,
+        ),
+        readiness=ReadinessDeclaration(
+            behavior=BehaviorReference(
+                "folding.simplefold_confidence/readiness",
+                _VERSION,
+                {
+                    "observation": "per-run",
+                    "cache_order": "before-cache-lookup",
+                    "model_load": "forbidden",
+                    "asset_closure": "exact-confidence-only",
+                },
+            ),
+            prerequisites={
+                "simplefold_confidence_models": {
+                    "artifact_sha256": (
+                        simplefold_confidence_artifact_sha256()
+                    ),
+                    "runtime_names": {
+                        "plddt_module_1.6B.ckpt": "plddt.ckpt",
+                    },
+                    "path_source": "trusted_environment_configuration",
+                },
+                "esm2_source": {
+                    "source_revision": SIMPLEFOLD_ESM2_REVISION,
+                    "source_tree_sha256": SIMPLEFOLD_ESM2_SOURCE_TREE_SHA256,
+                    "operation": "representation_only_no_contacts",
+                    "path_source": "trusted_environment_configuration",
+                },
+                "esm2_model": {
+                    "artifact_sha256": (
+                        simplefold_confidence_esm2_artifact_sha256()
+                    ),
+                    "path_source": "trusted_environment_configuration",
+                },
+                "device": {
+                    "source": "trusted_environment_configuration",
+                    "exact_value": SIMPLEFOLD_CONFIDENCE_DEVICE,
+                },
+                "runtime_fingerprint": {
+                    "source": "trusted_environment_configuration",
+                    "configured_value": confidence_runtime_fingerprint(),
+                    "safe_public_identity": True,
+                },
+            },
+            check=simplefold_confidence_readiness,
+        ),
+        deterministic=True,
+        cacheable=True,
+        implementation_identity={
+            "name": SIMPLEFOLD_CONFIDENCE_ADAPTER,
+            "operation": "existing_structure_confidence_no_refold",
+            "device": SIMPLEFOLD_CONFIDENCE_DEVICE,
+            "featurization": SIMPLEFOLD_CONFIDENCE_FEATURIZATION,
+            "simplefold_artifact_sha256": (
+                simplefold_confidence_artifact_sha256()
+            ),
+            "esm2_artifact_sha256": (
+                simplefold_confidence_esm2_artifact_sha256()
+            ),
+            "source_revision": SIMPLEFOLD_REVISION,
+            "native_scale": "[0,1]_multiply_100",
+        },
+        produced_observations=tuple(
+            ProducedObservationDefinition(
+                output_port="confidence_observations",
+                metric=ContractIdentity("metric", metric, _VERSION),
+                context_profile={"kind": "intrinsic"},
+                subject_grain="candidate",
+                source_role="subject",
+                subject_direction="input",
+                subject_port="structure_candidates",
+                guaranteed_multiplicity="one",
+                output_partition="existing_structure_confidence",
+            )
+            for metric in (
+                "structure.plddt.per_residue",
+                "structure.plddt.mean_residue",
+            )
+        ),
+    )
+
+
 MODULE_PACKAGE = ModulePackageRegistration(
     schema_version=_VERSION,
     package_id="folding",
     package_version=_VERSION,
     package_module=__package__,
-    node_definitions=(DefinitionResource("definitions/fold.yaml"),),
+    node_definitions=(
+        DefinitionResource("definitions/fold.yaml"),
+        DefinitionResource("definitions/simplefold_confidence.yaml"),
+    ),
     metric_definitions=(
         DefinitionResource("definitions/plddt_per_residue_metric.yaml"),
         DefinitionResource("definitions/plddt_mean_residue_metric.yaml"),
         DefinitionResource("definitions/ptm_metric.yaml"),
         DefinitionResource("definitions/pae_metric.yaml"),
     ),
-    methods=(_method("remote"), _method("local"), _simplefold_method()),
+    methods=(
+        _method("remote"),
+        _method("local"),
+        _simplefold_method(),
+        _simplefold_confidence_method(),
+    ),
     bindings=(
         _binding("remote"),
         _binding("local"),
         _simplefold_binding(),
+        _simplefold_confidence_binding(),
     ),
 )

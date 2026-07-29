@@ -191,7 +191,10 @@ def test_remote_and_local_esmfold2_are_explicit_bindings_of_one_node() -> None:
     registration = registrations["folding"]
     assert {
         resource.resource for resource in registration.node_definitions
-    } == {"definitions/fold.yaml"}
+    } == {
+        "definitions/fold.yaml",
+        "definitions/simplefold_confidence.yaml",
+    }
 
     catalog = build_discovered_frozen_catalog()
     remote = catalog.require_contract(
@@ -735,6 +738,56 @@ def test_remote_and_local_bindings_pass_shared_contract_test_kit(
         "validated_simplefold_esm2_root",
         lambda root=None: root,
     )
+    import modules.folding.simplefold_confidence_adapter as confidence_adapter
+
+    monkeypatch.setattr(
+        confidence_adapter,
+        "SIMPLEFOLD_ARTIFACT_SHA256",
+        {
+            name: hashlib.sha256(simplefold_payloads[name]).hexdigest()
+            for name in confidence_adapter.SIMPLEFOLD_CONFIDENCE_ARTIFACTS
+        },
+    )
+    monkeypatch.setattr(
+        confidence_adapter,
+        "SIMPLEFOLD_ARTIFACT_IDENTITIES",
+        {
+            name: {"bytes": len(simplefold_payloads[name])}
+            for name in confidence_adapter.SIMPLEFOLD_CONFIDENCE_ARTIFACTS
+        },
+    )
+    monkeypatch.setattr(
+        confidence_adapter,
+        "SIMPLEFOLD_ESM2_ARTIFACT_SHA256",
+        {
+            name: hashlib.sha256(
+                simplefold_esm2_payloads[name]
+            ).hexdigest()
+            for name in (
+                confidence_adapter.SIMPLEFOLD_CONFIDENCE_ESM2_ARTIFACTS
+            )
+        },
+    )
+    monkeypatch.setattr(
+        confidence_adapter,
+        "SIMPLEFOLD_ESM2_ARTIFACT_IDENTITIES",
+        {
+            name: {"bytes": len(simplefold_esm2_payloads[name])}
+            for name in (
+                confidence_adapter.SIMPLEFOLD_CONFIDENCE_ESM2_ARTIFACTS
+            )
+        },
+    )
+    monkeypatch.setattr(
+        confidence_adapter,
+        "validate_installed_provider_checkout",
+        lambda *_args, **_kwargs: None,
+    )
+    monkeypatch.setattr(
+        confidence_adapter,
+        "validated_simplefold_esm2_root",
+        lambda root=None: root,
+    )
 
     class SimpleFoldClient:
         def fold(
@@ -765,6 +818,14 @@ def test_remote_and_local_bindings_pass_shared_contract_test_kit(
                 ),
             )
 
+    class ConfidenceClient:
+        def evaluate(self, **kwargs: Any) -> dict[str, Any]:
+            assert kwargs["structure"].pdb_string == _two_residue_pdb()
+            return {
+                "native_plddt": [0.70, 0.80],
+                "valid_protein_residues": [True, True],
+            }
+
     simplefold_environment = {
         "model_root": simplefold_model_root,
         "esm2_model_root": simplefold_esm2_models,
@@ -776,6 +837,26 @@ def test_remote_and_local_bindings_pass_shared_contract_test_kit(
         "provider_client": SimpleFoldClient(),
         "private_token": "ctk-secret-must-not-publish",
     }
+    confidence_environment = {
+        "model_root": simplefold_model_root,
+        "esm2_model_root": simplefold_esm2_models,
+        "esm2_source_root": simplefold_esm2_source,
+        "device": confidence_adapter.SIMPLEFOLD_CONFIDENCE_DEVICE,
+        "resolved_runtime_fingerprint": (
+            confidence_adapter.configured_runtime_fingerprint()
+        ),
+        "provider_client": ConfidenceClient(),
+        "private_token": "ctk-secret-must-not-publish",
+    }
+    structure_source_node = WorkflowNodeInstance(
+        node_id="structure-source",
+        node_type_id="contract_test.folding_structure_source",
+        node_type_version="2.0.0",
+        binding_id="contract_test.folding_structure_source.direct",
+        binding_version="2.0.0",
+        node_parameters={"pdb_string": _two_residue_pdb()},
+        binding_parameters={},
+    )
     common = {
         "node_type_id": "folding.fold",
         "node_type_version": "2.0.0",
@@ -859,6 +940,39 @@ def test_remote_and_local_bindings_pass_shared_contract_test_kit(
                 }
             },
         ),
+        ModulePackageContractCase(
+            case_id="simplefold-confidence-local",
+            node_type_id="folding.simplefold_confidence",
+            node_type_version="2.0.0",
+            binding_id=(
+                "folding.simplefold_confidence.simplefold_local"
+            ),
+            binding_version="2.0.0",
+            node_parameters={},
+            binding_parameters={},
+            environment_values=confidence_environment,
+            workflow_nodes=(structure_source_node,),
+            workflow_edges=(
+                WorkflowEdge(
+                    "structure-source",
+                    "structure_candidates",
+                    "contract-test-node",
+                    "structure_candidates",
+                ),
+            ),
+            expected_observation_counts={
+                "confidence_observations": 2,
+            },
+            safe_environment_fingerprint=confidence_environment[
+                "resolved_runtime_fingerprint"
+            ],
+            invalidation_token=confidence_environment[
+                "resolved_runtime_fingerprint"
+            ],
+            forbidden_public_fragments=(
+                "ctk-secret-must-not-publish",
+            ),
+        ),
     )
 
     report = verify_module_package_contract(
@@ -869,6 +983,7 @@ def test_remote_and_local_bindings_pass_shared_contract_test_kit(
     )
 
     assert [case.status for case in report.case_reports] == [
+        "succeeded",
         "succeeded",
         "succeeded",
         "succeeded",

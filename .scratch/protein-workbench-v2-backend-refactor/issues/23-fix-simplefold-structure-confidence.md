@@ -4,7 +4,7 @@
 
 **Blocked by:** 22 — Add the SimpleFold folding Binding.
 
-**Status:** ready-for-agent
+**Status:** in-progress
 
 - [ ] Existing-structure confidence is a separate Node Type from folding and accepts an existing structure without invoking the folding Node or a folding checkpoint.
 - [ ] The Method identity fixes `simplefold_1.6B.ckpt`, `plddt_module_1.6B.ckpt`, `esm2_t36_3B_UR50D.pt`, versioned structure featurization, `ccd.pkl`, upstream scientific source, and native-to-canonical scale.

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 import hashlib
 import math
 from typing import Any
@@ -46,6 +46,11 @@ from .simplefold_adapter import (
     fold as simplefold_fold,
     simplefold_folding_artifact_sha256,
     provider_identity as simplefold_provider_identity,
+)
+from .simplefold_confidence_adapter import (
+    evaluate as simplefold_confidence_evaluate,
+    invocation_identity as simplefold_confidence_invocation_identity,
+    provider_identity as simplefold_confidence_provider_identity,
 )
 
 
@@ -632,4 +637,206 @@ class SimpleFoldFoldingImplementation:
                 "simplefold-pae",
                 [],
             ),
+        }
+
+
+class SimpleFoldConfidenceImplementation:
+    """Evaluate supplied structures through the fixed confidence-only Method."""
+
+    def __init__(
+        self,
+        run_resources: Any,
+        environment: Mapping[str, Any],
+        catalog: Any,
+        *,
+        method_id: str,
+    ) -> None:
+        self._run_resources = run_resources
+        self._environment = environment
+        self._catalog = catalog
+        self._method_id = method_id
+
+    @staticmethod
+    def _inputs(inputs: Mapping[str, Any]) -> list[Candidate]:
+        if set(inputs) != {"structure_candidates"}:
+            raise ValueError(
+                "SimpleFold confidence requires structure Candidates"
+            )
+        collection = inputs["structure_candidates"]
+        if (
+            type(collection) is not CandidateCollection
+            or collection.item_type != "protein.structure"
+            or not collection.items
+        ):
+            raise ValueError(
+                "SimpleFold confidence requires non-empty structures"
+            )
+        for candidate in collection.items:
+            if (
+                type(candidate) is not Candidate
+                or type(candidate.data) is not ProteinStructure
+            ):
+                raise ValueError(
+                    "SimpleFold confidence received an incomplete structure"
+                )
+        return list(collection.items)
+
+    @staticmethod
+    def normalize_native_confidence(
+        *,
+        native_plddt: object,
+        valid_protein_residues: object,
+    ) -> tuple[float, ...]:
+        """Apply the fixed direct-head scale after exact validity masking."""
+        if (
+            not isinstance(native_plddt, Sequence)
+            or isinstance(native_plddt, (str, bytes))
+            or not isinstance(valid_protein_residues, Sequence)
+            or isinstance(valid_protein_residues, (str, bytes))
+            or len(native_plddt) != len(valid_protein_residues)
+            or not native_plddt
+            or any(type(valid) is not bool for valid in valid_protein_residues)
+            or not any(valid_protein_residues)
+        ):
+            raise ValueError(
+                "SimpleFold direct-head pLDDT mask is malformed"
+            )
+        values: list[float] = []
+        for native, valid in zip(
+            native_plddt,
+            valid_protein_residues,
+            strict=True,
+        ):
+            if not valid:
+                continue
+            if (
+                isinstance(native, bool)
+                or not isinstance(native, (int, float))
+                or not math.isfinite(float(native))
+                or not 0.0 <= float(native) <= 1.0
+            ):
+                raise ValueError(
+                    "SimpleFold direct-head pLDDT is outside [0,1]"
+                )
+            values.append(float(native) * 100.0)
+        return tuple(values)
+
+    def _contract_reference(
+        self,
+        kind: str,
+        contract_id: str,
+    ) -> ExactContractReference:
+        contract = self._catalog.require_contract(
+            kind,
+            contract_id,
+            "2.0.0",
+        )
+        return ExactContractReference(**contract.reference())
+
+    def execute(
+        self,
+        *,
+        inputs: Mapping[str, Any],
+        node_parameters: Mapping[str, Any],
+        binding_parameters: Mapping[str, Any],
+    ) -> dict[str, Any]:
+        if node_parameters or binding_parameters:
+            raise ValueError(
+                "SimpleFold confidence has no Workflow parameters"
+            )
+        candidates = self._inputs(inputs)
+        method = self._contract_reference("method", self._method_id)
+        metrics = {
+            metric_id: self._contract_reference("metric", metric_id)
+            for metric_id in (
+                "structure.plddt.per_residue",
+                "structure.plddt.mean_residue",
+            )
+        }
+        observations: list[ScoreObservation] = []
+        for candidate_index, candidate in enumerate(candidates):
+            structure = candidate.data
+            assert type(structure) is ProteinStructure
+            with self._run_resources.temporary_directory(
+                prefix="simplefold-confidence-"
+            ) as staging_directory:
+                RunContext.record_active_provider_call(
+                    "simplefold",
+                    "evaluate_structure",
+                    model="simplefold_confidence_1.6B",
+                    details={
+                        "candidate_id": candidate.candidate_id,
+                    },
+                )
+                with self._run_resources.engine_invocation(
+                    engine_role=f"confidence_subject_{candidate_index}",
+                    engine_identity=(
+                        simplefold_confidence_invocation_identity()
+                    ),
+                ):
+                    native = simplefold_confidence_evaluate(
+                        structure=structure,
+                        staging_directory=staging_directory,
+                        environment=self._environment,
+                        call_details={
+                            "candidate_id": candidate.candidate_id,
+                        },
+                    )
+            if set(native) != {
+                "native_plddt",
+                "valid_protein_residues",
+            }:
+                raise ValueError(
+                    "SimpleFold confidence provider result is not closed"
+                )
+            values = self.normalize_native_confidence(
+                native_plddt=native["native_plddt"],
+                valid_protein_residues=native[
+                    "valid_protein_residues"
+                ],
+            )
+            mean_value = math.fsum(values) / len(values)
+            record_provider_call_result(
+                provider="simplefold",
+                operation="evaluate_structure",
+                model="simplefold_confidence_1.6B",
+                provider_identity=(
+                    simplefold_confidence_provider_identity()
+                ),
+                effective_seed=None,
+                seed_control="deterministic_existing_coordinates",
+                result_summary={
+                    "input_pdb_sha256": hashlib.sha256(
+                        structure.pdb_string.encode()
+                    ).hexdigest(),
+                    "score_count": 2,
+                    "score_ids": [
+                        "structure.plddt.per_residue",
+                        "structure.plddt.mean_residue",
+                    ],
+                    "score_values": [
+                        mean_value,
+                        *values,
+                    ],
+                },
+            )
+            for metric_id, value in (
+                ("structure.plddt.per_residue", list(values)),
+                ("structure.plddt.mean_residue", mean_value),
+            ):
+                observations.append(
+                    ScoreObservation(
+                        candidate_id=candidate.candidate_id,
+                        metric=metrics[metric_id],
+                        method=method,
+                        context=IntrinsicObservationContext(),
+                        value=value,
+                        source_partition="existing_structure_confidence",
+                    )
+                )
+        return {
+            "confidence_observations": ScoreCollection(
+                "simplefold-existing-structure-confidence",
+                observations,
+            )
         }

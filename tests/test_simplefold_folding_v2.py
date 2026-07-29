@@ -46,7 +46,10 @@ def test_simplefold_is_one_explicit_binding_of_the_shared_folding_node() -> None
     registration = registrations["folding"]
     assert {
         resource.resource for resource in registration.node_definitions
-    } == {"definitions/fold.yaml"}
+    } == {
+        "definitions/fold.yaml",
+        "definitions/simplefold_confidence.yaml",
+    }
 
     catalog = build_discovered_frozen_catalog()
     simplefold = catalog.require_contract(
