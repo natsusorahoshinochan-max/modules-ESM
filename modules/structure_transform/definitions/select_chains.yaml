@@ -1,0 +1,37 @@
+schema_version: "2.0.0"
+node_type_id: structure_transform.select_chains
+version: "2.0.0"
+title: Select structure chains
+summary: Selects an ordered, nonempty set of chains from one single-model structure.
+category: structure_transform
+inputs:
+  - name: structure
+    port_type_id: protein.structure
+    port_type_version: "2.0.0"
+    required: true
+    multiplicity: one
+    scientific_meaning: Full-atom single-model structure whose chains will be selected.
+outputs:
+  - name: structure
+    port_type_id: protein.structure
+    port_type_version: "2.0.0"
+    required: true
+    multiplicity: one
+    scientific_meaning: Canonical structure containing exactly the requested chains in requested order.
+parameter_groups:
+  - id: chain_selection
+    title: Chain selection
+    parameters:
+      - chain_ids
+node_parameters:
+  chain_ids:
+    parameter_scope: scientific
+    scientific_meaning: Ordered unique PDB chain identifiers to retain.
+    type: array
+    required: true
+    minItems: 1
+    maxItems: 64
+    uniqueItems: true
+    items:
+      type: string
+      pattern: "^[A-Za-z0-9]$"
