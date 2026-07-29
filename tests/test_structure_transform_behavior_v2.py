@@ -220,6 +220,26 @@ def test_chain_selection_rejects_missing_chain_without_output(
     )
 
 
+def test_chain_selection_preserves_distinct_alternate_locations(
+    tmp_path: Path,
+) -> None:
+    catalog, projection, _ = _run_transform(
+        tmp_path,
+        operation="select_chains",
+        fixture="alternate_locations",
+        node_parameters={"chain_ids": ["A"]},
+    )
+
+    structure = _decode(catalog, _transform_output(projection))
+    ca_lines = [
+        line
+        for line in structure.pdb_string.splitlines()
+        if line.startswith("ATOM  ") and line[12:16].strip() == "CA"
+    ]
+    assert [line[16] for line in ca_lines] == ["B", "A"]
+    assert [int(line[6:11]) for line in ca_lines] == [2, 3]
+
+
 @pytest.mark.parametrize(
     "operation",
     ("select_chains", "extract_backbone", "extract_sequence"),

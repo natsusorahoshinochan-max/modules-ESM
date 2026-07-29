@@ -170,9 +170,17 @@ def _choose_alternate(
     )
 
 
-def _normalized_atom_line(record: _AtomRecord, serial: int) -> str:
+def _renumbered_atom_line(record: _AtomRecord, serial: int) -> str:
     line = record.line.ljust(80)
-    return f"{line[:6]}{serial:5d}{line[11:16]} {line[17:]}".rstrip()
+    return f"{line[:6]}{serial:5d}{line[11:]}".rstrip()
+
+
+def _normalized_backbone_atom_line(
+    record: _AtomRecord,
+    serial: int,
+) -> str:
+    line = _renumbered_atom_line(record, serial).ljust(80)
+    return f"{line[:16]} {line[17:]}".rstrip()
 
 
 def select_chains(
@@ -210,7 +218,7 @@ def select_chains(
             if segment[0].chain_id != chain_id:
                 continue
             for record in segment:
-                output_lines.append(_normalized_atom_line(record, serial))
+                output_lines.append(_renumbered_atom_line(record, serial))
                 serial += 1
             output_lines.append("TER")
     if not output_lines:
@@ -277,7 +285,9 @@ def extract_backbone(structure: object) -> ProteinStructure:
                     residue_id=residue_id,
                     atom_name=atom_name,
                 )
-                output_lines.append(_normalized_atom_line(chosen, serial))
+                output_lines.append(
+                    _normalized_backbone_atom_line(chosen, serial)
+                )
                 serial += 1
         output_lines.append("TER")
     output_lines.append("END")
