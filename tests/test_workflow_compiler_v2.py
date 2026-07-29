@@ -696,7 +696,14 @@ def test_compile_validates_dag_binding_ownership_parameters_ports_and_availabili
                 "additionalProperties": False,
                 "required": ["count"],
                 "properties": {
-                    "count": {"type": "integer", "minimum": 1},
+                    "count": {
+                        "field_scope": "scientific",
+                        "scientific_meaning": (
+                            "Synthetic scientific observation count"
+                        ),
+                        "type": "integer",
+                        "minimum": 1,
+                    },
                 },
             },
             {"count": 0, "extra": True},
@@ -763,10 +770,20 @@ def test_compile_rejects_nested_environment_configuration_fields(
                 "additionalProperties": False,
                 "properties": {
                     "sampling": {
+                        "field_scope": "scientific",
+                        "scientific_meaning": (
+                            "Scientific sampling configuration"
+                        ),
                         "type": "object",
                         "additionalProperties": False,
                         "properties": {
-                            "temperature": {"type": "number"},
+                            "temperature": {
+                                "field_scope": "scientific",
+                                "scientific_meaning": (
+                                    "Scientific sampling temperature"
+                                ),
+                                "type": "number",
+                            },
                         },
                     }
                 },
@@ -910,6 +927,103 @@ def test_catalog_requires_explicit_scientific_parameter_classification(
                 },
             }
         )
+
+
+@pytest.mark.parametrize(
+    "property_declaration",
+    [
+        {"measurement": {"type": "string"}},
+        {
+            "connectionString": {
+                "field_scope": "scientific",
+                "scientific_meaning": "Invalid database endpoint disguise",
+                "type": "string",
+            }
+        },
+        {
+            "tlsCertificate": {
+                "field_scope": "scientific",
+                "scientific_meaning": "Invalid runtime certificate disguise",
+                "type": "string",
+            }
+        },
+    ],
+)
+def test_catalog_classifies_nested_scientific_fields_explicitly(
+    property_declaration: dict,
+) -> None:
+    with pytest.raises(CatalogBuildError):
+        _workflow_catalog(
+            source_node_parameter_overrides={
+                "scientific_options": {
+                    "type": "object",
+                    "additionalProperties": False,
+                    "properties": property_declaration,
+                },
+            }
+        )
+
+
+@pytest.mark.parametrize(
+    ("value_contract", "value"),
+    [
+        (
+            {
+                "anyOf": [
+                    {
+                        "type": "object",
+                        "additionalProperties": False,
+                        "required": ["x"],
+                        "properties": {
+                            "x": {
+                                "field_scope": "scientific",
+                                "scientific_meaning": (
+                                    "Synthetic scientific coordinate"
+                                ),
+                                "type": "integer",
+                            }
+                        },
+                    },
+                    {"type": "string"},
+                ]
+            },
+            {"x": 1},
+        ),
+        ({"const": {"x": 1}}, {"x": 1}),
+    ],
+)
+def test_compile_accepts_object_values_delegated_by_value_contract(
+    value_contract: dict,
+    value: object,
+) -> None:
+    catalog = _workflow_catalog(
+        source_node_parameter_overrides={
+            "choice": {"value_contract": value_contract},
+        }
+    )
+    workflow = _unlocked_workflow()
+    source, sink = workflow.nodes
+    workflow = replace(
+        workflow,
+        nodes=(
+            replace(
+                source,
+                node_parameters={
+                    **source.node_parameters,
+                    "choice": value,
+                },
+            ),
+            sink,
+        ),
+    )
+
+    compiled = compile_workflow(
+        relock_workflow(workflow, catalog),
+        workflow_revision=2,
+        catalog=catalog,
+    )
+
+    assert compiled.execution_plan.nodes[0].node_parameters["choice"] == value
 
 
 def test_public_v2_mutation_failures_use_the_structured_error_vocabulary(

@@ -20,6 +20,7 @@ _SUPPORTED_VALUE_CONTRACT_KEYS = frozenset(
         "enum",
         "exclusiveMaximum",
         "exclusiveMinimum",
+        "field_scope",
         "items",
         "maxItems",
         "maxLength",
@@ -33,6 +34,7 @@ _SUPPORTED_VALUE_CONTRACT_KEYS = frozenset(
         "pattern",
         "properties",
         "required",
+        "scientific_meaning",
         "type",
         "uniqueItems",
     }
@@ -60,11 +62,15 @@ _ENVIRONMENT_TOKENS = frozenset(
         "auth",
         "authorization",
         "checkpoint",
+        "certificate",
+        "connection",
         "credential",
         "credentials",
         "cuda",
         "deployment",
+        "database",
         "device",
+        "dsn",
         "endpoint",
         "environment",
         "gpu",
@@ -82,6 +88,7 @@ _ENVIRONMENT_TOKENS = frozenset(
         "service",
         "ssh",
         "token",
+        "tls",
         "uri",
         "url",
     }
@@ -206,6 +213,14 @@ def validate_parameter_declarations(
             allow_parameter_required=value_contract is None,
         )
         if "default" in declaration:
+            unsafe_default = find_environment_parameter_field(
+                declaration["default"]
+            )
+            if unsafe_default is not None:
+                raise ParameterContractDefinitionError(
+                    f"{declaration_path}.default contains Environment "
+                    "Configuration or model identity"
+                )
             violation = parameter_contract_violation(
                 declaration["default"],
                 schema,
@@ -241,11 +256,17 @@ def _validate_value_contract_schema(
         "string",
     }
     if "type" in schema:
-        types = (
-            tuple(expected_type)
-            if isinstance(expected_type, (list, tuple))
-            else (expected_type,)
-        )
+        if isinstance(expected_type, str):
+            types = (expected_type,)
+        elif (
+            isinstance(expected_type, (list, tuple))
+            and all(isinstance(item, str) for item in expected_type)
+        ):
+            types = tuple(expected_type)
+        else:
+            raise ParameterContractDefinitionError(
+                f"{path}.type must be a type name or array of type names"
+            )
         if (
             not types
             or any(item not in supported_types for item in types)
@@ -273,6 +294,15 @@ def _validate_value_contract_schema(
         ):
             raise ParameterContractDefinitionError(
                 f"{path}.enum/const values must conform to type"
+            )
+    for keyword in ("const", "enum"):
+        if (
+            keyword in schema
+            and find_environment_parameter_field(schema[keyword]) is not None
+        ):
+            raise ParameterContractDefinitionError(
+                f"{path}.{keyword} contains Environment Configuration "
+                "or model identity"
             )
     for keyword in (
         "minimum",
@@ -435,14 +465,28 @@ def _validate_value_contract_schema(
                 f"{path}.properties must be an object"
             )
         for name, property_schema in properties.items():
+            if not isinstance(property_schema, Mapping):
+                raise ParameterContractDefinitionError(
+                    f"{path}.properties.{name} must be an object"
+                )
+            if property_schema.get("field_scope") != "scientific":
+                raise ParameterContractDefinitionError(
+                    f"{path}.properties.{name}.field_scope must explicitly "
+                    "equal 'scientific'"
+                )
+            field_meaning = property_schema.get("scientific_meaning")
+            if (
+                not isinstance(field_meaning, str)
+                or not field_meaning.strip()
+            ):
+                raise ParameterContractDefinitionError(
+                    f"{path}.properties.{name}.scientific_meaning must "
+                    "explicitly describe the scientific value field"
+                )
             if is_environment_parameter_name(name):
                 raise ParameterContractDefinitionError(
                     f"{path}.properties.{name} declares Environment "
                     "Configuration or model identity"
-                )
-            if not isinstance(property_schema, Mapping):
-                raise ParameterContractDefinitionError(
-                    f"{path}.properties.{name} must be an object"
                 )
             _validate_value_contract_schema(
                 property_schema,
@@ -581,7 +625,16 @@ def parameter_contract_violation(
                 if violation is not None:
                     return violation
 
-    if isinstance(value, Mapping):
+    object_keywords = {
+        "additionalProperties",
+        "maxProperties",
+        "minProperties",
+        "properties",
+        "required",
+    }
+    if isinstance(value, Mapping) and set(schema).intersection(
+        object_keywords
+    ):
         properties = schema.get("properties", {})
         required = schema.get("required", ())
         if isinstance(required, (list, tuple)):
