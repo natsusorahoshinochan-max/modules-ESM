@@ -1,4 +1,4 @@
-"""Shared remote ESM-3 implementation for all generation Nodes."""
+"""Shared ESM-3 implementation for explicit remote and local Bindings."""
 
 from __future__ import annotations
 
@@ -36,6 +36,13 @@ from .adapter import (
     require_sequence_mask,
     structure_prompt_for_sequence,
 )
+from .local_adapter import (
+    call_local_provider,
+    load_local_esm3_client,
+    prepare_local_provider_call,
+    record_local_provider_result,
+    resolve_local_runtime,
+)
 
 
 class ESM3GenerationImplementation:
@@ -50,6 +57,8 @@ class ESM3GenerationImplementation:
         *,
         model_name: str,
         method_id: str,
+        route_name: str = "biohub",
+        seed_control: str = "unsupported_by_provider",
     ) -> None:
         self._run_resources = run_resources
         self._operation = operation
@@ -57,8 +66,30 @@ class ESM3GenerationImplementation:
         self._catalog = catalog
         self._model_name = model_name
         self._method_id = method_id
+        self._route_name = route_name
+        self._seed_control = seed_control
+        self._runtime_fingerprint: str | None = None
 
     def _client(self) -> Any:
+        if self._route_name == "local_open":
+            runtime = resolve_local_runtime(self._environment)
+            self._runtime_fingerprint = runtime.safe_fingerprint
+            client = self._environment.get("provider_client")
+            if callable(getattr(client, "generate", None)):
+                return client
+            client_factory = self._environment.get("client_factory")
+            if callable(client_factory):
+                return client_factory(
+                    model_name=self._model_name,
+                    model_snapshot_path=runtime.snapshot_path,
+                    device=runtime.device,
+                    runtime_directory=runtime.runtime_directory,
+                    performance_settings=dict(runtime.performance_settings),
+                )
+            return load_local_esm3_client(
+                self._environment,
+                model_name=self._model_name,
+            )
         client = self._environment.get("provider_client")
         if callable(getattr(client, "generate", None)):
             return client
@@ -101,36 +132,71 @@ class ESM3GenerationImplementation:
         role: str,
         operation: str,
         parent_invocation_id: str | None = None,
+        effective_call_seed: int,
     ) -> tuple[Any, str]:
         provider_operation = {
             "generate_sequence": "generate(track=sequence)",
             "generate_structure": "generate(track=structure)",
         }[operation]
-        track_identity = prepare_remote_provider_call(
-            provider_prompt,
-            provider_operation,
-            model_name=self._model_name,
-        )
+        if self._route_name == "local_open":
+            if self._runtime_fingerprint is None:
+                raise RuntimeError(
+                    "local ESM-3 runtime was not resolved before invocation"
+                )
+            track_identity = prepare_local_provider_call(
+                provider_prompt,
+                provider_operation,
+                model_name=self._model_name,
+                effective_seed=effective_call_seed,
+                runtime_fingerprint=self._runtime_fingerprint,
+            )
+        else:
+            track_identity = prepare_remote_provider_call(
+                provider_prompt,
+                provider_operation,
+                model_name=self._model_name,
+            )
         with self._run_resources.engine_invocation(
             engine_role=role,
             engine_identity=(
-                f"esm3.biohub.{self._model_name}.{operation}"
+                f"esm3.{self._route_name}.{self._model_name}.{operation}"
             ),
             parent_invocation_id=parent_invocation_id,
         ) as invocation_id:
-            result = call_remote_provider(
-                client,
+            if self._route_name == "local_open":
+                result = call_local_provider(
+                    client,
+                    provider_prompt,
+                    config,
+                    provider_operation,
+                    effective_seed=effective_call_seed,
+                )
+            else:
+                result = call_remote_provider(
+                    client,
+                    provider_prompt,
+                    config,
+                    provider_operation,
+                )
+        if self._route_name == "local_open":
+            assert self._runtime_fingerprint is not None
+            record_local_provider_result(
                 provider_prompt,
-                config,
+                result,
                 provider_operation,
+                model_name=self._model_name,
+                effective_seed=effective_call_seed,
+                track_identity=track_identity,
+                runtime_fingerprint=self._runtime_fingerprint,
             )
-        record_remote_provider_result(
-            provider_prompt,
-            result,
-            provider_operation,
-            model_name=self._model_name,
-            track_identity=track_identity,
-        )
+        else:
+            record_remote_provider_result(
+                provider_prompt,
+                result,
+                provider_operation,
+                model_name=self._model_name,
+                track_identity=track_identity,
+            )
         return result, invocation_id
 
     def execute(
@@ -169,7 +235,7 @@ class ESM3GenerationImplementation:
         call_track: str,
     ) -> dict[str, Any]:
         return {
-            "provider": "biohub",
+            "provider": self._route_name,
             "model": self._model_name,
             "operation": operation,
             "sample_index": sample_index,
@@ -181,7 +247,7 @@ class ESM3GenerationImplementation:
                 call_track,
             ),
             "effective_call_seed_scope": "sample_and_track",
-            "seed_control": "unsupported_by_provider",
+            "seed_control": self._seed_control,
             "generation_parameters": {
                 name: parameters[name]
                 for name in (
@@ -213,6 +279,11 @@ class ESM3GenerationImplementation:
                 config,
                 role="sequence_sample",
                 operation="generate_sequence",
+                effective_call_seed=derived_call_seed(
+                    parameters["effective_seed"],
+                    sample_index,
+                    "sequence",
+                ),
             )
             sequence = complete_sequence(result, prompt)
             raw_id = f"sequence-{sample_index}"
@@ -387,6 +458,11 @@ class ESM3GenerationImplementation:
                 config,
                 role="structure_sample",
                 operation="generate_structure",
+                effective_call_seed=derived_call_seed(
+                    parameters["effective_seed"],
+                    sample_index,
+                    "structure",
+                ),
             )
             structure = complete_structure(
                 result,
@@ -457,6 +533,11 @@ class ESM3GenerationImplementation:
                 sequence_config,
                 role="sequence_parent",
                 operation="generate_sequence",
+                effective_call_seed=derived_call_seed(
+                    parameters["effective_seed"],
+                    sample_index,
+                    "sequence",
+                ),
             )
             sequence = complete_sequence(sequence_result, prompt)
             sequence_candidate = Candidate(
@@ -510,6 +591,11 @@ class ESM3GenerationImplementation:
                 role="structure_child",
                 operation="generate_structure",
                 parent_invocation_id=sequence_invocation_id,
+                effective_call_seed=derived_call_seed(
+                    parameters["effective_seed"],
+                    sample_index,
+                    "structure",
+                ),
             )
             structure = complete_structure(
                 structure_result,

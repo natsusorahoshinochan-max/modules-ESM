@@ -40,7 +40,7 @@ marker expression.
 | Post-review repair findings | `.venv/bin/python scripts/verify_backend.py repair-findings` | Intentionally red cumulative gate for the four independently confirmed post-handoff findings. It must report exactly the shifted final secondary-structure layout, cross-run sequence-export path reuse, repeated SimpleFold staging collisions, and incomplete public readiness/call evidence until their repair tickets land. |
 | Mocked Workflow | `.venv/bin/python scripts/verify_backend.py mocked-workflow` | Runs the current deterministic 3GB1 Workflow tests with provider boundaries replaced by fixtures. |
 | Local provider | `.venv/bin/python scripts/verify_backend.py local-provider` | Runs non-heavy installed binaries and requires both zero skips and provider-call evidence. |
-| Heavy local model | `.venv/bin/python scripts/verify_backend.py heavy-model` | Explicitly loads slow local models and requires both zero skips and provider-call evidence. |
+| Heavy local model | `.venv/bin/python scripts/verify_backend.py heavy-model` | Explicitly loads slow local models, exercises local ESM-3 sequence, structure, and paired v2 Bindings, and requires both zero skips and exact provider-call evidence. |
 | Live remote provider | `.venv/bin/python scripts/verify_backend.py live-provider` | Makes remote provider calls and requires both zero skips and provider-call evidence. Readiness alone cannot satisfy this gate. |
 | Fresh canonical 3GB1 | `.venv/bin/python scripts/verify_backend.py fresh-remote-3gb1` | Runs the protected canonical Workflow once through REST and its run-scoped WebSocket against local ESM3, Biohub ESMFold2, ProteinMPNN, mkdssp, Biopython SVD, and tmtools, then retrieves and seals exactly 15 run-bound PDBs. |
 
@@ -84,7 +84,9 @@ The complete real gates require these exact successful adapter-boundary calls:
 
 - `local-provider`: `biopython-svd:structure_align`,
   `tmtools:tm_score`, and `mkdssp:secondary_structure`;
-- `heavy-model`: `local_open:esm3.generate_sequence`,
+- `heavy-model`: `local_open:esm3.generate_sequence` × 2 and
+  `local_open:esm3.generate_structure` × 2 (one direct mode call plus the
+  corresponding call inside paired generation),
   `local-proteinmpnn:design_sequences`, `local-proteinmpnn:score_sequence`,
   `simplefold:fold_sequence`, and `simplefold:evaluate_structure`;
 - `live-provider`: `biohub:esm3.generate_sequence` and

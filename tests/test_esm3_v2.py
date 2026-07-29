@@ -271,6 +271,8 @@ def _run_generation(
     generation_parameters: dict[str, Any] | None = None,
     binding_route: str = "biohub_medium",
     sequence_mask_residue_ids: tuple[str, ...] = (),
+    safe_environment_fingerprint: str | None = None,
+    invalidation_token: str | None = None,
 ) -> tuple[Any, dict[str, Any], tuple[dict[str, Any], ...]]:
     from modules.esm3.package import MODULE_PACKAGE as ESM3_PACKAGE
     from modules.prompt_authoring.package import (
@@ -450,8 +452,13 @@ def _run_generation(
         {
             (f"esm3.{operation}.{binding_route}", "2.0.0"): {
                 "values": environment_values,
-                "safe_fingerprint": f"{binding_route}-fixture-v1",
-                "invalidation_token": f"{binding_route}-fixture-v1",
+                "safe_fingerprint": (
+                    safe_environment_fingerprint
+                    or f"{binding_route}-fixture-v1"
+                ),
+                "invalidation_token": (
+                    invalidation_token or f"{binding_route}-fixture-v1"
+                ),
             }
         }
     )
@@ -1231,10 +1238,14 @@ def test_paired_generation_publishes_ten_exact_counterparts_and_real_calls(
     assert all(event["status"] == "succeeded" for event in terminals)
 
 
-def test_remote_esm3_passes_shared_ctk_for_all_three_nodes(
+def test_remote_and_local_esm3_pass_shared_ctk_for_all_three_nodes(
     tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     import torch
+    import modules.esm3.implementation as esm3_implementation
+    import modules.esm3.local_adapter as local_adapter
+    import modules.esm3.package as esm3_package
 
     from modules.esm3.package import MODULE_PACKAGE as ESM3_PACKAGE
     from modules.prompt_authoring.package import (
@@ -1259,6 +1270,55 @@ def test_remote_esm3_passes_shared_ctk_for_all_three_nodes(
         return {
             "endpoint_id": "biohub",
             "credential_handle": object(),
+            "provider_client": client,
+            "private_token": "ctk-secret-must-not-publish",
+        }
+
+    local_snapshot = tmp_path / "local-snapshot"
+    local_runtime_directory = tmp_path / "local-runtime"
+    local_snapshot.mkdir()
+    local_runtime_directory.mkdir()
+
+    def resolve_local_runtime(
+        environment_values: Any,
+    ) -> local_adapter.LocalESM3Runtime:
+        assert environment_values["model_snapshot_revision"] == (
+            local_adapter.LOCAL_ESM3_SNAPSHOT_REVISION
+        )
+        return local_adapter.LocalESM3Runtime(
+            snapshot_path=local_snapshot,
+            runtime_directory=local_runtime_directory,
+            device="cpu",
+            performance_settings={},
+            safe_fingerprint=f"sha256:{'c' * 64}",
+        )
+
+    monkeypatch.setattr(
+        esm3_package,
+        "local_runtime_structurally_available",
+        lambda: True,
+    )
+    monkeypatch.setattr(
+        local_adapter,
+        "resolve_local_runtime",
+        resolve_local_runtime,
+    )
+    monkeypatch.setattr(
+        esm3_implementation,
+        "resolve_local_runtime",
+        resolve_local_runtime,
+    )
+
+    def local_environment(client: _ProviderClient) -> dict[str, Any]:
+        return {
+            "model_snapshot_path": local_snapshot,
+            "model_snapshot_revision": (
+                local_adapter.LOCAL_ESM3_SNAPSHOT_REVISION
+            ),
+            "device": "cpu",
+            "runtime_directory": local_runtime_directory,
+            "performance_settings": {},
+            "resolved_runtime_fingerprint": f"sha256:{'c' * 64}",
             "provider_client": client,
             "private_token": "ctk-secret-must-not-publish",
         }
@@ -1418,6 +1478,73 @@ def test_remote_esm3_passes_shared_ctk_for_all_three_nodes(
             expected_observation_counts={"confidence_observations": 3},
             **common,
         ),
+        ModulePackageContractCase(
+            case_id="sequence-local",
+            node_type_id="esm3.generate_sequence",
+            binding_id="esm3.generate_sequence.local_open",
+            node_parameters={"effective_seed": 1603, "num_samples": 1},
+            environment_values=local_environment(
+                _ProviderClient([_ProviderResponse("ACD")])
+            ),
+            workflow_nodes=(source_node("unassigned"),),
+            workflow_edges=(
+                WorkflowEdge(
+                    "source",
+                    "protein_prompt",
+                    "contract-test-node",
+                    "protein_prompt",
+                ),
+            ),
+            expected_candidate_counts={"sequence_candidates": 1},
+            **common,
+        ),
+        ModulePackageContractCase(
+            case_id="structure-local",
+            node_type_id="esm3.generate_structure",
+            binding_id="esm3.generate_structure.local_open",
+            node_parameters={"effective_seed": 1603, "num_samples": 1},
+            environment_values=local_environment(
+                _ProviderClient([structure_response()])
+            ),
+            workflow_nodes=(source_node("assigned_sequence"),),
+            workflow_edges=(
+                WorkflowEdge(
+                    "source",
+                    "protein_prompt",
+                    "contract-test-node",
+                    "protein_prompt",
+                ),
+            ),
+            expected_candidate_counts={"structure_candidates": 1},
+            expected_observation_counts={"confidence_observations": 3},
+            **common,
+        ),
+        ModulePackageContractCase(
+            case_id="paired-local",
+            node_type_id="esm3.generate_paired",
+            binding_id="esm3.generate_paired.local_open",
+            node_parameters={"effective_seed": 1603, "num_samples": 1},
+            environment_values=local_environment(
+                _ProviderClient(
+                    [_ProviderResponse("ACD"), structure_response()]
+                )
+            ),
+            workflow_nodes=(source_node("unassigned"),),
+            workflow_edges=(
+                WorkflowEdge(
+                    "source",
+                    "protein_prompt",
+                    "contract-test-node",
+                    "protein_prompt",
+                ),
+            ),
+            expected_candidate_counts={
+                "sequence_candidates": 1,
+                "structure_candidates": 1,
+            },
+            expected_observation_counts={"confidence_observations": 3},
+            **common,
+        ),
     )
 
     report = verify_module_package_contract(
@@ -1431,6 +1558,9 @@ def test_remote_esm3_passes_shared_ctk_for_all_three_nodes(
     )
 
     assert [case.status for case in report.case_reports] == [
+        "succeeded",
+        "succeeded",
+        "succeeded",
         "succeeded",
         "succeeded",
         "succeeded",

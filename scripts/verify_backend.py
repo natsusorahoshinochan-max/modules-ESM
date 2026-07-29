@@ -430,21 +430,22 @@ TIERS = {
         "tests/acceptance/test_mkdssp.py::TestMKDSSP::test_dssp_3gb1",
     })),
     "heavy-model": Tier((
-        "tests/acceptance/test_local_esm3.py::test_local_esm3_sequence_boundary",
+        "tests/acceptance/test_local_esm3.py::test_local_esm3_all_generation_modes",
         "tests/acceptance/test_proteinmpnn_design.py::TestProteinMPNNDesign::test_design_3gb1",
         "tests/acceptance/test_proteinmpnn_design.py::TestProteinMPNNDesign::test_score_3gb1",
         "tests/acceptance/test_simplefold.py::TestSimpleFold::test_fold_3gb1",
         "tests/acceptance/test_simplefold.py::TestSimpleFold::test_evaluate_3gb1",
         "-m",
         "local_provider and slow",
-    ), requires_provider_evidence=True, required_calls=frozenset({
-        ("local_open", "esm3.generate_sequence"),
-        ("local-proteinmpnn", "design_sequences"),
-        ("local-proteinmpnn", "score_sequence"),
-        ("simplefold", "fold_sequence"),
-        ("simplefold", "evaluate_structure"),
-    }), expected_test_ids=frozenset({
-        "tests/acceptance/test_local_esm3.py::test_local_esm3_sequence_boundary",
+    ), requires_provider_evidence=True, required_call_counts=(
+        ("local_open", "esm3.generate_sequence", 2),
+        ("local_open", "esm3.generate_structure", 2),
+        ("local-proteinmpnn", "design_sequences", 1),
+        ("local-proteinmpnn", "score_sequence", 1),
+        ("simplefold", "fold_sequence", 1),
+        ("simplefold", "evaluate_structure", 1),
+    ), expected_test_ids=frozenset({
+        "tests/acceptance/test_local_esm3.py::test_local_esm3_all_generation_modes",
         "tests/acceptance/test_proteinmpnn_design.py::TestProteinMPNNDesign::test_design_3gb1",
         "tests/acceptance/test_proteinmpnn_design.py::TestProteinMPNNDesign::test_score_3gb1",
         "tests/acceptance/test_simplefold.py::TestSimpleFold::test_fold_3gb1",

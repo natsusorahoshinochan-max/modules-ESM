@@ -1,4 +1,4 @@
-"""The single production registration for remote ESM-3 generation."""
+"""The single production registration for remote and local ESM-3 generation."""
 
 from __future__ import annotations
 
@@ -28,6 +28,14 @@ from .adapter import (
     ESM_SDK_REVISION,
 )
 from .implementation import ESM3GenerationImplementation
+from .local_adapter import (
+    LOCAL_ESM3_MODEL,
+    LOCAL_ESM3_SNAPSHOT_REVISION,
+    LOCAL_ESM3_SNAPSHOT_SOURCE,
+    LOCAL_ESM3_WEIGHT_SHA256,
+    local_readiness,
+    local_runtime_structurally_available,
+)
 
 
 _VERSION = "2.0.0"
@@ -57,6 +65,13 @@ _MODELS = (
         "release": "2024-03",
     },
 )
+_LOCAL_MODEL = {
+    "suffix": "sm_open_v1_local",
+    "route": "local_open",
+    "model": LOCAL_ESM3_MODEL,
+    "scale": "small-open",
+    "release": "esm3-sm-open-v1",
+}
 
 
 def _provider_installation_is_exact() -> bool:
@@ -75,6 +90,19 @@ def _available() -> AvailabilityResult:
     return AvailabilityResult.unavailable(
         code="esm_sdk_unavailable",
         message="The exact locked ESM SDK installation is unavailable.",
+        retryable=False,
+    )
+
+
+def _local_available() -> AvailabilityResult:
+    if local_runtime_structurally_available():
+        return AvailabilityResult.available()
+    return AvailabilityResult.unavailable(
+        code="local_esm3_runtime_unavailable",
+        message=(
+            "The exact local ESM SDK and Torch runtime prerequisites are "
+            "unavailable."
+        ),
         retryable=False,
     )
 
@@ -130,6 +158,27 @@ def _build(
             kwargs["frozen_catalog"],
             model_name=model_name,
             method_id=method_id,
+        )
+
+    return factory
+
+
+def _build_local(
+    operation: str,
+    *,
+    model_name: str,
+    method_id: str,
+):
+    def factory(**kwargs: object) -> object:
+        return ESM3GenerationImplementation(
+            kwargs["run_resources"],
+            operation,
+            kwargs["environment_configuration"],
+            kwargs["frozen_catalog"],
+            model_name=model_name,
+            method_id=method_id,
+            route_name="local_open",
+            seed_control="torch_local",
         )
 
     return factory
@@ -260,6 +309,66 @@ def _produced_observations(
     return tuple(observations)
 
 
+def _local_method(
+    operation: str,
+) -> MethodDefinition:
+    provider_operation = {
+        "generate_sequence": "generate(track=sequence)",
+        "generate_structure": "generate(track=structure)",
+        "generate_paired": (
+            "generate(track=sequence) then generate(track=structure)"
+        ),
+    }[operation]
+    return MethodDefinition(
+        method_id=f"esm3.{operation}.esm3_sm_open_v1_local",
+        version=_VERSION,
+        algorithm_identity={
+            "name": "ESM-3 iterative masked-track generation",
+            "operation": provider_operation,
+            "condition_on_coordinates_only": True,
+            "pairing": (
+                "one terminal sequence to one structure counterpart"
+                if operation == "generate_paired"
+                else "not_applicable"
+            ),
+            "determinism_contract": (
+                "derived Torch seed per sample and track; exact outputs are "
+                "runtime-device-specific and are not cacheable"
+            ),
+        },
+        model_identity={
+            "model": LOCAL_ESM3_MODEL,
+            "source": LOCAL_ESM3_SNAPSHOT_SOURCE,
+            "scale": _LOCAL_MODEL["scale"],
+            "release": _LOCAL_MODEL["release"],
+        },
+        checkpoint_identity={
+            "kind": "immutable_huggingface_snapshot",
+            "source": LOCAL_ESM3_SNAPSHOT_SOURCE,
+            "snapshot_revision": LOCAL_ESM3_SNAPSHOT_REVISION,
+            "weight_sha256": dict(sorted(LOCAL_ESM3_WEIGHT_SHA256.items())),
+        },
+        featurization_identity={
+            "input": "ESMProtein",
+            "sequence_masks": "_",
+            "secondary_structure": "SS8-with-DSSP-coil-to-C",
+            "structure": "atom37",
+            "function_intervals": "one-based-inclusive",
+        },
+        source_identity={
+            "sdk": "esm",
+            "sdk_source_revision": ESM_SDK_REVISION,
+            "service": "local_open",
+            "snapshot_source": LOCAL_ESM3_SNAPSHOT_SOURCE,
+        },
+        scale_contract={
+            "ptm": "provider_native_[0,1]",
+            "plddt": "provider_native_[0,1]_multiply_100",
+            "pae": "provider_native_angstrom",
+        },
+    )
+
+
 def _binding(
     operation: str,
     model: Mapping[str, str],
@@ -366,6 +475,136 @@ def _binding(
     )
 
 
+def _local_binding(operation: str) -> ExecutionBindingDefinition:
+    method_id = f"esm3.{operation}.esm3_sm_open_v1_local"
+    return ExecutionBindingDefinition(
+        binding_id=f"esm3.{operation}.local_open",
+        version=_VERSION,
+        node_type=ContractIdentity(
+            "node_type",
+            f"esm3.{operation}",
+            _VERSION,
+        ),
+        method=ContractIdentity("method", method_id, _VERSION),
+        binding_parameters={},
+        execution_route="adapter",
+        factory=LazyImplementationFactory(
+            behavior=BehaviorReference(
+                f"esm3.{operation}/factory",
+                _VERSION,
+                {
+                    "route": "local_open",
+                    "model": LOCAL_ESM3_MODEL,
+                    "snapshot_revision": LOCAL_ESM3_SNAPSHOT_REVISION,
+                },
+            ),
+            build=_build_local(
+                operation,
+                model_name=LOCAL_ESM3_MODEL,
+                method_id=method_id,
+            ),
+        ),
+        adapter_behavior=BehaviorReference(
+            "esm3.local_open/adapter",
+            _VERSION,
+            {
+                "provider_contract": (
+                    "esm-sdk-local-generate@917af90b"
+                ),
+                "track_fidelity": "fail-closed-no-silent-field-discard",
+                "seed_control": "derived-torch-seed-per-sample-track",
+            },
+        ),
+        availability=AvailabilityDeclaration(
+            behavior=BehaviorReference(
+                "esm3.local_open/availability",
+                _VERSION,
+                {
+                    "observation": "startup",
+                    "model_load": "forbidden",
+                },
+            ),
+            prerequisites={
+                "provider_sdk": {
+                    "name": "esm",
+                    "source_revision": ESM_SDK_REVISION,
+                },
+                "runtime": {"name": "torch"},
+            },
+            check=_local_available,
+        ),
+        readiness=ReadinessDeclaration(
+            behavior=BehaviorReference(
+                "esm3.local_open/readiness",
+                _VERSION,
+                {
+                    "observation": "per-run",
+                    "secret_retention": "none",
+                    "cache_order": "before-cache-lookup",
+                },
+            ),
+            prerequisites={
+                "model_snapshot": {
+                    "source": LOCAL_ESM3_SNAPSHOT_SOURCE,
+                    "snapshot_revision": LOCAL_ESM3_SNAPSHOT_REVISION,
+                    "weight_sha256": dict(
+                        sorted(LOCAL_ESM3_WEIGHT_SHA256.items())
+                    ),
+                    "path_source": "trusted_environment_configuration",
+                },
+                "device": {
+                    "source": "trusted_environment_configuration",
+                },
+                "runtime_directory": {
+                    "source": "trusted_environment_configuration",
+                },
+                "performance_settings": {
+                    "source": "trusted_environment_configuration",
+                    "result_identity_effect": "performance-only",
+                },
+                "runtime_fingerprint": {
+                    "source": "trusted_environment_configuration",
+                    "safe_public_identity": True,
+                },
+                "provider_sdk": {
+                    "name": "esm",
+                    "source_revision": ESM_SDK_REVISION,
+                },
+            },
+            check=local_readiness,
+        ),
+        deterministic=False,
+        cacheable=False,
+        implementation_identity={
+            "name": f"esm3.{operation}.local-open-adapter",
+            "model": LOCAL_ESM3_MODEL,
+            "snapshot_revision": LOCAL_ESM3_SNAPSHOT_REVISION,
+            "weight_sha256": dict(sorted(LOCAL_ESM3_WEIGHT_SHA256.items())),
+            "source": LOCAL_ESM3_SNAPSHOT_SOURCE,
+            "seed_control": "torch_local",
+            "determinism_contract": (
+                "derived Torch seed per sample and track; no cross-device "
+                "bitwise guarantee"
+            ),
+            "cache_policy": "runtime-device-specific_generation_not_cacheable",
+        },
+        produced_observations=_produced_observations(operation),
+        effective_randomness_parameters=("effective_seed",),
+        effective_randomness_resolver=EffectiveRandomnessResolver(
+            behavior=BehaviorReference(
+                "esm3.local/effective-randomness",
+                _VERSION,
+                {
+                    "provider_seed_control": "torch_local",
+                    "sample_order": "zero-based",
+                    "track_scope": "sample-and-track",
+                },
+            ),
+            resolve=_resolve_effective_randomness,
+        ),
+    )
+
+
 MODULE_PACKAGE = ModulePackageRegistration(
     schema_version=_VERSION,
     package_id="esm3",
@@ -386,10 +625,10 @@ MODULE_PACKAGE = ModulePackageRegistration(
         _method(operation, model)
         for model in _MODELS
         for operation in _OPERATIONS
-    ),
+    ) + tuple(_local_method(operation) for operation in _OPERATIONS),
     bindings=tuple(
         _binding(operation, model)
         for model in _MODELS
         for operation in _OPERATIONS
-    ),
+    ) + tuple(_local_binding(operation) for operation in _OPERATIONS),
 )

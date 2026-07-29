@@ -4,7 +4,7 @@
 
 **Blocked by:** 19 — Migrate remote ESM-3 generation.
 
-**Status:** ready-for-agent
+**Status:** in-progress
 
 - [ ] Local Bindings reuse the three existing ESM-3 Node Definitions and Produced Observation contracts rather than copying or weakening them.
 - [ ] Every local Binding fixes an exact Method, model/checkpoint/source identity, adapter/implementation identity, determinism contract, and cacheability declaration.
