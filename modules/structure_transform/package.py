@@ -28,6 +28,7 @@ _OPERATIONS = (
     "select_chains",
     "extract_backbone",
     "extract_sequence",
+    "backbone_to_structure",
 )
 
 
@@ -79,6 +80,15 @@ def _method(operation: str) -> MethodDefinition:
             "residue_correspondence": "chain-qualified-residue-IDs",
             "alternate_locations": "blank-then-A-otherwise-reject",
             "multi_model": "reject",
+        },
+        "backbone_to_structure": {
+            "name": "explicit-backbone-to-generic-structure-conversion",
+            "input_contract": (
+                "structure_transform.backbone_structure@2.0.0"
+            ),
+            "output_contract": "protein.structure@2.0.0",
+            "pdb_bytes": "preserved",
+            "atom_generation": "none",
         },
     }[operation]
     return MethodDefinition(
@@ -178,6 +188,7 @@ MODULE_PACKAGE = ModulePackageRegistration(
         DefinitionResource("definitions/select_chains.yaml"),
         DefinitionResource("definitions/extract_backbone.yaml"),
         DefinitionResource("definitions/extract_sequence.yaml"),
+        DefinitionResource("definitions/backbone_to_structure.yaml"),
     ),
     methods=tuple(_method(operation) for operation in _OPERATIONS),
     bindings=tuple(_binding(operation) for operation in _OPERATIONS),

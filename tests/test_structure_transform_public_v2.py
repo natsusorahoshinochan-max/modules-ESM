@@ -76,6 +76,7 @@ def test_public_import_transform_export_keeps_artifacts_run_bound(
             "structure_transform.select_chains",
             "structure_transform.extract_backbone",
             "structure_transform.extract_sequence",
+            "structure_transform.backbone_to_structure",
         }
         project_id = client.post(
             "/api/projects",
@@ -118,10 +119,41 @@ def test_public_import_transform_export_keeps_artifacts_run_bound(
                 "binding_parameters": {},
             },
             {
+                "node_id": "extract-backbone",
+                "node_type_id": "structure_transform.extract_backbone",
+                "node_type_version": VERSION,
+                "binding_id": "structure_transform.extract_backbone.direct",
+                "binding_version": VERSION,
+                "node_parameters": {},
+                "binding_parameters": {},
+            },
+            {
+                "node_id": "backbone-to-structure",
+                "node_type_id": (
+                    "structure_transform.backbone_to_structure"
+                ),
+                "node_type_version": VERSION,
+                "binding_id": (
+                    "structure_transform.backbone_to_structure.direct"
+                ),
+                "binding_version": VERSION,
+                "node_parameters": {},
+                "binding_parameters": {},
+            },
+            {
                 "node_id": "extract-sequence",
                 "node_type_id": "structure_transform.extract_sequence",
                 "node_type_version": VERSION,
                 "binding_id": "structure_transform.extract_sequence.direct",
+                "binding_version": VERSION,
+                "node_parameters": {},
+                "binding_parameters": {},
+            },
+            {
+                "node_id": "export-backbone",
+                "node_type_id": "protein_io.export_structure",
+                "node_type_version": VERSION,
+                "binding_id": "protein_io.export_structure.direct",
                 "binding_version": VERSION,
                 "node_parameters": {},
                 "binding_parameters": {},
@@ -155,7 +187,25 @@ def test_public_import_transform_export_keeps_artifacts_run_bound(
             {
                 "source_node_id": "select",
                 "source_port": "structure",
+                "target_node_id": "extract-backbone",
+                "target_port": "structure",
+            },
+            {
+                "source_node_id": "select",
+                "source_port": "structure",
                 "target_node_id": "extract-sequence",
+                "target_port": "structure",
+            },
+            {
+                "source_node_id": "extract-backbone",
+                "source_port": "backbone",
+                "target_node_id": "backbone-to-structure",
+                "target_port": "backbone",
+            },
+            {
+                "source_node_id": "backbone-to-structure",
+                "source_port": "structure",
+                "target_node_id": "export-backbone",
                 "target_port": "structure",
             },
             {
@@ -225,7 +275,7 @@ def test_public_import_transform_export_keeps_artifacts_run_bound(
 
         assert projection["status"] == "succeeded"
         artifacts = projection["artifact_index"]
-        assert len(artifacts) == 2
+        assert len(artifacts) == 3
         bodies: dict[str, bytes] = {}
         for artifact in artifacts:
             assert artifact["artifact_kind"] == "standalone"
@@ -250,15 +300,22 @@ def test_public_import_transform_export_keeps_artifacts_run_bound(
                 retrieved.headers,
                 retrieved.content,
             )
-            bodies[artifact["media_type"]] = retrieved.content
+            bodies[artifact["node_id"]] = retrieved.content
 
-    assert bodies["text/x-fasta"] == (
+    assert bodies["export-sequence"] == (
         b">protein-workbench-sequence\nA\n"
     )
-    assert bodies["chemical/x-pdb"].startswith(
+    assert bodies["export-structure"].startswith(
         b"ATOM      1  N   ALA A   1"
     )
-    assert bodies["chemical/x-pdb"].endswith(b"TER\nEND\n")
+    assert bodies["export-structure"].endswith(b"TER\nEND\n")
+    backbone_lines = bodies["export-backbone"].decode("ascii").splitlines()
+    assert [
+        line[12:16].strip()
+        for line in backbone_lines
+        if line.startswith("ATOM  ")
+    ] == ["N", "CA", "C", "O"]
+    assert backbone_lines[-2:] == ["TER", "END"]
     retained = str(projection)
     assert str(tmp_path) not in retained
     assert "private_path" not in retained

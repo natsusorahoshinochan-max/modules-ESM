@@ -81,7 +81,7 @@ _MISSING_CHAIN_BREAK = ProteinStructure(
 )
 
 
-def test_structure_transform_is_one_package_with_three_nodes() -> None:
+def test_structure_transform_has_three_scientific_transforms_and_one_bridge() -> None:
     registrations = {
         registration.package_id: registration
         for registration in discover_module_packages()
@@ -95,6 +95,7 @@ def test_structure_transform_is_one_package_with_three_nodes() -> None:
         "definitions/select_chains.yaml",
         "definitions/extract_backbone.yaml",
         "definitions/extract_sequence.yaml",
+        "definitions/backbone_to_structure.yaml",
     }
     catalog = build_discovered_frozen_catalog()
     assert {
@@ -107,6 +108,7 @@ def test_structure_transform_is_one_package_with_three_nodes() -> None:
         ("structure_transform.select_chains", VERSION),
         ("structure_transform.extract_backbone", VERSION),
         ("structure_transform.extract_sequence", VERSION),
+        ("structure_transform.backbone_to_structure", VERSION),
     }
 
 
@@ -127,6 +129,11 @@ def test_transform_ports_are_exact_and_backbone_is_nominal() -> None:
         "structure_transform.extract_sequence",
         VERSION,
     ).descriptor
+    backbone_bridge = catalog.require_contract(
+        "node_type",
+        "structure_transform.backbone_to_structure",
+        VERSION,
+    ).descriptor
 
     assert selection["inputs"][0]["port_type"]["contract_id"] == (
         "protein.structure"
@@ -145,6 +152,12 @@ def test_transform_ports_are_exact_and_backbone_is_nominal() -> None:
     )
     assert sequence["outputs"][0]["port_type"]["contract_id"] == (
         "protein.sequence"
+    )
+    assert backbone_bridge["inputs"][0]["port_type"]["contract_id"] == (
+        "structure_transform.backbone_structure"
+    )
+    assert backbone_bridge["outputs"][0]["port_type"]["contract_id"] == (
+        "protein.structure"
     )
 
 
@@ -181,10 +194,10 @@ def test_full_atom_structure_cannot_enter_a_backbone_port_implicitly() -> None:
     assert rejected.value.code == "port_type_mismatch"
 
 
-def test_all_three_nodes_pass_the_shared_contract_test_kit(
+def test_all_nodes_pass_the_shared_contract_test_kit(
     tmp_path: Path,
 ) -> None:
-    cases = tuple(
+    direct_cases = tuple(
         ModulePackageContractCase(
             case_id=f"structure-transform-{operation}",
             node_type_id=f"structure_transform.{operation}",
@@ -209,9 +222,45 @@ def test_all_three_nodes_pass_the_shared_contract_test_kit(
             "extract_sequence",
         )
     )
+    backbone_node = WorkflowNodeInstance(
+        node_id="extract-backbone",
+        node_type_id="structure_transform.extract_backbone",
+        node_type_version=VERSION,
+        binding_id="structure_transform.extract_backbone.direct",
+        binding_version=VERSION,
+        node_parameters={},
+        binding_parameters={},
+    )
+    bridge_case = ModulePackageContractCase(
+        case_id="structure-transform-backbone-to-structure",
+        node_type_id="structure_transform.backbone_to_structure",
+        node_type_version=VERSION,
+        binding_id="structure_transform.backbone_to_structure.direct",
+        binding_version=VERSION,
+        node_parameters={},
+        binding_parameters={},
+        environment_values={},
+        safe_environment_fingerprint="provider-free",
+        invalidation_token="structure-transform-backbone-to-structure-v1",
+        workflow_nodes=(_SOURCE, backbone_node),
+        workflow_edges=(
+            WorkflowEdge(
+                "source",
+                "structure",
+                "extract-backbone",
+                "structure",
+            ),
+            WorkflowEdge(
+                "extract-backbone",
+                "backbone",
+                "contract-test-node",
+                "backbone",
+            ),
+        ),
+    )
     report = verify_module_package_contract(
         MODULE_PACKAGE,
-        execution_cases=cases,
+        execution_cases=(*direct_cases, bridge_case),
         port_cases=(
             ModulePackagePortCase(
                 "structure_transform.backbone_structure",
@@ -240,6 +289,7 @@ def test_all_three_nodes_pass_the_shared_contract_test_kit(
     )
 
     assert [case.status for case in report.case_reports] == [
+        "succeeded",
         "succeeded",
         "succeeded",
         "succeeded",

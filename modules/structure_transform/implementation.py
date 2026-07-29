@@ -204,11 +204,14 @@ def select_chains(
             "requested chains are absent: " + ", ".join(missing)
         )
     output_lines: list[str] = []
+    serial = 1
     for chain_id in chain_ids:
         for segment in segments:
             if segment[0].chain_id != chain_id:
                 continue
-            output_lines.extend(record.line for record in segment)
+            for record in segment:
+                output_lines.append(_normalized_atom_line(record, serial))
+                serial += 1
             output_lines.append("TER")
     if not output_lines:
         raise ValueError("chain selection produced no coordinate records")
@@ -245,6 +248,14 @@ def extract_backbone(structure: object) -> ProteinStructure:
                 ordered_residues.append((identity, []))
             ordered_residues[-1][1].append(record)
         for _, residue_records in ordered_residues:
+            residue_names = {
+                record.residue_name for record in residue_records
+            }
+            if len(residue_names) != 1:
+                raise ValueError(
+                    f"residue {residue_records[0].public_residue_id} "
+                    "has conflicting residue names"
+                )
             by_atom: dict[str, list[_AtomRecord]] = defaultdict(list)
             for record in residue_records:
                 if record.atom_name in _BACKBONE_ATOMS:
@@ -358,6 +369,7 @@ def validate_backbone_structure(value: object) -> None:
     records: list[_AtomRecord] = []
     current_chain: str | None = None
     current_residue: tuple[str, str, str] | None = None
+    current_residue_name: str | None = None
     expected_atom_index = 0
     segment_has_atoms = False
     for line in lines[:-1]:
@@ -382,7 +394,12 @@ def validate_backbone_structure(value: object) -> None:
                         "backbone TER or residue boundary split a residue"
                     )
                 current_residue = record.residue_identity
+                current_residue_name = record.residue_name
                 expected_atom_index = 0
+            elif record.residue_name != current_residue_name:
+                raise ValueError(
+                    "backbone residue atoms have conflicting residue names"
+                )
             if (
                 expected_atom_index >= len(_BACKBONE_ATOMS)
                 or record.atom_name
@@ -403,6 +420,7 @@ def validate_backbone_structure(value: object) -> None:
                 raise ValueError("backbone contains an empty chain segment")
             current_chain = None
             current_residue = None
+            current_residue_name = None
             expected_atom_index = 0
             segment_has_atoms = False
     if current_chain is not None or segment_has_atoms:
@@ -426,11 +444,16 @@ class StructureTransformImplementation:
         node_parameters: Mapping[str, Any],
         binding_parameters: Mapping[str, Any],
     ) -> dict[str, Any]:
-        if binding_parameters or set(inputs) != {"structure"}:
+        expected_input = (
+            "backbone"
+            if self._operation == "backbone_to_structure"
+            else "structure"
+        )
+        if binding_parameters or set(inputs) != {expected_input}:
             raise ValueError(
-                "structure transform requires exactly one structure input"
+                "structure transform requires exactly one declared input"
             )
-        structure = inputs["structure"]
+        structure = inputs[expected_input]
         expected_parameters = (
             {"chain_ids"} if self._operation == "select_chains" else set()
         )
@@ -452,4 +475,17 @@ class StructureTransformImplementation:
                 return {"backbone": extract_backbone(structure)}
             if self._operation == "extract_sequence":
                 return {"sequence": extract_sequence(structure)}
+            if self._operation == "backbone_to_structure":
+                if type(structure) is not ProteinStructure:
+                    raise ValueError(
+                        "backbone bridge requires a ProteinStructure"
+                    )
+                return {
+                    "structure": ProteinStructure(
+                        pdb_string=structure.pdb_string,
+                        source=(
+                            "structure_transform.backbone_to_structure"
+                        ),
+                    )
+                }
         raise ValueError("unknown structure transform operation")

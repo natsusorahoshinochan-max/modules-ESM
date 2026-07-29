@@ -169,8 +169,14 @@ def test_chain_selection_obeys_requested_order_and_excludes_other_chains(
         for line in structure.pdb_string.splitlines()
         if line.startswith(("ATOM  ", "HETATM"))
     ]
+    atom_serials = [
+        int(line[6:11])
+        for line in structure.pdb_string.splitlines()
+        if line.startswith(("ATOM  ", "HETATM"))
+    ]
     assert atom_chains[:6] == ["B"] * 6
     assert atom_chains[6:] == ["A"] * 5
+    assert atom_serials == list(range(1, 12))
     assert structure.pdb_string.endswith("TER\nEND\n")
     assert "private-source-label" not in structure.pdb_string
 
@@ -301,6 +307,22 @@ def test_backbone_rejects_a_residue_with_missing_atoms(
         tmp_path,
         operation="extract_backbone",
         fixture="missing_backbone",
+    )
+
+    assert projection["status"] == "failed"
+    assert not any(
+        output["node_id"] == "transform"
+        for output in projection["outputs"]
+    )
+
+
+def test_backbone_rejects_conflicting_names_within_one_residue(
+    tmp_path: Path,
+) -> None:
+    _, projection, _ = _run_transform(
+        tmp_path,
+        operation="extract_backbone",
+        fixture="residue_name_conflict",
     )
 
     assert projection["status"] == "failed"

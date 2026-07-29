@@ -28,4 +28,5 @@ node_parameters:
       - alternate_locations
       - missing_backbone
       - multi_model
+      - residue_name_conflict
       - sequence_edge_cases

@@ -153,6 +153,19 @@ def _multi_model() -> str:
     )
 
 
+def _residue_name_conflict() -> str:
+    lines = [
+        _atom(1, "N", "ALA", "A", 1, x=1.0),
+        _atom(2, "CA", "GLY", "A", 1, x=2.0),
+        _atom(3, "C", "ALA", "A", 1, x=3.0),
+        _atom(4, "O", "ALA", "A", 1, x=4.0),
+        "TER",
+        "END",
+        "",
+    ]
+    return "\n".join(lines)
+
+
 def _sequence_edge_cases() -> str:
     first, serial = _residue(1, "ALA", "A", 1, sidechain=False)
     unknown, serial = _residue(serial, "UNK", "A", 2, sidechain=False)
@@ -193,6 +206,7 @@ _FIXTURES = {
     "alternate_locations": _alternate_locations,
     "missing_backbone": _missing_backbone,
     "multi_model": _multi_model,
+    "residue_name_conflict": _residue_name_conflict,
     "sequence_edge_cases": _sequence_edge_cases,
 }
 
