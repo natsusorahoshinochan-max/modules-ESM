@@ -527,6 +527,18 @@
       ],
       "type": "object"
     },
+    "CacheIdentityConflictDetails": {
+      "additionalProperties": false,
+      "properties": {
+        "result_identity": {
+          "$ref": "#/$defs/Digest"
+        }
+      },
+      "required": [
+        "result_identity"
+      ],
+      "type": "object"
+    },
     "CompileErrorDetails": {
       "additionalProperties": false,
       "properties": {
@@ -2052,11 +2064,53 @@
       "minLength": 20,
       "type": "string"
     },
+    "ResultMaterialization": {
+      "additionalProperties": false,
+      "properties": {
+        "resolution": {
+          "enum": [
+            "executed",
+            "cache_replayed"
+          ]
+        },
+        "run_id": {
+          "$ref": "#/$defs/Identifier"
+        }
+      },
+      "required": [
+        "run_id",
+        "resolution"
+      ],
+      "type": "object"
+    },
+    "ResultProducerProvenance": {
+      "additionalProperties": false,
+      "properties": {
+        "output_port": {
+          "$ref": "#/$defs/Identifier"
+        },
+        "producer_result_identity": {
+          "$ref": "#/$defs/Digest"
+        },
+        "producer_run_id": {
+          "$ref": "#/$defs/Identifier"
+        }
+      },
+      "required": [
+        "producer_run_id",
+        "producer_result_identity",
+        "output_port"
+      ],
+      "type": "object"
+    },
     "TypedOutput": {
       "additionalProperties": false,
       "properties": {
         "content_digest": {
           "$ref": "#/$defs/Digest"
+        },
+        "materialization": {
+          "$ref": "#/$defs/ResultMaterialization"
         },
         "node_id": {
           "$ref": "#/$defs/Identifier"
@@ -2066,6 +2120,12 @@
         },
         "port_type": {
           "$ref": "#/$defs/ContractReference"
+        },
+        "producer_provenance": {
+          "$ref": "#/$defs/ResultProducerProvenance"
+        },
+        "result_identity": {
+          "$ref": "#/$defs/Digest"
         },
         "values": {
           "items": {
@@ -2080,6 +2140,9 @@
         "output_port",
         "port_type",
         "content_digest",
+        "result_identity",
+        "materialization",
+        "producer_provenance",
         "values"
       ],
       "type": "object"
@@ -2515,6 +2578,12 @@
       "cancellation_conflict": {
         "code": "cancellation_conflict",
         "details_schema": "#/$defs/CancellationErrorDetails",
+        "http_status": 409,
+        "retryable": false
+      },
+      "cache_identity_conflict": {
+        "code": "cache_identity_conflict",
+        "details_schema": "#/$defs/CacheIdentityConflictDetails",
         "http_status": 409,
         "retryable": false
       },

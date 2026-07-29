@@ -69,6 +69,11 @@ def _direct_catalog(
     execution_gate: tuple[threading.Event, threading.Event] | None = None,
     execution_action: Any | None = None,
     factory_action: Any | None = None,
+    execution_output: Any = "READY",
+    implementation_variant: str = "default",
+    deterministic: bool = True,
+    source_identity: Mapping[str, Any] | None = None,
+    node_parameter_declarations: Mapping[str, Any] | None = None,
 ) -> FrozenCatalog:
     builtin = builtin_frozen_catalog()
     text = builtin.require_port_type("text", "2.0.0")
@@ -80,7 +85,11 @@ def _direct_catalog(
             "model_identity": {"kind": "none"},
             "checkpoint_identity": {"kind": "none"},
             "featurization_identity": {"kind": "none"},
-            "source_identity": {"kind": "contract-test"},
+            "source_identity": (
+                dict(source_identity)
+                if source_identity is not None
+                else {"kind": "contract-test"}
+            ),
             "scale_contract": {"kind": "identity"},
         },
     )
@@ -102,7 +111,7 @@ def _direct_catalog(
                 }
             ],
             "parameter_groups": [],
-            "node_parameters": {},
+            "node_parameters": dict(node_parameter_declarations or {}),
         },
     )
     bindings: list[CatalogContract] = []
@@ -144,10 +153,11 @@ def _direct_catalog(
                         else {"credential": "required"}
                     ),
                 },
-                "deterministic": True,
+                "deterministic": deterministic,
                 "cacheable": cacheable,
                 "implementation_identity": {
                     "name": binding_id,
+                    "variant": implementation_variant,
                     "factory": binding_factory_behavior.descriptor(),
                 },
                 "produced_observations": [],
@@ -168,7 +178,10 @@ def _direct_catalog(
                 binding_parameters: dict[str, Any],
             ) -> dict[str, Any]:
                 assert inputs == {}
-                assert node_parameters == {}
+                if node_parameter_declarations is None:
+                    assert node_parameters == {}
+                else:
+                    calls.append(f"parameters:{dict(node_parameters)!r}")
                 assert binding_parameters == {}
                 if invocation_count == 0:
                     calls.append(f"execute:{self._binding_id}")
@@ -190,7 +203,12 @@ def _direct_catalog(
                                         raise TimeoutError(
                                             "fixture execution gate timed out"
                                         )
-                return {"text": "READY"}
+                value = (
+                    execution_output()
+                    if callable(execution_output)
+                    else execution_output
+                )
+                return {"text": value}
 
         def make_readiness(exact_binding_id: str):
             def readiness(environment: dict[str, Any]) -> bool:
@@ -207,8 +225,9 @@ def _direct_catalog(
 
         def make_factory(exact_binding_id: str):
             def factory(**kwargs: Any) -> DirectImplementation:
-                assert kwargs["environment_configuration"]["credential"] == (
-                    "credential-value"
+                assert isinstance(
+                    kwargs["environment_configuration"]["credential"],
+                    str,
                 )
                 assert kwargs["execution_plan"].workflow_id
                 assert kwargs["frozen_catalog"] is not None
@@ -586,6 +605,7 @@ def _artifact_catalog(
     artifact_kind: str | None = "standalone",
     collection: bool = False,
     artifact_payloads: tuple[bytes, ...] = (b"MODEL        1\nEND\n",),
+    cacheable: bool = False,
 ) -> FrozenCatalog:
     builtin = builtin_frozen_catalog()
     port_type_id = "file.path.collection" if collection else "file.path"
@@ -658,7 +678,7 @@ def _artifact_catalog(
                 "prerequisites": {},
             },
             "deterministic": True,
-            "cacheable": False,
+            "cacheable": cacheable,
             "implementation_identity": {
                 "name": "test.artifact.direct",
                 "factory": factory_behavior.descriptor(),
@@ -1532,6 +1552,22 @@ def test_public_start_run_binds_the_exact_compile_before_direct_execution(
                             "2.0.0",
                         ).content_digest("READY")
                     ),
+                    "result_identity": (
+                        projection.json()["outputs"][0]["result_identity"]
+                    ),
+                    "materialization": {
+                        "run_id": receipt["run_id"],
+                        "resolution": "executed",
+                    },
+                    "producer_provenance": {
+                        "producer_run_id": receipt["run_id"],
+                        "producer_result_identity": (
+                            projection.json()["outputs"][0][
+                                "result_identity"
+                            ]
+                        ),
+                        "output_port": "text",
+                    },
                     "values": ["READY"],
                 }
             ],

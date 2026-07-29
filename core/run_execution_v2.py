@@ -51,11 +51,21 @@ from core.workflow_v2 import (
     ExecutionPlanNode,
     parse_workflow_document,
 )
+from datatypes import (
+    Candidate,
+    CandidateCollection,
+    ProteinSequence,
+    ProteinStructure,
+    ScoreCollection,
+    StructureAlignment,
+)
 
 
 READINESS_ATTESTATION_NAMESPACE = (
     "protein-workbench-readiness-attestation/v2"
 )
+RESULT_IDENTITY_NAMESPACE = "protein-workbench-cache/v2"
+RESULT_CACHE_ENTRY_NAMESPACE = "protein-workbench-cache-entry/v2"
 RUN_LEDGER_SCHEMA_VERSION = "2.0.0"
 MAX_ARTIFACTS_PER_RUN = 2_048
 MAX_ARTIFACT_SIZE_BYTES = 64 * 1024 * 1024
@@ -164,6 +174,14 @@ def _safe_cursor_detail(value: Any) -> str:
 
 
 def _public_failure(error: BaseException) -> dict[str, Any]:
+    if isinstance(error, V2RunError):
+        return {
+            "code": error.code,
+            "message": str(error),
+            "retryable": False,
+            "correlation_id": f"incident-{uuid.uuid4().hex}",
+            "details": sanitize_public_value(error.details),
+        }
     error_type = type(error).__name__
     if (
         len(error_type) > 128
@@ -622,7 +640,7 @@ class RunResources:
 
 
 class ResultReplaySource:
-    """Optional Cache boundary; Ticket 09 supplies durable v2 storage."""
+    """Optional typed Result replay boundary."""
 
     def lookup(
         self,
@@ -631,9 +649,55 @@ class ResultReplaySource:
         execution_plan: ExecutionPlan,
         node: ExecutionPlanNode,
         inputs: Mapping[str, Any],
+        result_identity: str,
     ) -> Mapping[str, Any] | None:
-        del project_id, execution_plan, node, inputs
+        del project_id, execution_plan, node, inputs, result_identity
         return None
+
+    def publish(
+        self,
+        *,
+        project_id: str,
+        execution_plan: ExecutionPlan,
+        node: ExecutionPlanNode,
+        result_identity: str,
+        outputs: list[dict[str, Any]],
+        producer_run_id: str,
+    ) -> None:
+        del (
+            project_id,
+            execution_plan,
+            node,
+            result_identity,
+            outputs,
+            producer_run_id,
+        )
+
+    def validate_publish(
+        self,
+        *,
+        project_id: str,
+        execution_plan: ExecutionPlan,
+        node: ExecutionPlanNode,
+        result_identity: str,
+        outputs: list[dict[str, Any]],
+        producer_run_id: str,
+    ) -> None:
+        del (
+            project_id,
+            execution_plan,
+            node,
+            result_identity,
+            outputs,
+            producer_run_id,
+        )
+
+
+@dataclass(frozen=True, slots=True)
+class _ResultReplayHit:
+    outputs: Mapping[str, Any]
+    result_identity: str
+    producer_run_id: str
 
 
 class V2RunError(RuntimeError):
@@ -2090,6 +2154,520 @@ def _read_stable_private_file(
             os.close(file_descriptor)
 
 
+def _result_identity_descriptor(
+    catalog: FrozenCatalog,
+    plan: ExecutionPlan,
+    node: ExecutionPlanNode,
+    inputs: Mapping[str, Any],
+) -> dict[str, Any]:
+    """Build the closed scientific identity of one resolved Node result."""
+    node_contract = catalog.require_contract(*node.node_type.key)
+    binding_contract = catalog.require_contract(*node.binding.key)
+    method_contract = catalog.require_contract(*node.method.key)
+    declared_inputs = {
+        port["name"]: port
+        for port in node_contract.descriptor.get("inputs", ())
+    }
+    input_identities: list[dict[str, Any]] = []
+    for port_name in sorted(inputs):
+        declaration = declared_inputs[port_name]
+        reference = declaration["port_type"]
+        port_type = catalog.require_port_type(
+            reference["contract_id"],
+            reference["contract_version"],
+        )
+        supplied = inputs[port_name]
+        values = (
+            list(supplied)
+            if declaration["multiplicity"] == "many"
+            else [supplied]
+        )
+        input_identities.append(
+            {
+                "input_port": port_name,
+                "port_type": port_type.reference(),
+                "multiplicity": declaration["multiplicity"],
+                "value_content_digests": [
+                    port_type.content_digest(value)
+                    for value in values
+                ],
+            }
+        )
+    relevant_contracts = {
+        entry.key: entry.to_public()
+        for entry in plan.resolved_contracts
+        if entry.key
+        in {
+            node.node_type.key,
+            node.binding.key,
+            node.method.key,
+            *{
+                (
+                    port["port_type"]["contract_kind"],
+                    port["port_type"]["contract_id"],
+                    port["port_type"]["contract_version"],
+                )
+                for direction in ("inputs", "outputs")
+                for port in node_contract.descriptor.get(direction, ())
+            },
+            *{
+                (
+                    observation["metric"]["contract_kind"],
+                    observation["metric"]["contract_id"],
+                    observation["metric"]["contract_version"],
+                )
+                for observation in binding_contract.descriptor.get(
+                    "produced_observations",
+                    (),
+                )
+            },
+        }
+    }
+    return {
+        "schema_namespace": RESULT_IDENTITY_NAMESPACE,
+        "node_type": node.node_type.to_public(),
+        "binding": node.binding.to_public(),
+        "method": node.method.to_public(),
+        "resolved_result_contracts": [
+            relevant_contracts[key] for key in sorted(relevant_contracts)
+        ],
+        "inputs": input_identities,
+        "node_parameters": _plain_json(node.node_parameters),
+        "binding_parameters": _plain_json(node.binding_parameters),
+        "determinism": {
+            "deterministic": binding_contract.descriptor.get("deterministic"),
+            "effective_randomness": {
+                key: value
+                for key, value in {
+                    **_plain_json(node.node_parameters),
+                    **_plain_json(node.binding_parameters),
+                }.items()
+                if key in {"seed", "random_seed", "effective_seed"}
+            },
+        },
+        "output_contracts": [
+            {
+                "output_port": port["name"],
+                "port_type": _plain_json(port["port_type"]),
+                "required": port["required"],
+                "multiplicity": port["multiplicity"],
+                "scientific_meaning": port["scientific_meaning"],
+            }
+            for port in node_contract.descriptor.get("outputs", ())
+        ],
+        "produced_observations": _plain_json(
+            binding_contract.descriptor.get("produced_observations", ())
+        ),
+    }
+
+
+def _result_identity(
+    catalog: FrozenCatalog,
+    plan: ExecutionPlan,
+    node: ExecutionPlanNode,
+    inputs: Mapping[str, Any],
+) -> str:
+    return canonical_sha256(
+        _result_identity_descriptor(catalog, plan, node, inputs)
+    )
+
+
+def _contains_unresolved_identity(value: Any) -> bool:
+    if isinstance(value, Mapping):
+        if value.get("identity_complete") is False:
+            return True
+        return any(
+            _contains_unresolved_identity(item)
+            for item in value.values()
+        )
+    if isinstance(value, (list, tuple)):
+        return any(_contains_unresolved_identity(item) for item in value)
+    return (
+        isinstance(value, str)
+        and value.strip().lower()
+        in {"unknown", "unresolved", "latest", "unspecified"}
+    )
+
+
+def _result_identity_is_cache_safe(
+    catalog: FrozenCatalog,
+    node: ExecutionPlanNode,
+) -> bool:
+    contracts = (
+        catalog.require_contract(*node.node_type.key),
+        catalog.require_contract(*node.binding.key),
+        catalog.require_contract(*node.method.key),
+    )
+    return not any(
+        _contains_unresolved_identity(contract.descriptor)
+        for contract in contracts
+    )
+
+
+def _result_contract_metadata(
+    catalog: FrozenCatalog,
+    node: ExecutionPlanNode,
+) -> dict[str, Any]:
+    node_contract = catalog.require_contract(*node.node_type.key)
+    return {
+        "node_type": node.node_type.to_public(),
+        "binding": node.binding.to_public(),
+        "method": node.method.to_public(),
+        "outputs": [
+            {
+                "output_port": port["name"],
+                "port_type": _plain_json(port["port_type"]),
+                "required": port["required"],
+                "multiplicity": port["multiplicity"],
+            }
+            for port in node_contract.descriptor.get("outputs", ())
+        ],
+    }
+
+
+def _with_result_provenance(
+    outputs: list[dict[str, Any]],
+    *,
+    result_identity: str,
+    current_run_id: str,
+    producer_run_id: str,
+    resolution: str,
+) -> list[dict[str, Any]]:
+    return [
+        {
+            **output,
+            "result_identity": result_identity,
+            "materialization": {
+                "run_id": current_run_id,
+                "resolution": resolution,
+            },
+            "producer_provenance": {
+                "producer_run_id": producer_run_id,
+                "producer_result_identity": result_identity,
+                "output_port": output["output_port"],
+            },
+        }
+        for output in outputs
+    ]
+
+
+class _ProjectResultCache(ResultReplaySource):
+    """Project-owned canonical Port-codec Result storage."""
+
+    def __init__(
+        self,
+        projects: ProjectManager,
+        catalog: FrozenCatalog,
+    ) -> None:
+        self._projects = projects
+        self._catalog = catalog
+
+    @staticmethod
+    def _relative_parts(result_identity: str) -> tuple[str, ...]:
+        prefix, separator, digest = result_identity.partition(":")
+        if (
+            prefix != "sha256"
+            or separator != ":"
+            or re.fullmatch(r"[0-9a-f]{64}", digest) is None
+        ):
+            raise PortValueError("Result Identity is not a canonical digest")
+        return ("v2", "results", f"{digest}.json")
+
+    def _load_entry(
+        self,
+        project_id: str,
+        result_identity: str,
+    ) -> dict[str, Any] | None:
+        root = self._projects.cache_dir(project_id)
+        parts = self._relative_parts(result_identity)
+        try:
+            encoded = _read_stable_private_file(
+                root,
+                parts,
+                field="result_cache_entry",
+                maximum_size=MAX_ARTIFACT_BYTES_PER_RUN,
+            )
+        except FileNotFoundError:
+            return None
+        try:
+            payload = json.loads(encoded)
+            if encoded != canonical_json_bytes(payload):
+                raise PortValueError("Cache entry is not canonical")
+            if (
+                not isinstance(payload, dict)
+                or set(payload)
+                != {
+                    "schema_namespace",
+                    "result_identity",
+                    "contract_metadata",
+                    "producer",
+                    "outputs",
+                }
+                or payload["schema_namespace"] != RESULT_CACHE_ENTRY_NAMESPACE
+                or payload["result_identity"] != result_identity
+                or not isinstance(payload["contract_metadata"], dict)
+                or not isinstance(payload["producer"], dict)
+                or set(payload["producer"])
+                != {"producer_run_id", "producer_node_id"}
+                or not isinstance(payload["outputs"], list)
+            ):
+                raise PortValueError("Cache entry contract is invalid")
+        except (
+            UnicodeDecodeError,
+            json.JSONDecodeError,
+            PortValueError,
+            ValueError,
+        ):
+            return None
+        return payload
+
+    def lookup(
+        self,
+        *,
+        project_id: str,
+        execution_plan: ExecutionPlan,
+        node: ExecutionPlanNode,
+        inputs: Mapping[str, Any],
+        result_identity: str,
+    ) -> _ResultReplayHit | None:
+        del execution_plan, inputs
+        entry = self._load_entry(project_id, result_identity)
+        if entry is None:
+            return None
+        if entry["contract_metadata"] != _result_contract_metadata(
+            self._catalog,
+            node,
+        ):
+            raise V2RunError(
+                "cache_identity_conflict",
+                "Result Identity resolves to conflicting contract metadata",
+                details={"result_identity": result_identity},
+            )
+        node_contract = self._catalog.require_contract(*node.node_type.key)
+        declarations = {
+            port["name"]: port
+            for port in node_contract.descriptor.get("outputs", ())
+        }
+        decoded_outputs: dict[str, Any] = {}
+        seen_ports: set[str] = set()
+        for output in entry["outputs"]:
+            if (
+                not isinstance(output, dict)
+                or set(output)
+                != {
+                    "output_port",
+                    "port_type",
+                    "content_digest",
+                    "encoded_values",
+                }
+                or output["output_port"] in seen_ports
+                or output["output_port"] not in declarations
+                or not isinstance(output["encoded_values"], list)
+            ):
+                return None
+            seen_ports.add(output["output_port"])
+            declaration = declarations[output["output_port"]]
+            if output["port_type"] != declaration["port_type"]:
+                return None
+            port_type = self._catalog.require_port_type(
+                output["port_type"]["contract_id"],
+                output["port_type"]["contract_version"],
+            )
+            try:
+                values = [
+                    port_type.decode(
+                        base64.b64decode(item, validate=True)
+                    )
+                    for item in output["encoded_values"]
+                    if isinstance(item, str)
+                ]
+            except (binascii.Error, PortValueError, ValueError):
+                return None
+            if len(values) != len(output["encoded_values"]):
+                return None
+            expected_digest = (
+                port_type.content_digest(values[0])
+                if len(values) == 1
+                else canonical_sha256(
+                    {
+                        "port_type": port_type.reference(),
+                        "value_content_digests": [
+                            port_type.content_digest(value)
+                            for value in values
+                        ],
+                    }
+                )
+            )
+            if expected_digest != output["content_digest"]:
+                return None
+            decoded_outputs[output["output_port"]] = (
+                values
+                if declaration["multiplicity"] == "many"
+                else values[0]
+            )
+        if any(
+            declaration["required"] is True and port_name not in seen_ports
+            for port_name, declaration in declarations.items()
+        ):
+            return None
+        return _ResultReplayHit(
+            outputs=decoded_outputs,
+            result_identity=result_identity,
+            producer_run_id=entry["producer"]["producer_run_id"],
+        )
+
+    def _entry(
+        self,
+        *,
+        node: ExecutionPlanNode,
+        result_identity: str,
+        outputs: list[dict[str, Any]],
+        producer_run_id: str,
+    ) -> dict[str, Any] | None:
+        node_contract = self._catalog.require_contract(*node.node_type.key)
+        declarations = {
+            port["name"]: port
+            for port in node_contract.descriptor.get("outputs", ())
+        }
+        stored_outputs: list[dict[str, Any]] = []
+        for output in outputs:
+            declaration = declarations[output["output_port"]]
+            port_type_id = output["port_type"]["contract_id"]
+            if port_type_id in {"file.path", "file.path.collection"}:
+                return None
+            port_type = self._catalog.require_port_type(
+                port_type_id,
+                output["port_type"]["contract_version"],
+            )
+            encoded_values = [
+                port_type.encode(port_type.decode(canonical_json_bytes({
+                    "schema_namespace": "protein-workbench-port-value/v2",
+                    "port_type_id": port_type.type_id,
+                    "port_type_version": port_type.version,
+                    "value": value,
+                })))
+                for value in output["values"]
+            ]
+            if (
+                declaration["multiplicity"] == "one"
+                and len(encoded_values) != 1
+            ):
+                raise PortValueError("Cache output multiplicity is invalid")
+            stored_outputs.append(
+                {
+                    "output_port": output["output_port"],
+                    "port_type": output["port_type"],
+                    "content_digest": output["content_digest"],
+                    "encoded_values": [
+                        base64.b64encode(encoded).decode("ascii")
+                        for encoded in encoded_values
+                    ],
+                }
+            )
+        return {
+            "schema_namespace": RESULT_CACHE_ENTRY_NAMESPACE,
+            "result_identity": result_identity,
+            "contract_metadata": _result_contract_metadata(
+                self._catalog,
+                node,
+            ),
+            "producer": {
+                "producer_run_id": producer_run_id,
+                "producer_node_id": node.node_id,
+            },
+            "outputs": stored_outputs,
+        }
+
+    @staticmethod
+    def _conflicts(
+        existing: Mapping[str, Any],
+        proposed: Mapping[str, Any],
+    ) -> bool:
+        return any(
+            existing[field] != proposed[field]
+            for field in (
+                "schema_namespace",
+                "result_identity",
+                "contract_metadata",
+                "outputs",
+            )
+        )
+
+    def validate_publish(
+        self,
+        *,
+        project_id: str,
+        execution_plan: ExecutionPlan,
+        node: ExecutionPlanNode,
+        result_identity: str,
+        outputs: list[dict[str, Any]],
+        producer_run_id: str,
+    ) -> None:
+        del execution_plan
+        entry = self._entry(
+            node=node,
+            result_identity=result_identity,
+            outputs=outputs,
+            producer_run_id=producer_run_id,
+        )
+        if entry is None:
+            return
+        existing = self._load_entry(project_id, result_identity)
+        if existing is not None and self._conflicts(existing, entry):
+            raise V2RunError(
+                "cache_identity_conflict",
+                "Result Identity resolves to conflicting outputs",
+                details={"result_identity": result_identity},
+            )
+
+    def publish(
+        self,
+        *,
+        project_id: str,
+        execution_plan: ExecutionPlan,
+        node: ExecutionPlanNode,
+        result_identity: str,
+        outputs: list[dict[str, Any]],
+        producer_run_id: str,
+    ) -> None:
+        del execution_plan
+        entry = self._entry(
+            node=node,
+            result_identity=result_identity,
+            outputs=outputs,
+            producer_run_id=producer_run_id,
+        )
+        if entry is None:
+            return
+        existing = self._load_entry(project_id, result_identity)
+        if existing is not None:
+            if self._conflicts(existing, entry):
+                raise V2RunError(
+                    "cache_identity_conflict",
+                    "Result Identity resolves to conflicting outputs",
+                    details={"result_identity": result_identity},
+                )
+            return
+        root = self._projects.cache_dir(project_id)
+        try:
+            write_private_new_file(
+                root,
+                self._relative_parts(result_identity),
+                canonical_json_bytes(entry),
+                field="result_cache_entry",
+            )
+        except FileExistsError:
+            winner = self._load_entry(project_id, result_identity)
+            if winner is None:
+                return
+            if self._conflicts(winner, entry):
+                raise V2RunError(
+                    "cache_identity_conflict",
+                    "Result Identity publication conflicted",
+                    details={"result_identity": result_identity},
+                )
+
+
 class V2RunService:
     """Execute compiled direct Nodes behind readiness and durable evidence."""
 
@@ -2106,7 +2684,8 @@ class V2RunService:
         self._authoring = authoring
         self._environment = environment
         self._result_replay_source = (
-            result_replay_source or ResultReplaySource()
+            result_replay_source
+            or _ProjectResultCache(projects, catalog)
         )
         self._runs: dict[tuple[str, str], _RunRecord] = {}
         self._damaged_runs: dict[tuple[str, str], str] = {}
@@ -2653,6 +3232,181 @@ class V2RunService:
             blockers.update(edge.source_node_id for edge in incoming)
         return sorted(blockers)
 
+    @staticmethod
+    def _candidate_values(value: Any) -> list[Candidate]:
+        if type(value) is Candidate:
+            return [value]
+        if type(value) is CandidateCollection:
+            return list(value.items)
+        if isinstance(value, (list, tuple)):
+            return [
+                candidate
+                for item in value
+                for candidate in V2RunService._candidate_values(item)
+            ]
+        return []
+
+    def _candidate_content_digest(self, candidate: Candidate) -> str:
+        type_id = {
+            ProteinSequence: "protein.sequence",
+            ProteinStructure: "protein.structure",
+            StructureAlignment: "structure.alignment",
+        }.get(type(candidate.data))
+        if type_id is None:
+            raise PortValueError(
+                "Candidate data has no registered content identity"
+            )
+        return self._catalog.require_port_type(
+            type_id,
+            "2.0.0",
+        ).content_digest(candidate.data)
+
+    def _normalize_candidate_outputs(
+        self,
+        *,
+        node: ExecutionPlanNode,
+        result_identity: str,
+        inputs: Mapping[str, Any],
+        outputs: Mapping[str, Any],
+    ) -> Mapping[str, Any]:
+        input_candidates = {
+            candidate.candidate_id: candidate
+            for value in inputs.values()
+            for candidate in self._candidate_values(value)
+        }
+        normalized_ids: dict[str, str] = {}
+        for output_port in sorted(outputs):
+            supplied = outputs[output_port]
+            output_values = (
+                list(supplied)
+                if isinstance(supplied, (list, tuple))
+                else [supplied]
+            )
+            for value_index, value in enumerate(output_values):
+                candidates = self._candidate_values(value)
+                for sample_index, candidate in enumerate(candidates):
+                    raw_candidate_id = candidate.candidate_id
+                    parents: list[str] = []
+                    for parent_id in candidate.parent_ids:
+                        if parent_id in normalized_ids:
+                            parents.append(normalized_ids[parent_id])
+                        elif parent_id in input_candidates:
+                            parents.append(parent_id)
+                        elif (
+                            not input_candidates
+                            and parent_id == node.node_id
+                        ):
+                            continue
+                        elif len(input_candidates) == 1:
+                            parents.append(next(iter(input_candidates)))
+                        else:
+                            raise PortValueError(
+                                "Candidate parent identity is not a resolved "
+                                "input Candidate"
+                            )
+                    parents = list(dict.fromkeys(parents))
+                    content_digest = self._candidate_content_digest(candidate)
+                    sample_slot = f"{value_index}:{sample_index}"
+                    candidate_identity = canonical_sha256(
+                        {
+                            "schema_namespace": (
+                                "protein-workbench-candidate/v2"
+                            ),
+                            "producer_result_identity": result_identity,
+                            "output_port": output_port,
+                            "sample_slot": sample_slot,
+                            "parent_candidate_identities": parents,
+                            "content_digest": content_digest,
+                        }
+                    )
+                    candidate.candidate_id = (
+                        "candidate-" + candidate_identity.removeprefix("sha256:")
+                    )
+                    candidate.parent_ids = parents
+                    runtime_metadata_keys = {
+                        "run",
+                        "run_id",
+                        "node",
+                        "node_id",
+                        "timestamp",
+                        "created_at",
+                        "updated_at",
+                        "credential",
+                        "credentials",
+                        "private_path",
+                        "runtime_path",
+                        "presentation",
+                        "performance",
+                    }
+                    candidate.metadata = {
+                        **{
+                            key: item
+                            for key, item in candidate.metadata.items()
+                            if key not in runtime_metadata_keys
+                        },
+                        "producer_result_identity": result_identity,
+                        "output_port": output_port,
+                        "sample_slot": sample_slot,
+                        "content_digest": content_digest,
+                    }
+                    normalized_ids[raw_candidate_id] = candidate.candidate_id
+                if type(value) is CandidateCollection:
+                    value.collection_id = (
+                        "collection-"
+                        + canonical_sha256(
+                            {
+                                "schema_namespace": (
+                                    "protein-workbench-candidate-collection/v2"
+                                ),
+                                "producer_result_identity": result_identity,
+                                "output_port": output_port,
+                                "value_slot": value_index,
+                                "candidate_identities": [
+                                    candidate.candidate_id
+                                    for candidate in value.items
+                                ],
+                            }
+                        ).removeprefix("sha256:")
+                    )
+        for output_port in sorted(outputs):
+            supplied = outputs[output_port]
+            output_values = (
+                list(supplied)
+                if isinstance(supplied, (list, tuple))
+                else [supplied]
+            )
+            for value_index, value in enumerate(output_values):
+                if type(value) is not ScoreCollection:
+                    continue
+                for score in value.entries:
+                    score.subjects = [
+                        normalized_ids.get(subject, subject)
+                        for subject in score.subjects
+                    ]
+                value.collection_id = (
+                    "scores-"
+                    + canonical_sha256(
+                        {
+                            "schema_namespace": (
+                                "protein-workbench-score-collection/v2"
+                            ),
+                            "producer_result_identity": result_identity,
+                            "output_port": output_port,
+                            "value_slot": value_index,
+                            "scores": [
+                                {
+                                    "score_id": score.score_id,
+                                    "value": score.value,
+                                    "subjects": score.subjects,
+                                    "details": score.details,
+                                }
+                                for score in value.entries
+                            ],
+                        }
+                    ).removeprefix("sha256:")
+                )
+        return outputs
+
     def _validate_outputs(
         self,
         node: ExecutionPlanNode,
@@ -3062,22 +3816,64 @@ class V2RunService:
             binding_contract = self._catalog.require_contract(
                 *node.binding.key,
             )
+            result_identity: str | None = None
+            controlled_randomness = any(
+                key in {
+                    **_plain_json(node.node_parameters),
+                    **_plain_json(node.binding_parameters),
+                }
+                for key in {"seed", "random_seed", "effective_seed"}
+            )
+            cache_eligible = (
+                binding_contract.descriptor.get("cacheable") is True
+                and (
+                    binding_contract.descriptor.get("deterministic") is True
+                    or controlled_randomness
+                )
+                and _result_identity_is_cache_safe(
+                    self._catalog,
+                    node,
+                )
+            )
+            cache_lookup_eligible = (
+                cache_eligible and node.node_id not in _cache_bypass_nodes
+            )
+            if cache_eligible:
+                result_identity = _result_identity(
+                    self._catalog,
+                    plan,
+                    node,
+                    node_inputs,
+                )
             replayed_published: list[dict[str, Any]] | None = None
             replayed_runtime: dict[
                 tuple[str, str],
                 list[Any],
             ] | None = None
-            if (
-                binding_contract.descriptor.get("cacheable") is True
-                and node.node_id not in _cache_bypass_nodes
-            ):
+            replay_producer_run_id: str | None = None
+            cache_lookup_error: V2RunError | None = None
+            if cache_lookup_eligible and result_identity is not None:
                 try:
-                    replayed_outputs = self._result_replay_source.lookup(
+                    replayed = self._result_replay_source.lookup(
                         project_id=project_id,
                         execution_plan=plan,
                         node=node,
                         inputs=node_inputs,
+                        result_identity=result_identity,
                     )
+                    if isinstance(replayed, _ResultReplayHit):
+                        if replayed.result_identity != result_identity:
+                            raise V2RunError(
+                                "cache_identity_conflict",
+                                "Cache replay returned a conflicting identity",
+                                details={
+                                    "result_identity": result_identity,
+                                },
+                            )
+                        replayed_outputs = replayed.outputs
+                        replay_producer_run_id = replayed.producer_run_id
+                    else:
+                        replayed_outputs = replayed
                     if replayed_outputs is not None:
                         candidate_published, candidate_runtime = (
                             self._validate_outputs(
@@ -3090,11 +3886,48 @@ class V2RunService:
                             in {"file.path", "file.path.collection"}
                             for output in candidate_published
                         ):
-                            replayed_published = candidate_published
+                            replayed_published = _with_result_provenance(
+                                candidate_published,
+                                result_identity=result_identity,
+                                current_run_id=run_id,
+                                producer_run_id=(
+                                    replay_producer_run_id or "external"
+                                ),
+                                resolution="cache_replayed",
+                            )
                             replayed_runtime = candidate_runtime
+                except V2RunError as error:
+                    cache_lookup_error = error
                 except Exception:
                     replayed_published = None
                     replayed_runtime = None
+            if cache_lookup_error is not None:
+                ledger.append(
+                    "node_attempt_started",
+                    {
+                        "node_id": node.node_id,
+                        "node_attempt_id": node_attempt_id,
+                    },
+                )
+                ledger.append(
+                    "node_attempt_terminal",
+                    {
+                        "node_attempt_id": node_attempt_id,
+                        "status": "failed",
+                        "resolution": "executed",
+                        "error": _public_failure(cache_lookup_error),
+                    },
+                )
+                ledger.append(
+                    "node_disposition",
+                    {
+                        "node_id": node.node_id,
+                        "outcome": "failed",
+                        "blocked_by": [],
+                    },
+                )
+                disposition_outcomes[node.node_id] = "failed"
+                continue
             if replayed_published is not None and replayed_runtime is not None:
                 if ledger.cancellation_requested:
                     record.cancellation.wait_for_cleanup()
@@ -3271,6 +4104,20 @@ class V2RunService:
                 )
                 if ledger.cancellation_requested:
                     raise ExecutionTermination("cancelled")
+                if result_identity is None:
+                    result_identity = _result_identity(
+                        self._catalog,
+                        plan,
+                        node,
+                        node_inputs,
+                    )
+                if isinstance(raw_outputs, Mapping):
+                    raw_outputs = self._normalize_candidate_outputs(
+                        node=node,
+                        result_identity=result_identity,
+                        inputs=node_inputs,
+                        outputs=raw_outputs,
+                    )
                 published, pending_runtime = self._validate_outputs(
                     node,
                     raw_outputs,
@@ -3290,6 +4137,22 @@ class V2RunService:
                         for artifact in all_artifacts
                     ),
                 )
+                pending_typed_outputs = _with_result_provenance(
+                    pending_typed_outputs,
+                    result_identity=result_identity,
+                    current_run_id=run_id,
+                    producer_run_id=run_id,
+                    resolution="executed",
+                )
+                if cache_eligible and not pending_artifacts:
+                    self._result_replay_source.validate_publish(
+                        project_id=project_id,
+                        execution_plan=plan,
+                        node=node,
+                        result_identity=result_identity,
+                        outputs=pending_typed_outputs,
+                        producer_run_id=run_id,
+                    )
                 if ledger.cancellation_requested:
                     raise ExecutionTermination("cancelled")
             except BaseException as error:
@@ -3399,6 +4262,19 @@ class V2RunService:
                 values.update(pending_runtime)
                 all_artifacts.extend(pending_artifacts)
                 artifact_records.update(pending_artifact_records)
+                if (
+                    cache_eligible
+                    and result_identity is not None
+                    and not pending_artifacts
+                ):
+                    self._result_replay_source.publish(
+                        project_id=project_id,
+                        execution_plan=plan,
+                        node=node,
+                        result_identity=result_identity,
+                        outputs=pending_typed_outputs,
+                        producer_run_id=run_id,
+                    )
             disposition_outcomes[node.node_id] = outcome
         run_status = (
             "failed"

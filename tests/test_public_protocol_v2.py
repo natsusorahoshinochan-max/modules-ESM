@@ -177,6 +177,7 @@ def test_bundle_freezes_event_replay_close_and_error_vocabulary() -> None:
         "artifact_limit_exceeded",
         "artifact_not_found",
         "binding_unavailable",
+        "cache_identity_conflict",
         "cancellation_conflict",
         "compile_rejected",
         "contract_digest_mismatch",
