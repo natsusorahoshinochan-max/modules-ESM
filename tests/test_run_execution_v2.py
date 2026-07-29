@@ -3218,22 +3218,46 @@ def test_projection_failure_leaves_facts_intact_and_restart_rebuilds_outputs(
 
 
 @pytest.mark.parametrize(
-    ("blocked_fact_type", "started_type", "terminal_type"),
+    (
+        "blocked_fact_type",
+        "started_type",
+        "terminal_type",
+        "expected_terminal",
+        "expected_outcome",
+        "expected_output_count",
+    ),
     (
         (
             "operation_attempt_started",
             "node_attempt_started",
             "node_attempt_terminal",
+            "interrupted",
+            "interrupted",
+            0,
         ),
         (
             "engine_invocation_started",
             "operation_attempt_started",
             "operation_attempt_terminal",
+            "interrupted",
+            "interrupted",
+            0,
         ),
         (
             "node_attempt_terminal",
             "node_attempt_started",
             "node_attempt_terminal",
+            "interrupted",
+            "interrupted",
+            0,
+        ),
+        (
+            "node_disposition",
+            "node_attempt_started",
+            "node_attempt_terminal",
+            "succeeded",
+            "succeeded",
+            1,
         ),
     ),
 )
@@ -3243,6 +3267,9 @@ def test_restart_reconciliation_closes_each_started_outer_attempt(
     blocked_fact_type: str,
     started_type: str,
     terminal_type: str,
+    expected_terminal: str,
+    expected_outcome: str,
+    expected_output_count: int,
 ) -> None:
     entered = threading.Event()
     paused = threading.Event()
@@ -3338,10 +3365,10 @@ def test_restart_reconciliation_closes_each_started_outer_attempt(
         if event["event"]["type"] == terminal_type
         and event["event"][identity_field] == started_event[identity_field]
     )
-    assert terminal_event["status"] == "interrupted"
+    assert terminal_event["status"] == expected_terminal
     assert projection["status"] == "interrupted"
-    assert projection["node_dispositions"][0]["outcome"] == "interrupted"
-    assert projection["outputs"] == []
+    assert projection["node_dispositions"][0]["outcome"] == expected_outcome
+    assert len(projection["outputs"]) == expected_output_count
 
 
 def test_restart_reconciliation_disposes_every_plan_node_by_direct_cause(

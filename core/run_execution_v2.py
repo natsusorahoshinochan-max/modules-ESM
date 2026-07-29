@@ -1464,13 +1464,27 @@ class _RunEvidenceLedger:
                 continue
             attempt_id = self._node_attempt_by_node.get(node_id)
             if attempt_id is not None:
+                attempt = self._node_attempts[attempt_id]
+                terminal = attempt["terminal"]
+                if terminal is None:
+                    raise self._causal_error()
+                outcome = {
+                    "succeeded": "succeeded",
+                    "failed": "failed",
+                    "cancelled": "cancelled",
+                    "interrupted": "interrupted",
+                    "outcome_unknown": "interrupted",
+                }[terminal]
+                disposition = {
+                    "node_id": node_id,
+                    "outcome": outcome,
+                    "blocked_by": [],
+                }
+                if outcome == "succeeded":
+                    disposition["resolution"] = attempt["resolution"]
                 self.append(
                     "node_disposition",
-                    {
-                        "node_id": node_id,
-                        "outcome": "interrupted",
-                        "blocked_by": [],
-                    },
+                    disposition,
                 )
                 continue
             blocked_by = sorted(
