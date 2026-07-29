@@ -628,10 +628,9 @@ def _native_existing_structure_confidence(
             fasta_path = cache / "existing.fasta"
             fasta_path.write_text(
                 "".join(
-                    f">chain_{index + 1}|Protein\n{chain.sequence}\n"
-                    for index, chain in enumerate(
-                        parsed_structure.chains
-                    )
+                    f">{chain.chain_id.strip() or 'A'}|Protein\n"
+                    f"{chain.sequence}\n"
+                    for chain in parsed_structure.chains
                 )
             )
             with (cache / "ccd.pkl").open("rb") as handle:
