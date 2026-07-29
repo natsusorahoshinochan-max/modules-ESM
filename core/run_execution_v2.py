@@ -16,6 +16,7 @@ import re
 import signal
 import stat
 import threading
+import time
 from types import MappingProxyType
 from typing import Any
 import uuid
@@ -37,6 +38,7 @@ from core.run_manifest import sanitize_public_value
 from core.storage import (
     StoragePathError,
     open_private_regular_file,
+    remove_private_regular_file,
     replace_private_regular_file,
     validate_identifier,
     validate_relative_path,
@@ -61,6 +63,8 @@ MAX_ARTIFACT_BYTES_PER_RUN = 256 * 1024 * 1024
 MAX_LEDGER_FACT_BYTES = 4 * 1024 * 1024
 MAX_BACKGROUND_RUNS = 8
 FAST_RUN_COMPLETION_GRACE_SECONDS = 0.25
+CANCELLATION_TERM_GRACE_SECONDS = 0.25
+CANCELLATION_KILL_GRACE_SECONDS = 0.25
 _PUBLIC_IDENTIFIER = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.:/+-]*$")
 _ATTEMPT_TERMINALS = frozenset(
     {
@@ -396,15 +400,11 @@ class _CancellationControl:
         self._condition = threading.Condition(threading.RLock())
         self._requested = False
         self._next_registration = 0
+        self._cleanup_error: BaseException | None = None
         self._process_groups: dict[
             int,
             tuple[int, Callable[[], None] | None],
         ] = {}
-
-    @property
-    def requested(self) -> bool:
-        with self._condition:
-            return self._requested
 
     def register_process_group(
         self,
@@ -423,29 +423,94 @@ class _CancellationControl:
                     fallback,
                 )
                 return registration
-        signal_process_group(
-            process_group,
-            signal.SIGTERM,
-            fallback=fallback,
-        )
-        return registration
-
-    def unregister_process_group(self, registration: int) -> None:
-        with self._condition:
-            self._process_groups.pop(registration, None)
-
-    def request(self) -> None:
-        with self._condition:
-            if self._requested:
-                return
-            self._requested = True
-            active = tuple(self._process_groups.values())
-        for process_group, fallback in active:
+        try:
             signal_process_group(
                 process_group,
                 signal.SIGTERM,
                 fallback=fallback,
             )
+        except BaseException as error:
+            with self._condition:
+                if self._cleanup_error is None:
+                    self._cleanup_error = error
+        return registration
+
+    def unregister_process_group(self, registration: int) -> None:
+        with self._condition:
+            group = self._process_groups.get(registration)
+            if group is None or not self._process_group_active(group[0]):
+                self._process_groups.pop(registration, None)
+            self._condition.notify_all()
+
+    @staticmethod
+    def _process_group_active(process_group: int) -> bool:
+        if process_group <= 1 or process_group == os.getpgrp():
+            return True
+        try:
+            os.killpg(process_group, 0)
+        except ProcessLookupError:
+            return False
+        except (PermissionError, OSError):
+            return True
+        return True
+
+    def _active_groups(
+        self,
+    ) -> tuple[tuple[int, int, Callable[[], None] | None], ...]:
+        with self._condition:
+            for registration, (process_group, _) in tuple(
+                self._process_groups.items()
+            ):
+                if not self._process_group_active(process_group):
+                    self._process_groups.pop(registration, None)
+            return tuple(
+                (registration, process_group, fallback)
+                for registration, (process_group, fallback)
+                in self._process_groups.items()
+            )
+
+    def _signal_all(self, process_signal: signal.Signals) -> None:
+        for _, process_group, fallback in self._active_groups():
+            try:
+                signal_process_group(
+                    process_group,
+                    process_signal,
+                    fallback=fallback,
+                )
+            except BaseException as error:
+                with self._condition:
+                    if self._cleanup_error is None:
+                        self._cleanup_error = error
+
+    def _wait_for_exit(self, timeout_seconds: float) -> bool:
+        deadline = time.monotonic() + timeout_seconds
+        with self._condition:
+            while self._active_groups():
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    return False
+                self._condition.wait(min(remaining, 0.01))
+            return True
+
+    def request(self) -> None:
+        with self._condition:
+            self._requested = True
+        self._signal_all(signal.SIGTERM)
+        if self._wait_for_exit(CANCELLATION_TERM_GRACE_SECONDS):
+            return
+        self._signal_all(signal.SIGKILL)
+        if self._wait_for_exit(CANCELLATION_KILL_GRACE_SECONDS):
+            return
+        with self._condition:
+            if self._cleanup_error is None:
+                self._cleanup_error = RuntimeError(
+                    "Run process-group cleanup could not be confirmed"
+                )
+
+    @property
+    def cleanup_error(self) -> BaseException | None:
+        with self._condition:
+            return self._cleanup_error
 
 
 @dataclass(frozen=True, slots=True)
@@ -1532,16 +1597,103 @@ class _RunEvidenceLedger:
             self.append(fact_type, {**identity, "status": status})
             return status
 
-    def append_outputs_if_active(
+    def commit_node_publication(
         self,
-        payload: Mapping[str, Any],
-    ) -> bool:
-        """Publish typed outputs only when cancellation has not won ordering."""
+        *,
+        node_id: str,
+        node_attempt_id: str,
+        resolution: str,
+        outputs: list[dict[str, Any]],
+        artifacts: list[dict[str, Any]],
+        operation_attempt_id: str | None = None,
+        cancel_cleanup: Callable[[], None] | None = None,
+    ) -> str:
+        """Commit one Node outcome atomically against Run cancellation."""
         with self._condition:
             if self._cancellation_sequence is not None:
-                return False
-            self.append("outputs_published", payload)
-            return True
+                cleanup_error: BaseException | None = None
+                if cancel_cleanup is not None:
+                    try:
+                        cancel_cleanup()
+                    except BaseException as error:
+                        cleanup_error = error
+                terminal_status = (
+                    "failed" if cleanup_error is not None else "cancelled"
+                )
+                terminal_payload: dict[str, Any] = {
+                    "status": terminal_status,
+                }
+                if cleanup_error is not None:
+                    terminal_payload["error"] = _public_failure(cleanup_error)
+                if operation_attempt_id is not None:
+                    self.append(
+                        "operation_attempt_terminal",
+                        {
+                            "operation_attempt_id": operation_attempt_id,
+                            **terminal_payload,
+                        },
+                    )
+                self.append(
+                    "node_attempt_terminal",
+                    {
+                        "node_attempt_id": node_attempt_id,
+                        "resolution": resolution,
+                        **terminal_payload,
+                    },
+                )
+                outcome = (
+                    "failed"
+                    if terminal_status == "failed"
+                    else "cancelled"
+                )
+                self.append(
+                    "node_disposition",
+                    {
+                        "node_id": node_id,
+                        "outcome": outcome,
+                        "blocked_by": [],
+                    },
+                )
+                return outcome
+            if operation_attempt_id is not None:
+                self.append(
+                    "operation_attempt_terminal",
+                    {
+                        "operation_attempt_id": operation_attempt_id,
+                        "status": "succeeded",
+                    },
+                )
+            for artifact in artifacts:
+                self.append(
+                    "artifact_published",
+                    {"artifact": artifact},
+                )
+            self.append(
+                "outputs_published",
+                {
+                    "node_id": node_id,
+                    "outputs": outputs,
+                    "artifacts": artifacts,
+                },
+            )
+            self.append(
+                "node_attempt_terminal",
+                {
+                    "node_attempt_id": node_attempt_id,
+                    "status": "succeeded",
+                    "resolution": resolution,
+                },
+            )
+            self.append(
+                "node_disposition",
+                {
+                    "node_id": node_id,
+                    "outcome": "succeeded",
+                    "resolution": resolution,
+                    "blocked_by": [],
+                },
+            )
+            return "succeeded"
 
     def load_fact(self, fact: Mapping[str, Any], encoded: bytes) -> None:
         with self._condition:
@@ -2572,7 +2724,6 @@ class V2RunService:
         node_id: str,
         output_port: str,
         relative_name: str,
-        ledger: _RunEvidenceLedger,
         maximum_size: int,
     ) -> tuple[dict[str, Any], tuple[str, ...]]:
         source_parts = validate_relative_path(
@@ -2604,10 +2755,6 @@ class V2RunService:
                 "sha256:" + hashlib.sha256(payload).hexdigest()
             ),
         }
-        ledger.append(
-            "artifact_published",
-            {"artifact": descriptor},
-        )
         return descriptor, stored_parts
 
     def _materialize_artifacts(
@@ -2617,7 +2764,6 @@ class V2RunService:
         resources: RunResources,
         published: list[dict[str, Any]],
         runtime: Mapping[tuple[str, str], list[Any]],
-        ledger: _RunEvidenceLedger,
         current_artifact_count: int,
         current_artifact_bytes: int,
     ) -> tuple[
@@ -2677,21 +2823,35 @@ class V2RunService:
         remaining_bytes = (
             MAX_ARTIFACT_BYTES_PER_RUN - current_artifact_bytes
         )
-        for output_port, relative_name in artifact_sources:
-            descriptor, stored_parts = self._publish_artifact(
-                resources=resources,
-                node_id=node.node_id,
-                output_port=output_port,
-                relative_name=relative_name,
-                ledger=ledger,
-                maximum_size=remaining_bytes,
-            )
-            remaining_bytes -= descriptor["size"]
-            artifact_index.append(descriptor)
-            artifacts[descriptor["artifact_reference"]] = (
-                descriptor,
-                stored_parts,
-            )
+        try:
+            for output_port, relative_name in artifact_sources:
+                descriptor, stored_parts = self._publish_artifact(
+                    resources=resources,
+                    node_id=node.node_id,
+                    output_port=output_port,
+                    relative_name=relative_name,
+                    maximum_size=remaining_bytes,
+                )
+                remaining_bytes -= descriptor["size"]
+                artifact_index.append(descriptor)
+                artifacts[descriptor["artifact_reference"]] = (
+                    descriptor,
+                    stored_parts,
+                )
+        except BaseException as body_error:
+            for _, stored_parts in artifacts.values():
+                try:
+                    remove_private_regular_file(
+                        resources._output_root,
+                        (resources.run_id, *stored_parts),
+                        field="artifact_path",
+                    )
+                except BaseException as cleanup_error:
+                    body_error.add_note(
+                        "Artifact rollback also failed: "
+                        f"{type(cleanup_error).__name__}"
+                    )
+            raise
         return typed_outputs, artifact_index, artifacts
 
     def start(
@@ -2924,60 +3084,16 @@ class V2RunService:
                         "node_attempt_id": node_attempt_id,
                     },
                 )
-                if not ledger.append_outputs_if_active(
-                    {
-                        "node_id": node.node_id,
-                        "outputs": replayed_published,
-                        "artifacts": [],
-                    },
-                ):
-                    ledger.append(
-                        "node_attempt_terminal",
-                        {
-                            "node_attempt_id": node_attempt_id,
-                            "status": "cancelled",
-                            "resolution": "cache_replayed",
-                        },
-                    )
-                    ledger.append(
-                        "node_disposition",
-                        {
-                            "node_id": node.node_id,
-                            "outcome": "cancelled",
-                            "blocked_by": [],
-                        },
-                    )
-                    disposition_outcomes[node.node_id] = "cancelled"
-                    continue
-                node_status = ledger.append_terminal_from_success(
-                    "node_attempt_terminal",
-                    {
-                        "node_attempt_id": node_attempt_id,
-                        "resolution": "cache_replayed",
-                    },
+                outcome = ledger.commit_node_publication(
+                    node_id=node.node_id,
+                    node_attempt_id=node_attempt_id,
+                    resolution="cache_replayed",
+                    outputs=replayed_published,
+                    artifacts=[],
                 )
-                if node_status == "cancelled":
-                    ledger.append(
-                        "node_disposition",
-                        {
-                            "node_id": node.node_id,
-                            "outcome": "cancelled",
-                            "blocked_by": [],
-                        },
-                    )
-                    disposition_outcomes[node.node_id] = "cancelled"
-                    continue
-                ledger.append(
-                    "node_disposition",
-                    {
-                        "node_id": node.node_id,
-                        "outcome": "succeeded",
-                        "resolution": "cache_replayed",
-                        "blocked_by": [],
-                    },
-                )
-                values.update(replayed_runtime)
-                disposition_outcomes[node.node_id] = "succeeded"
+                if outcome == "succeeded":
+                    values.update(replayed_runtime)
+                disposition_outcomes[node.node_id] = outcome
                 continue
             resources = RunResources(
                 project_id,
@@ -3029,23 +3145,27 @@ class V2RunService:
             except BaseException as error:
                 body_error = error
             if ledger.cancellation_requested:
+                cancellation_outcome = "cancelled"
                 try:
                     resources.cleanup_temporary_work()
                 except BaseException as cleanup_error:
+                    cancellation_outcome = "interrupted"
                     if body_error is not None:
                         body_error.add_note(
                             "Run workspace cleanup also failed: "
                             f"{type(cleanup_error).__name__}"
                         )
+                if record.cancellation.cleanup_error is not None:
+                    cancellation_outcome = "interrupted"
                 ledger.append(
                     "node_disposition",
                     {
                         "node_id": node.node_id,
-                        "outcome": "cancelled",
+                        "outcome": cancellation_outcome,
                         "blocked_by": [],
                     },
                 )
-                disposition_outcomes[node.node_id] = "cancelled"
+                disposition_outcomes[node.node_id] = cancellation_outcome
                 continue
             ledger.append(
                 "node_attempt_started",
@@ -3061,6 +3181,22 @@ class V2RunService:
                 str,
                 tuple[dict[str, Any], tuple[str, ...]],
             ] = {}
+
+            def cleanup_cancelled_publication() -> None:
+                cleanup_error = record.cancellation.cleanup_error
+                for _, stored_parts in pending_artifact_records.values():
+                    try:
+                        remove_private_regular_file(
+                            resources._output_root,
+                            (run_id, *stored_parts),
+                            field="artifact_path",
+                        )
+                    except BaseException as error:
+                        if cleanup_error is None:
+                            cleanup_error = error
+                if cleanup_error is not None:
+                    raise cleanup_error
+
             try:
                 if body_error is not None:
                     raise body_error
@@ -3092,7 +3228,6 @@ class V2RunService:
                     resources=resources,
                     published=published,
                     runtime=pending_runtime,
-                    ledger=ledger,
                     current_artifact_count=len(all_artifacts),
                     current_artifact_bytes=sum(
                         artifact["size"]
@@ -3114,6 +3249,29 @@ class V2RunService:
                         )
                     else:
                         body_error = cleanup_error
+                if ledger.cancellation_requested:
+                    try:
+                        cleanup_cancelled_publication()
+                    except BaseException as cleanup_error:
+                        if body_error is not None:
+                            cleanup_error.add_note(
+                                "Execution also terminated before cleanup: "
+                                f"{type(body_error).__name__}"
+                            )
+                        body_error = cleanup_error
+                cancellation_cleanup_error = (
+                    record.cancellation.cleanup_error
+                )
+                if cancellation_cleanup_error is not None:
+                    if (
+                        body_error is not None
+                        and body_error is not cancellation_cleanup_error
+                    ):
+                        cancellation_cleanup_error.add_note(
+                            "Execution also terminated before cleanup: "
+                            f"{type(body_error).__name__}"
+                        )
+                    body_error = cancellation_cleanup_error
             if body_error is not None:
                 if (
                     isinstance(body_error, V2RunError)
@@ -3121,7 +3279,9 @@ class V2RunService:
                 ):
                     raise body_error
                 terminal_status = (
-                    "cancelled"
+                    "failed"
+                    if record.cancellation.cleanup_error is not None
+                    else "cancelled"
                     if ledger.cancellation_requested
                     else body_error.status
                     if isinstance(body_error, ExecutionTermination)
@@ -3167,88 +3327,21 @@ class V2RunService:
                 )
                 disposition_outcomes[node.node_id] = disposition_outcome
                 continue
-            operation_status = ledger.append_terminal_from_success(
-                "operation_attempt_terminal",
-                {
-                    "operation_attempt_id": operation_attempt_id,
-                },
+
+            outcome = ledger.commit_node_publication(
+                node_id=node.node_id,
+                node_attempt_id=node_attempt_id,
+                resolution="executed",
+                outputs=pending_typed_outputs,
+                artifacts=pending_artifacts,
+                operation_attempt_id=operation_attempt_id,
+                cancel_cleanup=cleanup_cancelled_publication,
             )
-            if operation_status == "cancelled":
-                ledger.append(
-                    "node_attempt_terminal",
-                    {
-                        "node_attempt_id": node_attempt_id,
-                        "status": "cancelled",
-                        "resolution": "executed",
-                    },
-                )
-                ledger.append(
-                    "node_disposition",
-                    {
-                        "node_id": node.node_id,
-                        "outcome": "cancelled",
-                        "blocked_by": [],
-                    },
-                )
-                disposition_outcomes[node.node_id] = "cancelled"
-                continue
-            published_outputs = ledger.append_outputs_if_active(
-                {
-                    "node_id": node.node_id,
-                    "outputs": pending_typed_outputs,
-                    "artifacts": pending_artifacts,
-                },
-            )
-            if not published_outputs:
-                ledger.append(
-                    "node_attempt_terminal",
-                    {
-                        "node_attempt_id": node_attempt_id,
-                        "status": "cancelled",
-                        "resolution": "executed",
-                    },
-                )
-                ledger.append(
-                    "node_disposition",
-                    {
-                        "node_id": node.node_id,
-                        "outcome": "cancelled",
-                        "blocked_by": [],
-                    },
-                )
-                disposition_outcomes[node.node_id] = "cancelled"
-                continue
-            node_status = ledger.append_terminal_from_success(
-                "node_attempt_terminal",
-                {
-                    "node_attempt_id": node_attempt_id,
-                    "resolution": "executed",
-                },
-            )
-            if node_status == "cancelled":
-                ledger.append(
-                    "node_disposition",
-                    {
-                        "node_id": node.node_id,
-                        "outcome": "cancelled",
-                        "blocked_by": [],
-                    },
-                )
-                disposition_outcomes[node.node_id] = "cancelled"
-                continue
-            values.update(pending_runtime)
-            all_artifacts.extend(pending_artifacts)
-            artifact_records.update(pending_artifact_records)
-            ledger.append(
-                "node_disposition",
-                {
-                    "node_id": node.node_id,
-                    "outcome": "succeeded",
-                    "resolution": "executed",
-                    "blocked_by": [],
-                },
-            )
-            disposition_outcomes[node.node_id] = "succeeded"
+            if outcome == "succeeded":
+                values.update(pending_runtime)
+                all_artifacts.extend(pending_artifacts)
+                artifact_records.update(pending_artifact_records)
+            disposition_outcomes[node.node_id] = outcome
         run_status = (
             "failed"
             if "failed" in disposition_outcomes.values()
@@ -3541,7 +3634,10 @@ class V2RunService:
         """Persist cancellation before signalling active work."""
         record = self._require_record(project_id, run_id)
         decision = record.ledger.request_cancellation(after_cursor)
-        if decision["outcome"] == "cancellation_requested":
+        if decision["outcome"] in {
+            "cancellation_requested",
+            "already_requested",
+        }:
             record.cancellation.request()
         return {
             "project_id": project_id,
@@ -3571,14 +3667,29 @@ class V2RunService:
         try:
             descriptor, stored_parts = record.artifacts[artifact_reference]
         except KeyError as error:
-            raise V2RunError(
-                "artifact_not_found",
-                "Artifact was not found",
-                details={
-                    "resource_kind": "artifact",
-                    "resource_id": artifact_reference,
-                },
-            ) from error
+            projected = next(
+                (
+                    artifact
+                    for artifact in record.ledger.projection()[
+                        "artifact_index"
+                    ]
+                    if artifact["artifact_reference"]
+                    == artifact_reference
+                ),
+                None,
+            )
+            if projected is not None:
+                descriptor = projected
+                stored_parts = ("published", artifact_reference)
+            else:
+                raise V2RunError(
+                    "artifact_not_found",
+                    "Artifact was not found",
+                    details={
+                        "resource_kind": "artifact",
+                        "resource_id": artifact_reference,
+                    },
+                ) from error
         output_root = self._projects.output_dir(project_id, run_id).parent
         try:
             payload = _read_stable_private_file(

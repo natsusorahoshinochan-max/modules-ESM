@@ -1058,7 +1058,8 @@ def create_app(
                 **payload,
             }
             validate_request("cancel_run", combined)
-            receipt = request.app.state.run_execution_v2.cancel(
+            receipt = await asyncio.to_thread(
+                request.app.state.run_execution_v2.cancel,
                 project_id,
                 run_id,
                 after_cursor=payload.get("after_sequence"),

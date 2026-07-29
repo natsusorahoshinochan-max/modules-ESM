@@ -68,6 +68,7 @@ def _direct_catalog(
     invocation_count: int = 1,
     execution_gate: tuple[threading.Event, threading.Event] | None = None,
     execution_action: Any | None = None,
+    factory_action: Any | None = None,
 ) -> FrozenCatalog:
     builtin = builtin_frozen_catalog()
     text = builtin.require_port_type("text", "2.0.0")
@@ -213,6 +214,8 @@ def _direct_catalog(
                 assert kwargs["frozen_catalog"] is not None
                 assert kwargs["run_resources"].project_id
                 calls.append(f"factory:{exact_binding_id}")
+                if factory_action is not None:
+                    factory_action(kwargs["run_resources"])
                 return DirectImplementation(
                     exact_binding_id,
                     kwargs["run_resources"],
@@ -2484,7 +2487,11 @@ def test_run_artifact_count_and_aggregate_size_are_bounded(
     assert sum(
         json.loads(path.read_text())["fact_type"] == "artifact_published"
         for path in aggregate_root.rglob("ledger/*.json")
-    ) == 1
+    ) == 0
+    published_files = list(
+        (tmp_path / "outputs").rglob("published/*")
+    )
+    assert published_files == []
 
 
 def test_success_ledger_projects_validated_events_and_opaque_artifact(

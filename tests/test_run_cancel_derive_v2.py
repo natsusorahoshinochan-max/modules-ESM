@@ -13,6 +13,7 @@ from typing import Any
 from fastapi.testclient import TestClient
 
 from core import ResultReplaySource
+import core.run_execution_v2 as run_execution_v2
 from core.server import create_app
 from protein_workbench_public import validate_response
 from tests.test_run_execution_v2 import (
@@ -483,9 +484,12 @@ def test_cancel_terminates_registered_process_group_children_and_temp_work(
                     sys.executable,
                     "-c",
                     (
-                        "import os,pathlib,subprocess,sys,time;"
+                        "import os,pathlib,signal,subprocess,sys,time;"
+                        "signal.signal(signal.SIGTERM,signal.SIG_IGN);"
                         "child=subprocess.Popen([sys.executable,'-c',"
-                        "'import time;time.sleep(30)']);"
+                        "'import signal,time;"
+                        "signal.signal(signal.SIGTERM,signal.SIG_IGN);"
+                        "time.sleep(30)']);"
                         "pathlib.Path(sys.argv[1]).write_text("
                         "f'{os.getpid()} {child.pid}');"
                         "time.sleep(30)"
@@ -567,6 +571,197 @@ def test_cancel_terminates_registered_process_group_children_and_temp_work(
         / "direct"
     )
     assert not temp_node_root.exists()
+
+
+def test_cancel_factory_cleanup_failure_is_interrupted_without_false_attempt(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    entered = threading.Event()
+    release = threading.Event()
+
+    def hold_factory(resources) -> None:
+        del resources
+        entered.set()
+        assert release.wait(timeout=3)
+
+    def fail_cleanup(resources) -> None:
+        del resources
+        raise PermissionError("private-cleanup-detail")
+
+    monkeypatch.setattr(
+        "core.run_execution_v2.RunResources.cleanup_temporary_work",
+        fail_cleanup,
+    )
+    monkeypatch.setenv("PROTEIN_WORKBENCH_PROJECT_ROOT", str(tmp_path / "projects"))
+    monkeypatch.setenv("PROTEIN_WORKBENCH_RUN_ROOT", str(tmp_path / "runs"))
+    monkeypatch.setenv("PROTEIN_WORKBENCH_OUTPUT_ROOT", str(tmp_path / "outputs"))
+    app = create_app(
+        frozen_catalog_override=_direct_catalog(
+            [],
+            factory_action=hold_factory,
+        ),
+        v2_environment_configuration={
+            ("test.direct.local", "2.0.0"): {
+                "values": {"credential": "credential-value"},
+            }
+        },
+    )
+
+    with TestClient(app) as client:
+        project_id, compiled = _compile_one_node(client)
+        receipt = _start(client, project_id, compiled, "cancel-factory")
+        assert entered.wait(timeout=2)
+        cancelled = client.post(
+            f"/api/v2/projects/{project_id}/runs/{receipt['run_id']}:cancel",
+            json={},
+        )
+        release.set()
+        projection = _wait_terminal(client, project_id, receipt["run_id"])
+
+    assert cancelled.status_code == 200
+    assert projection["status"] == "interrupted"
+    assert projection["node_dispositions"][0]["outcome"] == "interrupted"
+    facts = _facts(app, project_id, receipt["run_id"])
+    assert not any(
+        fact["fact_type"] in {
+            "node_attempt_started",
+            "operation_attempt_started",
+            "engine_invocation_started",
+        }
+        for fact in facts
+    )
+    assert "private-cleanup-detail" not in json.dumps(facts)
+
+
+def test_cancel_during_artifact_materialization_removes_uncommitted_files(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    entered = threading.Event()
+    release = threading.Event()
+    original_write = run_execution_v2.write_private_new_file
+
+    def hold_published_artifact(
+        root,
+        relative_parts,
+        payload,
+        *,
+        field,
+    ):
+        path = original_write(
+            root,
+            relative_parts,
+            payload,
+            field=field,
+        )
+        if (
+            field == "artifact_path"
+            and "published" in relative_parts
+        ):
+            entered.set()
+            assert release.wait(timeout=3)
+        return path
+
+    monkeypatch.setattr(
+        run_execution_v2,
+        "write_private_new_file",
+        hold_published_artifact,
+    )
+    monkeypatch.setenv("PROTEIN_WORKBENCH_PROJECT_ROOT", str(tmp_path / "projects"))
+    monkeypatch.setenv("PROTEIN_WORKBENCH_RUN_ROOT", str(tmp_path / "runs"))
+    monkeypatch.setenv("PROTEIN_WORKBENCH_OUTPUT_ROOT", str(tmp_path / "outputs"))
+    app = create_app(frozen_catalog_override=_artifact_catalog([]))
+
+    with TestClient(app) as client:
+        project_id, compiled = _compile_artifact_node(client)
+        receipt = _start(client, project_id, compiled, "cancel-artifact")
+        assert entered.wait(timeout=2)
+        cancelled = client.post(
+            f"/api/v2/projects/{project_id}/runs/{receipt['run_id']}:cancel",
+            json={},
+        )
+        release.set()
+        projection = _wait_terminal(client, project_id, receipt["run_id"])
+
+    assert cancelled.status_code == 200
+    assert projection["status"] == "cancelled"
+    assert projection["artifact_index"] == []
+    assert projection["outputs"] == []
+    facts = _facts(app, project_id, receipt["run_id"])
+    assert not any(
+        fact["fact_type"] in {"artifact_published", "outputs_published"}
+        for fact in facts
+    )
+    published_root = (
+        tmp_path / "outputs" / project_id / receipt["run_id"] / "published"
+    )
+    assert not published_root.exists() or not any(published_root.iterdir())
+
+
+def test_one_process_cleanup_failure_does_not_skip_other_process_groups(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    entered = threading.Event()
+    worker_pid: dict[str, int] = {}
+
+    def fail_fallback() -> None:
+        raise PermissionError("private-fallback-detail")
+
+    def execute_with_two_groups(resources) -> None:
+        worker = subprocess.Popen(
+            [sys.executable, "-c", "import time;time.sleep(30)"],
+            start_new_session=True,
+        )
+        worker_pid["value"] = worker.pid
+        with resources.cancellable_process_group(
+            os.getpgrp(),
+            fallback=fail_fallback,
+        ):
+            with resources.cancellable_process_group(
+                os.getpgid(worker.pid),
+            ):
+                entered.set()
+                worker.wait(timeout=5)
+
+    monkeypatch.setenv("PROTEIN_WORKBENCH_PROJECT_ROOT", str(tmp_path / "projects"))
+    monkeypatch.setenv("PROTEIN_WORKBENCH_RUN_ROOT", str(tmp_path / "runs"))
+    monkeypatch.setenv("PROTEIN_WORKBENCH_OUTPUT_ROOT", str(tmp_path / "outputs"))
+    app = create_app(
+        frozen_catalog_override=_direct_catalog(
+            [],
+            execution_action=execute_with_two_groups,
+        ),
+        v2_environment_configuration={
+            ("test.direct.local", "2.0.0"): {
+                "values": {"credential": "credential-value"},
+            }
+        },
+    )
+
+    with TestClient(app) as client:
+        project_id, compiled = _compile_one_node(client)
+        receipt = _start(client, project_id, compiled, "cancel-two-groups")
+        assert entered.wait(timeout=2)
+        cancelled = client.post(
+            f"/api/v2/projects/{project_id}/runs/{receipt['run_id']}:cancel",
+            json={},
+        )
+        projection = _wait_terminal(client, project_id, receipt["run_id"])
+
+    assert cancelled.status_code == 200
+    validate_response("cancel_run", 200, cancelled.json())
+    assert projection["status"] == "failed"
+    process_status = subprocess.run(
+        ["ps", "-p", str(worker_pid["value"]), "-o", "stat="],
+        check=False,
+        capture_output=True,
+        text=True,
+    ).stdout.strip()
+    assert process_status in {"", "Z"}
+    retained = json.dumps(_facts(app, project_id, receipt["run_id"]))
+    assert "private-fallback-detail" not in retained
 
 
 def test_cancel_and_derive_reject_cross_project_scope_with_shared_errors(
