@@ -11,6 +11,7 @@ from typing import Any
 from core.parameter_contract import (
     find_environment_parameter_field,
     parameter_contract_violation,
+    parameter_value_contract,
 )
 from core.port_types import CatalogBuildError, FrozenCatalog, canonical_sha256
 from protein_workbench_public import ProtocolValidationError, validate_schema
@@ -491,7 +492,7 @@ def _validate_parameter_values(
         if name not in resolved or not isinstance(declaration, Mapping):
             continue
         value = resolved[name]
-        value_contract = declaration.get("value_contract", declaration)
+        value_contract = parameter_value_contract(declaration)
         if not isinstance(value_contract, Mapping):
             raise WorkflowCompileError(
                 "invalid_parameter",

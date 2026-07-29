@@ -1026,6 +1026,69 @@ def test_compile_accepts_object_values_delegated_by_value_contract(
     assert compiled.execution_plan.nodes[0].node_parameters["choice"] == value
 
 
+@pytest.mark.parametrize(
+    "inline_contract",
+    [
+        {
+            "anyOf": [
+                {
+                    "type": "object",
+                    "additionalProperties": False,
+                    "required": ["x"],
+                    "properties": {
+                        "x": {
+                            "field_scope": "scientific",
+                            "scientific_meaning": (
+                                "Synthetic required scientific coordinate"
+                            ),
+                            "type": "integer",
+                        }
+                    },
+                },
+                {"type": "string"},
+            ]
+        },
+        {"const": {"x": 1}},
+    ],
+)
+def test_required_parameter_metadata_is_not_object_schema(
+    inline_contract: dict,
+) -> None:
+    catalog = _workflow_catalog(
+        source_node_parameter_overrides={
+            "choice": {
+                "required": True,
+                **inline_contract,
+            },
+        }
+    )
+    workflow = _unlocked_workflow()
+    source, sink = workflow.nodes
+    workflow = replace(
+        workflow,
+        nodes=(
+            replace(
+                source,
+                node_parameters={
+                    **source.node_parameters,
+                    "choice": {"x": 1},
+                },
+            ),
+            sink,
+        ),
+    )
+
+    compiled = compile_workflow(
+        relock_workflow(workflow, catalog),
+        workflow_revision=2,
+        catalog=catalog,
+    )
+
+    assert compiled.execution_plan.nodes[0].node_parameters["choice"] == {
+        "x": 1
+    }
+
+
 def test_public_v2_mutation_failures_use_the_structured_error_vocabulary(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path,

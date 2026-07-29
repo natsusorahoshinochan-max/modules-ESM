@@ -148,6 +148,21 @@ def find_environment_parameter_field(
     return None
 
 
+def parameter_value_contract(
+    declaration: Mapping[str, Any],
+) -> Mapping[str, Any]:
+    """Separate one value schema from parameter-level metadata."""
+    value_contract = declaration.get("value_contract")
+    if isinstance(value_contract, Mapping):
+        return value_contract
+    return {
+        key: value
+        for key, value in declaration.items()
+        if key in _SUPPORTED_VALUE_CONTRACT_KEYS
+        and not (key == "required" and type(value) is bool)
+    }
+
+
 def validate_parameter_declarations(
     declarations: Mapping[str, Any],
     *,
@@ -181,11 +196,7 @@ def validate_parameter_declarations(
             )
         value_contract = declaration.get("value_contract")
         if value_contract is None:
-            schema = {
-                key: value
-                for key, value in declaration.items()
-                if key in _SUPPORTED_VALUE_CONTRACT_KEYS
-            }
+            schema = parameter_value_contract(declaration)
             allowed = (
                 _SUPPORTED_VALUE_CONTRACT_KEYS
                 | _PARAMETER_METADATA_KEYS
