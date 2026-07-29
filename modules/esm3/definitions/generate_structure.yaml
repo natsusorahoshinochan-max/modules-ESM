@@ -95,4 +95,3 @@ node_parameters:
     scientific_meaning: Whether provider sampling temperature is annealed during unmasking.
     type: boolean
     default: true
-

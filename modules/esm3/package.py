@@ -322,4 +322,3 @@ MODULE_PACKAGE = ModulePackageRegistration(
     methods=tuple(_method(operation) for operation in _OPERATIONS),
     bindings=tuple(_binding(operation) for operation in _OPERATIONS),
 )
-
