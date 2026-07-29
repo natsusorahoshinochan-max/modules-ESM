@@ -448,6 +448,21 @@ TIERS = {
         }),
         requires_local_model_environment=True,
     ),
+    "local-esmfold2-v2-contract": Tier((
+        "tests/acceptance/test_esmfold2_v2.py::"
+        "test_local_esmfold2_v2_source_contract_and_native_result",
+        "tests/test_folding_v2.py::"
+        "test_native_plddt_is_statically_scaled_and_masks_invalid_tokens",
+        "tests/test_folding_v2.py::"
+        "test_remote_and_local_provider_native_results_normalize_identically",
+        "tests/test_folding_v2.py::"
+        "test_selected_binding_folds_without_fallback_and_publishes_exact_lineage"
+        "[local]",
+        "tests/test_folding_v2.py::"
+        "test_remote_and_local_bindings_pass_shared_contract_test_kit",
+        "-m",
+        "not live_provider and not local_provider",
+    )),
     "heavy-model": Tier((
         "tests/acceptance/test_local_esm3.py::test_local_esm3_all_generation_modes",
         "tests/acceptance/test_proteinmpnn_design.py::TestProteinMPNNDesign::test_design_3gb1",
@@ -486,6 +501,23 @@ TIERS = {
         LIVE_ESM3_TEST,
         "tests/acceptance/test_biohub_folding.py::TestBiohubFolding::test_fold_3gb1[False-False]",
     }), requires_biohub_credential=True),
+    "remote-esmfold2-v2": Tier((
+        "tests/acceptance/test_esmfold2_v2.py::"
+        "test_remote_esmfold2_v2_folds_3gb1_through_exact_binding",
+        "-m",
+        "live_provider",
+    ),
+        requires_provider_evidence=True,
+        provider_evidence_gate="live-provider",
+        required_call_counts=(
+            ("biohub", "esmfold2.fold", 1),
+        ),
+        expected_test_ids=frozenset({
+            "tests/acceptance/test_esmfold2_v2.py::"
+            "test_remote_esmfold2_v2_folds_3gb1_through_exact_binding",
+        }),
+        requires_biohub_credential=True,
+    ),
     "fresh-remote-3gb1": Tier((
         "tests/fresh_remote_acceptance/test_fresh_remote_3gb1.py::"
         "test_fresh_remote_real_canonical_3gb1",

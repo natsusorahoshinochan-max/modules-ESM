@@ -41,8 +41,10 @@ marker expression.
 | Mocked Workflow | `.venv/bin/python scripts/verify_backend.py mocked-workflow` | Runs the current deterministic 3GB1 Workflow tests with provider boundaries replaced by fixtures. |
 | Local provider | `.venv/bin/python scripts/verify_backend.py local-provider` | Runs non-heavy installed binaries and requires both zero skips and provider-call evidence. |
 | Local ESM-3 heavy model | `.venv/bin/python scripts/verify_backend.py local-esm3-heavy-model` | Source-bound zero-skip gate for local ESM-3 sequence, structure, and paired v2 Bindings with exact readiness and provider-call evidence. |
+| Local ESMFold2 v2 contract | `.venv/bin/python scripts/verify_backend.py local-esmfold2-v2-contract` | Zero-skip source-contract gate for the exact installed ESM/Transformers sources, provider-native local result shape, static confidence normalization, no-fallback lineage, and shared folding CTK. It does not claim that the unavailable 25+ GB model was executed. |
 | Aggregate heavy local models | `.venv/bin/python scripts/verify_backend.py heavy-model` | Explicitly loads all slow local models and requires zero skips plus exact local ESM-3, ProteinMPNN, and SimpleFold provider-call evidence. |
 | Live remote provider | `.venv/bin/python scripts/verify_backend.py live-provider` | Makes remote provider calls and requires both zero skips and provider-call evidence. Readiness alone cannot satisfy this gate. |
+| Remote ESMFold2 v2 | `.venv/bin/python scripts/verify_backend.py remote-esmfold2-v2` | Source-bound zero-skip gate for one real Biohub ESMFold2 call through the exact shared v2 folding Binding, including typed confidence/PAE completeness and provider-call evidence. |
 | Fresh canonical 3GB1 | `.venv/bin/python scripts/verify_backend.py fresh-remote-3gb1` | Runs the protected canonical Workflow once through REST and its run-scoped WebSocket against local ESM3, Biohub ESMFold2, ProteinMPNN, mkdssp, Biopython SVD, and tmtools, then retrieves and seals exactly 15 run-bound PDBs. |
 
 ## Module Package maintainer contract

@@ -537,6 +537,41 @@ def test_local_esm3_has_a_source_bound_full_heavy_gate() -> None:
     }
 
 
+def test_esmfold2_v2_has_explicit_remote_and_local_gates() -> None:
+    from scripts.verify_backend import TIERS
+
+    remote = TIERS["remote-esmfold2-v2"]
+    assert remote.requires_provider_evidence is True
+    assert remote.provider_evidence_gate == "live-provider"
+    assert remote.requires_biohub_credential is True
+    assert remote.expected_call_counts == {
+        ("biohub", "esmfold2.fold"): 1,
+    }
+    assert remote.expected_test_ids == {
+        "tests/acceptance/test_esmfold2_v2.py::"
+        "test_remote_esmfold2_v2_folds_3gb1_through_exact_binding",
+    }
+
+    local = TIERS["local-esmfold2-v2-contract"]
+    assert local.requires_provider_evidence is False
+    assert local.requires_local_model_environment is False
+    assert local.pytest_args == (
+        "tests/acceptance/test_esmfold2_v2.py::"
+        "test_local_esmfold2_v2_source_contract_and_native_result",
+        "tests/test_folding_v2.py::"
+        "test_native_plddt_is_statically_scaled_and_masks_invalid_tokens",
+        "tests/test_folding_v2.py::"
+        "test_remote_and_local_provider_native_results_normalize_identically",
+        "tests/test_folding_v2.py::"
+        "test_selected_binding_folds_without_fallback_and_publishes_exact_lineage"
+        "[local]",
+        "tests/test_folding_v2.py::"
+        "test_remote_and_local_bindings_pass_shared_contract_test_kit",
+        "-m",
+        "not live_provider and not local_provider",
+    )
+
+
 def test_provider_evidence_rejects_unexpected_sensitive_event_field(
     tmp_path: Path,
 ) -> None:

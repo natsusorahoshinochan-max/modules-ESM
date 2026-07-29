@@ -1,0 +1,25 @@
+schema_version: "2.0.0"
+node_type_id: contract_test.folding_sequence_source
+version: "2.0.0"
+title: Folding sequence source
+summary: Emits one deterministic sequence Candidate for folding conformance.
+category: contract_test
+inputs: []
+outputs:
+  - name: sequence_candidates
+    port_type_id: candidate.collection
+    port_type_version: "2.0.0"
+    required: true
+    multiplicity: one
+    scientific_meaning: One independently defined complete protein sequence Candidate.
+parameter_groups:
+  - id: fixture
+    title: Fixture
+    parameters: [sequence]
+node_parameters:
+  sequence:
+    parameter_scope: scientific
+    scientific_meaning: Exact canonical protein sequence used by this independent test source.
+    type: string
+    pattern: "^[ACDEFGHIKLMNPQRSTVWY]+$"
+    default: AG

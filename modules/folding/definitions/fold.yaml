@@ -1,0 +1,53 @@
+schema_version: "2.0.0"
+node_type_id: folding.fold
+version: "2.0.0"
+title: Fold protein sequences
+summary: Folds each complete sequence Candidate through one explicitly selected folding Binding and publishes complete structure Candidates with canonical confidence.
+category: folding
+inputs:
+  - name: sequence_candidates
+    port_type_id: candidate.collection
+    port_type_version: "2.0.0"
+    required: true
+    multiplicity: one
+    scientific_meaning: Ordered complete protein sequence Candidates whose exact identities become parents of every folded sample.
+outputs:
+  - name: structure_candidates
+    port_type_id: candidate.collection
+    port_type_version: "2.0.0"
+    required: true
+    multiplicity: one
+    scientific_meaning: Complete validated structure Candidates ordered by input parent then zero-based sample slot.
+  - name: confidence_observations
+    port_type_id: score.collection
+    port_type_version: "2.0.0"
+    required: true
+    multiplicity: one
+    scientific_meaning: Exact intrinsic pTM and canonical per-residue and mean-residue pLDDT Observations for every structure Candidate.
+  - name: pae_observations
+    port_type_id: score.collection
+    port_type_version: "2.0.0"
+    required: true
+    multiplicity: one
+    scientific_meaning: Exact intrinsic PAE matrices in angstroms for every structure Candidate.
+parameter_groups:
+  - id: sampling
+    title: Sampling controls
+    parameters:
+      - effective_seed
+      - num_samples
+node_parameters:
+  effective_seed:
+    parameter_scope: scientific
+    scientific_meaning: Fully resolved Workbench sampling identity; the local Binding derives each provider seed while the remote provider exposes no seed control.
+    required: true
+    type: integer
+    minimum: 0
+    maximum: 9007199254740991
+  num_samples:
+    parameter_scope: scientific
+    scientific_meaning: Exact ordered number of complete folded structures requested for each input parent.
+    type: integer
+    minimum: 1
+    maximum: 100
+    default: 1

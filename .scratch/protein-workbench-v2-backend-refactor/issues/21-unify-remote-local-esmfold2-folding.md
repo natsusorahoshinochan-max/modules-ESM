@@ -4,7 +4,7 @@
 
 **Blocked by:** 13 — Consolidate protein I/O.
 
-**Status:** ready-for-agent
+**Status:** in-progress
 
 - [ ] One folding Node Definition owns the cross-Binding scientific inputs, outputs, and parameters; remote and local ESMFold2 are explicit Bindings rather than separate scientific Node Types.
 - [ ] Each Binding fixes its execution route, Method, model/source identity, adapter/implementation identity, Readiness, determinism, and cacheability without a mutable `model_name`.

@@ -173,6 +173,11 @@ def test_built_artifacts_contain_backend_definitions_and_canonical_assets(
         "modules/esm3/definitions/generate_sequence.yaml",
         "modules/esm3/definitions/generate_structure.yaml",
         "modules/esm3/definitions/pae_metric.yaml",
+        "modules/folding/definitions/fold.yaml",
+        "modules/folding/definitions/pae_metric.yaml",
+        "modules/folding/definitions/plddt_mean_residue_metric.yaml",
+        "modules/folding/definitions/plddt_per_residue_metric.yaml",
+        "modules/folding/definitions/ptm_metric.yaml",
         "pdbs/3GB1.pdb",
         "protein_workbench_public/resources/v2/bundle.json",
     }
@@ -315,6 +320,19 @@ assert {{
     ("binding", "esm3.generate_sequence.biohub_open", "2.0.0"),
     ("binding", "esm3.generate_structure.biohub_open", "2.0.0"),
     ("binding", "esm3.generate_paired.biohub_open", "2.0.0"),
+}}
+assert {{
+    (
+        contract.contract_kind,
+        contract.contract_id,
+        contract.contract_version,
+    )
+    for contract in catalog.contracts
+    if contract.contract_id.startswith("folding.")
+}} >= {{
+    ("node_type", "folding.fold", "2.0.0"),
+    ("binding", "folding.fold.esmfold2_remote", "2.0.0"),
+    ("binding", "folding.fold.esmfold2_local", "2.0.0"),
 }}
 
 registry = ModuleRegistry(TypeRegistry())
