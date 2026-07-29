@@ -1144,7 +1144,8 @@ def validate_provider_evidence(
                     not isinstance(value, bool)
                     for value in event["details"].values()
                 )
-                or event.get("ready") is not True
+                or not isinstance(event.get("ready"), bool)
+                or (not focused and event.get("ready") is not True)
             ):
                 return [], "invalid provider readiness evidence schema"
         elif event_type == "provider_call":

@@ -425,6 +425,93 @@ def test_full_provider_gate_rejects_one_missing_required_call(
     assert error == "missing required provider calls: biohub:esmfold2.fold"
 
 
+def test_focused_heavy_evidence_allows_uncalled_providers_to_be_unready(
+    tmp_path: Path,
+) -> None:
+    from scripts.verify_backend import (
+        TIERS,
+        _expected_provider_identity,
+        validate_provider_evidence,
+    )
+
+    started_at = datetime.now(timezone.utc)
+    test_id = (
+        "tests/acceptance/test_local_esm3.py::"
+        "test_local_esm3_all_generation_modes"
+    )
+    common = {
+        "evidence_version": 1,
+        "run_nonce": "nonce",
+        "gate": "heavy-model",
+        "recorded_at": datetime.now(timezone.utc).isoformat(),
+        "test_id": test_id,
+    }
+    readiness = {
+        "local_open": (True, {"snapshot_validated": True}),
+        "local-proteinmpnn": (
+            False,
+            {"checkout_and_checkpoint_validated": False},
+        ),
+        "simplefold": (False, {"artifact_contract_complete": False}),
+    }
+    events = []
+    for provider, (ready, details) in readiness.items():
+        identity = _expected_provider_identity(provider)
+        assert identity is not None
+        events.append({
+            **common,
+            "event_id": str(uuid4()),
+            "event_type": "provider_readiness",
+            "provider": provider,
+            "ready": ready,
+            "provider_identity": identity,
+            "details": details,
+        })
+    local_identity = _expected_provider_identity("local_open")
+    assert local_identity is not None
+    for operation in (
+        "esm3.generate_sequence",
+        "esm3.generate_sequence",
+        "esm3.generate_structure",
+        "esm3.generate_structure",
+    ):
+        events.append({
+            **common,
+            "event_id": str(uuid4()),
+            "event_type": "provider_call",
+            "provider": "local_open",
+            "operation": operation,
+            "model": "esm3_sm_open_v1",
+            "provider_identity": local_identity,
+            "readiness": "ready_at_call_boundary",
+            "actual_call": True,
+            "call_count": 1,
+            "effective_seed": 7,
+            "seed_control": "torch_local",
+            "cache_decision": "bypassed_fresh_direct_call",
+            "result": {
+                "status": "succeeded",
+                "summary": {"result_type": "ESMProtein"},
+            },
+        })
+    evidence_path = tmp_path / "provider-calls.jsonl"
+    evidence_path.write_text(
+        "".join(json.dumps(event) + "\n" for event in events)
+    )
+
+    validated, error = validate_provider_evidence(
+        evidence_path,
+        tier_name="heavy-model",
+        tier=TIERS["heavy-model"],
+        nonce="nonce",
+        started_at=started_at,
+        focused=True,
+    )
+
+    assert error is None
+    assert validated == events
+
+
 def test_provider_evidence_rejects_unexpected_sensitive_event_field(
     tmp_path: Path,
 ) -> None:
