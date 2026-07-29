@@ -29,9 +29,12 @@ from .adapter import (
 )
 from .implementation import ESM3GenerationImplementation
 from .local_adapter import (
+    LOCAL_ESM3_DEVICE,
     LOCAL_ESM3_MODEL,
+    LOCAL_ESM3_PERFORMANCE_SETTINGS,
     LOCAL_ESM3_SNAPSHOT_REVISION,
     LOCAL_ESM3_SNAPSHOT_SOURCE,
+    LOCAL_ESM3_TORCH_VERSION,
     LOCAL_ESM3_WEIGHT_SHA256,
     local_readiness,
     local_runtime_structurally_available,
@@ -529,7 +532,10 @@ def _local_binding(operation: str) -> ExecutionBindingDefinition:
                     "name": "esm",
                     "source_revision": ESM_SDK_REVISION,
                 },
-                "runtime": {"name": "torch"},
+                "runtime": {
+                    "name": "torch",
+                    "version": LOCAL_ESM3_TORCH_VERSION,
+                },
             },
             check=_local_available,
         ),
@@ -554,13 +560,14 @@ def _local_binding(operation: str) -> ExecutionBindingDefinition:
                 },
                 "device": {
                     "source": "trusted_environment_configuration",
+                    "exact_value": LOCAL_ESM3_DEVICE,
                 },
                 "runtime_directory": {
                     "source": "trusted_environment_configuration",
                 },
                 "performance_settings": {
                     "source": "trusted_environment_configuration",
-                    "result_identity_effect": "performance-only",
+                    "exact_value": dict(LOCAL_ESM3_PERFORMANCE_SETTINGS),
                 },
                 "runtime_fingerprint": {
                     "source": "trusted_environment_configuration",
@@ -581,6 +588,12 @@ def _local_binding(operation: str) -> ExecutionBindingDefinition:
             "snapshot_revision": LOCAL_ESM3_SNAPSHOT_REVISION,
             "weight_sha256": dict(sorted(LOCAL_ESM3_WEIGHT_SHA256.items())),
             "source": LOCAL_ESM3_SNAPSHOT_SOURCE,
+            "device": LOCAL_ESM3_DEVICE,
+            "torch_version": LOCAL_ESM3_TORCH_VERSION,
+            "performance_settings": dict(LOCAL_ESM3_PERFORMANCE_SETTINGS),
+            "runtime_directory_policy": (
+                "performance-only-binding-scoped-private"
+            ),
             "seed_control": "torch_local",
             "determinism_contract": (
                 "derived Torch seed per sample and track; no cross-device "

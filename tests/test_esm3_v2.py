@@ -263,7 +263,7 @@ def _run_generation(
     tmp_path: Path,
     *,
     operation: str,
-    client: _ProviderClient,
+    client: Any | None,
     num_samples: int,
     sequence: str | None = None,
     environment_overrides: dict[str, Any] | None = None,

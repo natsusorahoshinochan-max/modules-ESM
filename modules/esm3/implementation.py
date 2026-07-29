@@ -187,7 +187,6 @@ class ESM3GenerationImplementation:
                 model_name=self._model_name,
                 effective_seed=effective_call_seed,
                 track_identity=track_identity,
-                runtime_fingerprint=self._runtime_fingerprint,
             )
         else:
             record_remote_provider_result(

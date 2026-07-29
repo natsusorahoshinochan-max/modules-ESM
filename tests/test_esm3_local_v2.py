@@ -112,6 +112,13 @@ def test_local_esm3_reuses_remote_nodes_and_observation_contracts() -> None:
         assert local.descriptor["implementation_identity"][
             "model"
         ] == "esm3_sm_open_v1"
+        assert local.descriptor["implementation_identity"]["device"] == "cpu"
+        assert local.descriptor["implementation_identity"][
+            "torch_version"
+        ] == "2.13.0"
+        assert local.descriptor["implementation_identity"][
+            "performance_settings"
+        ] == {}
         assert set(local.descriptor["readiness_declaration"][
             "prerequisites"
         ]) == {
@@ -223,15 +230,74 @@ def test_local_runtime_rejects_model_replacement_and_stale_configuration(
         **environment,
         "performance_settings": {"torch_num_threads": 1},
     }
-    with pytest.raises(RuntimeError, match="fingerprint is stale"):
+    with pytest.raises(RuntimeError, match="performance settings"):
         local_adapter.resolve_local_runtime(changed_configuration)
+
+    wrong_device = {**environment, "device": "mps"}
+    with pytest.raises(RuntimeError, match="device does not match"):
+        local_adapter.resolve_local_runtime(wrong_device)
 
     symlink_target = tmp_path / "outside-model.pth"
     symlink_target.write_bytes(b"locked fixture")
     artifact.unlink()
     artifact.symlink_to(symlink_target)
-    with pytest.raises(RuntimeError, match="could not be validated"):
+    with pytest.raises(RuntimeError, match="not repository-contained"):
         local_adapter.resolve_local_runtime(environment)
+
+
+def test_huggingface_blob_links_are_contained_and_staged_as_regular_files(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import modules.esm3.local_adapter as local_adapter
+
+    repository = tmp_path / "models--biohub--esm3-sm-open-v1"
+    snapshot = (
+        repository
+        / "snapshots"
+        / local_adapter.LOCAL_ESM3_SNAPSHOT_REVISION
+    )
+    runtime_directory = tmp_path / "runtime"
+    weights = snapshot / "data" / "weights"
+    blobs = repository / "blobs"
+    weights.mkdir(parents=True)
+    blobs.mkdir()
+    runtime_directory.mkdir()
+    payload = b"locked huggingface blob"
+    digest = hashlib.sha256(payload).hexdigest()
+    blob = blobs / digest
+    blob.write_bytes(payload)
+    linked = weights / "fixture.pth"
+    linked.symlink_to(Path("../../../../blobs") / digest)
+    monkeypatch.setattr(
+        local_adapter,
+        "local_runtime_structurally_available",
+        lambda: True,
+    )
+    monkeypatch.setattr(
+        local_adapter,
+        "LOCAL_ESM3_WEIGHT_SHA256",
+        {"data/weights/fixture.pth": digest},
+    )
+    fingerprint = local_adapter.configured_runtime_fingerprint(device="cpu")
+    runtime = local_adapter.resolve_local_runtime(
+        {
+            "model_snapshot_path": snapshot,
+            "model_snapshot_revision": (
+                local_adapter.LOCAL_ESM3_SNAPSHOT_REVISION
+            ),
+            "device": "cpu",
+            "runtime_directory": runtime_directory,
+            "performance_settings": {},
+            "resolved_runtime_fingerprint": fingerprint,
+        }
+    )
+
+    staged = local_adapter.stage_local_runtime(runtime)
+    staged_artifact = staged / "data" / "weights" / "fixture.pth"
+    assert staged_artifact.is_file()
+    assert not staged_artifact.is_symlink()
+    assert staged_artifact.read_bytes() == payload
 
 
 @pytest.mark.parametrize(

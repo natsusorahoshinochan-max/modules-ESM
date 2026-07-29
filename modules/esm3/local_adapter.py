@@ -3,44 +3,32 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 import hashlib
 import importlib.util
 import os
 from pathlib import Path
+import shutil
 import stat
-import threading
+import tempfile
+from types import FunctionType
 from typing import Any
 
 from core import ReadinessResult, canonical_sha256
-from core.provider_contract import validate_installed_provider_checkout
+from core.provider_contract import (
+    LOCAL_ESM3_SNAPSHOT_REVISION,
+    LOCAL_ESM3_WEIGHT_SHA256,
+    validate_installed_provider_checkout,
+)
 
 from .adapter import ESM_SDK_REVISION, require_provider_protein
 
 
 LOCAL_ESM3_MODEL = "esm3_sm_open_v1"
 LOCAL_ESM3_SNAPSHOT_SOURCE = "biohub/esm3-sm-open-v1"
-LOCAL_ESM3_SNAPSHOT_REVISION = (
-    "47f0545b2b6daf26a93439a3cd610f4f7f3d5478"
-)
-LOCAL_ESM3_WEIGHT_SHA256 = {
-    "data/weights/esm3_sm_open_v1.pth": (
-        "5ead5a135c658068db6a4f1b933e72d6110992c4668822e1c0e2dcc53e38acd9"
-    ),
-    "data/weights/esm3_structure_encoder_v0.pth": (
-        "467acbaee703ba3ccde6e75241a912a316952e5ff071355f85c1d33c68704f40"
-    ),
-    "data/weights/esm3_structure_decoder_v0.pth": (
-        "3b726258a44274792b40ce7ea307e10c5da09936368a4ffa2970264d909da65b"
-    ),
-    "data/weights/esm3_function_decoder_v0.pth": (
-        "f76d074efcaccfe21365a4fa96f212dadd66798e1e49d809ab7ffbe025d227c9"
-    ),
-}
-_PERFORMANCE_KEYS = frozenset(
-    {"torch_num_threads", "float32_matmul_precision"}
-)
-_MODEL_LOAD_LOCK = threading.Lock()
+LOCAL_ESM3_DEVICE = "cpu"
+LOCAL_ESM3_TORCH_VERSION = "2.13.0"
+LOCAL_ESM3_PERFORMANCE_SETTINGS: Mapping[str, Any] = {}
 
 
 @dataclass(frozen=True, slots=True)
@@ -52,6 +40,7 @@ class LocalESM3Runtime:
     device: str
     performance_settings: Mapping[str, Any]
     safe_fingerprint: str
+    artifact_sources: Mapping[str, Path] = field(default_factory=dict)
 
 
 def local_runtime_structurally_available() -> bool:
@@ -63,44 +52,28 @@ def local_runtime_structurally_available() -> bool:
         return False
     try:
         validate_installed_provider_checkout("esm", ESM_SDK_REVISION)
+        import torch
     except (ImportError, OSError, RuntimeError, ValueError):
         return False
-    return True
+    return str(torch.__version__) == LOCAL_ESM3_TORCH_VERSION
 
 
-def _snapshot_file_sha256(snapshot_path: Path, relative_path: str) -> str:
-    relative = Path(relative_path)
-    if relative.is_absolute() or not relative.parts or ".." in relative.parts:
-        raise RuntimeError("local ESM-3 model artifact path is invalid")
-    directory_flags = os.O_RDONLY | getattr(os, "O_DIRECTORY", 0)
-    directory_flags |= getattr(os, "O_NOFOLLOW", 0)
-    file_flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0)
-    directory_descriptor: int | None = None
-    file_descriptor: int | None = None
+def _regular_file_sha256(path: Path) -> str:
+    descriptor: int | None = None
     try:
-        directory_descriptor = os.open(snapshot_path, directory_flags)
-        for component in relative.parts[:-1]:
-            next_descriptor = os.open(
-                component,
-                directory_flags,
-                dir_fd=directory_descriptor,
-            )
-            os.close(directory_descriptor)
-            directory_descriptor = next_descriptor
-        file_descriptor = os.open(
-            relative.parts[-1],
-            file_flags,
-            dir_fd=directory_descriptor,
+        descriptor = os.open(
+            path,
+            os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0),
         )
-        opened = os.fstat(file_descriptor)
+        opened = os.fstat(descriptor)
         if not stat.S_ISREG(opened.st_mode):
             raise RuntimeError(
                 "required local ESM-3 model artifact is not regular"
             )
         digest = hashlib.sha256()
-        while chunk := os.read(file_descriptor, 1024 * 1024):
+        while chunk := os.read(descriptor, 1024 * 1024):
             digest.update(chunk)
-        after = os.fstat(file_descriptor)
+        after = os.fstat(descriptor)
         if (
             after.st_dev,
             after.st_ino,
@@ -112,15 +85,69 @@ def _snapshot_file_sha256(snapshot_path: Path, relative_path: str) -> str:
             opened.st_size,
             opened.st_mtime_ns,
         ):
-            raise RuntimeError("local ESM-3 model artifact changed during validation")
+            raise RuntimeError(
+                "local ESM-3 model artifact changed during validation"
+            )
         return digest.hexdigest()
     except OSError as error:
-        raise RuntimeError("local ESM-3 model artifact could not be validated") from error
+        raise RuntimeError(
+            "local ESM-3 model artifact could not be validated"
+        ) from error
     finally:
-        if file_descriptor is not None:
-            os.close(file_descriptor)
-        if directory_descriptor is not None:
-            os.close(directory_descriptor)
+        if descriptor is not None:
+            os.close(descriptor)
+
+
+def _snapshot_artifact_source(
+    snapshot_path: Path,
+    relative_path: str,
+    expected_digest: str,
+) -> Path:
+    relative = Path(relative_path)
+    if relative.is_absolute() or not relative.parts or ".." in relative.parts:
+        raise RuntimeError("local ESM-3 model artifact path is invalid")
+    try:
+        parent = snapshot_path
+        for component in relative.parts[:-1]:
+            parent = parent / component
+            metadata = parent.lstat()
+            if stat.S_ISLNK(metadata.st_mode) or not stat.S_ISDIR(
+                metadata.st_mode
+            ):
+                raise RuntimeError(
+                    "local ESM-3 snapshot directory is not regular"
+                )
+        entry = parent / relative.parts[-1]
+        metadata = entry.lstat()
+        if stat.S_ISLNK(metadata.st_mode):
+            target_value = os.readlink(entry)
+            if Path(target_value).is_absolute():
+                raise RuntimeError(
+                    "local ESM-3 snapshot link is not repository-contained"
+                )
+            target = (entry.parent / target_value).resolve(strict=True)
+            repository_root = snapshot_path.parent.parent.resolve(strict=True)
+            expected_blob_root = repository_root / "blobs"
+            if (
+                target.parent != expected_blob_root
+                or target.name != expected_digest
+            ):
+                raise RuntimeError(
+                    "local ESM-3 snapshot link is not repository-contained"
+                )
+        elif stat.S_ISREG(metadata.st_mode):
+            target = entry
+        else:
+            raise RuntimeError(
+                "required local ESM-3 model artifact is not regular"
+            )
+    except OSError as error:
+        raise RuntimeError(
+            "local ESM-3 model artifact could not be validated"
+        ) from error
+    if _regular_file_sha256(target) != expected_digest:
+        raise RuntimeError("local ESM-3 model artifact identity mismatch")
+    return target
 
 
 def _configured_path(environment: Mapping[str, Any], key: str) -> Path:
@@ -141,40 +168,26 @@ def _validated_performance_settings(
     environment: Mapping[str, Any],
 ) -> dict[str, Any]:
     raw = environment.get("performance_settings", {})
-    if not isinstance(raw, Mapping) or not set(raw).issubset(_PERFORMANCE_KEYS):
-        raise RuntimeError("local ESM-3 performance settings are invalid")
-    settings = dict(raw)
-    threads = settings.get("torch_num_threads")
-    if threads is not None and (type(threads) is not int or threads < 1):
-        raise RuntimeError("local ESM-3 torch thread count is invalid")
-    precision = settings.get("float32_matmul_precision")
-    if precision is not None and precision not in {"highest", "high", "medium"}:
-        raise RuntimeError("local ESM-3 matmul precision is invalid")
-    return settings
+    if not isinstance(raw, Mapping) or dict(raw) != dict(
+        LOCAL_ESM3_PERFORMANCE_SETTINGS
+    ):
+        raise RuntimeError(
+            "local ESM-3 performance settings do not match the Binding"
+        )
+    return dict(LOCAL_ESM3_PERFORMANCE_SETTINGS)
 
 
 def _validate_device(device: object) -> tuple[str, str]:
-    if device not in {"cpu", "cuda", "mps"}:
-        raise RuntimeError("local ESM-3 device is invalid")
+    if device != LOCAL_ESM3_DEVICE:
+        raise RuntimeError("local ESM-3 device does not match the Binding")
     import torch
 
-    available = (
-        device == "cpu"
-        or (device == "cuda" and torch.cuda.is_available())
-        or (
-            device == "mps"
-            and bool(
-                getattr(
-                    getattr(torch.backends, "mps", None),
-                    "is_available",
-                    lambda: False,
-                )()
-            )
+    torch_version = str(torch.__version__)
+    if torch_version != LOCAL_ESM3_TORCH_VERSION:
+        raise RuntimeError(
+            "local ESM-3 Torch runtime does not match the Binding"
         )
-    )
-    if not available:
-        raise RuntimeError("configured local ESM-3 device is unavailable")
-    return str(device), str(torch.__version__)
+    return LOCAL_ESM3_DEVICE, torch_version
 
 
 def _runtime_fingerprint(
@@ -212,11 +225,15 @@ def resolve_local_runtime(
         raise RuntimeError("local ESM-3 snapshot revision is not exact")
     snapshot_path = _configured_path(environment, "model_snapshot_path")
     runtime_directory = _configured_path(environment, "runtime_directory")
-    for relative_path, expected_digest in LOCAL_ESM3_WEIGHT_SHA256.items():
-        if _snapshot_file_sha256(snapshot_path, relative_path) != expected_digest:
-            raise RuntimeError("local ESM-3 model artifact identity mismatch")
     device, torch_version = _validate_device(environment.get("device"))
     performance_settings = _validated_performance_settings(environment)
+    artifact_sources: dict[str, Path] = {}
+    for relative_path, expected_digest in LOCAL_ESM3_WEIGHT_SHA256.items():
+        artifact_sources[relative_path] = _snapshot_artifact_source(
+            snapshot_path,
+            relative_path,
+            expected_digest,
+        )
     safe_fingerprint = _runtime_fingerprint(
         device=device,
         torch_version=torch_version,
@@ -230,6 +247,7 @@ def resolve_local_runtime(
         device=device,
         performance_settings=performance_settings,
         safe_fingerprint=safe_fingerprint,
+        artifact_sources=artifact_sources,
     )
 
 
@@ -246,6 +264,123 @@ def local_readiness(environment: Mapping[str, Any]) -> ReadinessResult:
     return ReadinessResult(True, proof_source="direct-observation")
 
 
+def _copy_verified_artifact(
+    source: Path,
+    destination: Path,
+    expected_digest: str,
+) -> None:
+    """Copy one already-resolved artifact without following a replacement."""
+    source_descriptor: int | None = None
+    destination_descriptor: int | None = None
+    try:
+        source_descriptor = os.open(
+            source,
+            os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0),
+        )
+        opened = os.fstat(source_descriptor)
+        if not stat.S_ISREG(opened.st_mode):
+            raise RuntimeError(
+                "required local ESM-3 model artifact is not regular"
+            )
+        destination_descriptor = os.open(
+            destination,
+            os.O_WRONLY
+            | os.O_CREAT
+            | os.O_EXCL
+            | getattr(os, "O_NOFOLLOW", 0),
+            0o600,
+        )
+        digest = hashlib.sha256()
+        while chunk := os.read(source_descriptor, 1024 * 1024):
+            digest.update(chunk)
+            view = memoryview(chunk)
+            while view:
+                written = os.write(destination_descriptor, view)
+                view = view[written:]
+        os.fsync(destination_descriptor)
+        after = os.fstat(source_descriptor)
+        if (
+            after.st_dev,
+            after.st_ino,
+            after.st_size,
+            after.st_mtime_ns,
+        ) != (
+            opened.st_dev,
+            opened.st_ino,
+            opened.st_size,
+            opened.st_mtime_ns,
+        ):
+            raise RuntimeError(
+                "local ESM-3 model artifact changed during staging"
+            )
+        if digest.hexdigest() != expected_digest:
+            raise RuntimeError("local ESM-3 model artifact identity mismatch")
+    except OSError as error:
+        raise RuntimeError(
+            "local ESM-3 model artifact could not be staged"
+        ) from error
+    finally:
+        if destination_descriptor is not None:
+            os.close(destination_descriptor)
+        if source_descriptor is not None:
+            os.close(source_descriptor)
+
+
+def stage_local_runtime(runtime: LocalESM3Runtime) -> Path:
+    """Stage validated weights as private regular files for provider loading."""
+    staged_root = Path(
+        tempfile.mkdtemp(
+            prefix="esm3-sm-open-v1-",
+            dir=runtime.runtime_directory,
+        )
+    )
+    staged_root.chmod(0o700)
+    try:
+        for relative_path, expected_digest in (
+            LOCAL_ESM3_WEIGHT_SHA256.items()
+        ):
+            source = runtime.artifact_sources.get(relative_path)
+            if not isinstance(source, Path):
+                raise RuntimeError(
+                    "local ESM-3 validated artifact source is unavailable"
+                )
+            destination = staged_root / relative_path
+            destination.parent.mkdir(
+                mode=0o700,
+                parents=True,
+                exist_ok=True,
+            )
+            _copy_verified_artifact(
+                source,
+                destination,
+                expected_digest,
+            )
+        return staged_root
+    except BaseException:
+        shutil.rmtree(staged_root)
+        raise
+
+
+def _bind_builder_to_staged_root(
+    builder: Any,
+    staged_root: Path,
+) -> FunctionType:
+    """Clone an SDK builder with a private, immutable data-root binding."""
+    if not isinstance(builder, FunctionType):
+        raise RuntimeError("local ESM-3 provider builder has an unsafe type")
+    builder_globals = dict(builder.__globals__)
+    builder_globals["data_root"] = lambda model: staged_root
+    bound = FunctionType(
+        builder.__code__,
+        builder_globals,
+        builder.__name__,
+        builder.__defaults__,
+        builder.__closure__,
+    )
+    bound.__kwdefaults__ = builder.__kwdefaults__
+    return bound
+
+
 def load_local_esm3_client(
     environment: Mapping[str, Any],
     *,
@@ -259,23 +394,36 @@ def load_local_esm3_client(
     from esm.models.esm3 import ESM3
     import esm.pretrained as esm_pretrained
 
-    threads = runtime.performance_settings.get("torch_num_threads")
-    if threads is not None:
-        torch.set_num_threads(threads)
-    precision = runtime.performance_settings.get("float32_matmul_precision")
-    if precision is not None:
-        torch.set_float32_matmul_precision(precision)
-    with _MODEL_LOAD_LOCK:
-        original_data_root = esm_pretrained.data_root
-        esm_pretrained.data_root = lambda model: runtime.snapshot_path
-        try:
-            client = ESM3.from_pretrained(
-                model_name,
-                device=torch.device(runtime.device),
+    staged_root = stage_local_runtime(runtime)
+    try:
+        builders = esm_pretrained.LOCAL_MODEL_REGISTRY
+        required_builders = {
+            name: builders.get(name)
+            for name in (
+                LOCAL_ESM3_MODEL,
+                "esm3_structure_encoder_v0",
+                "esm3_structure_decoder_v0",
+                "esm3_function_decoder_v0",
             )
-        finally:
-            esm_pretrained.data_root = original_data_root
-    return client.float() if runtime.device == "cpu" else client
+        }
+        if any(not callable(builder) for builder in required_builders.values()):
+            raise RuntimeError("local ESM-3 provider builders are incomplete")
+        bound = {
+            name: _bind_builder_to_staged_root(builder, staged_root)
+            for name, builder in required_builders.items()
+        }
+        client = bound[LOCAL_ESM3_MODEL](torch.device(runtime.device))
+        if not isinstance(client, ESM3):
+            raise RuntimeError("local ESM-3 provider returned the wrong client")
+        client.structure_encoder_fn = bound["esm3_structure_encoder_v0"]
+        client.structure_decoder_fn = bound["esm3_structure_decoder_v0"]
+        client.function_decoder_fn = bound["esm3_function_decoder_v0"]
+        client = client.float()
+        client._protein_workbench_staged_root = staged_root
+        return client
+    except BaseException:
+        shutil.rmtree(staged_root)
+        raise
 
 
 def _track_identity(protein: Any) -> dict[str, Any]:
@@ -346,7 +494,6 @@ def record_local_provider_result(
     model_name: str,
     effective_seed: int,
     track_identity: Mapping[str, Any],
-    runtime_fingerprint: str,
 ) -> None:
     """Persist safe local provider identity after the Engine Invocation."""
     from core.provider_evidence import record_provider_call_result
