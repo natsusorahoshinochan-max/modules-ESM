@@ -4,7 +4,7 @@
 
 **Blocked by:** 24 — Consolidate ProteinMPNN constraints and design.
 
-**Status:** awaiting-controller
+**Status:** completed
 
 - [x] ProteinMPNN scoring has one independent Node Definition in the existing package and reuses the package's model-loading, input normalization, Readiness, and evidence infrastructure.
 - [x] The scoring Method fixes exact model/checkpoint/source/featurization identity, and the Binding does not expose a mutable `model_name`, checkpoint path, or device as Workflow data.
@@ -31,3 +31,46 @@
 - `/code-review` Standards found no documented-standard violation. Spec initially reported two HIGH findings: incomplete binary32-domain validation and insufficiently exact real-model assertions. Commit `8dbcd3c` closed both; final Standards and Spec re-reviews found no remaining or newly introduced CRITICAL/HIGH findings.
 - `git diff --check a42608833d31dce920182a8ec64e07f5a67df263..HEAD` passes. The only Core change is the Metric-declared exact-binary32 validation in `core/scoring_v2.py`, which is required to reject malformed Produced Observations during both execution and Cache replay.
 - Ticket 26 was not started. Ticket 25 remains `awaiting-controller` until the Controller independently runs the cumulative multi-ticket gate.
+
+## Controller evidence
+
+Controller independently accepted Ticket 25 only after the final clean revision
+passed the complete Tickets 01–25 suite and the source-bound real ProteinMPNN
+scoring/design gate.
+
+- Previous accepted multi-ticket gate:
+  `a42608833d31dce920182a8ec64e07f5a67df263`.
+- Final executor revision under test:
+  `e8979bbaa72ea3dc5edc6b2fc748123448ae02ac`.
+- Ticket-range `git diff --check` passed and the worktree was clean before
+  testing.
+- Tickets 01–25 v2 joint regression:
+  `uv run --no-sync pytest -q tests/*_v2.py` → `516 passed`.
+- Focused scoring/Compiler/Cache/contract regression:
+  `uv run --no-sync pytest -q tests/test_proteinmpnn_v2.py
+  tests/test_proteinmpnn.py tests/test_scoring_v2.py
+  tests/test_module_packages_v2.py tests/test_contract_test_kit_v2.py
+  tests/test_workflow_compiler_v2.py tests/test_verification_tiers.py` →
+  `289 passed`.
+- Cumulative routine gate:
+  `uv run --no-sync python scripts/verify_backend.py routine` →
+  `1205 passed, 52 deselected`; retained result
+  `verification-results/routine/20260730T003705.688334Z-13880-992b81c8ed942a19`.
+- Deterministic acceptance:
+  `uv run --no-sync python scripts/verify_backend.py
+  deterministic-acceptance` → `10 passed, 5 deselected`; retained result
+  `verification-results/deterministic-acceptance/20260730T004204.422446Z-20488-708c6945a4ac45fd`.
+- Installed artifact:
+  `uv run --no-sync python scripts/verify_backend.py installed-package` →
+  `3 passed`; retained result
+  `verification-results/installed-package/20260730T004204.422621Z-20489-813815fdffbb5916`.
+- Required clean-source real ProteinMPNN scoring/design gate:
+  `PROTEIN_WORKBENCH_APPROVED_SOURCE_REVISION=e8979bbaa72ea3dc5edc6b2fc748123448ae02ac
+  uv run --no-sync python scripts/verify_backend.py
+  proteinmpnn-scoring-v2-heavy-model` → `2 passed, 0 skipped`, with exact
+  native score, sibling design sequence SHA-256, and parent Candidate lineage;
+  retained result
+  `verification-results/proteinmpnn-scoring-v2-heavy-model/20260730T004334.576800Z-21253-92636504ef856f02`.
+
+Ticket 26 may start only from the committed Controller gate containing this
+evidence.
