@@ -518,6 +518,7 @@ TIERS = {
     ),
         requires_provider_evidence=True,
         provider_evidence_gate="heavy-model",
+        provider_identity_profile="proteinmpnn-v2",
         required_call_counts=(
             ("local-proteinmpnn", "score_sequence", 1),
             ("local-proteinmpnn", "design_sequences", 1),
@@ -670,6 +671,20 @@ def _expected_provider_identity(
     if provider == "tmtools":
         return {"tmtools_version": importlib.metadata.version("tmtools")}
     return EXPECTED_STATIC_IDENTITIES.get(provider)
+
+
+def _expected_seed_control(
+    key: tuple[str, str],
+    *,
+    profile: str | None,
+) -> str | None:
+    if (
+        profile == "proteinmpnn-v2"
+        and key == ("local-proteinmpnn", "design_sequences")
+    ):
+        return "torch_local"
+    return EXPECTED_SEED_CONTROLS.get(key)
+
 
 SAFE_PYTEST_SELECTOR = re.compile(
     r"[A-Za-z_][A-Za-z0-9_]*(?:\[[A-Za-z0-9_.-]+\])?"
@@ -1289,7 +1304,10 @@ def validate_provider_evidence(
                     event.get("provider_identity")
                 )
                 or event.get("seed_control")
-                != EXPECTED_SEED_CONTROLS.get(key)
+                != _expected_seed_control(
+                    key,
+                    profile=tier.provider_identity_profile,
+                )
                 or (
                     event.get("effective_seed") is not None
                     and (

@@ -576,6 +576,40 @@ def test_simplefold_v2_has_a_source_bound_full_heavy_gate() -> None:
     }
 
 
+def test_proteinmpnn_scoring_v2_has_a_complete_source_bound_gate() -> None:
+    from scripts.verify_backend import (
+        TIERS,
+        _expected_seed_control,
+    )
+
+    tier = TIERS["proteinmpnn-scoring-v2-heavy-model"]
+
+    assert tier.pytest_args == (
+        "tests/acceptance/test_proteinmpnn_scoring_v2.py::"
+        "test_proteinmpnn_v2_scoring_publishes_exact_native_observation",
+        "tests/acceptance/test_proteinmpnn_scoring_v2.py::"
+        "test_proteinmpnn_v2_sibling_design_remains_exact_and_complete",
+        "-m",
+        "local_provider and slow",
+    )
+    assert tier.requires_provider_evidence is True
+    assert tier.provider_evidence_gate == "heavy-model"
+    assert tier.provider_identity_profile == "proteinmpnn-v2"
+    assert tier.requires_local_model_environment is True
+    assert tier.expected_call_counts == {
+        ("local-proteinmpnn", "score_sequence"): 1,
+        ("local-proteinmpnn", "design_sequences"): 1,
+    }
+    assert _expected_seed_control(
+        ("local-proteinmpnn", "score_sequence"),
+        profile=tier.provider_identity_profile,
+    ) == "fixed_scoring_seed"
+    assert _expected_seed_control(
+        ("local-proteinmpnn", "design_sequences"),
+        profile=tier.provider_identity_profile,
+    ) == "torch_local"
+
+
 def test_simplefold_v2_gate_alias_writes_supported_provider_evidence(
     tmp_path: Path,
     monkeypatch,
