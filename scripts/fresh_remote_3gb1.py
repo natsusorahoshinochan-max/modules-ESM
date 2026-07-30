@@ -267,21 +267,12 @@ def _validate_run_closure(
             raise ValueError(f"{start_type} does not have exact terminal closure")
 
     dispositions = {
-        event["node_id"]: {
-            key: value
-            for key, value in event.items()
-            if key != "type"
-        }
+        event["disposition"]["node_id"]: event["disposition"]
         for event in events
         if event["type"] == "node_disposition"
     }
     projected = {
-        item["node_id"]: {
-            key: value
-            for key, value in item.items()
-            if key != "terminal_sequence"
-        }
-        for item in run["node_dispositions"]
+        item["node_id"]: item for item in run["node_dispositions"]
     }
     if dispositions != projected:
         raise ValueError("Run dispositions do not agree with public replay")
@@ -383,7 +374,10 @@ def validate_evidence_bundle(root: Path) -> dict[str, Any]:
     }:
         raise ValueError("installed artifact receipt lacks wheel or sdist")
 
-    from core import build_discovered_frozen_catalog
+    from core import (
+        build_discovered_frozen_catalog,
+        parse_workflow_document,
+    )
     from protein_workbench_public import (
         bundle_bytes,
         bundle_digest,
@@ -416,7 +410,7 @@ def validate_evidence_bundle(root: Path) -> dict[str, Any]:
         or compile_receipt["catalog_contract_digest"]
         != catalog["catalog_contract_digest"]
         or compile_receipt["contract_lock_digest"]
-        != snapshot["contract_lock_digest"]
+        != parse_workflow_document(workflow).contract_lock_digest
     ):
         raise ValueError("Workflow or compile receipt is not exact and accepted")
 
