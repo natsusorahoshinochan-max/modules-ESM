@@ -1,6 +1,6 @@
 {
   "schema_version": "2.0.0",
-  "workflow_id": "exact-multi-objective-selection-fixture",
+  "workflow_id": "exact-selection-capabilities-fixture",
   "nodes": [
     {
       "node_id": "canonical-source",
@@ -12,7 +12,49 @@
       "binding_parameters": {}
     },
     {
-      "node_id": "select",
+      "node_id": "select-filter",
+      "node_type_id": "selection.filter",
+      "node_type_version": "2.0.0",
+      "binding_id": "selection.filter.direct",
+      "binding_version": "2.0.0",
+      "node_parameters": {
+        "objective_id": "fixed-3gb1",
+        "operator": ">=",
+        "threshold": 0.5,
+        "out_of_scope_policy": "error",
+        "tie_policy": "candidate_id_ascending"
+      },
+      "binding_parameters": {}
+    },
+    {
+      "node_id": "select-sort",
+      "node_type_id": "selection.sort",
+      "node_type_version": "2.0.0",
+      "binding_id": "selection.sort.direct",
+      "binding_version": "2.0.0",
+      "node_parameters": {
+        "objective_id": "fixed-3gb1",
+        "out_of_scope_policy": "error",
+        "tie_policy": "candidate_id_ascending"
+      },
+      "binding_parameters": {}
+    },
+    {
+      "node_id": "select-top_k",
+      "node_type_id": "selection.top_k",
+      "node_type_version": "2.0.0",
+      "binding_id": "selection.top_k.direct",
+      "binding_version": "2.0.0",
+      "node_parameters": {
+        "objective_id": "fixed-3gb1",
+        "k": 3,
+        "out_of_scope_policy": "error",
+        "tie_policy": "candidate_id_ascending"
+      },
+      "binding_parameters": {}
+    },
+    {
+      "node_id": "select-weighted_rank",
       "node_type_id": "selection.weighted_rank",
       "node_type_version": "2.0.0",
       "binding_id": "selection.weighted_rank.direct",
@@ -25,19 +67,110 @@
         "tie_policy": "candidate_id_ascending"
       },
       "binding_parameters": {}
+    },
+    {
+      "node_id": "select-pareto",
+      "node_type_id": "selection.pareto",
+      "node_type_version": "2.0.0",
+      "binding_id": "selection.pareto.direct",
+      "binding_version": "2.0.0",
+      "node_parameters": {
+        "objective_ids": [
+          "fixed-3gb1",
+          "paired-esm3"
+        ],
+        "tie_policy": "candidate_id_ascending"
+      },
+      "binding_parameters": {}
+    },
+    {
+      "node_id": "select-diversity",
+      "node_type_id": "selection.diversity",
+      "node_type_version": "2.0.0",
+      "binding_id": "selection.diversity.direct",
+      "binding_version": "2.0.0",
+      "node_parameters": {
+        "objective_ids": [
+          "fixed-3gb1",
+          "paired-esm3"
+        ],
+        "k": 3,
+        "tie_policy": "candidate_id_ascending"
+      },
+      "binding_parameters": {}
     }
   ],
   "edges": [
     {
       "source_node_id": "canonical-source",
       "source_port": "candidates",
-      "target_node_id": "select",
+      "target_node_id": "select-filter",
       "target_port": "candidates"
     },
     {
       "source_node_id": "canonical-source",
       "source_port": "scores",
-      "target_node_id": "select",
+      "target_node_id": "select-filter",
+      "target_port": "scores"
+    },
+    {
+      "source_node_id": "canonical-source",
+      "source_port": "candidates",
+      "target_node_id": "select-sort",
+      "target_port": "candidates"
+    },
+    {
+      "source_node_id": "canonical-source",
+      "source_port": "scores",
+      "target_node_id": "select-sort",
+      "target_port": "scores"
+    },
+    {
+      "source_node_id": "canonical-source",
+      "source_port": "candidates",
+      "target_node_id": "select-top_k",
+      "target_port": "candidates"
+    },
+    {
+      "source_node_id": "canonical-source",
+      "source_port": "scores",
+      "target_node_id": "select-top_k",
+      "target_port": "scores"
+    },
+    {
+      "source_node_id": "canonical-source",
+      "source_port": "candidates",
+      "target_node_id": "select-weighted_rank",
+      "target_port": "candidates"
+    },
+    {
+      "source_node_id": "canonical-source",
+      "source_port": "scores",
+      "target_node_id": "select-weighted_rank",
+      "target_port": "scores"
+    },
+    {
+      "source_node_id": "canonical-source",
+      "source_port": "candidates",
+      "target_node_id": "select-pareto",
+      "target_port": "candidates"
+    },
+    {
+      "source_node_id": "canonical-source",
+      "source_port": "scores",
+      "target_node_id": "select-pareto",
+      "target_port": "scores"
+    },
+    {
+      "source_node_id": "canonical-source",
+      "source_port": "candidates",
+      "target_node_id": "select-diversity",
+      "target_port": "candidates"
+    },
+    {
+      "source_node_id": "canonical-source",
+      "source_port": "scores",
+      "target_node_id": "select-diversity",
       "target_port": "scores"
     }
   ],
@@ -134,6 +267,36 @@
     },
     {
       "contract_kind": "binding",
+      "contract_id": "selection.diversity.direct",
+      "contract_version": "2.0.0",
+      "contract_digest": "sha256:e81e6be03d07df8fc6c672afe9b38e59566b8cfebe7e28bd11d204d83aeb21eb"
+    },
+    {
+      "contract_kind": "binding",
+      "contract_id": "selection.filter.direct",
+      "contract_version": "2.0.0",
+      "contract_digest": "sha256:a48187f193b2e7111dcdaec82dfcfbb17ead52999a39d2e72c24226ad74e3f41"
+    },
+    {
+      "contract_kind": "binding",
+      "contract_id": "selection.pareto.direct",
+      "contract_version": "2.0.0",
+      "contract_digest": "sha256:d3a3ae398beb64388832d26f9a30b2e123e0e4c810cd492d331f4c13ca10b62e"
+    },
+    {
+      "contract_kind": "binding",
+      "contract_id": "selection.sort.direct",
+      "contract_version": "2.0.0",
+      "contract_digest": "sha256:28b6c7e1b2c032a821bbd764a217fc3e4c3880cb06c601680d197adf69f47c8a"
+    },
+    {
+      "contract_kind": "binding",
+      "contract_id": "selection.top_k.direct",
+      "contract_version": "2.0.0",
+      "contract_digest": "sha256:64670fdbee6a71163c895d943d2b4a8552a4bd94d093752fd314d41c1dd0aa6d"
+    },
+    {
+      "contract_kind": "binding",
       "contract_id": "selection.weighted_rank.direct",
       "contract_version": "2.0.0",
       "contract_digest": "sha256:011db4752ad690a7357f4eeb85c3e7ca4667fbbf9105652e0b678197367b2f87"
@@ -143,6 +306,36 @@
       "contract_id": "contract_test.multi_objective_selection_source.method",
       "contract_version": "2.0.0",
       "contract_digest": "sha256:0c53b7352a54fcfc4760775e3176ce41ca0ad492255b9f3eb5069e9e764978e7"
+    },
+    {
+      "contract_kind": "method",
+      "contract_id": "selection.diversity.method",
+      "contract_version": "2.0.0",
+      "contract_digest": "sha256:0a6b058b619f510e81fd3ef24c401c3dd5f88a388d9e412f8d846aab0d1e9ffe"
+    },
+    {
+      "contract_kind": "method",
+      "contract_id": "selection.filter.method",
+      "contract_version": "2.0.0",
+      "contract_digest": "sha256:dd7b60633256fb20ae8ecd213e1e097ec1c4f50f1e3a693e362f36eb7db42d89"
+    },
+    {
+      "contract_kind": "method",
+      "contract_id": "selection.pareto.method",
+      "contract_version": "2.0.0",
+      "contract_digest": "sha256:3d61f8a06a9a541c1e86a5011ff5782cc38c4934c38e8f55eb41de6908b9341b"
+    },
+    {
+      "contract_kind": "method",
+      "contract_id": "selection.sort.method",
+      "contract_version": "2.0.0",
+      "contract_digest": "sha256:8975da2fec701615ad583b4302cd58ba1b60b04507bf6ab47742a89f6096d3dd"
+    },
+    {
+      "contract_kind": "method",
+      "contract_id": "selection.top_k.method",
+      "contract_version": "2.0.0",
+      "contract_digest": "sha256:b0d4786a82acb686a353db4f7e7d58ee079997a275805d7a83727604b166abce"
     },
     {
       "contract_kind": "method",
@@ -161,6 +354,36 @@
       "contract_id": "contract_test.multi_objective_selection_source",
       "contract_version": "2.0.0",
       "contract_digest": "sha256:1f9022e17c138d03f99dc2a946773daed96f799e39a178797100c047043f188e"
+    },
+    {
+      "contract_kind": "node_type",
+      "contract_id": "selection.diversity",
+      "contract_version": "2.0.0",
+      "contract_digest": "sha256:6999e5010e47da170c28047eacce47381d85318c34450b0b6d5157cd79269e64"
+    },
+    {
+      "contract_kind": "node_type",
+      "contract_id": "selection.filter",
+      "contract_version": "2.0.0",
+      "contract_digest": "sha256:1884e28b5c08a13a5a0c1ecd3659a94c2800be82e00bb5f8c25306284081f9e9"
+    },
+    {
+      "contract_kind": "node_type",
+      "contract_id": "selection.pareto",
+      "contract_version": "2.0.0",
+      "contract_digest": "sha256:09362596ed7ecf179ec14f64eb8b2df6055f7503244e28f17bbed0442411188d"
+    },
+    {
+      "contract_kind": "node_type",
+      "contract_id": "selection.sort",
+      "contract_version": "2.0.0",
+      "contract_digest": "sha256:4385120600d90be0c569e89ee20f50e245b5900a234297d3359b2cebed6f8397"
+    },
+    {
+      "contract_kind": "node_type",
+      "contract_id": "selection.top_k",
+      "contract_version": "2.0.0",
+      "contract_digest": "sha256:30a1347ef2449717021eb64d7aff3936cf0a8fc0878f6a167de69151335105c0"
     },
     {
       "contract_kind": "node_type",

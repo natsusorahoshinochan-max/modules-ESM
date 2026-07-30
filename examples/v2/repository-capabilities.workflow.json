@@ -3,7 +3,204 @@
   "workflow_id": "repository-capabilities-v2",
   "nodes": [
     {
-      "node_id": "layout",
+      "node_id": "collection-ops-concat-candidates-direct",
+      "node_type_id": "collection_ops.concat_candidates",
+      "node_type_version": "2.0.0",
+      "binding_id": "collection_ops.concat_candidates.direct",
+      "binding_version": "2.0.0",
+      "node_parameters": {},
+      "binding_parameters": {}
+    },
+    {
+      "node_id": "collection-ops-merge-scores-direct",
+      "node_type_id": "collection_ops.merge_scores",
+      "node_type_version": "2.0.0",
+      "binding_id": "collection_ops.merge_scores.direct",
+      "binding_version": "2.0.0",
+      "node_parameters": {},
+      "binding_parameters": {}
+    },
+    {
+      "node_id": "esm3-generate-paired-biohub-medium",
+      "node_type_id": "esm3.generate_paired",
+      "node_type_version": "2.0.0",
+      "binding_id": "esm3.generate_paired.biohub_medium",
+      "binding_version": "2.0.0",
+      "node_parameters": {
+        "effective_seed": 3402,
+        "num_samples": 2
+      },
+      "binding_parameters": {}
+    },
+    {
+      "node_id": "esm3-generate-paired-biohub-open",
+      "node_type_id": "esm3.generate_paired",
+      "node_type_version": "2.0.0",
+      "binding_id": "esm3.generate_paired.biohub_open",
+      "binding_version": "2.0.0",
+      "node_parameters": {
+        "effective_seed": 3403,
+        "num_samples": 2
+      },
+      "binding_parameters": {}
+    },
+    {
+      "node_id": "esm3-generate-paired-local-open",
+      "node_type_id": "esm3.generate_paired",
+      "node_type_version": "2.0.0",
+      "binding_id": "esm3.generate_paired.local_open",
+      "binding_version": "2.0.0",
+      "node_parameters": {
+        "effective_seed": 3404,
+        "num_samples": 2
+      },
+      "binding_parameters": {}
+    },
+    {
+      "node_id": "esm3-generate-sequence-biohub-medium",
+      "node_type_id": "esm3.generate_sequence",
+      "node_type_version": "2.0.0",
+      "binding_id": "esm3.generate_sequence.biohub_medium",
+      "binding_version": "2.0.0",
+      "node_parameters": {
+        "effective_seed": 3405,
+        "num_samples": 2
+      },
+      "binding_parameters": {}
+    },
+    {
+      "node_id": "esm3-generate-sequence-biohub-open",
+      "node_type_id": "esm3.generate_sequence",
+      "node_type_version": "2.0.0",
+      "binding_id": "esm3.generate_sequence.biohub_open",
+      "binding_version": "2.0.0",
+      "node_parameters": {
+        "effective_seed": 3406,
+        "num_samples": 2
+      },
+      "binding_parameters": {}
+    },
+    {
+      "node_id": "esm3-generate-sequence-local-open",
+      "node_type_id": "esm3.generate_sequence",
+      "node_type_version": "2.0.0",
+      "binding_id": "esm3.generate_sequence.local_open",
+      "binding_version": "2.0.0",
+      "node_parameters": {
+        "effective_seed": 3407,
+        "num_samples": 2
+      },
+      "binding_parameters": {}
+    },
+    {
+      "node_id": "esm3-generate-structure-biohub-medium",
+      "node_type_id": "esm3.generate_structure",
+      "node_type_version": "2.0.0",
+      "binding_id": "esm3.generate_structure.biohub_medium",
+      "binding_version": "2.0.0",
+      "node_parameters": {
+        "effective_seed": 3408,
+        "num_samples": 2
+      },
+      "binding_parameters": {}
+    },
+    {
+      "node_id": "esm3-generate-structure-biohub-open",
+      "node_type_id": "esm3.generate_structure",
+      "node_type_version": "2.0.0",
+      "binding_id": "esm3.generate_structure.biohub_open",
+      "binding_version": "2.0.0",
+      "node_parameters": {
+        "effective_seed": 3409,
+        "num_samples": 2
+      },
+      "binding_parameters": {}
+    },
+    {
+      "node_id": "esm3-generate-structure-local-open",
+      "node_type_id": "esm3.generate_structure",
+      "node_type_version": "2.0.0",
+      "binding_id": "esm3.generate_structure.local_open",
+      "binding_version": "2.0.0",
+      "node_parameters": {
+        "effective_seed": 3410,
+        "num_samples": 2
+      },
+      "binding_parameters": {}
+    },
+    {
+      "node_id": "folding-fold-esmfold2-local",
+      "node_type_id": "folding.fold",
+      "node_type_version": "2.0.0",
+      "binding_id": "folding.fold.esmfold2_local",
+      "binding_version": "2.0.0",
+      "node_parameters": {
+        "effective_seed": 3511,
+        "num_samples": 1
+      },
+      "binding_parameters": {}
+    },
+    {
+      "node_id": "folding-fold-esmfold2-remote",
+      "node_type_id": "folding.fold",
+      "node_type_version": "2.0.0",
+      "binding_id": "folding.fold.esmfold2_remote",
+      "binding_version": "2.0.0",
+      "node_parameters": {
+        "effective_seed": 3512,
+        "num_samples": 1
+      },
+      "binding_parameters": {}
+    },
+    {
+      "node_id": "folding-fold-simplefold-local",
+      "node_type_id": "folding.fold",
+      "node_type_version": "2.0.0",
+      "binding_id": "folding.fold.simplefold_local",
+      "binding_version": "2.0.0",
+      "node_parameters": {
+        "effective_seed": 3513,
+        "num_samples": 1
+      },
+      "binding_parameters": {}
+    },
+    {
+      "node_id": "folding-simplefold-confidence-simplefold-local",
+      "node_type_id": "folding.simplefold_confidence",
+      "node_type_version": "2.0.0",
+      "binding_id": "folding.simplefold_confidence.simplefold_local",
+      "binding_version": "2.0.0",
+      "node_parameters": {},
+      "binding_parameters": {}
+    },
+    {
+      "node_id": "prompt-authoring-add-function-annotation-direct",
+      "node_type_id": "prompt_authoring.add_function_annotation",
+      "node_type_version": "2.0.0",
+      "binding_id": "prompt_authoring.add_function_annotation.direct",
+      "binding_version": "2.0.0",
+      "node_parameters": {
+        "annotation": {
+          "label": "example-function",
+          "chain_id": "A",
+          "start_residue_id": "A:1",
+          "end_residue_id": "A:2"
+        },
+        "overlap_policy": "reject"
+      },
+      "binding_parameters": {}
+    },
+    {
+      "node_id": "prompt-authoring-assemble-protein-prompt-direct",
+      "node_type_id": "prompt_authoring.assemble_protein_prompt",
+      "node_type_version": "2.0.0",
+      "binding_id": "prompt_authoring.assemble_protein_prompt.direct",
+      "binding_version": "2.0.0",
+      "node_parameters": {},
+      "binding_parameters": {}
+    },
+    {
+      "node_id": "prompt-authoring-build-residue-layout-direct",
       "node_type_id": "prompt_authoring.build_residue_layout",
       "node_type_version": "2.0.0",
       "binding_id": "prompt_authoring.build_residue_layout.direct",
@@ -19,40 +216,85 @@
       "binding_parameters": {}
     },
     {
-      "node_id": "prompt",
-      "node_type_id": "prompt_authoring.assemble_protein_prompt",
+      "node_id": "prompt-authoring-edit-residue-layout-direct",
+      "node_type_id": "prompt_authoring.edit_residue_layout",
       "node_type_version": "2.0.0",
-      "binding_id": "prompt_authoring.assemble_protein_prompt.direct",
+      "binding_id": "prompt_authoring.edit_residue_layout.direct",
+      "binding_version": "2.0.0",
+      "node_parameters": {
+        "edits": []
+      },
+      "binding_parameters": {}
+    },
+    {
+      "node_id": "prompt-authoring-random-insert-masked-direct",
+      "node_type_id": "prompt_authoring.random_insert_masked",
+      "node_type_version": "2.0.0",
+      "binding_id": "prompt_authoring.random_insert_masked.direct",
+      "binding_version": "2.0.0",
+      "node_parameters": {
+        "effective_seed": 3302,
+        "count": 0,
+        "eligible_chain_ids": [
+          "A"
+        ]
+      },
+      "binding_parameters": {}
+    },
+    {
+      "node_id": "prompt-authoring-random-mask-direct",
+      "node_type_id": "prompt_authoring.random_mask",
+      "node_type_version": "2.0.0",
+      "binding_id": "prompt_authoring.random_mask.direct",
+      "binding_version": "2.0.0",
+      "node_parameters": {
+        "effective_seed": 3301,
+        "count": 0,
+        "track": "sequence",
+        "eligible_residue_ids": []
+      },
+      "binding_parameters": {}
+    },
+    {
+      "node_id": "prompt-authoring-update-prompt-sequence-direct",
+      "node_type_id": "prompt_authoring.update_prompt_sequence",
+      "node_type_version": "2.0.0",
+      "binding_id": "prompt_authoring.update_prompt_sequence.direct",
       "binding_version": "2.0.0",
       "node_parameters": {},
       "binding_parameters": {}
     },
     {
-      "node_id": "esm3",
-      "node_type_id": "esm3.generate_paired",
+      "node_id": "protein-io-export-sequence-direct",
+      "node_type_id": "protein_io.export_sequence",
       "node_type_version": "2.0.0",
-      "binding_id": "esm3.generate_paired.biohub_open",
+      "binding_id": "protein_io.export_sequence.direct",
+      "binding_version": "2.0.0",
+      "node_parameters": {},
+      "binding_parameters": {}
+    },
+    {
+      "node_id": "protein-io-export-structure-direct",
+      "node_type_id": "protein_io.export_structure",
+      "node_type_version": "2.0.0",
+      "binding_id": "protein_io.export_structure.direct",
+      "binding_version": "2.0.0",
+      "node_parameters": {},
+      "binding_parameters": {}
+    },
+    {
+      "node_id": "protein-io-import-sequence-direct",
+      "node_type_id": "protein_io.import_sequence",
+      "node_type_version": "2.0.0",
+      "binding_id": "protein_io.import_sequence.direct",
       "binding_version": "2.0.0",
       "node_parameters": {
-        "effective_seed": 3301,
-        "num_samples": 2
+        "project_input_ref": "example-sequence"
       },
       "binding_parameters": {}
     },
     {
-      "node_id": "fold",
-      "node_type_id": "folding.fold",
-      "node_type_version": "2.0.0",
-      "binding_id": "folding.fold.esmfold2_remote",
-      "binding_version": "2.0.0",
-      "node_parameters": {
-        "effective_seed": 3302,
-        "num_samples": 1
-      },
-      "binding_parameters": {}
-    },
-    {
-      "node_id": "structure-input",
+      "node_id": "protein-io-import-structure-direct",
       "node_type_id": "protein_io.import_structure",
       "node_type_version": "2.0.0",
       "binding_id": "protein_io.import_structure.direct",
@@ -63,43 +305,44 @@
       "binding_parameters": {}
     },
     {
-      "node_id": "extract-sequence",
-      "node_type_id": "structure_transform.extract_sequence",
+      "node_id": "proteinmpnn-constraints-local",
+      "node_type_id": "proteinmpnn.constraints",
       "node_type_version": "2.0.0",
-      "binding_id": "structure_transform.extract_sequence.direct",
+      "binding_id": "proteinmpnn.constraints.local",
       "binding_version": "2.0.0",
-      "node_parameters": {},
+      "node_parameters": {
+        "designed_chains": [
+          "A"
+        ]
+      },
       "binding_parameters": {}
     },
     {
-      "node_id": "export-sequence",
-      "node_type_id": "protein_io.export_sequence",
+      "node_id": "proteinmpnn-design-local",
+      "node_type_id": "proteinmpnn.design",
       "node_type_version": "2.0.0",
-      "binding_id": "protein_io.export_sequence.direct",
+      "binding_id": "proteinmpnn.design.local",
       "binding_version": "2.0.0",
-      "node_parameters": {},
+      "node_parameters": {
+        "effective_seed": 3304,
+        "num_sequences": 2
+      },
       "binding_parameters": {}
     },
     {
-      "node_id": "dssp",
-      "node_type_id": "structure_annotation.dssp_compute",
+      "node_id": "proteinmpnn-random-fixed-positions-local",
+      "node_type_id": "proteinmpnn.random_fixed_positions",
       "node_type_version": "2.0.0",
-      "binding_id": "structure_annotation.dssp_compute.direct",
+      "binding_id": "proteinmpnn.random_fixed_positions.local",
       "binding_version": "2.0.0",
-      "node_parameters": {},
+      "node_parameters": {
+        "effective_seed": 3303,
+        "fraction": 0.5
+      },
       "binding_parameters": {}
     },
     {
-      "node_id": "secondary-structure",
-      "node_type_id": "structure_annotation.secondary_structure_extract",
-      "node_type_version": "2.0.0",
-      "binding_id": "structure_annotation.secondary_structure_extract.direct",
-      "binding_version": "2.0.0",
-      "node_parameters": {},
-      "binding_parameters": {}
-    },
-    {
-      "node_id": "mpnn-score",
+      "node_id": "proteinmpnn-score-local",
       "node_type_id": "proteinmpnn.score",
       "node_type_version": "2.0.0",
       "binding_id": "proteinmpnn.score.local",
@@ -108,25 +351,7 @@
       "binding_parameters": {}
     },
     {
-      "node_id": "align",
-      "node_type_id": "structure_comparison.align_pairwise",
-      "node_type_version": "2.0.0",
-      "binding_id": "structure_comparison.align_pairwise.fixed_reference",
-      "binding_version": "2.0.0",
-      "node_parameters": {},
-      "binding_parameters": {}
-    },
-    {
-      "node_id": "tm-score",
-      "node_type_id": "structure_comparison.batch_tm_score",
-      "node_type_version": "2.0.0",
-      "binding_id": "structure_comparison.batch_tm_score.fixed_reference",
-      "binding_version": "2.0.0",
-      "node_parameters": {},
-      "binding_parameters": {}
-    },
-    {
-      "node_id": "protein-sol",
+      "node_id": "solubility-protein-sol-local",
       "node_type_id": "solubility.score_sequence",
       "node_type_version": "2.0.0",
       "binding_id": "solubility.protein_sol.local",
@@ -135,122 +360,591 @@
       "binding_parameters": {}
     },
     {
-      "node_id": "merge-scores",
-      "node_type_id": "collection_ops.merge_scores",
+      "node_id": "solubility-soluprot-full-local",
+      "node_type_id": "solubility.score_sequence",
       "node_type_version": "2.0.0",
-      "binding_id": "collection_ops.merge_scores.direct",
+      "binding_id": "solubility.soluprot_full.local",
       "binding_version": "2.0.0",
       "node_parameters": {},
+      "binding_parameters": {}
+    },
+    {
+      "node_id": "solubility-soluprot-no-tm-local",
+      "node_type_id": "solubility.score_sequence",
+      "node_type_version": "2.0.0",
+      "binding_id": "solubility.soluprot_no_tm.local",
+      "binding_version": "2.0.0",
+      "node_parameters": {},
+      "binding_parameters": {}
+    },
+    {
+      "node_id": "structure-annotation-dssp-compute-direct",
+      "node_type_id": "structure_annotation.dssp_compute",
+      "node_type_version": "2.0.0",
+      "binding_id": "structure_annotation.dssp_compute.direct",
+      "binding_version": "2.0.0",
+      "node_parameters": {},
+      "binding_parameters": {}
+    },
+    {
+      "node_id": "structure-annotation-sasa-compute-direct",
+      "node_type_id": "structure_annotation.sasa_compute",
+      "node_type_version": "2.0.0",
+      "binding_id": "structure_annotation.sasa_compute.direct",
+      "binding_version": "2.0.0",
+      "node_parameters": {},
+      "binding_parameters": {}
+    },
+    {
+      "node_id": "structure-annotation-secondary-structure-agreement-direct",
+      "node_type_id": "structure_annotation.secondary_structure_agreement",
+      "node_type_version": "2.0.0",
+      "binding_id": "structure_annotation.secondary_structure_agreement.direct",
+      "binding_version": "2.0.0",
+      "node_parameters": {},
+      "binding_parameters": {}
+    },
+    {
+      "node_id": "structure-annotation-secondary-structure-extract-direct",
+      "node_type_id": "structure_annotation.secondary_structure_extract",
+      "node_type_version": "2.0.0",
+      "binding_id": "structure_annotation.secondary_structure_extract.direct",
+      "binding_version": "2.0.0",
+      "node_parameters": {},
+      "binding_parameters": {}
+    },
+    {
+      "node_id": "structure-comparison-align-pairwise-direct",
+      "node_type_id": "structure_comparison.align_pairwise",
+      "node_type_version": "2.0.0",
+      "binding_id": "structure_comparison.align_pairwise.direct",
+      "binding_version": "2.0.0",
+      "node_parameters": {},
+      "binding_parameters": {}
+    },
+    {
+      "node_id": "structure-comparison-align-pairwise-fixed-reference",
+      "node_type_id": "structure_comparison.align_pairwise",
+      "node_type_version": "2.0.0",
+      "binding_id": "structure_comparison.align_pairwise.fixed_reference",
+      "binding_version": "2.0.0",
+      "node_parameters": {},
+      "binding_parameters": {}
+    },
+    {
+      "node_id": "structure-comparison-align-single-direct",
+      "node_type_id": "structure_comparison.align_single",
+      "node_type_version": "2.0.0",
+      "binding_id": "structure_comparison.align_single.direct",
+      "binding_version": "2.0.0",
+      "node_parameters": {},
+      "binding_parameters": {}
+    },
+    {
+      "node_id": "structure-comparison-batch-tm-score-fixed-reference",
+      "node_type_id": "structure_comparison.batch_tm_score",
+      "node_type_version": "2.0.0",
+      "binding_id": "structure_comparison.batch_tm_score.fixed_reference",
+      "binding_version": "2.0.0",
+      "node_parameters": {},
+      "binding_parameters": {}
+    },
+    {
+      "node_id": "structure-comparison-batch-tm-score-per-subject-counterpart",
+      "node_type_id": "structure_comparison.batch_tm_score",
+      "node_type_version": "2.0.0",
+      "binding_id": "structure_comparison.batch_tm_score.per_subject_counterpart",
+      "binding_version": "2.0.0",
+      "node_parameters": {},
+      "binding_parameters": {}
+    },
+    {
+      "node_id": "structure-comparison-rmsd-fixed-reference",
+      "node_type_id": "structure_comparison.rmsd",
+      "node_type_version": "2.0.0",
+      "binding_id": "structure_comparison.rmsd.fixed_reference",
+      "binding_version": "2.0.0",
+      "node_parameters": {},
+      "binding_parameters": {}
+    },
+    {
+      "node_id": "structure-comparison-rmsd-per-subject-counterpart",
+      "node_type_id": "structure_comparison.rmsd",
+      "node_type_version": "2.0.0",
+      "binding_id": "structure_comparison.rmsd.per_subject_counterpart",
+      "binding_version": "2.0.0",
+      "node_parameters": {},
+      "binding_parameters": {}
+    },
+    {
+      "node_id": "structure-comparison-tm-score-fixed-reference",
+      "node_type_id": "structure_comparison.tm_score",
+      "node_type_version": "2.0.0",
+      "binding_id": "structure_comparison.tm_score.fixed_reference",
+      "binding_version": "2.0.0",
+      "node_parameters": {},
+      "binding_parameters": {}
+    },
+    {
+      "node_id": "structure-transform-backbone-to-structure-direct",
+      "node_type_id": "structure_transform.backbone_to_structure",
+      "node_type_version": "2.0.0",
+      "binding_id": "structure_transform.backbone_to_structure.direct",
+      "binding_version": "2.0.0",
+      "node_parameters": {},
+      "binding_parameters": {}
+    },
+    {
+      "node_id": "structure-transform-extract-backbone-direct",
+      "node_type_id": "structure_transform.extract_backbone",
+      "node_type_version": "2.0.0",
+      "binding_id": "structure_transform.extract_backbone.direct",
+      "binding_version": "2.0.0",
+      "node_parameters": {},
+      "binding_parameters": {}
+    },
+    {
+      "node_id": "structure-transform-extract-sequence-direct",
+      "node_type_id": "structure_transform.extract_sequence",
+      "node_type_version": "2.0.0",
+      "binding_id": "structure_transform.extract_sequence.direct",
+      "binding_version": "2.0.0",
+      "node_parameters": {},
+      "binding_parameters": {}
+    },
+    {
+      "node_id": "structure-transform-select-chains-direct",
+      "node_type_id": "structure_transform.select_chains",
+      "node_type_version": "2.0.0",
+      "binding_id": "structure_transform.select_chains.direct",
+      "binding_version": "2.0.0",
+      "node_parameters": {
+        "chain_ids": [
+          "A"
+        ]
+      },
       "binding_parameters": {}
     }
   ],
   "edges": [
     {
-      "source_node_id": "layout",
+      "source_node_id": "prompt-authoring-build-residue-layout-direct",
       "source_port": "layout",
-      "target_node_id": "prompt",
+      "target_node_id": "prompt-authoring-add-function-annotation-direct",
       "target_port": "layout"
     },
     {
-      "source_node_id": "prompt",
+      "source_node_id": "prompt-authoring-build-residue-layout-direct",
+      "source_port": "layout",
+      "target_node_id": "prompt-authoring-assemble-protein-prompt-direct",
+      "target_port": "layout"
+    },
+    {
+      "source_node_id": "prompt-authoring-add-function-annotation-direct",
+      "source_port": "function_annotations",
+      "target_node_id": "prompt-authoring-assemble-protein-prompt-direct",
+      "target_port": "function_annotations"
+    },
+    {
+      "source_node_id": "prompt-authoring-build-residue-layout-direct",
+      "source_port": "layout",
+      "target_node_id": "prompt-authoring-edit-residue-layout-direct",
+      "target_port": "source_layout"
+    },
+    {
+      "source_node_id": "prompt-authoring-build-residue-layout-direct",
+      "source_port": "layout",
+      "target_node_id": "prompt-authoring-edit-residue-layout-direct",
+      "target_port": "target_layout"
+    },
+    {
+      "source_node_id": "prompt-authoring-assemble-protein-prompt-direct",
       "source_port": "protein_prompt",
-      "target_node_id": "esm3",
+      "target_node_id": "prompt-authoring-update-prompt-sequence-direct",
       "target_port": "protein_prompt"
     },
     {
-      "source_node_id": "esm3",
-      "source_port": "sequence_candidates",
-      "target_node_id": "fold",
-      "target_port": "sequence_candidates"
-    },
-    {
-      "source_node_id": "structure-input",
-      "source_port": "structure",
-      "target_node_id": "extract-sequence",
-      "target_port": "structure"
-    },
-    {
-      "source_node_id": "extract-sequence",
+      "source_node_id": "protein-io-import-sequence-direct",
       "source_port": "sequence",
-      "target_node_id": "export-sequence",
+      "target_node_id": "prompt-authoring-update-prompt-sequence-direct",
       "target_port": "sequence"
     },
     {
-      "source_node_id": "structure-input",
-      "source_port": "structure",
-      "target_node_id": "dssp",
-      "target_port": "structure"
+      "source_node_id": "prompt-authoring-update-prompt-sequence-direct",
+      "source_port": "protein_prompt",
+      "target_node_id": "prompt-authoring-random-mask-direct",
+      "target_port": "protein_prompt"
     },
     {
-      "source_node_id": "dssp",
-      "source_port": "annotations",
-      "target_node_id": "secondary-structure",
-      "target_port": "annotations"
+      "source_node_id": "prompt-authoring-random-mask-direct",
+      "source_port": "protein_prompt",
+      "target_node_id": "prompt-authoring-random-insert-masked-direct",
+      "target_port": "protein_prompt"
     },
     {
-      "source_node_id": "fold",
+      "source_node_id": "prompt-authoring-random-insert-masked-direct",
+      "source_port": "protein_prompt",
+      "target_node_id": "esm3-generate-sequence-biohub-medium",
+      "target_port": "protein_prompt"
+    },
+    {
+      "source_node_id": "prompt-authoring-random-insert-masked-direct",
+      "source_port": "protein_prompt",
+      "target_node_id": "esm3-generate-sequence-biohub-open",
+      "target_port": "protein_prompt"
+    },
+    {
+      "source_node_id": "prompt-authoring-random-insert-masked-direct",
+      "source_port": "protein_prompt",
+      "target_node_id": "esm3-generate-sequence-local-open",
+      "target_port": "protein_prompt"
+    },
+    {
+      "source_node_id": "prompt-authoring-random-insert-masked-direct",
+      "source_port": "protein_prompt",
+      "target_node_id": "esm3-generate-structure-biohub-medium",
+      "target_port": "protein_prompt"
+    },
+    {
+      "source_node_id": "prompt-authoring-random-insert-masked-direct",
+      "source_port": "protein_prompt",
+      "target_node_id": "esm3-generate-structure-biohub-open",
+      "target_port": "protein_prompt"
+    },
+    {
+      "source_node_id": "prompt-authoring-random-insert-masked-direct",
+      "source_port": "protein_prompt",
+      "target_node_id": "esm3-generate-structure-local-open",
+      "target_port": "protein_prompt"
+    },
+    {
+      "source_node_id": "prompt-authoring-random-insert-masked-direct",
+      "source_port": "protein_prompt",
+      "target_node_id": "esm3-generate-paired-biohub-medium",
+      "target_port": "protein_prompt"
+    },
+    {
+      "source_node_id": "prompt-authoring-random-insert-masked-direct",
+      "source_port": "protein_prompt",
+      "target_node_id": "esm3-generate-paired-biohub-open",
+      "target_port": "protein_prompt"
+    },
+    {
+      "source_node_id": "prompt-authoring-random-insert-masked-direct",
+      "source_port": "protein_prompt",
+      "target_node_id": "esm3-generate-paired-local-open",
+      "target_port": "protein_prompt"
+    },
+    {
+      "source_node_id": "esm3-generate-sequence-biohub-open",
+      "source_port": "sequence_candidates",
+      "target_node_id": "folding-fold-esmfold2-local",
+      "target_port": "sequence_candidates"
+    },
+    {
+      "source_node_id": "esm3-generate-sequence-biohub-open",
+      "source_port": "sequence_candidates",
+      "target_node_id": "folding-fold-esmfold2-remote",
+      "target_port": "sequence_candidates"
+    },
+    {
+      "source_node_id": "esm3-generate-sequence-biohub-open",
+      "source_port": "sequence_candidates",
+      "target_node_id": "folding-fold-simplefold-local",
+      "target_port": "sequence_candidates"
+    },
+    {
+      "source_node_id": "folding-fold-esmfold2-remote",
       "source_port": "structure_candidates",
-      "target_node_id": "mpnn-score",
+      "target_node_id": "folding-simplefold-confidence-simplefold-local",
       "target_port": "structure_candidates"
     },
     {
-      "source_node_id": "esm3",
+      "source_node_id": "prompt-authoring-build-residue-layout-direct",
+      "source_port": "layout",
+      "target_node_id": "proteinmpnn-constraints-local",
+      "target_port": "layout"
+    },
+    {
+      "source_node_id": "prompt-authoring-build-residue-layout-direct",
+      "source_port": "layout",
+      "target_node_id": "proteinmpnn-random-fixed-positions-local",
+      "target_port": "layout"
+    },
+    {
+      "source_node_id": "protein-io-import-structure-direct",
+      "source_port": "structure",
+      "target_node_id": "proteinmpnn-design-local",
+      "target_port": "structure"
+    },
+    {
+      "source_node_id": "proteinmpnn-constraints-local",
+      "source_port": "constraints",
+      "target_node_id": "proteinmpnn-design-local",
+      "target_port": "constraints"
+    },
+    {
+      "source_node_id": "folding-fold-esmfold2-remote",
+      "source_port": "structure_candidates",
+      "target_node_id": "proteinmpnn-score-local",
+      "target_port": "structure_candidates"
+    },
+    {
+      "source_node_id": "esm3-generate-sequence-biohub-open",
       "source_port": "sequence_candidates",
-      "target_node_id": "mpnn-score",
+      "target_node_id": "proteinmpnn-score-local",
       "target_port": "sequence_candidates"
     },
     {
-      "source_node_id": "fold",
+      "source_node_id": "protein-io-import-structure-direct",
+      "source_port": "structure",
+      "target_node_id": "structure-annotation-dssp-compute-direct",
+      "target_port": "structure"
+    },
+    {
+      "source_node_id": "structure-annotation-dssp-compute-direct",
+      "source_port": "annotations",
+      "target_node_id": "structure-annotation-secondary-structure-extract-direct",
+      "target_port": "annotations"
+    },
+    {
+      "source_node_id": "structure-annotation-dssp-compute-direct",
+      "source_port": "annotations",
+      "target_node_id": "structure-annotation-sasa-compute-direct",
+      "target_port": "annotations"
+    },
+    {
+      "source_node_id": "folding-fold-esmfold2-remote",
       "source_port": "structure_candidates",
-      "target_node_id": "align",
+      "target_node_id": "structure-annotation-secondary-structure-agreement-direct",
       "target_port": "subjects"
     },
     {
-      "source_node_id": "esm3",
+      "source_node_id": "esm3-generate-paired-biohub-open",
       "source_port": "structure_candidates",
-      "target_node_id": "align",
+      "target_node_id": "structure-annotation-secondary-structure-agreement-direct",
       "target_port": "references"
     },
     {
-      "source_node_id": "align",
+      "source_node_id": "structure-annotation-secondary-structure-extract-direct",
+      "source_port": "secondary_structure_track",
+      "target_node_id": "structure-annotation-secondary-structure-agreement-direct",
+      "target_port": "expected"
+    },
+    {
+      "source_node_id": "structure-annotation-secondary-structure-extract-direct",
+      "source_port": "secondary_structure_track",
+      "target_node_id": "structure-annotation-secondary-structure-agreement-direct",
+      "target_port": "observed"
+    },
+    {
+      "source_node_id": "protein-io-import-structure-direct",
+      "source_port": "structure",
+      "target_node_id": "structure-transform-select-chains-direct",
+      "target_port": "structure"
+    },
+    {
+      "source_node_id": "structure-transform-select-chains-direct",
+      "source_port": "structure",
+      "target_node_id": "structure-transform-extract-backbone-direct",
+      "target_port": "structure"
+    },
+    {
+      "source_node_id": "structure-transform-extract-backbone-direct",
+      "source_port": "backbone",
+      "target_node_id": "structure-transform-backbone-to-structure-direct",
+      "target_port": "backbone"
+    },
+    {
+      "source_node_id": "structure-transform-backbone-to-structure-direct",
+      "source_port": "structure",
+      "target_node_id": "structure-transform-extract-sequence-direct",
+      "target_port": "structure"
+    },
+    {
+      "source_node_id": "structure-transform-extract-sequence-direct",
+      "source_port": "sequence",
+      "target_node_id": "protein-io-export-sequence-direct",
+      "target_port": "sequence"
+    },
+    {
+      "source_node_id": "structure-transform-backbone-to-structure-direct",
+      "source_port": "structure",
+      "target_node_id": "protein-io-export-structure-direct",
+      "target_port": "structure"
+    },
+    {
+      "source_node_id": "folding-fold-esmfold2-remote",
+      "source_port": "structure_candidates",
+      "target_node_id": "structure-comparison-align-single-direct",
+      "target_port": "subjects"
+    },
+    {
+      "source_node_id": "folding-fold-esmfold2-remote",
+      "source_port": "structure_candidates",
+      "target_node_id": "structure-comparison-align-pairwise-direct",
+      "target_port": "subjects"
+    },
+    {
+      "source_node_id": "folding-fold-esmfold2-remote",
+      "source_port": "structure_candidates",
+      "target_node_id": "structure-comparison-align-pairwise-fixed-reference",
+      "target_port": "subjects"
+    },
+    {
+      "source_node_id": "esm3-generate-paired-biohub-open",
+      "source_port": "structure_candidates",
+      "target_node_id": "structure-comparison-align-single-direct",
+      "target_port": "references"
+    },
+    {
+      "source_node_id": "esm3-generate-paired-biohub-open",
+      "source_port": "structure_candidates",
+      "target_node_id": "structure-comparison-align-pairwise-direct",
+      "target_port": "references"
+    },
+    {
+      "source_node_id": "esm3-generate-paired-biohub-open",
+      "source_port": "structure_candidates",
+      "target_node_id": "structure-comparison-align-pairwise-fixed-reference",
+      "target_port": "references"
+    },
+    {
+      "source_node_id": "structure-comparison-align-single-direct",
+      "source_port": "alignment",
+      "target_node_id": "structure-comparison-tm-score-fixed-reference",
+      "target_port": "alignment"
+    },
+    {
+      "source_node_id": "folding-fold-esmfold2-remote",
+      "source_port": "structure_candidates",
+      "target_node_id": "structure-comparison-tm-score-fixed-reference",
+      "target_port": "subjects"
+    },
+    {
+      "source_node_id": "esm3-generate-paired-biohub-open",
+      "source_port": "structure_candidates",
+      "target_node_id": "structure-comparison-tm-score-fixed-reference",
+      "target_port": "references"
+    },
+    {
+      "source_node_id": "structure-comparison-align-pairwise-direct",
       "source_port": "alignments",
-      "target_node_id": "tm-score",
+      "target_node_id": "structure-comparison-batch-tm-score-fixed-reference",
       "target_port": "alignments"
     },
     {
-      "source_node_id": "fold",
+      "source_node_id": "folding-fold-esmfold2-remote",
       "source_port": "structure_candidates",
-      "target_node_id": "tm-score",
+      "target_node_id": "structure-comparison-batch-tm-score-fixed-reference",
       "target_port": "subjects"
     },
     {
-      "source_node_id": "esm3",
+      "source_node_id": "esm3-generate-paired-biohub-open",
       "source_port": "structure_candidates",
-      "target_node_id": "tm-score",
+      "target_node_id": "structure-comparison-batch-tm-score-fixed-reference",
       "target_port": "references"
     },
     {
-      "source_node_id": "esm3",
+      "source_node_id": "structure-comparison-align-pairwise-direct",
+      "source_port": "alignments",
+      "target_node_id": "structure-comparison-batch-tm-score-per-subject-counterpart",
+      "target_port": "alignments"
+    },
+    {
+      "source_node_id": "folding-fold-esmfold2-remote",
+      "source_port": "structure_candidates",
+      "target_node_id": "structure-comparison-batch-tm-score-per-subject-counterpart",
+      "target_port": "subjects"
+    },
+    {
+      "source_node_id": "esm3-generate-paired-biohub-open",
+      "source_port": "structure_candidates",
+      "target_node_id": "structure-comparison-batch-tm-score-per-subject-counterpart",
+      "target_port": "references"
+    },
+    {
+      "source_node_id": "structure-comparison-align-pairwise-direct",
+      "source_port": "alignments",
+      "target_node_id": "structure-comparison-rmsd-fixed-reference",
+      "target_port": "alignments"
+    },
+    {
+      "source_node_id": "folding-fold-esmfold2-remote",
+      "source_port": "structure_candidates",
+      "target_node_id": "structure-comparison-rmsd-fixed-reference",
+      "target_port": "subjects"
+    },
+    {
+      "source_node_id": "esm3-generate-paired-biohub-open",
+      "source_port": "structure_candidates",
+      "target_node_id": "structure-comparison-rmsd-fixed-reference",
+      "target_port": "references"
+    },
+    {
+      "source_node_id": "structure-comparison-align-pairwise-direct",
+      "source_port": "alignments",
+      "target_node_id": "structure-comparison-rmsd-per-subject-counterpart",
+      "target_port": "alignments"
+    },
+    {
+      "source_node_id": "folding-fold-esmfold2-remote",
+      "source_port": "structure_candidates",
+      "target_node_id": "structure-comparison-rmsd-per-subject-counterpart",
+      "target_port": "subjects"
+    },
+    {
+      "source_node_id": "esm3-generate-paired-biohub-open",
+      "source_port": "structure_candidates",
+      "target_node_id": "structure-comparison-rmsd-per-subject-counterpart",
+      "target_port": "references"
+    },
+    {
+      "source_node_id": "esm3-generate-sequence-biohub-open",
       "source_port": "sequence_candidates",
-      "target_node_id": "protein-sol",
+      "target_node_id": "solubility-protein-sol-local",
       "target_port": "sequence_candidates"
     },
     {
-      "source_node_id": "mpnn-score",
+      "source_node_id": "esm3-generate-sequence-biohub-open",
+      "source_port": "sequence_candidates",
+      "target_node_id": "solubility-soluprot-full-local",
+      "target_port": "sequence_candidates"
+    },
+    {
+      "source_node_id": "esm3-generate-sequence-biohub-open",
+      "source_port": "sequence_candidates",
+      "target_node_id": "solubility-soluprot-no-tm-local",
+      "target_port": "sequence_candidates"
+    },
+    {
+      "source_node_id": "esm3-generate-sequence-biohub-open",
+      "source_port": "sequence_candidates",
+      "target_node_id": "collection-ops-concat-candidates-direct",
+      "target_port": "candidates_a"
+    },
+    {
+      "source_node_id": "proteinmpnn-design-local",
+      "source_port": "sequence_candidates",
+      "target_node_id": "collection-ops-concat-candidates-direct",
+      "target_port": "candidates_b"
+    },
+    {
+      "source_node_id": "proteinmpnn-score-local",
       "source_port": "scores",
-      "target_node_id": "merge-scores",
+      "target_node_id": "collection-ops-merge-scores-direct",
       "target_port": "scores_a"
     },
     {
-      "source_node_id": "tm-score",
+      "source_node_id": "structure-comparison-batch-tm-score-fixed-reference",
       "source_port": "scores",
-      "target_node_id": "merge-scores",
+      "target_node_id": "collection-ops-merge-scores-direct",
       "target_port": "scores_b"
     },
     {
-      "source_node_id": "protein-sol",
+      "source_node_id": "solubility-protein-sol-local",
       "source_port": "scores",
-      "target_node_id": "merge-scores",
+      "target_node_id": "collection-ops-merge-scores-direct",
       "target_port": "scores_c"
     }
   ],
@@ -258,9 +952,21 @@
   "contract_lock": [
     {
       "contract_kind": "binding",
+      "contract_id": "collection_ops.concat_candidates.direct",
+      "contract_version": "2.0.0",
+      "contract_digest": "sha256:9c43af756ed19aa0a06b950e5c0a479a5611d0fcc08b98696e32f04304de9525"
+    },
+    {
+      "contract_kind": "binding",
       "contract_id": "collection_ops.merge_scores.direct",
       "contract_version": "2.0.0",
       "contract_digest": "sha256:6cafa944907bf62f07bab0b27318696cffb9a4c35d17af969462acfc6e97f362"
+    },
+    {
+      "contract_kind": "binding",
+      "contract_id": "esm3.generate_paired.biohub_medium",
+      "contract_version": "2.0.0",
+      "contract_digest": "sha256:de0e86f9824dccae461f5c2bf5729f87fbc8718ccc2b3e2bb455826ce58b8c92"
     },
     {
       "contract_kind": "binding",
@@ -270,9 +976,75 @@
     },
     {
       "contract_kind": "binding",
+      "contract_id": "esm3.generate_paired.local_open",
+      "contract_version": "2.0.0",
+      "contract_digest": "sha256:b6ffcb18bbc44c8d6b5a081a81651d9e18251967d72e44333ef8a7912bff54fd"
+    },
+    {
+      "contract_kind": "binding",
+      "contract_id": "esm3.generate_sequence.biohub_medium",
+      "contract_version": "2.0.0",
+      "contract_digest": "sha256:c8f0215d54a1f35405fb329a06c957dfced4bd89c30069362a2267140f344dd1"
+    },
+    {
+      "contract_kind": "binding",
+      "contract_id": "esm3.generate_sequence.biohub_open",
+      "contract_version": "2.0.0",
+      "contract_digest": "sha256:81ac469754a503e633e0f74382ea4c55755b8f5950f658716449b254442e719d"
+    },
+    {
+      "contract_kind": "binding",
+      "contract_id": "esm3.generate_sequence.local_open",
+      "contract_version": "2.0.0",
+      "contract_digest": "sha256:d5e6142eb8c2367c1044dd0f655b812aa158b35ab2f4db071b337086ccc14fd6"
+    },
+    {
+      "contract_kind": "binding",
+      "contract_id": "esm3.generate_structure.biohub_medium",
+      "contract_version": "2.0.0",
+      "contract_digest": "sha256:1c001edbe29ce7f5a4b32f922f4fa0d0c5c87ca04b2dc21b0735008736d205a8"
+    },
+    {
+      "contract_kind": "binding",
+      "contract_id": "esm3.generate_structure.biohub_open",
+      "contract_version": "2.0.0",
+      "contract_digest": "sha256:5653554ef9b4e5deef73ac91bd82ad36da1004c3e6836cffdbbcc36ad4811d30"
+    },
+    {
+      "contract_kind": "binding",
+      "contract_id": "esm3.generate_structure.local_open",
+      "contract_version": "2.0.0",
+      "contract_digest": "sha256:c0915585802b341349ee0f5d70e66375b1eaa6528f2958945b67c1f79e67da95"
+    },
+    {
+      "contract_kind": "binding",
+      "contract_id": "folding.fold.esmfold2_local",
+      "contract_version": "2.0.0",
+      "contract_digest": "sha256:02cbafc5985b91cd88517090186bbe4081cc9e9d995ebf2754223ec7ba7d8027"
+    },
+    {
+      "contract_kind": "binding",
       "contract_id": "folding.fold.esmfold2_remote",
       "contract_version": "2.0.0",
       "contract_digest": "sha256:1f1c3cf7cdeb9f5bfe8950511da7b668a3986249aa4ad891ddd38379647f194f"
+    },
+    {
+      "contract_kind": "binding",
+      "contract_id": "folding.fold.simplefold_local",
+      "contract_version": "2.0.0",
+      "contract_digest": "sha256:eb3f98f077754033af2aeb9ece16cb5d718a2ab8ac9e438965c1b53b41789058"
+    },
+    {
+      "contract_kind": "binding",
+      "contract_id": "folding.simplefold_confidence.simplefold_local",
+      "contract_version": "2.0.0",
+      "contract_digest": "sha256:409190e60d3934597f915180766f4418995c24fe879d8f427e076a320e7924e8"
+    },
+    {
+      "contract_kind": "binding",
+      "contract_id": "prompt_authoring.add_function_annotation.direct",
+      "contract_version": "2.0.0",
+      "contract_digest": "sha256:b6e6254e90aaaef6123168e93712ee584c87021f5f1673e9ddea78d5344b7187"
     },
     {
       "contract_kind": "binding",
@@ -288,15 +1060,69 @@
     },
     {
       "contract_kind": "binding",
+      "contract_id": "prompt_authoring.edit_residue_layout.direct",
+      "contract_version": "2.0.0",
+      "contract_digest": "sha256:18791196f537211ff697d8ac209364d70f440f38cc2e16702762f7d20dde0c9c"
+    },
+    {
+      "contract_kind": "binding",
+      "contract_id": "prompt_authoring.random_insert_masked.direct",
+      "contract_version": "2.0.0",
+      "contract_digest": "sha256:db3e32f4604136c08b38367052f4a04d7d4bc567e0a8de32d4b8c2076d43ba9d"
+    },
+    {
+      "contract_kind": "binding",
+      "contract_id": "prompt_authoring.random_mask.direct",
+      "contract_version": "2.0.0",
+      "contract_digest": "sha256:9f530a9a38e2790da8bc999a07fc2825749ad699e2f0319d160ba27481d781d1"
+    },
+    {
+      "contract_kind": "binding",
+      "contract_id": "prompt_authoring.update_prompt_sequence.direct",
+      "contract_version": "2.0.0",
+      "contract_digest": "sha256:6513a26944a4d4240e680ca7a44a6a7b4ec80756ef764907e975b064962c5284"
+    },
+    {
+      "contract_kind": "binding",
       "contract_id": "protein_io.export_sequence.direct",
       "contract_version": "2.0.0",
       "contract_digest": "sha256:528bb9fdcd35304d08a8fdfae2606812376d62c341827f5746568da118949c93"
     },
     {
       "contract_kind": "binding",
+      "contract_id": "protein_io.export_structure.direct",
+      "contract_version": "2.0.0",
+      "contract_digest": "sha256:45e5ec1aeb60d37109d415569ded20c6683059fbf3625f48b5004e9c155fb2d5"
+    },
+    {
+      "contract_kind": "binding",
+      "contract_id": "protein_io.import_sequence.direct",
+      "contract_version": "2.0.0",
+      "contract_digest": "sha256:4cc83fe47142fbe9f72e058cd7a125988ed4a43e812fb3e7c3122f03a9adfd7b"
+    },
+    {
+      "contract_kind": "binding",
       "contract_id": "protein_io.import_structure.direct",
       "contract_version": "2.0.0",
       "contract_digest": "sha256:7fa5124600c489713d529afd3b964d1e4714ba748467ef5d1fec4737c078e76d"
+    },
+    {
+      "contract_kind": "binding",
+      "contract_id": "proteinmpnn.constraints.local",
+      "contract_version": "2.0.0",
+      "contract_digest": "sha256:01a0970604c13a8760c2112737e71318d5503bddd5c8db8fe443cfffb4342ea5"
+    },
+    {
+      "contract_kind": "binding",
+      "contract_id": "proteinmpnn.design.local",
+      "contract_version": "2.0.0",
+      "contract_digest": "sha256:91191b0d829547ac1cd8df884be92c522caa0bb976c47ec6d11f63fab5663b58"
+    },
+    {
+      "contract_kind": "binding",
+      "contract_id": "proteinmpnn.random_fixed_positions.local",
+      "contract_version": "2.0.0",
+      "contract_digest": "sha256:1f2e032c35f0a44d44471af25a362c455d77ff44d641d806ec0b5f012080823c"
     },
     {
       "contract_kind": "binding",
@@ -312,9 +1138,33 @@
     },
     {
       "contract_kind": "binding",
+      "contract_id": "solubility.soluprot_full.local",
+      "contract_version": "2.0.0",
+      "contract_digest": "sha256:5302d3839295f072c5719db53501c4d7dcb8446eccf14cf934cfb6c4902798dc"
+    },
+    {
+      "contract_kind": "binding",
+      "contract_id": "solubility.soluprot_no_tm.local",
+      "contract_version": "2.0.0",
+      "contract_digest": "sha256:d0f4f56c30d4202b1339165f1082b2f5bfc082ae7544341ea4e29531f30e1d78"
+    },
+    {
+      "contract_kind": "binding",
       "contract_id": "structure_annotation.dssp_compute.direct",
       "contract_version": "2.0.0",
       "contract_digest": "sha256:8386f62b525b19c8cb984d46801a9bab4f685e39faf7f9ba7c43b82ea640a91d"
+    },
+    {
+      "contract_kind": "binding",
+      "contract_id": "structure_annotation.sasa_compute.direct",
+      "contract_version": "2.0.0",
+      "contract_digest": "sha256:4b0cc3f9a60d500a82d207a9b48bd29171c4b44ecd1579a02a38f780f98f714b"
+    },
+    {
+      "contract_kind": "binding",
+      "contract_id": "structure_annotation.secondary_structure_agreement.direct",
+      "contract_version": "2.0.0",
+      "contract_digest": "sha256:5f0aa19a3d3ba80b9bd312fd9c267b524553940cfc3dc74333f333fce7fa2f0b"
     },
     {
       "contract_kind": "binding",
@@ -324,9 +1174,21 @@
     },
     {
       "contract_kind": "binding",
+      "contract_id": "structure_comparison.align_pairwise.direct",
+      "contract_version": "2.0.0",
+      "contract_digest": "sha256:6370e053f2721ba97993f0c0365134789130ba2ba3740bc337ec73dbef574386"
+    },
+    {
+      "contract_kind": "binding",
       "contract_id": "structure_comparison.align_pairwise.fixed_reference",
       "contract_version": "2.0.0",
       "contract_digest": "sha256:e0e12e45180be2164a5fb1b79317b60d7b83534886f113312e93fd981b032183"
+    },
+    {
+      "contract_kind": "binding",
+      "contract_id": "structure_comparison.align_single.direct",
+      "contract_version": "2.0.0",
+      "contract_digest": "sha256:f4049af98c98231f0b6ace67f48d8297e01b8829d5b4747d38dc016e2ba6b827"
     },
     {
       "contract_kind": "binding",
@@ -336,9 +1198,57 @@
     },
     {
       "contract_kind": "binding",
+      "contract_id": "structure_comparison.batch_tm_score.per_subject_counterpart",
+      "contract_version": "2.0.0",
+      "contract_digest": "sha256:6ecac762b3a3ac6718b5a421c6e4f917c92274d42c55dc8045b4f7ae2eaf8469"
+    },
+    {
+      "contract_kind": "binding",
+      "contract_id": "structure_comparison.rmsd.fixed_reference",
+      "contract_version": "2.0.0",
+      "contract_digest": "sha256:b6c763fea1b68412014f8c02f321ea5a33195bcd5f950d4b611ab86732e49ef2"
+    },
+    {
+      "contract_kind": "binding",
+      "contract_id": "structure_comparison.rmsd.per_subject_counterpart",
+      "contract_version": "2.0.0",
+      "contract_digest": "sha256:a1388176a40110eb5e9e64ca421e7b729db610e54116ecff2b6d0c0016434e1f"
+    },
+    {
+      "contract_kind": "binding",
+      "contract_id": "structure_comparison.tm_score.fixed_reference",
+      "contract_version": "2.0.0",
+      "contract_digest": "sha256:3220afa1999386645f7f5f3d1c303164354b7b661e5ec6411cb581909e2fcea0"
+    },
+    {
+      "contract_kind": "binding",
+      "contract_id": "structure_transform.backbone_to_structure.direct",
+      "contract_version": "2.0.0",
+      "contract_digest": "sha256:67202d0b3228f9fb2c9b95862776647e2694c5aa7eda0e62fd7f1b12ea7f9b8a"
+    },
+    {
+      "contract_kind": "binding",
+      "contract_id": "structure_transform.extract_backbone.direct",
+      "contract_version": "2.0.0",
+      "contract_digest": "sha256:ec69bb6b102642106c789d6069d47f5ccaebd0f9ae8b5047d141fb0b9a1ffef5"
+    },
+    {
+      "contract_kind": "binding",
       "contract_id": "structure_transform.extract_sequence.direct",
       "contract_version": "2.0.0",
       "contract_digest": "sha256:e8e028c007ba08a7c47a9d2e0e431f41f75b242cae57aecb7a013d86cf7ecfd0"
+    },
+    {
+      "contract_kind": "binding",
+      "contract_id": "structure_transform.select_chains.direct",
+      "contract_version": "2.0.0",
+      "contract_digest": "sha256:c00961aa9e75efa3f3f1d09f48f2b36440b9b7842888f7d594a317881db20cde"
+    },
+    {
+      "contract_kind": "method",
+      "contract_id": "collection_ops.concat_candidates.method",
+      "contract_version": "2.0.0",
+      "contract_digest": "sha256:e7dad7376d3ae1877dfd4e20a001621bb86834346eb9766fd9d4be0cfe0b530c"
     },
     {
       "contract_kind": "method",
@@ -348,15 +1258,87 @@
     },
     {
       "contract_kind": "method",
+      "contract_id": "esm3.generate_paired.esm3_medium_2024_08",
+      "contract_version": "2.0.0",
+      "contract_digest": "sha256:4afcd69252b91bee6538ac76af3dd1647f7bb2ba60669e712cbacfd6f8bba019"
+    },
+    {
+      "contract_kind": "method",
       "contract_id": "esm3.generate_paired.esm3_open_2024_03",
       "contract_version": "2.0.0",
       "contract_digest": "sha256:c5b4602d66429b015dd2df505232a5634ff0e543c0f0054292f718f7e9f6cd26"
     },
     {
       "contract_kind": "method",
+      "contract_id": "esm3.generate_paired.esm3_sm_open_v1_local",
+      "contract_version": "2.0.0",
+      "contract_digest": "sha256:a5c9f8197292ad83915584a8af255b185cf37233dea1efb0e0c527302a6d7334"
+    },
+    {
+      "contract_kind": "method",
+      "contract_id": "esm3.generate_sequence.esm3_medium_2024_08",
+      "contract_version": "2.0.0",
+      "contract_digest": "sha256:11ffe19bbe2e878d68b320c17c4e10db18dc4bb26bb53eff671ceed1db21644a"
+    },
+    {
+      "contract_kind": "method",
+      "contract_id": "esm3.generate_sequence.esm3_open_2024_03",
+      "contract_version": "2.0.0",
+      "contract_digest": "sha256:e93f0e5ce61922ee216fb6bd6bb38e03d53a1e9d7bb265b52b7f2b526df73041"
+    },
+    {
+      "contract_kind": "method",
+      "contract_id": "esm3.generate_sequence.esm3_sm_open_v1_local",
+      "contract_version": "2.0.0",
+      "contract_digest": "sha256:19b6a0bd54a002c33c28d086a0f951a60e6739edeb726ee6932a3009ddc0a71d"
+    },
+    {
+      "contract_kind": "method",
+      "contract_id": "esm3.generate_structure.esm3_medium_2024_08",
+      "contract_version": "2.0.0",
+      "contract_digest": "sha256:1b9f464329cd772d18b870b4c8f1e7fadcb48ce2f181f8e944a9e4d3fac15cdb"
+    },
+    {
+      "contract_kind": "method",
+      "contract_id": "esm3.generate_structure.esm3_open_2024_03",
+      "contract_version": "2.0.0",
+      "contract_digest": "sha256:138db30710aa12bcde7b0479896e034dbc83bfb2ee02d57f02363b289e9b9bc0"
+    },
+    {
+      "contract_kind": "method",
+      "contract_id": "esm3.generate_structure.esm3_sm_open_v1_local",
+      "contract_version": "2.0.0",
+      "contract_digest": "sha256:e16abf7dceab4d06b2c89c52ad7d067a6f6f010cd80d04372da4c53f1ee7fef5"
+    },
+    {
+      "contract_kind": "method",
       "contract_id": "folding.fold.esmfold2_fast_biohub_2026_05",
       "contract_version": "2.0.0",
       "contract_digest": "sha256:8538d6c91f811e3ce139084ed0393b521ae5f35f478807045b9f821053c27927"
+    },
+    {
+      "contract_kind": "method",
+      "contract_id": "folding.fold.esmfold2_hf_1ebf0e3",
+      "contract_version": "2.0.0",
+      "contract_digest": "sha256:e0c82b402b22070891e14023e1c2158a51abbe389108d88847f44e3646469dc9"
+    },
+    {
+      "contract_kind": "method",
+      "contract_id": "folding.fold.simplefold_100m_c7a5570",
+      "contract_version": "2.0.0",
+      "contract_digest": "sha256:42b9c3f7bec3d8c3614fb5c5f95a5622d8c173c8adc4c8fd2c68048ac75bb060"
+    },
+    {
+      "contract_kind": "method",
+      "contract_id": "folding.simplefold_confidence.existing_structure_1_6b_c7a5570",
+      "contract_version": "2.0.0",
+      "contract_digest": "sha256:e1aa1239a0d71bd91f4f893b16c6fcf4ea79698c5db033ff9dfc0fd66c46890c"
+    },
+    {
+      "contract_kind": "method",
+      "contract_id": "prompt_authoring.add_function_annotation.method",
+      "contract_version": "2.0.0",
+      "contract_digest": "sha256:4fac2a27152aff5b20dee172aea3750cff0ffbbe22a0f706c7a63b9c358a723f"
     },
     {
       "contract_kind": "method",
@@ -372,15 +1354,69 @@
     },
     {
       "contract_kind": "method",
+      "contract_id": "prompt_authoring.edit_residue_layout.method",
+      "contract_version": "2.0.0",
+      "contract_digest": "sha256:3323570728adc56d9459b9f6049e552ad55d3eadcf5a9b38e87bde45176d6d80"
+    },
+    {
+      "contract_kind": "method",
+      "contract_id": "prompt_authoring.random_insert_masked.method",
+      "contract_version": "2.0.0",
+      "contract_digest": "sha256:dc90fda1f5fb608f66c958cacb4c020d4c4c63d9bd1bba01510d0cd8c884e3e1"
+    },
+    {
+      "contract_kind": "method",
+      "contract_id": "prompt_authoring.random_mask.method",
+      "contract_version": "2.0.0",
+      "contract_digest": "sha256:e8da80baf3b38c526edef4d98ee70d899ed5a8daefdfab2ec150d937925e1b82"
+    },
+    {
+      "contract_kind": "method",
+      "contract_id": "prompt_authoring.update_prompt_sequence.method",
+      "contract_version": "2.0.0",
+      "contract_digest": "sha256:f5f9e9fc19a7855620d658eb537096fa43f340928d6122ea2317ae3d06eef8cd"
+    },
+    {
+      "contract_kind": "method",
       "contract_id": "protein_io.export_sequence.method",
       "contract_version": "2.0.0",
       "contract_digest": "sha256:b660b27c3a7315ec5f93f0512b61d1011bce67dc01d27dacfaa4fc3f6a5a4a11"
     },
     {
       "contract_kind": "method",
+      "contract_id": "protein_io.export_structure.method",
+      "contract_version": "2.0.0",
+      "contract_digest": "sha256:37632974cf86e7a6b3d2be262d3c2209563d97c607bf6915a0c07449fdd8a885"
+    },
+    {
+      "contract_kind": "method",
+      "contract_id": "protein_io.import_sequence.method",
+      "contract_version": "2.0.0",
+      "contract_digest": "sha256:e7a9bd895960b0549e2cb99c28b247f03489c6816fa1d6e13915829d440d4a5f"
+    },
+    {
+      "contract_kind": "method",
       "contract_id": "protein_io.import_structure.method",
       "contract_version": "2.0.0",
       "contract_digest": "sha256:b0e699779fb7166d22462c4781aa2566be2929e9938804f0ea9428020bf2a441"
+    },
+    {
+      "contract_kind": "method",
+      "contract_id": "proteinmpnn.constraints.repository_owned",
+      "contract_version": "2.0.0",
+      "contract_digest": "sha256:8971e1881a381fed4d6ae77e3f1ff71b54c1b7bb6448f8e891e3b989a169826b"
+    },
+    {
+      "contract_kind": "method",
+      "contract_id": "proteinmpnn.design.v_48_020_8907e667",
+      "contract_version": "2.0.0",
+      "contract_digest": "sha256:968299a0b73d4b6f1ca543767919db2c82b5d2a39ce469a91a96324307dda709"
+    },
+    {
+      "contract_kind": "method",
+      "contract_id": "proteinmpnn.random_fixed_positions.repository_owned",
+      "contract_version": "2.0.0",
+      "contract_digest": "sha256:139b51c8dad58d42e834e34fcc3ecf5f1066d1c2fd7eb6f0afa5d833130bfbdc"
     },
     {
       "contract_kind": "method",
@@ -396,9 +1432,33 @@
     },
     {
       "contract_kind": "method",
+      "contract_id": "solubility.soluprot_full.v1_1_0",
+      "contract_version": "2.0.0",
+      "contract_digest": "sha256:d85e9258b12917f38ab3595ab4455b6edba3debd352df5eacd6a137d4b47effa"
+    },
+    {
+      "contract_kind": "method",
+      "contract_id": "solubility.soluprot_no_tm.v1_1_0",
+      "contract_version": "2.0.0",
+      "contract_digest": "sha256:ddb124740d0f165d709f18648f74c4ee180b819bb1bfbf9076311bc9fd03a6ae"
+    },
+    {
+      "contract_kind": "method",
       "contract_id": "structure_annotation.dssp_compute.method",
       "contract_version": "2.0.0",
       "contract_digest": "sha256:a9e511135c4094218cb87326c896a1dd5fd0d043578a8fb86dc4484fc72e75b3"
+    },
+    {
+      "contract_kind": "method",
+      "contract_id": "structure_annotation.sasa_compute.method",
+      "contract_version": "2.0.0",
+      "contract_digest": "sha256:638f19850808f4a2a41714b220d51801bc9e584755fc1ce4809cd4c4c7cdde0b"
+    },
+    {
+      "contract_kind": "method",
+      "contract_id": "structure_annotation.secondary_structure_agreement.method",
+      "contract_version": "2.0.0",
+      "contract_digest": "sha256:09ac6c7408d8bb9ec7b63c2d9bed21cb4441fd78c99147c59fd510715c67a7c5"
     },
     {
       "contract_kind": "method",
@@ -414,15 +1474,39 @@
     },
     {
       "contract_kind": "method",
+      "contract_id": "structure_comparison.rmsd.method",
+      "contract_version": "2.0.0",
+      "contract_digest": "sha256:a295c2ee35df9c5bfa40bfe6a2cf32785f41db3323734dbef4216d5192a141bb"
+    },
+    {
+      "contract_kind": "method",
       "contract_id": "structure_comparison.tm_score.reference_normalized.method",
       "contract_version": "2.0.0",
       "contract_digest": "sha256:a69ecf9a3dd3c80a4acd710b907a37cc95160274419dc971a3d3da58ccfb3ecd"
     },
     {
       "contract_kind": "method",
+      "contract_id": "structure_transform.backbone_to_structure.method",
+      "contract_version": "2.0.0",
+      "contract_digest": "sha256:f3fff42a287972e9acb0cd7f32d322d8062fc2f4fb72bef65dcc8b585ea0ea70"
+    },
+    {
+      "contract_kind": "method",
+      "contract_id": "structure_transform.extract_backbone.method",
+      "contract_version": "2.0.0",
+      "contract_digest": "sha256:c53922535d234752dccbc091b953a6d4fab4036eba33cfd9f6150c375abbeb94"
+    },
+    {
+      "contract_kind": "method",
       "contract_id": "structure_transform.extract_sequence.method",
       "contract_version": "2.0.0",
       "contract_digest": "sha256:d0acf25031f51422f4d5b668eacb81062a08f97a93e131a8ea26bb096c11737c"
+    },
+    {
+      "contract_kind": "method",
+      "contract_id": "structure_transform.select_chains.method",
+      "contract_version": "2.0.0",
+      "contract_digest": "sha256:ceb960ad54e0c7d0ee4dd3949f53143d4587cbd3b66bae103dade84e081fee5e"
     },
     {
       "contract_kind": "metric",
@@ -450,6 +1534,12 @@
     },
     {
       "contract_kind": "metric",
+      "contract_id": "solubility.soluprot_probability",
+      "contract_version": "2.0.0",
+      "contract_digest": "sha256:35c28159e932f14aa09dde4ef2d30828a23fe3d4823b09f1f61c4eefe70d69f0"
+    },
+    {
+      "contract_kind": "metric",
       "contract_id": "structure.pae",
       "contract_version": "2.0.0",
       "contract_digest": "sha256:19a641472413d5f71172f4becc789a4291363b239b0c96f243667e1148526ae8"
@@ -474,9 +1564,27 @@
     },
     {
       "contract_kind": "metric",
+      "contract_id": "structure_annotation.secondary_structure_agreement",
+      "contract_version": "2.0.0",
+      "contract_digest": "sha256:a357d1a307b90453397f1d9e0ee9cd0d84ea67b94373a9120487cf4c23e9b316"
+    },
+    {
+      "contract_kind": "metric",
+      "contract_id": "structure_comparison.rmsd",
+      "contract_version": "2.0.0",
+      "contract_digest": "sha256:459757641f1b7eb6ab119dec52cb158daf253089425ace5536a9e253eed5fb2f"
+    },
+    {
+      "contract_kind": "metric",
       "contract_id": "structure_comparison.tm_score",
       "contract_version": "2.0.0",
       "contract_digest": "sha256:c4908eb9c82c290d5657e9593ed50e9e80652aa161a8649ad095715659a16a10"
+    },
+    {
+      "contract_kind": "node_type",
+      "contract_id": "collection_ops.concat_candidates",
+      "contract_version": "2.0.0",
+      "contract_digest": "sha256:8dcb0e7a589f6a2a44b25c081db66df974e30b9405da0578895b971e74e86b8a"
     },
     {
       "contract_kind": "node_type",
@@ -492,9 +1600,33 @@
     },
     {
       "contract_kind": "node_type",
+      "contract_id": "esm3.generate_sequence",
+      "contract_version": "2.0.0",
+      "contract_digest": "sha256:1ead76086a9c3f2d281e0a432d2234af1772301c60015235fa587f706e181118"
+    },
+    {
+      "contract_kind": "node_type",
+      "contract_id": "esm3.generate_structure",
+      "contract_version": "2.0.0",
+      "contract_digest": "sha256:7ef5aad96e3d23f2a08ba6b22469d4d1fd8d469830cf3f7bc6c952276235c412"
+    },
+    {
+      "contract_kind": "node_type",
       "contract_id": "folding.fold",
       "contract_version": "2.0.0",
       "contract_digest": "sha256:17c058b26f491d3706c6091f6984f57161118c1eeb37cb820c3a135584d8efbe"
+    },
+    {
+      "contract_kind": "node_type",
+      "contract_id": "folding.simplefold_confidence",
+      "contract_version": "2.0.0",
+      "contract_digest": "sha256:454a2e6eb4af658c3a7d15796180ef07a4c26666228df1b3fd8facf05efda268"
+    },
+    {
+      "contract_kind": "node_type",
+      "contract_id": "prompt_authoring.add_function_annotation",
+      "contract_version": "2.0.0",
+      "contract_digest": "sha256:86963bf9230b2ba3a2a632831ed81fc38be82622d15396ca0046ea7e8c9556fe"
     },
     {
       "contract_kind": "node_type",
@@ -510,15 +1642,69 @@
     },
     {
       "contract_kind": "node_type",
+      "contract_id": "prompt_authoring.edit_residue_layout",
+      "contract_version": "2.0.0",
+      "contract_digest": "sha256:ca8fd3abb2ed5eb610314371c5e8fe2822ac0ed29fe1333aa9e51c1e4e639155"
+    },
+    {
+      "contract_kind": "node_type",
+      "contract_id": "prompt_authoring.random_insert_masked",
+      "contract_version": "2.0.0",
+      "contract_digest": "sha256:483a9a2ec159cd254eab8ef195a6a1cfc10ae792432754147698522bc539583b"
+    },
+    {
+      "contract_kind": "node_type",
+      "contract_id": "prompt_authoring.random_mask",
+      "contract_version": "2.0.0",
+      "contract_digest": "sha256:1d5fad34af3b136ec7ef4d17268fb9d8f9b549deec3b227dee0a88c4fd614d69"
+    },
+    {
+      "contract_kind": "node_type",
+      "contract_id": "prompt_authoring.update_prompt_sequence",
+      "contract_version": "2.0.0",
+      "contract_digest": "sha256:010002793abbe0512e1d088fa7e1b28d1da0d44b6dc3822b95dd62422e6e4c5e"
+    },
+    {
+      "contract_kind": "node_type",
       "contract_id": "protein_io.export_sequence",
       "contract_version": "2.0.0",
       "contract_digest": "sha256:ad84eb154d93c1644d8b3313b6b2e366a36be997f294e8134b0f1602c2697a8a"
     },
     {
       "contract_kind": "node_type",
+      "contract_id": "protein_io.export_structure",
+      "contract_version": "2.0.0",
+      "contract_digest": "sha256:09205e7bb98529ab933a697ce562bb3971a3390fffc6fd7661a62081d0b0076d"
+    },
+    {
+      "contract_kind": "node_type",
+      "contract_id": "protein_io.import_sequence",
+      "contract_version": "2.0.0",
+      "contract_digest": "sha256:7c8e5a42cc947aca6973a1c4c76232230dd3d315ac45b8ad1c2abccee5d79603"
+    },
+    {
+      "contract_kind": "node_type",
       "contract_id": "protein_io.import_structure",
       "contract_version": "2.0.0",
       "contract_digest": "sha256:30e6178b7c47e0f63b5db3524cf0ba4015ccfc1dbbbf278dd73c29fd36f8ad0d"
+    },
+    {
+      "contract_kind": "node_type",
+      "contract_id": "proteinmpnn.constraints",
+      "contract_version": "2.0.0",
+      "contract_digest": "sha256:985e5eca8da9907ff8442ab13ae81fecffa0898285c606eadef0c1a2894d3499"
+    },
+    {
+      "contract_kind": "node_type",
+      "contract_id": "proteinmpnn.design",
+      "contract_version": "2.0.0",
+      "contract_digest": "sha256:4ab146ef22066541be339ab66d8383989cee93095d86a8d07d4e18d0bef0bf6f"
+    },
+    {
+      "contract_kind": "node_type",
+      "contract_id": "proteinmpnn.random_fixed_positions",
+      "contract_version": "2.0.0",
+      "contract_digest": "sha256:ee5e7c432aaa9c4163b4f58489c8e330174815d46dde75ec3f66c69ef297bc0f"
     },
     {
       "contract_kind": "node_type",
@@ -540,6 +1726,18 @@
     },
     {
       "contract_kind": "node_type",
+      "contract_id": "structure_annotation.sasa_compute",
+      "contract_version": "2.0.0",
+      "contract_digest": "sha256:3308f49bef8969e2834b504161e7645f7799b6565dc5d9a67ca68edbf1bf1536"
+    },
+    {
+      "contract_kind": "node_type",
+      "contract_id": "structure_annotation.secondary_structure_agreement",
+      "contract_version": "2.0.0",
+      "contract_digest": "sha256:0228b3df5e8ecce37b3709ef20c79887140c16f7e49bd0876c136bbd99ea9d8b"
+    },
+    {
+      "contract_kind": "node_type",
       "contract_id": "structure_annotation.secondary_structure_extract",
       "contract_version": "2.0.0",
       "contract_digest": "sha256:3af545a28a983d02072e337197d970a40b2c2e8b8dc3d63b1d4d3868367f0f96"
@@ -552,15 +1750,51 @@
     },
     {
       "contract_kind": "node_type",
+      "contract_id": "structure_comparison.align_single",
+      "contract_version": "2.0.0",
+      "contract_digest": "sha256:e0d0e74ce79f7c8bc95f21a7bed835f2dcd0a7fa2582ee7b9e7a9545ae3198fa"
+    },
+    {
+      "contract_kind": "node_type",
       "contract_id": "structure_comparison.batch_tm_score",
       "contract_version": "2.0.0",
       "contract_digest": "sha256:73fad2918561ac48af40ba903a22bc6c7af31e0b15d34dc984a5be32f715f0b0"
     },
     {
       "contract_kind": "node_type",
+      "contract_id": "structure_comparison.rmsd",
+      "contract_version": "2.0.0",
+      "contract_digest": "sha256:fcaebbb39795c3f9c5ff5b00688b19ae5f1560b7dd5f07f9c5594e6a78ec9288"
+    },
+    {
+      "contract_kind": "node_type",
+      "contract_id": "structure_comparison.tm_score",
+      "contract_version": "2.0.0",
+      "contract_digest": "sha256:ebad34de925009d87e9835b5f43a2c92ae4d9075d1bf91a42c82a59e7355907f"
+    },
+    {
+      "contract_kind": "node_type",
+      "contract_id": "structure_transform.backbone_to_structure",
+      "contract_version": "2.0.0",
+      "contract_digest": "sha256:8164b29b5a5b766308ac6c7bc7cd799431045f1712643f189d0ee0edd31db392"
+    },
+    {
+      "contract_kind": "node_type",
+      "contract_id": "structure_transform.extract_backbone",
+      "contract_version": "2.0.0",
+      "contract_digest": "sha256:f7ec1454a7854a6b7170000c198a89ab71aaba2b2972e11d3cb0cf7109baf6a1"
+    },
+    {
+      "contract_kind": "node_type",
       "contract_id": "structure_transform.extract_sequence",
       "contract_version": "2.0.0",
       "contract_digest": "sha256:0002debaa144aaee4d829fa40818fa8bc84c3a0da012695ed3ae8ded7433efb2"
+    },
+    {
+      "contract_kind": "node_type",
+      "contract_id": "structure_transform.select_chains",
+      "contract_version": "2.0.0",
+      "contract_digest": "sha256:985a5b77eebed758cd77bf754b48e9a088c9178bc50e36ca23a0a55a316b5fc6"
     },
     {
       "contract_kind": "port_type",
@@ -636,9 +1870,21 @@
     },
     {
       "contract_kind": "port_type",
+      "contract_id": "proteinmpnn.constraints",
+      "contract_version": "2.0.0",
+      "contract_digest": "sha256:36db16305da2a755c0a06481512524ac5a2b9693876aaeae31b71e2bf2a66b98"
+    },
+    {
+      "contract_kind": "port_type",
       "contract_id": "residue.layout",
       "contract_version": "2.0.0",
       "contract_digest": "sha256:911e7f11d03a26372aec750751caba34a934fefd64f041d9e8cce7c947f71ab0"
+    },
+    {
+      "contract_kind": "port_type",
+      "contract_id": "residue.map",
+      "contract_version": "2.0.0",
+      "contract_digest": "sha256:ef6249643614d5c80f6354ac9d42b6b781bf4149f7cc4cfe8e9b965824e8c6ae"
     },
     {
       "contract_kind": "port_type",
@@ -654,15 +1900,33 @@
     },
     {
       "contract_kind": "port_type",
+      "contract_id": "structure_annotation.sasa_track",
+      "contract_version": "2.0.0",
+      "contract_digest": "sha256:133bbdcb564ebfbbecfd17f5c76f6c21ddaf8ad7e732f52a23cdde25f22b923c"
+    },
+    {
+      "contract_kind": "port_type",
       "contract_id": "structure_annotation.secondary_structure_track",
       "contract_version": "2.0.0",
       "contract_digest": "sha256:ae06ebb97e8d8cc3c9a359911e09db59e5fb9d6880b6d3ee0c1837f54fb34957"
     },
     {
       "contract_kind": "port_type",
+      "contract_id": "structure_comparison.alignment",
+      "contract_version": "2.0.0",
+      "contract_digest": "sha256:1852467d03da9e74fe767f0414cc39759dd785c8ed26134210946ae8c933d63d"
+    },
+    {
+      "contract_kind": "port_type",
       "contract_id": "structure_comparison.alignment_collection",
       "contract_version": "2.0.0",
       "contract_digest": "sha256:90bd4912559fa84aee1ac7d978f0b25fb72777ab5b2aa2c8dc3c4b10b5d96b87"
+    },
+    {
+      "contract_kind": "port_type",
+      "contract_id": "structure_transform.backbone_structure",
+      "contract_version": "2.0.0",
+      "contract_digest": "sha256:9471ffd7cf24519ca311ccde8e169879f15c7cd65fad7f33a441ccb30a8c2b4d"
     }
   ]
 }

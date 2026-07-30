@@ -152,6 +152,39 @@ def test_routine_tier_reports_result_and_preserves_configured_roots(
     )
 
 
+def test_examples_v2_tier_is_provider_free_and_preserves_configured_roots(
+    tmp_path: Path,
+) -> None:
+    configured_roots = {
+        variable: tmp_path / variable.lower()
+        for variable in ROOT_VARIABLES
+    }
+    for path in configured_roots.values():
+        path.mkdir()
+        (path / "production-sentinel").write_text("unchanged")
+
+    env = os.environ.copy()
+    env.update({name: str(path) for name, path in configured_roots.items()})
+    results_root = tmp_path / "verification-results"
+    env["PROTEIN_WORKBENCH_VERIFICATION_RESULTS_ROOT"] = str(results_root)
+
+    result = _run_verifier("examples-v2", env=env)
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "BACKEND VERIFICATION TIER: examples-v2" in result.stdout
+    assert "BACKEND VERIFICATION RESULT: passed" in result.stdout
+    retained_results = list(
+        results_root.glob("examples-v2/*/pytest.xml")
+    )
+    assert len(retained_results) == 1
+    assert str(retained_results[0].parent) in result.stdout
+    for path in configured_roots.values():
+        assert [child.name for child in path.iterdir()] == [
+            "production-sentinel"
+        ]
+        assert (path / "production-sentinel").read_text() == "unchanged"
+
+
 def test_live_provider_tier_rejects_a_skipped_test() -> None:
     result = _run_verifier(
         "live-provider",

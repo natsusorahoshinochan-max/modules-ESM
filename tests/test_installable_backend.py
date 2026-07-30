@@ -54,22 +54,17 @@ SOURCE_PORT_TYPE_DIGESTS = {
     f"{definition.type_id}@{definition.version}": definition.contract_digest
     for definition in SOURCE_PORT_CATALOG.port_types
 }
-SOURCE_NODE_REFERENCES = sorted(
-    (
-        {
-            "contract_kind": "node_type",
-            "contract_id": contract.contract_id,
-            "contract_version": contract.contract_version,
-            "contract_digest": contract.contract_digest,
-        }
-        for contract in SOURCE_PORT_CATALOG.contracts
-        if contract.contract_kind == "node_type"
-    ),
-    key=lambda reference: (
-        reference["contract_id"],
-        reference["contract_version"],
-    ),
-)
+SOURCE_CONTRACT_REFERENCES = [
+    contract.reference()
+    for contract in sorted(
+        SOURCE_PORT_CATALOG.contracts,
+        key=lambda item: (
+            item.contract_kind,
+            item.contract_id,
+            item.contract_version,
+        ),
+    )
+]
 EXPECTED_MODULE_IDS = {
     "compute.dssp",
     "convert.extract_backbone",
@@ -381,7 +376,7 @@ inventory = json.loads(
         / "capability-inventory.json"
     ).read_text(encoding="utf-8")
 )
-assert inventory["node_types"] == {SOURCE_NODE_REFERENCES!r}
+assert inventory["contracts"] == {SOURCE_CONTRACT_REFERENCES!r}
 assert verify_repository_examples() == {{
     "catalog_contract_digest": {SOURCE_PORT_CATALOG_DIGEST!r},
     "package_count": 11,

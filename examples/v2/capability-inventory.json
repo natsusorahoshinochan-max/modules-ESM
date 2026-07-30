@@ -13,7 +13,733 @@
     "structure_comparison",
     "structure_transform"
   ],
-  "node_types": [
+  "contracts": [
+    {
+      "contract_kind": "binding",
+      "contract_id": "collection_ops.concat_candidates.direct",
+      "contract_version": "2.0.0",
+      "contract_digest": "sha256:9c43af756ed19aa0a06b950e5c0a479a5611d0fcc08b98696e32f04304de9525"
+    },
+    {
+      "contract_kind": "binding",
+      "contract_id": "collection_ops.merge_scores.direct",
+      "contract_version": "2.0.0",
+      "contract_digest": "sha256:6cafa944907bf62f07bab0b27318696cffb9a4c35d17af969462acfc6e97f362"
+    },
+    {
+      "contract_kind": "binding",
+      "contract_id": "esm3.generate_paired.biohub_medium",
+      "contract_version": "2.0.0",
+      "contract_digest": "sha256:de0e86f9824dccae461f5c2bf5729f87fbc8718ccc2b3e2bb455826ce58b8c92"
+    },
+    {
+      "contract_kind": "binding",
+      "contract_id": "esm3.generate_paired.biohub_open",
+      "contract_version": "2.0.0",
+      "contract_digest": "sha256:89f5224cac9868e103d7d724562af44f02bc96744ab4f7f5f43e03eea294f583"
+    },
+    {
+      "contract_kind": "binding",
+      "contract_id": "esm3.generate_paired.local_open",
+      "contract_version": "2.0.0",
+      "contract_digest": "sha256:b6ffcb18bbc44c8d6b5a081a81651d9e18251967d72e44333ef8a7912bff54fd"
+    },
+    {
+      "contract_kind": "binding",
+      "contract_id": "esm3.generate_sequence.biohub_medium",
+      "contract_version": "2.0.0",
+      "contract_digest": "sha256:c8f0215d54a1f35405fb329a06c957dfced4bd89c30069362a2267140f344dd1"
+    },
+    {
+      "contract_kind": "binding",
+      "contract_id": "esm3.generate_sequence.biohub_open",
+      "contract_version": "2.0.0",
+      "contract_digest": "sha256:81ac469754a503e633e0f74382ea4c55755b8f5950f658716449b254442e719d"
+    },
+    {
+      "contract_kind": "binding",
+      "contract_id": "esm3.generate_sequence.local_open",
+      "contract_version": "2.0.0",
+      "contract_digest": "sha256:d5e6142eb8c2367c1044dd0f655b812aa158b35ab2f4db071b337086ccc14fd6"
+    },
+    {
+      "contract_kind": "binding",
+      "contract_id": "esm3.generate_structure.biohub_medium",
+      "contract_version": "2.0.0",
+      "contract_digest": "sha256:1c001edbe29ce7f5a4b32f922f4fa0d0c5c87ca04b2dc21b0735008736d205a8"
+    },
+    {
+      "contract_kind": "binding",
+      "contract_id": "esm3.generate_structure.biohub_open",
+      "contract_version": "2.0.0",
+      "contract_digest": "sha256:5653554ef9b4e5deef73ac91bd82ad36da1004c3e6836cffdbbcc36ad4811d30"
+    },
+    {
+      "contract_kind": "binding",
+      "contract_id": "esm3.generate_structure.local_open",
+      "contract_version": "2.0.0",
+      "contract_digest": "sha256:c0915585802b341349ee0f5d70e66375b1eaa6528f2958945b67c1f79e67da95"
+    },
+    {
+      "contract_kind": "binding",
+      "contract_id": "folding.fold.esmfold2_local",
+      "contract_version": "2.0.0",
+      "contract_digest": "sha256:02cbafc5985b91cd88517090186bbe4081cc9e9d995ebf2754223ec7ba7d8027"
+    },
+    {
+      "contract_kind": "binding",
+      "contract_id": "folding.fold.esmfold2_remote",
+      "contract_version": "2.0.0",
+      "contract_digest": "sha256:1f1c3cf7cdeb9f5bfe8950511da7b668a3986249aa4ad891ddd38379647f194f"
+    },
+    {
+      "contract_kind": "binding",
+      "contract_id": "folding.fold.simplefold_local",
+      "contract_version": "2.0.0",
+      "contract_digest": "sha256:eb3f98f077754033af2aeb9ece16cb5d718a2ab8ac9e438965c1b53b41789058"
+    },
+    {
+      "contract_kind": "binding",
+      "contract_id": "folding.simplefold_confidence.simplefold_local",
+      "contract_version": "2.0.0",
+      "contract_digest": "sha256:409190e60d3934597f915180766f4418995c24fe879d8f427e076a320e7924e8"
+    },
+    {
+      "contract_kind": "binding",
+      "contract_id": "prompt_authoring.add_function_annotation.direct",
+      "contract_version": "2.0.0",
+      "contract_digest": "sha256:b6e6254e90aaaef6123168e93712ee584c87021f5f1673e9ddea78d5344b7187"
+    },
+    {
+      "contract_kind": "binding",
+      "contract_id": "prompt_authoring.assemble_protein_prompt.direct",
+      "contract_version": "2.0.0",
+      "contract_digest": "sha256:ce0822c4ac74d31e083e0cd9e07acc9bf6d190efdd7bede9e8f7b3df6e912c85"
+    },
+    {
+      "contract_kind": "binding",
+      "contract_id": "prompt_authoring.build_residue_layout.direct",
+      "contract_version": "2.0.0",
+      "contract_digest": "sha256:98f799233d749d675f8dd4995e0c71a5fa1df9cc45431eccfd47f7e3a4f572bb"
+    },
+    {
+      "contract_kind": "binding",
+      "contract_id": "prompt_authoring.edit_residue_layout.direct",
+      "contract_version": "2.0.0",
+      "contract_digest": "sha256:18791196f537211ff697d8ac209364d70f440f38cc2e16702762f7d20dde0c9c"
+    },
+    {
+      "contract_kind": "binding",
+      "contract_id": "prompt_authoring.map_residue_track.direct",
+      "contract_version": "2.0.0",
+      "contract_digest": "sha256:b521f8dad8ab1fd095d24ba40349f64db881c8fb347b6d3cb6e7031821ab3d23"
+    },
+    {
+      "contract_kind": "binding",
+      "contract_id": "prompt_authoring.override_residue_track.direct",
+      "contract_version": "2.0.0",
+      "contract_digest": "sha256:36f7f67fd14d254d7508258b413dcc2fb9929a1b0e78a9bf4f85fc3e05302e46"
+    },
+    {
+      "contract_kind": "binding",
+      "contract_id": "prompt_authoring.random_insert_masked.direct",
+      "contract_version": "2.0.0",
+      "contract_digest": "sha256:db3e32f4604136c08b38367052f4a04d7d4bc567e0a8de32d4b8c2076d43ba9d"
+    },
+    {
+      "contract_kind": "binding",
+      "contract_id": "prompt_authoring.random_mask.direct",
+      "contract_version": "2.0.0",
+      "contract_digest": "sha256:9f530a9a38e2790da8bc999a07fc2825749ad699e2f0319d160ba27481d781d1"
+    },
+    {
+      "contract_kind": "binding",
+      "contract_id": "prompt_authoring.update_prompt_sequence.direct",
+      "contract_version": "2.0.0",
+      "contract_digest": "sha256:6513a26944a4d4240e680ca7a44a6a7b4ec80756ef764907e975b064962c5284"
+    },
+    {
+      "contract_kind": "binding",
+      "contract_id": "protein_io.export_sequence.direct",
+      "contract_version": "2.0.0",
+      "contract_digest": "sha256:528bb9fdcd35304d08a8fdfae2606812376d62c341827f5746568da118949c93"
+    },
+    {
+      "contract_kind": "binding",
+      "contract_id": "protein_io.export_structure.direct",
+      "contract_version": "2.0.0",
+      "contract_digest": "sha256:45e5ec1aeb60d37109d415569ded20c6683059fbf3625f48b5004e9c155fb2d5"
+    },
+    {
+      "contract_kind": "binding",
+      "contract_id": "protein_io.import_sequence.direct",
+      "contract_version": "2.0.0",
+      "contract_digest": "sha256:4cc83fe47142fbe9f72e058cd7a125988ed4a43e812fb3e7c3122f03a9adfd7b"
+    },
+    {
+      "contract_kind": "binding",
+      "contract_id": "protein_io.import_structure.direct",
+      "contract_version": "2.0.0",
+      "contract_digest": "sha256:7fa5124600c489713d529afd3b964d1e4714ba748467ef5d1fec4737c078e76d"
+    },
+    {
+      "contract_kind": "binding",
+      "contract_id": "proteinmpnn.constraints.local",
+      "contract_version": "2.0.0",
+      "contract_digest": "sha256:01a0970604c13a8760c2112737e71318d5503bddd5c8db8fe443cfffb4342ea5"
+    },
+    {
+      "contract_kind": "binding",
+      "contract_id": "proteinmpnn.design.local",
+      "contract_version": "2.0.0",
+      "contract_digest": "sha256:91191b0d829547ac1cd8df884be92c522caa0bb976c47ec6d11f63fab5663b58"
+    },
+    {
+      "contract_kind": "binding",
+      "contract_id": "proteinmpnn.random_fixed_positions.local",
+      "contract_version": "2.0.0",
+      "contract_digest": "sha256:1f2e032c35f0a44d44471af25a362c455d77ff44d641d806ec0b5f012080823c"
+    },
+    {
+      "contract_kind": "binding",
+      "contract_id": "proteinmpnn.score.local",
+      "contract_version": "2.0.0",
+      "contract_digest": "sha256:8a110c98a24dff957c90a9abdbfee8b7759d14cdefacec383f5f2e45e71d3fa6"
+    },
+    {
+      "contract_kind": "binding",
+      "contract_id": "selection.diversity.direct",
+      "contract_version": "2.0.0",
+      "contract_digest": "sha256:e81e6be03d07df8fc6c672afe9b38e59566b8cfebe7e28bd11d204d83aeb21eb"
+    },
+    {
+      "contract_kind": "binding",
+      "contract_id": "selection.filter.direct",
+      "contract_version": "2.0.0",
+      "contract_digest": "sha256:a48187f193b2e7111dcdaec82dfcfbb17ead52999a39d2e72c24226ad74e3f41"
+    },
+    {
+      "contract_kind": "binding",
+      "contract_id": "selection.pareto.direct",
+      "contract_version": "2.0.0",
+      "contract_digest": "sha256:d3a3ae398beb64388832d26f9a30b2e123e0e4c810cd492d331f4c13ca10b62e"
+    },
+    {
+      "contract_kind": "binding",
+      "contract_id": "selection.sort.direct",
+      "contract_version": "2.0.0",
+      "contract_digest": "sha256:28b6c7e1b2c032a821bbd764a217fc3e4c3880cb06c601680d197adf69f47c8a"
+    },
+    {
+      "contract_kind": "binding",
+      "contract_id": "selection.top_k.direct",
+      "contract_version": "2.0.0",
+      "contract_digest": "sha256:64670fdbee6a71163c895d943d2b4a8552a4bd94d093752fd314d41c1dd0aa6d"
+    },
+    {
+      "contract_kind": "binding",
+      "contract_id": "selection.weighted_rank.direct",
+      "contract_version": "2.0.0",
+      "contract_digest": "sha256:011db4752ad690a7357f4eeb85c3e7ca4667fbbf9105652e0b678197367b2f87"
+    },
+    {
+      "contract_kind": "binding",
+      "contract_id": "solubility.protein_sol.local",
+      "contract_version": "2.0.0",
+      "contract_digest": "sha256:e9cfef852eb2de969722f26590372a652bcbcc92ee8d35b6199fc49f859cbd33"
+    },
+    {
+      "contract_kind": "binding",
+      "contract_id": "solubility.soluprot_full.local",
+      "contract_version": "2.0.0",
+      "contract_digest": "sha256:5302d3839295f072c5719db53501c4d7dcb8446eccf14cf934cfb6c4902798dc"
+    },
+    {
+      "contract_kind": "binding",
+      "contract_id": "solubility.soluprot_no_tm.local",
+      "contract_version": "2.0.0",
+      "contract_digest": "sha256:d0f4f56c30d4202b1339165f1082b2f5bfc082ae7544341ea4e29531f30e1d78"
+    },
+    {
+      "contract_kind": "binding",
+      "contract_id": "structure_annotation.dssp_compute.direct",
+      "contract_version": "2.0.0",
+      "contract_digest": "sha256:8386f62b525b19c8cb984d46801a9bab4f685e39faf7f9ba7c43b82ea640a91d"
+    },
+    {
+      "contract_kind": "binding",
+      "contract_id": "structure_annotation.sasa_compute.direct",
+      "contract_version": "2.0.0",
+      "contract_digest": "sha256:4b0cc3f9a60d500a82d207a9b48bd29171c4b44ecd1579a02a38f780f98f714b"
+    },
+    {
+      "contract_kind": "binding",
+      "contract_id": "structure_annotation.secondary_structure_agreement.direct",
+      "contract_version": "2.0.0",
+      "contract_digest": "sha256:5f0aa19a3d3ba80b9bd312fd9c267b524553940cfc3dc74333f333fce7fa2f0b"
+    },
+    {
+      "contract_kind": "binding",
+      "contract_id": "structure_annotation.secondary_structure_extract.direct",
+      "contract_version": "2.0.0",
+      "contract_digest": "sha256:6ffc667aaedac137c36c9d49373194db2e34f695897036d28623af1c8e22060e"
+    },
+    {
+      "contract_kind": "binding",
+      "contract_id": "structure_comparison.align_pairwise.direct",
+      "contract_version": "2.0.0",
+      "contract_digest": "sha256:6370e053f2721ba97993f0c0365134789130ba2ba3740bc337ec73dbef574386"
+    },
+    {
+      "contract_kind": "binding",
+      "contract_id": "structure_comparison.align_pairwise.fixed_reference",
+      "contract_version": "2.0.0",
+      "contract_digest": "sha256:e0e12e45180be2164a5fb1b79317b60d7b83534886f113312e93fd981b032183"
+    },
+    {
+      "contract_kind": "binding",
+      "contract_id": "structure_comparison.align_single.direct",
+      "contract_version": "2.0.0",
+      "contract_digest": "sha256:f4049af98c98231f0b6ace67f48d8297e01b8829d5b4747d38dc016e2ba6b827"
+    },
+    {
+      "contract_kind": "binding",
+      "contract_id": "structure_comparison.batch_tm_score.fixed_reference",
+      "contract_version": "2.0.0",
+      "contract_digest": "sha256:f57c9715ea1a4a21ec96ba60ac0cfa5b4da3bc3654c2437000800ebb02d2c5db"
+    },
+    {
+      "contract_kind": "binding",
+      "contract_id": "structure_comparison.batch_tm_score.per_subject_counterpart",
+      "contract_version": "2.0.0",
+      "contract_digest": "sha256:6ecac762b3a3ac6718b5a421c6e4f917c92274d42c55dc8045b4f7ae2eaf8469"
+    },
+    {
+      "contract_kind": "binding",
+      "contract_id": "structure_comparison.rmsd.fixed_reference",
+      "contract_version": "2.0.0",
+      "contract_digest": "sha256:b6c763fea1b68412014f8c02f321ea5a33195bcd5f950d4b611ab86732e49ef2"
+    },
+    {
+      "contract_kind": "binding",
+      "contract_id": "structure_comparison.rmsd.per_subject_counterpart",
+      "contract_version": "2.0.0",
+      "contract_digest": "sha256:a1388176a40110eb5e9e64ca421e7b729db610e54116ecff2b6d0c0016434e1f"
+    },
+    {
+      "contract_kind": "binding",
+      "contract_id": "structure_comparison.tm_score.fixed_reference",
+      "contract_version": "2.0.0",
+      "contract_digest": "sha256:3220afa1999386645f7f5f3d1c303164354b7b661e5ec6411cb581909e2fcea0"
+    },
+    {
+      "contract_kind": "binding",
+      "contract_id": "structure_transform.backbone_to_structure.direct",
+      "contract_version": "2.0.0",
+      "contract_digest": "sha256:67202d0b3228f9fb2c9b95862776647e2694c5aa7eda0e62fd7f1b12ea7f9b8a"
+    },
+    {
+      "contract_kind": "binding",
+      "contract_id": "structure_transform.extract_backbone.direct",
+      "contract_version": "2.0.0",
+      "contract_digest": "sha256:ec69bb6b102642106c789d6069d47f5ccaebd0f9ae8b5047d141fb0b9a1ffef5"
+    },
+    {
+      "contract_kind": "binding",
+      "contract_id": "structure_transform.extract_sequence.direct",
+      "contract_version": "2.0.0",
+      "contract_digest": "sha256:e8e028c007ba08a7c47a9d2e0e431f41f75b242cae57aecb7a013d86cf7ecfd0"
+    },
+    {
+      "contract_kind": "binding",
+      "contract_id": "structure_transform.select_chains.direct",
+      "contract_version": "2.0.0",
+      "contract_digest": "sha256:c00961aa9e75efa3f3f1d09f48f2b36440b9b7842888f7d594a317881db20cde"
+    },
+    {
+      "contract_kind": "method",
+      "contract_id": "collection_ops.concat_candidates.method",
+      "contract_version": "2.0.0",
+      "contract_digest": "sha256:e7dad7376d3ae1877dfd4e20a001621bb86834346eb9766fd9d4be0cfe0b530c"
+    },
+    {
+      "contract_kind": "method",
+      "contract_id": "collection_ops.merge_scores.method",
+      "contract_version": "2.0.0",
+      "contract_digest": "sha256:fc0dee414b2e084f4ddd622fde780410b8296a1e847ee3def836f4b36892f3c5"
+    },
+    {
+      "contract_kind": "method",
+      "contract_id": "esm3.generate_paired.esm3_medium_2024_08",
+      "contract_version": "2.0.0",
+      "contract_digest": "sha256:4afcd69252b91bee6538ac76af3dd1647f7bb2ba60669e712cbacfd6f8bba019"
+    },
+    {
+      "contract_kind": "method",
+      "contract_id": "esm3.generate_paired.esm3_open_2024_03",
+      "contract_version": "2.0.0",
+      "contract_digest": "sha256:c5b4602d66429b015dd2df505232a5634ff0e543c0f0054292f718f7e9f6cd26"
+    },
+    {
+      "contract_kind": "method",
+      "contract_id": "esm3.generate_paired.esm3_sm_open_v1_local",
+      "contract_version": "2.0.0",
+      "contract_digest": "sha256:a5c9f8197292ad83915584a8af255b185cf37233dea1efb0e0c527302a6d7334"
+    },
+    {
+      "contract_kind": "method",
+      "contract_id": "esm3.generate_sequence.esm3_medium_2024_08",
+      "contract_version": "2.0.0",
+      "contract_digest": "sha256:11ffe19bbe2e878d68b320c17c4e10db18dc4bb26bb53eff671ceed1db21644a"
+    },
+    {
+      "contract_kind": "method",
+      "contract_id": "esm3.generate_sequence.esm3_open_2024_03",
+      "contract_version": "2.0.0",
+      "contract_digest": "sha256:e93f0e5ce61922ee216fb6bd6bb38e03d53a1e9d7bb265b52b7f2b526df73041"
+    },
+    {
+      "contract_kind": "method",
+      "contract_id": "esm3.generate_sequence.esm3_sm_open_v1_local",
+      "contract_version": "2.0.0",
+      "contract_digest": "sha256:19b6a0bd54a002c33c28d086a0f951a60e6739edeb726ee6932a3009ddc0a71d"
+    },
+    {
+      "contract_kind": "method",
+      "contract_id": "esm3.generate_structure.esm3_medium_2024_08",
+      "contract_version": "2.0.0",
+      "contract_digest": "sha256:1b9f464329cd772d18b870b4c8f1e7fadcb48ce2f181f8e944a9e4d3fac15cdb"
+    },
+    {
+      "contract_kind": "method",
+      "contract_id": "esm3.generate_structure.esm3_open_2024_03",
+      "contract_version": "2.0.0",
+      "contract_digest": "sha256:138db30710aa12bcde7b0479896e034dbc83bfb2ee02d57f02363b289e9b9bc0"
+    },
+    {
+      "contract_kind": "method",
+      "contract_id": "esm3.generate_structure.esm3_sm_open_v1_local",
+      "contract_version": "2.0.0",
+      "contract_digest": "sha256:e16abf7dceab4d06b2c89c52ad7d067a6f6f010cd80d04372da4c53f1ee7fef5"
+    },
+    {
+      "contract_kind": "method",
+      "contract_id": "folding.fold.esmfold2_fast_biohub_2026_05",
+      "contract_version": "2.0.0",
+      "contract_digest": "sha256:8538d6c91f811e3ce139084ed0393b521ae5f35f478807045b9f821053c27927"
+    },
+    {
+      "contract_kind": "method",
+      "contract_id": "folding.fold.esmfold2_hf_1ebf0e3",
+      "contract_version": "2.0.0",
+      "contract_digest": "sha256:e0c82b402b22070891e14023e1c2158a51abbe389108d88847f44e3646469dc9"
+    },
+    {
+      "contract_kind": "method",
+      "contract_id": "folding.fold.simplefold_100m_c7a5570",
+      "contract_version": "2.0.0",
+      "contract_digest": "sha256:42b9c3f7bec3d8c3614fb5c5f95a5622d8c173c8adc4c8fd2c68048ac75bb060"
+    },
+    {
+      "contract_kind": "method",
+      "contract_id": "folding.simplefold_confidence.existing_structure_1_6b_c7a5570",
+      "contract_version": "2.0.0",
+      "contract_digest": "sha256:e1aa1239a0d71bd91f4f893b16c6fcf4ea79698c5db033ff9dfc0fd66c46890c"
+    },
+    {
+      "contract_kind": "method",
+      "contract_id": "prompt_authoring.add_function_annotation.method",
+      "contract_version": "2.0.0",
+      "contract_digest": "sha256:4fac2a27152aff5b20dee172aea3750cff0ffbbe22a0f706c7a63b9c358a723f"
+    },
+    {
+      "contract_kind": "method",
+      "contract_id": "prompt_authoring.assemble_protein_prompt.method",
+      "contract_version": "2.0.0",
+      "contract_digest": "sha256:75eb5f4609c250fb65f0e2758919f6ff7ed9454ee0e634d18a1b14e983911053"
+    },
+    {
+      "contract_kind": "method",
+      "contract_id": "prompt_authoring.build_residue_layout.method",
+      "contract_version": "2.0.0",
+      "contract_digest": "sha256:a78c09f35afca2e98d0545f13857d461b37357e4f7e7d29a51e5e550506aed9e"
+    },
+    {
+      "contract_kind": "method",
+      "contract_id": "prompt_authoring.edit_residue_layout.method",
+      "contract_version": "2.0.0",
+      "contract_digest": "sha256:3323570728adc56d9459b9f6049e552ad55d3eadcf5a9b38e87bde45176d6d80"
+    },
+    {
+      "contract_kind": "method",
+      "contract_id": "prompt_authoring.map_residue_track.method",
+      "contract_version": "2.0.0",
+      "contract_digest": "sha256:c7074f3d9c935a0b2aec1e78ea1376315b459d901917c28cdbcdf547b375a028"
+    },
+    {
+      "contract_kind": "method",
+      "contract_id": "prompt_authoring.override_residue_track.method",
+      "contract_version": "2.0.0",
+      "contract_digest": "sha256:97696ba6dd628a5f7fe285004bfef1e0661b02ca2dbf7008ccece2587589f219"
+    },
+    {
+      "contract_kind": "method",
+      "contract_id": "prompt_authoring.random_insert_masked.method",
+      "contract_version": "2.0.0",
+      "contract_digest": "sha256:dc90fda1f5fb608f66c958cacb4c020d4c4c63d9bd1bba01510d0cd8c884e3e1"
+    },
+    {
+      "contract_kind": "method",
+      "contract_id": "prompt_authoring.random_mask.method",
+      "contract_version": "2.0.0",
+      "contract_digest": "sha256:e8da80baf3b38c526edef4d98ee70d899ed5a8daefdfab2ec150d937925e1b82"
+    },
+    {
+      "contract_kind": "method",
+      "contract_id": "prompt_authoring.update_prompt_sequence.method",
+      "contract_version": "2.0.0",
+      "contract_digest": "sha256:f5f9e9fc19a7855620d658eb537096fa43f340928d6122ea2317ae3d06eef8cd"
+    },
+    {
+      "contract_kind": "method",
+      "contract_id": "protein_io.export_sequence.method",
+      "contract_version": "2.0.0",
+      "contract_digest": "sha256:b660b27c3a7315ec5f93f0512b61d1011bce67dc01d27dacfaa4fc3f6a5a4a11"
+    },
+    {
+      "contract_kind": "method",
+      "contract_id": "protein_io.export_structure.method",
+      "contract_version": "2.0.0",
+      "contract_digest": "sha256:37632974cf86e7a6b3d2be262d3c2209563d97c607bf6915a0c07449fdd8a885"
+    },
+    {
+      "contract_kind": "method",
+      "contract_id": "protein_io.import_sequence.method",
+      "contract_version": "2.0.0",
+      "contract_digest": "sha256:e7a9bd895960b0549e2cb99c28b247f03489c6816fa1d6e13915829d440d4a5f"
+    },
+    {
+      "contract_kind": "method",
+      "contract_id": "protein_io.import_structure.method",
+      "contract_version": "2.0.0",
+      "contract_digest": "sha256:b0e699779fb7166d22462c4781aa2566be2929e9938804f0ea9428020bf2a441"
+    },
+    {
+      "contract_kind": "method",
+      "contract_id": "proteinmpnn.constraints.repository_owned",
+      "contract_version": "2.0.0",
+      "contract_digest": "sha256:8971e1881a381fed4d6ae77e3f1ff71b54c1b7bb6448f8e891e3b989a169826b"
+    },
+    {
+      "contract_kind": "method",
+      "contract_id": "proteinmpnn.design.v_48_020_8907e667",
+      "contract_version": "2.0.0",
+      "contract_digest": "sha256:968299a0b73d4b6f1ca543767919db2c82b5d2a39ce469a91a96324307dda709"
+    },
+    {
+      "contract_kind": "method",
+      "contract_id": "proteinmpnn.random_fixed_positions.repository_owned",
+      "contract_version": "2.0.0",
+      "contract_digest": "sha256:139b51c8dad58d42e834e34fcc3ecf5f1066d1c2fd7eb6f0afa5d833130bfbdc"
+    },
+    {
+      "contract_kind": "method",
+      "contract_id": "proteinmpnn.score.v_48_020_8907e667",
+      "contract_version": "2.0.0",
+      "contract_digest": "sha256:e381fc495d8b4d4fa6101de6611b59e85b81d261080b7265eb5bef78de6d872c"
+    },
+    {
+      "contract_kind": "method",
+      "contract_id": "selection.diversity.method",
+      "contract_version": "2.0.0",
+      "contract_digest": "sha256:0a6b058b619f510e81fd3ef24c401c3dd5f88a388d9e412f8d846aab0d1e9ffe"
+    },
+    {
+      "contract_kind": "method",
+      "contract_id": "selection.filter.method",
+      "contract_version": "2.0.0",
+      "contract_digest": "sha256:dd7b60633256fb20ae8ecd213e1e097ec1c4f50f1e3a693e362f36eb7db42d89"
+    },
+    {
+      "contract_kind": "method",
+      "contract_id": "selection.pareto.method",
+      "contract_version": "2.0.0",
+      "contract_digest": "sha256:3d61f8a06a9a541c1e86a5011ff5782cc38c4934c38e8f55eb41de6908b9341b"
+    },
+    {
+      "contract_kind": "method",
+      "contract_id": "selection.sort.method",
+      "contract_version": "2.0.0",
+      "contract_digest": "sha256:8975da2fec701615ad583b4302cd58ba1b60b04507bf6ab47742a89f6096d3dd"
+    },
+    {
+      "contract_kind": "method",
+      "contract_id": "selection.top_k.method",
+      "contract_version": "2.0.0",
+      "contract_digest": "sha256:b0d4786a82acb686a353db4f7e7d58ee079997a275805d7a83727604b166abce"
+    },
+    {
+      "contract_kind": "method",
+      "contract_id": "selection.weighted_rank.method",
+      "contract_version": "2.0.0",
+      "contract_digest": "sha256:ff17b2c5ef8eacc5609acb1bf18846f1b0c83142262f5f2935d7899483a52abd"
+    },
+    {
+      "contract_kind": "method",
+      "contract_id": "solubility.protein_sol.sequence_prediction_2017",
+      "contract_version": "2.0.0",
+      "contract_digest": "sha256:e4b20819e30b6cb546c5d96090d8a844e733946743f97fa7c309bb5640381b43"
+    },
+    {
+      "contract_kind": "method",
+      "contract_id": "solubility.soluprot_full.v1_1_0",
+      "contract_version": "2.0.0",
+      "contract_digest": "sha256:d85e9258b12917f38ab3595ab4455b6edba3debd352df5eacd6a137d4b47effa"
+    },
+    {
+      "contract_kind": "method",
+      "contract_id": "solubility.soluprot_no_tm.v1_1_0",
+      "contract_version": "2.0.0",
+      "contract_digest": "sha256:ddb124740d0f165d709f18648f74c4ee180b819bb1bfbf9076311bc9fd03a6ae"
+    },
+    {
+      "contract_kind": "method",
+      "contract_id": "structure_annotation.dssp_compute.method",
+      "contract_version": "2.0.0",
+      "contract_digest": "sha256:a9e511135c4094218cb87326c896a1dd5fd0d043578a8fb86dc4484fc72e75b3"
+    },
+    {
+      "contract_kind": "method",
+      "contract_id": "structure_annotation.sasa_compute.method",
+      "contract_version": "2.0.0",
+      "contract_digest": "sha256:638f19850808f4a2a41714b220d51801bc9e584755fc1ce4809cd4c4c7cdde0b"
+    },
+    {
+      "contract_kind": "method",
+      "contract_id": "structure_annotation.secondary_structure_agreement.method",
+      "contract_version": "2.0.0",
+      "contract_digest": "sha256:09ac6c7408d8bb9ec7b63c2d9bed21cb4441fd78c99147c59fd510715c67a7c5"
+    },
+    {
+      "contract_kind": "method",
+      "contract_id": "structure_annotation.secondary_structure_extract.method",
+      "contract_version": "2.0.0",
+      "contract_digest": "sha256:361ebdddc58447a7d9b0ac53d56a327b76264ba093da4dd932a4577d85e17cef"
+    },
+    {
+      "contract_kind": "method",
+      "contract_id": "structure_comparison.ca_sequence_svd.method",
+      "contract_version": "2.0.0",
+      "contract_digest": "sha256:c50fe1ab4ce13b4e32e23add09d152d668cd60d25fbcfe1bf03663b46fb9ef64"
+    },
+    {
+      "contract_kind": "method",
+      "contract_id": "structure_comparison.rmsd.method",
+      "contract_version": "2.0.0",
+      "contract_digest": "sha256:a295c2ee35df9c5bfa40bfe6a2cf32785f41db3323734dbef4216d5192a141bb"
+    },
+    {
+      "contract_kind": "method",
+      "contract_id": "structure_comparison.tm_score.reference_normalized.method",
+      "contract_version": "2.0.0",
+      "contract_digest": "sha256:a69ecf9a3dd3c80a4acd710b907a37cc95160274419dc971a3d3da58ccfb3ecd"
+    },
+    {
+      "contract_kind": "method",
+      "contract_id": "structure_transform.backbone_to_structure.method",
+      "contract_version": "2.0.0",
+      "contract_digest": "sha256:f3fff42a287972e9acb0cd7f32d322d8062fc2f4fb72bef65dcc8b585ea0ea70"
+    },
+    {
+      "contract_kind": "method",
+      "contract_id": "structure_transform.extract_backbone.method",
+      "contract_version": "2.0.0",
+      "contract_digest": "sha256:c53922535d234752dccbc091b953a6d4fab4036eba33cfd9f6150c375abbeb94"
+    },
+    {
+      "contract_kind": "method",
+      "contract_id": "structure_transform.extract_sequence.method",
+      "contract_version": "2.0.0",
+      "contract_digest": "sha256:d0acf25031f51422f4d5b668eacb81062a08f97a93e131a8ea26bb096c11737c"
+    },
+    {
+      "contract_kind": "method",
+      "contract_id": "structure_transform.select_chains.method",
+      "contract_version": "2.0.0",
+      "contract_digest": "sha256:ceb960ad54e0c7d0ee4dd3949f53143d4587cbd3b66bae103dade84e081fee5e"
+    },
+    {
+      "contract_kind": "metric",
+      "contract_id": "proteinmpnn.native_sequence_nll",
+      "contract_version": "2.0.0",
+      "contract_digest": "sha256:1038a455268ff50ffaeaf7e485c41cac9dbecf4f2ba555b81a337d9c9702bbef"
+    },
+    {
+      "contract_kind": "metric",
+      "contract_id": "solubility.protein_sol_percent",
+      "contract_version": "2.0.0",
+      "contract_digest": "sha256:38d218bd0ea251613490b78c530bf2e9eb4d71e93f72c7a79c075d3c78a604d2"
+    },
+    {
+      "contract_kind": "metric",
+      "contract_id": "solubility.protein_sol_pi",
+      "contract_version": "2.0.0",
+      "contract_digest": "sha256:e635c47b8d3c2bb325cb51390536ecaac4b6112a0694c9cf295ddafb1b7c54fd"
+    },
+    {
+      "contract_kind": "metric",
+      "contract_id": "solubility.protein_sol_scaled",
+      "contract_version": "2.0.0",
+      "contract_digest": "sha256:144bbc47eebfc93416eff98342b1c5610ed12bc5195e651feb86978a69d6b36b"
+    },
+    {
+      "contract_kind": "metric",
+      "contract_id": "solubility.soluprot_probability",
+      "contract_version": "2.0.0",
+      "contract_digest": "sha256:35c28159e932f14aa09dde4ef2d30828a23fe3d4823b09f1f61c4eefe70d69f0"
+    },
+    {
+      "contract_kind": "metric",
+      "contract_id": "structure.pae",
+      "contract_version": "2.0.0",
+      "contract_digest": "sha256:19a641472413d5f71172f4becc789a4291363b239b0c96f243667e1148526ae8"
+    },
+    {
+      "contract_kind": "metric",
+      "contract_id": "structure.plddt.mean_residue",
+      "contract_version": "2.0.0",
+      "contract_digest": "sha256:17f96cf144fcd97a16eac44039361aa2c8b56f49263aee5a6bb6e2741462b863"
+    },
+    {
+      "contract_kind": "metric",
+      "contract_id": "structure.plddt.per_residue",
+      "contract_version": "2.0.0",
+      "contract_digest": "sha256:b0e1377bf8ac33e118bd0a506bb132f7198d3655fd46e2282b3593411a5c83e5"
+    },
+    {
+      "contract_kind": "metric",
+      "contract_id": "structure.ptm",
+      "contract_version": "2.0.0",
+      "contract_digest": "sha256:b9eb96a23b26ca5b1991db10f924b74429378426b180bd7d031822a706800b0e"
+    },
+    {
+      "contract_kind": "metric",
+      "contract_id": "structure_annotation.secondary_structure_agreement",
+      "contract_version": "2.0.0",
+      "contract_digest": "sha256:a357d1a307b90453397f1d9e0ee9cd0d84ea67b94373a9120487cf4c23e9b316"
+    },
+    {
+      "contract_kind": "metric",
+      "contract_id": "structure_comparison.rmsd",
+      "contract_version": "2.0.0",
+      "contract_digest": "sha256:459757641f1b7eb6ab119dec52cb158daf253089425ace5536a9e253eed5fb2f"
+    },
+    {
+      "contract_kind": "metric",
+      "contract_id": "structure_comparison.tm_score",
+      "contract_version": "2.0.0",
+      "contract_digest": "sha256:c4908eb9c82c290d5657e9593ed50e9e80652aa161a8649ad095715659a16a10"
+    },
     {
       "contract_kind": "node_type",
       "contract_id": "collection_ops.concat_candidates",

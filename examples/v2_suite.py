@@ -44,24 +44,24 @@ def verify_repository_examples() -> dict[str, object]:
     if inventory.get("package_ids") != package_ids:
         raise ValueError("capability inventory package set is stale")
 
-    node_references = sorted(
-        (
-            {
-                "contract_kind": "node_type",
-                "contract_id": contract.contract_id,
-                "contract_version": contract.contract_version,
-                "contract_digest": contract.contract_digest,
-            }
-            for contract in catalog.contracts
-            if contract.contract_kind == "node_type"
-        ),
-        key=lambda reference: (
-            reference["contract_id"],
-            reference["contract_version"],
-        ),
+    contract_references = [
+        contract.reference()
+        for contract in sorted(
+            catalog.contracts,
+            key=lambda item: (
+                item.contract_kind,
+                item.contract_id,
+                item.contract_version,
+            ),
+        )
+    ]
+    if inventory.get("contracts") != contract_references:
+        raise ValueError("capability inventory contract identities are stale")
+
+    node_type_count = sum(
+        reference["contract_kind"] == "node_type"
+        for reference in contract_references
     )
-    if inventory.get("node_types") != node_references:
-        raise ValueError("capability inventory Node Type identities are stale")
 
     if not PRODUCTION_WORKFLOW_PATHS:
         raise ValueError("repository v2 example suite is empty")
@@ -87,7 +87,7 @@ def verify_repository_examples() -> dict[str, object]:
     return {
         "catalog_contract_digest": catalog.contract_digest,
         "package_count": len(package_ids),
-        "node_type_count": len(node_references),
+        "node_type_count": node_type_count,
         "workflow_count": len(PRODUCTION_WORKFLOW_PATHS),
     }
 

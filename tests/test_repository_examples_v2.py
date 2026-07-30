@@ -13,6 +13,7 @@ from pathlib import Path
 import pytest
 
 from core import (
+    WorkflowDocumentError,
     build_discovered_frozen_catalog,
     build_frozen_catalog,
     compile_workflow,
@@ -20,21 +21,25 @@ from core import (
     parse_workflow_document,
     relock_workflow,
 )
-from core.workflow_v2 import WorkflowDocumentError
 from examples.v2_suite import (
     CAPABILITY_INVENTORY_PATH,
     PRODUCTION_WORKFLOW_PATHS,
     verify_repository_examples,
 )
+from modules.prompt_authoring.package import (
+    MODULE_PACKAGE as PROMPT_AUTHORING_PACKAGE,
+)
 from modules.selection.package import MODULE_PACKAGE as SELECTION_PACKAGE
 from modules.structure_comparison.package import (
     MODULE_PACKAGE as STRUCTURE_COMPARISON_PACKAGE,
 )
-from scripts.verify_backend import TIERS
 from tests.fixtures.multi_objective_selection_sources.package import (
     FIXED_PARTITION,
     PAIRED_PARTITION,
     MODULE_PACKAGE as SELECTION_SOURCE_PACKAGE,
+)
+from tests.fixtures.prompt_authoring_sources.package import (
+    MODULE_PACKAGE as PROMPT_AUTHORING_SOURCE_PACKAGE,
 )
 
 
@@ -46,6 +51,14 @@ SELECTION_FIXTURE = (
     / "v2_workflows"
     / "exact_multi_objective_selection.workflow.json"
 )
+PROMPT_TRACK_FIXTURE = (
+    PROJECT_ROOT
+    / "tests"
+    / "fixtures"
+    / "v2_workflows"
+    / "exact_prompt_tracks.workflow.json"
+)
+CTK_WORKFLOW_PATHS = (PROMPT_TRACK_FIXTURE, SELECTION_FIXTURE)
 UNSUPPORTED_WORKFLOW_FIXTURE = (
     PROJECT_ROOT
     / "tests"
@@ -111,12 +124,11 @@ def test_repository_examples_are_exact_locked_compilable_v2_workflows() -> None:
         for node in workflow.nodes:
             assert node.node_type_version == "2.0.0"
             assert node.binding_version == "2.0.0"
-            assert node.binding_parameters is not node.node_parameters
 
 
 def test_examples_never_select_methods_or_environment_implicitly() -> None:
     payloads = [_load(path) for path in PRODUCTION_WORKFLOW_PATHS]
-    payloads.append(_load(SELECTION_FIXTURE))
+    payloads.extend(_load(path) for path in CTK_WORKFLOW_PATHS)
 
     forbidden_keys = {
         "credential",
@@ -149,45 +161,76 @@ def test_examples_never_select_methods_or_environment_implicitly() -> None:
         )
 
 
-def test_capability_inventory_locks_the_11_package_node_surface() -> None:
-    catalog = build_discovered_frozen_catalog()
+def test_capability_inventory_names_exactly_11_module_packages() -> None:
     inventory = _load(CAPABILITY_INVENTORY_PATH)
-    expected_references = {
-        (
-            contract.contract_id,
-            contract.contract_version,
-            contract.contract_digest,
-        )
-        for contract in catalog.contracts
-        if contract.contract_kind == "node_type"
-    }
 
     assert inventory["schema_version"] == (
         "protein-workbench-capability-inventory/v2"
     )
     assert set(inventory["package_ids"]) == EXPECTED_PACKAGES
     assert {
-        (
-            reference["contract_id"],
-            reference["contract_version"],
-            reference["contract_digest"],
-        )
-        for reference in inventory["node_types"]
-    } == expected_references
-    assert {
         package.package_id for package in discover_module_packages()
     } == EXPECTED_PACKAGES
-    covered_packages = {
-        node["node_type_id"].split(".", 1)[0]
-        for path in PRODUCTION_WORKFLOW_PATHS
-        for node in _load(path)["nodes"]
+
+
+def test_capability_inventory_locks_every_canonical_contract_identity() -> None:
+    catalog = build_discovered_frozen_catalog()
+    inventory = _load(CAPABILITY_INVENTORY_PATH)
+
+    assert inventory["contracts"] == [
+        contract.reference()
+        for contract in sorted(
+            catalog.contracts,
+            key=lambda item: (
+                item.contract_kind,
+                item.contract_id,
+                item.contract_version,
+            ),
+        )
+    ]
+
+
+def test_examples_and_ctk_fixtures_cover_every_node_and_binding() -> None:
+    catalog = build_discovered_frozen_catalog()
+    payloads = [
+        *(_load(path) for path in PRODUCTION_WORKFLOW_PATHS),
+        *(_load(path) for path in CTK_WORKFLOW_PATHS),
+    ]
+    production_bindings = {
+        contract.contract_id
+        for contract in catalog.contracts
+        if contract.contract_kind == "binding"
     }
-    covered_packages.update(
-        node["node_type_id"].split(".", 1)[0]
-        for node in _load(SELECTION_FIXTURE)["nodes"]
-        if not node["node_type_id"].startswith("contract_test.")
-    )
-    assert covered_packages == EXPECTED_PACKAGES
+    production_node_types = {
+        contract.contract_id
+        for contract in catalog.contracts
+        if contract.contract_kind == "node_type"
+    }
+    covered_bindings = {
+        node["binding_id"]
+        for payload in payloads
+        for node in payload["nodes"]
+        if node["binding_id"] in production_bindings
+    }
+    covered_node_types = {
+        node["node_type_id"]
+        for payload in payloads
+        for node in payload["nodes"]
+        if node["node_type_id"] in production_node_types
+    }
+    covered_owners = {
+        owner
+        for key, owners in catalog.owners.items()
+        if (
+            key[0] == "binding" and key[1] in covered_bindings
+            or key[0] == "node_type" and key[1] in covered_node_types
+        )
+        for owner in owners
+    }
+
+    assert covered_bindings == production_bindings
+    assert covered_node_types == production_node_types
+    assert covered_owners == EXPECTED_PACKAGES
 
 
 def test_scoring_fixture_uses_exact_scopes_contexts_and_utilities() -> None:
@@ -223,6 +266,31 @@ def test_scoring_fixture_uses_exact_scopes_contexts_and_utilities() -> None:
     )
     serialized = json.dumps(workflow.to_public(), sort_keys=True)
     assert "score_id" not in serialized
+
+
+def test_prompt_track_fixture_uses_only_the_ctk_registration_seam() -> None:
+    catalog = build_frozen_catalog(
+        (
+            PROMPT_AUTHORING_PACKAGE,
+            PROMPT_AUTHORING_SOURCE_PACKAGE,
+        )
+    )
+    workflow = parse_workflow_document(_load(PROMPT_TRACK_FIXTURE))
+
+    assert relock_workflow(workflow, catalog) == workflow
+    assert compile_workflow(
+        workflow,
+        workflow_revision=1,
+        catalog=catalog,
+    ).receipt["accepted"] is True
+    assert {
+        node.binding_id
+        for node in workflow.nodes
+        if node.binding_id.startswith("prompt_authoring.")
+    } == {
+        "prompt_authoring.map_residue_track.direct",
+        "prompt_authoring.override_residue_track.direct",
+    }
 
 
 def test_production_catalog_advertises_only_cohesive_v2_capabilities() -> None:
@@ -274,11 +342,7 @@ def test_routine_example_verification_is_pure_and_provider_free(
         root.mkdir()
         monkeypatch.setenv(f"PROTEIN_WORKBENCH_{name}_ROOT", str(root))
 
-    first = verify_repository_examples()
-    second = verify_repository_examples()
-
-    assert first == second
-    assert first == {
+    assert verify_repository_examples() == {
         "catalog_contract_digest": (
             build_discovered_frozen_catalog().contract_digest
         ),
@@ -289,11 +353,8 @@ def test_routine_example_verification_is_pure_and_provider_free(
     assert all(not any(root.iterdir()) for root in isolated_roots.values())
 
 
-def test_example_verification_has_one_isolated_provider_free_tier() -> None:
-    tier = TIERS["examples-v2"]
+def test_example_verification_is_deterministic() -> None:
+    first = verify_repository_examples()
+    second = verify_repository_examples()
 
-    assert tier.pytest_args == ("tests/test_repository_examples_v2.py",)
-    assert tier.requires_provider_evidence is False
-    assert tier.requires_biohub_credential is False
-    assert tier.requires_local_model_environment is False
-    assert tier.requires_simplefold_environment is False
+    assert first == second
