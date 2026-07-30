@@ -4,7 +4,7 @@
 
 **Blocked by:** 26 — Consolidate alignment and RMSD.
 
-**Status:** awaiting-controller
+**Status:** completed
 
 - [x] Single and batch TM-score each have one v2 Node Definition in the existing `structure_comparison` package and consume the explicit alignment evidence contract.
 - [x] TM-score is a declared pairwise Metric with exact Method, canonical range, direction, context roles, and reference-normalization semantics rather than a caller-provided `score_id`.
@@ -80,3 +80,35 @@
   diff under `core/` is empty.
 - Ticket 28 was not started. Ticket 27 remains `awaiting-controller` until
   the Controller independently runs the cumulative multi-ticket gate.
+
+## Controller joint-test evidence
+
+- Previous accepted multi-ticket gate:
+  `a9b86cbe49e8d7c2698172748ac54eabeb80e959`; independently tested Ticket 27
+  executor SHA: `3c9db18b37b41baaeec1fa72d041a095df174992`.
+- Tickets 01–27 cumulative v2 gate:
+  `uv run --no-sync pytest -q tests/*_v2.py` →
+  `550 passed`.
+- Ticket 27 focused cross-package gate:
+  `uv run --no-sync pytest -q tests/test_tm_score_observations_v2.py
+  tests/test_structure_comparison_v2.py tests/test_pairwise_scoring_v2.py
+  tests/test_standard_tm_score.py tests/test_batch_tm_score.py
+  tests/acceptance/test_alignment_tm.py` →
+  `66 passed, 1 deselected`.
+- Full routine joint gate:
+  `uv run --no-sync python scripts/verify_backend.py routine` →
+  `1239 passed, 52 deselected`; retained result
+  `verification-results/routine/20260730T041427.758451Z-7457-b716e36e0c38f476`.
+- Deterministic acceptance:
+  `uv run --no-sync python scripts/verify_backend.py
+  deterministic-acceptance` →
+  `10 passed, 5 deselected`; retained result
+  `verification-results/deterministic-acceptance/20260730T041931.079173Z-14765-71cbb08ad1380e6b`.
+- Installed-package isolation:
+  `uv run --no-sync python scripts/verify_backend.py installed-package` →
+  `3 passed`; retained result
+  `verification-results/installed-package/20260730T042041.052758Z-15484-0e2983e4a00fc36e`.
+- All three retained Controller records report
+  `project_revision=3c9db18b37b41baaeec1fa72d041a095df174992` and
+  `project_dirty=false`. The worktree was clean before this evidence-only
+  status update, and no cross-ticket regression was found.
