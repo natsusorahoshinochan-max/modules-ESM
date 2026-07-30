@@ -49,9 +49,18 @@ def test_every_public_tier_has_only_existing_v2_test_targets() -> None:
     assert set(TIERS) == {
         "deterministic-acceptance",
         "examples-v2",
+        "installed-local-esm3",
+        "installed-local-esmfold2",
+        "installed-package",
+        "installed-protein-sol",
+        "installed-simplefold-confidence",
+        "installed-simplefold-folding",
+        "installed-soluprot",
         "local-esmfold2-v2-contract",
+        "provider-isolation",
         "routine",
         "scientific-repro",
+        "security-failure",
     }
     for tier in TIERS.values():
         for argument in tier.pytest_arguments:
@@ -60,6 +69,21 @@ def test_every_public_tier_has_only_existing_v2_test_targets() -> None:
             target = PROJECT_ROOT / argument.split("::", 1)[0]
             assert target.exists(), argument
     assert not (PROJECT_ROOT / "modules" / "provider_evidence.py").exists()
+
+
+def test_required_installed_provider_tiers_fail_on_any_skip() -> None:
+    assert {
+        name
+        for name, tier in TIERS.items()
+        if tier.zero_skip
+    } == {
+        "installed-local-esm3",
+        "installed-local-esmfold2",
+        "installed-protein-sol",
+        "installed-simplefold-confidence",
+        "installed-simplefold-folding",
+        "installed-soluprot",
+    }
 
 
 def test_routine_tier_reports_result_and_preserves_configured_roots(
@@ -111,13 +135,19 @@ def test_verifier_rejects_unsafe_overrides_and_retired_v1_tiers(
 ) -> None:
     unsafe_path = _run_verifier("routine", str(tmp_path / "outside.py"))
     unsafe_option = _run_verifier("routine", "--token=must-not-retain")
+    provider_override = _run_verifier(
+        "installed-local-esm3",
+        "tests/tier_probes/test_isolated_roots.py",
+    )
     retired = _run_verifier("live-provider")
 
     assert unsafe_path.returncode != 0
     assert unsafe_option.returncode != 0
+    assert provider_override.returncode != 0
     assert retired.returncode != 0
     assert "repo-relative paths beneath tests/" in unsafe_path.stderr
     assert "must-not-retain" not in unsafe_option.stderr
+    assert "do not accept test overrides" in provider_override.stderr
     assert "invalid choice" in retired.stderr
 
 

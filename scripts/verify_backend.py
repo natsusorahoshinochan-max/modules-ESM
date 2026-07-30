@@ -43,6 +43,7 @@ OUTPUT_CHUNK_SIZE = 64 * 1024
 class Tier:
     pytest_arguments: tuple[str, ...]
     timeout_seconds: int = DEFAULT_TIMEOUT_SECONDS
+    zero_skip: bool = False
 
 
 TIERS = {
@@ -107,6 +108,153 @@ TIERS = {
         ),
         "-m",
         "not live_provider and not local_provider",
+    )),
+    "installed-package": Tier((
+        (
+            "tests/test_installed_backend_v2.py::"
+            "test_built_artifact_is_reproducible_complete_and_fixture_free"
+        ),
+        (
+            "tests/test_installed_backend_v2.py::"
+            "test_installed_protocol_catalog_identity_and_"
+            "separate_availability"
+        ),
+        (
+            "tests/test_installed_backend_v2.py::"
+            "test_installed_backend_completes_full_public_v2_journey"
+        ),
+    )),
+    "installed-local-esmfold2": Tier(
+        ((
+            "tests/test_installed_backend_v2.py::"
+            "test_installed_local_esmfold2_gate"
+        ),),
+        zero_skip=True,
+    ),
+    "installed-local-esm3": Tier(
+        ((
+            "tests/test_installed_backend_v2.py::"
+            "test_installed_local_esm3_gate"
+        ),),
+        zero_skip=True,
+    ),
+    "installed-simplefold-folding": Tier(
+        ((
+            "tests/test_installed_backend_v2.py::"
+            "test_installed_simplefold_folding_gate"
+        ),),
+        zero_skip=True,
+    ),
+    "installed-simplefold-confidence": Tier(
+        ((
+            "tests/test_installed_backend_v2.py::"
+            "test_installed_simplefold_confidence_gate"
+        ),),
+        zero_skip=True,
+    ),
+    "installed-soluprot": Tier(
+        ((
+            "tests/test_installed_backend_v2.py::"
+            "test_installed_soluprot_gate"
+        ),),
+        zero_skip=True,
+    ),
+    "installed-protein-sol": Tier(
+        ((
+            "tests/test_installed_backend_v2.py::"
+            "test_installed_protein_sol_gate"
+        ),),
+        zero_skip=True,
+    ),
+    "provider-isolation": Tier((
+        (
+            "tests/test_esm3_local_v2.py::"
+            "test_local_runtime_rejects_model_replacement_and_stale_configuration"
+        ),
+        (
+            "tests/test_esm3_local_v2.py::"
+            "test_local_readiness_rechecks_model_identity_before_any_cache_lookup"
+        ),
+        (
+            "tests/test_simplefold_folding_v2.py::"
+            "test_simplefold_readiness_validates_assets_without_hiding_siblings"
+        ),
+        (
+            "tests/test_simplefold_confidence_v2.py::"
+            "test_confidence_readiness_has_exact_asset_closure_and_"
+            "invalidates_replacement"
+        ),
+        (
+            "tests/test_solubility_v2.py::"
+            "test_soluprot_startup_is_lazy_and_keeps_unavailable_siblings_visible"
+        ),
+        (
+            "tests/test_solubility_v2.py::"
+            "test_soluprot_runtime_probe_rejects_transitive_dependency_tree_drift"
+        ),
+        (
+            "tests/test_solubility_v2.py::"
+            "test_full_readiness_failure_does_not_block_no_tm"
+        ),
+        (
+            "tests/test_protein_sol_v2.py::"
+            "test_protein_sol_exact_source_tree_controls_readiness"
+        ),
+        (
+            "tests/test_run_execution_v2.py::"
+            "test_volatile_readiness_is_reobserved_and_rejects_stale_green"
+        ),
+        (
+            "tests/test_run_execution_v2.py::"
+            "test_reusable_readiness_proof_requires_identity_scope_age_"
+            "fingerprint_and_invalidation"
+        ),
+        (
+            "tests/test_module_packages_v2.py::"
+            "test_missing_optional_dependency_does_not_hide_available_sibling"
+        ),
+    )),
+    "security-failure": Tier((
+        (
+            "tests/test_protein_io_artifacts_v2.py::"
+            "test_artifact_retrieval_rejects_tampering_symlinks_and_traversal"
+        ),
+        (
+            "tests/test_run_execution_v2.py::"
+            "test_failed_readiness_rejects_before_factory_and_redacts_environment"
+        ),
+        (
+            "tests/test_run_execution_v2.py::"
+            "test_cleanup_failure_is_bounded_and_does_not_rewrite_engine_success"
+        ),
+        (
+            "tests/test_run_execution_v2.py::"
+            "test_artifact_retrieval_rejects_cross_scope_tamper_and_symlink"
+        ),
+        (
+            "tests/test_run_execution_v2.py::"
+            "test_symlinked_run_workspace_fails_before_readiness_without_outside_write"
+        ),
+        (
+            "tests/test_run_execution_v2.py::"
+            "test_reusable_proof_is_cached_only_after_durable_attestation"
+        ),
+        (
+            "tests/test_run_execution_v2.py::"
+            "test_node_success_is_not_published_when_disposition_commit_fails"
+        ),
+        (
+            "tests/test_result_cache_v2.py::"
+            "test_conflicting_output_for_one_result_identity_fails_without_overwrite"
+        ),
+        (
+            "tests/test_run_cancel_derive_v2.py::"
+            "test_cancel_terminates_registered_process_group_children_and_temp_work"
+        ),
+        (
+            "tests/test_run_cancel_derive_v2.py::"
+            "test_cancel_and_derive_reject_cross_project_scope_with_shared_errors"
+        ),
     )),
 }
 
@@ -269,6 +417,8 @@ def _sanitized(
 
 def run(tier_name: str, pytest_override: tuple[str, ...]) -> int:
     tier = TIERS[tier_name]
+    if tier.zero_skip and pytest_override:
+        raise ValueError("installed provider gates do not accept test overrides")
     arguments = pytest_override or tier.pytest_arguments
     revision, dirty = _git_state()
     print(f"BACKEND VERIFICATION TIER: {tier_name}", flush=True)
@@ -353,6 +503,7 @@ def run(tier_name: str, pytest_override: tuple[str, ...]) -> int:
             and not resource_warning
             and junit_valid
             and failures == 0
+            and (not tier.zero_skip or skipped == 0)
             and tests > 0
         )
 
@@ -451,6 +602,10 @@ def main() -> int:
         override = override[1:]
     try:
         safe_override = _safe_override(override)
+        if TIERS[args.tier].zero_skip and safe_override:
+            raise ValueError(
+                "installed provider gates do not accept test overrides"
+            )
     except ValueError as error:
         parser.error(str(error))
     return run(args.tier, safe_override)

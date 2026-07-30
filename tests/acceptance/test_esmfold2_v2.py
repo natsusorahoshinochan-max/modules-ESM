@@ -210,6 +210,42 @@ def test_local_esmfold2_v2_source_contract_and_native_result(
     assert values["structure.plddt.mean_residue"] == pytest.approx(75.0)
     assert values["structure.ptm"] == 0.625
     assert pae.entries[0].value == [[0.0, 1.0], [1.0, 0.0]]
+    readiness_index = next(
+        index
+        for index, event in enumerate(events)
+        if event["event"]["type"] == "readiness_attested"
+        and event["event"]["binding"]["contract_id"]
+        == "folding.fold.esmfold2_local"
+        and event["event"]["binding"]["contract_version"] == "2.0.0"
+        and event["event"]["conclusion"] == "passing"
+    )
+    started = [
+        event["event"]
+        for event in events
+        if event["event"]["type"] == "engine_invocation_started"
+        and event["event"]["engine_identity"].startswith(
+            "folding.esmfold2_local."
+        )
+    ]
+    terminals = [
+        event["event"]
+        for event in events
+        if event["event"]["type"] == "engine_invocation_terminal"
+        and event["event"]["invocation_id"]
+        in {item["invocation_id"] for item in started}
+    ]
+    assert len(started) == len(terminals) == 1
+    assert terminals[0]["status"] == "succeeded"
+    invocation_index = next(
+        index
+        for index, event in enumerate(events)
+        if event["event"] == started[0]
+    )
+    assert readiness_index < invocation_index
+    assert {
+        observation.method.contract_id
+        for observation in (*confidence.entries, *pae.entries)
+    } == {"folding.fold.esmfold2_hf_1ebf0e3"}
     assert not any(
         event["event"].get("engine_identity", "").startswith(
             "folding.esmfold2_remote."

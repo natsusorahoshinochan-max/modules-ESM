@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import argparse
 import asyncio
 import os
 import uuid
@@ -878,3 +879,24 @@ def create_app(
 
 
 app = create_app()
+
+
+def main(argv: list[str] | None = None) -> int:
+    """Launch the installed v2 backend without source-checkout assumptions."""
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--host", default="127.0.0.1")
+    parser.add_argument("--port", type=int, default=8000)
+    parsed = parser.parse_args(argv)
+    import uvicorn
+
+    uvicorn.run(
+        app,
+        host=parsed.host,
+        port=parsed.port,
+        log_level="warning",
+    )
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

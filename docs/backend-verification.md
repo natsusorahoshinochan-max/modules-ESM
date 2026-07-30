@@ -22,12 +22,30 @@ use mode `0700` and files use mode `0600`.
 | Deterministic backend acceptance | `.venv/bin/python scripts/verify_backend.py deterministic-acceptance` | Runs the locked canonical v2 3GB1 public-protocol journey and its current failure, readiness, cancellation, isolation, and replay variants. |
 | Scientific reproduction | `.venv/bin/python scripts/verify_backend.py scientific-repro` | Confirms that every provider-representable amino-acid symbol reaches the cohesive ESM-3 package boundary unchanged. |
 | Local ESMFold2 source contract | `.venv/bin/python scripts/verify_backend.py local-esmfold2-v2-contract` | Checks the exact source/native-result contract, static confidence normalization, no-fallback lineage, and shared folding CTK without claiming a real heavy-model invocation. |
+| Installed package | `.venv/bin/python scripts/verify_backend.py installed-package` | Reproducibly builds the wheel and sdist, installs the wheel outside the checkout, proves source/installed protocol and Catalog identity, and drives the installed server through the public v2 Workflow/Run journey. |
+| Installed local ESMFold2 | `.venv/bin/python scripts/verify_backend.py installed-local-esmfold2` | Imports the exact installed ESM and Transformers sources, then proves the local Binding's readiness-before-invocation, native result normalization, terminal evidence, and no remote fallback. |
+| Installed local ESM-3 | `.venv/bin/python scripts/verify_backend.py installed-local-esm3` | Invokes the installed locked local model for paired, sequence, and structure generation and requires complete invocation evidence. |
+| Installed SimpleFold folding | `.venv/bin/python scripts/verify_backend.py installed-simplefold-folding` | Invokes the installed locked SimpleFold folding model with its exact model and ESM-2 assets. |
+| Installed SimpleFold confidence | `.venv/bin/python scripts/verify_backend.py installed-simplefold-confidence` | Invokes the installed exact confidence asset closure and proves direct-confidence output without refolding. |
+| Installed SoluProt | `.venv/bin/python scripts/verify_backend.py installed-soluprot` | Invokes both full and no-TM locked SoluProt methods and checks their exact observations and terminal evidence. |
+| Installed Protein-Sol | `.venv/bin/python scripts/verify_backend.py installed-protein-sol` | Invokes the source-bound Protein-Sol model for multiple sequences and all three declared Metrics. |
+| Provider isolation | `.venv/bin/python scripts/verify_backend.py provider-isolation` | Exercises model/data replacement, runtime-tree drift, configuration invalidation, stale readiness, reusable-proof identity, and optional-sibling isolation. |
+| Security and failure closure | `.venv/bin/python scripts/verify_backend.py security-failure` | Exercises path containment, no-follow/symlink defenses, redaction, process cleanup, project/run isolation, Cache conflict, and durable-evidence failure. |
 
-The verifier exposes no v1 provider-evidence, mocked-workflow, installed,
-aggregate-provider, live-provider, or fresh-remote tier. A provider gate can be
-added only when it consumes current v2 Run Ledger facts through the public
-protocol; an adapter-owned JSONL stream, readiness-only result, historical
-manifest, fixed call count, skip, or Cache-only replay cannot satisfy it.
+The six installed provider tiers are zero-skip gates: a missing provider,
+fixture-only collection, failed source-origin check, missing Engine Invocation,
+or skipped test fails the gate. The copied acceptance harness is outside the
+checkout, and its bootstrap first proves that `core`, `modules`, and
+`protein_workbench_public` resolve from the installed wheel. It may expose
+locked dependency locations to that isolated environment, but it cannot add
+the source checkout to Python's import path. Installed provider gates reject
+pytest target overrides so a smaller test cannot replace the required case.
+
+The verifier exposes no v1 provider-evidence, mocked-workflow,
+aggregate-provider, live-provider, or fresh-remote tier. A provider gate
+consumes current v2 Run Ledger facts; an adapter-owned JSONL stream,
+readiness-only result, historical manifest, fixed call count, skip, or
+Cache-only replay cannot satisfy it.
 
 All declared pytest file targets are required to exist. A focused override after
 `--` accepts only repository-relative selectors beneath `tests/`; absolute
@@ -68,6 +86,24 @@ Run the focused package contract with:
 
 The synthetic echo package exists only under
 `tests/fixtures/zero_core_packages`. Production discovery does not expose echo.
+Neither the wheel nor the sdist contains the repository test tree, fixture
+resources, or synthetic echo package.
+
+## Installed parity contract
+
+`scripts/build_backend.py` creates byte-reproducible wheel and sdist artifacts.
+The installed-package gate creates a fresh virtual environment and launches
+`python -I -m core.server` from a directory outside the checkout. The installed
+protocol bundle bytes and digest, canonical Catalog descriptor bytes and
+digest, and ordered FrozenCatalog contract references must exactly equal the
+source deployment. Availability remains a separately observed startup value
+and is not part of the canonical Catalog descriptor.
+
+The installed public journey uses protocol-bundle operations for Catalog,
+Workflow save/snapshot/relock/compile, Start Run, Run Projection, Derived Run,
+Cancel Run, and Artifact Retrieval. Its WebSocket observes a bounded replay
+followed by live terminal evidence. The second Run must contain a Cache replay,
+and retrieved artifact bytes must match their declared digest.
 
 ## V2 public protocol and persistence
 
