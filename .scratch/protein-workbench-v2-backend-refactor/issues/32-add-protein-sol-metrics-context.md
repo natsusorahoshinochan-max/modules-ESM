@@ -4,7 +4,7 @@
 
 **Blocked by:** 31 — Add SoluProt Methods.
 
-**Status:** awaiting-controller
+**Status:** completed
 
 - [x] The Workbench adapter is based only on the Protein-Sol dependency repository under the agreed external workspace and does not modify vendor code or reuse unrelated surrounding workflow logic.
 - [x] Protein-Sol is registered in the existing `solubility` package with exact Method, Binding, preprocessing/source identity, Availability, Readiness, and result-affecting implementation identity.
@@ -61,3 +61,41 @@
 - Handoff boundary: executor work is complete and awaits the Controller-owned
   joint Ticket 01–32 gate; this ticket must not be marked `completed` until
   that cumulative gate passes.
+
+## Controller joint-test evidence
+
+- Previous accepted multi-ticket gate:
+  `1972b7d8ff0c15ab63bfc60f2f5bf491d63bf740`; independently tested Ticket 32
+  executor SHA: `623bbce1c6855b42375523aed637333afa617373`.
+- Protein-Sol real two-Candidate batch gate:
+  `uv run --no-sync python scripts/verify_backend.py
+  protein-sol-v2-local-model` →
+  `1 passed`; retained result
+  `verification-results/protein-sol-v2-local-model/20260730T094147.046205Z-32366-60e8daeffec1d729`.
+- Tickets 01–32 cumulative v2 gate:
+  `uv run --no-sync pytest -q tests/*_v2.py` →
+  `630 passed`.
+- Ticket 32 cross-package focused gate:
+  `uv run --no-sync pytest -q tests/test_solubility_v2.py
+  tests/test_protein_sol_v2.py tests/test_port_types_v2.py
+  tests/test_scoring_v2.py tests/test_public_protocol_v2.py
+  tests/test_verification_tiers.py` →
+  `135 passed`.
+- Full routine joint gate:
+  `uv run --no-sync python scripts/verify_backend.py routine` →
+  `1321 passed, 56 deselected`; retained result
+  `verification-results/routine/20260730T094522.611841Z-36868-fcbce42cbe09fe8c`.
+- Deterministic acceptance:
+  `uv run --no-sync python scripts/verify_backend.py
+  deterministic-acceptance` →
+  `10 passed, 5 deselected`; retained result
+  `verification-results/deterministic-acceptance/20260730T095027.894800Z-44393-faf3a8e95414125a`.
+- Installed-package isolation:
+  `uv run --no-sync python scripts/verify_backend.py installed-package` →
+  `3 passed`; retained result
+  `verification-results/installed-package/20260730T095141.275315Z-45203-ea97d7801b5a19f4`.
+- All four retained Controller records report
+  `project_revision=623bbce1c6855b42375523aed637333afa617373` and
+  `project_dirty=false`. The worktree was clean before this evidence-only
+  status update, and no cross-ticket or sibling-solubility regression was
+  found.
