@@ -4,7 +4,7 @@
 
 **Blocked by:** 36 — Prove installed and local-provider parity.
 
-**Status:** awaiting-controller
+**Status:** completed
 
 - [x] The gate records the exact clean source revision, installed artifact identity, public protocol digest, FrozenCatalog contract digests, Workflow revision, Contract Lock, and compile receipt before starting.
 - [x] Every required remote Binding obtains a current passing Readiness Attestation, and unavailable credentials/provider state or a skipped test fails the gate.
@@ -77,3 +77,52 @@
   `verification-results/provider-isolation/20260730T205844.317184Z-7292-6885abed99899d3d`,
   and
   `verification-results/security-failure/20260730T205855.707047Z-7453-fb9c8869b32a9777`.
+
+## Controller joint-test evidence
+
+- Controller started from the previously accepted Ticket 36 gate
+  `b328802198e19b1c192958d21fcaceb2857550b9` and independently tested the
+  clean Ticket 37 executor revision
+  `2dea39bdf13154f8946dd4975ed21c31c5788b39`.
+- Controller generated a second fresh remote 3GB1 proof rather than accepting
+  the executor bundle alone:
+  `uv run --no-sync python scripts/verify_backend.py fresh-remote-3gb1` →
+  `1 passed` in `335.10s`. The retained source-bound bundle is
+  `verification-results/fresh-remote-3gb1/20260730T210657.155762Z-7897-a9a02e9db52e8069`;
+  its successful public Run is
+  `run-cb6a747a057f4090bf726d09edb85a66`, all sealed checksums pass, and the
+  independent validator reports one Run and fifteen artifacts bound to the
+  exact executor revision.
+- Tickets 01–37 ordinary v2 gate passed with `644 passed, 17 deselected`.
+  The full routine joint gate passed with `659 passed, 30 deselected`; retained
+  result:
+  `verification-results/routine/20260730T211344.463981Z-13650-9eacaa8c9027b055`.
+- Deterministic acceptance passed `8/8`, installed artifact/public journey
+  passed `3/3`, and the direct Biohub ESMC installed gate passed `1/1`;
+  retained results:
+  `verification-results/deterministic-acceptance/20260730T211503.913691Z-19102-c3f5f6e1fe5506f5`,
+  `verification-results/installed-package/20260730T211536.191595Z-19521-6750d9054eaf8f3e`,
+  and
+  `verification-results/installed-biohub-esmc/20260730T211554.169320Z-19762-c6583e0666c54543`.
+- The local ESM3, SimpleFold folding, SimpleFold confidence, SoluProt, and
+  Protein-Sol installed gates each passed `1/1`; retained results:
+  `verification-results/installed-local-esm3/20260730T211839.832626Z-20035-4a8d972b164b955a`,
+  `verification-results/installed-simplefold-folding/20260730T212243.720143Z-20349-9a931566e588dbec`,
+  `verification-results/installed-simplefold-confidence/20260730T212659.481119Z-20952-529ac8decc6ca9f5`,
+  `verification-results/installed-soluprot/20260730T212718.829431Z-21495-14c85f411aef1410`,
+  and
+  `verification-results/installed-protein-sol/20260730T212729.790698Z-21636-ea9b5a0bff16ff8c`.
+- Provider isolation passed `16/16`, security/failure closure passed `10/10`,
+  repository examples passed `11/11`, scientific reproducibility passed `1/1`,
+  and the independently fail-closed local ESMFold2 source contract passed
+  `5/5`; retained results:
+  `verification-results/provider-isolation/20260730T212739.555480Z-21754-31752be8f4dc350a`,
+  `verification-results/security-failure/20260730T212746.811774Z-21899-9d5163bb69f47d83`,
+  `verification-results/examples-v2/20260730T212801.069048Z-21969-3b282ebcf0aeda68`,
+  `verification-results/scientific-repro/20260730T212806.874110Z-22362-e67d215b4b08276d`,
+  and
+  `verification-results/local-esmfold2-v2-contract/20260730T212815.349833Z-22384-8d912805195e9fd9`.
+- Every retained Controller result records
+  `project_revision=2dea39bdf13154f8946dd4975ed21c31c5788b39` and
+  `project_dirty=false`. Controller accepts Ticket 37 and the complete
+  37-ticket serial execution.
