@@ -86,12 +86,6 @@ RUN_LEDGER_SCHEMA_VERSION = "2.0.0"
 MAX_ARTIFACTS_PER_RUN = 2_048
 MAX_ARTIFACT_SIZE_BYTES = 64 * 1024 * 1024
 MAX_ARTIFACT_BYTES_PER_RUN = 256 * 1024 * 1024
-_LEGACY_ARTIFACT_MEDIA_TYPES = (
-    "application/json",
-    "application/octet-stream",
-    "chemical/x-pdb",
-    "text/x-fasta",
-)
 MAX_LEDGER_FACT_BYTES = 4 * 1024 * 1024
 MAX_BACKGROUND_RUNS = 8
 FAST_RUN_COMPLETION_GRACE_SECONDS = 0.25
@@ -3886,10 +3880,11 @@ class V2RunService:
                     port_reference["contract_id"],
                     port_reference["contract_version"],
                 )
-                accepted_media_types = (
-                    port_type.artifact_media_types
-                    or _LEGACY_ARTIFACT_MEDIA_TYPES
-                )
+                accepted_media_types = port_type.artifact_media_types
+                if accepted_media_types is None:
+                    raise PortValueError(
+                        "Artifact Port lacks a publication media contract"
+                    )
                 evidence.append(
                     {
                         "output_port": output["name"],
@@ -3929,8 +3924,19 @@ class V2RunService:
         return _parse_plan_evidence(value)
 
     def _run_directories(self):
-        for project in self._projects.list_projects():
-            project_id = validate_identifier(project.id, "project_id")
+        project_root = self._projects.root_dir
+        if not project_root.is_dir() or project_root.is_symlink():
+            return
+        for project_dir in sorted(project_root.iterdir()):
+            if not project_dir.is_dir() or project_dir.is_symlink():
+                continue
+            try:
+                project_id = validate_identifier(
+                    project_dir.name,
+                    "project_id",
+                )
+            except StoragePathError:
+                continue
             run_parent = (
                 self._projects.run_root / project_id
                 if self._projects.run_root is not None

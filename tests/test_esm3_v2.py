@@ -1094,49 +1094,6 @@ def test_invalid_confidence_fails_after_call_without_publication(
     assert [event["status"] for event in terminals] == ["succeeded"]
 
 
-def test_provider_evidence_failure_does_not_rewrite_engine_success(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    import modules.provider_evidence as provider_evidence
-
-    def fail_evidence(**kwargs: Any) -> None:
-        del kwargs
-        raise RuntimeError("fixture evidence persistence failed")
-
-    monkeypatch.setattr(
-        provider_evidence,
-        "record_provider_call_result",
-        fail_evidence,
-    )
-    _, projection, events = _run_generation(
-        tmp_path,
-        operation="generate_sequence",
-        client=_ProviderClient([_ProviderResponse("ACD")]),
-        num_samples=1,
-    )
-
-    assert projection["status"] == "failed"
-    assert not [
-        output
-        for output in projection["outputs"]
-        if output["node_id"] == "generate"
-    ]
-    started = next(
-        event["event"]
-        for event in events
-        if event["event"]["type"] == "engine_invocation_started"
-        and event["event"]["engine_role"] == "sequence_sample"
-    )
-    terminal = next(
-        event["event"]
-        for event in events
-        if event["event"]["type"] == "engine_invocation_terminal"
-        and event["event"]["invocation_id"] == started["invocation_id"]
-    )
-    assert terminal["status"] == "succeeded"
-
-
 def test_paired_generation_publishes_ten_exact_counterparts_and_real_calls(
     tmp_path: Path,
 ) -> None:

@@ -14,7 +14,6 @@ from typing import Any
 
 from core import ReadinessResult
 from modules.provider_contract import proteinmpnn_provider_identity
-from modules.provider_evidence import record_provider_call_result
 from datatypes import (
     ProteinMPNNConstraints,
     ProteinSequence,
@@ -360,72 +359,3 @@ def validate_scoring_result(raw_result: object) -> float:
             "binary32 non-negative range"
         )
     return raw_result
-
-
-def record_scoring_result(
-    *,
-    provider: ProteinMPNNProvider,
-    structure: ProteinStructure,
-    sequence: ProteinSequence,
-    score: float,
-) -> None:
-    """Record bounded exact evidence only after native score validation."""
-    record_provider_call_result(
-        provider=provider.provider_identity,
-        operation="score_sequence",
-        model=PROTEINMPNN_MODEL,
-        provider_identity=proteinmpnn_provider_identity(),
-        effective_seed=PROTEINMPNN_SCORING_SEED,
-        seed_control="fixed_scoring_seed",
-        result_summary={
-            "input_pdb_sha256": hashlib.sha256(
-                structure.pdb_string.encode()
-            ).hexdigest(),
-            "input_sequence_sha256": hashlib.sha256(
-                sequence.sequence.encode()
-            ).hexdigest(),
-            "score": score,
-            "sequence_length": len(sequence.sequence),
-        },
-    )
-
-
-def record_design_result(
-    *,
-    provider: ProteinMPNNProvider,
-    structure: ProteinStructure,
-    sequences: list[ProteinSequence],
-    scores: list[float] | None,
-    effective_seed: int,
-) -> None:
-    """Record bounded exact provider evidence after result validation."""
-    summary: dict[str, Any] = {
-        "input_pdb_sha256": hashlib.sha256(
-            structure.pdb_string.encode()
-        ).hexdigest(),
-        "sequence_count": len(sequences),
-        "sequence_lengths": [
-            len(sequence.sequence) for sequence in sequences
-        ],
-        "sequence_sha256": [
-            hashlib.sha256(sequence.sequence.encode()).hexdigest()
-            for sequence in sequences
-        ],
-        "score_count": 0 if scores is None else len(scores),
-    }
-    if scores is not None:
-        summary.update(
-            {
-                "score_min": min(scores),
-                "score_max": max(scores),
-            }
-        )
-    record_provider_call_result(
-        provider=provider.provider_identity,
-        operation="design_sequences",
-        model=PROTEINMPNN_MODEL,
-        provider_identity=proteinmpnn_provider_identity(),
-        effective_seed=effective_seed,
-        seed_control="torch_local",
-        result_summary=summary,
-    )

@@ -28,9 +28,7 @@ from .adapter import (
     derived_call_seed,
     generation_config,
     normalized_confidence,
-    prepare_remote_provider_call,
     protein_prompt_to_provider,
-    record_remote_provider_result,
     reject_silent_sequence_fields,
     response_has_structure,
     require_sequence_mask,
@@ -39,8 +37,6 @@ from .adapter import (
 from .local_adapter import (
     call_local_provider,
     load_local_esm3_client,
-    prepare_local_provider_call,
-    record_local_provider_result,
     release_local_esm3_client,
     resolve_local_runtime,
 )
@@ -143,23 +139,12 @@ class ESM3GenerationImplementation:
             "generate_sequence": "generate(track=sequence)",
             "generate_structure": "generate(track=structure)",
         }[operation]
-        if self._route_name == "local_open":
-            if self._runtime_fingerprint is None:
-                raise RuntimeError(
-                    "local ESM-3 runtime was not resolved before invocation"
-                )
-            track_identity = prepare_local_provider_call(
-                provider_prompt,
-                provider_operation,
-                model_name=self._model_name,
-                effective_seed=effective_call_seed,
-                runtime_fingerprint=self._runtime_fingerprint,
-            )
-        else:
-            track_identity = prepare_remote_provider_call(
-                provider_prompt,
-                provider_operation,
-                model_name=self._model_name,
+        if (
+            self._route_name == "local_open"
+            and self._runtime_fingerprint is None
+        ):
+            raise RuntimeError(
+                "local ESM-3 runtime was not resolved before invocation"
             )
         with self._run_resources.engine_invocation(
             engine_role=role,
@@ -183,24 +168,6 @@ class ESM3GenerationImplementation:
                     config,
                     provider_operation,
                 )
-        if self._route_name == "local_open":
-            assert self._runtime_fingerprint is not None
-            record_local_provider_result(
-                provider_prompt,
-                result,
-                provider_operation,
-                model_name=self._model_name,
-                effective_seed=effective_call_seed,
-                track_identity=track_identity,
-            )
-        else:
-            record_remote_provider_result(
-                provider_prompt,
-                result,
-                provider_operation,
-                model_name=self._model_name,
-                track_identity=track_identity,
-            )
         return result, invocation_id
 
     def execute(

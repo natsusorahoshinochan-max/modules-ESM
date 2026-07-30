@@ -833,7 +833,19 @@ def create_app(
         file: UploadFile = File(...),
     ) -> Any:
         manager = request.app.state.project_manager
-        if manager.load_meta(project_id) is None:
+        try:
+            project = manager.load_meta(project_id)
+        except ValueError:
+            return public_error_response(
+                "unsupported_schema_version",
+                "Project metadata is not a supported exact v2 artifact",
+                {
+                    "artifact_kind": "project",
+                    "expected_schema_version": "2.0.0",
+                    "received_schema_version": "unknown",
+                },
+            )
+        if project is None:
             return JSONResponse(
                 status_code=404,
                 content={

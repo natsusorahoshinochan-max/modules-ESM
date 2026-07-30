@@ -5,6 +5,8 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import shutil
+import tempfile
 import uuid
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -287,7 +289,13 @@ class ProjectManager:
 
         project_dir = self.project_dir(CANONICAL_3GB1_PROJECT_ID)
         metadata_path = project_dir / "project.json"
-        if metadata_path.exists():
+        if project_dir.exists():
+            if (
+                project_dir.is_symlink()
+                or not project_dir.is_dir()
+                or not metadata_path.exists()
+            ):
+                return None
             try:
                 meta = self.load_meta(CANONICAL_3GB1_PROJECT_ID)
             except ValueError:
@@ -296,15 +304,9 @@ class ProjectManager:
                 return None
             if meta is None or not meta.seed:
                 return None
-        else:
-            meta = ProjectMeta(
-                id=CANONICAL_3GB1_PROJECT_ID,
-                name=name,
-                seed=True,
-            )
-            self._ensure_dir(meta.id)
-            self._save_meta(meta)
+            return meta
 
+        input_payloads: dict[str, bytes] = {}
         for reference, source_value in input_sources.items():
             reference_parts = validate_relative_path(
                 reference,
@@ -317,25 +319,45 @@ class ProjectManager:
                     f"Canonical v2 input source is unavailable: {reference}"
                 )
             try:
-                replace_private_regular_file(
-                    project_dir,
-                    ("inputs", *reference_parts),
-                    source.read_bytes(),
-                    field="canonical_v2_input",
-                )
-            except (OSError, StoragePathError) as error:
+                input_payloads[reference_parts[0]] = source.read_bytes()
+            except OSError as error:
                 raise CanonicalSeedError(
                     f"Canonical v2 input cannot be installed: {reference}"
                 ) from error
 
+        meta = ProjectMeta(
+            id=CANONICAL_3GB1_PROJECT_ID,
+            name=name,
+            seed=True,
+        )
         descriptor = {
             "schema_version": PROJECT_SCHEMA_VERSION,
             "workflow_revision": 1,
             "workflow": parsed.to_public(),
         }
+        self.root_dir.mkdir(parents=True, exist_ok=True)
+        staging_dir = Path(
+            tempfile.mkdtemp(
+                prefix=".canonical-3gb1-staging-",
+                dir=self.root_dir,
+            )
+        ).resolve()
         try:
-            replace_private_regular_file(
-                project_dir,
+            (staging_dir / "inputs").mkdir(mode=0o700)
+            write_private_new_file(
+                staging_dir,
+                ("project.json",),
+                json.dumps(
+                    self._meta_data(meta),
+                    ensure_ascii=False,
+                    separators=(",", ":"),
+                    sort_keys=True,
+                    allow_nan=False,
+                ).encode("utf-8"),
+                field="canonical_v2_metadata",
+            )
+            write_private_new_file(
+                staging_dir,
                 ("workflow-v2.json",),
                 json.dumps(
                     descriptor,
@@ -346,10 +368,23 @@ class ProjectManager:
                 ).encode("utf-8"),
                 field="canonical_v2_workflow",
             )
+            for reference, payload in input_payloads.items():
+                write_private_new_file(
+                    staging_dir,
+                    ("inputs", reference),
+                    payload,
+                    field="canonical_v2_input",
+                )
+            if project_dir.exists():
+                return None
+            staging_dir.rename(project_dir)
         except (OSError, StoragePathError, ValueError) as error:
             raise CanonicalSeedError(
                 "Canonical v2 Workflow cannot be installed safely"
             ) from error
+        finally:
+            if staging_dir.exists():
+                shutil.rmtree(staging_dir)
         return meta
 
     def load_meta(self, project_id: str) -> ProjectMeta | None:

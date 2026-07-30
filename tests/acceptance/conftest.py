@@ -7,12 +7,10 @@ Provides:
 """
 
 import hashlib
-import json
 import os
 import subprocess
 import uuid
 from datetime import datetime, timezone
-from importlib.metadata import version
 from pathlib import Path
 
 import pytest
@@ -20,25 +18,18 @@ import pytest
 from datatypes import ProteinStructure
 from modules.provider_contract import (
     ESM_SDK_REVISION,
-    SIMPLEFOLD_ARTIFACT_SHA256,
     SIMPLEFOLD_REVISION,
-    esm_provider_identity,
-    proteinmpnn_provider_identity,
-    simplefold_provider_identity,
     validate_installed_provider_checkout,
     validate_local_esm3_snapshot,
 )
-from modules.provider_evidence import record_provider_readiness
 from modules.folding.simplefold_adapter import (
     SIMPLEFOLD_DEVICE,
     configured_runtime_fingerprint,
-    simplefold_folding_artifact_sha256,
     validate_simplefold_folding_environment,
 )
 from modules.folding.simplefold_confidence_adapter import (
     SIMPLEFOLD_CONFIDENCE_DEVICE,
     configured_runtime_fingerprint as confidence_runtime_fingerprint,
-    provider_identity as confidence_provider_identity,
     validate_simplefold_confidence_environment,
 )
 
@@ -245,97 +236,6 @@ def readiness() -> dict:
         "simplefold": _check_simplefold_ready(),
         "alignment": _check_alignment_ready(),
     }
-    identity_profile = os.environ.get(
-        "PROTEIN_WORKBENCH_PROVIDER_IDENTITY_PROFILE"
-    )
-    if identity_profile == "simplefold-v2-confidence":
-        simplefold_identity = confidence_provider_identity()
-    elif identity_profile == "simplefold-v2-folding":
-        simplefold_identity = simplefold_provider_identity(
-            simplefold_folding_artifact_sha256()
-        )
-    else:
-        simplefold_identity = simplefold_provider_identity(
-            SIMPLEFOLD_ARTIFACT_SHA256
-        )
-    readiness_evidence = (
-        (
-            "biohub",
-            status["biohub"],
-            {
-                **esm_provider_identity(),
-            },
-            {"credential_present": status["biohub"]},
-        ),
-        (
-            "local_open",
-            status["local_esm3"],
-            esm_provider_identity(local=True),
-            {"snapshot_validated": status["local_esm3"]},
-        ),
-        (
-            "mkdssp",
-            status["mkdssp"],
-            {"binary": "mkdssp", "required_version": "4.6.1"},
-            {"version_match": status["mkdssp"]},
-        ),
-        (
-            "local-proteinmpnn",
-            status["proteinmpnn"],
-            proteinmpnn_provider_identity(),
-            {
-                "checkout_and_checkpoint_validated": status["proteinmpnn"],
-            },
-        ),
-        (
-            "simplefold",
-            status["simplefold"],
-            simplefold_identity,
-            {
-                "artifact_contract_complete": status["simplefold"],
-            },
-        ),
-        (
-            "biopython-svd",
-            status["alignment"],
-            {
-                "biopython_version": version("biopython"),
-                "numpy_version": version("numpy"),
-            },
-            {"installed": status["alignment"]},
-        ),
-        (
-            "tmtools",
-            status["alignment"],
-            {"tmtools_version": version("tmtools")},
-            {"installed": status["alignment"]},
-        ),
-    )
-    evidence_scope = os.environ.get(
-        "PROTEIN_WORKBENCH_PROVIDER_EVIDENCE_SCOPE"
-    )
-    required_for_tier = (
-        set(evidence_scope.split(","))
-        if evidence_scope
-        else {
-            "live-provider": {"biohub"},
-            "local-provider": {"mkdssp", "biopython-svd", "tmtools"},
-            "heavy-model": {
-                "local_open",
-                "local-proteinmpnn",
-                "simplefold",
-            },
-        }.get(os.environ.get("PROTEIN_WORKBENCH_VERIFICATION_TIER"), set())
-    )
-    for provider, ready, identity, details in readiness_evidence:
-        if provider not in required_for_tier:
-            continue
-        record_provider_readiness(
-            provider=provider,
-            ready=ready,
-            identity=identity,
-            details=details,
-        )
     return status
 
 
@@ -345,52 +245,6 @@ def require_ready(provider: str, readiness: dict) -> None:
         if os.environ.get("PROTEIN_WORKBENCH_REQUIRE_PROVIDER_CALL") == "1":
             pytest.fail(f"Required provider '{provider}' is not available")
         pytest.skip(f"Provider '{provider}' not available")
-
-
-@pytest.fixture(autouse=True)
-def require_adapter_provider_evidence(request: pytest.FixtureRequest):
-    """Require evidence emitted by the adapter, not by the acceptance test."""
-    evidence_path = Path(
-        os.environ.get(
-            "PROTEIN_WORKBENCH_PROVIDER_CALL_EVIDENCE",
-            str(
-                Path(os.environ["PROTEIN_WORKBENCH_RUN_ROOT"])
-                / "provider-calls.jsonl"
-            ),
-        )
-    )
-    starting_size = evidence_path.stat().st_size if evidence_path.exists() else 0
-
-    yield
-
-    is_provider_test = (
-        request.node.get_closest_marker("live_provider") is not None
-        or request.node.get_closest_marker("local_provider") is not None
-    )
-    if (
-        is_provider_test
-        and os.environ.get("PROTEIN_WORKBENCH_REQUIRE_PROVIDER_CALL") == "1"
-        and getattr(request.node, "rep_call", None) is not None
-        and request.node.rep_call.passed
-    ):
-        if not evidence_path.exists():
-            pytest.fail("Provider test completed without provider-call evidence")
-        with evidence_path.open() as evidence:
-            evidence.seek(starting_size)
-            new_events = [
-                json.loads(line) for line in evidence
-                if line.strip()
-            ]
-        if not any(
-            event.get("event_type") == "provider_call"
-            and event.get("actual_call") is True
-            and event.get("result", {}).get("status") == "succeeded"
-            and event.get("test_id") == request.node.nodeid
-            for event in new_events
-        ):
-            pytest.fail(
-                "Provider test completed without adapter-boundary call evidence"
-            )
 
 
 @pytest.fixture(scope="session")

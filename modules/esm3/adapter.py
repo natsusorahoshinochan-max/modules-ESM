@@ -277,25 +277,6 @@ def require_provider_protein(result: Any, operation: str) -> Any:
     return result
 
 
-def prepare_remote_provider_call(
-    protein: Any,
-    operation: str,
-    *,
-    model_name: str,
-) -> dict[str, Any]:
-    """Build bounded call identity before crossing the engine boundary."""
-    secondary_structure = getattr(protein, "secondary_structure", None)
-    track_identity: dict[str, Any] = {}
-    if isinstance(secondary_structure, str):
-        track_identity = {
-            "secondary_structure_length": len(secondary_structure),
-            "secondary_structure_sha256": hashlib.sha256(
-                secondary_structure.encode()
-            ).hexdigest(),
-        }
-    return track_identity
-
-
 def call_remote_provider(
     client: Any,
     protein: Any,
@@ -312,57 +293,6 @@ def call_remote_provider(
             f"ESM-3 provider operation {operation} failed"
         ) from error
     return require_provider_protein(result, operation)
-
-
-def record_remote_provider_result(
-    protein: Any,
-    result: Any,
-    operation: str,
-    *,
-    model_name: str,
-    track_identity: Mapping[str, Any],
-) -> None:
-    """Persist result evidence after the Engine Invocation has succeeded."""
-    from modules.provider_evidence import record_provider_call_result
-
-    result_summary: dict[str, Any] = {
-        "result_type": type(result).__name__,
-        "has_sequence": getattr(result, "sequence", None) is not None,
-        "has_coordinates": getattr(result, "coordinates", None) is not None,
-        **track_identity,
-    }
-    input_sequence = getattr(protein, "sequence", None)
-    if isinstance(input_sequence, str):
-        result_summary.update({
-            "input_sequence_length": len(input_sequence),
-            "input_sequence_sha256": hashlib.sha256(
-                input_sequence.encode()
-            ).hexdigest(),
-        })
-    output_sequence = getattr(result, "sequence", None)
-    if isinstance(output_sequence, str):
-        result_summary.update({
-            "output_sequence_length": len(output_sequence),
-            "output_sequence_sha256": hashlib.sha256(
-                output_sequence.encode()
-            ).hexdigest(),
-        })
-    record_provider_call_result(
-        provider="biohub",
-        operation={
-            "generate(track=sequence)": "esm3.generate_sequence",
-            "generate(track=structure)": "esm3.generate_structure",
-        }.get(operation, operation),
-        model=model_name,
-        provider_identity={
-            "sdk": "esm",
-            "sdk_source_revision": ESM_SDK_REVISION,
-            "service": "Biohub",
-        },
-        effective_seed=None,
-        seed_control="unsupported_by_provider",
-        result_summary=result_summary,
-    )
 
 
 def complete_sequence(

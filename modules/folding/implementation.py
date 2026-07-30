@@ -10,9 +10,7 @@ from typing import Any
 from modules.provider_contract import (
     SIMPLEFOLD_ESM2_ARTIFACT_SHA256,
     SIMPLEFOLD_REVISION,
-    esm_provider_identity,
 )
-from modules.provider_evidence import record_provider_call_result
 from datatypes import (
     Candidate,
     CandidateCollection,
@@ -25,12 +23,7 @@ from datatypes import (
 )
 
 from .adapter import (
-    ESM_SDK_REVISION,
-    LOCAL_ESMC_ARTIFACT_SHA256,
-    LOCAL_ESMC_REVISION,
-    LOCAL_ESMFOLD2_ARTIFACT_SHA256,
     LOCAL_ESMFOLD2_MODEL,
-    LOCAL_ESMFOLD2_REVISION,
     REMOTE_ESMFOLD2_MODEL,
     decode_local_fold_result,
     decode_remote_fold_result,
@@ -43,7 +36,6 @@ from .simplefold_adapter import (
     SIMPLEFOLD_MODEL,
     fold as simplefold_fold,
     simplefold_folding_artifact_sha256,
-    provider_identity as simplefold_provider_identity,
 )
 from .simplefold_confidence_adapter import (
     evaluate as simplefold_confidence_evaluate,
@@ -137,68 +129,6 @@ class ESMFold2FoldingImplementation:
         )
         return ExactContractReference(**contract.reference())
 
-    def _provider_identity(self) -> dict[str, Any]:
-        if self._route == "remote":
-            return esm_provider_identity()
-        return {
-            "sdk": "esm",
-            "sdk_source_revision": ESM_SDK_REVISION,
-            "service": "local_esmfold2",
-            "source": LOCAL_ESMFOLD2_MODEL,
-            "source_revision": LOCAL_ESMFOLD2_REVISION,
-            "snapshot_revision": LOCAL_ESMC_REVISION,
-            "artifact_sha256": {
-                "esmfold2": dict(
-                    sorted(LOCAL_ESMFOLD2_ARTIFACT_SHA256.items())
-                ),
-                "esmc": dict(sorted(LOCAL_ESMC_ARTIFACT_SHA256.items())),
-            },
-        }
-
-    def _record_provider_result(
-        self,
-        *,
-        sequence: ProteinSequence,
-        pdb_string: str,
-        effective_seed: int | None,
-    ) -> None:
-        record_provider_call_result(
-            provider=(
-                "biohub"
-                if self._route == "remote"
-                else "local-esmfold2"
-            ),
-            operation="esmfold2.fold",
-            model=(
-                REMOTE_ESMFOLD2_MODEL
-                if self._route == "remote"
-                else LOCAL_ESMFOLD2_MODEL
-            ),
-            provider_identity=self._provider_identity(),
-            effective_seed=effective_seed,
-            seed_control=(
-                "unsupported_by_provider"
-                if self._route == "remote"
-                else "torch_local"
-            ),
-            result_summary={
-                "input_sequence_length": len(sequence.sequence),
-                "input_sequence_sha256": hashlib.sha256(
-                    sequence.sequence.encode()
-                ).hexdigest(),
-                "pdb_bytes": len(pdb_string.encode()),
-                "pdb_sha256": hashlib.sha256(
-                    pdb_string.encode()
-                ).hexdigest(),
-                "score_ids": [
-                    "structure.pae",
-                    "structure.plddt.mean_residue",
-                    "structure.plddt.per_residue",
-                    "structure.ptm",
-                ],
-            },
-        )
-
     def execute(
         self,
         *,
@@ -263,13 +193,6 @@ class ESMFold2FoldingImplementation:
                         if self._route == "remote"
                         else decode_local_fold_result(raw, sequence)
                     )
-                self._record_provider_result(
-                    sequence=sequence,
-                    pdb_string=decoded.structure.pdb_string,
-                    effective_seed=(
-                        None if self._route == "remote" else call_seed
-                    ),
-                )
                 raw_candidate_id = (
                     f"fold-{parent_index}-sample-{sample_index}"
                 )
@@ -530,33 +453,6 @@ class SimpleFoldFoldingImplementation:
                 sequence,
                 sample_count,
             )
-            record_provider_call_result(
-                provider="simplefold",
-                operation="fold_sequence",
-                model=SIMPLEFOLD_MODEL,
-                provider_identity=simplefold_provider_identity(),
-                effective_seed=call_seed,
-                seed_control="torch_local",
-                result_summary={
-                    "input_sequence_length": len(sequence.sequence),
-                    "input_sequence_sha256": hashlib.sha256(
-                        sequence.sequence.encode()
-                    ).hexdigest(),
-                    "structure_count": sample_count,
-                    "pdb_bytes": [
-                        len(structure.pdb_string.encode())
-                        for structure in structures
-                    ],
-                    "pdb_sha256": [
-                        hashlib.sha256(
-                            structure.pdb_string.encode()
-                        ).hexdigest()
-                        for structure in structures
-                    ],
-                    "score_count": sample_count * 2,
-                    "num_steps": num_steps,
-                },
-            )
             for sample_index, (structure, values) in enumerate(
                 zip(structures, plddt_values, strict=True)
             ):
@@ -778,30 +674,6 @@ class SimpleFoldConfidenceImplementation:
                 ],
             )
             mean_value = math.fsum(values) / len(values)
-            record_provider_call_result(
-                provider="simplefold",
-                operation="evaluate_structure",
-                model="simplefold_confidence_1.6B",
-                provider_identity=dict(
-                    native["resolved_provider_identity"]
-                ),
-                effective_seed=None,
-                seed_control="deterministic_existing_coordinates",
-                result_summary={
-                    "input_pdb_sha256": hashlib.sha256(
-                        structure.pdb_string.encode()
-                    ).hexdigest(),
-                    "score_count": 2,
-                    "score_ids": [
-                        "structure.plddt.per_residue",
-                        "structure.plddt.mean_residue",
-                    ],
-                    "score_values": [
-                        mean_value,
-                        *values,
-                    ],
-                },
-            )
             for metric_id, value in (
                 ("structure.plddt.per_residue", list(values)),
                 ("structure.plddt.mean_residue", mean_value),

@@ -444,31 +444,6 @@ def release_local_esm3_client(client: Any) -> None:
         cleanup.detach()
 
 
-def _track_identity(protein: Any) -> dict[str, Any]:
-    secondary_structure = getattr(protein, "secondary_structure", None)
-    if not isinstance(secondary_structure, str):
-        return {}
-    return {
-        "secondary_structure_length": len(secondary_structure),
-        "secondary_structure_sha256": hashlib.sha256(
-            secondary_structure.encode()
-        ).hexdigest(),
-    }
-
-
-def prepare_local_provider_call(
-    protein: Any,
-    operation: str,
-    *,
-    model_name: str,
-    effective_seed: int,
-    runtime_fingerprint: str,
-) -> dict[str, Any]:
-    """Build exact local call identity before entering the model seam."""
-    track_identity = _track_identity(protein)
-    return track_identity
-
-
 def call_local_provider(
     client: Any,
     protein: Any,
@@ -490,57 +465,6 @@ def call_local_provider(
             f"local ESM-3 provider operation {operation} failed"
         ) from error
     return require_provider_protein(result, operation)
-
-
-def record_local_provider_result(
-    protein: Any,
-    result: Any,
-    operation: str,
-    *,
-    model_name: str,
-    effective_seed: int,
-    track_identity: Mapping[str, Any],
-) -> None:
-    """Persist safe local provider identity after the Engine Invocation."""
-    from modules.provider_evidence import record_provider_call_result
-
-    result_summary: dict[str, Any] = {
-        "result_type": type(result).__name__,
-        "has_sequence": getattr(result, "sequence", None) is not None,
-        "has_coordinates": getattr(result, "coordinates", None) is not None,
-        **track_identity,
-    }
-    for prefix, value in (
-        ("input", getattr(protein, "sequence", None)),
-        ("output", getattr(result, "sequence", None)),
-    ):
-        if isinstance(value, str):
-            result_summary.update(
-                {
-                    f"{prefix}_sequence_length": len(value),
-                    f"{prefix}_sequence_sha256": hashlib.sha256(
-                        value.encode()
-                    ).hexdigest(),
-                }
-            )
-    record_provider_call_result(
-        provider="local_open",
-        operation={
-            "generate(track=sequence)": "esm3.generate_sequence",
-            "generate(track=structure)": "esm3.generate_structure",
-        }.get(operation, operation),
-        model=model_name,
-        provider_identity={
-            "sdk": "esm",
-            "sdk_source_revision": ESM_SDK_REVISION,
-            "service": "local_open",
-            "snapshot_revision": LOCAL_ESM3_SNAPSHOT_REVISION,
-            "weight_sha256": dict(sorted(LOCAL_ESM3_WEIGHT_SHA256.items())),
-        },
-        effective_seed=effective_seed,
-        seed_control="torch_local",
-        result_summary=result_summary,
-    )
 
 
 def configured_runtime_fingerprint(

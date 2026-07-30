@@ -28,8 +28,6 @@ from .v2_adapter import (
     prepare_design_request,
     prepare_scoring_request,
     provider_for_environment,
-    record_design_result,
-    record_scoring_result,
     validate_design_result,
     validate_scoring_result,
 )
@@ -291,13 +289,6 @@ class ProteinMPNNDesignImplementation:
                     raw_result,
                     request=request,
                 )
-                record_design_result(
-                    provider=provider,
-                    structure=structure,
-                    sequences=sequences,
-                    scores=scores,
-                    effective_seed=call_seed,
-                )
             for sample_index, (raw_id, sequence) in enumerate(
                 zip(raw_ids, sequences, strict=True)
             ):
@@ -445,12 +436,6 @@ class ProteinMPNNScoreImplementation:
             ):
                 raw_score = provider.score(request, sequence)
             score = validate_scoring_result(raw_score)
-            record_scoring_result(
-                provider=provider,
-                structure=structure,
-                sequence=sequence,
-                score=score,
-            )
         observation = ScoreObservation(
             candidate_id=sequence_candidate.candidate_id,
             metric=self._contract_reference(

@@ -86,9 +86,9 @@ def test_legacy_persisted_workflow_and_run_are_stably_rejected(
     project_root = tmp_path / "projects"
     run_root = tmp_path / "runs"
     manager = ProjectManager(project_root, run_root=run_root)
-    project = manager.create("legacy-rejection")
-    project_dir = manager.project_dir(project.id)
-    (project_dir / "workflow-v2.json").write_text(
+    workflow_project = manager.create("legacy-workflow")
+    workflow_project_dir = manager.project_dir(workflow_project.id)
+    (workflow_project_dir / "workflow-v2.json").write_text(
         json.dumps(
             {
                 "schema_version": "1.0.0",
@@ -98,7 +98,20 @@ def test_legacy_persisted_workflow_and_run_are_stably_rejected(
         ),
         encoding="utf-8",
     )
-    legacy_run = manager.run_dir(project.id, "legacy-run")
+    project_id = "legacy-project"
+    project_dir = manager.project_dir(project_id)
+    project_dir.mkdir(parents=True)
+    (project_dir / "project.json").write_text(
+        json.dumps(
+            {
+                "schema_version": "1.0.0",
+                "id": project_id,
+                "name": "legacy-rejection",
+            }
+        ),
+        encoding="utf-8",
+    )
+    legacy_run = manager.run_dir(project_id, "legacy-run")
     legacy_run.mkdir(parents=True)
     (legacy_run / "manifest.json").write_text(
         json.dumps({"schema_version": 1, "status": "completed"}),
@@ -108,7 +121,9 @@ def test_legacy_persisted_workflow_and_run_are_stably_rejected(
     monkeypatch.setenv("PROTEIN_WORKBENCH_RUN_ROOT", str(run_root))
 
     with TestClient(server.create_app()) as client:
-        workflow = client.get(f"/api/v2/projects/{project.id}/workflow")
+        workflow = client.get(
+            f"/api/v2/projects/{workflow_project.id}/workflow"
+        )
         assert workflow.status_code == 400
         assert workflow.json()["error"]["code"] == "unsupported_schema_version"
         assert workflow.json()["error"]["details"] == {
@@ -117,7 +132,7 @@ def test_legacy_persisted_workflow_and_run_are_stably_rejected(
             "received_schema_version": "unknown",
         }
 
-        run = client.get(f"/api/v2/projects/{project.id}/runs/legacy-run")
+        run = client.get(f"/api/v2/projects/{project_id}/runs/legacy-run")
         assert run.status_code == 400
         assert run.json()["error"]["code"] == "unsupported_schema_version"
         assert run.json()["error"]["details"] == {
@@ -125,6 +140,18 @@ def test_legacy_persisted_workflow_and_run_are_stably_rejected(
             "expected_schema_version": "2.0.0",
             "received_schema_version": "1",
         }
+
+        uploaded = client.post(
+            f"/api/projects/{project_id}/inputs",
+            files={"file": ("legacy.pdb", b"legacy", "chemical/x-pdb")},
+        )
+        assert uploaded.status_code == 400
+        assert uploaded.json()["error"]["code"] == (
+            "unsupported_schema_version"
+        )
+        assert uploaded.json()["error"]["details"]["artifact_kind"] == (
+            "project"
+        )
 
 
 def test_legacy_runtime_symbols_are_not_public_or_importable() -> None:
@@ -141,3 +168,23 @@ def test_legacy_runtime_symbols_are_not_public_or_importable() -> None:
     import datatypes
 
     assert not hasattr(datatypes, "Score")
+
+
+def test_seed_install_does_not_adopt_or_rewrite_existing_local_data(
+    tmp_path: Path,
+) -> None:
+    project_root = tmp_path / "projects"
+    existing = project_root / "canonical-3gb1"
+    existing.mkdir(parents=True)
+    sentinel = existing / "local-data"
+    sentinel.write_bytes(b"must-remain-unchanged")
+    manager = ProjectManager(project_root)
+
+    result = manager.ensure_seed_project_v2(
+        Path("examples/v2/canonical-3gb1.workflow.json"),
+        input_sources={"3GB1.pdb": Path("pdbs/3GB1.pdb")},
+    )
+
+    assert result is None
+    assert sentinel.read_bytes() == b"must-remain-unchanged"
+    assert sorted(path.name for path in existing.iterdir()) == ["local-data"]

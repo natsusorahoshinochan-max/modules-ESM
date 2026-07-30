@@ -16,7 +16,6 @@ from typing import Any, Protocol
 
 from modules.provider_contract import (
     PROTEINMPNN_REVISION,
-    proteinmpnn_provider_identity,
 )
 from datatypes import (
     ProteinMPNNConstraints,
@@ -244,7 +243,6 @@ def _get_checkpoint_path(
         f"ProteinMPNN checkpoint not found for {model_name}. "
         "Looked in vanilla_model_weights/"
     )
-
 
 def check_proteinmpnn_readiness(
     model_name: str = "v_48_020",
@@ -891,150 +889,3 @@ def _prepare_design_request(
         omit_amino_acids=_omitted_amino_acids(selected_constraints),
         reference_sequences=_reference_sequences(chains, reference_sequence),
     )
-
-
-def design_sequences(
-    pdb_string: str,
-    model_name: str = "v_48_020",
-    num_sequences: int = 1,
-    temperature: float = 0.1,
-    backbone_noise: float = 0.0,
-    seed: int = 42,
-    constraints: ProteinMPNNConstraints | None = None,
-    reference_sequence: str | None = None,
-    provider: ProteinMPNNProvider | None = None,
-    temp_dir: str | Path | None = None,
-    call_details: dict[str, Any] | None = None,
-) -> tuple[list[ProteinSequence], list[float]]:
-    """Run ProteinMPNN design and return one score per generated sequence."""
-    selected_provider = provider or _LocalProteinMPNNProvider(temp_dir=temp_dir)
-    pdb_dict_list = selected_provider.parse_structure(pdb_string)
-    request = _prepare_design_request(
-        pdb_dict_list,
-        model_name,
-        num_sequences,
-        temperature,
-        backbone_noise,
-        seed,
-        constraints,
-        reference_sequence,
-    )
-    from core.run_context import RunContext
-
-    RunContext.record_active_provider_call(
-        selected_provider.provider_identity,
-        "design_sequences",
-        model=model_name,
-        details=call_details,
-    )
-    sequences, scores = selected_provider.design(request)
-    _validate_generated_sequences(
-        sequences,
-        expected_count=num_sequences,
-        target_length=request.target_length,
-    )
-    if len(scores) != len(sequences):
-        raise RuntimeError(
-            "ProteinMPNN provider returned incomplete per-sequence scores"
-        )
-    for sample_index, score in enumerate(scores):
-        if isinstance(score, bool) or not isinstance(score, (int, float)):
-            raise RuntimeError(
-                f"ProteinMPNN sample {sample_index} score is not numeric"
-            )
-        if not isfinite(float(score)):
-            raise RuntimeError(
-                f"ProteinMPNN sample {sample_index} score is not finite"
-            )
-    numeric_scores = [float(score) for score in scores]
-    from modules.provider_evidence import record_provider_call_result
-
-    record_provider_call_result(
-        provider=selected_provider.provider_identity,
-        operation="design_sequences",
-        model=model_name,
-        provider_identity=proteinmpnn_provider_identity(),
-        effective_seed=seed,
-        seed_control="provider_request_seed",
-        result_summary={
-            "input_pdb_sha256": hashlib.sha256(
-                pdb_string.encode()
-            ).hexdigest(),
-            "sequence_count": len(sequences),
-            "sequence_lengths": [len(sequence.sequence) for sequence in sequences],
-            "sequence_sha256": [
-                hashlib.sha256(sequence.sequence.encode()).hexdigest()
-                for sequence in sequences
-            ],
-            "score_count": len(numeric_scores),
-            "score_min": min(numeric_scores),
-            "score_max": max(numeric_scores),
-        },
-    )
-    return sequences, numeric_scores
-
-
-def score_sequence(
-    pdb_string: str,
-    sequence: str,
-    model_name: str = "v_48_020",
-    temp_dir: str | Path | None = None,
-) -> float:
-    """Score how well a sequence fits a structure."""
-    pdb_dict_list = _parse_structure(pdb_string, temp_dir=temp_dir)
-
-    if len(pdb_dict_list) == 0:
-        raise ValueError("No valid chains found in PDB structure")
-
-    request = _prepare_design_request(
-        pdb_dict_list,
-        model_name,
-        1,
-        0.1,
-        0.0,
-        42,
-        None,
-        None,
-    )
-    if len(sequence) != request.target_length:
-        raise ValueError(
-            f"sequence length {len(sequence)} does not match structure length "
-            f"{request.target_length}; padding and truncation are not supported"
-        )
-    from core.run_context import RunContext
-
-    RunContext.record_active_provider_call(
-        _LOCAL_PROVIDER_IDENTITY,
-        "score_sequence",
-        model=model_name,
-    )
-    import torch
-
-    with torch.random.fork_rng():
-        torch.manual_seed(42)
-        model, device = _load_model(model_name)
-        batch = _featurize(request, device)
-        score = float(_compute_score(model, batch, sequence, device))
-    if not isfinite(score):
-        raise RuntimeError("ProteinMPNN provider returned a non-finite score")
-    from modules.provider_evidence import record_provider_call_result
-
-    record_provider_call_result(
-        provider=_LOCAL_PROVIDER_IDENTITY,
-        operation="score_sequence",
-        model=model_name,
-        provider_identity=proteinmpnn_provider_identity(),
-        effective_seed=42,
-        seed_control="fixed_scoring_seed",
-        result_summary={
-            "input_pdb_sha256": hashlib.sha256(
-                pdb_string.encode()
-            ).hexdigest(),
-            "input_sequence_sha256": hashlib.sha256(
-                sequence.encode()
-            ).hexdigest(),
-            "score": score,
-            "sequence_length": len(sequence),
-        },
-    )
-    return score

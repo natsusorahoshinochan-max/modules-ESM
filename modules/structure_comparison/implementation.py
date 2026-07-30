@@ -163,7 +163,6 @@ class StructureComparisonImplementation:
         native = align_structures(
             reference.data,
             subject.data,
-            separate_tiebreak_evidence=True,
             engine_invocation=self._run_resources.engine_invocation,
         )
         count = len(native.residue_map)
