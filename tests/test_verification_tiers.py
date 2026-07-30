@@ -610,6 +610,19 @@ def test_proteinmpnn_scoring_v2_has_a_complete_source_bound_gate() -> None:
     ) == "torch_local"
 
 
+def test_soluprot_v2_has_a_two_method_local_model_gate() -> None:
+    from scripts.verify_backend import TIERS
+
+    tier = TIERS["soluprot-v2-local-model"]
+
+    assert tier.pytest_args == (
+        "tests/acceptance/test_soluprot_v2.py",
+        "-m",
+        "acceptance and local_provider",
+    )
+    assert tier.requires_provider_evidence is False
+
+
 def test_simplefold_v2_gate_alias_writes_supported_provider_evidence(
     tmp_path: Path,
     monkeypatch,

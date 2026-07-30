@@ -1,0 +1,26 @@
+schema_version: "2.0.0"
+metric_id: solubility.soluprot_probability
+version: "2.0.0"
+title: SoluProt soluble-expression probability
+description: Predicted probability that a complete protein sequence is expressed solubly in Escherichia coli.
+value_shape: scalar
+unit: dimensionless_probability
+direction: higher_is_better
+canonical_range:
+  minimum: 0
+  maximum: 1
+granularity: candidate
+aggregation_semantics:
+  kind: none
+observation_context_schema:
+  type: object
+  properties:
+    kind:
+      const: intrinsic
+  required:
+    - kind
+  additionalProperties: false
+validation_contract:
+  finite: true
+  minimum: 0
+  maximum: 1

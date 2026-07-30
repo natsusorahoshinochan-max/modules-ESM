@@ -1,0 +1,22 @@
+schema_version: "2.0.0"
+node_type_id: solubility.score_sequence
+version: "2.0.0"
+title: Score sequence solubility
+summary: Observes candidate-level sequence solubility with one explicitly selected exact Method.
+category: protein_scoring
+inputs:
+  - name: sequence_candidates
+    port_type_id: candidate.collection
+    port_type_version: "2.0.0"
+    required: true
+    multiplicity: one
+    scientific_meaning: A non-empty collection of complete canonical protein-sequence Candidates.
+outputs:
+  - name: scores
+    port_type_id: score.collection
+    port_type_version: "2.0.0"
+    required: true
+    multiplicity: one
+    scientific_meaning: One declared intrinsic solubility Observation per input Candidate.
+parameter_groups: []
+node_parameters: {}

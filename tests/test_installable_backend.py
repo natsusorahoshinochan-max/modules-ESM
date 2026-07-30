@@ -211,6 +211,8 @@ def test_built_artifacts_contain_backend_definitions_and_canonical_assets(
         "modules/selection/definitions/diversity.yaml",
         "modules/selection/definitions/pareto.yaml",
         "modules/selection/definitions/weighted_rank.yaml",
+        "modules/solubility/definitions/score_sequence.yaml",
+        "modules/solubility/definitions/soluprot_probability_metric.yaml",
         "modules/structure_comparison/definitions/align_pairwise.yaml",
         "modules/structure_comparison/definitions/align_single.yaml",
         "modules/structure_comparison/definitions/batch_tm_score.yaml",
@@ -399,6 +401,22 @@ assert {{
     ("binding", "proteinmpnn.random_fixed_positions.local", "2.0.0"),
     ("binding", "proteinmpnn.design.local", "2.0.0"),
     ("binding", "proteinmpnn.score.local", "2.0.0"),
+}}
+assert {{
+    (
+        contract.contract_kind,
+        contract.contract_id,
+        contract.contract_version,
+    )
+    for contract in catalog.contracts
+    if contract.contract_id.startswith("solubility.")
+}} >= {{
+    ("node_type", "solubility.score_sequence", "2.0.0"),
+    ("metric", "solubility.soluprot_probability", "2.0.0"),
+    ("method", "solubility.soluprot_full.v1_1_0", "2.0.0"),
+    ("method", "solubility.soluprot_no_tm.v1_1_0", "2.0.0"),
+    ("binding", "solubility.soluprot_full.local", "2.0.0"),
+    ("binding", "solubility.soluprot_no_tm.local", "2.0.0"),
 }}
 assert {{
     (

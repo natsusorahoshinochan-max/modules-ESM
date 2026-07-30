@@ -531,6 +531,11 @@ TIERS = {
         }),
         requires_local_model_environment=True,
     ),
+    "soluprot-v2-local-model": Tier((
+        "tests/acceptance/test_soluprot_v2.py",
+        "-m",
+        "acceptance and local_provider",
+    )),
     "heavy-model": Tier((
         "tests/acceptance/test_local_esm3.py::test_local_esm3_all_generation_modes",
         "tests/acceptance/test_proteinmpnn_design.py::TestProteinMPNNDesign::test_design_3gb1",
