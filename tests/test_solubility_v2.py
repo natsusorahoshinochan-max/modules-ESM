@@ -291,7 +291,7 @@ def test_soluprot_provider_failure_does_not_retain_stderr_or_paths(
     assert "/private/" not in str(rejected.value)
 
 
-def test_soluprot_runtime_probe_rejects_dependency_tree_drift(
+def test_soluprot_runtime_probe_rejects_transitive_dependency_tree_drift(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -318,7 +318,7 @@ def test_soluprot_runtime_probe_rejects_dependency_tree_drift(
                 "version": expected["version"],
                 "tree_sha256": (
                     "0" * 64
-                    if name == "numpy"
+                    if name == "python-dateutil"
                     else expected["tree_sha256"]
                 ),
             }

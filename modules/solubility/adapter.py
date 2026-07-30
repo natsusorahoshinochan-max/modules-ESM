@@ -62,6 +62,24 @@ SOLUPROT_RUNTIME_DISTRIBUTIONS = {
             "e3ebf1d5f5c4f12bb09ead365faa9142308256bf5ed2351a2e1f7b24805704ad"
         ),
     },
+    "tqdm": {
+        "version": "4.68.4",
+        "tree_sha256": (
+            "1d73b88d9a23473b8f99e1e0d6e3bd0006e91674098baa94364bb1df7435e51c"
+        ),
+    },
+    "python-dateutil": {
+        "version": "2.9.0.post0",
+        "tree_sha256": (
+            "e59e1256976e4c5aa01c60b90584bab7de15f99a1f6a84e071f58e0a3a1ac458"
+        ),
+    },
+    "six": {
+        "version": "1.17.0",
+        "tree_sha256": (
+            "4306b73cf46c7ca2e8fc881901fb3a2215efbcaa8a520d1964c0650d27a47ec9"
+        ),
+    },
 }
 SOLUPROT_PERL_VERSION = "v5.34.1"
 SOLUPROT_PERL_SHA256 = (
