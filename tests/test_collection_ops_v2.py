@@ -20,6 +20,7 @@ from core import (
     verify_module_package_contract,
 )
 from core.port_types import PORT_VALUE_NAMESPACE, canonical_json_bytes
+from core.project import ProjectManager
 from core.server import create_app
 from core.workflow_v2 import WorkflowEdge
 from datatypes import (
@@ -227,13 +228,14 @@ def _run_public_collection_workflow(
     target_port = (
         "candidates" if operation == "concat_candidates" else "scores"
     )
+    project_id = ProjectManager(
+        root_dir=tmp_path / "project"
+    ).create(
+        f"collection operations {operation}"
+    ).id
     with TestClient(
         create_app(frozen_catalog_override=catalog)
     ) as client:
-        project_id = client.post(
-            "/api/projects",
-            json={"name": f"collection operations {operation}"},
-        ).json()["id"]
         workflow = WorkflowDocument(
             schema_version=VERSION,
             workflow_id=project_id,
@@ -535,13 +537,12 @@ def _compile_through_public_rest(
         root = tmp_path / name.lower()
         root.mkdir(parents=True)
         monkeypatch.setenv(f"PROTEIN_WORKBENCH_{name}_ROOT", str(root))
+    project_id = ProjectManager(
+        root_dir=tmp_path / "project"
+    ).create(workflow.workflow_id).id
     with TestClient(
         create_app(frozen_catalog_override=catalog)
     ) as client:
-        project_id = client.post(
-            "/api/projects",
-            json={"name": workflow.workflow_id},
-        ).json()["id"]
         public_workflow = replace(
             workflow,
             workflow_id=project_id,
@@ -584,13 +585,12 @@ def _run_through_public_rest(
         root = tmp_path / name.lower()
         root.mkdir(parents=True)
         monkeypatch.setenv(f"PROTEIN_WORKBENCH_{name}_ROOT", str(root))
+    project_id = ProjectManager(
+        root_dir=tmp_path / "project"
+    ).create(workflow.workflow_id).id
     with TestClient(
         create_app(frozen_catalog_override=catalog)
     ) as client:
-        project_id = client.post(
-            "/api/projects",
-            json={"name": workflow.workflow_id},
-        ).json()["id"]
         public_workflow = replace(
             workflow,
             workflow_id=project_id,

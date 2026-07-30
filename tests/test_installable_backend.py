@@ -946,19 +946,30 @@ assert sorted(item.module_id for item in registry.list_all()) == {expected}
             "absent_input_policy": "ignore",
         }
 
-        legacy_project_request = urllib.request.Request(
-            f"http://127.0.0.1:{port}/api/projects",
-            data=json.dumps(
-                {"name": "installed collection operations"}
-            ).encode("utf-8"),
-            headers={"Content-Type": "application/json"},
-            method="POST",
-        )
-        with urllib.request.urlopen(
-            legacy_project_request,
-            timeout=2,
-        ) as response:
-            project_id = json.load(response)["id"]
+        project_id = subprocess.run(
+            [
+                str(python),
+                "-I",
+                "-c",
+                (
+                    "import os;"
+                    "from core.project import ProjectManager;"
+                    "print(ProjectManager("
+                    "root_dir=os.environ["
+                    "'PROTEIN_WORKBENCH_PROJECT_ROOT'"
+                    "]"
+                    ").create("
+                    "'installed collection operations'"
+                    ").id)"
+                ),
+            ],
+            cwd=run_dir,
+            env=env,
+            check=True,
+            capture_output=True,
+            text=True,
+        ).stdout.strip()
+        assert project_id
 
         def exact_reference(kind: str, contract_id: str) -> dict:
             return collection_contracts[(kind, contract_id)]["reference"]
