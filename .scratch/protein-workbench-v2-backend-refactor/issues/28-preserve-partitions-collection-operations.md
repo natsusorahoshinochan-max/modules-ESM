@@ -4,7 +4,7 @@
 
 **Blocked by:** 12 — Prove the zero-Core extension journey.
 
-**Status:** awaiting-controller
+**Status:** completed
 
 - [x] Candidate concatenation and Score merge each have one v2 Node Definition in a single `collection_ops` package registration.
 - [x] Candidate concatenation preserves Candidate identities, parent lineage, producer/output/sample slots, stable input partitions, and deterministic ordering without minting replacement Candidates.
@@ -36,3 +36,36 @@
 - `/code-review` Standards: APPROVE; no HIGH or MEDIUM findings.
 - `/code-review` Spec: APPROVE; no HIGH or MEDIUM findings.
 - Handoff boundary: executor leaves this Ticket at `awaiting-controller`; the Controller owns the independent multi-Ticket gate and may mark it `completed`.
+
+## Controller joint-test evidence
+
+- Previous accepted multi-ticket gate:
+  `e22a482903d1a5922e460d88d8d246334d8e1764`; independently tested Ticket 28
+  executor SHA: `030c3617f8e83497df2f2eedc5ba3abf95fbc3a1`.
+- Tickets 01–28 cumulative v2 gate:
+  `uv run --no-sync pytest -q tests/*_v2.py` →
+  `564 passed`.
+- Ticket 28 cross-package focused gate:
+  `uv run --no-sync pytest -q tests/test_collection_ops_v2.py
+  tests/test_module_packages_v2.py tests/test_port_types_v2.py
+  tests/test_workflow_compiler_v2.py tests/test_run_execution_v2.py
+  tests/test_result_cache_v2.py tests/test_scoring_v2.py
+  tests/test_pairwise_scoring_v2.py` →
+  `278 passed`.
+- Full routine joint gate:
+  `uv run --no-sync python scripts/verify_backend.py routine` →
+  `1253 passed, 52 deselected`; retained result
+  `verification-results/routine/20260730T051220.204881Z-45335-cc9832f08da49438`.
+- Deterministic acceptance:
+  `uv run --no-sync python scripts/verify_backend.py
+  deterministic-acceptance` →
+  `10 passed, 5 deselected`; retained result
+  `verification-results/deterministic-acceptance/20260730T051727.261314Z-52644-d34d13c8f98bfbec`.
+- Installed-package isolation:
+  `uv run --no-sync python scripts/verify_backend.py installed-package` →
+  `3 passed`; retained result
+  `verification-results/installed-package/20260730T051841.151818Z-53278-f6bdb9d8f6f4fad6`.
+- All three retained Controller records report
+  `project_revision=030c3617f8e83497df2f2eedc5ba3abf95fbc3a1` and
+  `project_dirty=false`. The worktree was clean before this evidence-only
+  status update, and no cross-ticket regression was found.
