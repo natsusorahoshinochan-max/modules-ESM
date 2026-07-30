@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import os
 from pathlib import Path
 from typing import Any
@@ -216,8 +217,7 @@ def test_proteinmpnn_v2_scoring_publishes_exact_native_observation(
         "proteinmpnn.score.v_48_020_8907e667"
     )
     assert observation.context == IntrinsicObservationContext()
-    assert type(observation.value) is float
-    assert 0 <= observation.value <= 3.4028234663852886e38
+    assert observation.value == 1.3648624420166016
     assert any(
         item["event"]["type"] == "engine_invocation_terminal"
         and item["event"]["status"] == "succeeded"
@@ -284,5 +284,19 @@ def test_proteinmpnn_v2_sibling_design_remains_exact_and_complete(
     assert type(candidates) is CandidateCollection
     assert candidates.item_type == "protein.sequence"
     assert len(candidates.items) == 1
-    assert len(candidates.items[0].data.sequence) == 56
-    assert len(candidates.items[0].parent_ids) == 1
+    candidate = candidates.items[0]
+    assert hashlib.sha256(
+        candidate.data.sequence.encode()
+    ).hexdigest() == (
+        "07a4a77fc00fe33be9a39a999bbe779fa0b0e0f55a830389ca8cab0d0bd27ac8"
+    )
+    source_output = next(
+        item
+        for item in projection["outputs"]
+        if item["node_id"] == "source"
+    )
+    source_candidates = _decode(catalog, source_output)
+    assert type(source_candidates) is CandidateCollection
+    assert candidate.parent_ids == [
+        source_candidates.items[0].candidate_id
+    ]

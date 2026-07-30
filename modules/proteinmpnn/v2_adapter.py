@@ -9,6 +9,7 @@ import importlib.metadata
 import json
 import math
 from pathlib import Path
+import struct
 from typing import Any
 
 from core import ReadinessResult
@@ -332,11 +333,27 @@ def prepare_scoring_request(
 
 def validate_scoring_result(raw_result: object) -> float:
     """Validate the provider-native binary32 score without transforming it."""
+    binary32_round_trip: float | None = None
+    if type(raw_result) is float and math.isfinite(raw_result):
+        try:
+            binary32_round_trip = struct.unpack(
+                "!f",
+                struct.pack("!f", raw_result),
+            )[0]
+        except OverflowError:
+            binary32_round_trip = None
     if (
         type(raw_result) is not float
         or not math.isfinite(raw_result)
         or raw_result < 0
         or raw_result > PROTEINMPNN_NATIVE_SCORE_MAXIMUM
+        or binary32_round_trip != raw_result
+        or (
+            raw_result == 0
+            and binary32_round_trip is not None
+            and math.copysign(1.0, binary32_round_trip)
+            != math.copysign(1.0, raw_result)
+        )
     ):
         raise RuntimeError(
             "ProteinMPNN provider score is outside the exact native "

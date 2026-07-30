@@ -5,6 +5,7 @@ from __future__ import annotations
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 import math
+import struct
 from types import MappingProxyType
 from typing import Any
 
@@ -494,6 +495,10 @@ def _validate_metric_value(
         isinstance(masking, Mapping)
         and masking.get("allow_null") is True
     )
+    exact_binary32 = (
+        validation.get("numeric_format") == "binary32"
+        and validation.get("exact_round_trip") is True
+    )
     for item in values:
         if item is None and allow_null:
             continue
@@ -507,6 +512,27 @@ def _validate_metric_value(
             )
         if item < minimum or item > maximum:
             raise SelectionError("Metric value is outside its canonical range")
+        if exact_binary32:
+            try:
+                round_trip = struct.unpack(
+                    "!f",
+                    struct.pack("!f", float(item)),
+                )[0]
+            except OverflowError as error:
+                raise SelectionError(
+                    "Metric value is not exactly representable as binary32"
+                ) from error
+            if (
+                round_trip != item
+                or (
+                    item == 0
+                    and math.copysign(1.0, round_trip)
+                    != math.copysign(1.0, item)
+                )
+            ):
+                raise SelectionError(
+                    "Metric value is not exactly representable as binary32"
+                )
 
 
 def _deduplicated_observations(

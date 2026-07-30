@@ -22,3 +22,5 @@ observation_context_schema:
   additionalProperties: false
 validation_contract:
   finite: true
+  numeric_format: binary32
+  exact_round_trip: true

@@ -14,6 +14,7 @@ from core import (
     EnvironmentConfiguration,
     ModulePackageContractCase,
     ProjectManager,
+    ResultReplayHit,
     ResultReplaySource,
     V2RunService,
     WorkflowAuthoringService,
@@ -35,6 +36,7 @@ from core.workflow_v2 import (
 from datatypes import (
     Candidate,
     CandidateCollection,
+    ExactContractReference,
     IntrinsicObservationContext,
     ProteinMPNNConstraints,
     ProteinSequence,
@@ -148,6 +150,11 @@ def test_scoring_binding_fixes_exact_method_metric_and_observation_scope() -> No
     assert metric.descriptor["canonical_range"] == {
         "minimum": 0,
         "maximum": 3.4028234663852886e38,
+    }
+    assert metric.descriptor["validation_contract"] == {
+        "finite": True,
+        "numeric_format": "binary32",
+        "exact_round_trip": True,
     }
     assert metric.descriptor["granularity"] == "candidate"
     produced = binding.descriptor["produced_observations"]
@@ -856,6 +863,8 @@ def test_scoring_emits_one_exact_intrinsic_observation_with_real_attempts(
         -0.25,
         float("inf"),
         0,
+        1e-100,
+        1.0000000000000002,
         3.402823466385289e38,
     ),
 )
@@ -928,6 +937,101 @@ def test_scoring_rejects_non_native_values_after_engine_without_publication(
         and event["status"] == "failed"
         for event in public_events
     )
+
+
+def test_scoring_replay_rejects_non_binary32_observation(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from modules.proteinmpnn.package import (
+        MODULE_PACKAGE as PROTEINMPNN_PACKAGE,
+    )
+    from tests.fixtures.proteinmpnn_sources.package import (
+        MODULE_PACKAGE as SOURCE_PACKAGE,
+    )
+
+    catalog = build_frozen_catalog(
+        (PROTEINMPNN_PACKAGE, SOURCE_PACKAGE)
+    )
+
+    def reference(
+        contract_kind: str,
+        contract_id: str,
+    ) -> ExactContractReference:
+        contract = catalog.require_contract(
+            contract_kind,
+            contract_id,
+            "2.0.0",
+        )
+        return ExactContractReference(
+            contract_kind=contract_kind,
+            contract_id=contract_id,
+            contract_version="2.0.0",
+            contract_digest=contract.contract_digest,
+        )
+
+    class Replay(ResultReplaySource):
+        def lookup(self, **kwargs: Any) -> ResultReplayHit | None:
+            if kwargs["node"].node_id != "score":
+                return None
+            subjects = kwargs["inputs"]["sequence_candidates"]
+            assert type(subjects) is CandidateCollection
+            return ResultReplayHit(
+                outputs={
+                    "scores": ScoreCollection(
+                        "malformed-binary32-replay",
+                        [
+                            ScoreObservation(
+                                candidate_id=subjects.items[0].candidate_id,
+                                metric=reference(
+                                    "metric",
+                                    "proteinmpnn.native_sequence_nll",
+                                ),
+                                method=reference(
+                                    "method",
+                                    (
+                                        "proteinmpnn.score."
+                                        "v_48_020_8907e667"
+                                    ),
+                                ),
+                                context=IntrinsicObservationContext(),
+                                value=1.0000000000000002,
+                            )
+                        ],
+                    )
+                },
+                result_identity=kwargs["result_identity"],
+                producer_run_id="malformed-replay-provider",
+            )
+
+    provider = _CapturingProteinMPNN()
+    _install_test_provider(monkeypatch, provider)
+    nodes, edges = _score_workflow()
+    run_catalog, projection, events = _run(
+        tmp_path,
+        nodes=nodes,
+        edges=edges,
+        registrations=(PROTEINMPNN_PACKAGE, SOURCE_PACKAGE),
+        environment=_proteinmpnn_environment(),
+        result_replay_source=Replay(),
+    )
+
+    assert projection["status"] == "succeeded", events
+    assert len(provider.parsed) == len(provider.requests) == 1
+    score_output = next(
+        output
+        for output in projection["outputs"]
+        if output["node_id"] == "score"
+    )
+    scores = _decode_output(run_catalog, score_output)
+    assert type(scores) is ScoreCollection
+    assert scores.entries[0].value == 2.75
+    score_disposition = next(
+        disposition
+        for disposition in projection["node_dispositions"]
+        if disposition["node_id"] == "score"
+    )
+    assert score_disposition["resolution"] == "executed"
 
 
 def test_scoring_rejects_ambiguous_subjects_before_provider_execution(
