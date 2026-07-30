@@ -214,17 +214,28 @@ class ProteinSolProviderOutputContractViolation(ProteinSolInvocationError):
     """The exact upstream result violated its bounded file contract."""
 
 
-def _regular_file_sha256(path: object, *, executable: bool = False) -> str:
+def _regular_file_sha256(
+    path: object,
+    *,
+    executable: bool = False,
+    provider_name: str = "SoluProt",
+) -> str:
     if not isinstance(path, Path) or path.is_symlink():
-        raise FileNotFoundError("configured SoluProt asset is unavailable")
+        raise FileNotFoundError(
+            f"configured {provider_name} asset is unavailable"
+        )
     flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0)
     descriptor = os.open(path, flags)
     try:
         metadata = os.fstat(descriptor)
         if not stat.S_ISREG(metadata.st_mode):
-            raise FileNotFoundError("configured SoluProt asset is unavailable")
+            raise FileNotFoundError(
+                f"configured {provider_name} asset is unavailable"
+            )
         if executable and not metadata.st_mode & 0o111:
-            raise FileNotFoundError("configured SoluProt executable is unavailable")
+            raise FileNotFoundError(
+                f"configured {provider_name} executable is unavailable"
+            )
         digest = hashlib.sha256()
         with os.fdopen(descriptor, "rb", closefd=False) as handle:
             while chunk := handle.read(1024 * 1024):
@@ -239,9 +250,19 @@ def _require_digest(
     expected: str,
     *,
     executable: bool = False,
+    provider_name: str = "SoluProt",
 ) -> Path:
-    if _regular_file_sha256(path, executable=executable) != expected:
-        raise RuntimeError("configured SoluProt asset identity changed")
+    if (
+        _regular_file_sha256(
+            path,
+            executable=executable,
+            provider_name=provider_name,
+        )
+        != expected
+    ):
+        raise RuntimeError(
+            f"configured {provider_name} asset identity changed"
+        )
     assert isinstance(path, Path)
     return path
 
@@ -767,7 +788,12 @@ def _validate_executable_runtime(
         raise FileNotFoundError(
             f"configured Protein-Sol {runtime_name} is unavailable"
         )
-    _require_digest(path.resolve(), expected_sha256, executable=True)
+    _require_digest(
+        path.resolve(),
+        expected_sha256,
+        executable=True,
+        provider_name="Protein-Sol",
+    )
     try:
         completed = subprocess.run(
             [str(path), *version_command],
@@ -818,7 +844,11 @@ def validate_protein_sol_environment(
         )
     sources: dict[str, Path] = {}
     for relative, expected in PROTEIN_SOL_SOURCE_SHA256.items():
-        sources[relative] = _require_digest(source_root / relative, expected)
+        sources[relative] = _require_digest(
+            source_root / relative,
+            expected,
+            provider_name="Protein-Sol",
+        )
     bash = _validate_executable_runtime(
         environment.get("bash_executable"),
         expected_path=Path("/bin/bash"),

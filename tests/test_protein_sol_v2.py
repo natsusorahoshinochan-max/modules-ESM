@@ -666,6 +666,7 @@ def test_protein_sol_exact_source_tree_controls_readiness(
         PROTEIN_SOL_SOURCE_SHA256,
         configured_protein_sol_runtime_fingerprint,
         protein_sol_readiness,
+        validate_protein_sol_environment,
     )
 
     source_root = tmp_path / "protein-sol"
@@ -688,6 +689,20 @@ def test_protein_sol_exact_source_tree_controls_readiness(
         proof_source="direct-observation",
         reason_code="protein_sol_runtime_unavailable",
     )
+    with pytest.raises(
+        RuntimeError,
+        match="configured Protein-Sol asset identity changed",
+    ):
+        validate_protein_sol_environment(
+            {
+                "source_root": source_root,
+                "bash_executable": Path("/bin/bash"),
+                "perl_executable": Path("/usr/bin/perl"),
+                "resolved_runtime_fingerprint": (
+                    configured_protein_sol_runtime_fingerprint()
+                ),
+            }
+        )
 
 
 def test_protein_sol_passes_shared_contract_test_kit(
