@@ -242,9 +242,28 @@ def _prompt_from_structure(
     chain_order: list[str] = []
     closed_chains: set[str] = set()
     previous_chain: str | None = None
+    explicit_model = False
+    model_open = False
+    model_closed = False
     for line in structure.pdb_string.splitlines():
+        if line.startswith("MODEL "):
+            if explicit_model or model_open or model_closed or residues:
+                raise ValueError(
+                    "structure must contain exactly one coordinate model"
+                )
+            explicit_model = True
+            model_open = True
+            continue
+        if line.startswith("ENDMDL"):
+            if not explicit_model or not model_open:
+                raise ValueError("structure has invalid model boundaries")
+            model_open = False
+            model_closed = True
+            continue
         if not line.startswith("ATOM  "):
             continue
+        if explicit_model and not model_open:
+            raise ValueError("structure contains atoms outside its sole model")
         if len(line) < 54:
             raise ValueError("structure contains a truncated PDB atom record")
         alternate = line[16:17].strip()
@@ -298,6 +317,8 @@ def _prompt_from_structure(
             raise ValueError(
                 "structure contains non-numeric atom coordinates"
             ) from error
+    if model_open:
+        raise ValueError("structure has an unterminated coordinate model")
     if not residues or any(not residue.atoms for residue in residues):
         raise ValueError("structure contains no complete canonical residues")
     layout = ResidueLayout(

@@ -24,9 +24,15 @@ from core.project import ProjectManager
 from core.server import create_app
 from core.workflow_v2 import WorkflowEdge
 from datatypes import (
+    Candidate,
+    CandidateCollection,
     ExactContractReference,
     IntrinsicObservationContext,
+    PairwiseCandidateMapping,
+    PairwiseCandidateMatch,
+    ProteinSequence,
 )
+from modules.collection_ops.implementation import CollectionOpsImplementation
 from modules.collection_ops.package import MODULE_PACKAGE
 from tests.fixtures.public_v2 import wait_for_testclient_run_terminal
 
@@ -279,6 +285,75 @@ def test_all_collection_nodes_pass_the_shared_contract_test_kit(
         "succeeded",
         "succeeded",
     ]
+
+
+@pytest.mark.parametrize(
+    ("subject_parent_ids", "include_surplus_reference"),
+    (
+        (["parent", "unexpected-parent"], False),
+        (["parent"], True),
+    ),
+)
+def test_pairing_rebinding_rejects_nonexact_lineage_and_reference_sets(
+    subject_parent_ids: list[str],
+    include_surplus_reference: bool,
+) -> None:
+    catalog = build_discovered_frozen_catalog()
+    sequence_codec = catalog.require_port_type("protein.sequence", VERSION)
+    parent_data = ProteinSequence("AA")
+    reference_data = ProteinSequence("CC")
+    parent = Candidate("parent", parent_data)
+    reference = Candidate("reference", reference_data)
+    references = [reference]
+    if include_surplus_reference:
+        references.append(
+            Candidate("surplus-reference", ProteinSequence("DD"))
+        )
+    inputs = {
+        "subjects": CandidateCollection(
+            "subjects",
+            "protein.sequence",
+            [
+                Candidate(
+                    "subject",
+                    ProteinSequence("EE"),
+                    subject_parent_ids,
+                )
+            ],
+        ),
+        "parents": CandidateCollection(
+            "parents",
+            "protein.sequence",
+            [parent],
+        ),
+        "references": CandidateCollection(
+            "references",
+            "protein.sequence",
+            references,
+        ),
+        "parent_pairing": PairwiseCandidateMapping([
+            PairwiseCandidateMatch(
+                subject_candidate_id=parent.candidate_id,
+                subject_content_digest=sequence_codec.content_digest(
+                    parent_data
+                ),
+                reference_candidate_id=reference.candidate_id,
+                reference_content_digest=sequence_codec.content_digest(
+                    reference_data
+                ),
+            )
+        ]),
+    }
+
+    with pytest.raises(ValueError):
+        CollectionOpsImplementation(
+            "rebind_candidate_pairing",
+            catalog,
+        ).execute(
+            inputs=inputs,
+            node_parameters={},
+            binding_parameters={},
+        )
 
 
 def _run_public_collection_workflow(

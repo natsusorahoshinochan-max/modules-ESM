@@ -1525,6 +1525,21 @@ def test_installed_backend_runs_exact_canonical_v2_through_public_protocol(
             "fold-final",
             "structure_candidates",
         )["items"]
+        canonical_references = fields(
+            "import-3gb1",
+            "structure_candidates",
+        )["items"]
+        prompt = outputs[
+            ("override-secondary-structure", "protein_prompt")
+        ]
+        prompt_sequence = prompt["sequence_track"]["fields"]["values"]
+        prompt_secondary_structure = prompt[
+            "secondary_structure_track"
+        ]["fields"]["values"]
+        prompt_visibility = prompt[
+            "structure_visibility_track"
+        ]["fields"]["values"]
+        prompt_structure = prompt["structure_track"]["fields"]["values"]
         assert len(generated_sequences) == 10
         assert len(generated_structures) == 10
         assert len(counterpart_pairs) == 10
@@ -1536,6 +1551,83 @@ def test_installed_backend_runs_exact_canonical_v2_through_public_protocol(
             artifact["content_digest"]
             for artifact in projection["artifact_index"]
         }) == 15
+        assert len(prompt_sequence) == 71
+        assert prompt_sequence.count(None) == 35
+        assert prompt_secondary_structure == [
+            *(["E"] * 19),
+            *([None] * 3),
+            *(["H"] * 8),
+            *([None] * 4),
+            *(["E"] * 22),
+            *([None] * 15),
+        ]
+        assert sum(
+            structure is not None and visibility is True
+            for structure, visibility in zip(
+                prompt_structure,
+                prompt_visibility,
+                strict=True,
+            )
+        ) == 46
+
+        generated_sequence_ids = [
+            item["fields"]["candidate_id"]
+            for item in generated_sequences
+        ]
+        generated_structure_ids = [
+            item["fields"]["candidate_id"]
+            for item in generated_structures
+        ]
+        assert [
+            item["fields"]["parent_ids"]
+            for item in generated_structures
+        ] == [[candidate_id] for candidate_id in generated_sequence_ids]
+        assert [
+            (
+                pair["fields"]["subject_candidate_id"],
+                pair["fields"]["reference_candidate_id"],
+            )
+            for pair in counterpart_pairs
+        ] == list(zip(
+            generated_sequence_ids,
+            generated_structure_ids,
+            strict=True,
+        ))
+
+        rebound_pairs = fields(
+            "rebind-counterparts",
+            "pairing",
+        )["entries"]
+        fixed_alignments = outputs[
+            ("align-fixed", "alignments")
+        ]["alignments"]
+        paired_alignments = outputs[
+            ("align-paired", "alignments")
+        ]["alignments"]
+        canonical_reference_id = canonical_references[0]["fields"][
+            "candidate_id"
+        ]
+        assert {
+            alignment["reference"]["candidate_id"]
+            for alignment in fixed_alignments
+        } == {canonical_reference_id}
+        assert {
+            (
+                alignment["subject"]["candidate_id"],
+                alignment["reference"]["candidate_id"],
+            )
+            for alignment in paired_alignments
+        } == {
+            (
+                pair["fields"]["subject_candidate_id"],
+                pair["fields"]["reference_candidate_id"],
+            )
+            for pair in rebound_pairs
+        }
+        assert canonical_reference_id not in {
+            alignment["reference"]["candidate_id"]
+            for alignment in paired_alignments
+        }
 
         child_parent_ids = [
             item["fields"]["parent_ids"][0] for item in children
@@ -1543,9 +1635,66 @@ def test_installed_backend_runs_exact_canonical_v2_through_public_protocol(
         selected_ids = [
             item["fields"]["candidate_id"] for item in selected
         ]
+        assert selected_ids == [
+            "candidate-9f8a8c1b430ff92924b4480e6f68fecafb696d9044d9d1593d35a0a0e6a23ce2",
+            "candidate-569ac9726a10ca1491a4a8a5f191cee3d216c45031ec54744e33b5703e461925",
+            "candidate-88f6c50115f6aaaba9232835e6b4c070b90d620b8ae5a1ddea4b365a239f9964",
+        ]
         assert Counter(child_parent_ids) == Counter({
             candidate_id: 5 for candidate_id in selected_ids
         })
+        child_metadata = [
+            dict(item["fields"]["metadata"]["$map"])
+            for item in children
+        ]
+        assert {
+            metadata["effective_seed"]
+            for metadata in child_metadata
+        } == {1603}
+        child_call_seeds = {
+            metadata["effective_call_seed"]
+            for metadata in child_metadata
+        }
+        assert len(child_call_seeds) == 3
+        child_ids = [
+            item["fields"]["candidate_id"] for item in children
+        ]
+        assert [
+            item["fields"]["parent_ids"] for item in final_folds
+        ] == [[candidate_id] for candidate_id in child_ids]
+        selection = projection["selection_results"][0]
+        assert selection["selected_candidate_ids"][:3] == selected_ids
+        assert [
+            (
+                objective["objective_id"],
+                objective["source_partition"],
+                objective["utility_transform"]["contract_id"],
+                objective["declared_weight"],
+                objective["effective_weight"],
+            )
+            for objective in selection["objectives"]
+        ] == [
+            (
+                "fixed-3gb1",
+                "structure_comparison.tm_score.fixed_reference",
+                (
+                    "structure_comparison.tm_score."
+                    "fixed_reference.identity"
+                ),
+                0.7,
+                0.7,
+            ),
+            (
+                "paired-esm3",
+                "structure_comparison.tm_score.per_subject_counterpart",
+                (
+                    "structure_comparison.tm_score."
+                    "per_subject_counterpart.identity"
+                ),
+                0.3,
+                0.3,
+            ),
+        ]
 
         for artifact in projection["artifact_index"]:
             prepared = prepare_rest_request(
@@ -1612,24 +1761,110 @@ def test_installed_backend_runs_exact_canonical_v2_through_public_protocol(
         assert Counter(
             event["type"] for event in payloads
         )["node_disposition"] == 21
-        assert {
+        operation_starts = Counter(
             event["operation_attempt_id"]
             for event in payloads
             if event["type"] == "operation_attempt_started"
-        } == {
+        )
+        operation_terminals = Counter(
             event["operation_attempt_id"]
             for event in payloads
             if event["type"] == "operation_attempt_terminal"
-        }
-        assert {
+        )
+        invocation_starts = Counter(
             event["invocation_id"]
             for event in payloads
             if event["type"] == "engine_invocation_started"
-        } == {
+        )
+        invocation_terminals = Counter(
             event["invocation_id"]
             for event in payloads
             if event["type"] == "engine_invocation_terminal"
-        }
+        )
+        assert operation_starts == operation_terminals
+        assert invocation_starts == invocation_terminals
+        assert set(operation_starts.values()) == {1}
+        assert set(invocation_starts.values()) == {1}
+
+        replay_started = request_json(
+            "start_run",
+            {
+                "project_id": project_id,
+                "workflow_revision": snapshot["workflow_revision"],
+                "compile_id": compiled["compile_id"],
+                "client_request_id": "installed-canonical-v2-replay",
+            },
+            expected_status=202,
+        )
+        replay = wait_for_network_run_terminal(
+            websocket_origin=f"ws://127.0.0.1:{port}",
+            project_id=project_id,
+            run_id=replay_started["run_id"],
+            fetch_projection=lambda: request_json(
+                "run_projection",
+                {
+                    "project_id": project_id,
+                    "run_id": replay_started["run_id"],
+                },
+            ),
+            timeout_seconds=90,
+        )
+        def stable_outputs(value: dict) -> list[tuple]:
+            return [
+                (
+                    output["node_id"],
+                    output["output_port"],
+                    output["port_type"],
+                    output["content_digest"],
+                    output["values"],
+                )
+                for output in value["outputs"]
+            ]
+
+        assert stable_outputs(replay) == stable_outputs(projection)
+        assert replay["selection_results"] == (
+            projection["selection_results"]
+        )
+        assert [
+            artifact["content_digest"]
+            for artifact in replay["artifact_index"]
+        ] == [
+            artifact["content_digest"]
+            for artifact in projection["artifact_index"]
+        ]
+
+        tampered_artifact = projection["artifact_index"][0]
+        managed = (
+            tmp_path
+            / "output"
+            / project_id
+            / started["run_id"]
+            / "published"
+            / tampered_artifact["artifact_reference"]
+        )
+        managed.write_bytes(b"TAMPERED")
+        prepared = prepare_rest_request(
+            "artifact_retrieval",
+            {
+                "project_id": project_id,
+                "run_id": started["run_id"],
+                "artifact_reference": tampered_artifact[
+                    "artifact_reference"
+                ],
+            },
+        )
+        with pytest.raises(urllib.error.HTTPError) as rejected:
+            urllib.request.urlopen(
+                urllib.request.Request(
+                    f"http://127.0.0.1:{port}{prepared.route}",
+                    method=prepared.method,
+                ),
+                timeout=5,
+            )
+        assert rejected.value.status == 409
+        with rejected.value:
+            error = json.load(rejected.value)
+        assert error["error"]["code"] == "artifact_integrity_mismatch"
     finally:
         if server.poll() is None:
             server.terminate()

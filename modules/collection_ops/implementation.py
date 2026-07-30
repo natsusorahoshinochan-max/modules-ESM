@@ -178,6 +178,10 @@ class CollectionOpsImplementation:
             seen_references.add(entry.reference_candidate_id)
         if set(parent_to_reference) != set(parents_by_id):
             raise ValueError("parent_pairing is not complete for all parents")
+        if seen_references != set(references_by_id):
+            raise ValueError(
+                "parent_pairing is not complete for all references"
+            )
         rebound: list[PairwiseCandidateMatch] = []
         used_parents: set[str] = set()
         used_references: set[str] = set()
@@ -192,6 +196,10 @@ class CollectionOpsImplementation:
                     "each subject must name exactly one supplied parent"
                 )
             parent_id = matching_parents[0]
+            if subject.parent_ids != [parent_id]:
+                raise ValueError(
+                    "each subject must have exactly one total parent"
+                )
             reference_id, reference_digest = parent_to_reference[parent_id]
             if parent_id in used_parents or reference_id in used_references:
                 raise ValueError(

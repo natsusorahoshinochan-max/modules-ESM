@@ -80,6 +80,7 @@ def _terminal_ids(facts: list[dict[str, Any]]) -> dict[str, set[str]]:
     }
 
 
+@pytest.mark.deterministic_acceptance
 def test_cancel_during_operation_is_idempotent_and_closes_active_evidence(
     tmp_path,
     monkeypatch,
@@ -905,6 +906,7 @@ def test_one_process_cleanup_failure_does_not_skip_other_process_groups(
     assert "private-fallback-detail" not in retained
 
 
+@pytest.mark.deterministic_acceptance
 def test_cancel_and_derive_reject_cross_project_scope_with_shared_errors(
     tmp_path,
     monkeypatch,

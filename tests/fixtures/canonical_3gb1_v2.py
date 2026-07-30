@@ -224,7 +224,7 @@ class ControlledProteinMPNNProvider:
         self,
         request: Any,
     ) -> tuple[list[ProteinSequence], list[float]]:
-        parent_index = len(self.requests)
+        seed_offset = request.seed % len(_ALPHABET)
         self.requests.append(request)
         residue_ids = [
             f"A:{position}"
@@ -236,7 +236,7 @@ class ControlledProteinMPNNProvider:
                     _ALPHABET[
                         (
                             position
-                            + parent_index * request.num_sequences
+                            + seed_offset
                             + sample_index
                         )
                         % len(_ALPHABET)
@@ -248,7 +248,7 @@ class ControlledProteinMPNNProvider:
             for sample_index in range(request.num_sequences)
         ]
         return sequences, [
-            -float(parent_index + 1) - sample_index / 10
+            -float(seed_offset + 1) - sample_index / 10
             for sample_index in range(request.num_sequences)
         ]
 

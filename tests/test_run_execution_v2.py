@@ -964,6 +964,7 @@ def _compile_branching_pipeline(
     return project_id, compiled.json()
 
 
+@pytest.mark.deterministic_acceptance
 def test_branch_failure_closes_every_disposition_and_unrelated_work_continues(
     tmp_path,
     monkeypatch,

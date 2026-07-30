@@ -407,6 +407,22 @@ TIERS = {
     )),
     "deterministic-acceptance": Tier((
         "tests/test_canonical_3gb1_v2.py",
+        (
+            "tests/test_folding_v2.py::"
+            "test_readiness_rejects_before_cache_lookup_or_fold_call"
+        ),
+        (
+            "tests/test_run_execution_v2.py::"
+            "test_branch_failure_closes_every_disposition_and_unrelated_work_continues"
+        ),
+        (
+            "tests/test_run_cancel_derive_v2.py::"
+            "test_cancel_during_operation_is_idempotent_and_closes_active_evidence"
+        ),
+        (
+            "tests/test_run_cancel_derive_v2.py::"
+            "test_cancel_and_derive_reject_cross_project_scope_with_shared_errors"
+        ),
         "tests/deterministic_acceptance",
         "-m",
         "deterministic_acceptance",

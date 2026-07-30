@@ -539,6 +539,7 @@ def test_selected_binding_folds_without_fallback_and_publishes_exact_lineage(
         assert isinstance(client.calls[0][1], int)
 
 
+@pytest.mark.deterministic_acceptance
 def test_readiness_rejects_before_cache_lookup_or_fold_call(
     tmp_path: Path,
 ) -> None:

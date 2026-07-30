@@ -40,6 +40,11 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent
 WORKFLOW_PATH = (
     PROJECT_ROOT / "examples" / "v2" / "canonical-3gb1.workflow.json"
 )
+EXPECTED_TOP_THREE = [
+    "candidate-9f8a8c1b430ff92924b4480e6f68fecafb696d9044d9d1593d35a0a0e6a23ce2",
+    "candidate-569ac9726a10ca1491a4a8a5f191cee3d216c45031ec54744e33b5703e461925",
+    "candidate-88f6c50115f6aaaba9232835e6b4c070b90d620b8ae5a1ddea4b365a239f9964",
+]
 pytestmark = pytest.mark.deterministic_acceptance
 
 
@@ -447,12 +452,16 @@ def test_canonical_v2_public_protocol_reproduces_scientific_intent(
         )
         assert len(ranked.items) == 10
         assert selected.items == ranked.items[:3]
+        assert [
+            candidate.candidate_id for candidate in selected.items
+        ] == EXPECTED_TOP_THREE
         selection = first["selection_results"][0]
         assert selection["selection_node_id"] == "rank-candidates"
         assert [
             (
                 objective["objective_id"],
                 objective["source_partition"],
+                objective["utility_transform"]["contract_id"],
                 objective["declared_weight"],
                 objective["effective_weight"],
             )
@@ -461,12 +470,20 @@ def test_canonical_v2_public_protocol_reproduces_scientific_intent(
             (
                 "fixed-3gb1",
                 "structure_comparison.tm_score.fixed_reference",
+                (
+                    "structure_comparison.tm_score."
+                    "fixed_reference.identity"
+                ),
                 0.7,
                 0.7,
             ),
             (
                 "paired-esm3",
                 "structure_comparison.tm_score.per_subject_counterpart",
+                (
+                    "structure_comparison.tm_score."
+                    "per_subject_counterpart.identity"
+                ),
                 0.3,
                 0.3,
             ),
@@ -490,6 +507,21 @@ def test_canonical_v2_public_protocol_reproduces_scientific_intent(
             and request.temperature == 0.1
             and request.backbone_noise == 0
             for request in proteinmpnn.requests
+        )
+        assert len({request.seed for request in proteinmpnn.requests}) == 3
+        call_seed_by_parent = {
+            parent.candidate_id: request.seed
+            for parent, request in zip(
+                selected.items,
+                proteinmpnn.requests,
+                strict=True,
+            )
+        }
+        assert all(
+            child.metadata["effective_seed"] == 1603
+            and child.metadata["effective_call_seed"]
+            == call_seed_by_parent[child.parent_ids[0]]
+            for child in children.items
         )
 
         final_folds = _decoded_output(
@@ -540,28 +572,30 @@ def test_canonical_v2_public_protocol_reproduces_scientific_intent(
             event["type"] == "node_disposition"
             for event in event_payloads
         ) == 21
-        attempt_starts = {
+        attempt_starts = Counter(
             event["operation_attempt_id"]
             for event in event_payloads
             if event["type"] == "operation_attempt_started"
-        }
-        attempt_terminals = {
+        )
+        attempt_terminals = Counter(
             event["operation_attempt_id"]
             for event in event_payloads
             if event["type"] == "operation_attempt_terminal"
-        }
-        invocation_starts = {
-            event["invocation_id"]
-            for event in event_payloads
-            if event["type"] == "engine_invocation_started"
-        }
-        invocation_terminals = {
+        )
+        invocation_terminals = Counter(
             event["invocation_id"]
             for event in event_payloads
             if event["type"] == "engine_invocation_terminal"
-        }
+        )
+        invocation_starts = Counter(
+            event["invocation_id"]
+            for event in event_payloads
+            if event["type"] == "engine_invocation_started"
+        )
         assert attempt_starts == attempt_terminals
         assert invocation_starts == invocation_terminals
+        assert set(attempt_starts.values()) == {1}
+        assert set(invocation_starts.values()) == {1}
         readiness_sequences = [
             message["sequence"]
             for message in first_events
@@ -581,13 +615,53 @@ def test_canonical_v2_public_protocol_reproduces_scientific_intent(
         replay, replay_events = run("canonical-v2-replay")
         assert replay["status"] == "succeeded"
         assert replay["run_id"] != first["run_id"]
+
+        def stable_outputs(projection: dict[str, Any]) -> list[tuple]:
+            return [
+                (
+                    output["node_id"],
+                    output["output_port"],
+                    output["port_type"],
+                    output["content_digest"],
+                    output["values"],
+                )
+                for output in projection["outputs"]
+            ]
+
+        assert stable_outputs(replay) == stable_outputs(first)
+        assert replay["selection_results"] == first["selection_results"]
+        assert [
+            artifact["content_digest"]
+            for artifact in replay["artifact_index"]
+        ] == downloaded_hashes
         assert len(esm3.sequence_prompts) == esm_calls_before + 10
         assert len(folding.calls) == fold_calls_before + 25
         assert len(proteinmpnn.requests) == mpnn_calls_before
-        assert any(
-            disposition.get("resolution") == "cache_replayed"
+        replayed_nodes = {
+            disposition["node_id"]
             for disposition in replay["node_dispositions"]
+            if disposition.get("resolution") == "cache_replayed"
+        }
+        replay_attempt_nodes = {
+            message["event"]["node_attempt_id"]: (
+                message["event"]["node_id"]
+            )
+            for message in replay_events
+            if message["event"]["type"] == "node_attempt_started"
+        }
+        replay_attempt_starts = Counter(
+            message["event"]["node_id"]
+            for message in replay_events
+            if message["event"]["type"] == "node_attempt_started"
         )
+        replay_operation_starts = Counter(
+            replay_attempt_nodes[message["event"]["node_attempt_id"]]
+            for message in replay_events
+            if message["event"]["type"] == "operation_attempt_started"
+        )
+        assert replayed_nodes
+        assert replayed_nodes <= set(replay_attempt_starts)
+        assert replayed_nodes.isdisjoint(replay_operation_starts)
         assert replay_events[-1]["event"] == {
             "type": "run_terminal",
             "status": "succeeded",

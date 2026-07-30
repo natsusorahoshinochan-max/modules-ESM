@@ -29,6 +29,7 @@ from core.storage import (
     StoragePathError,
     contained_path,
     open_private_regular_file,
+    replace_private_regular_file,
     validate_identifier,
     validate_relative_path,
     write_private_new_file,
@@ -649,68 +650,46 @@ class ProjectManager:
                 raise CanonicalSeedError(
                     f"Canonical v2 input file is unavailable: {reference}"
                 )
-            destination = self.input_path(project_id, reference)
-            destination.parent.mkdir(parents=True, exist_ok=True)
-            payload = source.read_bytes()
-            if destination.is_symlink():
+            try:
+                input_parts = validate_relative_path(
+                    reference,
+                    "canonical_v2_input",
+                    allow_nested=False,
+                )
+                payload = source.read_bytes()
+                replace_private_regular_file(
+                    project_dir,
+                    ("inputs", *input_parts),
+                    payload,
+                    field="canonical_v2_input",
+                )
+            except (OSError, StoragePathError) as error:
                 raise CanonicalSeedError(
-                    f"Canonical v2 input target is unsafe: {reference}"
-                )
-            if not destination.exists() or destination.read_bytes() != payload:
-                temporary = destination.with_name(
-                    f".{destination.name}.canonical-v2.tmp"
-                )
-                if temporary.exists() or temporary.is_symlink():
-                    temporary.unlink()
-                try:
-                    temporary.write_bytes(payload)
-                    os.replace(temporary, destination)
-                finally:
-                    if temporary.exists():
-                        temporary.unlink()
-        target = project_dir / "workflow-v2.json"
+                    f"Canonical v2 input cannot be installed: {reference}"
+                ) from error
         descriptor = {
             "schema_version": "2.0.0",
             "workflow_revision": 1,
             "workflow": parsed.to_public(),
         }
-        if target.is_symlink():
-            raise CanonicalSeedError(
-                "Canonical v2 Workflow storage target is unsafe"
-            )
-        if target.is_file():
-            try:
-                if json.loads(target.read_text(encoding="utf-8")) == descriptor:
-                    return
-            except (OSError, json.JSONDecodeError):
-                pass
-        file_descriptor, temporary_name = tempfile.mkstemp(
-            prefix=".canonical-workflow-v2-",
-            suffix=".json",
-            dir=project_dir,
-            text=True,
-        )
-        temporary_path = Path(temporary_name)
         try:
-            with os.fdopen(
-                file_descriptor,
-                "w",
-                encoding="utf-8",
-            ) as stream:
-                json.dump(
-                    descriptor,
-                    stream,
-                    ensure_ascii=False,
-                    separators=(",", ":"),
-                    sort_keys=True,
-                    allow_nan=False,
-                )
-                stream.flush()
-                os.fsync(stream.fileno())
-            os.replace(temporary_path, target)
-        finally:
-            if temporary_path.exists():
-                temporary_path.unlink()
+            payload = json.dumps(
+                descriptor,
+                ensure_ascii=False,
+                separators=(",", ":"),
+                sort_keys=True,
+                allow_nan=False,
+            ).encode("utf-8")
+            replace_private_regular_file(
+                project_dir,
+                ("workflow-v2.json",),
+                payload,
+                field="canonical_v2_workflow",
+            )
+        except (OSError, StoragePathError) as error:
+            raise CanonicalSeedError(
+                "Canonical v2 Workflow cannot be installed safely"
+            ) from error
 
     @staticmethod
     def _write_json(path: Path, data: dict[str, Any]) -> None:

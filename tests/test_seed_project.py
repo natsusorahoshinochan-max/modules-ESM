@@ -33,6 +33,52 @@ SAMPLE_UI_JSON = """{
 
 
 class TestSeedProject:
+    @pytest.mark.parametrize(
+        "relative_target",
+        (
+            Path("inputs/3GB1.pdb"),
+            Path("workflow-v2.json"),
+        ),
+    )
+    def test_canonical_v2_install_rejects_symlink_targets(
+        self,
+        tmp_path: Path,
+        relative_target: Path,
+    ) -> None:
+        from core import ModuleRegistry, TypeRegistry, discover_modules
+
+        type_registry = TypeRegistry()
+        module_registry = ModuleRegistry(type_registry)
+        discover_modules(module_registry)
+        manager = ProjectManager(
+            root_dir=tmp_path / "projects",
+            module_registry=module_registry,
+        )
+        structure = Path("pdbs/3GB1.pdb")
+        manager.ensure_seed_project(
+            Path("examples/3gb1_pipeline.json"),
+            Path("examples/3gb1_pipeline_ui.json"),
+            input_sources={"pdbs/3GB1.pdb": structure},
+            additional_input_sources={"3GB1.pdb": structure},
+        )
+        target = (
+            manager.project_dir(CANONICAL_3GB1_PROJECT_ID)
+            / relative_target
+        )
+        if target.exists():
+            target.unlink()
+        outside = tmp_path / "outside"
+        outside.write_bytes(b"outside-must-not-change")
+        target.symlink_to(outside)
+
+        with pytest.raises(CanonicalSeedError, match="cannot be installed"):
+            manager.install_seed_workflow_v2(
+                Path("examples/v2/canonical-3gb1.workflow.json"),
+                input_sources={"3GB1.pdb": structure},
+            )
+
+        assert outside.read_bytes() == b"outside-must-not-change"
+
     def test_shipped_canonical_workflow_validates_at_creation(
         self,
         tmp_path: Path,

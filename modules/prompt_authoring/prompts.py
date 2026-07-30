@@ -41,6 +41,14 @@ _PROMPT_TRACK_ATTRIBUTES = {
 }
 
 
+def _copy_track(track: ResidueTrack | None) -> ResidueTrack | None:
+    return (
+        None
+        if track is None
+        else ResidueTrack(list(track.values), track.sentinel)
+    )
+
+
 def assemble_protein_prompt(
     layout: object,
     tracks: Mapping[str, object],
@@ -149,24 +157,17 @@ def update_prompt_sequence(
         expected_layout=target,
     )
 
-    def copy_track(track: ResidueTrack | None) -> ResidueTrack | None:
-        return (
-            None
-            if track is None
-            else ResidueTrack(list(track.values), track.sentinel)
-        )
-
     updated = ProteinPrompt(
         target_layout=target,
         sequence_track=ResidueTrack(list(replacement.values), None),
-        structure_track=copy_track(source.structure_track),
-        structure_visibility_track=copy_track(
+        structure_track=_copy_track(source.structure_track),
+        structure_visibility_track=_copy_track(
             source.structure_visibility_track
         ),
-        secondary_structure_track=copy_track(
+        secondary_structure_track=_copy_track(
             source.secondary_structure_track
         ),
-        sasa_track=copy_track(source.sasa_track),
+        sasa_track=_copy_track(source.sasa_track),
         function_annotations=FunctionAnnotations(
             list(source.function_annotations.annotations)
         ),
@@ -197,23 +198,16 @@ def override_protein_prompt_track(
         kind=kind,
     )
 
-    def copy_track(value: ResidueTrack | None) -> ResidueTrack | None:
-        return (
-            None
-            if value is None
-            else ResidueTrack(list(value.values), value.sentinel)
-        )
-
     tracks = {
-        "sequence_track": copy_track(source.sequence_track),
-        "structure_track": copy_track(source.structure_track),
-        "structure_visibility_track": copy_track(
+        "sequence_track": _copy_track(source.sequence_track),
+        "structure_track": _copy_track(source.structure_track),
+        "structure_visibility_track": _copy_track(
             source.structure_visibility_track
         ),
-        "secondary_structure_track": copy_track(
+        "secondary_structure_track": _copy_track(
             source.secondary_structure_track
         ),
-        "sasa_track": copy_track(source.sasa_track),
+        "sasa_track": _copy_track(source.sasa_track),
     }
     tracks[attribute] = ResidueTrack(list(changed.values), None)
     return validate_protein_prompt(ProteinPrompt(

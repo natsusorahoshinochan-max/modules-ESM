@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
+from contextlib import nullcontext
 from pathlib import Path
+
+import pytest
 
 from core import (
     ModulePackageContractCase,
@@ -17,10 +20,14 @@ from datatypes import (
     FunctionAnnotation,
     FunctionAnnotations,
     ProteinPrompt,
+    ProteinStructure,
     ResidueMap,
     ResidueTrack,
 )
 from modules.prompt_authoring.domain import AlignedResidueTrack
+from modules.prompt_authoring.implementation import (
+    PromptFromStructureImplementation,
+)
 from modules.prompt_authoring.package import MODULE_PACKAGE
 from tests.fixtures.prompt_authoring_sources.package import (
     MODULE_PACKAGE as SOURCE_PACKAGE,
@@ -586,3 +593,34 @@ def test_all_eleven_nodes_execute_through_shared_contract_kit(
         for case in report.case_reports
         for identity in case.result_identities
     }
+
+
+def test_prompt_from_structure_rejects_multiple_coordinate_models() -> None:
+    class RunResources:
+        @staticmethod
+        def engine_invocation(**kwargs):
+            del kwargs
+            return nullcontext()
+
+    atom = (
+        "ATOM      1  CA  ALA A   1       1.000   0.000   "
+        "0.000  1.00 20.00           C\n"
+    )
+    structure = ProteinStructure(
+        "MODEL        1\n"
+        + atom
+        + "ENDMDL\n"
+        + "MODEL        2\n"
+        + atom
+        + "ENDMDL\n"
+    )
+
+    with pytest.raises(ValueError, match="exactly one coordinate model"):
+        PromptFromStructureImplementation(
+            RunResources(),
+            "prompt_from_structure",
+        ).execute(
+            inputs={"structure": structure},
+            node_parameters={},
+            binding_parameters={},
+        )
