@@ -200,7 +200,7 @@ def _bounded_junit_summary(path: Path) -> tuple[int, int, int, bytes]:
 def _process_group_exists(process_group_id: int) -> bool:
     try:
         os.killpg(process_group_id, 0)
-    except ProcessLookupError:
+    except (PermissionError, ProcessLookupError):
         return False
     return True
 
@@ -209,7 +209,7 @@ def _terminate_group(process: subprocess.Popen[bytes]) -> None:
     process_group_id = process.pid
     try:
         os.killpg(process_group_id, signal.SIGTERM)
-    except ProcessLookupError:
+    except (PermissionError, ProcessLookupError):
         if process.poll() is None:
             process.wait()
         return
@@ -224,7 +224,7 @@ def _terminate_group(process: subprocess.Popen[bytes]) -> None:
     if _process_group_exists(process_group_id):
         try:
             os.killpg(process_group_id, signal.SIGKILL)
-        except ProcessLookupError:
+        except (PermissionError, ProcessLookupError):
             pass
     if process.poll() is None:
         try:
