@@ -4,7 +4,7 @@
 
 **Blocked by:** 13 — Consolidate protein I/O.
 
-**Status:** awaiting-controller
+**Status:** completed
 
 - [x] Single alignment, pairwise collection alignment, and RMSD each have one v2 Node Definition in a single package registration.
 - [x] Alignment output is a versioned nominal value that records exact subject/reference Candidate identities and content digests, residue/atom correspondence, transformation, normalization inputs, and method identity.
@@ -167,3 +167,42 @@
   zero CRITICAL/HIGH findings. The Spec reviewer independently confirmed both
   clean routine records and the clean deterministic/installed evidence before
   closing its earlier evidence-completeness finding.
+
+## Controller evidence
+
+Controller accepted Ticket 26 only after two separate cumulative routine
+failures were returned to the same executor and the shared public Run terminal
+wait contract closed both the prompt-authoring and structure-transform races.
+
+- Previous accepted multi-ticket gate:
+  `a3dfa37cbf091252e9affc3758043964dfcdf700`.
+- Final executor evidence revision under test:
+  `581a53849d2de7d5835702fc52ebf70faa22586d`.
+- Final repair-range `git diff --check` passed and the worktree was clean
+  before testing.
+- Tickets 01–26 v2 joint regression:
+  `uv run --no-sync pytest -q tests/*_v2.py` → `536 passed`.
+- Prompt-authoring terminal regression:
+  `uv run --no-sync pytest -q tests/test_prompt_authoring_prompt_v2.py
+  tests/test_prompt_authoring_behavior_v2.py
+  tests/test_prompt_stochastic_cache_v2.py` → `46 passed`.
+- Focused structure-comparison and legacy evidence regression:
+  `uv run --no-sync pytest -q tests/test_structure_comparison_v2.py
+  tests/test_provider_evidence.py -k 'structure_comparison or
+  ambiguous_alignment or pairwise_tiebreak_failure or
+  svd_postprocessing_failure'` → `22 passed, 36 deselected`.
+- Cumulative routine gate:
+  `uv run --no-sync python scripts/verify_backend.py routine` →
+  `1225 passed, 52 deselected`; retained result
+  `verification-results/routine/20260730T031112.043814Z-53029-2c42ef4186a19f9f`.
+- Deterministic acceptance:
+  `uv run --no-sync python scripts/verify_backend.py
+  deterministic-acceptance` → `10 passed, 5 deselected`; retained result
+  `verification-results/deterministic-acceptance/20260730T031624.960755Z-62087-e643f66fd0dcf568`.
+- Installed artifact:
+  `uv run --no-sync python scripts/verify_backend.py installed-package` →
+  `3 passed`; retained result
+  `verification-results/installed-package/20260730T031624.960827Z-62086-8dd4cfe9647e73b1`.
+
+Ticket 27 may start only from the committed Controller gate containing this
+evidence.
