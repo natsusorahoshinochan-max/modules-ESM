@@ -25,6 +25,7 @@ from datatypes import (
     ExactContractReference,
     IntrinsicObservationContext,
     ProteinSequence,
+    Score,
     ScoreCollection,
     ScoreObservation,
 )
@@ -128,6 +129,81 @@ class _Source:
         }
 
 
+class _Scorer:
+    def __init__(
+        self,
+        *,
+        catalog: Any,
+        value: float,
+        source_partition: str,
+    ) -> None:
+        self._value = value
+        self._source_partition = source_partition
+        self._metric = ExactContractReference(
+            **catalog.require_contract(
+                "metric",
+                METRIC.contract_id,
+                VERSION,
+            ).reference()
+        )
+        self._method = ExactContractReference(
+            **catalog.require_contract(
+                "method",
+                "contract_test.collection_ops_scorer.method",
+                VERSION,
+            ).reference()
+        )
+
+    def execute(
+        self,
+        *,
+        inputs: Mapping[str, Any],
+        node_parameters: Mapping[str, Any],
+        binding_parameters: Mapping[str, Any],
+    ) -> dict[str, Any]:
+        candidates = inputs.get("candidates")
+        if (
+            type(candidates) is not CandidateCollection
+            or node_parameters
+            or binding_parameters
+        ):
+            raise ValueError("fixture scorer requires exact Candidates")
+        return {
+            "scores": ScoreCollection(
+                collection_id="fixture-scores",
+                entries=[
+                    ScoreObservation(
+                        candidate_id=candidate.candidate_id,
+                        metric=self._metric,
+                        method=self._method,
+                        context=IntrinsicObservationContext(),
+                        value=self._value,
+                        source_partition=self._source_partition,
+                    )
+                    for candidate in candidates.items
+                ],
+            )
+        }
+
+
+class _LegacyScores:
+    def execute(
+        self,
+        *,
+        inputs: Mapping[str, Any],
+        node_parameters: Mapping[str, Any],
+        binding_parameters: Mapping[str, Any],
+    ) -> dict[str, Any]:
+        if inputs or node_parameters or binding_parameters:
+            raise ValueError("legacy fixture accepts no values")
+        return {
+            "scores": ScoreCollection(
+                collection_id="legacy-scores",
+                entries=[Score("confidence", 0.5)],
+            )
+        }
+
+
 def _available() -> AvailabilityResult:
     return AvailabilityResult.available()
 
@@ -227,6 +303,166 @@ def _binding(partition: str) -> ExecutionBindingDefinition:
     )
 
 
+def _scorer_method() -> MethodDefinition:
+    return MethodDefinition(
+        method_id="contract_test.collection_ops_scorer.method",
+        version=VERSION,
+        algorithm_identity={"name": "controlled-fixture-observation"},
+        model_identity={"kind": "none"},
+        checkpoint_identity={"kind": "none"},
+        featurization_identity={"kind": "identity"},
+        source_identity={"kind": "contract-test"},
+        scale_contract={"kind": "identity"},
+    )
+
+
+def _legacy_method() -> MethodDefinition:
+    return MethodDefinition(
+        method_id="contract_test.collection_ops_legacy_scores.method",
+        version=VERSION,
+        algorithm_identity={"name": "legacy-subject-free-fixture"},
+        model_identity={"kind": "none"},
+        checkpoint_identity={"kind": "none"},
+        featurization_identity={"kind": "identity"},
+        source_identity={"kind": "contract-test"},
+        scale_contract={"kind": "identity"},
+    )
+
+
+def _scorer_binding(
+    binding_name: str,
+    *,
+    value: float,
+    source_partition: str,
+) -> ExecutionBindingDefinition:
+    def build(**kwargs: object) -> _Scorer:
+        return _Scorer(
+            catalog=kwargs["frozen_catalog"],
+            value=value,
+            source_partition=source_partition,
+        )
+
+    return ExecutionBindingDefinition(
+        binding_id=f"contract_test.collection_ops_scorer.{binding_name}",
+        version=VERSION,
+        node_type=ContractIdentity(
+            "node_type",
+            "contract_test.collection_ops_scorer",
+            VERSION,
+        ),
+        method=ContractIdentity(
+            "method",
+            "contract_test.collection_ops_scorer.method",
+            VERSION,
+        ),
+        binding_parameters={},
+        execution_route="direct",
+        factory=LazyImplementationFactory(
+            behavior=BehaviorReference(
+                f"contract_test.collection_ops_scorer/{binding_name}",
+                VERSION,
+                {
+                    "value": value,
+                    "source_partition": source_partition,
+                },
+            ),
+            build=build,
+        ),
+        availability=AvailabilityDeclaration(
+            behavior=BehaviorReference(
+                f"contract_test.collection_ops_scorer/{binding_name}/availability",
+                VERSION,
+                {"observation": "startup"},
+            ),
+            prerequisites={},
+            check=_available,
+        ),
+        readiness=ReadinessDeclaration(
+            behavior=BehaviorReference(
+                f"contract_test.collection_ops_scorer/{binding_name}/readiness",
+                VERSION,
+                {"observation": "per-run"},
+            ),
+            prerequisites={},
+            check=_ready,
+        ),
+        deterministic=True,
+        cacheable=True,
+        implementation_identity={
+            "name": f"contract_test.collection_ops_scorer.{binding_name}",
+            "source": "contract-test",
+        },
+        produced_observations=(
+            ProducedObservationDefinition(
+                output_port="scores",
+                metric=METRIC,
+                context_profile={"kind": "intrinsic"},
+                subject_grain="candidate",
+                source_role="subject",
+                subject_direction="input",
+                subject_port="candidates",
+                guaranteed_multiplicity="one",
+                output_partition=source_partition,
+            ),
+        ),
+    )
+
+
+def _legacy_binding() -> ExecutionBindingDefinition:
+    def build(**kwargs: object) -> _LegacyScores:
+        del kwargs
+        return _LegacyScores()
+
+    return ExecutionBindingDefinition(
+        binding_id="contract_test.collection_ops_legacy_scores.direct",
+        version=VERSION,
+        node_type=ContractIdentity(
+            "node_type",
+            "contract_test.collection_ops_legacy_scores",
+            VERSION,
+        ),
+        method=ContractIdentity(
+            "method",
+            "contract_test.collection_ops_legacy_scores.method",
+            VERSION,
+        ),
+        binding_parameters={},
+        execution_route="direct",
+        factory=LazyImplementationFactory(
+            behavior=BehaviorReference(
+                "contract_test.collection_ops_legacy_scores/factory",
+                VERSION,
+                {"execution_route": "direct"},
+            ),
+            build=build,
+        ),
+        availability=AvailabilityDeclaration(
+            behavior=BehaviorReference(
+                "contract_test.collection_ops_legacy_scores/availability",
+                VERSION,
+                {"observation": "startup"},
+            ),
+            prerequisites={},
+            check=_available,
+        ),
+        readiness=ReadinessDeclaration(
+            behavior=BehaviorReference(
+                "contract_test.collection_ops_legacy_scores/readiness",
+                VERSION,
+                {"observation": "per-run"},
+            ),
+            prerequisites={},
+            check=_ready,
+        ),
+        deterministic=True,
+        cacheable=True,
+        implementation_identity={
+            "name": "contract_test.collection_ops_legacy_scores.direct",
+            "source": "contract-test",
+        },
+    )
+
+
 def _identity(value: object, parameters: Mapping[str, Any]) -> float:
     if parameters:
         raise ValueError("fixture identity takes no parameters")
@@ -261,9 +497,37 @@ MODULE_PACKAGE = ModulePackageRegistration(
     package_id="contract_test.collection_ops_sources",
     package_version=VERSION,
     package_module=__package__,
-    node_definitions=(DefinitionResource("source.yaml"),),
+    node_definitions=(
+        DefinitionResource("source.yaml"),
+        DefinitionResource("scorer.yaml"),
+        DefinitionResource("legacy_scores.yaml"),
+    ),
     metric_definitions=(DefinitionResource("metric.yaml"),),
-    methods=(_method("a"), _method("b")),
-    bindings=(_binding("a"), _binding("b")),
+    methods=(
+        _method("a"),
+        _method("b"),
+        _scorer_method(),
+        _legacy_method(),
+    ),
+    bindings=(
+        _binding("a"),
+        _binding("b"),
+        _scorer_binding(
+            "low",
+            value=0.25,
+            source_partition="contract_test.partition.shared",
+        ),
+        _scorer_binding(
+            "high",
+            value=0.75,
+            source_partition="contract_test.partition.shared",
+        ),
+        _scorer_binding(
+            "collision",
+            value=0.25,
+            source_partition="contract_test.partition.other",
+        ),
+        _legacy_binding(),
+    ),
     utility_transforms=(_utility("a"), _utility("b")),
 )

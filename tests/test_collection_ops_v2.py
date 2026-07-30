@@ -6,41 +6,28 @@ from dataclasses import replace
 from pathlib import Path
 
 import pytest
+from fastapi.testclient import TestClient
+from starlette.websockets import WebSocketDisconnect
 
 from core import (
-    EnvironmentConfiguration,
     ModulePackageContractCase,
-    ProjectManager,
     SelectionInput,
     SelectionObjective,
-    V2RunService,
-    WorkflowAuthoringService,
-    WorkflowCompileError,
     WorkflowDocument,
     WorkflowNodeInstance,
     build_frozen_catalog,
-    compile_workflow,
     build_discovered_frozen_catalog,
-    discover_module_packages,
-    parse_workflow_document,
-    relock_workflow,
     verify_module_package_contract,
 )
 from core.port_types import PORT_VALUE_NAMESPACE, canonical_json_bytes
+from core.server import create_app
 from core.workflow_v2 import WorkflowEdge
 from datatypes import (
-    Candidate,
-    CandidateCollection,
     ExactContractReference,
     IntrinsicObservationContext,
-    ProteinSequence,
-    Score,
-    ScoreCollection,
-    ScoreObservation,
 )
-from modules.collection_ops.implementation import CollectionOpsImplementation
 from modules.collection_ops.package import MODULE_PACKAGE
-from tests.fixtures.public_v2 import wait_for_service_run_terminal_events
+from tests.fixtures.public_v2 import wait_for_testclient_run_terminal
 
 
 VERSION = "2.0.0"
@@ -58,61 +45,50 @@ def _source(partition: str) -> WorkflowNodeInstance:
     )
 
 
-def test_collection_ops_is_one_package_with_two_exact_nodes() -> None:
-    registrations = {
-        registration.package_id: registration
-        for registration in discover_module_packages()
-    }
-
-    registration = registrations["collection_ops"]
-    assert registration is MODULE_PACKAGE
-    assert registration.package_module == "modules.collection_ops"
-    assert {
-        resource.resource for resource in registration.node_definitions
-    } == {
-        "definitions/concat_candidates.yaml",
-        "definitions/merge_scores.yaml",
-    }
-    assert len(registration.bindings) == 2
-    assert len(registration.methods) == 2
-
+def _public_collection_contracts() -> dict[tuple[str, str], dict]:
     catalog = build_discovered_frozen_catalog()
-    owned_nodes = {
-        (contract_id, version)
-        for kind, contract_id, version in catalog.owners
-        if kind == "node_type"
-        and "collection_ops" in catalog.owners[(kind, contract_id, version)]
+    with TestClient(
+        create_app(frozen_catalog_override=catalog)
+    ) as client:
+        response = client.get("/api/v2/catalog")
+    assert response.status_code == 200
+    return {
+        (
+            contract["reference"]["contract_kind"],
+            contract["reference"]["contract_id"],
+        ): contract["descriptor"]
+        for contract in response.json()["contracts"]
+        if contract["reference"]["contract_id"].startswith(
+            "collection_ops."
+        )
     }
-    assert owned_nodes == {
-        ("collection_ops.concat_candidates", VERSION),
-        ("collection_ops.merge_scores", VERSION),
+
+
+def test_public_catalog_has_two_exact_collection_operation_nodes() -> None:
+    contracts = _public_collection_contracts()
+
+    assert set(contracts) == {
+        ("binding", "collection_ops.concat_candidates.direct"),
+        ("binding", "collection_ops.merge_scores.direct"),
+        ("method", "collection_ops.concat_candidates.method"),
+        ("method", "collection_ops.merge_scores.method"),
+        ("node_type", "collection_ops.concat_candidates"),
+        ("node_type", "collection_ops.merge_scores"),
     }
     assert not any(
-        "aggregate" in contract_id
-        for contract_kind, contract_id, _ in catalog.owners
-        if contract_kind == "node_type"
-        and "collection_ops"
-        in catalog.owners[(contract_kind, contract_id, VERSION)]
+        "aggregate" in contract_id for _, contract_id in contracts
     )
 
 
 def test_collection_ports_and_score_union_are_closed_and_versioned() -> None:
-    catalog = build_discovered_frozen_catalog()
-    candidates = catalog.require_contract(
-        "node_type",
-        "collection_ops.concat_candidates",
-        VERSION,
-    ).descriptor
-    scores = catalog.require_contract(
-        "node_type",
-        "collection_ops.merge_scores",
-        VERSION,
-    ).descriptor
-    score_binding = catalog.require_contract(
-        "binding",
-        "collection_ops.merge_scores.direct",
-        VERSION,
-    ).descriptor
+    contracts = _public_collection_contracts()
+    candidates = contracts[
+        ("node_type", "collection_ops.concat_candidates")
+    ]
+    scores = contracts[("node_type", "collection_ops.merge_scores")]
+    score_binding = contracts[
+        ("binding", "collection_ops.merge_scores.direct")
+    ]
 
     assert [
         (
@@ -140,12 +116,12 @@ def test_collection_ports_and_score_union_are_closed_and_versioned() -> None:
         ("scores_b", "score.collection", False, "one"),
         ("scores_c", "score.collection", False, "one"),
     ]
-    assert score_binding["produced_observations"] == ()
+    assert score_binding["produced_observations"] == []
     assert score_binding["observation_propagation"] == {
         "schema_version": VERSION,
         "mode": "union",
         "output_port": "scores",
-        "input_ports": ("scores_a", "scores_b", "scores_c"),
+        "input_ports": ["scores_a", "scores_b", "scores_c"],
         "filter": None,
         "absent_input_policy": "ignore",
     }
@@ -232,6 +208,7 @@ def test_both_nodes_pass_the_shared_contract_test_kit(
 
 def _run_public_collection_workflow(
     tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
     *,
     operation: str,
     counts: tuple[int, int] = (2, 1),
@@ -242,103 +219,128 @@ def _run_public_collection_workflow(
     )
 
     catalog = build_frozen_catalog((MODULE_PACKAGE, SOURCE_PACKAGE))
-    projects = ProjectManager(
-        tmp_path / "projects",
-        cache_root=tmp_path / "cache",
-        output_root=tmp_path / "outputs",
-        run_root=tmp_path / "runs",
-    )
-    project = projects.create(f"collection operations {operation}")
+    for name in ("PROJECT", "CACHE", "OUTPUT", "RUN"):
+        root = tmp_path / name.lower()
+        root.mkdir(parents=True)
+        monkeypatch.setenv(f"PROTEIN_WORKBENCH_{name}_ROOT", str(root))
     port = "candidates" if operation == "concat_candidates" else "scores"
     target_port = (
         "candidates" if operation == "concat_candidates" else "scores"
     )
-    workflow = WorkflowDocument(
-        schema_version=VERSION,
-        workflow_id=project.id,
-        nodes=(
-            WorkflowNodeInstance(
-                node_id="source-a",
-                node_type_id="contract_test.collection_ops_source",
-                node_type_version=VERSION,
-                binding_id="contract_test.collection_ops_source.a",
-                binding_version=VERSION,
-                node_parameters={"candidate_count": counts[0]},
-                binding_parameters={},
+    with TestClient(
+        create_app(frozen_catalog_override=catalog)
+    ) as client:
+        project_id = client.post(
+            "/api/projects",
+            json={"name": f"collection operations {operation}"},
+        ).json()["id"]
+        workflow = WorkflowDocument(
+            schema_version=VERSION,
+            workflow_id=project_id,
+            nodes=(
+                WorkflowNodeInstance(
+                    node_id="source-a",
+                    node_type_id="contract_test.collection_ops_source",
+                    node_type_version=VERSION,
+                    binding_id="contract_test.collection_ops_source.a",
+                    binding_version=VERSION,
+                    node_parameters={"candidate_count": counts[0]},
+                    binding_parameters={},
+                ),
+                WorkflowNodeInstance(
+                    node_id="source-b",
+                    node_type_id="contract_test.collection_ops_source",
+                    node_type_version=VERSION,
+                    binding_id="contract_test.collection_ops_source.b",
+                    binding_version=VERSION,
+                    node_parameters={"candidate_count": counts[1]},
+                    binding_parameters={},
+                ),
+                WorkflowNodeInstance(
+                    node_id="collection-op",
+                    node_type_id=f"collection_ops.{operation}",
+                    node_type_version=VERSION,
+                    binding_id=f"collection_ops.{operation}.direct",
+                    binding_version=VERSION,
+                    node_parameters={},
+                    binding_parameters={},
+                ),
             ),
-            WorkflowNodeInstance(
-                node_id="source-b",
-                node_type_id="contract_test.collection_ops_source",
-                node_type_version=VERSION,
-                binding_id="contract_test.collection_ops_source.b",
-                binding_version=VERSION,
-                node_parameters={"candidate_count": counts[1]},
-                binding_parameters={},
+            edges=tuple(
+                WorkflowEdge(
+                    f"source-{partition}",
+                    port,
+                    "collection-op",
+                    f"{target_port}_{partition}",
+                )
+                for partition in connected_partitions
             ),
-            WorkflowNodeInstance(
-                node_id="collection-op",
-                node_type_id=f"collection_ops.{operation}",
-                node_type_version=VERSION,
-                binding_id=f"collection_ops.{operation}.direct",
-                binding_version=VERSION,
-                node_parameters={},
-                binding_parameters={},
-            ),
-        ),
-        edges=tuple(
-            WorkflowEdge(
-                f"source-{partition}",
-                port,
-                "collection-op",
-                f"{target_port}_{partition}",
+            contract_lock=(),
+        )
+        saved = client.put(
+            f"/api/v2/projects/{project_id}/workflow",
+            json={
+                "expected_workflow_revision": 0,
+                "workflow": workflow.to_public(),
+            },
+        )
+        assert saved.status_code == 200
+        relocked = client.post(
+            f"/api/v2/projects/{project_id}/workflow:relock",
+            json={
+                "workflow_revision": saved.json()["workflow_revision"],
+            },
+        )
+        assert relocked.status_code == 200
+        compiled = client.post(
+            f"/api/v2/projects/{project_id}/workflow:compile",
+            json={
+                "workflow_revision": relocked.json()[
+                    "workflow_revision"
+                ],
+                "workflow": relocked.json()["workflow"],
+            },
+        )
+        assert compiled.status_code == 200
+
+        def run(request_id: str) -> dict[str, object]:
+            started = client.post(
+                f"/api/v2/projects/{project_id}/runs",
+                json={
+                    "workflow_revision": relocked.json()[
+                        "workflow_revision"
+                    ],
+                    "compile_id": compiled.json()["compile_id"],
+                    "client_request_id": request_id,
+                },
             )
-            for partition in connected_partitions
-        ),
-        contract_lock=(),
-    )
-    authoring = WorkflowAuthoringService(projects, catalog)
-    saved = authoring.save(
-        project.id,
-        expected_workflow_revision=0,
-        workflow=workflow,
-    )
-    relocked = authoring.relock(
-        project.id,
-        workflow_revision=saved["workflow_revision"],
-    )
-    locked = parse_workflow_document(relocked["workflow"])
-    compiled = authoring.compile(
-        project.id,
-        workflow_revision=relocked["workflow_revision"],
-        workflow=locked,
-    )
-    service = V2RunService(
-        projects,
-        catalog,
-        authoring,
-        EnvironmentConfiguration({}),
-    )
+            assert started.status_code == 202
+            return wait_for_testclient_run_terminal(
+                client,
+                project_id,
+                started.json()["run_id"],
+            )
 
-    def run(request_id: str) -> tuple[dict[str, object], tuple[dict, ...]]:
-        receipt = service.start_background(
-            project.id,
-            workflow_revision=relocked["workflow_revision"],
-            compile_id=compiled.public_receipt()["compile_id"],
-            client_request_id=request_id,
+        first = run("collection-ops-first")
+        second = run("collection-ops-second")
+        with client.websocket_connect(
+            f"/api/v2/projects/{project_id}/runs/"
+            f"{second['run_id']}/events"
+        ) as websocket:
+            replay_messages: list[dict] = []
+            try:
+                while True:
+                    replay_messages.append(websocket.receive_json())
+            except WebSocketDisconnect as closed:
+                assert closed.code == 1000
+        replay_events = tuple(
+            message
+            for message in replay_messages
+            if message["event"]["type"] not in {
+                "replay_started",
+                "replay_complete",
+            }
         )
-        wait_for_service_run_terminal_events(
-            service,
-            project.id,
-            receipt["run_id"],
-        )
-        return (
-            service.projection(project.id, receipt["run_id"]),
-            service.public_events(project.id, receipt["run_id"]),
-        )
-
-    first, _ = run("collection-ops-first")
-    second, replay_events = run("collection-ops-second")
-    service.shutdown()
     return catalog, first, second, replay_events
 
 
@@ -372,10 +374,12 @@ def _decoded_outputs(
 
 def test_public_candidate_concatenation_preserves_exact_input_candidates(
     tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     catalog, first, second, replay_events = (
         _run_public_collection_workflow(
             tmp_path,
+            monkeypatch,
             operation="concat_candidates",
         )
     )
@@ -426,10 +430,12 @@ def test_public_candidate_concatenation_preserves_exact_input_candidates(
 
 def test_public_score_merge_preserves_observation_identity_and_partitions(
     tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     catalog, first, second, replay_events = (
         _run_public_collection_workflow(
             tmp_path,
+            monkeypatch,
             operation="merge_scores",
         )
     )
@@ -483,10 +489,12 @@ def test_public_score_merge_preserves_observation_identity_and_partitions(
 
 def test_public_optional_score_inputs_distinguish_empty_from_absent(
     tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     catalog, empty_first, empty_replay, _ = (
         _run_public_collection_workflow(
             tmp_path / "empty",
+            monkeypatch,
             operation="merge_scores",
             counts=(0, 1),
             connected_partitions=("a",),
@@ -504,6 +512,7 @@ def test_public_optional_score_inputs_distinguish_empty_from_absent(
     _, absent_first, absent_replay, _ = (
         _run_public_collection_workflow(
             tmp_path / "absent",
+            monkeypatch,
             operation="merge_scores",
             connected_partitions=(),
         )
@@ -515,179 +524,346 @@ def test_public_optional_score_inputs_distinguish_empty_from_absent(
     )
 
 
-def _observation(
+def _compile_through_public_rest(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
     *,
-    value: object = 0.25,
-    source_partition: str = "partition-a",
-) -> ScoreObservation:
-    digest = "sha256:" + "1" * 64
-    return ScoreObservation(
-        candidate_id="candidate-a",
-        metric=ExactContractReference(
-            "metric",
-            "contract_test.metric",
-            VERSION,
-            digest,
+    catalog: object,
+    workflow: WorkflowDocument,
+):
+    for name in ("PROJECT", "CACHE", "OUTPUT", "RUN"):
+        root = tmp_path / name.lower()
+        root.mkdir(parents=True)
+        monkeypatch.setenv(f"PROTEIN_WORKBENCH_{name}_ROOT", str(root))
+    with TestClient(
+        create_app(frozen_catalog_override=catalog)
+    ) as client:
+        project_id = client.post(
+            "/api/projects",
+            json={"name": workflow.workflow_id},
+        ).json()["id"]
+        public_workflow = replace(
+            workflow,
+            workflow_id=project_id,
+            contract_lock=(),
+        )
+        saved = client.put(
+            f"/api/v2/projects/{project_id}/workflow",
+            json={
+                "expected_workflow_revision": 0,
+                "workflow": public_workflow.to_public(),
+            },
+        )
+        assert saved.status_code == 200
+        relocked = client.post(
+            f"/api/v2/projects/{project_id}/workflow:relock",
+            json={
+                "workflow_revision": saved.json()["workflow_revision"],
+            },
+        )
+        assert relocked.status_code == 200
+        return client.post(
+            f"/api/v2/projects/{project_id}/workflow:compile",
+            json={
+                "workflow_revision": relocked.json()[
+                    "workflow_revision"
+                ],
+                "workflow": relocked.json()["workflow"],
+            },
+        )
+
+
+def _run_through_public_rest(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    *,
+    catalog: object,
+    workflow: WorkflowDocument,
+) -> tuple[dict, tuple[dict, ...]]:
+    for name in ("PROJECT", "CACHE", "OUTPUT", "RUN"):
+        root = tmp_path / name.lower()
+        root.mkdir(parents=True)
+        monkeypatch.setenv(f"PROTEIN_WORKBENCH_{name}_ROOT", str(root))
+    with TestClient(
+        create_app(frozen_catalog_override=catalog)
+    ) as client:
+        project_id = client.post(
+            "/api/projects",
+            json={"name": workflow.workflow_id},
+        ).json()["id"]
+        public_workflow = replace(
+            workflow,
+            workflow_id=project_id,
+            contract_lock=(),
+        )
+        saved = client.put(
+            f"/api/v2/projects/{project_id}/workflow",
+            json={
+                "expected_workflow_revision": 0,
+                "workflow": public_workflow.to_public(),
+            },
+        )
+        assert saved.status_code == 200
+        relocked = client.post(
+            f"/api/v2/projects/{project_id}/workflow:relock",
+            json={
+                "workflow_revision": saved.json()["workflow_revision"],
+            },
+        )
+        assert relocked.status_code == 200
+        compiled = client.post(
+            f"/api/v2/projects/{project_id}/workflow:compile",
+            json={
+                "workflow_revision": relocked.json()[
+                    "workflow_revision"
+                ],
+                "workflow": relocked.json()["workflow"],
+            },
+        )
+        assert compiled.status_code == 200
+        started = client.post(
+            f"/api/v2/projects/{project_id}/runs",
+            json={
+                "workflow_revision": relocked.json()[
+                    "workflow_revision"
+                ],
+                "compile_id": compiled.json()["compile_id"],
+                "client_request_id": "collection-ops-failure-case",
+            },
+        )
+        assert started.status_code == 202
+        run_id = started.json()["run_id"]
+        projection = wait_for_testclient_run_terminal(
+            client,
+            project_id,
+            run_id,
+        )
+        with client.websocket_connect(
+            f"/api/v2/projects/{project_id}/runs/{run_id}/events"
+        ) as websocket:
+            messages: list[dict] = []
+            try:
+                while True:
+                    messages.append(websocket.receive_json())
+            except WebSocketDisconnect as closed:
+                assert closed.code == 1000
+    events = tuple(
+        message
+        for message in messages
+        if message["event"]["type"] not in {
+            "replay_started",
+            "replay_complete",
+        }
+    )
+    return projection, events
+
+
+def _scorer(partition: str, binding: str) -> WorkflowNodeInstance:
+    return WorkflowNodeInstance(
+        node_id=f"scorer-{partition}",
+        node_type_id="contract_test.collection_ops_scorer",
+        node_type_version=VERSION,
+        binding_id=f"contract_test.collection_ops_scorer.{binding}",
+        binding_version=VERSION,
+        node_parameters={},
+        binding_parameters={},
+    )
+
+
+def _score_union_workflow(second_binding: str) -> WorkflowDocument:
+    return WorkflowDocument(
+        schema_version=VERSION,
+        workflow_id=f"score-union-{second_binding}",
+        nodes=(
+            _source("a"),
+            _scorer("left", "low"),
+            _scorer("right", second_binding),
+            WorkflowNodeInstance(
+                node_id="merge",
+                node_type_id="collection_ops.merge_scores",
+                node_type_version=VERSION,
+                binding_id="collection_ops.merge_scores.direct",
+                binding_version=VERSION,
+                node_parameters={},
+                binding_parameters={},
+            ),
         ),
-        method=ExactContractReference(
-            "method",
-            "contract_test.method",
-            VERSION,
-            digest,
+        edges=(
+            WorkflowEdge(
+                "source-a",
+                "candidates",
+                "scorer-left",
+                "candidates",
+            ),
+            WorkflowEdge(
+                "source-a",
+                "candidates",
+                "scorer-right",
+                "candidates",
+            ),
+            WorkflowEdge("scorer-left", "scores", "merge", "scores_a"),
+            WorkflowEdge("scorer-right", "scores", "merge", "scores_b"),
         ),
-        context=IntrinsicObservationContext(),
-        value=value,
-        source_partition=source_partition,
+        contract_lock=(),
     )
 
 
-def test_candidate_inputs_are_normalized_without_replacement_or_ambiguity() -> None:
-    implementation = CollectionOpsImplementation("concat_candidates")
-    first = Candidate(
-        "candidate-a",
-        ProteinSequence("ACD"),
-        parent_ids=["parent-a"],
-        metadata={
-            "producer_result_identity": "sha256:" + "2" * 64,
-            "output_port": "candidates",
-            "sample_slot": "0:0",
-        },
+@pytest.mark.parametrize(
+    ("second_binding", "expected_status"),
+    (
+        ("low", "succeeded"),
+        ("high", "failed"),
+        ("collision", "failed"),
+    ),
+)
+def test_public_score_union_fails_closed_on_dynamic_contradictions(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    second_binding: str,
+    expected_status: str,
+) -> None:
+    from tests.fixtures.collection_ops_sources.package import (
+        MODULE_PACKAGE as SOURCE_PACKAGE,
     )
-    second = Candidate(
-        "candidate-b",
-        ProteinSequence("ACE"),
-        parent_ids=["parent-b"],
-        metadata={
-            "producer_result_identity": "sha256:" + "3" * 64,
-            "output_port": "candidates",
-            "sample_slot": "0:0",
-        },
+
+    catalog = build_frozen_catalog((MODULE_PACKAGE, SOURCE_PACKAGE))
+    projection, _ = _run_through_public_rest(
+        tmp_path,
+        monkeypatch,
+        catalog=catalog,
+        workflow=_score_union_workflow(second_binding),
     )
-    empty = CandidateCollection("empty", "protein.sequence", [])
-    left = CandidateCollection("left", "protein.sequence", [first])
-    right = CandidateCollection("right", "protein.sequence", [second])
 
-    output = implementation.execute(
-        inputs={
-            "candidates_c": empty,
-            "candidates_b": right,
-            "candidates_a": left,
-        },
-        node_parameters={},
-        binding_parameters={},
-    )["candidates"]
+    assert projection["status"] == expected_status
+    merged_outputs = [
+        output
+        for output in projection["outputs"]
+        if output["node_id"] == "merge"
+        and output["output_port"] == "scores"
+    ]
+    if second_binding == "low":
+        assert len(merged_outputs) == 1
+        merged = _decoded_outputs(catalog, projection)[
+            ("merge", "scores")
+        ]
+        assert len(merged.entries) == 1
+    else:
+        assert merged_outputs == []
 
-    assert output.items == [first, second]
-    assert output.items[0] is first
-    assert output.items[1] is second
-    assert first.parent_ids == ["parent-a"]
-    assert first.metadata["sample_slot"] == "0:0"
-    assert implementation.execute(
-        inputs={"candidates_b": empty},
-        node_parameters={},
-        binding_parameters={},
-    )["candidates"].items == []
-    with pytest.raises(ValueError, match="at least one connected"):
-        implementation.execute(
-            inputs={},
-            node_parameters={},
-            binding_parameters={},
-        )
-    with pytest.raises(ValueError, match="not a Candidate Collection"):
-        implementation.execute(
-            inputs={"candidates_a": []},
-            node_parameters={},
-            binding_parameters={},
-        )
-    with pytest.raises(ValueError, match="input partition"):
-        implementation.execute(
-            inputs={
-                "candidates_a": left,
-                "candidates_b": CandidateCollection(
-                    "duplicate",
-                    "protein.sequence",
-                    [first],
+
+def test_public_collection_operations_reject_candidate_partition_aliasing(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from tests.fixtures.collection_ops_sources.package import (
+        MODULE_PACKAGE as SOURCE_PACKAGE,
+    )
+
+    catalog = build_frozen_catalog((MODULE_PACKAGE, SOURCE_PACKAGE))
+    workflow = WorkflowDocument(
+        schema_version=VERSION,
+        workflow_id="candidate-input-partition-alias",
+        nodes=(
+            _source("a"),
+            WorkflowNodeInstance(
+                node_id="concat",
+                node_type_id="collection_ops.concat_candidates",
+                node_type_version=VERSION,
+                binding_id="collection_ops.concat_candidates.direct",
+                binding_version=VERSION,
+                node_parameters={},
+                binding_parameters={},
+            ),
+        ),
+        edges=(
+            WorkflowEdge(
+                "source-a",
+                "candidates",
+                "concat",
+                "candidates_a",
+            ),
+            WorkflowEdge(
+                "source-a",
+                "candidates",
+                "concat",
+                "candidates_b",
+            ),
+        ),
+        contract_lock=(),
+    )
+
+    projection, _ = _run_through_public_rest(
+        tmp_path,
+        monkeypatch,
+        catalog=catalog,
+        workflow=workflow,
+    )
+
+    assert projection["status"] == "failed"
+    assert not any(
+        output["node_id"] == "concat"
+        for output in projection["outputs"]
+    )
+
+
+def test_public_score_merge_rejects_legacy_subject_free_scores(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from tests.fixtures.collection_ops_sources.package import (
+        MODULE_PACKAGE as SOURCE_PACKAGE,
+    )
+
+    catalog = build_frozen_catalog((MODULE_PACKAGE, SOURCE_PACKAGE))
+    workflow = WorkflowDocument(
+        schema_version=VERSION,
+        workflow_id="legacy-score-rejection",
+        nodes=(
+            WorkflowNodeInstance(
+                node_id="legacy",
+                node_type_id="contract_test.collection_ops_legacy_scores",
+                node_type_version=VERSION,
+                binding_id=(
+                    "contract_test.collection_ops_legacy_scores.direct"
                 ),
-            },
-            node_parameters={},
-            binding_parameters={},
-        )
+                binding_version=VERSION,
+                node_parameters={},
+                binding_parameters={},
+            ),
+            WorkflowNodeInstance(
+                node_id="merge",
+                node_type_id="collection_ops.merge_scores",
+                node_type_version=VERSION,
+                binding_id="collection_ops.merge_scores.direct",
+                binding_version=VERSION,
+                node_parameters={},
+                binding_parameters={},
+            ),
+        ),
+        edges=(
+            WorkflowEdge("legacy", "scores", "merge", "scores_a"),
+        ),
+        contract_lock=(),
+    )
+
+    projection, _ = _run_through_public_rest(
+        tmp_path,
+        monkeypatch,
+        catalog=catalog,
+        workflow=workflow,
+    )
+
+    assert projection["status"] == "failed"
+    assert not any(
+        output["node_id"] == "merge"
+        for output in projection["outputs"]
+    )
 
 
-def test_score_union_deduplicates_only_identical_observations() -> None:
-    implementation = CollectionOpsImplementation("merge_scores")
-    observation = _observation()
-    left = ScoreCollection("left", [observation])
-    duplicate = ScoreCollection("duplicate", [replace(observation)])
-
-    output = implementation.execute(
-        inputs={"scores_b": duplicate, "scores_a": left},
-        node_parameters={},
-        binding_parameters={},
-    )["scores"]
-
-    assert output.entries == [observation]
-    assert output.entries[0] is observation
-    assert implementation.execute(
-        inputs={"scores_c": ScoreCollection("empty", [])},
-        node_parameters={},
-        binding_parameters={},
-    )["scores"].entries == []
-    with pytest.raises(ValueError, match="conflicting values"):
-        implementation.execute(
-            inputs={
-                "scores_a": left,
-                "scores_b": ScoreCollection(
-                    "conflict",
-                    [replace(observation, value=0.75)],
-                ),
-            },
-            node_parameters={},
-            binding_parameters={},
-        )
-    with pytest.raises(ValueError, match="partition collision"):
-        implementation.execute(
-            inputs={
-                "scores_a": left,
-                "scores_b": ScoreCollection(
-                    "collision",
-                    [
-                        replace(
-                            observation,
-                            source_partition="partition-b",
-                        )
-                    ],
-                ),
-            },
-            node_parameters={},
-            binding_parameters={},
-        )
-    with pytest.raises(ValueError, match="legacy subject-free"):
-        implementation.execute(
-            inputs={
-                "scores_a": ScoreCollection(
-                    "legacy",
-                    [Score("confidence", 0.5)],
-                )
-            },
-            node_parameters={},
-            binding_parameters={},
-        )
-    with pytest.raises(ValueError, match="at least one connected"):
-        implementation.execute(
-            inputs={},
-            node_parameters={},
-            binding_parameters={},
-        )
-    with pytest.raises(ValueError, match="not a Score Collection"):
-        implementation.execute(
-            inputs={"scores_a": []},
-            node_parameters={},
-            binding_parameters={},
-        )
-
-
-def test_compiler_derives_exact_capabilities_through_score_union() -> None:
+def test_compiler_derives_exact_capabilities_through_score_union(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     from tests.fixtures.collection_ops_sources.package import (
         MODULE_PACKAGE as SOURCE_PACKAGE,
     )
@@ -753,15 +929,14 @@ def test_compiler_derives_exact_capabilities_through_score_union() -> None:
         ),
     )
 
-    compiled = compile_workflow(
-        relock_workflow(workflow, catalog),
-        workflow_revision=1,
+    compiled = _compile_through_public_rest(
+        tmp_path / "accepted",
+        monkeypatch,
         catalog=catalog,
+        workflow=workflow,
     )
 
-    assert compiled.execution_plan.selection_objectives[0].source_partition == (
-        "contract_test.partition.a"
-    )
+    assert compiled.status_code == 200
 
     unknown_partition = replace(
         workflow,
@@ -773,16 +948,23 @@ def test_compiler_derives_exact_capabilities_through_score_union() -> None:
         ),
         contract_lock=(),
     )
-    with pytest.raises(WorkflowCompileError) as rejected:
-        compile_workflow(
-            relock_workflow(unknown_partition, catalog),
-            workflow_revision=2,
-            catalog=catalog,
-        )
-    assert rejected.value.code == "unsatisfied_selection_objective"
+    rejected = _compile_through_public_rest(
+        tmp_path / "unknown",
+        monkeypatch,
+        catalog=catalog,
+        workflow=unknown_partition,
+    )
+    assert rejected.status_code == 422
+    assert rejected.json()["error"]["code"] == "compile_rejected"
+    assert rejected.json()["error"]["details"]["issues"][0]["code"] == (
+        "unsatisfied_selection_objective"
+    )
 
 
-def test_compiler_rejects_multiple_collections_on_one_optional_port() -> None:
+def test_compiler_rejects_multiple_collections_on_one_optional_port(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     from tests.fixtures.collection_ops_sources.package import (
         MODULE_PACKAGE as SOURCE_PACKAGE,
     )
@@ -811,10 +993,62 @@ def test_compiler_rejects_multiple_collections_on_one_optional_port() -> None:
         contract_lock=(),
     )
 
-    with pytest.raises(WorkflowCompileError) as rejected:
-        compile_workflow(
-            relock_workflow(workflow, catalog),
-            workflow_revision=1,
-            catalog=catalog,
-        )
-    assert rejected.value.code == "duplicate_input_connection"
+    rejected = _compile_through_public_rest(
+        tmp_path,
+        monkeypatch,
+        catalog=catalog,
+        workflow=workflow,
+    )
+    assert rejected.status_code == 422
+    assert rejected.json()["error"]["code"] == "compile_rejected"
+    assert rejected.json()["error"]["details"]["issues"][0]["code"] == (
+        "duplicate_input_connection"
+    )
+
+
+def test_compiler_rejects_a_malformed_optional_collection_value(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from tests.fixtures.collection_ops_sources.package import (
+        MODULE_PACKAGE as SOURCE_PACKAGE,
+    )
+
+    catalog = build_frozen_catalog((MODULE_PACKAGE, SOURCE_PACKAGE))
+    workflow = WorkflowDocument(
+        schema_version=VERSION,
+        workflow_id="malformed-optional-score-input",
+        nodes=(
+            _source("a"),
+            WorkflowNodeInstance(
+                node_id="merge",
+                node_type_id="collection_ops.merge_scores",
+                node_type_version=VERSION,
+                binding_id="collection_ops.merge_scores.direct",
+                binding_version=VERSION,
+                node_parameters={},
+                binding_parameters={},
+            ),
+        ),
+        edges=(
+            WorkflowEdge(
+                "source-a",
+                "candidates",
+                "merge",
+                "scores_a",
+            ),
+        ),
+        contract_lock=(),
+    )
+
+    rejected = _compile_through_public_rest(
+        tmp_path,
+        monkeypatch,
+        catalog=catalog,
+        workflow=workflow,
+    )
+
+    assert rejected.status_code == 422
+    assert rejected.json()["error"]["details"]["issues"][0]["code"] == (
+        "port_type_mismatch"
+    )
