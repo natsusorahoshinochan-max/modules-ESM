@@ -141,17 +141,12 @@ class StructureComparisonImplementation:
             raise ValueError(
                 "subject and reference Candidate identities must differ"
             )
-        with self._run_resources.engine_invocation(
-            engine_role=engine_role,
-            engine_identity=(
-                "structure_comparison.biopython.ca_sequence_svd/2.0.0"
-            ),
-        ):
-            native = align_structures(
-                reference.data,
-                subject.data,
-                separate_tiebreak_evidence=False,
-            )
+        native = align_structures(
+            reference.data,
+            subject.data,
+            separate_tiebreak_evidence=True,
+            engine_invocation=self._run_resources.engine_invocation,
+        )
         count = len(native.residue_map)
         evidence_lengths = {
             count,
@@ -239,6 +234,8 @@ class StructureComparisonImplementation:
                     "max(subject_residue_count,reference_residue_count)"
                 ),
             ),
+            rmsd=float(native.rmsd),
+            coverage=float(native.coverage),
             method=self._reference("method", _ALIGNMENT_METHOD),
         )
 
@@ -370,13 +367,7 @@ class StructureComparisonImplementation:
         count = alignment.normalization.aligned_atom_count
         if count != len(alignment.correspondence) or count < 1:
             raise ValueError("RMSD requires complete non-empty correspondence")
-        value = math.sqrt(
-            math.fsum(
-                item.residual_distance * item.residual_distance
-                for item in alignment.correspondence
-            )
-            / count
-        )
+        value = float(alignment.rmsd)
         if not math.isfinite(value):
             raise ValueError("RMSD must be finite")
         return value

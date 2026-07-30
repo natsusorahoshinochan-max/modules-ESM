@@ -56,6 +56,8 @@ class StructureAlignmentEvidence:
     correspondence: tuple[AlignmentAtomCorrespondence, ...]
     transform: StructureAlignmentTransform
     normalization: StructureAlignmentNormalization
+    rmsd: float
+    coverage: float
     method: ExactContractReference
 
 

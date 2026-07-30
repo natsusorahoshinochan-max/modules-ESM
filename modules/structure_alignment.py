@@ -1,6 +1,8 @@
 """Shared sequence-aware CA alignment used by structure alignment Modules."""
 
 from collections import Counter
+from collections.abc import Callable
+from contextlib import AbstractContextManager, nullcontext
 from dataclasses import dataclass
 import hashlib
 from importlib.metadata import version
@@ -176,24 +178,42 @@ def _sequence_correspondence(
     *,
     manifest_details: dict[str, Any],
     separate_tiebreak_evidence: bool,
-) -> tuple[list[int], list[int]]:
+    engine_invocation: (
+        Callable[..., AbstractContextManager[str]] | None
+    ),
+) -> tuple[list[int], list[int], str | None]:
     """Return sequence-optimal pairs with structure-aware tie resolution."""
-    aligner = PairwiseAligner(mode="global")
-    aligner.substitution_matrix = substitution_matrices.load("BLOSUM62")
-    aligner.open_gap_score = _SEQUENCE_GAP_OPEN_SCORE
-    aligner.extend_gap_score = _SEQUENCE_GAP_EXTEND_SCORE
-    if hasattr(aligner, "open_end_gap_score"):
-        aligner.open_end_gap_score = _SEQUENCE_END_GAP_OPEN_SCORE
-        aligner.extend_end_gap_score = _SEQUENCE_END_GAP_EXTEND_SCORE
-    else:
-        aligner.end_open_gap_score = _SEQUENCE_END_GAP_OPEN_SCORE
-        aligner.end_extend_gap_score = _SEQUENCE_END_GAP_EXTEND_SCORE
-    sequence_alignments = aligner.align(reference_sequence, mobile_sequence)
+    sequence_context = (
+        engine_invocation(
+            engine_role="sequence_alignment",
+            engine_identity=(
+                "Bio.Align.PairwiseAligner/"
+                f"{version('biopython')}"
+            ),
+        )
+        if engine_invocation is not None
+        else nullcontext(None)
+    )
+    with sequence_context as sequence_invocation_id:
+        aligner = PairwiseAligner(mode="global")
+        aligner.substitution_matrix = substitution_matrices.load("BLOSUM62")
+        aligner.open_gap_score = _SEQUENCE_GAP_OPEN_SCORE
+        aligner.extend_gap_score = _SEQUENCE_GAP_EXTEND_SCORE
+        if hasattr(aligner, "open_end_gap_score"):
+            aligner.open_end_gap_score = _SEQUENCE_END_GAP_OPEN_SCORE
+            aligner.extend_end_gap_score = _SEQUENCE_END_GAP_EXTEND_SCORE
+        else:
+            aligner.end_open_gap_score = _SEQUENCE_END_GAP_OPEN_SCORE
+            aligner.end_extend_gap_score = _SEQUENCE_END_GAP_EXTEND_SCORE
+        sequence_alignments = aligner.align(
+            reference_sequence,
+            mobile_sequence,
+        )
 
-    try:
-        alignment_count = len(sequence_alignments)
-    except OverflowError:
-        alignment_count = _MAX_EXHAUSTIVE_SEQUENCE_ALIGNMENTS + 1
+        try:
+            alignment_count = len(sequence_alignments)
+        except OverflowError:
+            alignment_count = _MAX_EXHAUSTIVE_SEQUENCE_ALIGNMENTS + 1
 
     if (
         alignment_count > _MAX_EXHAUSTIVE_SEQUENCE_ALIGNMENTS
@@ -208,12 +228,25 @@ def _sequence_correspondence(
                 "tmtools_version": version("tmtools"),
             }
         try:
-            structural_alignment = tm_align(
-                reference_coordinates,
-                mobile_coordinates,
-                reference_sequence,
-                mobile_sequence,
+            invocation = (
+                engine_invocation(
+                    engine_role="correspondence_tiebreak",
+                    engine_identity=(
+                        "tmtools.tm_align/"
+                        f"{version('tmtools')}"
+                    ),
+                    parent_invocation_id=sequence_invocation_id,
+                )
+                if engine_invocation is not None
+                else nullcontext(None)
             )
+            with invocation:
+                structural_alignment = tm_align(
+                    reference_coordinates,
+                    mobile_coordinates,
+                    reference_sequence,
+                    mobile_sequence,
+                )
             reference_indices: list[int] = []
             mobile_indices: list[int] = []
             reference_index = -1
@@ -262,7 +295,11 @@ def _sequence_correspondence(
                 },
                 manifest_details=manifest_details,
             )
-        return reference_indices, mobile_indices
+        return (
+            reference_indices,
+            mobile_indices,
+            sequence_invocation_id,
+        )
 
     best_correspondence: tuple[list[int], list[int]] | None = None
     best_key: tuple[int, float, tuple[int, ...], tuple[int, ...]] | None = None
@@ -295,8 +332,8 @@ def _sequence_correspondence(
             best_correspondence = (reference_indices, mobile_indices)
 
     if best_correspondence is None:
-        return [], []
-    return best_correspondence
+        return [], [], sequence_invocation_id
+    return (*best_correspondence, sequence_invocation_id)
 
 
 def _chain_map(
@@ -327,6 +364,9 @@ def align_structures(
     *,
     call_details: dict[str, Any] | None = None,
     separate_tiebreak_evidence: bool = True,
+    engine_invocation: (
+        Callable[..., AbstractContextManager[str]] | None
+    ) = None,
 ) -> StructureAlignment:
     """Build reproducible sequence correspondence and CA superposition evidence."""
     input_identity = {
@@ -369,13 +409,18 @@ def align_structures(
         dtype=np.float64,
     )
     try:
-        reference_indices, mobile_indices = _sequence_correspondence(
+        (
+            reference_indices,
+            mobile_indices,
+            sequence_invocation_id,
+        ) = _sequence_correspondence(
             reference_sequence,
             mobile_sequence,
             all_reference_coordinates,
             all_mobile_coordinates,
             manifest_details=manifest_details,
             separate_tiebreak_evidence=separate_tiebreak_evidence,
+            engine_invocation=engine_invocation,
         )
     except _RecordedTiebreakFailure as recorded:
         raise recorded.error.with_traceback(recorded.error.__traceback__)
@@ -415,11 +460,26 @@ def align_structures(
     )
 
     try:
-        superimposer = _superimpose(
-            reference_coordinates,
-            mobile_coordinates,
+        superposition_context = (
+            engine_invocation(
+                engine_role="rigid_superposition",
+                engine_identity=(
+                    "Bio.SVDSuperimposer/"
+                    f"{version('biopython')}/"
+                    f"numpy-{version('numpy')}"
+                ),
+                parent_invocation_id=sequence_invocation_id,
+            )
+            if engine_invocation is not None
+            else nullcontext(None)
         )
-        rotation_array, translation_array = superimposer.get_rotran()
+        with superposition_context:
+            superimposer = _superimpose(
+                reference_coordinates,
+                mobile_coordinates,
+            )
+            rotation_array, translation_array = superimposer.get_rotran()
+            fit_rmsd = float(superimposer.get_rms())
         assert rotation_array is not None
         assert translation_array is not None
         transformed_mobile = (
@@ -448,7 +508,7 @@ def align_structures(
             ),
             rotation=rotation_array.tolist(),
             translation=translation_array.tolist(),
-            rmsd=float(superimposer.get_rms()),
+            rmsd=fit_rmsd,
             coverage=(
                 len(reference_indices)
                 / max(len(reference_residues), len(mobile_residues))

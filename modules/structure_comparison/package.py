@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from importlib.metadata import version
 import math
 import re
 from typing import Any, Mapping
@@ -10,6 +11,7 @@ from core import (
     AvailabilityDeclaration,
     AvailabilityResult,
     BehaviorReference,
+    CatalogContract,
     ContractIdentity,
     DefinitionResource,
     ExecutionBindingDefinition,
@@ -35,6 +37,9 @@ from .implementation import StructureComparisonImplementation
 _VERSION = "2.0.0"
 _DIGEST = re.compile(r"^sha256:[0-9a-f]{64}$")
 _NORMALIZATION = "ca-correspondence-mean-square-angstrom"
+_BIOPYTHON_VERSION = version("biopython")
+_NUMPY_VERSION = version("numpy")
+_TMTOOLS_VERSION = version("tmtools")
 
 
 def _available() -> AvailabilityResult:
@@ -90,7 +95,7 @@ def _method(value: object) -> ExactContractReference:
         or value.contract_id
         != "structure_comparison.ca_sequence_svd.method"
         or value.contract_version != _VERSION
-        or _DIGEST.fullmatch(value.contract_digest) is None
+        or value.contract_digest != _ALIGNMENT_METHOD_DIGEST
     ):
         raise ValueError("alignment Method identity is invalid")
     return value
@@ -256,10 +261,45 @@ def _validate_alignment(value: object) -> None:
             raise ValueError("alignment correspondence reuses an atom")
         subject_atoms.add(subject_atom)
         reference_atoms.add(reference_atom)
-    _validate_normalization(
+    normalization = _validate_normalization(
         value.normalization,
         correspondence_count=len(value.correspondence),
     )
+    expected_rmsd = math.sqrt(
+        math.fsum(
+            float(item.residual_distance) ** 2
+            for item in value.correspondence
+        )
+        / normalization.aligned_atom_count
+    )
+    expected_coverage = (
+        normalization.aligned_atom_count
+        / max(
+            normalization.subject_residue_count,
+            normalization.reference_residue_count,
+        )
+    )
+    for name, actual, expected in (
+        ("RMSD", value.rmsd, expected_rmsd),
+        ("coverage", value.coverage, expected_coverage),
+    ):
+        if (
+            isinstance(actual, bool)
+            or not isinstance(actual, (int, float))
+            or not math.isfinite(float(actual))
+            or float(actual) < 0
+            or not math.isclose(
+                float(actual),
+                expected,
+                rel_tol=1e-9,
+                abs_tol=1e-9,
+            )
+        ):
+            raise ValueError(
+                f"alignment {name} contradicts its exact correspondence"
+            )
+    if float(value.coverage) > 1:
+        raise ValueError("alignment coverage must not exceed one")
     _method(value.method)
 
 
@@ -306,6 +346,8 @@ def _alignment_to_wire(value: object) -> object:
                 value.normalization.coverage_denominator
             ),
         },
+        "rmsd": value.rmsd,
+        "coverage": value.coverage,
         "method": {
             "contract_kind": value.method.contract_kind,
             "contract_id": value.method.contract_id,
@@ -337,6 +379,8 @@ def _alignment_from_wire(value: object) -> object:
             "correspondence",
             "transform",
             "normalization",
+            "rmsd",
+            "coverage",
             "method",
         },
         name="alignment",
@@ -443,6 +487,8 @@ def _alignment_from_wire(value: object) -> object:
             ),
         ),
         normalization=StructureAlignmentNormalization(**normalization),
+        rmsd=raw["rmsd"],
+        coverage=raw["coverage"],
         method=ExactContractReference(**method),
     )
     _validate_alignment(alignment)
@@ -535,7 +581,15 @@ def _method_definition(operation: str) -> MethodDefinition:
                     "end_gap_extend": -0.5,
                 },
                 "superposition": "Kabsch-SVD-row-vector",
-                "tie_break": "lowest-fit-RMSD-then-index-order",
+                "tie_break": {
+                    "bounded_sequence_alignments": (
+                        "maximum-cardinality-then-lowest-fit-RMSD-"
+                        "then-index-order"
+                    ),
+                    "high_ambiguity_threshold": 1024,
+                    "high_ambiguity_engine": "tmtools.tm_align",
+                    "tmtools_version": _TMTOOLS_VERSION,
+                },
             },
             model_identity={"kind": "none"},
             checkpoint_identity={"kind": "none"},
@@ -549,6 +603,10 @@ def _method_definition(operation: str) -> MethodDefinition:
                 "engine_api": (
                     "Bio.Align.PairwiseAligner+Bio.SVDSuperimposer"
                 ),
+                "biopython_version": _BIOPYTHON_VERSION,
+                "numpy_version": _NUMPY_VERSION,
+                "nested_engine_api": "tmtools.tm_align",
+                "tmtools_version": _TMTOOLS_VERSION,
             },
             scale_contract={
                 "coordinates": "angstrom",
@@ -559,8 +617,11 @@ def _method_definition(operation: str) -> MethodDefinition:
         method_id="structure_comparison.rmsd.method",
         version=_VERSION,
         algorithm_identity={
-            "name": "root-mean-square-correspondence-residual",
-            "formula": "sqrt(fsum(residual_distance^2)/aligned_atom_count)",
+            "name": "validated-alignment-rmsd-projection",
+            "source_field": "structure_comparison.alignment.rmsd",
+            "validation_formula": (
+                "sqrt(fsum(residual_distance^2)/aligned_atom_count)"
+            ),
         },
         model_identity={"kind": "none"},
         checkpoint_identity={"kind": "none"},
@@ -669,6 +730,15 @@ def _binding(
         implementation_identity={
             "name": f"{node_id}.{binding_suffix}",
             "source": "repository-owned",
+            **(
+                {
+                    "biopython_version": _BIOPYTHON_VERSION,
+                    "numpy_version": _NUMPY_VERSION,
+                    "tmtools_version": _TMTOOLS_VERSION,
+                }
+                if operation != "rmsd"
+                else {}
+            ),
         },
         produced_observations=produced,
     )
@@ -690,6 +760,9 @@ def _port_type(
                 "accepted_value_kind": type_id.rsplit(".", 1)[-1],
                 "identity_roles": ["subject", "reference"],
                 "finite_coordinates_required": True,
+                "accepted_alignment_method_digest": (
+                    _ALIGNMENT_METHOD_DIGEST
+                ),
             },
         ),
         codec=BehaviorReference(
@@ -711,6 +784,16 @@ def _port_type(
     )
 
 
+_ALIGNMENT_METHOD_DEFINITION = _method_definition("alignment")
+_RMSD_METHOD_DEFINITION = _method_definition("rmsd")
+_ALIGNMENT_METHOD_DIGEST = CatalogContract(
+    contract_kind="method",
+    contract_id=_ALIGNMENT_METHOD_DEFINITION.method_id,
+    contract_version=_ALIGNMENT_METHOD_DEFINITION.version,
+    descriptor=_ALIGNMENT_METHOD_DEFINITION.descriptor_template(),
+).contract_digest
+
+
 MODULE_PACKAGE = ModulePackageRegistration(
     schema_version=_VERSION,
     package_id="structure_comparison",
@@ -725,8 +808,8 @@ MODULE_PACKAGE = ModulePackageRegistration(
         DefinitionResource("definitions/rmsd_metric.yaml"),
     ),
     methods=(
-        _method_definition("alignment"),
-        _method_definition("rmsd"),
+        _ALIGNMENT_METHOD_DEFINITION,
+        _RMSD_METHOD_DEFINITION,
     ),
     bindings=(
         _binding("align_single"),

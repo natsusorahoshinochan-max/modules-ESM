@@ -50,7 +50,13 @@ from tests.fixtures.structure_comparison_sources.package import (
 VERSION = "2.0.0"
 SUBJECT_DIGEST = "sha256:" + "1" * 64
 REFERENCE_DIGEST = "sha256:" + "2" * 64
-METHOD_DIGEST = "sha256:" + "3" * 64
+METHOD_DIGEST = build_frozen_catalog(
+    (STRUCTURE_COMPARISON_PACKAGE,)
+).require_contract(
+    "method",
+    "structure_comparison.ca_sequence_svd.method",
+    VERSION,
+).contract_digest
 
 
 def _alignment() -> StructureAlignmentEvidence:
@@ -105,6 +111,8 @@ def _alignment() -> StructureAlignmentEvidence:
             aligned_atom_count=2,
             coverage_denominator="max(subject_residue_count,reference_residue_count)",
         ),
+        rmsd=0.0,
+        coverage=1.0,
         method=ExactContractReference(
             contract_kind="method",
             contract_id="structure_comparison.ca_sequence_svd.method",
@@ -210,6 +218,15 @@ def test_alignment_nominal_values_round_trip_exact_evidence() -> None:
                     residual_distance=1.0,
                 ),
                 _alignment().correspondence[1],
+            ),
+        ),
+        replace(_alignment(), rmsd=1.0),
+        replace(_alignment(), coverage=0.5),
+        replace(
+            _alignment(),
+            method=replace(
+                _alignment().method,
+                contract_digest="sha256:" + "3" * 64,
             ),
         ),
     ),
@@ -436,6 +453,15 @@ def test_single_alignment_preserves_role_orientation_and_emits_typed_rmsd(
     assert alignment.transform.maps_from_role == "subject"
     assert alignment.transform.maps_to_role == "reference"
     assert alignment.normalization.aligned_atom_count == 3
+    assert alignment.rmsd == pytest.approx(0.0, abs=1e-12)
+    assert alignment.coverage == pytest.approx(1.0, abs=1e-12)
+    assert alignment.method.contract_digest == (
+        catalog.require_contract(
+            "method",
+            "structure_comparison.ca_sequence_svd.method",
+            VERSION,
+        ).contract_digest
+    )
     assert [
         (item.subject_residue_id, item.reference_residue_id)
         for item in alignment.correspondence
@@ -474,6 +500,72 @@ def test_single_alignment_preserves_role_orientation_and_emits_typed_rmsd(
         if event["event"]["type"] == "engine_invocation_started"
         and event["event"]["operation_attempt_id"] in operation_ids
     } == operation_ids
+
+
+def test_high_ambiguity_alignment_records_true_nested_engine_invocation(
+    tmp_path: object,
+) -> None:
+    import importlib.metadata
+
+    catalog, (projection,), (events,) = _run_comparison(
+        tmp_path,
+        scenario="ambiguous",
+        pairwise=False,
+    )
+
+    assert projection["status"] == "succeeded"
+    alignment = _outputs_by_node(catalog, projection)[
+        ("alignment", "alignment")
+    ]
+    assert isinstance(alignment, StructureAlignmentEvidence)
+    assert alignment.normalization.aligned_atom_count >= 3
+    alignment_attempt = next(
+        event["event"]["node_attempt_id"]
+        for event in events
+        if event["event"]["type"] == "node_attempt_started"
+        and event["event"]["node_id"] == "alignment"
+    )
+    operation_id = next(
+        event["event"]["operation_attempt_id"]
+        for event in events
+        if event["event"]["type"] == "operation_attempt_started"
+        and event["event"]["node_attempt_id"] == alignment_attempt
+    )
+    invocations = [
+        event["event"]
+        for event in events
+        if event["event"]["type"] == "engine_invocation_started"
+        and event["event"]["operation_attempt_id"] == operation_id
+    ]
+    assert [event["engine_role"] for event in invocations] == [
+        "sequence_alignment",
+        "correspondence_tiebreak",
+        "rigid_superposition",
+    ]
+    parent, child, superposition = invocations
+    assert "parent_invocation_id" not in parent
+    assert child["parent_invocation_id"] == parent["invocation_id"]
+    assert (
+        superposition["parent_invocation_id"]
+        == parent["invocation_id"]
+    )
+    assert child["engine_identity"] == (
+        "tmtools.tm_align/"
+        f"{importlib.metadata.version('tmtools')}"
+    )
+    terminals = [
+        event["event"]
+        for event in events
+        if event["event"]["type"] == "engine_invocation_terminal"
+        and event["event"]["invocation_id"]
+        in {
+            parent["invocation_id"],
+            child["invocation_id"],
+            superposition["invocation_id"],
+        }
+    ]
+    assert len(terminals) == 3
+    assert {event["status"] for event in terminals} == {"succeeded"}
 
 
 def test_pairwise_alignment_uses_exact_mapping_not_collection_order(
@@ -851,11 +943,18 @@ def test_pairwise_failure_publishes_no_partial_alignment_or_rmsd(
         if event["event"]["type"] == "operation_attempt_started"
         and event["event"]["node_attempt_id"] == alignment_attempt
     )
-    invocation_ids = {
-        event["event"]["invocation_id"]
+    invocations = [
+        event["event"]
         for event in events
         if event["event"]["type"] == "engine_invocation_started"
         and event["event"]["operation_attempt_id"] == operation_id
+    ]
+    assert [event["engine_role"] for event in invocations] == [
+        "sequence_alignment",
+        "rigid_superposition",
+    ]
+    invocation_ids = {
+        event["invocation_id"] for event in invocations
     }
     alignment_terminals = [
         event["event"]["status"]
@@ -863,4 +962,4 @@ def test_pairwise_failure_publishes_no_partial_alignment_or_rmsd(
         if event["event"]["type"] == "engine_invocation_terminal"
         and event["event"]["invocation_id"] in invocation_ids
     ]
-    assert alignment_terminals == ["succeeded", "failed"]
+    assert alignment_terminals == ["succeeded", "succeeded"]

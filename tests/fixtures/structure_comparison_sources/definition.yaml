@@ -35,4 +35,4 @@ node_parameters:
     scientific_meaning: Exact deterministic independent structure-comparison fixture.
     required: true
     type: string
-    enum: [single, paired, failing_pair, conflicting_pairing]
+    enum: [single, paired, failing_pair, conflicting_pairing, ambiguous]

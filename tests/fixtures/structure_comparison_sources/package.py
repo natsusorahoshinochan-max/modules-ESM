@@ -28,6 +28,12 @@ from datatypes import (
 
 _VERSION = "2.0.0"
 _RESIDUES = ("ALA", "GLY", "SER")
+_RESIDUE_NAMES = {
+    "A": "ALA",
+    "G": "GLY",
+    "S": "SER",
+    "T": "THR",
+}
 
 
 def _pdb(
@@ -43,6 +49,22 @@ def _pdb(
             "  1.00 20.00           C"
         )
         for index, (x, y, z) in enumerate(coordinates, start=1)
+    ]
+    return ProteinStructure(
+        pdb_string="\n".join((*lines, "TER", "END", "")),
+        source="contract-test",
+    )
+
+
+def _sequence_pdb(sequence: str, *, chain: str) -> ProteinStructure:
+    lines = [
+        (
+            f"ATOM  {index:5d}  CA  {_RESIDUE_NAMES[amino_acid]} {chain}"
+            f"{index:4d}    "
+            f"{index * 1.5:8.3f}{index % 3:8.3f}{index % 2:8.3f}"
+            "  1.00 20.00           C"
+        )
+        for index, amino_acid in enumerate(sequence, start=1)
     ]
     return ProteinStructure(
         pdb_string="\n".join((*lines, "TER", "END", "")),
@@ -70,6 +92,14 @@ _INCOMPATIBLE = ProteinStructure(
     pdb_string="HEADER    NO COORDINATES\nEND\n",
     source="contract-test",
 )
+_AMBIGUOUS_REFERENCE = _sequence_pdb(
+    "GTSAGTATSTSTGGSTGGGAGTAGTSGASGTGGGGSAATS",
+    chain="R",
+)
+_AMBIGUOUS_SUBJECT = _sequence_pdb(
+    "SATSGTTSSASAAGTAAASTTGSTSGSSSGTTTTTASAAGSGSS",
+    chain="A",
+)
 
 
 class _Source:
@@ -94,6 +124,7 @@ class _Source:
                 "paired",
                 "failing_pair",
                 "conflicting_pairing",
+                "ambiguous",
             }
         ):
             raise ValueError("structure comparison fixture is not resolved")
@@ -102,6 +133,12 @@ class _Source:
             subject_values = (("subject-a", _SUBJECT_A),)
             reference_values = (("reference-a", _REFERENCE_A),)
             pairs = (("subject-a", "reference-a"),)
+        elif scenario == "ambiguous":
+            subject_values = (("subject-ambiguous", _AMBIGUOUS_SUBJECT),)
+            reference_values = (
+                ("reference-ambiguous", _AMBIGUOUS_REFERENCE),
+            )
+            pairs = (("subject-ambiguous", "reference-ambiguous"),)
         else:
             subject_values = (
                 ("subject-a", _SUBJECT_A),
