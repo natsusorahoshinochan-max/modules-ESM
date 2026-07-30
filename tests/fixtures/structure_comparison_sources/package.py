@@ -1,0 +1,268 @@
+"""Independent source registration for structure-comparison acceptance."""
+
+from __future__ import annotations
+
+from collections.abc import Mapping, Sequence
+from typing import Any
+
+from core import (
+    AvailabilityDeclaration,
+    AvailabilityResult,
+    BehaviorReference,
+    ContractIdentity,
+    DefinitionResource,
+    ExecutionBindingDefinition,
+    LazyImplementationFactory,
+    MethodDefinition,
+    ModulePackageRegistration,
+    ReadinessDeclaration,
+)
+from datatypes import (
+    Candidate,
+    CandidateCollection,
+    PairwiseCandidateMapping,
+    PairwiseCandidateMatch,
+    ProteinStructure,
+)
+
+
+_VERSION = "2.0.0"
+_RESIDUES = ("ALA", "GLY", "SER")
+
+
+def _pdb(
+    coordinates: Sequence[tuple[float, float, float]],
+    *,
+    chain: str,
+) -> ProteinStructure:
+    lines = [
+        (
+            f"ATOM  {index:5d}  CA  {_RESIDUES[index - 1]} {chain}"
+            f"{index:4d}    "
+            f"{x:8.3f}{y:8.3f}{z:8.3f}"
+            "  1.00 20.00           C"
+        )
+        for index, (x, y, z) in enumerate(coordinates, start=1)
+    ]
+    return ProteinStructure(
+        pdb_string="\n".join((*lines, "TER", "END", "")),
+        source="contract-test",
+    )
+
+
+_REFERENCE_A = _pdb(
+    ((0.0, 0.0, 0.0), (2.0, 0.0, 0.0), (0.0, 3.0, 0.0)),
+    chain="R",
+)
+_SUBJECT_A = _pdb(
+    ((5.0, -2.0, 1.0), (7.0, -2.0, 1.0), (5.0, 1.0, 1.0)),
+    chain="A",
+)
+_REFERENCE_B = _pdb(
+    ((0.0, 0.0, 0.0), (3.0, 0.0, 0.0), (0.0, 2.0, 0.0)),
+    chain="S",
+)
+_SUBJECT_B = _pdb(
+    ((-4.0, 6.0, 2.0), (-1.0, 6.0, 2.0), (-4.0, 8.0, 2.0)),
+    chain="B",
+)
+_INCOMPATIBLE = ProteinStructure(
+    pdb_string="HEADER    NO COORDINATES\nEND\n",
+    source="contract-test",
+)
+
+
+class _Source:
+    def __init__(self, run_resources: Any, catalog: Any) -> None:
+        self._run_resources = run_resources
+        self._catalog = catalog
+
+    def execute(
+        self,
+        *,
+        inputs: Mapping[str, Any],
+        node_parameters: Mapping[str, Any],
+        binding_parameters: Mapping[str, Any],
+    ) -> dict[str, Any]:
+        if (
+            inputs
+            or binding_parameters
+            or set(node_parameters) != {"scenario"}
+            or node_parameters["scenario"]
+            not in {
+                "single",
+                "paired",
+                "failing_pair",
+                "conflicting_pairing",
+            }
+        ):
+            raise ValueError("structure comparison fixture is not resolved")
+        scenario = node_parameters["scenario"]
+        if scenario == "single":
+            subject_values = (("subject-a", _SUBJECT_A),)
+            reference_values = (("reference-a", _REFERENCE_A),)
+            pairs = (("subject-a", "reference-a"),)
+        else:
+            subject_values = (
+                ("subject-a", _SUBJECT_A),
+                (
+                    "subject-b",
+                    _SUBJECT_B
+                    if scenario in {"paired", "conflicting_pairing"}
+                    else _INCOMPATIBLE,
+                ),
+            )
+            reference_values = (
+                ("reference-b", _REFERENCE_B),
+                ("reference-a", _REFERENCE_A),
+            )
+            pairs = (
+                (
+                    ("subject-a", "reference-a"),
+                    ("subject-b", "reference-b"),
+                )
+                if scenario == "failing_pair"
+                else (
+                    ("subject-b", "reference-b"),
+                    ("subject-a", "reference-a"),
+                )
+            )
+        subjects = CandidateCollection(
+            collection_id=f"fixture-{scenario}-subjects",
+            item_type="protein.structure",
+            items=[
+                Candidate(
+                    candidate_id=candidate_id,
+                    data=structure,
+                    metadata={"fixture_label": candidate_id},
+                )
+                for candidate_id, structure in subject_values
+            ],
+        )
+        references = CandidateCollection(
+            collection_id=f"fixture-{scenario}-references",
+            item_type="protein.structure",
+            items=[
+                Candidate(
+                    candidate_id=candidate_id,
+                    data=structure,
+                    metadata={"fixture_label": candidate_id},
+                )
+                for candidate_id, structure in reference_values
+            ],
+        )
+        structures = {
+            candidate.candidate_id: candidate.data
+            for collection in (subjects, references)
+            for candidate in collection.items
+        }
+        codec = self._catalog.require_port_type(
+            "protein.structure",
+            _VERSION,
+        )
+        pairing = PairwiseCandidateMapping(
+            entries=[
+                PairwiseCandidateMatch(
+                    subject_candidate_id=subject_id,
+                    subject_content_digest=(
+                        "sha256:" + "f" * 64
+                        if scenario == "conflicting_pairing"
+                        and subject_id == "subject-b"
+                        else codec.content_digest(structures[subject_id])
+                    ),
+                    reference_candidate_id=reference_id,
+                    reference_content_digest=codec.content_digest(
+                        structures[reference_id]
+                    ),
+                )
+                for subject_id, reference_id in pairs
+            ]
+        )
+        with self._run_resources.engine_invocation(
+            engine_identity=(
+                "contract_test.structure_comparison_source.method/2.0.0"
+            ),
+        ):
+            return {
+                "subjects": subjects,
+                "references": references,
+                "pairing": pairing,
+            }
+
+
+def _build(**kwargs: object) -> object:
+    return _Source(
+        kwargs["run_resources"],
+        kwargs["frozen_catalog"],
+    )
+
+
+MODULE_PACKAGE = ModulePackageRegistration(
+    schema_version=_VERSION,
+    package_id="contract_test.structure_comparison_sources",
+    package_version=_VERSION,
+    package_module=__package__,
+    node_definitions=(DefinitionResource("definition.yaml"),),
+    methods=(
+        MethodDefinition(
+            method_id="contract_test.structure_comparison_source.method",
+            version=_VERSION,
+            algorithm_identity={"name": "independent-literal-structures"},
+            model_identity={"kind": "none"},
+            checkpoint_identity={"kind": "none"},
+            featurization_identity={"kind": "PDB-CA-fixtures"},
+            source_identity={"kind": "contract-test-fixture"},
+            scale_contract={"kind": "angstrom"},
+        ),
+    ),
+    bindings=(
+        ExecutionBindingDefinition(
+            binding_id="contract_test.structure_comparison_source.direct",
+            version=_VERSION,
+            node_type=ContractIdentity(
+                "node_type",
+                "contract_test.structure_comparison_source",
+                _VERSION,
+            ),
+            method=ContractIdentity(
+                "method",
+                "contract_test.structure_comparison_source.method",
+                _VERSION,
+            ),
+            binding_parameters={},
+            execution_route="direct",
+            factory=LazyImplementationFactory(
+                behavior=BehaviorReference(
+                    "contract_test.structure_comparison_source/factory",
+                    _VERSION,
+                    {},
+                ),
+                build=_build,
+            ),
+            availability=AvailabilityDeclaration(
+                behavior=BehaviorReference(
+                    "contract_test.structure_comparison_source/availability",
+                    _VERSION,
+                    {},
+                ),
+                prerequisites={},
+                check=AvailabilityResult.available,
+            ),
+            readiness=ReadinessDeclaration(
+                behavior=BehaviorReference(
+                    "contract_test.structure_comparison_source/readiness",
+                    _VERSION,
+                    {},
+                ),
+                prerequisites={},
+                check=lambda environment: True,
+            ),
+            deterministic=True,
+            cacheable=True,
+            implementation_identity={
+                "name": "contract_test.structure_comparison_source.direct",
+                "source": "contract-test-fixture",
+            },
+        ),
+    ),
+)

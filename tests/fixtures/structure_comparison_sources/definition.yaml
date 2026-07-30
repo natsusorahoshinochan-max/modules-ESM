@@ -1,0 +1,38 @@
+schema_version: "2.0.0"
+node_type_id: contract_test.structure_comparison_source
+version: "2.0.0"
+title: Structure comparison source
+summary: Supplies independent exact subject/reference Candidate collections and a typed pairing fixture.
+category: contract_test
+inputs: []
+outputs:
+  - name: subjects
+    port_type_id: candidate.collection
+    port_type_version: "2.0.0"
+    required: true
+    multiplicity: one
+    scientific_meaning: Independently constructed subject structure Candidates.
+  - name: references
+    port_type_id: candidate.collection
+    port_type_version: "2.0.0"
+    required: true
+    multiplicity: one
+    scientific_meaning: Independently constructed reference structure Candidates.
+  - name: pairing
+    port_type_id: candidate.pairing
+    port_type_version: "2.0.0"
+    required: true
+    multiplicity: one
+    scientific_meaning: Exact one-to-one subject/reference pairing independent of collection order.
+parameter_groups:
+  - id: fixture
+    title: Fixture selection
+    parameters:
+      - scenario
+node_parameters:
+  scenario:
+    parameter_scope: scientific
+    scientific_meaning: Exact deterministic independent structure-comparison fixture.
+    required: true
+    type: string
+    enum: [single, paired, failing_pair, conflicting_pairing]

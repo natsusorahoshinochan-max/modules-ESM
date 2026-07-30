@@ -4,7 +4,7 @@
 
 **Blocked by:** 13 — Consolidate protein I/O.
 
-**Status:** ready-for-agent
+**Status:** in-progress
 
 - [ ] Single alignment, pairwise collection alignment, and RMSD each have one v2 Node Definition in a single package registration.
 - [ ] Alignment output is a versioned nominal value that records exact subject/reference Candidate identities and content digests, residue/atom correspondence, transformation, normalization inputs, and method identity.

@@ -233,6 +233,18 @@ def test_catalog_snapshot_publishes_exact_port_type_contracts() -> None:
             "2.0.0",
             True,
         ),
+        ("structure_comparison.align_single.direct", "2.0.0", True),
+        ("structure_comparison.align_pairwise.direct", "2.0.0", True),
+        (
+            "structure_comparison.rmsd.fixed_reference",
+            "2.0.0",
+            True,
+        ),
+        (
+            "structure_comparison.rmsd.per_subject_counterpart",
+            "2.0.0",
+            True,
+        ),
     }
 
     contracts = [
