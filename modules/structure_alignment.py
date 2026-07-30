@@ -301,35 +301,54 @@ def _sequence_correspondence(
             sequence_invocation_id,
         )
 
-    best_correspondence: tuple[list[int], list[int]] | None = None
-    best_key: tuple[int, float, tuple[int, ...], tuple[int, ...]] | None = None
-    for alignment in sequence_alignments:
-        paired_indices = [
-            (int(reference_index), int(mobile_index))
-            for reference_index, mobile_index in zip(*alignment.indices)
-            if reference_index >= 0 and mobile_index >= 0
-        ]
-        reference_indices = [
-            reference_index for reference_index, _ in paired_indices
-        ]
-        mobile_indices = [mobile_index for _, mobile_index in paired_indices]
-        if reference_indices:
-            superimposer = _superimpose(
-                reference_coordinates[reference_indices],
-                mobile_coordinates[mobile_indices],
-            )
-            fit_rmsd = float(superimposer.get_rms())
-        else:
-            fit_rmsd = float("inf")
-        key = (
-            -len(reference_indices),
-            fit_rmsd,
-            tuple(reference_indices),
-            tuple(mobile_indices),
+    selection_context = (
+        engine_invocation(
+            engine_role="bounded_correspondence_selection",
+            engine_identity=(
+                "structure_alignment.bounded_correspondence_selection/"
+                f"Bio.SVDSuperimposer-{version('biopython')}/"
+                f"numpy-{version('numpy')}"
+            ),
+            parent_invocation_id=sequence_invocation_id,
         )
-        if best_key is None or key < best_key:
-            best_key = key
-            best_correspondence = (reference_indices, mobile_indices)
+        if engine_invocation is not None
+        else nullcontext(None)
+    )
+    with selection_context:
+        best_correspondence: tuple[list[int], list[int]] | None = None
+        best_key: tuple[int, float, tuple[int, ...], tuple[int, ...]] | None = None
+        for alignment in sequence_alignments:
+            paired_indices = [
+                (int(reference_index), int(mobile_index))
+                for reference_index, mobile_index in zip(*alignment.indices)
+                if reference_index >= 0 and mobile_index >= 0
+            ]
+            reference_indices = [
+                reference_index for reference_index, _ in paired_indices
+            ]
+            mobile_indices = [
+                mobile_index for _, mobile_index in paired_indices
+            ]
+            if reference_indices:
+                superimposer = _superimpose(
+                    reference_coordinates[reference_indices],
+                    mobile_coordinates[mobile_indices],
+                )
+                fit_rmsd = float(superimposer.get_rms())
+            else:
+                fit_rmsd = float("inf")
+            key = (
+                -len(reference_indices),
+                fit_rmsd,
+                tuple(reference_indices),
+                tuple(mobile_indices),
+            )
+            if best_key is None or key < best_key:
+                best_key = key
+                best_correspondence = (
+                    reference_indices,
+                    mobile_indices,
+                )
 
     if best_correspondence is None:
         return [], [], sequence_invocation_id

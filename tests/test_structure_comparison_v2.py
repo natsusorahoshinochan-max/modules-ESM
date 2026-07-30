@@ -951,6 +951,7 @@ def test_pairwise_failure_publishes_no_partial_alignment_or_rmsd(
     ]
     assert [event["engine_role"] for event in invocations] == [
         "sequence_alignment",
+        "bounded_correspondence_selection",
         "rigid_superposition",
     ]
     invocation_ids = {
@@ -962,4 +963,8 @@ def test_pairwise_failure_publishes_no_partial_alignment_or_rmsd(
         if event["event"]["type"] == "engine_invocation_terminal"
         and event["event"]["invocation_id"] in invocation_ids
     ]
-    assert alignment_terminals == ["succeeded", "succeeded"]
+    assert alignment_terminals == [
+        "succeeded",
+        "succeeded",
+        "succeeded",
+    ]
