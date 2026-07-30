@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import io
 import json
 import os
 import secrets
@@ -13,6 +14,8 @@ import stat
 import subprocess
 import sys
 import tempfile
+import threading
+import time
 import xml.etree.ElementTree as ET
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -30,6 +33,10 @@ RESOURCE_CLEANUP_WARNING = (
     "ResourceTracker called reentrantly for resource cleanup"
 )
 DEFAULT_TIMEOUT_SECONDS = 30 * 60
+TERMINATION_GRACE_SECONDS = 5.0
+MAX_CONSOLE_BYTES = 16 * 1024 * 1024
+MAX_JUNIT_BYTES = 16 * 1024 * 1024
+OUTPUT_CHUNK_SIZE = 64 * 1024
 
 
 @dataclass(frozen=True)
@@ -150,32 +157,96 @@ def _interpreter_digest() -> str:
     return digest.hexdigest()
 
 
-def _junit_counts(path: Path) -> tuple[int, int, int]:
+def _bounded_junit_summary(path: Path) -> tuple[int, int, int, bytes]:
+    if path.is_symlink():
+        raise ValueError("JUnit result must not be a symbolic link")
+    if not path.is_file():
+        raise ValueError("JUnit result is missing")
+    if path.stat().st_size > MAX_JUNIT_BYTES:
+        raise ValueError("JUnit result exceeds the retained size bound")
     root = ET.parse(path).getroot()
-    suites = [root] if root.tag == "testsuite" else list(root)
-    tests = sum(int(suite.attrib.get("tests", 0)) for suite in suites)
-    failures = sum(
-        int(suite.attrib.get("failures", 0))
-        + int(suite.attrib.get("errors", 0))
-        for suite in suites
+    suites = (
+        [root]
+        if root.tag.rsplit("}", 1)[-1] == "testsuite"
+        else [
+            child
+            for child in root
+            if child.tag.rsplit("}", 1)[-1] == "testsuite"
+        ]
     )
+    tests = sum(int(suite.attrib.get("tests", 0)) for suite in suites)
+    failure_count = sum(
+        int(suite.attrib.get("failures", 0)) for suite in suites
+    )
+    error_count = sum(int(suite.attrib.get("errors", 0)) for suite in suites)
+    failures = failure_count + error_count
     skipped = sum(int(suite.attrib.get("skipped", 0)) for suite in suites)
-    return tests, failures, skipped
+    summary = ET.Element(
+        "testsuite",
+        {
+            "tests": str(tests),
+            "failures": str(failure_count),
+            "errors": str(error_count),
+            "skipped": str(skipped),
+        },
+    )
+    return tests, failures, skipped, ET.tostring(
+        summary,
+        encoding="utf-8",
+        xml_declaration=True,
+    )
 
 
-def _terminate_group(process: subprocess.Popen[str]) -> None:
-    if process.poll() is not None:
-        return
+def _process_group_exists(process_group_id: int) -> bool:
     try:
-        os.killpg(process.pid, signal.SIGTERM)
-        process.wait(timeout=5)
-    except (ProcessLookupError, subprocess.TimeoutExpired):
+        os.killpg(process_group_id, 0)
+    except ProcessLookupError:
+        return False
+    return True
+
+
+def _terminate_group(process: subprocess.Popen[bytes]) -> None:
+    process_group_id = process.pid
+    try:
+        os.killpg(process_group_id, signal.SIGTERM)
+    except ProcessLookupError:
         if process.poll() is None:
-            try:
-                os.killpg(process.pid, signal.SIGKILL)
-            except ProcessLookupError:
-                pass
             process.wait()
+        return
+
+    deadline = time.monotonic() + TERMINATION_GRACE_SECONDS
+    while (
+        _process_group_exists(process_group_id)
+        and time.monotonic() < deadline
+    ):
+        process.poll()
+        time.sleep(0.01)
+    if _process_group_exists(process_group_id):
+        try:
+            os.killpg(process_group_id, signal.SIGKILL)
+        except ProcessLookupError:
+            pass
+    if process.poll() is None:
+        try:
+            process.wait()
+        except ProcessLookupError:
+            pass
+
+
+def _drain_output(
+    stream: io.BufferedIOBase,
+    captured: bytearray,
+    state: dict[str, bool],
+) -> None:
+    try:
+        while chunk := stream.read(OUTPUT_CHUNK_SIZE):
+            remaining = MAX_CONSOLE_BYTES - len(captured)
+            if remaining > 0:
+                captured.extend(chunk[:remaining])
+            if len(chunk) > remaining:
+                state["exceeded"] = True
+    except (OSError, ValueError):
+        state["read_error"] = True
 
 
 def _write_private(path: Path, payload: bytes) -> None:
@@ -234,29 +305,53 @@ def run(tier_name: str, pytest_override: tuple[str, ...]) -> int:
             command,
             cwd=PROJECT_ROOT,
             env=env,
-            text=True,
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
             start_new_session=True,
         )
+        assert process.stdout is not None
+        captured = bytearray()
+        output_state = {"exceeded": False, "read_error": False}
+        reader = threading.Thread(
+            target=_drain_output,
+            args=(process.stdout, captured, output_state),
+            daemon=True,
+        )
+        reader.start()
         timed_out = False
-        try:
-            output, _ = process.communicate(timeout=tier.timeout_seconds)
-        except subprocess.TimeoutExpired:
-            timed_out = True
-            _terminate_group(process)
-            output, _ = process.communicate()
+        deadline = time.monotonic() + tier.timeout_seconds
+        while process.poll() is None:
+            if time.monotonic() >= deadline:
+                timed_out = True
+                break
+            time.sleep(0.05)
+        _terminate_group(process)
+        reader.join(timeout=5)
+        if reader.is_alive():
+            process.stdout.close()
+            reader.join(timeout=1)
+        if reader.is_alive():
+            output_state["read_error"] = True
+        output = captured.decode(errors="replace")
         print(output, end="", flush=True)
 
-        if junit_path.is_file():
-            tests, failures, skipped = _junit_counts(junit_path)
-        else:
+        junit_summary: bytes | None = None
+        junit_valid = False
+        try:
+            tests, failures, skipped, junit_summary = (
+                _bounded_junit_summary(junit_path)
+            )
+            junit_valid = True
+        except (OSError, ET.ParseError, ValueError):
             tests, failures, skipped = 0, 1, 0
         resource_warning = RESOURCE_CLEANUP_WARNING in output
         passed = (
             process.returncode == 0
             and not timed_out
+            and not output_state["exceeded"]
+            and not output_state["read_error"]
             and not resource_warning
+            and junit_valid
             and failures == 0
             and tests > 0
         )
@@ -285,6 +380,12 @@ def run(tier_name: str, pytest_override: tuple[str, ...]) -> int:
             + f"return_code={process.returncode}\n"
             + f"tests={tests} failures={failures} skipped={skipped}\n"
             + f"timed_out={str(timed_out).lower()}\n"
+            + (
+                "console_output_exceeded="
+                f"{str(output_state['exceeded']).lower()}\n"
+            )
+            + f"console_read_error={str(output_state['read_error']).lower()}\n"
+            + f"junit_valid={str(junit_valid).lower()}\n"
             + f"resource_cleanup_warning={str(resource_warning).lower()}\n"
         )
         _write_private(
@@ -311,8 +412,8 @@ def run(tier_name: str, pytest_override: tuple[str, ...]) -> int:
                 separators=(",", ":"),
             ).encode(),
         )
-        if junit_path.is_file():
-            _write_private(result_dir / "pytest.xml", junit_path.read_bytes())
+        if junit_summary is not None:
+            _write_private(result_dir / "pytest.xml", junit_summary)
 
         print(f"RETAINED VERIFICATION RESULT: {result_dir}", flush=True)
         if passed:
@@ -323,6 +424,12 @@ def run(tier_name: str, pytest_override: tuple[str, ...]) -> int:
             if resource_warning
             else "timeout"
             if timed_out
+            else "console output exceeded retained size bound"
+            if output_state["exceeded"]
+            else "console output read failure"
+            if output_state["read_error"]
+            else "invalid or oversized JUnit result"
+            if not junit_valid
             else "test failure"
         )
         print(

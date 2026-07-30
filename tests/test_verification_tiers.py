@@ -2,13 +2,18 @@
 
 from __future__ import annotations
 
+import io
 import json
 import os
 from pathlib import Path
 import stat
 import subprocess
 import sys
+import time
 
+import pytest
+
+import scripts.verify_backend as verify_backend
 from scripts.verify_backend import TIERS
 
 
@@ -133,3 +138,120 @@ def test_examples_and_scientific_tiers_execute_without_parallel_evidence(
     assert "BACKEND VERIFICATION RESULT: passed" in examples.stdout
     assert "BACKEND VERIFICATION RESULT: passed" in scientific.stdout
     assert not (tmp_path / "must-not-exist.jsonl").exists()
+
+
+def test_output_capture_is_bounded_while_the_pipe_is_fully_drained(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(verify_backend, "MAX_CONSOLE_BYTES", 8)
+    captured = bytearray()
+    state = {"exceeded": False}
+
+    verify_backend._drain_output(
+        io.BytesIO(b"0123456789"),
+        captured,
+        state,
+    )
+
+    assert captured == b"01234567"
+    assert state == {"exceeded": True}
+
+
+def test_verifier_fails_closed_when_console_output_exceeds_bound(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(verify_backend, "MAX_CONSOLE_BYTES", 1)
+    results_root = tmp_path / "verification-results"
+    monkeypatch.setenv(
+        "PROTEIN_WORKBENCH_VERIFICATION_RESULTS_ROOT",
+        str(results_root),
+    )
+
+    result = verify_backend.run(
+        "routine",
+        ("tests/tier_probes/test_isolated_roots.py",),
+    )
+
+    assert result == 1
+    transcript = next(
+        results_root.glob("routine/*/command-transcript.txt")
+    ).read_text()
+    assert "console_output_exceeded=true" in transcript
+
+
+def test_retained_junit_is_size_bounded_and_drops_testcase_diagnostics(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    junit_path = tmp_path / "pytest.xml"
+    junit_path.write_text(
+        '<testsuite tests="1" failures="1" errors="0" skipped="0">'
+        '<testcase classname="/private/source.py" name="contains-secret">'
+        "<failure>secret diagnostic</failure>"
+        "</testcase>"
+        "</testsuite>"
+    )
+
+    tests, failures, skipped, retained = (
+        verify_backend._bounded_junit_summary(junit_path)
+    )
+
+    assert (tests, failures, skipped) == (1, 1, 0)
+    assert b"secret" not in retained
+    assert b"/private/source.py" not in retained
+    monkeypatch.setattr(verify_backend, "MAX_JUNIT_BYTES", 8)
+    with pytest.raises(ValueError, match="size bound"):
+        verify_backend._bounded_junit_summary(junit_path)
+
+
+def test_terminate_group_kills_members_after_the_leader_exits(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        verify_backend,
+        "TERMINATION_GRACE_SECONDS",
+        0.05,
+    )
+    leader = subprocess.Popen(
+        [
+            sys.executable,
+            "-c",
+            (
+                "import subprocess,sys;"
+                "child=subprocess.Popen("
+                "[sys.executable,'-c',"
+                "'import signal,time;"
+                "signal.signal(signal.SIGTERM,signal.SIG_IGN);"
+                "time.sleep(30)'],"
+                "stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL);"
+                "print(child.pid,flush=True)"
+            ),
+        ],
+        stdout=subprocess.PIPE,
+        text=True,
+        start_new_session=True,
+    )
+    assert leader.stdout is not None
+    child_pid = int(leader.stdout.readline())
+    leader.wait(timeout=5)
+
+    try:
+        verify_backend._terminate_group(leader)
+        deadline = time.monotonic() + 2
+        while time.monotonic() < deadline:
+            status = subprocess.run(
+                ["/bin/ps", "-o", "stat=", "-p", str(child_pid)],
+                text=True,
+                capture_output=True,
+                check=False,
+            ).stdout.strip()
+            if not status or status.startswith("Z"):
+                break
+            time.sleep(0.02)
+        assert not status or status.startswith("Z")
+    finally:
+        try:
+            os.kill(child_pid, 9)
+        except ProcessLookupError:
+            pass
