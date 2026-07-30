@@ -181,6 +181,72 @@ def test_alignment_nominal_values_round_trip_exact_evidence() -> None:
     )
 
 
+def test_fixed_reference_alignment_collection_rejects_ambiguous_evidence() -> None:
+    port_type = build_discovered_frozen_catalog().require_port_type(
+        "structure_comparison.alignment_collection",
+        VERSION,
+    )
+    first = _alignment()
+    second = replace(
+        first,
+        subject=replace(
+            first.subject,
+            candidate_id="subject-2",
+            content_digest="sha256:" + "4" * 64,
+        ),
+    )
+    valid = StructureAlignmentEvidenceCollection(
+        schema_version=VERSION,
+        pairing_source="fixed_reference.singleton@2.0.0",
+        accepted_cardinality="many_to_one_complete",
+        alignments=(first, second),
+    )
+    assert port_type.decode(port_type.encode(valid)) == valid
+
+    invalid = (
+        replace(valid, alignments=(first, first)),
+        replace(
+            valid,
+            alignments=(
+                first,
+                replace(
+                    second,
+                    reference=replace(
+                        second.reference,
+                        content_digest="sha256:" + "5" * 64,
+                    ),
+                ),
+            ),
+        ),
+        replace(
+            valid,
+            alignments=(
+                first,
+                replace(
+                    second,
+                    subject=replace(second.subject, role="reference"),
+                ),
+            ),
+        ),
+        replace(
+            valid,
+            alignments=(
+                first,
+                replace(
+                    second,
+                    normalization=replace(
+                        second.normalization,
+                        coverage_denominator="subject_residue_count",
+                    ),
+                ),
+            ),
+        ),
+    )
+    for ambiguous in invalid:
+        with pytest.raises(PortValueError):
+            port_type.encode(ambiguous)
+
+
 @pytest.mark.parametrize(
     "invalid",
     (

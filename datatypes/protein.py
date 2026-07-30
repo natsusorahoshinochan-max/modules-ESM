@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Iterator
 from dataclasses import dataclass, field
+import re
 from typing import Optional
 
 
@@ -253,6 +254,35 @@ class PairwiseObservationContext:
     evidence_method: ExactContractReference | None = None
     normalization_length: int | None = None
     aligned_atom_count: int | None = None
+
+    def __post_init__(self) -> None:
+        evidence = (
+            self.evidence_content_digest,
+            self.evidence_method,
+            self.normalization_length,
+            self.aligned_atom_count,
+        )
+        if all(item is None for item in evidence):
+            return
+        if (
+            any(item is None for item in evidence)
+            or not isinstance(self.evidence_content_digest, str)
+            or re.fullmatch(
+                r"sha256:[0-9a-f]{64}",
+                self.evidence_content_digest,
+            )
+            is None
+            or type(self.evidence_method) is not ExactContractReference
+            or self.evidence_method.contract_kind != "method"
+            or type(self.normalization_length) is not int
+            or self.normalization_length < 1
+            or type(self.aligned_atom_count) is not int
+            or self.aligned_atom_count < 1
+            or self.aligned_atom_count > self.normalization_length
+        ):
+            raise ValueError(
+                "Pairwise Context requires complete exact evidence provenance"
+            )
 
     def to_public(self) -> dict[str, object]:
         value: dict[str, object] = {

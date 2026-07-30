@@ -535,6 +535,15 @@ def _validate_collection(value: object) -> None:
             raise ValueError(
                 "alignment collection is not complete one-to-one evidence"
             )
+        known_reference_digest = references.get(reference_id)
+        if (
+            known_reference_digest is not None
+            and known_reference_digest != reference_digest
+        ):
+            raise ValueError(
+                "alignment collection reuses one reference identity with "
+                "conflicting content"
+            )
         subjects[subject_id] = subject_digest
         references[reference_id] = reference_digest
     if set(subjects).intersection(references):
@@ -666,7 +675,10 @@ def _method_definition(operation: str) -> MethodDefinition:
             "correspondence": "structure_comparison.alignment@2.0.0",
             "optimization": "tmtools.tm_align-fixed-correspondence",
             "formula": "sum(1/(1+(distance/d0)^2))/reference_residue_count",
-            "d0": "max(0.5,1.24*(reference_residue_count-15)^(1/3)-1.8)",
+            "d0": (
+                "0.5 when reference_residue_count<=15; otherwise "
+                "max(0.5,1.24*(reference_residue_count-15)^(1/3)-1.8)"
+            ),
         },
         model_identity={"kind": "none"},
         checkpoint_identity={"kind": "none"},
@@ -679,6 +691,7 @@ def _method_definition(operation: str) -> MethodDefinition:
             "kind": "repository-owned",
             "engine_api": "tmtools.tm_align",
             "tmtools_version": _TMTOOLS_VERSION,
+            "numpy_version": _NUMPY_VERSION,
         },
         scale_contract={
             "unit": "dimensionless",
@@ -805,7 +818,12 @@ def _binding(
                     "numpy_version": _NUMPY_VERSION,
                     "tmtools_version": _TMTOOLS_VERSION,
                 }
-                if operation != "rmsd"
+                if operation in {"align_single", "align_pairwise"}
+                else {
+                    "numpy_version": _NUMPY_VERSION,
+                    "tmtools_version": _TMTOOLS_VERSION,
+                }
+                if operation in {"tm_score", "batch_tm_score"}
                 else {}
             ),
         },

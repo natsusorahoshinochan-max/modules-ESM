@@ -186,8 +186,11 @@ def test_built_artifacts_contain_backend_definitions_and_canonical_assets(
         "modules/proteinmpnn/definitions/score.yaml",
         "modules/structure_comparison/definitions/align_pairwise.yaml",
         "modules/structure_comparison/definitions/align_single.yaml",
+        "modules/structure_comparison/definitions/batch_tm_score.yaml",
         "modules/structure_comparison/definitions/rmsd.yaml",
         "modules/structure_comparison/definitions/rmsd_metric.yaml",
+        "modules/structure_comparison/definitions/tm_score.yaml",
+        "modules/structure_comparison/definitions/tm_score_metric.yaml",
         "pdbs/3GB1.pdb",
         "protein_workbench_public/resources/v2/bundle.json",
     }
