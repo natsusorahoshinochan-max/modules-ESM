@@ -554,6 +554,7 @@ class SelectionObjectiveConsumptionDefinition:
 
     candidate_input_port: str
     score_collection_input_port: str
+    candidate_output_port: str
     objective_id_parameter: str | None = None
     objective_ids_parameter: str | None = None
     schema_version: str = "2.0.0"
@@ -570,7 +571,11 @@ class SelectionObjectiveConsumptionDefinition:
                 "Selection Objective consumption requires exactly one scalar "
                 "or ordered-list selector parameter"
             )
-        for field_name in ("candidate_input_port", "score_collection_input_port"):
+        for field_name in (
+            "candidate_input_port",
+            "score_collection_input_port",
+            "candidate_output_port",
+        ):
             _require_identifier(getattr(self, field_name), field_name)
         selector_name = (
             self.objective_id_parameter
@@ -584,6 +589,7 @@ class SelectionObjectiveConsumptionDefinition:
             "schema_version": self.schema_version,
             "candidate_input_port": self.candidate_input_port,
             "score_collection_input_port": self.score_collection_input_port,
+            "candidate_output_port": self.candidate_output_port,
         }
         if self.objective_id_parameter is not None:
             descriptor["objective_id_parameter"] = self.objective_id_parameter
@@ -1901,6 +1907,26 @@ def build_frozen_catalog(
                             f"Binding {binding.binding_id} {field_name} must "
                             f"name one required {expected_type} input Port"
                         )
+                output = outputs_by_name.get(
+                    consumption.candidate_output_port
+                )
+                output_reference = (
+                    output.get("port_type")
+                    if isinstance(output, Mapping)
+                    else None
+                )
+                if (
+                    not isinstance(output_reference, ContractIdentity)
+                    or output_reference.key
+                    != ("port_type", "candidate.collection", "2.0.0")
+                    or output.get("multiplicity") != "one"
+                    or output.get("required") is not True
+                ):
+                    raise CatalogBuildError(
+                        f"Binding {binding.binding_id} "
+                        "candidate_output_port must name one required "
+                        "candidate.collection output Port"
+                    )
             for observation in binding.produced_observations:
                 if observation.output_port not in output_names:
                     raise CatalogBuildError(

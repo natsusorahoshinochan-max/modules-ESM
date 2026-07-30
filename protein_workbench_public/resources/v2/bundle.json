@@ -1596,6 +1596,9 @@
         "candidate_input_port": {
           "$ref": "#/$defs/Identifier"
         },
+        "candidate_output_port": {
+          "$ref": "#/$defs/Identifier"
+        },
         "objective_id_parameter": {
           "$ref": "#/$defs/Identifier"
         },
@@ -1612,7 +1615,8 @@
       "required": [
         "schema_version",
         "candidate_input_port",
-        "score_collection_input_port"
+        "score_collection_input_port",
+        "candidate_output_port"
       ],
       "type": "object"
     },
@@ -2635,6 +2639,12 @@
           "uniqueItems": true
         },
         "selected_collection_id": {
+          "$ref": "#/$defs/Identifier"
+        },
+        "selection_method": {
+          "$ref": "#/$defs/ContractReference"
+        },
+        "selection_node_id": {
           "$ref": "#/$defs/Identifier"
         },
         "status": {

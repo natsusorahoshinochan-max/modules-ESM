@@ -1067,6 +1067,41 @@ def resolve_candidate_utilities(
     )
 
 
+def weighted_utility_totals(
+    profile: CandidateUtilityProfile,
+) -> Mapping[str, float]:
+    """Combine one exact Utility profile with its normalized weights."""
+    return MappingProxyType(
+        {
+            candidate_id: math.fsum(
+                utility * weight
+                for utility, weight in zip(
+                    utilities,
+                    profile.effective_weights,
+                    strict=True,
+                )
+            )
+            for candidate_id, utilities in profile.utilities.items()
+        }
+    )
+
+
+def rank_candidates_by_weighted_utility(
+    profile: CandidateUtilityProfile,
+) -> tuple[Any, ...]:
+    """Order original Candidates by weighted Utility and stable identity."""
+    totals = weighted_utility_totals(profile)
+    return tuple(
+        sorted(
+            profile.candidates.items,
+            key=lambda candidate: (
+                -totals[candidate.candidate_id],
+                candidate.candidate_id,
+            ),
+        )
+    )
+
+
 def select_candidates(
     *,
     candidate_inputs: Mapping[SelectionInput, CandidateCollection],
@@ -1084,25 +1119,7 @@ def select_candidates(
         objectives=objectives,
         catalog=catalog,
     )
-    weighted_values = {
-        candidate_id: math.fsum(
-            utility * weight
-            for utility, weight in zip(
-                utilities,
-                profile.effective_weights,
-                strict=True,
-            )
-        )
-        for candidate_id, utilities in profile.utilities.items()
-    }
-
-    ranked = sorted(
-        profile.candidates.items,
-        key=lambda candidate: (
-            -weighted_values[candidate.candidate_id],
-            candidate.candidate_id,
-        ),
-    )
+    ranked = rank_candidates_by_weighted_utility(profile)
     selected = ranked[: min(limit, len(ranked))]
     return SelectionResult(
         CandidateCollection(

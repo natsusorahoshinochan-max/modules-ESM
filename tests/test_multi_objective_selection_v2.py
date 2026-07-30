@@ -194,6 +194,7 @@ def test_catalog_declares_three_multi_objective_nodes_in_selection_package() -> 
             "objective_ids_parameter": "objective_ids",
             "candidate_input_port": "candidates",
             "score_collection_input_port": "scores",
+            "candidate_output_port": "candidates",
         }
         assert method.descriptor["scale_contract"] == {
             "kind": "dimensionless-utility-vector"
@@ -569,9 +570,15 @@ def test_all_three_nodes_pass_contract_test_kit(tmp_path: Path) -> None:
     assert all(case.status == "succeeded" for case in report.case_reports)
 
 
-def test_public_weighted_selection_is_cache_replay_stable(
+@pytest.mark.parametrize(
+    ("operation", "expected_count"),
+    (("weighted_rank", 4), ("pareto", 2), ("diversity", 3)),
+)
+def test_public_selection_uses_the_executed_method_and_is_cache_replay_stable(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
+    operation: str,
+    expected_count: int,
 ) -> None:
     catalog = _catalog()
     for name in ("PROJECT", "CACHE", "OUTPUT", "RUN"):
@@ -582,7 +589,7 @@ def test_public_weighted_selection_is_cache_replay_stable(
         "explicit multi-objective selection"
     ).id
     workflow = replace(
-        _workflow(catalog, "weighted_rank"),
+        _workflow(catalog, operation),
         workflow_id=project_id,
     )
 
@@ -636,7 +643,22 @@ def test_public_weighted_selection_is_cache_replay_stable(
     for projection in projections:
         assert projection["status"] == "succeeded"
         selection = projection["selection_results"][0]
-        assert len(selection["selected_candidate_ids"]) == 4
+        assert len(selection["selected_candidate_ids"]) == expected_count
+        selected_output = next(
+            output
+            for output in projection["outputs"]
+            if output["node_id"] == "select"
+            and output["output_port"] == "candidates"
+        )
+        output_ids = [
+            item["fields"]["candidate_id"]
+            for item in selected_output["values"][0]["fields"]["items"]
+        ]
+        assert selection["selected_candidate_ids"] == output_ids
+        assert selection["selection_node_id"] == "select"
+        assert selection["selection_method"]["contract_id"] == (
+            f"selection.{operation}.method"
+        )
         selected_ids.append(selection["selected_candidate_ids"])
         objective_provenance = selection["objectives"]
         assert [

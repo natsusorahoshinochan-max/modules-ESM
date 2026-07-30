@@ -3024,6 +3024,112 @@ def _consumed_selection_objectives(
     return tuple(matches)
 
 
+def _selection_consumer_result(
+    catalog: FrozenCatalog,
+    plan: ExecutionPlan,
+    node: ExecutionPlanNode,
+    values: Mapping[tuple[str, str], list[Any]],
+) -> dict[str, Any] | None:
+    """Project one declared selection Node's actual typed output."""
+    binding = catalog.require_contract(*node.binding.key)
+    consumption = binding.descriptor.get(
+        "selection_objective_consumption"
+    )
+    if not isinstance(consumption, Mapping):
+        return None
+    objectives = _consumed_selection_objectives(plan, node, binding)
+    candidate_references = {
+        objective.candidate_input for objective in objectives
+    }
+    if len(candidate_references) != 1:
+        raise SelectionError(
+            "Selection consumer objectives do not share one Candidate input"
+        )
+    output_port = consumption.get("candidate_output_port")
+    resolved = (
+        values.get((node.node_id, output_port), [])
+        if isinstance(output_port, str)
+        else []
+    )
+    if (
+        len(resolved) != 1
+        or type(resolved[0]) is not CandidateCollection
+    ):
+        raise SelectionError(
+            "Selection consumer output did not resolve to one exact "
+            "CandidateCollection"
+        )
+    selected = resolved[0]
+    candidate_reference = next(iter(candidate_references))
+    provenance = selection_objective_provenance(objectives, catalog)
+    return {
+        "status": "succeeded",
+        "selection_node_id": node.node_id,
+        "selection_method": node.method.to_public(),
+        "candidate_input": candidate_reference.to_public(),
+        "selected_collection_id": selected.collection_id,
+        "selected_candidate_ids": [
+            candidate.candidate_id for candidate in selected.items
+        ],
+        "objectives": provenance["objectives"],
+    }
+
+
+def _workflow_weighted_selection_result(
+    catalog: FrozenCatalog,
+    plan: ExecutionPlan,
+    values: Mapping[tuple[str, str], list[Any]],
+) -> dict[str, Any]:
+    """Retain the Workflow-level weighted result when no Node consumes it."""
+    candidate_inputs: dict[SelectionInput, CandidateCollection] = {}
+    score_collection_inputs: dict[SelectionInput, ScoreCollection] = {}
+    for objective in plan.selection_objectives:
+        for reference, expected_type, destination in (
+            (
+                objective.candidate_input,
+                CandidateCollection,
+                candidate_inputs,
+            ),
+            (
+                objective.score_collection_input,
+                ScoreCollection,
+                score_collection_inputs,
+            ),
+        ):
+            resolved_values = values.get(
+                (reference.node_id, reference.output_port),
+                [],
+            )
+            if (
+                len(resolved_values) != 1
+                or type(resolved_values[0]) is not expected_type
+            ):
+                raise SelectionError(
+                    "Selection input did not resolve to one exact "
+                    f"{expected_type.__name__}"
+                )
+            destination[reference] = resolved_values[0]
+    candidate_reference = plan.selection_objectives[0].candidate_input
+    candidate_collection = candidate_inputs[candidate_reference]
+    selection = select_candidates(
+        candidate_inputs=candidate_inputs,
+        score_collection_inputs=score_collection_inputs,
+        objectives=plan.selection_objectives,
+        catalog=catalog,
+        limit=max(1, len(candidate_collection.items)),
+    )
+    return {
+        "status": "succeeded",
+        "candidate_input": candidate_reference.to_public(),
+        "selected_collection_id": selection.candidates.collection_id,
+        "selected_candidate_ids": [
+            candidate.candidate_id
+            for candidate in selection.candidates.items
+        ],
+        "objectives": selection.public_provenance()["objectives"],
+    }
+
+
 def _relevant_result_contract_keys(
     catalog: FrozenCatalog,
     plan: ExecutionPlan,
@@ -5706,74 +5812,38 @@ class V2RunService:
             )
         ):
             try:
-                candidate_inputs: dict[
-                    SelectionInput,
-                    CandidateCollection,
-                ] = {}
-                score_collection_inputs: dict[
-                    SelectionInput,
-                    ScoreCollection,
-                ] = {}
-                for objective in plan.selection_objectives:
-                    for reference, expected_type, destination in (
-                        (
-                            objective.candidate_input,
-                            CandidateCollection,
-                            candidate_inputs,
-                        ),
-                        (
-                            objective.score_collection_input,
-                            ScoreCollection,
-                            score_collection_inputs,
-                        ),
-                    ):
-                        resolved_values = values.get(
-                            (reference.node_id, reference.output_port),
-                            [],
+                consumer_results = tuple(
+                    result
+                    for node in plan.nodes
+                    if (
+                        result := _selection_consumer_result(
+                            self._catalog,
+                            plan,
+                            node,
+                            values,
                         )
-                        if (
-                            len(resolved_values) != 1
-                            or type(resolved_values[0]) is not expected_type
-                        ):
-                            raise SelectionError(
-                                "Selection input did not resolve to one exact "
-                                f"{expected_type.__name__}"
-                            )
-                        destination[reference] = resolved_values[0]
-                candidate_reference = plan.selection_objectives[
-                    0
-                ].candidate_input
-                candidate_collection = candidate_inputs[
-                    candidate_reference
-                ]
-                selection = select_candidates(
-                    candidate_inputs=candidate_inputs,
-                    score_collection_inputs=score_collection_inputs,
-                    objectives=plan.selection_objectives,
-                    catalog=self._catalog,
-                    limit=max(1, len(candidate_collection.items)),
+                    )
+                    is not None
                 )
-                provenance = selection.public_provenance()
-                ledger.append(
-                    "selection_terminal",
-                    {
-                        "status": "succeeded",
-                        "result": {
+                results = (
+                    consumer_results
+                    if consumer_results
+                    else (
+                        _workflow_weighted_selection_result(
+                            self._catalog,
+                            plan,
+                            values,
+                        ),
+                    )
+                )
+                for result in results:
+                    ledger.append(
+                        "selection_terminal",
+                        {
                             "status": "succeeded",
-                            "candidate_input": (
-                                candidate_reference.to_public()
-                            ),
-                            "selected_collection_id": (
-                                selection.candidates.collection_id
-                            ),
-                            "selected_candidate_ids": [
-                                candidate.candidate_id
-                                for candidate in selection.candidates.items
-                            ],
-                            "objectives": provenance["objectives"],
+                            "result": result,
                         },
-                    },
-                )
+                    )
             except Exception as error:
                 selection_failed = True
                 ledger.append(

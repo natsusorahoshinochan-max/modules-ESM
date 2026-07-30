@@ -10,10 +10,12 @@ from core.port_types import canonical_sha256
 from core.scoring_v2 import (
     SelectionError,
     SelectionObjective,
-    resolve_objective_observations,
+    rank_candidates_by_weighted_utility,
     resolve_candidate_utilities,
+    resolve_objective_observations,
     resolve_selection_objective,
     select_candidates,
+    weighted_utility_totals,
 )
 from datatypes import (
     CandidateCollection,
@@ -194,25 +196,9 @@ class SelectionImplementation:
             objectives=typed_objectives,
             catalog=self._catalog,
         )
-        aggregate = {
-            candidate_id: math.fsum(
-                utility * weight
-                for utility, weight in zip(
-                    utilities,
-                    profile.effective_weights,
-                    strict=True,
-                )
-            )
-            for candidate_id, utilities in profile.utilities.items()
-        }
+        aggregate = weighted_utility_totals(profile)
         if self._operation == "weighted_rank":
-            selected = sorted(
-                candidates.items,
-                key=lambda candidate: (
-                    -aggregate[candidate.candidate_id],
-                    candidate.candidate_id,
-                ),
-            )
+            selected = list(rank_candidates_by_weighted_utility(profile))
         elif self._operation == "pareto":
             dominated: set[str] = set()
             candidate_ids = tuple(sorted(profile.utilities))

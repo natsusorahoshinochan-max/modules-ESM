@@ -204,6 +204,7 @@ def test_public_catalog_has_three_selection_nodes_in_one_package() -> None:
             "schema_version": VERSION,
             "candidate_input_port": "candidates",
             "score_collection_input_port": "scores",
+            "candidate_output_port": "candidates",
             **selector,
         }
 

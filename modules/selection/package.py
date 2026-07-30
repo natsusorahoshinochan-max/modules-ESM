@@ -165,6 +165,7 @@ def _binding(operation: str) -> ExecutionBindingDefinition:
             SelectionObjectiveConsumptionDefinition(
                 candidate_input_port="candidates",
                 score_collection_input_port="scores",
+                candidate_output_port="candidates",
                 **(
                     {"objective_ids_parameter": "objective_ids"}
                     if operation in MULTI_OBJECTIVE_OPERATIONS
