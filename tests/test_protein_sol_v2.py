@@ -52,6 +52,15 @@ def test_protein_sol_registers_one_exact_method_and_three_metrics() -> None:
 
     assert method.descriptor["source_identity"]["dependency"] == "protein-sol"
     assert method.descriptor["source_identity"]["release"] == "2017-10"
+    assert method.descriptor["algorithm_identity"][
+        "scientific_feature_count"
+    ] == 35
+    assert method.descriptor["algorithm_identity"][
+        "raw_composition_column_count"
+    ] == 36
+    assert method.descriptor["algorithm_identity"][
+        "raw_bookkeeping_column"
+    ] == "totperc"
     assert method.descriptor["featurization_identity"]["sequence_alphabet"] == (
         "ACDEFGHIKLMNPQRSTVWY"
     )
@@ -239,6 +248,93 @@ def test_calibration_context_is_typed_and_round_trips_with_observation() -> None
         "calibration_unit": "dimensionless",
         "population_id": "niwa_non_membrane_2396",
     }
+
+
+def test_calibration_context_is_an_exact_selection_selector() -> None:
+    from core import (
+        SelectionInput,
+        SelectionObjective,
+        resolve_objective_observations,
+    )
+    from datatypes import (
+        CalibrationObservationContext,
+        Candidate,
+        CandidateCollection,
+        ExactContractReference,
+        ProteinSequence,
+        ScoreCollection,
+        ScoreObservation,
+    )
+
+    reference = lambda kind, contract_id: ExactContractReference(
+        contract_kind=kind,
+        contract_id=contract_id,
+        contract_version="2.0.0",
+        contract_digest=f"sha256:{'a' * 64}",
+    )
+    objective = SelectionObjective(
+        objective_id="protein-sol-scaled",
+        candidate_input=SelectionInput("source", "sequence_candidates"),
+        score_collection_input=SelectionInput("score", "scores"),
+        source_partition="protein_sol_scaled",
+        metric=reference("metric", "solubility.protein_sol_scaled"),
+        method=reference(
+            "method",
+            "solubility.protein_sol.sequence_prediction_2017",
+        ),
+        context_selector=CalibrationObservationContext(
+            calibration_metric="population_scaled_solubility",
+            calibration_value=0.446,
+            calibration_unit="dimensionless",
+            population_id="niwa_non_membrane_2396",
+        ),
+        utility_transform=reference(
+            "utility_transform",
+            "core.linear_increasing",
+        ),
+        utility_parameters={},
+        weight=1.0,
+        match_cardinality="exactly_one",
+        missing_policy="error",
+    )
+
+    assert SelectionObjective.from_public(objective.to_public()) == objective
+
+    from protein_workbench_public import validate_schema
+
+    validate_schema(
+        "#/$defs/ObservationContextSelector",
+        objective.context_selector.to_public(),
+    )
+
+    observation = ScoreObservation(
+        candidate_id="candidate-1",
+        metric=objective.metric,
+        method=objective.method,
+        context=objective.context_selector,
+        value=0.252,
+        source_partition=objective.source_partition,
+    )
+    candidates = CandidateCollection(
+        collection_id="protein-sol-candidates",
+        item_type="protein.sequence",
+        items=[
+            Candidate(
+                candidate_id="candidate-1",
+                data=ProteinSequence(
+                    sequence="ACDE",
+                    residue_ids=["A:1", "A:2", "A:3", "A:4"],
+                ),
+            )
+        ],
+    )
+    resolved = resolve_objective_observations(
+        candidates=candidates,
+        collection=ScoreCollection("protein-sol", [observation]),
+        objective=objective,
+    )
+
+    assert resolved == {"candidate-1": observation}
 
 
 def _decode_output(catalog: Any, output: dict[str, Any]) -> Any:

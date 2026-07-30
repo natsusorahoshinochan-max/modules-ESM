@@ -148,7 +148,9 @@ class SelectionObjective:
     metric: ExactContractReference
     method: ExactContractReference
     context_selector: (
-        IntrinsicObservationContext | PairwiseContextSelector
+        IntrinsicObservationContext
+        | CalibrationObservationContext
+        | PairwiseContextSelector
     )
     utility_transform: ExactContractReference
     utility_parameters: Mapping[str, Any]
@@ -178,7 +180,11 @@ class SelectionObjective:
             )
         if not isinstance(
             self.context_selector,
-            (IntrinsicObservationContext, PairwiseContextSelector),
+            (
+                IntrinsicObservationContext,
+                CalibrationObservationContext,
+                PairwiseContextSelector,
+            ),
         ):
             raise SelectionError(
                 "Selection Objective requires a controlled Context selector"
@@ -237,8 +243,26 @@ class SelectionObjective:
                     value["context_selector"]["kind"]
                 )
                 if value["context_selector"]["kind"] == "intrinsic"
-                else PairwiseContextSelector.from_public(
-                    value["context_selector"]
+                else (
+                    CalibrationObservationContext(
+                        calibration_metric=value["context_selector"][
+                            "calibration_metric"
+                        ],
+                        calibration_value=value["context_selector"][
+                            "calibration_value"
+                        ],
+                        calibration_unit=value["context_selector"][
+                            "calibration_unit"
+                        ],
+                        population_id=value["context_selector"][
+                            "population_id"
+                        ],
+                        kind=value["context_selector"]["kind"],
+                    )
+                    if value["context_selector"]["kind"] == "calibration"
+                    else PairwiseContextSelector.from_public(
+                        value["context_selector"]
+                    )
                 )
             ),
             utility_transform=reference("utility_transform"),
@@ -594,7 +618,10 @@ def _context_matches_selector(
     context: object,
     selector: object,
 ) -> bool:
-    if isinstance(selector, IntrinsicObservationContext):
+    if isinstance(
+        selector,
+        (IntrinsicObservationContext, CalibrationObservationContext),
+    ):
         return context == selector
     return (
         isinstance(selector, PairwiseContextSelector)

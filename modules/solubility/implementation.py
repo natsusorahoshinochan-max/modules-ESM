@@ -17,6 +17,7 @@ from datatypes import (
 )
 
 from .adapter import (
+    PROTEIN_SOL_CALIBRATION_CONTEXT,
     SoluProtMode,
     invoke_protein_sol,
     invoke_soluprot,
@@ -275,10 +276,7 @@ class ProteinSolImplementation:
             )
         }
         context = CalibrationObservationContext(
-            calibration_metric="population_scaled_solubility",
-            calibration_value=0.446,
-            calibration_unit="dimensionless",
-            population_id="niwa_non_membrane_2396",
+            **PROTEIN_SOL_CALIBRATION_CONTEXT,
         )
         observations = [
             ScoreObservation(

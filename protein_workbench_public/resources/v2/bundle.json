@@ -2431,6 +2431,34 @@
       ],
       "type": "object"
     },
+    "CalibrationObservationContext": {
+      "additionalProperties": false,
+      "properties": {
+        "calibration_metric": {
+          "$ref": "#/$defs/Identifier"
+        },
+        "calibration_unit": {
+          "$ref": "#/$defs/Identifier"
+        },
+        "calibration_value": {
+          "type": "number"
+        },
+        "kind": {
+          "const": "calibration"
+        },
+        "population_id": {
+          "$ref": "#/$defs/Identifier"
+        }
+      },
+      "required": [
+        "kind",
+        "calibration_metric",
+        "calibration_value",
+        "calibration_unit",
+        "population_id"
+      ],
+      "type": "object"
+    },
     "PairwiseContextSelector": {
       "additionalProperties": false,
       "properties": {
@@ -2466,6 +2494,9 @@
       "oneOf": [
         {
           "$ref": "#/$defs/IntrinsicObservationContext"
+        },
+        {
+          "$ref": "#/$defs/CalibrationObservationContext"
         },
         {
           "$ref": "#/$defs/PairwiseContextSelector"

@@ -79,6 +79,75 @@ class _SequenceSource:
         }
 
 
+class _SequenceBatchSource:
+    def __init__(self, run_resources: Any) -> None:
+        self._run_resources = run_resources
+
+    def execute(
+        self,
+        *,
+        inputs: Mapping[str, Any],
+        node_parameters: Mapping[str, Any],
+        binding_parameters: Mapping[str, Any],
+    ) -> dict[str, Any]:
+        if (
+            inputs
+            or set(node_parameters) != {"sequences"}
+            or binding_parameters
+        ):
+            raise ValueError(
+                "folding batch source accepts only exact sequences"
+            )
+        sequences = node_parameters["sequences"]
+        if (
+            not isinstance(sequences, (list, tuple))
+            or not sequences
+            or any(
+                not isinstance(sequence, str)
+                or not sequence
+                or any(
+                    symbol not in "ACDEFGHIKLMNPQRSTVWY"
+                    for symbol in sequence
+                )
+                for sequence in sequences
+            )
+        ):
+            raise ValueError("folding batch source sequences are invalid")
+        with self._run_resources.engine_invocation(
+            engine_identity=(
+                "contract_test.folding_sequence_batch_source/2.0.0"
+            ),
+        ):
+            candidates = [
+                Candidate(
+                    f"fixture-sequence-{index}",
+                    ProteinSequence(
+                        sequence,
+                        [
+                            f"A:{residue_index}"
+                            for residue_index in range(
+                                1,
+                                len(sequence) + 1,
+                            )
+                        ],
+                    ),
+                    [],
+                    {
+                        "source": "independent-literal",
+                        "input_order": index,
+                    },
+                )
+                for index, sequence in enumerate(sequences)
+            ]
+        return {
+            "sequence_candidates": CandidateCollection(
+                "fixture-sequence-batch",
+                "protein.sequence",
+                candidates,
+            )
+        }
+
+
 class _StructureSource:
     def __init__(self, run_resources: Any) -> None:
         self._run_resources = run_resources
@@ -128,6 +197,8 @@ def _build(kind: str):
     def factory(**kwargs: object) -> object:
         if kind == "sequence":
             return _SequenceSource(kwargs["run_resources"])
+        if kind == "sequence_batch":
+            return _SequenceBatchSource(kwargs["run_resources"])
         return _StructureSource(kwargs["run_resources"])
 
     return factory
@@ -204,8 +275,13 @@ MODULE_PACKAGE = ModulePackageRegistration(
     package_module=__package__,
     node_definitions=(
         DefinitionResource("definition.yaml"),
+        DefinitionResource("batch_definition.yaml"),
         DefinitionResource("structure_definition.yaml"),
     ),
-    methods=tuple(_method(kind) for kind in ("sequence", "structure")),
-    bindings=tuple(_binding(kind) for kind in ("sequence", "structure")),
+    methods=tuple(
+        _method(kind) for kind in ("sequence", "sequence_batch", "structure")
+    ),
+    bindings=tuple(
+        _binding(kind) for kind in ("sequence", "sequence_batch", "structure")
+    ),
 )

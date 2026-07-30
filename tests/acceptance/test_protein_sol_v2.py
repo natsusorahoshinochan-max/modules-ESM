@@ -34,16 +34,34 @@ SOURCE_ROOT = EXTERNAL_ROOT / "vendor/protein-sol"
 FIXTURE_ROOT = (
     Path(__file__).resolve().parents[2] / "modules/solubility/fixtures"
 )
-SEQUENCE = "".join(
-    line.strip()
-    for line in (FIXTURE_ROOT / "protein_sol_input.fasta").read_text().splitlines()
-    if not line.startswith(">")
-)
+
+def _fixture_sequences() -> tuple[str, ...]:
+    sequences: list[str] = []
+    current: list[str] = []
+    for line in (
+        FIXTURE_ROOT / "protein_sol_input.fasta"
+    ).read_text().splitlines():
+        if line.startswith(">"):
+            if current:
+                sequences.append("".join(current))
+                current = []
+            continue
+        current.append(line.strip())
+    if current:
+        sequences.append("".join(current))
+    return tuple(sequences)
+
+
+SEQUENCES = _fixture_sequences()
 with (FIXTURE_ROOT / "protein_sol_expected.csv").open(newline="") as handle:
-    EXPECTED = {
-        name: float(value)
-        for name, value in next(csv.DictReader(handle)).items()
-    }
+    EXPECTED = tuple(
+        {
+            name: float(value)
+            for name, value in row.items()
+            if name != "input_index"
+        }
+        for row in csv.DictReader(handle)
+    )
 
 
 def _environment() -> dict[str, Any]:
@@ -112,13 +130,15 @@ def test_local_protein_sol_golden_multiple_metrics(
             nodes=(
                 WorkflowNodeInstance(
                     node_id="source",
-                    node_type_id="contract_test.folding_sequence_source",
+                    node_type_id=(
+                        "contract_test.folding_sequence_batch_source"
+                    ),
                     node_type_version="2.0.0",
                     binding_id=(
-                        "contract_test.folding_sequence_source.direct"
+                        "contract_test.folding_sequence_batch_source.direct"
                     ),
                     binding_version="2.0.0",
-                    node_parameters={"sequence": SEQUENCE},
+                    node_parameters={"sequences": list(SEQUENCES)},
                     binding_parameters={},
                 ),
                 WorkflowNodeInstance(
@@ -191,13 +211,39 @@ def test_local_protein_sol_golden_multiple_metrics(
         if output["node_id"] == "score"
     )
     scores = _decode_output(catalog, output)
+    source_output = next(
+        output
+        for output in projection["outputs"]
+        if output["node_id"] == "source"
+    )
+    source_candidates = _decode_output(catalog, source_output)
+    candidate_ids = [
+        candidate.candidate_id for candidate in source_candidates.items
+    ]
+    assert len(candidate_ids) == len(SEQUENCES) == len(EXPECTED) == 2
+    assert [entry.candidate_id for entry in scores.entries] == [
+        candidate_id
+        for candidate_id in candidate_ids
+        for _ in range(3)
+    ]
     assert {
-        entry.metric.contract_id: entry.value
-        for entry in scores.entries
+        candidate_id: {
+            entry.metric.contract_id: entry.value
+            for entry in scores.entries
+            if entry.candidate_id == candidate_id
+        }
+        for candidate_id in candidate_ids
     } == {
-        "solubility.protein_sol_percent": EXPECTED["percent-sol"],
-        "solubility.protein_sol_scaled": EXPECTED["scaled-sol"],
-        "solubility.protein_sol_pi": EXPECTED["pI"],
+        candidate_id: {
+            "solubility.protein_sol_percent": expected["percent-sol"],
+            "solubility.protein_sol_scaled": expected["scaled-sol"],
+            "solubility.protein_sol_pi": expected["pI"],
+        }
+        for candidate_id, expected in zip(
+            candidate_ids,
+            EXPECTED,
+            strict=True,
+        )
     }
     calibrated = [
         entry
@@ -205,14 +251,33 @@ def test_local_protein_sol_golden_multiple_metrics(
         if entry.metric.contract_id != "solubility.protein_sol_pi"
     ]
     assert {
-        entry.context.calibration_value for entry in calibrated
-    } == {EXPECTED["population-sol"]}
-    pi = next(
-        entry
+        (
+            entry.candidate_id,
+            entry.context.calibration_metric,
+            entry.context.calibration_value,
+            entry.context.calibration_unit,
+            entry.context.population_id,
+        )
+        for entry in calibrated
+    } == {
+        (
+            candidate_id,
+            "population_scaled_solubility",
+            expected["population-sol"],
+            "dimensionless",
+            "niwa_non_membrane_2396",
+        )
+        for candidate_id, expected in zip(
+            candidate_ids,
+            EXPECTED,
+            strict=True,
+        )
+    }
+    assert all(
+        entry.context.to_public() == {"kind": "intrinsic"}
         for entry in scores.entries
         if entry.metric.contract_id == "solubility.protein_sol_pi"
     )
-    assert pi.context.to_public() == {"kind": "intrinsic"}
     assert {
         entry.method.contract_id for entry in scores.entries
     } == {"solubility.protein_sol.sequence_prediction_2017"}

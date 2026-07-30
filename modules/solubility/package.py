@@ -19,6 +19,7 @@ from core import (
 from .adapter import (
     PROTEIN_SOL_BASH_SHA256,
     PROTEIN_SOL_BASH_VERSION,
+    PROTEIN_SOL_CALIBRATION_CONTEXT,
     PROTEIN_SOL_PERL_SHA256,
     PROTEIN_SOL_PERL_VERSION,
     PROTEIN_SOL_RELEASE,
@@ -45,13 +46,6 @@ from .adapter import (
 
 _VERSION = "2.0.0"
 _MODES = ("full", "no_tm")
-_PROTEIN_SOL_CONTEXT = {
-    "kind": "calibration",
-    "calibration_metric": "population_scaled_solubility",
-    "calibration_value": 0.446,
-    "calibration_unit": "dimensionless",
-    "population_id": "niwa_non_membrane_2396",
-}
 
 
 def _available() -> AvailabilityResult:
@@ -292,7 +286,9 @@ def _protein_sol_method() -> MethodDefinition:
         algorithm_identity={
             "name": "Protein-Sol sequence-based soluble-fraction predictor",
             "training_population": "niwa_non_membrane_2396",
-            "feature_count": 36,
+            "scientific_feature_count": 35,
+            "raw_composition_column_count": 36,
+            "raw_bookkeeping_column": "totperc",
             "fitted_feature_count": 10,
             "feature_bounds": "clamped-by-upstream-before-linear-fit",
             "provider_postprocessing": {
@@ -473,12 +469,12 @@ def _protein_sol_binding() -> ExecutionBindingDefinition:
                 (
                     "protein_sol_percent",
                     "solubility.protein_sol_percent",
-                    _PROTEIN_SOL_CONTEXT,
+                    PROTEIN_SOL_CALIBRATION_CONTEXT,
                 ),
                 (
                     "protein_sol_scaled",
                     "solubility.protein_sol_scaled",
-                    _PROTEIN_SOL_CONTEXT,
+                    PROTEIN_SOL_CALIBRATION_CONTEXT,
                 ),
                 (
                     "protein_sol_pi",

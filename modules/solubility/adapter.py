@@ -123,6 +123,13 @@ _CANONICAL_AMINO_ACIDS = frozenset("ACDEFGHIKLMNPQRSTVWY")
 _MAX_PROVIDER_OUTPUT_BYTES = 1024 * 1024
 PROTEIN_SOL_RELEASE = "2017-10"
 PROTEIN_SOL_POPULATION_SCALED = 0.446
+PROTEIN_SOL_CALIBRATION_CONTEXT = {
+    "kind": "calibration",
+    "calibration_metric": "population_scaled_solubility",
+    "calibration_value": PROTEIN_SOL_POPULATION_SCALED,
+    "calibration_unit": "dimensionless",
+    "population_id": "niwa_non_membrane_2396",
+}
 PROTEIN_SOL_PERL_VERSION = "v5.34.1"
 PROTEIN_SOL_PERL_SHA256 = SOLUPROT_PERL_SHA256
 PROTEIN_SOL_BASH_VERSION = (

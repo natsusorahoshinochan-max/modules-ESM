@@ -1,0 +1,29 @@
+schema_version: "2.0.0"
+node_type_id: contract_test.folding_sequence_batch_source
+version: "2.0.0"
+title: Folding sequence batch source
+summary: Emits deterministic sequence Candidates for batch conformance.
+category: contract_test
+inputs: []
+outputs:
+  - name: sequence_candidates
+    port_type_id: candidate.collection
+    port_type_version: "2.0.0"
+    required: true
+    multiplicity: one
+    scientific_meaning: Independently defined complete protein sequence Candidates in input order.
+parameter_groups:
+  - id: fixture
+    title: Fixture
+    parameters: [sequences]
+node_parameters:
+  sequences:
+    parameter_scope: scientific
+    scientific_meaning: Exact ordered canonical protein sequences used by this independent test source.
+    required: true
+    type: array
+    minItems: 1
+    maxItems: 100
+    items:
+      type: string
+      pattern: "^[ACDEFGHIKLMNPQRSTVWY]+$"
