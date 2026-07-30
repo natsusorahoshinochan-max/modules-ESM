@@ -33,6 +33,8 @@ PROTEINMPNN_MODEL = "v_48_020"
 PROTEINMPNN_CHECKPOINT = "vanilla_model_weights/v_48_020.pt"
 PROTEINMPNN_DEVICE = "cpu"
 PROTEINMPNN_TORCH_VERSION = "2.13.0"
+PROTEINMPNN_SCORING_SEED = 42
+PROTEINMPNN_NATIVE_SCORE_MAXIMUM = 3.4028234663852886e38
 _CANONICAL_AMINO_ACIDS = frozenset("ACDEFGHIKLMNPQRSTVWY")
 
 
@@ -287,6 +289,88 @@ def validate_design_result(
             )
         scores.append(float(score))
     return sequences, scores
+
+
+def prepare_scoring_request(
+    *,
+    provider: ProteinMPNNProvider,
+    structure: ProteinStructure,
+    sequence: ProteinSequence,
+) -> ProteinMPNNDesignRequest:
+    """Normalize one exact Candidate pair into the fixed scoring request."""
+    if type(structure) is not ProteinStructure:
+        raise ValueError("scoring structure must be one ProteinStructure")
+    if (
+        type(sequence) is not ProteinSequence
+        or not sequence.sequence
+        or not set(sequence.sequence) <= _CANONICAL_AMINO_ACIDS
+    ):
+        raise ValueError(
+            "scoring sequence must contain only canonical amino acids"
+        )
+    parsed = provider.parse_structure(structure.pdb_string)
+    request = _prepare_design_request(
+        parsed,
+        PROTEINMPNN_MODEL,
+        1,
+        0.1,
+        0.0,
+        PROTEINMPNN_SCORING_SEED,
+        None,
+        sequence.sequence,
+    )
+    if (
+        sequence.residue_ids is not None
+        and sequence.residue_ids != _target_residue_ids(request)
+    ):
+        raise ValueError(
+            "scoring sequence residue layout does not match the parsed "
+            "structure layout"
+        )
+    return request
+
+
+def validate_scoring_result(raw_result: object) -> float:
+    """Validate the provider-native binary32 score without transforming it."""
+    if (
+        type(raw_result) is not float
+        or not math.isfinite(raw_result)
+        or raw_result < 0
+        or raw_result > PROTEINMPNN_NATIVE_SCORE_MAXIMUM
+    ):
+        raise RuntimeError(
+            "ProteinMPNN provider score is outside the exact native "
+            "binary32 non-negative range"
+        )
+    return raw_result
+
+
+def record_scoring_result(
+    *,
+    provider: ProteinMPNNProvider,
+    structure: ProteinStructure,
+    sequence: ProteinSequence,
+    score: float,
+) -> None:
+    """Record bounded exact evidence only after native score validation."""
+    record_provider_call_result(
+        provider=provider.provider_identity,
+        operation="score_sequence",
+        model=PROTEINMPNN_MODEL,
+        provider_identity=proteinmpnn_provider_identity(),
+        effective_seed=PROTEINMPNN_SCORING_SEED,
+        seed_control="fixed_scoring_seed",
+        result_summary={
+            "input_pdb_sha256": hashlib.sha256(
+                structure.pdb_string.encode()
+            ).hexdigest(),
+            "input_sequence_sha256": hashlib.sha256(
+                sequence.sequence.encode()
+            ).hexdigest(),
+            "score": score,
+            "sequence_length": len(sequence.sequence),
+        },
+    )
 
 
 def record_design_result(

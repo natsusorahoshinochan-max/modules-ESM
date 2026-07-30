@@ -1,0 +1,24 @@
+schema_version: "2.0.0"
+metric_id: proteinmpnn.native_sequence_nll
+version: "2.0.0"
+title: ProteinMPNN native sequence negative log-likelihood
+description: ProteinMPNN provider-native masked mean negative log-likelihood for one exact sequence Candidate on its exact parent structure.
+value_shape: scalar
+unit: nats_per_designed_residue
+direction: lower_is_better
+canonical_range:
+  minimum: 0
+  maximum: 3.4028234663852886e+38
+granularity: candidate
+aggregation_semantics:
+  kind: none
+observation_context_schema:
+  type: object
+  properties:
+    kind:
+      const: intrinsic
+  required:
+    - kind
+  additionalProperties: false
+validation_contract:
+  finite: true

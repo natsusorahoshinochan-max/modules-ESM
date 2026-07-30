@@ -508,6 +508,28 @@ TIERS = {
         requires_local_model_environment=True,
         requires_simplefold_environment=True,
     ),
+    "proteinmpnn-scoring-v2-heavy-model": Tier((
+        "tests/acceptance/test_proteinmpnn_scoring_v2.py::"
+        "test_proteinmpnn_v2_scoring_publishes_exact_native_observation",
+        "tests/acceptance/test_proteinmpnn_scoring_v2.py::"
+        "test_proteinmpnn_v2_sibling_design_remains_exact_and_complete",
+        "-m",
+        "local_provider and slow",
+    ),
+        requires_provider_evidence=True,
+        provider_evidence_gate="heavy-model",
+        required_call_counts=(
+            ("local-proteinmpnn", "score_sequence", 1),
+            ("local-proteinmpnn", "design_sequences", 1),
+        ),
+        expected_test_ids=frozenset({
+            "tests/acceptance/test_proteinmpnn_scoring_v2.py::"
+            "test_proteinmpnn_v2_scoring_publishes_exact_native_observation",
+            "tests/acceptance/test_proteinmpnn_scoring_v2.py::"
+            "test_proteinmpnn_v2_sibling_design_remains_exact_and_complete",
+        }),
+        requires_local_model_environment=True,
+    ),
     "heavy-model": Tier((
         "tests/acceptance/test_local_esm3.py::test_local_esm3_all_generation_modes",
         "tests/acceptance/test_proteinmpnn_design.py::TestProteinMPNNDesign::test_design_3gb1",

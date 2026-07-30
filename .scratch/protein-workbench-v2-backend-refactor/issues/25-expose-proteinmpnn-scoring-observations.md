@@ -4,7 +4,7 @@
 
 **Blocked by:** 24 — Consolidate ProteinMPNN constraints and design.
 
-**Status:** ready-for-agent
+**Status:** in-progress
 
 - [ ] ProteinMPNN scoring has one independent Node Definition in the existing package and reuses the package's model-loading, input normalization, Readiness, and evidence infrastructure.
 - [ ] The scoring Method fixes exact model/checkpoint/source/featurization identity, and the Binding does not expose a mutable `model_name`, checkpoint path, or device as Workflow data.

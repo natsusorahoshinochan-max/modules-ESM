@@ -216,6 +216,13 @@ class ProteinMPNNProvider(Protocol):
     ) -> tuple[list[ProteinSequence], list[float]]:
         """Execute one already-validated ProteinMPNN request."""
 
+    def score(
+        self,
+        request: ProteinMPNNDesignRequest,
+        sequence: ProteinSequence,
+    ) -> float:
+        """Score one exact sequence on one already-validated target."""
+
 
 def _get_checkpoint_path(
     model_name: str,
@@ -560,6 +567,35 @@ class _LocalProteinMPNNProvider:
                 for sequence in sequences
             ]
         return sequences, scores
+
+    def score(
+        self,
+        request: ProteinMPNNDesignRequest,
+        sequence: ProteinSequence,
+    ) -> float:
+        import torch
+
+        with torch.random.fork_rng():
+            torch.manual_seed(request.seed)
+            model, device = _load_model(
+                request.model_name,
+                request.backbone_noise,
+                self._provider_root,
+            )
+            batch = _featurize(
+                request,
+                device,
+                self._provider_root,
+            )
+            return float(
+                _compute_score(
+                    model,
+                    batch,
+                    sequence.sequence,
+                    device,
+                    self._provider_root,
+                )
+            )
 
 
 def _chain_sequences(

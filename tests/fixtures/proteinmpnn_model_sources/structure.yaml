@@ -1,0 +1,16 @@
+schema_version: "2.0.0"
+node_type_id: contract_test.proteinmpnn_3gb1_structure
+version: "2.0.0"
+title: Exact 3GB1 structure Candidate source
+summary: Emits the source-bound 3GB1 structure as one exact Candidate.
+category: contract_test
+inputs: []
+outputs:
+  - name: structure_candidates
+    port_type_id: candidate.collection
+    port_type_version: "2.0.0"
+    required: true
+    multiplicity: one
+    scientific_meaning: One exact source-bound 3GB1 structure Candidate.
+parameter_groups: []
+node_parameters: {}

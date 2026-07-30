@@ -2,12 +2,15 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
 from pathlib import Path
 from typing import Any
 
 import pytest
 
 from core import (
+    CatalogBuildError,
+    ContractIdentity,
     EnvironmentConfiguration,
     ModulePackageContractCase,
     ProjectManager,
@@ -23,16 +26,25 @@ from core import (
     verify_module_package_contract,
 )
 from core.port_types import canonical_json_bytes
-from core.workflow_v2 import WorkflowEdge
+from core.workflow_v2 import (
+    WorkflowCompileError,
+    WorkflowEdge,
+    compile_workflow,
+    relock_workflow,
+)
 from datatypes import (
+    Candidate,
     CandidateCollection,
+    IntrinsicObservationContext,
     ProteinMPNNConstraints,
     ProteinSequence,
     ProteinStructure,
+    ScoreCollection,
+    ScoreObservation,
 )
 
 
-def test_proteinmpnn_is_one_package_with_three_independent_nodes() -> None:
+def test_proteinmpnn_is_one_package_with_four_independent_nodes() -> None:
     registrations = {
         registration.package_id: registration
         for registration in discover_module_packages()
@@ -46,6 +58,7 @@ def test_proteinmpnn_is_one_package_with_three_independent_nodes() -> None:
         "definitions/constraints.yaml",
         "definitions/random_fixed_positions.yaml",
         "definitions/design.yaml",
+        "definitions/score.yaml",
     }
 
     catalog = build_discovered_frozen_catalog()
@@ -59,7 +72,221 @@ def test_proteinmpnn_is_one_package_with_three_independent_nodes() -> None:
         ("proteinmpnn.constraints", "2.0.0"),
         ("proteinmpnn.random_fixed_positions", "2.0.0"),
         ("proteinmpnn.design", "2.0.0"),
+        ("proteinmpnn.score", "2.0.0"),
     }
+
+
+def test_scoring_binding_fixes_exact_method_metric_and_observation_scope() -> None:
+    from modules.proteinmpnn.package import (
+        MODULE_PACKAGE as PROTEINMPNN_PACKAGE,
+    )
+
+    catalog = build_frozen_catalog((PROTEINMPNN_PACKAGE,))
+    node = catalog.require_contract(
+        "node_type",
+        "proteinmpnn.score",
+        "2.0.0",
+    )
+    binding = catalog.require_contract(
+        "binding",
+        "proteinmpnn.score.local",
+        "2.0.0",
+    )
+    method = catalog.require_contract(
+        "method",
+        "proteinmpnn.score.v_48_020_8907e667",
+        "2.0.0",
+    )
+    metric = catalog.require_contract(
+        "metric",
+        "proteinmpnn.native_sequence_nll",
+        "2.0.0",
+    )
+
+    assert node.descriptor["node_parameters"] == {}
+    assert binding.descriptor["binding_parameters"] == {}
+    assert {
+        "model",
+        "model_name",
+        "model_path",
+        "checkpoint_path",
+        "device",
+        "runtime_directory",
+        "temp_dir",
+    }.isdisjoint(node.descriptor["node_parameters"])
+    assert method.descriptor["model_identity"] == {
+        "model": "v_48_020",
+        "architecture": "ProteinMPNN",
+        "source": "dauparas/ProteinMPNN",
+    }
+    assert method.descriptor["checkpoint_identity"] == {
+        "relative_path": "vanilla_model_weights/v_48_020.pt",
+        "sha256": (
+            "c9cb4a671d79604111231f8dbfc7c590e06f1197453b7a6854ac6661a642f5bd"
+        ),
+    }
+    assert method.descriptor["source_identity"]["source_revision"] == (
+        "8907e6671bfbfc92303b5f79c4b5e6ce47cdef57"
+    )
+    assert binding.descriptor["implementation_identity"]["name"] == (
+        "proteinmpnn.score.local-adapter"
+    )
+    assert binding.descriptor["implementation_identity"][
+        "seed_control"
+    ] == "fixed_scoring_seed_42"
+    assert method.descriptor["featurization_identity"] == {
+        "structure": "ProteinMPNN parse_PDB",
+        "sequence": "canonical-20-amino-acid exact target layout",
+        "tensorization": "ProteinMPNN tied_featurize all chains designed",
+        "mask": "provider mask multiplied by chain_M",
+        "reduction": "provider _scores masked mean",
+        "decoding_order_seed": 42,
+    }
+    assert metric.descriptor["value_shape"] == "scalar"
+    assert metric.descriptor["unit"] == "nats_per_designed_residue"
+    assert metric.descriptor["direction"] == "lower_is_better"
+    assert metric.descriptor["canonical_range"] == {
+        "minimum": 0,
+        "maximum": 3.4028234663852886e38,
+    }
+    assert metric.descriptor["granularity"] == "candidate"
+    produced = binding.descriptor["produced_observations"]
+    assert len(produced) == 1
+    assert produced[0] == {
+        "output_port": "scores",
+        "output_partition": "default",
+        "metric": produced[0]["metric"],
+        "context_profile": {"kind": "intrinsic"},
+        "subject_grain": "candidate",
+        "source_role": "subject",
+        "subject_direction": "input",
+        "subject_port": "sequence_candidates",
+        "reference_direction": None,
+        "reference_port": None,
+        "pairing_direction": None,
+        "pairing_port": None,
+        "guaranteed_multiplicity": "one",
+    }
+    assert produced[0]["metric"] == {
+        "contract_kind": "metric",
+        "contract_id": "proteinmpnn.native_sequence_nll",
+        "contract_version": "2.0.0",
+        "contract_digest": produced[0]["metric"]["contract_digest"],
+    }
+    assert produced[0]["metric"]["contract_digest"].startswith("sha256:")
+
+
+@pytest.mark.parametrize(
+    ("mismatch", "expected_message"),
+    (
+        ("metric", "dangling contract reference"),
+        ("context", "does not satisfy Metric observation_context_schema"),
+        ("scope", "references unknown subject input Port"),
+    ),
+)
+def test_scoring_metric_context_and_scope_mismatches_fail_catalog_build(
+    mismatch: str,
+    expected_message: str,
+) -> None:
+    from modules.proteinmpnn.package import (
+        MODULE_PACKAGE as PROTEINMPNN_PACKAGE,
+    )
+
+    scoring = next(
+        binding
+        for binding in PROTEINMPNN_PACKAGE.bindings
+        if binding.binding_id == "proteinmpnn.score.local"
+    )
+    produced = scoring.produced_observations[0]
+    if mismatch == "metric":
+        invalid_produced = replace(
+            produced,
+            metric=ContractIdentity(
+                "metric",
+                "proteinmpnn.undeclared_metric",
+                "2.0.0",
+            ),
+        )
+    elif mismatch == "context":
+        invalid_produced = replace(
+            produced,
+            context_profile={
+                "kind": "intrinsic",
+                "normalization": "dataset-relative",
+            },
+        )
+    else:
+        invalid_produced = replace(
+            produced,
+            subject_port="undeclared_subjects",
+        )
+    invalid_binding = replace(
+        scoring,
+        produced_observations=(invalid_produced,),
+    )
+    invalid_package = replace(
+        PROTEINMPNN_PACKAGE,
+        bindings=tuple(
+            invalid_binding if binding is scoring else binding
+            for binding in PROTEINMPNN_PACKAGE.bindings
+        ),
+    )
+
+    with pytest.raises(CatalogBuildError, match=expected_message):
+        build_frozen_catalog((invalid_package,))
+
+
+def test_scoring_method_mismatch_fails_compilation_before_provider(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from modules.proteinmpnn.package import (
+        MODULE_PACKAGE as PROTEINMPNN_PACKAGE,
+    )
+    from tests.fixtures.proteinmpnn_sources.package import (
+        MODULE_PACKAGE as SOURCE_PACKAGE,
+    )
+
+    provider = _CapturingProteinMPNN()
+    _install_test_provider(monkeypatch, provider)
+    nodes, edges = _score_workflow()
+    score = nodes[-1]
+    nodes = (
+        *nodes[:-1],
+        WorkflowNodeInstance(
+            node_id=score.node_id,
+            node_type_id=score.node_type_id,
+            node_type_version=score.node_type_version,
+            binding_id="proteinmpnn.design.local",
+            binding_version="2.0.0",
+            node_parameters={},
+            binding_parameters={},
+        ),
+    )
+    catalog = build_frozen_catalog(
+        (PROTEINMPNN_PACKAGE, SOURCE_PACKAGE)
+    )
+    workflow = relock_workflow(
+        WorkflowDocument(
+            schema_version="2.0.0",
+            workflow_id="proteinmpnn-method-mismatch",
+            nodes=nodes,
+            edges=edges,
+            contract_lock=(),
+        ),
+        catalog,
+    )
+
+    with pytest.raises(
+        WorkflowCompileError,
+        match="Selected Binding does not belong",
+    ):
+        compile_workflow(
+            workflow,
+            workflow_revision=1,
+            catalog=catalog,
+        )
+    assert provider.parsed == []
+    assert provider.requests == []
 
 
 def _decode_output(catalog: Any, output: dict[str, Any]) -> Any:
@@ -425,6 +652,14 @@ class _CapturingProteinMPNN:
             ],
         )
 
+    def score(
+        self,
+        request: Any,
+        sequence: ProteinSequence,
+    ) -> float:
+        self.requests.append((request, sequence))
+        return 2.75
+
 
 def _install_test_provider(
     monkeypatch: pytest.MonkeyPatch,
@@ -453,7 +688,7 @@ def _proteinmpnn_environment(
     fingerprint = configured_runtime_fingerprint()
     return EnvironmentConfiguration(
         {
-            ("proteinmpnn.design.local", "2.0.0"): {
+            (binding_id, "2.0.0"): {
                 "values": {
                     "device": "cpu",
                     "resolved_runtime_fingerprint": fingerprint,
@@ -463,7 +698,434 @@ def _proteinmpnn_environment(
                 "safe_fingerprint": "proteinmpnn-fixture-v1",
                 "invalidation_token": "proteinmpnn-fixture-v1",
             }
+            for binding_id in (
+                "proteinmpnn.design.local",
+                "proteinmpnn.score.local",
+            )
         }
+    )
+
+
+def _score_workflow() -> tuple[
+    tuple[WorkflowNodeInstance, ...],
+    tuple[WorkflowEdge, ...],
+]:
+    return (
+        (
+            WorkflowNodeInstance(
+                node_id="source",
+                node_type_id="contract_test.proteinmpnn_source",
+                node_type_version="2.0.0",
+                binding_id="contract_test.proteinmpnn_source.direct",
+                binding_version="2.0.0",
+                node_parameters={"parent_count": 1},
+                binding_parameters={},
+            ),
+            WorkflowNodeInstance(
+                node_id="sequence-source",
+                node_type_id="contract_test.proteinmpnn_sequence_source",
+                node_type_version="2.0.0",
+                binding_id=(
+                    "contract_test.proteinmpnn_sequence_source.direct"
+                ),
+                binding_version="2.0.0",
+                node_parameters={},
+                binding_parameters={},
+            ),
+            WorkflowNodeInstance(
+                node_id="score",
+                node_type_id="proteinmpnn.score",
+                node_type_version="2.0.0",
+                binding_id="proteinmpnn.score.local",
+                binding_version="2.0.0",
+                node_parameters={},
+                binding_parameters={},
+            ),
+        ),
+        (
+            WorkflowEdge(
+                "source",
+                "structure_candidates",
+                "sequence-source",
+                "structure_candidates",
+            ),
+            WorkflowEdge(
+                "source",
+                "structure_candidates",
+                "score",
+                "structure_candidates",
+            ),
+            WorkflowEdge(
+                "sequence-source",
+                "sequence_candidates",
+                "score",
+                "sequence_candidates",
+            ),
+        ),
+    )
+
+
+def test_scoring_emits_one_exact_intrinsic_observation_with_real_attempts(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from modules.proteinmpnn.package import (
+        MODULE_PACKAGE as PROTEINMPNN_PACKAGE,
+    )
+    from tests.fixtures.proteinmpnn_sources.package import (
+        MODULE_PACKAGE as SOURCE_PACKAGE,
+    )
+
+    provider = _CapturingProteinMPNN()
+    _install_test_provider(monkeypatch, provider)
+    nodes, edges = _score_workflow()
+    catalog, projection, events = _run(
+        tmp_path,
+        nodes=nodes,
+        edges=edges,
+        registrations=(PROTEINMPNN_PACKAGE, SOURCE_PACKAGE),
+        environment=_proteinmpnn_environment(),
+    )
+
+    assert projection["status"] == "succeeded", events
+    output = next(
+        item
+        for item in projection["outputs"]
+        if item["node_id"] == "score"
+    )
+    scores = _decode_output(catalog, output)
+    subject_output = next(
+        item
+        for item in projection["outputs"]
+        if item["node_id"] == "sequence-source"
+    )
+    subjects = _decode_output(catalog, subject_output)
+    assert type(scores) is ScoreCollection
+    assert len(scores.entries) == 1
+    observation = scores.entries[0]
+    assert type(observation) is ScoreObservation
+    assert observation.candidate_id == subjects.items[0].candidate_id
+    assert observation.metric.contract_id == (
+        "proteinmpnn.native_sequence_nll"
+    )
+    assert observation.method.contract_id == (
+        "proteinmpnn.score.v_48_020_8907e667"
+    )
+    assert observation.context == IntrinsicObservationContext()
+    assert observation.value == 2.75
+    assert len(provider.parsed) == 1
+    assert len(provider.requests) == 1
+    request, sequence = provider.requests[0]
+    assert request.model_name == "v_48_020"
+    assert request.seed == 42
+    assert request.backbone_noise == 0
+    assert sequence.sequence == "AGSTW"
+    public_events = [item["event"] for item in events]
+    invocation = next(
+        event
+        for event in public_events
+        if event["type"] == "engine_invocation_started"
+        and event["engine_identity"].startswith(
+            "proteinmpnn.score.local."
+        )
+    )
+    assert any(
+        event["type"] == "operation_attempt_started"
+        and event["operation_attempt_id"]
+        == invocation["operation_attempt_id"]
+        for event in public_events
+    )
+    assert any(
+        event["type"] == "engine_invocation_terminal"
+        and event["invocation_id"] == invocation["invocation_id"]
+        and event["status"] == "succeeded"
+        for event in public_events
+    )
+    assert any(
+        event["type"] == "operation_attempt_terminal"
+        and event["operation_attempt_id"]
+        == invocation["operation_attempt_id"]
+        and event["status"] == "succeeded"
+        for event in public_events
+    )
+
+
+@pytest.mark.parametrize(
+    "raw_score",
+    (
+        -0.25,
+        float("inf"),
+        0,
+        3.402823466385289e38,
+    ),
+)
+def test_scoring_rejects_non_native_values_after_engine_without_publication(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    raw_score: object,
+) -> None:
+    from modules.proteinmpnn.package import (
+        MODULE_PACKAGE as PROTEINMPNN_PACKAGE,
+    )
+    from tests.fixtures.proteinmpnn_sources.package import (
+        MODULE_PACKAGE as SOURCE_PACKAGE,
+    )
+
+    class Provider(_CapturingProteinMPNN):
+        def score(
+            self,
+            request: Any,
+            sequence: ProteinSequence,
+        ) -> Any:
+            self.requests.append((request, sequence))
+            return raw_score
+
+    class Replay(ResultReplaySource):
+        def __init__(self) -> None:
+            self.published: list[str] = []
+
+        def publish(self, **kwargs: Any) -> None:
+            self.published.append(kwargs["node"].node_id)
+
+    provider = Provider()
+    replay = Replay()
+    _install_test_provider(monkeypatch, provider)
+    nodes, edges = _score_workflow()
+    _, projection, events = _run(
+        tmp_path,
+        nodes=nodes,
+        edges=edges,
+        registrations=(PROTEINMPNN_PACKAGE, SOURCE_PACKAGE),
+        environment=_proteinmpnn_environment(),
+        result_replay_source=replay,
+    )
+
+    assert projection["status"] == "failed"
+    assert all(
+        output["node_id"] != "score"
+        for output in projection["outputs"]
+    )
+    assert "score" not in replay.published
+    public_events = [item["event"] for item in events]
+    invocation = next(
+        event
+        for event in public_events
+        if event["type"] == "engine_invocation_started"
+        and event["engine_identity"].startswith(
+            "proteinmpnn.score.local."
+        )
+    )
+    assert any(
+        event["type"] == "engine_invocation_terminal"
+        and event["invocation_id"] == invocation["invocation_id"]
+        and event["status"] == "succeeded"
+        for event in public_events
+    )
+    assert any(
+        event["type"] == "operation_attempt_terminal"
+        and event["operation_attempt_id"]
+        == invocation["operation_attempt_id"]
+        and event["status"] == "failed"
+        for event in public_events
+    )
+
+
+def test_scoring_rejects_ambiguous_subjects_before_provider_execution(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from modules.proteinmpnn.package import (
+        MODULE_PACKAGE as PROTEINMPNN_PACKAGE,
+    )
+    from tests.fixtures.proteinmpnn_sources.package import (
+        MODULE_PACKAGE as SOURCE_PACKAGE,
+    )
+
+    provider = _CapturingProteinMPNN()
+    _install_test_provider(monkeypatch, provider)
+    nodes, edges = _score_workflow()
+    source = nodes[0]
+    nodes = (
+        WorkflowNodeInstance(
+            node_id=source.node_id,
+            node_type_id=source.node_type_id,
+            node_type_version=source.node_type_version,
+            binding_id=source.binding_id,
+            binding_version=source.binding_version,
+            node_parameters={"parent_count": 2},
+            binding_parameters=source.binding_parameters,
+        ),
+        *nodes[1:],
+    )
+    _, projection, events = _run(
+        tmp_path,
+        nodes=nodes,
+        edges=edges,
+        registrations=(PROTEINMPNN_PACKAGE, SOURCE_PACKAGE),
+        environment=_proteinmpnn_environment(),
+    )
+
+    assert projection["status"] == "failed"
+    assert provider.parsed == []
+    assert provider.requests == []
+    assert all(
+        event["event"].get("engine_identity", "").startswith(
+            "proteinmpnn.score.local."
+        )
+        is False
+        for event in events
+    )
+
+
+def test_scoring_rejects_sequence_residue_layout_drift_before_model_call() -> None:
+    from modules.proteinmpnn.v2_adapter import prepare_scoring_request
+
+    provider = _CapturingProteinMPNN()
+    with pytest.raises(
+        ValueError,
+        match="residue layout does not match",
+    ):
+        prepare_scoring_request(
+            provider=provider,
+            structure=ProteinStructure("MODEL\nEND\n"),
+            sequence=ProteinSequence(
+                "AGSTW",
+                ["A:1", "A:2", "B:1", "B:2", "B:99"],
+            ),
+        )
+    assert provider.requests == []
+
+
+def test_scoring_replay_preserves_candidate_and_observation_identity_only(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from modules.proteinmpnn.package import (
+        MODULE_PACKAGE as PROTEINMPNN_PACKAGE,
+    )
+    from tests.fixtures.proteinmpnn_sources.package import (
+        MODULE_PACKAGE as SOURCE_PACKAGE,
+    )
+
+    nodes, edges = _score_workflow()
+    catalog = build_frozen_catalog(
+        (PROTEINMPNN_PACKAGE, SOURCE_PACKAGE)
+    )
+    projects = ProjectManager(
+        tmp_path / "projects",
+        cache_root=tmp_path / "cache",
+        output_root=tmp_path / "outputs",
+        run_root=tmp_path / "runs",
+    )
+    project = projects.create("ProteinMPNN scoring replay")
+    authoring = WorkflowAuthoringService(projects, catalog)
+    saved = authoring.save(
+        project.id,
+        expected_workflow_revision=0,
+        workflow=WorkflowDocument(
+            schema_version="2.0.0",
+            workflow_id=project.id,
+            nodes=nodes,
+            edges=edges,
+            contract_lock=(),
+        ),
+    )
+    relocked = authoring.relock(
+        project.id,
+        workflow_revision=saved["workflow_revision"],
+    )
+    compiled = authoring.compile(
+        project.id,
+        workflow_revision=relocked["workflow_revision"],
+        workflow=parse_workflow_document(relocked["workflow"]),
+    )
+
+    def run(provider: _CapturingProteinMPNN) -> tuple[
+        dict[str, Any],
+        tuple[dict[str, Any], ...],
+        ScoreCollection,
+        CandidateCollection,
+    ]:
+        _install_test_provider(monkeypatch, provider)
+        service = V2RunService(
+            projects,
+            catalog,
+            authoring,
+            _proteinmpnn_environment(),
+        )
+        receipt = service.start_background(
+            project.id,
+            workflow_revision=relocked["workflow_revision"],
+            compile_id=compiled.public_receipt()["compile_id"],
+            client_request_id=f"score-replay-{id(provider)}",
+        )
+        service.shutdown()
+        projection = service.projection(project.id, receipt["run_id"])
+        events = service.public_events(project.id, receipt["run_id"])
+        assert projection["status"] == "succeeded", events
+        score_output = next(
+            output
+            for output in projection["outputs"]
+            if output["node_id"] == "score"
+        )
+        subject_output = next(
+            output
+            for output in projection["outputs"]
+            if output["node_id"] == "sequence-source"
+        )
+        return (
+            score_output,
+            events,
+            _decode_output(catalog, score_output),
+            _decode_output(catalog, subject_output),
+        )
+
+    first_provider = _CapturingProteinMPNN()
+    first_output, first_events, first_scores, first_subjects = run(
+        first_provider
+    )
+    replay_provider = _CapturingProteinMPNN()
+    replay_output, replay_events, replay_scores, replay_subjects = run(
+        replay_provider
+    )
+
+    assert first_output["result_identity"] == replay_output[
+        "result_identity"
+    ]
+    assert first_subjects.items[0].candidate_id == (
+        replay_subjects.items[0].candidate_id
+    )
+    first_observation = first_scores.entries[0]
+    replay_observation = replay_scores.entries[0]
+    assert type(first_observation) is ScoreObservation
+    assert type(replay_observation) is ScoreObservation
+    assert first_observation.identity == replay_observation.identity
+    assert first_observation.value == replay_observation.value == 2.75
+    assert len(first_provider.parsed) == len(first_provider.requests) == 1
+    assert replay_provider.parsed == []
+    assert replay_provider.requests == []
+
+    def score_readiness(
+        events: tuple[dict[str, Any], ...],
+    ) -> list[dict[str, Any]]:
+        return [
+            item["event"]
+            for item in events
+            if item["event"]["type"] == "readiness_attested"
+            and item["event"]["binding"]["contract_id"]
+            == "proteinmpnn.score.local"
+        ]
+
+    assert len(score_readiness(first_events)) == 1
+    assert len(score_readiness(replay_events)) == 1
+    assert all(
+        not (
+            item["event"]["type"] == "engine_invocation_started"
+            and item["event"]["engine_identity"].startswith(
+                "proteinmpnn.score.local."
+            )
+        )
+        for item in replay_events
     )
 
 
@@ -1145,6 +1807,24 @@ def test_proteinmpnn_passes_the_shared_contract_test_kit(
         node_parameters={"parent_count": 3},
         binding_parameters={},
     )
+    sequence_source = WorkflowNodeInstance(
+        node_id="sequence-source",
+        node_type_id="contract_test.proteinmpnn_sequence_source",
+        node_type_version="2.0.0",
+        binding_id="contract_test.proteinmpnn_sequence_source.direct",
+        binding_version="2.0.0",
+        node_parameters={},
+        binding_parameters={},
+    )
+    score_source = WorkflowNodeInstance(
+        node_id="score-source",
+        node_type_id="contract_test.proteinmpnn_source",
+        node_type_version="2.0.0",
+        binding_id="contract_test.proteinmpnn_source.direct",
+        binding_version="2.0.0",
+        node_parameters={"parent_count": 1},
+        binding_parameters={},
+    )
     design_provider = _CapturingProteinMPNN()
     _install_test_provider(monkeypatch, design_provider)
     cases = (
@@ -1241,6 +1921,48 @@ def test_proteinmpnn_passes_the_shared_contract_test_kit(
             expected_candidate_counts={"sequence_candidates": 15},
             forbidden_public_fragments=("ctk-proteinmpnn-secret",),
         ),
+        ModulePackageContractCase(
+            case_id="score",
+            node_type_id="proteinmpnn.score",
+            node_type_version="2.0.0",
+            binding_id="proteinmpnn.score.local",
+            binding_version="2.0.0",
+            node_parameters={},
+            binding_parameters={},
+            environment_values={
+                "device": "cpu",
+                "resolved_runtime_fingerprint": (
+                    configured_runtime_fingerprint()
+                ),
+                "provider_root": _proteinmpnn_provider_root(),
+                "private_token": "ctk-proteinmpnn-secret",
+            },
+            safe_environment_fingerprint="proteinmpnn-fixture-v1",
+            invalidation_token="proteinmpnn-fixture-v1",
+            workflow_nodes=(score_source, sequence_source),
+            workflow_edges=(
+                WorkflowEdge(
+                    "score-source",
+                    "structure_candidates",
+                    "sequence-source",
+                    "structure_candidates",
+                ),
+                WorkflowEdge(
+                    "score-source",
+                    "structure_candidates",
+                    "contract-test-node",
+                    "structure_candidates",
+                ),
+                WorkflowEdge(
+                    "sequence-source",
+                    "sequence_candidates",
+                    "contract-test-node",
+                    "sequence_candidates",
+                ),
+            ),
+            expected_observation_counts={"scores": 1},
+            forbidden_public_fragments=("ctk-proteinmpnn-secret",),
+        ),
     )
 
     report = verify_module_package_contract(
@@ -1254,6 +1976,7 @@ def test_proteinmpnn_passes_the_shared_contract_test_kit(
     )
 
     assert [case.status for case in report.case_reports] == [
+        "succeeded",
         "succeeded",
         "succeeded",
         "succeeded",

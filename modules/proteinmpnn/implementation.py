@@ -10,9 +10,13 @@ from core.run_context import RunContext
 from datatypes import (
     Candidate,
     CandidateCollection,
+    ExactContractReference,
+    IntrinsicObservationContext,
     ProteinMPNNConstraints,
     ProteinSequence,
     ProteinStructure,
+    ScoreCollection,
+    ScoreObservation,
 )
 
 from .domain import (
@@ -23,9 +27,12 @@ from .domain import (
 from .v2_adapter import (
     PROTEINMPNN_MODEL,
     prepare_design_request,
+    prepare_scoring_request,
     provider_for_environment,
     record_design_result,
+    record_scoring_result,
     validate_design_result,
+    validate_scoring_result,
 )
 
 
@@ -340,5 +347,146 @@ class ProteinMPNNDesignImplementation:
                 "proteinmpnn-sequence-candidates",
                 "protein.sequence",
                 candidates,
+            )
+        }
+
+
+class ProteinMPNNScoreImplementation:
+    """Observe one exact sequence Candidate on its exact parent structure."""
+
+    def __init__(
+        self,
+        run_resources: Any,
+        environment: Mapping[str, Any],
+        catalog: Any,
+    ) -> None:
+        self._run_resources = run_resources
+        self._environment = environment
+        self._catalog = catalog
+
+    @staticmethod
+    def _subject(
+        inputs: Mapping[str, Any],
+    ) -> tuple[Candidate, Candidate]:
+        if set(inputs) != {
+            "structure_candidates",
+            "sequence_candidates",
+        }:
+            raise ValueError(
+                "ProteinMPNN scoring requires exact structure and sequence "
+                "Candidate inputs"
+            )
+        structures = inputs["structure_candidates"]
+        sequences = inputs["sequence_candidates"]
+        if (
+            type(structures) is not CandidateCollection
+            or structures.item_type != "protein.structure"
+            or len(structures.items) != 1
+            or type(sequences) is not CandidateCollection
+            or sequences.item_type != "protein.sequence"
+            or len(sequences.items) != 1
+        ):
+            raise ValueError(
+                "ProteinMPNN scoring requires one structure Candidate and "
+                "one sequence Candidate"
+            )
+        structure = structures.items[0]
+        sequence = sequences.items[0]
+        if (
+            type(structure) is not Candidate
+            or not structure.candidate_id
+            or type(structure.data) is not ProteinStructure
+            or type(sequence) is not Candidate
+            or not sequence.candidate_id
+            or type(sequence.data) is not ProteinSequence
+            or sequence.parent_ids != [structure.candidate_id]
+        ):
+            raise ValueError(
+                "ProteinMPNN scoring inputs do not identify one sequence "
+                "Candidate and its exact parent structure"
+            )
+        return structure, sequence
+
+    def _contract_reference(
+        self,
+        kind: str,
+        contract_id: str,
+    ) -> ExactContractReference:
+        contract = self._catalog.require_contract(
+            kind,
+            contract_id,
+            "2.0.0",
+        )
+        return ExactContractReference(**contract.reference())
+
+    def execute(
+        self,
+        *,
+        inputs: Mapping[str, Any],
+        node_parameters: Mapping[str, Any],
+        binding_parameters: Mapping[str, Any],
+    ) -> dict[str, Any]:
+        if node_parameters or binding_parameters:
+            raise ValueError(
+                "ProteinMPNN scoring accepts no Workflow parameters"
+            )
+        structure_candidate, sequence_candidate = self._subject(inputs)
+        structure = structure_candidate.data
+        sequence = sequence_candidate.data
+        assert type(structure) is ProteinStructure
+        assert type(sequence) is ProteinSequence
+        with self._run_resources.temporary_directory(
+            prefix="proteinmpnn-score-"
+        ) as staging_directory:
+            provider = provider_for_environment(
+                self._environment,
+                staging_directory=staging_directory,
+            )
+            request = prepare_scoring_request(
+                provider=provider,
+                structure=structure,
+                sequence=sequence,
+            )
+            RunContext.record_active_provider_call(
+                provider.provider_identity,
+                "score_sequence",
+                model=PROTEINMPNN_MODEL,
+                details={
+                    "candidate_id": sequence_candidate.candidate_id,
+                    "parent_candidate_id": structure_candidate.candidate_id,
+                },
+            )
+            with self._run_resources.engine_invocation(
+                engine_role="score_subject",
+                engine_identity=(
+                    "proteinmpnn.score.local."
+                    "proteinmpnn.score.v_48_020_8907e667"
+                ),
+            ):
+                raw_score = provider.score(request, sequence)
+            score = validate_scoring_result(raw_score)
+            record_scoring_result(
+                provider=provider,
+                structure=structure,
+                sequence=sequence,
+                score=score,
+            )
+        observation = ScoreObservation(
+            candidate_id=sequence_candidate.candidate_id,
+            metric=self._contract_reference(
+                "metric",
+                "proteinmpnn.native_sequence_nll",
+            ),
+            method=self._contract_reference(
+                "method",
+                "proteinmpnn.score.v_48_020_8907e667",
+            ),
+            context=IntrinsicObservationContext(),
+            value=score,
+        )
+        return {
+            "scores": ScoreCollection(
+                "proteinmpnn-score-observations",
+                [observation],
             )
         }

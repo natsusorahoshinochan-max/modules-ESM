@@ -180,7 +180,9 @@ def test_built_artifacts_contain_backend_definitions_and_canonical_assets(
         "modules/folding/definitions/ptm_metric.yaml",
         "modules/proteinmpnn/definitions/constraints.yaml",
         "modules/proteinmpnn/definitions/design.yaml",
+        "modules/proteinmpnn/definitions/native_sequence_nll_metric.yaml",
         "modules/proteinmpnn/definitions/random_fixed_positions.yaml",
+        "modules/proteinmpnn/definitions/score.yaml",
         "pdbs/3GB1.pdb",
         "protein_workbench_public/resources/v2/bundle.json",
     }
@@ -350,9 +352,13 @@ assert {{
     ("node_type", "proteinmpnn.constraints", "2.0.0"),
     ("node_type", "proteinmpnn.random_fixed_positions", "2.0.0"),
     ("node_type", "proteinmpnn.design", "2.0.0"),
+    ("node_type", "proteinmpnn.score", "2.0.0"),
+    ("metric", "proteinmpnn.native_sequence_nll", "2.0.0"),
+    ("method", "proteinmpnn.score.v_48_020_8907e667", "2.0.0"),
     ("binding", "proteinmpnn.constraints.local", "2.0.0"),
     ("binding", "proteinmpnn.random_fixed_positions.local", "2.0.0"),
     ("binding", "proteinmpnn.design.local", "2.0.0"),
+    ("binding", "proteinmpnn.score.local", "2.0.0"),
 }}
 
 registry = ModuleRegistry(TypeRegistry())

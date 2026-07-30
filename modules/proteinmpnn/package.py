@@ -19,6 +19,7 @@ from core import (
     LazyImplementationFactory,
     MethodDefinition,
     ModulePackageRegistration,
+    ProducedObservationDefinition,
     ReadinessDeclaration,
 )
 from core.provider_contract import (
@@ -37,14 +38,14 @@ from .domain import normalize_design_parameters
 
 
 _VERSION = "2.0.0"
-_OPERATIONS = ("constraints", "random_fixed_positions", "design")
+_OPERATIONS = ("constraints", "random_fixed_positions", "design", "score")
 
 
 def _available() -> AvailabilityResult:
     return AvailabilityResult.available()
 
 
-def _design_available() -> AvailabilityResult:
+def _model_available() -> AvailabilityResult:
     if importlib.util.find_spec("torch") is not None:
         try:
             if (
@@ -72,6 +73,7 @@ def _build(operation: str):
             ProteinMPNNConstraintsImplementation,
             ProteinMPNNDesignImplementation,
             ProteinMPNNRandomFixedPositionsImplementation,
+            ProteinMPNNScoreImplementation,
         )
 
         implementation = {
@@ -80,6 +82,7 @@ def _build(operation: str):
                 ProteinMPNNRandomFixedPositionsImplementation
             ),
             "design": ProteinMPNNDesignImplementation,
+            "score": ProteinMPNNScoreImplementation,
         }[operation]
         return implementation(
             kwargs["run_resources"],
@@ -91,6 +94,49 @@ def _build(operation: str):
 
 
 def _method(operation: str) -> MethodDefinition:
+    if operation == "score":
+        return MethodDefinition(
+            method_id="proteinmpnn.score.v_48_020_8907e667",
+            version=_VERSION,
+            algorithm_identity={
+                "name": "ProteinMPNN conditional sequence scoring",
+                "provider_operation": "score_sequence",
+                "decoding_order": "fixed-local-torch-seed",
+                "decoding_order_seed": 42,
+            },
+            model_identity={
+                "model": PROTEINMPNN_MODEL,
+                "architecture": "ProteinMPNN",
+                "source": "dauparas/ProteinMPNN",
+            },
+            checkpoint_identity={
+                "relative_path": PROTEINMPNN_CHECKPOINT,
+                "sha256": PROTEINMPNN_V_48_020_SHA256,
+            },
+            featurization_identity={
+                "structure": "ProteinMPNN parse_PDB",
+                "sequence": "canonical-20-amino-acid exact target layout",
+                "tensorization": (
+                    "ProteinMPNN tied_featurize all chains designed"
+                ),
+                "mask": "provider mask multiplied by chain_M",
+                "reduction": "provider _scores masked mean",
+                "decoding_order_seed": 42,
+            },
+            source_identity={
+                "repository": "dauparas/ProteinMPNN",
+                "source_revision": PROTEINMPNN_REVISION,
+            },
+            scale_contract={
+                "value": (
+                    "provider-native-binary32-masked-mean-negative-"
+                    "log-likelihood"
+                ),
+                "unit": "nats_per_designed_residue",
+                "normalization": "none",
+                "clamping": "forbidden",
+            },
+        )
     if operation == "design":
         return MethodDefinition(
             method_id="proteinmpnn.design.v_48_020_8907e667",
@@ -197,6 +243,7 @@ def _resolve_design_randomness(
 
 def _binding(operation: str) -> ExecutionBindingDefinition:
     is_design = operation == "design"
+    is_model = operation in {"design", "score"}
     randomness_parameters = (
         (
             "effective_seed",
@@ -211,10 +258,29 @@ def _binding(operation: str) -> ExecutionBindingDefinition:
             else ()
         )
     )
-    method_id = (
-        "proteinmpnn.design.v_48_020_8907e667"
-        if is_design
-        else f"proteinmpnn.{operation}.repository_owned"
+    method_id = {
+        "design": "proteinmpnn.design.v_48_020_8907e667",
+        "score": "proteinmpnn.score.v_48_020_8907e667",
+    }.get(operation, f"proteinmpnn.{operation}.repository_owned")
+    produced_observations = (
+        (
+            ProducedObservationDefinition(
+                output_port="scores",
+                metric=ContractIdentity(
+                    "metric",
+                    "proteinmpnn.native_sequence_nll",
+                    _VERSION,
+                ),
+                context_profile={"kind": "intrinsic"},
+                subject_grain="candidate",
+                source_role="subject",
+                subject_direction="input",
+                subject_port="sequence_candidates",
+                guaranteed_multiplicity="one",
+            ),
+        )
+        if operation == "score"
+        else ()
     )
     return ExecutionBindingDefinition(
         binding_id=f"proteinmpnn.{operation}.local",
@@ -226,14 +292,14 @@ def _binding(operation: str) -> ExecutionBindingDefinition:
         ),
         method=ContractIdentity("method", method_id, _VERSION),
         binding_parameters={},
-        execution_route="adapter" if is_design else "direct",
+        execution_route="adapter" if is_model else "direct",
         factory=LazyImplementationFactory(
             behavior=BehaviorReference(
                 f"proteinmpnn.{operation}/factory",
                 _VERSION,
                 {
-                    "route": "local" if is_design else "repository-owned",
-                    "model": PROTEINMPNN_MODEL if is_design else "none",
+                    "route": "local" if is_model else "repository-owned",
+                    "model": PROTEINMPNN_MODEL if is_model else "none",
                 },
             ),
             build=_build(operation),
@@ -251,7 +317,7 @@ def _binding(operation: str) -> ExecutionBindingDefinition:
                     "device": PROTEINMPNN_DEVICE,
                 },
             )
-            if is_design
+            if is_model
             else None
         ),
         availability=AvailabilityDeclaration(
@@ -274,10 +340,10 @@ def _binding(operation: str) -> ExecutionBindingDefinition:
                         "version": PROTEINMPNN_TORCH_VERSION,
                     },
                 }
-                if is_design
+                if is_model
                 else {}
             ),
-            check=_design_available if is_design else _available,
+            check=_model_available if is_model else _available,
         ),
         readiness=ReadinessDeclaration(
             behavior=BehaviorReference(
@@ -310,28 +376,34 @@ def _binding(operation: str) -> ExecutionBindingDefinition:
                         "safe_public_identity": True,
                     },
                 }
-                if is_design
+                if is_model
                 else {}
             ),
-            check=proteinmpnn_readiness if is_design else _ready,
+            check=proteinmpnn_readiness if is_model else _ready,
         ),
         deterministic=True,
         cacheable=True,
         implementation_identity=(
             {
-                "name": "proteinmpnn.design.local-adapter",
+                "name": f"proteinmpnn.{operation}.local-adapter",
                 "model": PROTEINMPNN_MODEL,
                 "checkpoint": PROTEINMPNN_CHECKPOINT,
                 "checkpoint_sha256": PROTEINMPNN_V_48_020_SHA256,
                 "source_revision": PROTEINMPNN_REVISION,
                 "device": PROTEINMPNN_DEVICE,
                 "torch_version": PROTEINMPNN_TORCH_VERSION,
-                "seed_control": "torch_local",
+                "seed_control": (
+                    "torch_local"
+                    if is_design
+                    else "fixed_scoring_seed_42"
+                ),
                 "runtime_directory_policy": (
                     "private-per-parent-engine-invocation"
+                    if is_design
+                    else "private-per-score-engine-invocation"
                 ),
             }
-            if is_design
+            if is_model
             else {
                 "name": f"proteinmpnn.{operation}.direct",
                 "source": "repository-owned",
@@ -359,6 +431,7 @@ def _binding(operation: str) -> ExecutionBindingDefinition:
             if randomness_parameters
             else None
         ),
+        produced_observations=produced_observations,
     )
 
 
@@ -371,6 +444,10 @@ MODULE_PACKAGE = ModulePackageRegistration(
         DefinitionResource("definitions/constraints.yaml"),
         DefinitionResource("definitions/random_fixed_positions.yaml"),
         DefinitionResource("definitions/design.yaml"),
+        DefinitionResource("definitions/score.yaml"),
+    ),
+    metric_definitions=(
+        DefinitionResource("definitions/native_sequence_nll_metric.yaml"),
     ),
     methods=tuple(_method(operation) for operation in _OPERATIONS),
     bindings=tuple(_binding(operation) for operation in _OPERATIONS),

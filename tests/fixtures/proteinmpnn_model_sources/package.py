@@ -1,0 +1,230 @@
+"""Source-bound 3GB1 Candidate fixtures for real ProteinMPNN v2 gates."""
+
+from __future__ import annotations
+
+from collections.abc import Mapping
+import hashlib
+from pathlib import Path
+from typing import Any
+
+from core import (
+    AvailabilityDeclaration,
+    AvailabilityResult,
+    BehaviorReference,
+    ContractIdentity,
+    DefinitionResource,
+    ExecutionBindingDefinition,
+    LazyImplementationFactory,
+    MethodDefinition,
+    ModulePackageRegistration,
+    ReadinessDeclaration,
+)
+from datatypes import (
+    Candidate,
+    CandidateCollection,
+    ProteinSequence,
+    ProteinStructure,
+)
+
+
+_VERSION = "2.0.0"
+_PROJECT_ROOT = Path(__file__).resolve().parents[3]
+_PDB_PATH = _PROJECT_ROOT / "pdbs" / "3GB1.pdb"
+_PDB_SHA256 = (
+    "1d061dc4998f18fe9a7cd8ada15b4b4bcf9d117ca9bb9ee139a79713857cccdf"
+)
+_SEQUENCE = "MTYKLILNGKTLKGETTTEAVDAATAEKVFKQYANDNGVDGEWTYDDATKTFTVTE"
+_SEQUENCE_SHA256 = (
+    "7e859d82171047700fd3e9632f7a47eab4a39baedc8c3316d2fc62d3ce2260bb"
+)
+
+
+class _StructureSource:
+    def __init__(self, resources: Any) -> None:
+        self._resources = resources
+
+    def execute(
+        self,
+        *,
+        inputs: Mapping[str, Any],
+        node_parameters: Mapping[str, Any],
+        binding_parameters: Mapping[str, Any],
+    ) -> dict[str, Any]:
+        if inputs or node_parameters or binding_parameters:
+            raise ValueError("3GB1 structure source accepts no values")
+        pdb_string = _PDB_PATH.read_text()
+        if hashlib.sha256(pdb_string.encode()).hexdigest() != _PDB_SHA256:
+            raise RuntimeError("3GB1 structure fixture does not match its source")
+        with self._resources.engine_invocation(
+            engine_identity=(
+                "contract_test.proteinmpnn_3gb1_structure/2.0.0"
+            ),
+        ):
+            candidate = Candidate(
+                "source-bound-3gb1-structure",
+                ProteinStructure(pdb_string, source="pdbs/3GB1.pdb"),
+                [],
+                {"source_sha256": _PDB_SHA256},
+            )
+        return {
+            "structure_candidates": CandidateCollection(
+                "source-bound-3gb1-structures",
+                "protein.structure",
+                [candidate],
+            )
+        }
+
+
+class _SequenceSource:
+    def __init__(self, resources: Any) -> None:
+        self._resources = resources
+
+    def execute(
+        self,
+        *,
+        inputs: Mapping[str, Any],
+        node_parameters: Mapping[str, Any],
+        binding_parameters: Mapping[str, Any],
+    ) -> dict[str, Any]:
+        if (
+            set(inputs) != {"structure_candidates"}
+            or node_parameters
+            or binding_parameters
+        ):
+            raise ValueError("3GB1 sequence source requires one exact parent")
+        parents = inputs["structure_candidates"]
+        if (
+            type(parents) is not CandidateCollection
+            or parents.item_type != "protein.structure"
+            or len(parents.items) != 1
+        ):
+            raise ValueError("3GB1 sequence parent is ambiguous")
+        if hashlib.sha256(_SEQUENCE.encode()).hexdigest() != _SEQUENCE_SHA256:
+            raise RuntimeError("3GB1 sequence fixture does not match its source")
+        parent = parents.items[0]
+        with self._resources.engine_invocation(
+            engine_identity=(
+                "contract_test.proteinmpnn_3gb1_sequence/2.0.0"
+            ),
+        ):
+            candidate = Candidate(
+                "source-bound-3gb1-sequence",
+                ProteinSequence(
+                    _SEQUENCE,
+                    [f"A:{index}" for index in range(1, 57)],
+                ),
+                [parent.candidate_id],
+                {"source_sha256": _SEQUENCE_SHA256},
+            )
+        return {
+            "sequence_candidates": CandidateCollection(
+                "source-bound-3gb1-sequences",
+                "protein.sequence",
+                [candidate],
+            )
+        }
+
+
+def _build(operation: str):
+    def factory(**kwargs: object) -> object:
+        implementation = (
+            _StructureSource
+            if operation == "structure"
+            else _SequenceSource
+        )
+        return implementation(kwargs["run_resources"])
+
+    return factory
+
+
+def _method(operation: str) -> MethodDefinition:
+    return MethodDefinition(
+        method_id=f"contract_test.proteinmpnn_3gb1_{operation}.method",
+        version=_VERSION,
+        algorithm_identity={"name": f"source-bound-3gb1-{operation}"},
+        model_identity={"kind": "none"},
+        checkpoint_identity={"kind": "none"},
+        featurization_identity={"kind": "exact-literal"},
+        source_identity={
+            "path": (
+                "pdbs/3GB1.pdb"
+                if operation == "structure"
+                else "pdbs/3GB1.pdb-derived-sequence"
+            ),
+            "sha256": (
+                _PDB_SHA256
+                if operation == "structure"
+                else _SEQUENCE_SHA256
+            ),
+        },
+        scale_contract={"kind": "identity"},
+    )
+
+
+def _binding(operation: str) -> ExecutionBindingDefinition:
+    return ExecutionBindingDefinition(
+        binding_id=(
+            f"contract_test.proteinmpnn_3gb1_{operation}.direct"
+        ),
+        version=_VERSION,
+        node_type=ContractIdentity(
+            "node_type",
+            f"contract_test.proteinmpnn_3gb1_{operation}",
+            _VERSION,
+        ),
+        method=ContractIdentity(
+            "method",
+            f"contract_test.proteinmpnn_3gb1_{operation}.method",
+            _VERSION,
+        ),
+        binding_parameters={},
+        execution_route="direct",
+        factory=LazyImplementationFactory(
+            behavior=BehaviorReference(
+                f"contract_test.proteinmpnn_3gb1_{operation}/factory",
+                _VERSION,
+                {},
+            ),
+            build=_build(operation),
+        ),
+        availability=AvailabilityDeclaration(
+            behavior=BehaviorReference(
+                f"contract_test.proteinmpnn_3gb1_{operation}/availability",
+                _VERSION,
+                {},
+            ),
+            prerequisites={},
+            check=AvailabilityResult.available,
+        ),
+        readiness=ReadinessDeclaration(
+            behavior=BehaviorReference(
+                f"contract_test.proteinmpnn_3gb1_{operation}/readiness",
+                _VERSION,
+                {},
+            ),
+            prerequisites={},
+            check=lambda environment: True,
+        ),
+        deterministic=True,
+        cacheable=True,
+        implementation_identity={
+            "name": f"contract_test.proteinmpnn_3gb1_{operation}.direct",
+            "source": "source-bound-contract-test-fixture",
+        },
+    )
+
+
+MODULE_PACKAGE = ModulePackageRegistration(
+    schema_version=_VERSION,
+    package_id="contract_test.proteinmpnn_model_sources",
+    package_version=_VERSION,
+    package_module=__package__,
+    node_definitions=(
+        DefinitionResource("structure.yaml"),
+        DefinitionResource("sequence.yaml"),
+    ),
+    methods=tuple(_method(operation) for operation in ("structure", "sequence")),
+    bindings=tuple(
+        _binding(operation) for operation in ("structure", "sequence")
+    ),
+)
