@@ -1046,7 +1046,8 @@ class _RunEvidenceLedger:
         self._run_admitted = False
         self._run_started = False
         self._selection_required = False
-        self._selection_terminal: dict[str, Any] | None = None
+        self._selection_terminals: list[dict[str, Any]] = []
+        self._selection_terminal_keys: set[str] = set()
         self._run_terminal = False
         self._cancellation_sequence: int | None = None
         self._restart_reconciled = False
@@ -1437,14 +1438,32 @@ class _RunEvidenceLedger:
                 raise self._causal_error()
             return
         if fact_type == "selection_terminal":
+            result = payload.get("result")
+            selection_key = (
+                result.get("selection_node_id", "__workflow__")
+                if isinstance(result, Mapping)
+                else "__failed__"
+            )
             if (
                 not self._run_started
                 or not self._selection_required
-                or self._selection_terminal is not None
                 or set(self._dispositions) != set(self._plan_nodes)
                 or any(
                     disposition["outcome"] != "succeeded"
                     for disposition in self._dispositions.values()
+                )
+                or not isinstance(selection_key, str)
+                or selection_key in self._selection_terminal_keys
+                or (
+                    payload["status"] == "failed"
+                    and self._selection_terminals
+                )
+                or (
+                    payload["status"] == "succeeded"
+                    and any(
+                        terminal["status"] == "failed"
+                        for terminal in self._selection_terminals
+                    )
                 )
             ):
                 raise self._causal_error()
@@ -1464,9 +1483,9 @@ class _RunEvidenceLedger:
                 else "cancelled"
                 if "cancelled" in outcomes
                 else "failed"
-                if (
-                    self._selection_terminal is not None
-                    and self._selection_terminal["status"] == "failed"
+                if any(
+                    terminal["status"] == "failed"
+                    for terminal in self._selection_terminals
                 )
                 else "succeeded"
             )
@@ -1491,7 +1510,7 @@ class _RunEvidenceLedger:
                     and not outcomes.intersection(
                         {"failed", "interrupted", "cancelled"}
                     )
-                    and self._selection_terminal is None
+                    and not self._selection_terminals
                 )
                 or payload["status"] != expected_status
             ):
@@ -1795,7 +1814,15 @@ class _RunEvidenceLedger:
         elif fact_type == "node_disposition":
             self._dispositions[payload["node_id"]] = dict(payload)
         elif fact_type == "selection_terminal":
-            self._selection_terminal = dict(payload)
+            terminal = dict(payload)
+            result = terminal.get("result")
+            selection_key = (
+                result.get("selection_node_id", "__workflow__")
+                if isinstance(result, Mapping)
+                else "__failed__"
+            )
+            self._selection_terminals.append(terminal)
+            self._selection_terminal_keys.add(selection_key)
         elif fact_type == "run_terminal":
             self._run_terminal = True
 

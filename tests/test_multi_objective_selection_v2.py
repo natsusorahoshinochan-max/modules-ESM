@@ -570,6 +570,37 @@ def test_all_three_nodes_pass_contract_test_kit(tmp_path: Path) -> None:
     assert all(case.status == "succeeded" for case in report.case_reports)
 
 
+def _save_and_compile_public_workflow(
+    client: TestClient,
+    project_id: str,
+    workflow: WorkflowDocument,
+) -> tuple[int, str]:
+    saved = client.put(
+        f"/api/v2/projects/{project_id}/workflow",
+        json={
+            "expected_workflow_revision": 0,
+            "workflow": workflow.to_public(),
+        },
+    )
+    assert saved.status_code == 200
+    revision = saved.json()["workflow_revision"]
+    relocked = client.post(
+        f"/api/v2/projects/{project_id}/workflow:relock",
+        json={"workflow_revision": revision},
+    )
+    assert relocked.status_code == 200
+    revision = relocked.json()["workflow_revision"]
+    compiled = client.post(
+        f"/api/v2/projects/{project_id}/workflow:compile",
+        json={
+            "workflow_revision": revision,
+            "workflow": relocked.json()["workflow"],
+        },
+    )
+    assert compiled.status_code == 200
+    return revision, compiled.json()["compile_id"]
+
+
 @pytest.mark.parametrize(
     ("operation", "expected_count"),
     (("weighted_rank", 4), ("pareto", 2), ("diversity", 3)),
@@ -596,29 +627,11 @@ def test_public_selection_uses_the_executed_method_and_is_cache_replay_stable(
     with TestClient(
         create_app(frozen_catalog_override=catalog)
     ) as client:
-        saved = client.put(
-            f"/api/v2/projects/{project_id}/workflow",
-            json={
-                "expected_workflow_revision": 0,
-                "workflow": workflow.to_public(),
-            },
+        revision, compile_id = _save_and_compile_public_workflow(
+            client,
+            project_id,
+            workflow,
         )
-        assert saved.status_code == 200
-        revision = saved.json()["workflow_revision"]
-        relocked = client.post(
-            f"/api/v2/projects/{project_id}/workflow:relock",
-            json={"workflow_revision": revision},
-        )
-        assert relocked.status_code == 200
-        revision = relocked.json()["workflow_revision"]
-        compiled = client.post(
-            f"/api/v2/projects/{project_id}/workflow:compile",
-            json={
-                "workflow_revision": revision,
-                "workflow": relocked.json()["workflow"],
-            },
-        )
-        assert compiled.status_code == 200
 
         projections = []
         for request_id in ("multi-objective-first", "multi-objective-replay"):
@@ -626,7 +639,7 @@ def test_public_selection_uses_the_executed_method_and_is_cache_replay_stable(
                 f"/api/v2/projects/{project_id}/runs",
                 json={
                     "workflow_revision": revision,
-                    "compile_id": compiled.json()["compile_id"],
+                    "compile_id": compile_id,
                     "client_request_id": request_id,
                 },
             )
@@ -672,3 +685,81 @@ def test_public_selection_uses_the_executed_method_and_is_cache_replay_stable(
         if item["node_id"] == "select"
     )
     assert second_select["resolution"] == "cache_replayed"
+
+
+def test_public_run_projects_each_selection_consumer_once(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    catalog = _catalog()
+    for name in ("PROJECT", "CACHE", "OUTPUT", "RUN"):
+        root = tmp_path / name.lower()
+        root.mkdir()
+        monkeypatch.setenv(f"PROTEIN_WORKBENCH_{name}_ROOT", str(root))
+    project_id = ProjectManager(tmp_path / "project").create(
+        "two explicit selection consumers"
+    ).id
+    weighted = replace(
+        _selection("weighted_rank"),
+        node_id="select-weighted",
+    )
+    pareto = replace(
+        _selection("pareto"),
+        node_id="select-pareto",
+    )
+    workflow = WorkflowDocument(
+        schema_version=VERSION,
+        workflow_id=project_id,
+        nodes=(_source(), weighted, pareto),
+        edges=tuple(
+            WorkflowEdge(
+                "canonical-source",
+                source_port,
+                node_id,
+                target_port,
+            )
+            for node_id in ("select-weighted", "select-pareto")
+            for source_port, target_port in (
+                ("candidates", "candidates"),
+                ("scores", "scores"),
+            )
+        ),
+        contract_lock=(),
+        selection_objectives=_objectives(catalog),
+    )
+
+    with TestClient(
+        create_app(frozen_catalog_override=catalog)
+    ) as client:
+        revision, compile_id = _save_and_compile_public_workflow(
+            client,
+            project_id,
+            workflow,
+        )
+        started = client.post(
+            f"/api/v2/projects/{project_id}/runs",
+            json={
+                "workflow_revision": revision,
+                "compile_id": compile_id,
+                "client_request_id": "two-selection-consumers",
+            },
+        )
+        assert started.status_code == 202
+        projection = wait_for_testclient_run_terminal(
+            client,
+            project_id,
+            started.json()["run_id"],
+        )
+
+    assert projection["status"] == "succeeded"
+    assert [
+        (
+            result["selection_node_id"],
+            result["selection_method"]["contract_id"],
+            len(result["selected_candidate_ids"]),
+        )
+        for result in projection["selection_results"]
+    ] == [
+        ("select-weighted", "selection.weighted_rank.method", 4),
+        ("select-pareto", "selection.pareto.method", 2),
+    ]
