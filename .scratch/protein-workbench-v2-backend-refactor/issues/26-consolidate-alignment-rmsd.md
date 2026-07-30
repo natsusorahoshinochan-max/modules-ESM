@@ -108,3 +108,58 @@
 - Final `/code-review` Standards and Spec axes both report PASS with zero
   CRITICAL/HIGH findings. The repair diff under `core/` is empty, Ticket 27
   remains untouched, and Ticket 26 remains `awaiting-controller`.
+
+## Executor second repair evidence
+
+- Controller rejected executor revision
+  `5cd16a28321b5c8ffc4538698b4087b4048b3b3e` after the cumulative routine
+  gate returned `1 failed, 1223 passed, 52 deselected`; retained failure:
+  `verification-results/routine/20260730T022224.515714Z-5477-fe311ed83741ce7a`.
+  The failure was
+  `test_public_import_transform_export_keeps_artifacts_run_bound`, whose
+  immediate projection read observed the asynchronous `202 Accepted` Run in
+  `running`.
+- `/diagnosing-bugs` showed this was the same protocol-level scheduling race,
+  not a structure-transform failure. A public `start_run` receipt admits
+  background work; `FAST_RUN_COMPLETION_GRACE_SECONDS` is only a best-effort
+  fast-path and cannot be used as a terminal contract.
+- Deterministic TDD RED sets the fast-run grace to zero, blocks a real Run
+  behind `threading.Event`, and proves the shared waiter does not return while
+  the projection is still `running`. The repair adds
+  `tests/fixtures/public_v2.py`: direct-service and TestClient journeys wait
+  for the durable ledger terminal without polling sleeps, while the installed
+  network journey waits through the validated public Run WebSocket and checks
+  terminal-event/projection agreement.
+- The shared contract replaces immediate projection reads across structure
+  transform, prompt authoring, scoring, result Cache, cancellation/derivation,
+  CTK, Run execution, and installed-package journeys. The earlier prompt
+  helper now reuses the same service-level terminal wait. Deliberate reads of
+  `running`, post-shutdown projections, and restart-reconciliation projections
+  remain direct because their synchronization contract is different.
+- Second repair commit: `ecd4670`. Clean implementation SHA under final
+  verification:
+  `ecd467069a87e74f279d2db258947eae604ea847`.
+- Prompt-authoring focused regression:
+  `uv run --no-sync pytest -q tests/test_prompt_authoring_prompt_v2.py
+  tests/test_prompt_authoring_behavior_v2.py
+  tests/test_prompt_stochastic_cache_v2.py` → `46 passed`.
+- Structure-comparison focused regression remained green:
+  `22 passed, 36 deselected`.
+- Tickets 01–26 v2 joint regression:
+  `uv run --no-sync pytest -q tests/*_v2.py` → `536 passed`.
+- Full routine gate passed twice at the same clean implementation SHA:
+  `1225 passed, 52 deselected` in each run; retained results:
+  `verification-results/routine/20260730T025323.823229Z-30336-2bca7b717ce9916b`
+  and
+  `verification-results/routine/20260730T025836.927518Z-38777-04c2be465efc38a9`.
+- Deterministic acceptance:
+  `10 passed, 5 deselected`; retained result
+  `verification-results/deterministic-acceptance/20260730T030353.755757Z-46603-1494fb24e6c6fa06`.
+- Installed artifact:
+  `3 passed`; retained result
+  `verification-results/installed-package/20260730T030503.435499Z-47402-ea98ae1e394b5bd0`.
+  All four retained final-gate records report
+  `project_revision=ecd467069a87e74f279d2db258947eae604ea847` and
+  `project_dirty=false`.
+- The second repair diff under `core/` is empty, Ticket 27 remains untouched,
+  and Ticket 26 remains `awaiting-controller`.
