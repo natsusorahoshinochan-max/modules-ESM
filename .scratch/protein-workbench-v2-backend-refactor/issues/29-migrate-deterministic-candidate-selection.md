@@ -4,7 +4,7 @@
 
 **Blocked by:** 28 — Preserve partitions in collection operations.
 
-**Status:** awaiting-controller
+**Status:** completed
 
 - [x] Filter, sort, and top-k each have one v2 Node Definition in a single `selection` Module Package.
 - [x] Selection consumes an explicit Candidate input and exact Score Collection source partition rather than discovering scores globally.
@@ -29,3 +29,37 @@
 - Static/package checks: `git diff --check`, compileall, `uv lock --check`, and `uv pip check` passed.
 - Parallel `/code-review`: Standards APPROVE and Spec APPROVE after repairing shared selection resolution, out-of-scope duplicate handling, and Result Identity/Cache binding to the resolved objective.
 - Handoff boundary: executor work is complete and awaits the Controller-owned joint Ticket 01–29 gate; this ticket must not be marked `completed` until that cumulative gate passes.
+
+## Controller joint-test evidence
+
+- Previous accepted multi-ticket gate:
+  `7d5f7fd8f31f1edaafbc1807b0288dbc8e414cb9`; independently tested Ticket 29
+  executor SHA: `74dd525f2f7461c081f920849e5e3a694fcb7430`.
+- Tickets 01–29 cumulative v2 gate:
+  `uv run --no-sync pytest -q tests/*_v2.py` →
+  `575 passed`.
+- Ticket 29 cross-package focused gate:
+  `uv run --no-sync pytest -q tests/test_selection_v2.py
+  tests/test_scoring_v2.py tests/test_pairwise_scoring_v2.py
+  tests/test_tm_score_observations_v2.py tests/test_collection_ops_v2.py
+  tests/test_module_packages_v2.py tests/test_contract_test_kit_v2.py
+  tests/test_workflow_compiler_v2.py tests/test_run_execution_v2.py
+  tests/test_result_cache_v2.py tests/test_public_protocol_v2.py` →
+  `299 passed`.
+- Full routine joint gate:
+  `uv run --no-sync python scripts/verify_backend.py routine` →
+  `1264 passed, 52 deselected`; retained result
+  `verification-results/routine/20260730T060635.273467Z-87897-f7276ce8505556dd`.
+- Deterministic acceptance:
+  `uv run --no-sync python scripts/verify_backend.py
+  deterministic-acceptance` →
+  `10 passed, 5 deselected`; retained result
+  `verification-results/deterministic-acceptance/20260730T061144.124251Z-95567-53d58413b6677b70`.
+- Installed-package isolation:
+  `uv run --no-sync python scripts/verify_backend.py installed-package` →
+  `3 passed`; retained result
+  `verification-results/installed-package/20260730T061302.414896Z-96193-ed31837f8c2e1263`.
+- All three retained Controller records report
+  `project_revision=74dd525f2f7461c081f920849e5e3a694fcb7430` and
+  `project_dirty=false`. The worktree was clean before this evidence-only
+  status update, and no cross-ticket regression was found.
