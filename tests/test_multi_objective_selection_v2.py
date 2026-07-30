@@ -2,12 +2,16 @@
 
 from __future__ import annotations
 
+from copy import deepcopy
 from dataclasses import replace
+import json
 from pathlib import Path
+from typing import Any
 
 import pytest
 from fastapi.testclient import TestClient
 
+import core.run_execution_v2 as run_execution_v2
 from core import (
     ModulePackageContractCase,
     PairwiseContextSelector,
@@ -16,6 +20,7 @@ from core import (
     WorkflowDocument,
     WorkflowNodeInstance,
     build_frozen_catalog,
+    canonical_json_bytes,
     compile_workflow,
     relock_workflow,
     verify_module_package_contract,
@@ -763,3 +768,60 @@ def test_public_run_projects_each_selection_consumer_once(
         ("select-weighted", "selection.weighted_rank.method", 4),
         ("select-pareto", "selection.pareto.method", 2),
     ]
+
+    run_id = started.json()["run_id"]
+    facts = [
+        json.loads(path.read_bytes())
+        for path in sorted(
+            (
+                tmp_path
+                / "run"
+                / project_id
+                / run_id
+                / "ledger"
+            ).glob("*.json")
+        )
+    ]
+
+    def reload_facts(candidate_facts: list[dict[str, Any]]) -> None:
+        plan_nodes = run_execution_v2._parse_plan_evidence(
+            candidate_facts[0]["payload"]["plan_nodes"]
+        )
+        ledger = run_execution_v2._RunEvidenceLedger(
+            ProjectManager(tmp_path / "project"),
+            project_id,
+            run_id,
+            plan_nodes,
+        )
+        for fact in candidate_facts:
+            ledger.load_fact(fact, canonical_json_bytes(fact))
+
+    missing_consumer = [
+        deepcopy(fact)
+        for fact in facts
+        if not (
+            fact["fact_type"] == "selection_terminal"
+            and fact["payload"].get("result", {}).get("selection_node_id")
+            == "select-pareto"
+        )
+    ]
+    for sequence, fact in enumerate(missing_consumer, start=1):
+        fact["sequence"] = sequence
+    with pytest.raises(run_execution_v2.V2RunError, match="causal"):
+        reload_facts(missing_consumer)
+
+    foreign_consumer = deepcopy(facts)
+    weighted_terminal = next(
+        fact
+        for fact in foreign_consumer
+        if (
+            fact["fact_type"] == "selection_terminal"
+            and fact["payload"].get("result", {}).get("selection_node_id")
+            == "select-weighted"
+        )
+    )
+    weighted_terminal["payload"]["result"]["selection_node_id"] = (
+        "canonical-source"
+    )
+    with pytest.raises(run_execution_v2.V2RunError, match="causal"):
+        reload_facts(foreign_consumer)

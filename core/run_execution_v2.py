@@ -827,6 +827,7 @@ class _PlanNodeEvidence:
     required_dependencies: tuple[str, ...]
     node_type: Mapping[str, Any] | None = None
     artifact_outputs: tuple[Mapping[str, Any], ...] = ()
+    selection_consumer: bool = False
 
     def to_dict(self) -> dict[str, Any]:
         result = {
@@ -847,6 +848,8 @@ class _PlanNodeEvidence:
                 }
                 for output in self.artifact_outputs
             ]
+        if self.selection_consumer:
+            result["selection_consumer"] = True
         return result
 
 
@@ -867,10 +870,11 @@ def _parse_plan_evidence(
             not isinstance(item, Mapping)
             or not allowed_fields <= set(item)
             or set(item) - allowed_fields
-            - {"node_type", "artifact_outputs"}
+            - {"node_type", "artifact_outputs", "selection_consumer"}
             or not isinstance(item["node_id"], str)
             or not isinstance(item["dependencies"], list)
             or not isinstance(item["required_dependencies"], list)
+            or type(item.get("selection_consumer", False)) is not bool
             or not all(
                 isinstance(dependency, str)
                 for dependency in (
@@ -980,6 +984,7 @@ def _parse_plan_evidence(
                 required,
                 node_type,
                 tuple(artifact_outputs),
+                item.get("selection_consumer", False),
             )
         )
     if any(
@@ -1037,6 +1042,9 @@ class _RunEvidenceLedger:
             )
             for node in plan_nodes
         }
+        self._selection_consumer_ids = tuple(
+            node.node_id for node in plan_nodes if node.selection_consumer
+        )
         self._node_attempts: dict[str, dict[str, Any]] = {}
         self._node_attempt_by_node: dict[str, str] = {}
         self._operations: dict[str, dict[str, Any]] = {}
@@ -1046,6 +1054,7 @@ class _RunEvidenceLedger:
         self._run_admitted = False
         self._run_started = False
         self._selection_required = False
+        self._expected_selection_terminal_keys: tuple[str, ...] = ()
         self._selection_terminals: list[dict[str, Any]] = []
         self._selection_terminal_keys: set[str] = set()
         self._run_terminal = False
@@ -1088,6 +1097,7 @@ class _RunEvidenceLedger:
                 tuple(sorted(self._required_dependencies[node_id])),
                 self._node_types[node_id],
                 self._artifact_outputs[node_id],
+                node_id in self._selection_consumer_ids,
             )
             for node_id in self._plan_node_order
         )
@@ -1453,7 +1463,14 @@ class _RunEvidenceLedger:
                     for disposition in self._dispositions.values()
                 )
                 or not isinstance(selection_key, str)
-                or selection_key in self._selection_terminal_keys
+                or (
+                    payload["status"] == "succeeded"
+                    and (
+                        selection_key
+                        not in self._expected_selection_terminal_keys
+                        or selection_key in self._selection_terminal_keys
+                    )
+                )
                 or (
                     payload["status"] == "failed"
                     and self._selection_terminals
@@ -1510,7 +1527,11 @@ class _RunEvidenceLedger:
                     and not outcomes.intersection(
                         {"failed", "interrupted", "cancelled"}
                     )
-                    and not self._selection_terminals
+                    and payload["status"] == "succeeded"
+                    and (
+                        self._selection_terminal_keys
+                        != set(self._expected_selection_terminal_keys)
+                    )
                 )
                 or payload["status"] != expected_status
             ):
@@ -1535,9 +1556,11 @@ class _RunEvidenceLedger:
                         "catalog_contract_digest",
                         "resolved_contracts",
                         "plan_nodes",
+                        "selection_required",
+                        "selection_terminal_keys",
                     }
                 ),
-                frozenset({"derived_from", "selection_required"}),
+                frozenset({"derived_from"}),
             ),
             "availability_bound": (
                 frozenset(
@@ -1664,6 +1687,8 @@ class _RunEvidenceLedger:
                     expected_fields.add("node_type")
                 if expected_artifact_outputs:
                     expected_fields.add("artifact_outputs")
+                if node_id in self._selection_consumer_ids:
+                    expected_fields.add("selection_consumer")
                 if (
                     not isinstance(item, Mapping)
                     or set(item) != expected_fields
@@ -1678,6 +1703,8 @@ class _RunEvidenceLedger:
                     and item.get("node_type") == expected_node_type
                     and item.get("artifact_outputs", [])
                     == expected_artifact_outputs
+                    and item.get("selection_consumer", False)
+                    == (node_id in self._selection_consumer_ids)
                 )
 
             if (
@@ -1691,9 +1718,22 @@ class _RunEvidenceLedger:
                 or any(not valid_plan_node(item) for item in plan_nodes)
             ):
                 raise self._causal_error()
+            selection_required = payload["selection_required"]
+            expected_selection_terminal_keys = list(
+                self._selection_consumer_ids
+                if selection_required and self._selection_consumer_ids
+                else ("__workflow__",)
+                if selection_required
+                else ()
+            )
             if (
-                "selection_required" in payload
-                and type(payload["selection_required"]) is not bool
+                type(selection_required) is not bool
+                or (
+                    self._selection_consumer_ids
+                    and not selection_required
+                )
+                or payload["selection_terminal_keys"]
+                != expected_selection_terminal_keys
             ):
                 raise self._causal_error()
             derived_from = payload.get("derived_from")
@@ -1762,9 +1802,9 @@ class _RunEvidenceLedger:
 
     def _apply(self, fact_type: str, payload: Mapping[str, Any]) -> None:
         if fact_type == "run_scope_bound":
-            self._selection_required = payload.get(
-                "selection_required",
-                False,
+            self._selection_required = payload["selection_required"]
+            self._expected_selection_terminal_keys = tuple(
+                payload["selection_terminal_keys"]
             )
         elif fact_type == "run_admitted":
             self._run_admitted = True
@@ -1822,7 +1862,8 @@ class _RunEvidenceLedger:
                 else "__failed__"
             )
             self._selection_terminals.append(terminal)
-            self._selection_terminal_keys.add(selection_key)
+            if terminal["status"] == "succeeded":
+                self._selection_terminal_keys.add(selection_key)
         elif fact_type == "run_terminal":
             self._run_terminal = True
 
@@ -3873,6 +3914,12 @@ class V2RunService:
                 tuple(sorted(required_dependencies[node.node_id])),
                 node.node_type.to_public(),
                 artifact_outputs(node),
+                isinstance(
+                    self._catalog.require_contract(
+                        *node.binding.key
+                    ).descriptor.get("selection_objective_consumption"),
+                    Mapping,
+                ),
             )
             for node in plan.nodes
         )
@@ -5090,6 +5137,18 @@ class V2RunService:
                 for entry in plan.resolved_contracts
             ],
             "selection_required": bool(plan.selection_objectives),
+            "selection_terminal_keys": list(
+                (
+                    tuple(
+                        node.node_id
+                        for node in plan_evidence
+                        if node.selection_consumer
+                    )
+                    or ("__workflow__",)
+                )
+                if plan.selection_objectives
+                else ()
+            ),
             "plan_nodes": [
                 node.to_dict()
                 for node in plan_evidence
