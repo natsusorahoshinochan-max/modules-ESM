@@ -167,6 +167,30 @@ def test_remote_engine_contract_accepts_only_exact_esm3_and_esmfold2() -> None:
     )
 
 
+def test_remote_engine_contract_rejects_reused_esm3_parent_invocation() -> None:
+    proof = _exact_invocation_proof()
+    esm3 = next(
+        item
+        for item in proof["remote_bindings"]
+        if item["binding_id"] == "esm3.generate_paired.biohub_medium"
+    )
+    first_parent = next(
+        item["invocation_id"]
+        for item in esm3["invocations"]
+        if item["engine_role"] == "sequence_parent"
+    )
+    for invocation in esm3["invocations"]:
+        if invocation["engine_role"] == "structure_child":
+            invocation["parent_invocation_id"] = first_parent
+
+    with pytest.raises(ValueError, match="parent-child proof"):
+        require_remote_engine_contracts(
+            _catalog_snapshot(),
+            json.loads(WORKFLOW_PATH.read_text(encoding="utf-8")),
+            proof,
+        )
+
+
 @pytest.mark.acceptance
 @pytest.mark.live_provider
 def test_fresh_remote_3gb1_installed_public_run_retains_auditable_bundle(

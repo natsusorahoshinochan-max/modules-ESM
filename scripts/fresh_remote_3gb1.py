@@ -17,6 +17,18 @@ from typing import Any
 SCHEMA_NAMESPACE = "protein-workbench-fresh-remote-3gb1/v2"
 PROJECT_ID = "canonical-3gb1"
 VERSION = "2.0.0"
+CANONICAL_PROVIDER_PROMPT_CONTENT_DIGEST = (
+    "sha256:4a00fdcb5cbf3d0175dd33b37f744b881f859765ca6d551a667e12910411f19f"
+)
+CANONICAL_SEQUENCE_TRACK = (
+    "____Y_KL__N_GKT___G__TT__AVDA_T_E_KV_KQ_Y_A_D_N_GVD_G__W_YD_____TF_V_TE"
+)
+CANONICAL_SECONDARY_STRUCTURE_TRACK = (
+    "EEEEEEEEEEEEEEEEEEE___HHHHHHHH____EEEEEEEEEEEEEEEEEEEEEE_______________"
+)
+CANONICAL_STRUCTURE_VISIBILITY_TRACK = (
+    "10101011111011110111011111111111101111101011101011101101111111101111011"
+)
 REMOTE_BINDINGS = {
     "esm3.generate_paired.biohub_medium": {
         "method": "esm3.generate_paired.esm3_medium_2024_08",
@@ -122,6 +134,12 @@ def require_remote_engine_contracts(
         implementation = descriptor["implementation_identity"]
         method_descriptor = method["descriptor"]
         proof = proof_by_binding[binding_id]
+        if set(proof["request_roles"]) != {
+            item["engine_role"] for item in proof["invocations"]
+        }:
+            raise ValueError(
+                f"request-role inventory is incomplete for {binding_id}"
+            )
         if (
             descriptor["method"]["contract_id"] != expected["method"]
             or descriptor["route_behavior"]["behavior_id"]
@@ -167,15 +185,36 @@ def require_remote_engine_contracts(
         and item["terminal"]["status"] == "succeeded"
         and item.get("parent_invocation_id") in sequence_parents
     ]
-    if len(sequence_parents) != 10 or len(structure_children) != 10:
+    if (
+        len(sequence_parents) != 10
+        or len(structure_children) != 10
+        or Counter(
+            item["parent_invocation_id"] for item in structure_children
+        )
+        != Counter({invocation_id: 1 for invocation_id in sequence_parents})
+    ):
         raise ValueError("ESM-3 paired request-role or parent-child proof is incomplete")
 
     folds = proof_by_binding[
         "folding.fold.esmfold2_remote"
     ]["invocations"]
     folds_by_node = Counter(item["node_id"] for item in folds)
+    expected_fold_roles = Counter({
+        **{
+            ("fold-sequences", f"fold_parent_{index}_sample_0"): 1
+            for index in range(10)
+        },
+        **{
+            ("fold-final", f"fold_parent_{index}_sample_0"): 1
+            for index in range(15)
+        },
+    })
     if (
         folds_by_node != {"fold-sequences": 10, "fold-final": 15}
+        or Counter(
+            (item["node_id"], item["engine_role"]) for item in folds
+        )
+        != expected_fold_roles
         or any(
             item["engine_identity"]
             != (
@@ -397,10 +436,20 @@ def validate_evidence_bundle(root: Path) -> dict[str, Any]:
 
     snapshot = _load_json(root / "workflow-snapshot.json")
     workflow = snapshot["workflow"]
+    expected_workflow_path = (
+        Path(__file__).resolve().parent.parent
+        / "examples"
+        / "v2"
+        / "canonical-3gb1.workflow.json"
+    )
+    expected_workflow = json.loads(expected_workflow_path.read_bytes())
     compile_receipt = _load_json(root / "compile-receipt.json")
     if (
         workflow["schema_version"] != VERSION
         or workflow["workflow_id"] != PROJECT_ID
+        or workflow != expected_workflow
+        or source["workflow_content_digest"]
+        != _sha256(expected_workflow_path.read_bytes())
         or not workflow["contract_lock"]
         or compile_receipt["accepted"] is not True
         or compile_receipt["issues"]
@@ -491,6 +540,16 @@ def validate_evidence_bundle(root: Path) -> dict[str, Any]:
             "masked_sequence_positions": 35,
             "secondary_structure_symbols": 71,
             "visible_backbones": 46,
+            "protein_prompt_content_digest": (
+                CANONICAL_PROVIDER_PROMPT_CONTENT_DIGEST
+            ),
+            "sequence_track": CANONICAL_SEQUENCE_TRACK,
+            "secondary_structure_track": (
+                CANONICAL_SECONDARY_STRUCTURE_TRACK
+            ),
+            "structure_visibility_track": (
+                CANONICAL_STRUCTURE_VISIBILITY_TRACK
+            ),
         }
     ):
         raise ValueError("canonical scientific lineage assertions are incomplete")
@@ -498,13 +557,37 @@ def validate_evidence_bundle(root: Path) -> dict[str, Any]:
     artifacts = _load_json(root / "artifact-index.json")
     if len(artifacts) != 15:
         raise ValueError("canonical run must retain fifteen final PDB artifacts")
+    projected_artifacts = {
+        item["artifact_reference"]: item
+        for item in final["artifact_index"]
+    }
+    public_artifact_fields = {
+        "artifact_reference",
+        "artifact_kind",
+        "candidate_id",
+        "node_id",
+        "output_port",
+        "media_type",
+        "size",
+        "content_digest",
+    }
     for artifact in artifacts:
         path = root / artifact["bundle_path"]
         payload = path.read_bytes()
+        public_descriptor = {
+            key: artifact[key]
+            for key in public_artifact_fields
+            if key in artifact
+        }
         if (
             path.is_symlink()
             or artifact["project_id"] != PROJECT_ID
             or artifact["run_id"] != final["run_id"]
+            or projected_artifacts.get(artifact["artifact_reference"])
+            != public_descriptor
+            or artifact["artifact_kind"] != "candidate"
+            or artifact["node_id"] != "export-final"
+            or artifact["output_port"] != "candidate_artifacts"
             or artifact["media_type"] not in {
                 "chemical/x-pdb",
                 "text/plain",
@@ -759,9 +842,24 @@ def _candidate_lineage(catalog: Any, projection: dict[str, Any]) -> dict[str, An
         catalog, projection, "fold-final", "structure_candidates"
     )
     selection = projection["selection_results"][0]
+    prompt_output = next(
+        item
+        for item in projection["outputs"]
+        if item["node_id"] == "override-secondary-structure"
+        and item["output_port"] == "protein_prompt"
+    )
     child_counts = RuntimeCounter(
         child.parent_ids[0] for child in children.items
     )
+    selected_ids = {
+        candidate.candidate_id for candidate in selected.items
+    }
+    if child_counts != RuntimeCounter({
+        candidate_id: 5 for candidate_id in selected_ids
+    }):
+        raise ValueError(
+            "ProteinMPNN children are not exactly five per selected parent"
+        )
     fixed_references = {
         alignment.reference.candidate_id
         for alignment in fixed_alignments.alignments
@@ -873,8 +971,102 @@ def _candidate_lineage(catalog: Any, projection: dict[str, Any]) -> dict[str, An
                 prompt.secondary_structure_track.values
             ),
             "visible_backbones": visible_backbones,
+            "protein_prompt_content_digest": prompt_output[
+                "content_digest"
+            ],
+            "sequence_track": "".join(
+                value if value is not None else "_"
+                for value in prompt.sequence_track.values
+            ),
+            "secondary_structure_track": "".join(
+                value if value is not None else "_"
+                for value in prompt.secondary_structure_track.values
+            ),
+            "structure_visibility_track": "".join(
+                "1" if value else "0"
+                for value in prompt.structure_visibility_track.values
+            ),
         },
     }
+
+
+def _verification_receipt(
+    *,
+    passed: bool,
+    public_projection_run_id: str | None = None,
+) -> dict[str, Any]:
+    receipt: dict[str, Any] = {
+        "schema_namespace": SCHEMA_NAMESPACE,
+        "passed": passed,
+        "historical_v1_allowed": False,
+        "mock_or_fixture_allowed": False,
+        "skip_allowed": False,
+        "readiness_only_allowed": False,
+        "cache_only_allowed": False,
+        "direct_esmc_substitutes_for_esm3": False,
+    }
+    if public_projection_run_id is not None:
+        receipt["public_projection_run_id"] = public_projection_run_id
+    return receipt
+
+
+def _assert_bundle_redacted(root: Path, forbidden: tuple[bytes, ...]) -> None:
+    for path in root.rglob("*"):
+        if path.is_symlink():
+            raise ValueError("evidence bundle cannot contain symbolic links")
+        if path.is_file():
+            payload = path.read_bytes()
+            if any(value and value in payload for value in forbidden):
+                raise ValueError("private credential or runtime path reached evidence")
+
+
+def _retrieve_artifacts(
+    client: Any,
+    root: Path,
+    projection: dict[str, Any],
+) -> list[dict[str, Any]]:
+    from protein_workbench_public import validate_artifact_response
+
+    artifacts: list[dict[str, Any]] = []
+    for artifact in projection["artifact_index"]:
+        response = client.get(
+            f"/api/v2/projects/{PROJECT_ID}/runs/"
+            f"{projection['run_id']}/artifacts/"
+            f"{artifact['artifact_reference']}"
+        )
+        response.raise_for_status()
+        validate_artifact_response(
+            {
+                "artifact": artifact,
+                "content_disposition": response.headers[
+                    "content-disposition"
+                ],
+            },
+            response.headers,
+            response.content,
+        )
+        bundle_path = (
+            Path("artifacts") / f"{artifact['artifact_reference']}.pdb"
+        )
+        output = root / bundle_path
+        output.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+        output.write_bytes(response.content)
+        output.chmod(0o600)
+        artifacts.append({
+            **artifact,
+            "project_id": PROJECT_ID,
+            "run_id": projection["run_id"],
+            "bundle_path": bundle_path.as_posix(),
+            "retrieved_headers": {
+                "content-disposition": response.headers[
+                    "content-disposition"
+                ],
+                "content-length": response.headers["content-length"],
+                "content-type": response.headers["content-type"],
+                "digest": response.headers["digest"],
+            },
+        })
+    return artifacts
 
 
 def installed_main() -> int:
@@ -1085,16 +1277,18 @@ def installed_main() -> int:
             "sdk_hidden_retry_attempts": 1,
         })
         if successful["status"] != "succeeded":
-            _write_json(root / "verification.json", {
-                "schema_namespace": SCHEMA_NAMESPACE,
-                "passed": False,
-                "historical_v1_allowed": False,
-                "mock_or_fixture_allowed": False,
-                "skip_allowed": False,
-                "readiness_only_allowed": False,
-                "cache_only_allowed": False,
-                "direct_esmc_substitutes_for_esm3": False,
-            })
+            _write_json(
+                root / "verification.json",
+                _verification_receipt(passed=False),
+            )
+            _assert_bundle_redacted(
+                root,
+                (
+                    token.encode(),
+                    str(source_root).encode(),
+                    str(proteinmpnn_root).encode(),
+                ),
+            )
             write_checksums(root)
             return 1
 
@@ -1107,48 +1301,23 @@ def installed_main() -> int:
         )
         _write_json(root / "invocation-proof.json", invocation_proof)
 
-        artifacts: list[dict[str, Any]] = []
-        for artifact in successful["artifact_index"]:
-            response = client.get(
-                f"/api/v2/projects/{PROJECT_ID}/runs/"
-                f"{successful['run_id']}/artifacts/"
-                f"{artifact['artifact_reference']}"
-            )
-            response.raise_for_status()
-            bundle_path = (
-                Path("artifacts")
-                / f"{artifact['artifact_reference']}.pdb"
-            )
-            output = root / bundle_path
-            output.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
-            output.write_bytes(response.content)
-            output.chmod(0o600)
-            artifacts.append({
-                **artifact,
-                "project_id": PROJECT_ID,
-                "run_id": successful["run_id"],
-                "bundle_path": bundle_path.as_posix(),
-                "retrieved_headers": {
-                    "content-disposition": response.headers[
-                        "content-disposition"
-                    ],
-                    "content-length": response.headers["content-length"],
-                    "content-type": response.headers["content-type"],
-                    "digest": response.headers["digest"],
-                },
-            })
+        artifacts = _retrieve_artifacts(client, root, successful)
         _write_json(root / "artifact-index.json", artifacts)
-        _write_json(root / "verification.json", {
-            "schema_namespace": SCHEMA_NAMESPACE,
-            "passed": True,
-            "historical_v1_allowed": False,
-            "mock_or_fixture_allowed": False,
-            "skip_allowed": False,
-            "readiness_only_allowed": False,
-            "cache_only_allowed": False,
-            "direct_esmc_substitutes_for_esm3": False,
-            "public_projection_run_id": successful["run_id"],
-        })
+        _write_json(
+            root / "verification.json",
+            _verification_receipt(
+                passed=True,
+                public_projection_run_id=successful["run_id"],
+            ),
+        )
+        _assert_bundle_redacted(
+            root,
+            (
+                token.encode(),
+                str(source_root).encode(),
+                str(proteinmpnn_root).encode(),
+            ),
+        )
         write_checksums(root)
     return 0
 
