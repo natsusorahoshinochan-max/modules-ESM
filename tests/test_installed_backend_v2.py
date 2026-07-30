@@ -592,16 +592,13 @@ def test_installed_backend_completes_full_public_v2_journey(
                     "source_run_id": first["run_id"],
                     "compile_id": compiled["compile_id"],
                     "policy": "force_selected",
-                    "node_ids": ["export"],
+                    "node_ids": [
+                        "export",
+                        *[f"export-{index}" for index in range(32)],
+                    ],
                     "client_request_id": "installed-derived",
                 },
             )
-            derived_projection = _wait_terminal(
-                client,
-                project_id,
-                derived["run_id"],
-            )
-            assert derived_projection["derived_from_run_id"] == first["run_id"]
             cancelled = client.request(
                 "cancel_run",
                 {
@@ -611,10 +608,16 @@ def test_installed_backend_completes_full_public_v2_journey(
                 },
             )
             assert cancelled["outcome"] in {
-                "already_terminal",
                 "already_requested",
                 "cancellation_requested",
             }
+            derived_projection = _wait_terminal(
+                client,
+                project_id,
+                derived["run_id"],
+            )
+            assert derived_projection["derived_from_run_id"] == first["run_id"]
+            assert derived_projection["status"] == "cancelled"
     finally:
         if server.poll() is None:
             server.terminate()
