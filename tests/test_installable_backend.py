@@ -55,15 +55,7 @@ SOURCE_PORT_TYPE_DIGESTS = {
     for definition in SOURCE_PORT_CATALOG.port_types
 }
 SOURCE_CONTRACT_REFERENCES = [
-    contract.reference()
-    for contract in sorted(
-        SOURCE_PORT_CATALOG.contracts,
-        key=lambda item: (
-            item.contract_kind,
-            item.contract_id,
-            item.contract_version,
-        ),
-    )
+    contract.reference() for contract in SOURCE_PORT_CATALOG.contracts
 ]
 EXPECTED_MODULE_IDS = {
     "compute.dssp",

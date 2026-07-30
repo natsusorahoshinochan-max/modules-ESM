@@ -45,15 +45,7 @@ def verify_repository_examples() -> dict[str, object]:
         raise ValueError("capability inventory package set is stale")
 
     contract_references = [
-        contract.reference()
-        for contract in sorted(
-            catalog.contracts,
-            key=lambda item: (
-                item.contract_kind,
-                item.contract_id,
-                item.contract_version,
-            ),
-        )
+        contract.reference() for contract in catalog.contracts
     ]
     if inventory.get("contracts") != contract_references:
         raise ValueError("capability inventory contract identities are stale")
