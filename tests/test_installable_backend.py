@@ -208,6 +208,9 @@ def test_built_artifacts_contain_backend_definitions_and_canonical_assets(
         "modules/proteinmpnn/definitions/native_sequence_nll_metric.yaml",
         "modules/proteinmpnn/definitions/random_fixed_positions.yaml",
         "modules/proteinmpnn/definitions/score.yaml",
+        "modules/selection/definitions/diversity.yaml",
+        "modules/selection/definitions/pareto.yaml",
+        "modules/selection/definitions/weighted_rank.yaml",
         "modules/structure_comparison/definitions/align_pairwise.yaml",
         "modules/structure_comparison/definitions/align_single.yaml",
         "modules/structure_comparison/definitions/batch_tm_score.yaml",
@@ -412,6 +415,23 @@ assert {{
     ("method", "collection_ops.merge_scores.method", "2.0.0"),
     ("binding", "collection_ops.concat_candidates.direct", "2.0.0"),
     ("binding", "collection_ops.merge_scores.direct", "2.0.0"),
+}}
+assert {{
+    (
+        contract.contract_kind,
+        contract.contract_id,
+        contract.contract_version,
+    )
+    for contract in catalog.contracts
+    if contract.contract_id.startswith("selection.")
+}} >= {{
+    (kind, f"selection.{{operation}}{{suffix}}", "2.0.0")
+    for operation in ("weighted_rank", "pareto", "diversity")
+    for kind, suffix in (
+        ("node_type", ""),
+        ("method", ".method"),
+        ("binding", ".direct"),
+    )
 }}
 
 registry = ModuleRegistry(TypeRegistry())

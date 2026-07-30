@@ -550,11 +550,12 @@ class ObservationPropagationDefinition:
 
 @dataclass(frozen=True, slots=True)
 class SelectionObjectiveConsumptionDefinition:
-    """Closed declaration binding a Node to one Workflow-owned objective."""
+    """Closed declaration binding a Node to Workflow-owned objectives."""
 
-    objective_id_parameter: str
     candidate_input_port: str
     score_collection_input_port: str
+    objective_id_parameter: str | None = None
+    objective_ids_parameter: str | None = None
     schema_version: str = "2.0.0"
 
     def __post_init__(self) -> None:
@@ -562,20 +563,33 @@ class SelectionObjectiveConsumptionDefinition:
             self.schema_version,
             "Selection Objective consumption",
         )
-        for field_name in (
-            "objective_id_parameter",
-            "candidate_input_port",
-            "score_collection_input_port",
+        if (self.objective_id_parameter is None) == (
+            self.objective_ids_parameter is None
         ):
+            raise CatalogBuildError(
+                "Selection Objective consumption requires exactly one scalar "
+                "or ordered-list selector parameter"
+            )
+        for field_name in ("candidate_input_port", "score_collection_input_port"):
             _require_identifier(getattr(self, field_name), field_name)
+        selector_name = (
+            self.objective_id_parameter
+            if self.objective_id_parameter is not None
+            else self.objective_ids_parameter
+        )
+        _require_identifier(selector_name, "objective selector parameter")
 
     def descriptor_template(self) -> dict[str, str]:
-        return {
+        descriptor = {
             "schema_version": self.schema_version,
-            "objective_id_parameter": self.objective_id_parameter,
             "candidate_input_port": self.candidate_input_port,
             "score_collection_input_port": self.score_collection_input_port,
         }
+        if self.objective_id_parameter is not None:
+            descriptor["objective_id_parameter"] = self.objective_id_parameter
+        else:
+            descriptor["objective_ids_parameter"] = self.objective_ids_parameter
+        return descriptor
 
 
 @dataclass(frozen=True, slots=True)
@@ -1824,17 +1838,39 @@ def build_frozen_catalog(
             }
             consumption = binding.selection_objective_consumption
             if consumption is not None:
-                parameter = node_definition.node_parameters.get(
+                selector_parameter = (
                     consumption.objective_id_parameter
+                    if consumption.objective_id_parameter is not None
+                    else consumption.objective_ids_parameter
                 )
-                if (
-                    not isinstance(parameter, Mapping)
-                    or parameter_value_contract(parameter).get("type")
-                    != "string"
-                ):
+                parameter = node_definition.node_parameters.get(
+                    selector_parameter
+                )
+                parameter_contract = (
+                    parameter_value_contract(parameter)
+                    if isinstance(parameter, Mapping)
+                    else {}
+                )
+                scalar_selector = (
+                    consumption.objective_id_parameter is not None
+                    and parameter_contract.get("type") == "string"
+                )
+                ordered_selector = (
+                    consumption.objective_ids_parameter is not None
+                    and parameter_contract.get("type") == "array"
+                    and isinstance(
+                        parameter_contract.get("items"),
+                        Mapping,
+                    )
+                    and parameter_contract["items"].get("type") == "string"
+                    and parameter_contract.get("minItems", 0) >= 1
+                    and parameter_contract.get("uniqueItems") is True
+                )
+                if not scalar_selector and not ordered_selector:
                     raise CatalogBuildError(
                         f"Binding {binding.binding_id} Selection Objective "
-                        "consumption requires one declared string parameter"
+                        "consumption requires one declared string selector or "
+                        "one non-empty unique ordered string-list selector"
                     )
                 for field_name, port_name, expected_type in (
                     (

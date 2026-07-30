@@ -79,9 +79,14 @@ def _selection_node(
         "out_of_scope_policy": "error",
         "tie_policy": "candidate_id_ascending",
     }
+    if operation in {"weighted_rank", "pareto", "diversity"}:
+        defaults = {
+            "objective_ids": ["quality"],
+            "tie_policy": "candidate_id_ascending",
+        }
     if operation == "filter":
         defaults.update({"operator": ">=", "threshold": 0.25})
-    if operation == "top_k":
+    if operation in {"top_k", "diversity"}:
         defaults["k"] = 2
     defaults.update(parameters or {})
     return WorkflowNodeInstance(
@@ -163,18 +168,24 @@ def test_public_catalog_has_three_selection_nodes_in_one_package() -> None:
         if contract.contract_id.startswith("selection.")
     }
 
+    operations = (
+        "filter",
+        "sort",
+        "top_k",
+        "weighted_rank",
+        "pareto",
+        "diversity",
+    )
     assert set(contracts) == {
-        ("node_type", "selection.filter"),
-        ("node_type", "selection.sort"),
-        ("node_type", "selection.top_k"),
-        ("method", "selection.filter.method"),
-        ("method", "selection.sort.method"),
-        ("method", "selection.top_k.method"),
-        ("binding", "selection.filter.direct"),
-        ("binding", "selection.sort.direct"),
-        ("binding", "selection.top_k.direct"),
+        (kind, f"selection.{operation}{suffix}")
+        for operation in operations
+        for kind, suffix in (
+            ("node_type", ""),
+            ("method", ".method"),
+            ("binding", ".direct"),
+        )
     }
-    for operation in ("filter", "sort", "top_k"):
+    for operation in operations:
         node = contracts[("node_type", f"selection.{operation}")]
         assert [
             (port["name"], port["port_type"]["contract_id"])
@@ -184,11 +195,16 @@ def test_public_catalog_has_three_selection_nodes_in_one_package() -> None:
             ("scores", "score.collection"),
         ]
         binding = contracts[("binding", f"selection.{operation}.direct")]
+        selector = (
+            {"objective_ids_parameter": "objective_ids"}
+            if operation in {"weighted_rank", "pareto", "diversity"}
+            else {"objective_id_parameter": "objective_id"}
+        )
         assert binding.descriptor["selection_objective_consumption"] == {
             "schema_version": VERSION,
-            "objective_id_parameter": "objective_id",
             "candidate_input_port": "candidates",
             "score_collection_input_port": "scores",
+            **selector,
         }
 
 
@@ -499,10 +515,21 @@ def test_all_three_nodes_pass_the_contract_test_kit(tmp_path: Path) -> None:
             ),
             selection_objectives=(objective,),
             expected_candidate_counts={
-                "candidates": 3 if operation != "top_k" else 2
+                "candidates": (
+                    2
+                    if operation in {"top_k", "diversity"}
+                    else 3
+                )
             },
         )
-        for operation in ("filter", "sort", "top_k")
+        for operation in (
+            "filter",
+            "sort",
+            "top_k",
+            "weighted_rank",
+            "pareto",
+            "diversity",
+        )
     )
 
     report = verify_module_package_contract(
@@ -512,11 +539,7 @@ def test_all_three_nodes_pass_the_contract_test_kit(tmp_path: Path) -> None:
         work_root=tmp_path,
     )
 
-    assert [case.status for case in report.case_reports] == [
-        "succeeded",
-        "succeeded",
-        "succeeded",
-    ]
+    assert all(case.status == "succeeded" for case in report.case_reports)
 
 
 def test_public_execution_is_cache_replay_stable(

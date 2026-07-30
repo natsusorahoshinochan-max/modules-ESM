@@ -1599,6 +1599,9 @@
         "objective_id_parameter": {
           "$ref": "#/$defs/Identifier"
         },
+        "objective_ids_parameter": {
+          "$ref": "#/$defs/Identifier"
+        },
         "schema_version": {
           "const": "2.0.0"
         },
@@ -1608,7 +1611,6 @@
       },
       "required": [
         "schema_version",
-        "objective_id_parameter",
         "candidate_input_port",
         "score_collection_input_port"
       ],

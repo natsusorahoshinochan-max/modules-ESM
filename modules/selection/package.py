@@ -22,7 +22,17 @@ from .implementation import SelectionImplementation
 
 
 VERSION = "2.0.0"
-OPERATIONS = ("filter", "sort", "top_k")
+OPERATIONS = (
+    "filter",
+    "sort",
+    "top_k",
+    "weighted_rank",
+    "pareto",
+    "diversity",
+)
+MULTI_OBJECTIVE_OPERATIONS = frozenset(
+    {"weighted_rank", "pareto", "diversity"}
+)
 
 
 def _available() -> AvailabilityResult:
@@ -45,10 +55,30 @@ def _factory(operation: str):
 
 
 def _method(operation: str) -> MethodDefinition:
-    return MethodDefinition(
-        method_id=f"selection.{operation}.method",
-        version=VERSION,
-        algorithm_identity={
+    if operation == "weighted_rank":
+        algorithm_identity = {
+            "name": "normalized-weighted-utility-ranking",
+            "weight_policy": "finite-non-negative-positive-total",
+            "normalization": "divide-by-declared-weight-sum",
+            "ranking": "descending-weighted-utility",
+            "tie_policy": "candidate_id_ascending",
+        }
+    elif operation == "pareto":
+        algorithm_identity = {
+            "name": "dimensionless-utility-pareto-frontier",
+            "dominance": "greater-or-equal-all-and-greater-any",
+            "final_order": "candidate_id_ascending",
+        }
+    elif operation == "diversity":
+        algorithm_identity = {
+            "name": "weighted-max-min-euclidean-utility-diversity",
+            "seed": "maximum-normalized-weighted-utility",
+            "distance": "sqrt-sum-effective-weight-times-squared-delta",
+            "iteration": "maximum-minimum-distance",
+            "tie_policy": "candidate_id_ascending",
+        }
+    else:
+        algorithm_identity = {
             "name": f"deterministic-candidate-{operation}",
             "objective_scope": "workflow-owned-exact-source",
             "match_cardinality": "exactly_one",
@@ -60,13 +90,20 @@ def _method(operation: str) -> MethodDefinition:
                 if operation in {"sort", "top_k"}
                 else "canonical-metric-value"
             ),
-        },
+        }
+    return MethodDefinition(
+        method_id=f"selection.{operation}.method",
+        version=VERSION,
+        algorithm_identity=algorithm_identity,
         model_identity={"kind": "none"},
         checkpoint_identity={"kind": "none"},
         featurization_identity={"kind": "identity"},
         source_identity={"kind": "repository-owned"},
         scale_contract={
             "kind": (
+                "dimensionless-utility-vector"
+                if operation in MULTI_OBJECTIVE_OPERATIONS
+                else
                 "workflow-objective-utility"
                 if operation in {"sort", "top_k"}
                 else "exact-metric-canonical-scale"
@@ -126,9 +163,13 @@ def _binding(operation: str) -> ExecutionBindingDefinition:
         },
         selection_objective_consumption=(
             SelectionObjectiveConsumptionDefinition(
-                objective_id_parameter="objective_id",
                 candidate_input_port="candidates",
                 score_collection_input_port="scores",
+                **(
+                    {"objective_ids_parameter": "objective_ids"}
+                    if operation in MULTI_OBJECTIVE_OPERATIONS
+                    else {"objective_id_parameter": "objective_id"}
+                ),
             )
         ),
     )

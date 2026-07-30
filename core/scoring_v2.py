@@ -292,6 +292,20 @@ class SelectionResult:
         return _thaw_json(self.provenance)
 
 
+@dataclass(frozen=True, slots=True)
+class CandidateUtilityProfile:
+    """Exact dimensionless Utility vector for every Candidate."""
+
+    candidates: CandidateCollection
+    objective_ids: tuple[str, ...]
+    utilities: Mapping[str, tuple[float, ...]]
+    effective_weights: tuple[float, ...]
+    provenance: Mapping[str, Any]
+
+    def public_provenance(self) -> dict[str, Any]:
+        return _thaw_json(self.provenance)
+
+
 def _reference_public(
     contract_kind: str,
     reference: ExactContractReference,
@@ -861,23 +875,21 @@ def _validate_propagated_score_collection(
     return True
 
 
-def select_candidates(
-    *,
-    candidate_inputs: Mapping[SelectionInput, CandidateCollection],
-    score_collection_inputs: Mapping[SelectionInput, ScoreCollection],
+def _resolve_objective_contracts(
     objectives: Sequence[SelectionObjective],
     catalog: FrozenCatalog,
-    limit: int,
-) -> SelectionResult:
-    """Rank Candidates using only exact registered dimensionless Utilities."""
+) -> tuple[
+    tuple[SelectionObjective, ...],
+    float,
+    tuple[tuple[SelectionObjective, Any, Any, Any, Mapping[str, Any]], ...],
+    tuple[dict[str, Any], ...],
+]:
     objective_tuple = tuple(objectives)
     if not objective_tuple:
         raise SelectionError("Selection requires at least one objective")
     objective_ids = [objective.objective_id for objective in objective_tuple]
     if len(objective_ids) != len(set(objective_ids)):
         raise SelectionError("Selection Objective IDs must be unique")
-    if type(limit) is not int or limit < 1:
-        raise SelectionError("Selection limit must be a positive integer")
     try:
         declared_total = math.fsum(
             float(objective.weight) for objective in objective_tuple
@@ -888,6 +900,67 @@ def select_candidates(
         raise SelectionError(
             "Selection requires a finite positive total objective weight"
         )
+    resolved: list[
+        tuple[SelectionObjective, Any, Any, Any, Mapping[str, Any]]
+    ] = []
+    provenance: list[dict[str, Any]] = []
+    for objective in objective_tuple:
+        metric, method, utility, parameters = resolve_selection_objective(
+            objective,
+            catalog,
+        )
+        effective_weight = float(objective.weight) / declared_total
+        resolved.append((objective, metric, method, utility, parameters))
+        provenance.append(
+            {
+                "objective_id": objective.objective_id,
+                "candidate_input": objective.candidate_input.to_public(),
+                "score_collection_input": (
+                    objective.score_collection_input.to_public()
+                ),
+                "source_partition": objective.source_partition,
+                "metric": metric.reference(),
+                "method": method.reference(),
+                "context_selector": objective.context_selector.to_public(),
+                "utility_transform": utility.reference(),
+                "utility_parameters": _thaw_json(parameters),
+                "declared_weight": objective.weight,
+                "effective_weight": effective_weight,
+                "match_cardinality": objective.match_cardinality,
+                "missing_policy": objective.missing_policy,
+            }
+        )
+    return (
+        objective_tuple,
+        declared_total,
+        tuple(resolved),
+        tuple(provenance),
+    )
+
+
+def selection_objective_provenance(
+    objectives: Sequence[SelectionObjective],
+    catalog: FrozenCatalog,
+) -> dict[str, Any]:
+    """Resolve exact objective contracts and normalized effective weights."""
+    _, _, _, provenance = _resolve_objective_contracts(objectives, catalog)
+    return _thaw_json(_freeze_json({"objectives": provenance}))
+
+
+def resolve_candidate_utilities(
+    *,
+    candidate_inputs: Mapping[SelectionInput, CandidateCollection],
+    score_collection_inputs: Mapping[SelectionInput, ScoreCollection],
+    objectives: Sequence[SelectionObjective],
+    catalog: FrozenCatalog,
+) -> CandidateUtilityProfile:
+    """Resolve exact dimensionless Utility vectors without scale inference."""
+    (
+        objective_tuple,
+        declared_total,
+        resolved,
+        provenance,
+    ) = _resolve_objective_contracts(objectives, catalog)
     candidate_references = {
         objective.candidate_input for objective in objective_tuple
     }
@@ -907,43 +980,9 @@ def select_candidates(
         candidate.candidate_id: candidate
         for candidate in candidates.items
     }
-
-    resolved: list[
-        tuple[SelectionObjective, Any, Any, Any, Mapping[str, Any]]
-    ] = []
-    provenance: list[dict[str, Any]] = []
-    for objective in objective_tuple:
-        metric, method, utility, parameters = resolve_selection_objective(
-            objective,
-            catalog,
-        )
-        effective_weight = objective.weight / declared_total
-        resolved.append(
-            (objective, metric, method, utility, parameters)
-        )
-        provenance.append(
-            {
-                "objective_id": objective.objective_id,
-                "candidate_input": objective.candidate_input.to_public(),
-                "score_collection_input": (
-                    objective.score_collection_input.to_public()
-                ),
-                "source_partition": objective.source_partition,
-                "metric": metric.reference(),
-                "method": method.reference(),
-                "context_selector": (
-                    objective.context_selector.to_public()
-                ),
-                "utility_transform": utility.reference(),
-                "utility_parameters": _thaw_json(parameters),
-                "declared_weight": objective.weight,
-                "effective_weight": effective_weight,
-                "match_cardinality": objective.match_cardinality,
-                "missing_policy": objective.missing_policy,
-            }
-        )
-
-    weighted_values = {candidate_id: 0.0 for candidate_id in candidate_ids}
+    utility_values = {
+        candidate_id: [] for candidate_id in candidate_ids
+    }
     for objective, metric, method, _, parameters in resolved:
         try:
             collection = score_collection_inputs[
@@ -1008,12 +1047,57 @@ def select_candidates(
                 raise SelectionError(
                     "Utility Transform output must be finite and within [0, 1]"
                 )
-            weighted_values[candidate_id] += (
-                float(output) * objective.weight / declared_total
+            utility_values[candidate_id].append(float(output))
+    return CandidateUtilityProfile(
+        candidates=candidates,
+        objective_ids=tuple(
+            objective.objective_id for objective in objective_tuple
+        ),
+        utilities=MappingProxyType(
+            {
+                candidate_id: tuple(values)
+                for candidate_id, values in utility_values.items()
+            }
+        ),
+        effective_weights=tuple(
+            float(objective.weight) / declared_total
+            for objective in objective_tuple
+        ),
+        provenance=_freeze_json({"objectives": provenance}),
+    )
+
+
+def select_candidates(
+    *,
+    candidate_inputs: Mapping[SelectionInput, CandidateCollection],
+    score_collection_inputs: Mapping[SelectionInput, ScoreCollection],
+    objectives: Sequence[SelectionObjective],
+    catalog: FrozenCatalog,
+    limit: int,
+) -> SelectionResult:
+    """Rank Candidates using only exact registered dimensionless Utilities."""
+    if type(limit) is not int or limit < 1:
+        raise SelectionError("Selection limit must be a positive integer")
+    profile = resolve_candidate_utilities(
+        candidate_inputs=candidate_inputs,
+        score_collection_inputs=score_collection_inputs,
+        objectives=objectives,
+        catalog=catalog,
+    )
+    weighted_values = {
+        candidate_id: math.fsum(
+            utility * weight
+            for utility, weight in zip(
+                utilities,
+                profile.effective_weights,
+                strict=True,
             )
+        )
+        for candidate_id, utilities in profile.utilities.items()
+    }
 
     ranked = sorted(
-        candidates.items,
+        profile.candidates.items,
         key=lambda candidate: (
             -weighted_values[candidate.candidate_id],
             candidate.candidate_id,
@@ -1022,11 +1106,11 @@ def select_candidates(
     selected = ranked[: min(limit, len(ranked))]
     return SelectionResult(
         CandidateCollection(
-            collection_id=f"{candidates.collection_id}.selected",
-            item_type=candidates.item_type,
+            collection_id=f"{profile.candidates.collection_id}.selected",
+            item_type=profile.candidates.item_type,
             items=list(selected),
         ),
-        _freeze_json({"objectives": provenance}),
+        profile.provenance,
     )
 
 

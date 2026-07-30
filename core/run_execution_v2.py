@@ -40,6 +40,7 @@ from core.run_manifest import sanitize_public_value
 from core.scoring_v2 import (
     SelectionError,
     SelectionInput,
+    selection_objective_provenance,
     select_candidates,
     validate_produced_score_collection,
 )
@@ -2828,15 +2829,18 @@ def _result_identity_descriptor(
             )
         ),
     }
-    selected_objective = _consumed_selection_objective(
+    selected_objectives = _consumed_selection_objectives(
         plan,
         node,
         binding_contract,
     )
-    if selected_objective is not None:
-        descriptor["selection_objective"] = (
+    if selected_objectives:
+        descriptor["selection_objectives"] = (
             _normalize_nested_contract_references(
-                selected_objective.to_public()
+                selection_objective_provenance(
+                    selected_objectives,
+                    catalog,
+                )["objectives"]
             )
         )
     if resolved_resource_inputs:
@@ -2983,32 +2987,41 @@ def _result_identity(
     )
 
 
-def _consumed_selection_objective(
+def _consumed_selection_objectives(
     plan: ExecutionPlan,
     node: ExecutionPlanNode,
     binding_contract: Any,
-) -> Any | None:
+) -> tuple[Any, ...]:
     consumption = binding_contract.descriptor.get(
         "selection_objective_consumption"
     )
     if not isinstance(consumption, Mapping):
-        return None
-    parameter_name = consumption.get("objective_id_parameter")
-    objective_id = (
-        node.node_parameters.get(parameter_name)
-        if isinstance(parameter_name, str)
-        else None
-    )
-    matches = [
-        objective
+        return ()
+    scalar_parameter = consumption.get("objective_id_parameter")
+    ordered_parameter = consumption.get("objective_ids_parameter")
+    if isinstance(scalar_parameter, str):
+        objective_ids = (node.node_parameters.get(scalar_parameter),)
+    elif isinstance(ordered_parameter, str):
+        raw_ids = node.node_parameters.get(ordered_parameter)
+        objective_ids = (
+            tuple(raw_ids) if isinstance(raw_ids, (list, tuple)) else ()
+        )
+    else:
+        objective_ids = ()
+    objectives = {
+        objective.objective_id: objective
         for objective in plan.selection_objectives
-        if objective.objective_id == objective_id
+    }
+    matches = [
+        objectives[objective_id]
+        for objective_id in objective_ids
+        if isinstance(objective_id, str) and objective_id in objectives
     ]
-    if len(matches) != 1:
+    if not objective_ids or len(matches) != len(objective_ids):
         raise PortValueError(
             "Selection Objective consumption is unresolved at execution"
         )
-    return matches[0]
+    return tuple(matches)
 
 
 def _relevant_result_contract_keys(
@@ -3048,12 +3061,12 @@ def _relevant_result_contract_keys(
             if entry.contract_kind == "utility_transform"
         },
     }
-    selected_objective = _consumed_selection_objective(
+    selected_objectives = _consumed_selection_objectives(
         plan,
         node,
         binding_contract,
     )
-    if selected_objective is not None:
+    for selected_objective in selected_objectives:
         keys.update(
             {
                 (
@@ -3186,14 +3199,17 @@ def _result_contract_metadata(
             for port in node_contract.descriptor.get("outputs", ())
         ],
     }
-    selected_objective = _consumed_selection_objective(
+    selected_objectives = _consumed_selection_objectives(
         plan,
         node,
         binding_contract,
     )
-    if selected_objective is not None:
-        metadata["selection_objective"] = _plain_json(
-            selected_objective.to_public()
+    if selected_objectives:
+        metadata["selection_objectives"] = _plain_json(
+            selection_objective_provenance(
+                selected_objectives,
+                catalog,
+            )["objectives"]
         )
     return metadata
 

@@ -997,40 +997,50 @@ def _validate_selection_objective_consumers(
             node_id=node_id,
             field_name="node_parameters",
         )
-        parameter_name = consumption.get("objective_id_parameter")
-        objective_id = (
-            parameters.get(parameter_name)
-            if isinstance(parameter_name, str)
-            else None
-        )
-        objective = (
-            objectives.get(objective_id)
+        scalar_parameter = consumption.get("objective_id_parameter")
+        ordered_parameter = consumption.get("objective_ids_parameter")
+        if isinstance(scalar_parameter, str):
+            parameter_name = scalar_parameter
+            raw_objective_ids = (parameters.get(parameter_name),)
+        elif isinstance(ordered_parameter, str):
+            parameter_name = ordered_parameter
+            selected = parameters.get(parameter_name)
+            raw_objective_ids = (
+                tuple(selected)
+                if isinstance(selected, (list, tuple))
+                else ()
+            )
+        else:
+            parameter_name = "objective_id"
+            raw_objective_ids = ()
+        selected_objectives = tuple(
+            objectives[objective_id]
+            for objective_id in raw_objective_ids
             if isinstance(objective_id, str)
-            else None
+            and objective_id in objectives
         )
-        if objective is None:
+        if (
+            not raw_objective_ids
+            or len(selected_objectives) != len(raw_objective_ids)
+        ):
             raise WorkflowCompileError(
                 "unsatisfied_selector",
                 "Selection selector does not resolve one Workflow Selection "
-                "Objective",
+                "Objective for every declared ID",
                 node_id=node_id,
                 field_path=(
                     "nodes",
                     node_id,
                     "node_parameters",
-                    parameter_name or "objective_id",
+                    parameter_name,
                 ),
             )
-        for label, port_name, expected in (
-            (
-                "Candidate",
-                consumption.get("candidate_input_port"),
-                objective.candidate_input.to_public(),
-            ),
+        for label, port_name, reference_name in (
+            ("Candidate", consumption.get("candidate_input_port"), "candidate_input"),
             (
                 "Score Collection",
                 consumption.get("score_collection_input_port"),
-                objective.score_collection_input.to_public(),
+                "score_collection_input",
             ),
         ):
             connected = (
@@ -1042,11 +1052,26 @@ def _validate_selection_objective_consumers(
                 if isinstance(port_name, str)
                 else None
             )
-            if connected != expected:
+            expected_sources = {
+                (
+                    getattr(objective, reference_name).node_id,
+                    getattr(objective, reference_name).output_port,
+                )
+                for objective in selected_objectives
+            }
+            connected_source = (
+                (connected["node_id"], connected["output_port"])
+                if connected is not None
+                else None
+            )
+            if (
+                len(expected_sources) != 1
+                or connected_source not in expected_sources
+            ):
                 raise WorkflowCompileError(
                     "unsatisfied_selector",
                     f"Selection {label} input does not match the exact "
-                    "Workflow Selection Objective source",
+                    "Workflow Selection Objective sources",
                     node_id=node_id,
                     field_path=("nodes", node_id, "inputs", port_name or ""),
                 )

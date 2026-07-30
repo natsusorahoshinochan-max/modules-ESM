@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
+import math
 from typing import Any
 
 from core.port_types import canonical_sha256
@@ -10,6 +11,7 @@ from core.scoring_v2 import (
     SelectionError,
     SelectionObjective,
     resolve_objective_observations,
+    resolve_candidate_utilities,
     resolve_selection_objective,
     select_candidates,
 )
@@ -52,6 +54,12 @@ class SelectionImplementation:
             raise ValueError("selection requires one exact Candidate Collection")
         if type(scores) is not ScoreCollection:
             raise ValueError("selection requires one exact Score Collection")
+        if self._operation in {"weighted_rank", "pareto", "diversity"}:
+            return self._execute_multi_objective(
+                candidates=candidates,
+                scores=scores,
+                node_parameters=node_parameters,
+            )
         objective_id = node_parameters.get("objective_id")
         objective = self._objectives.get(objective_id)
         if objective is None:
@@ -133,6 +141,198 @@ class SelectionImplementation:
                 ),
                 item_type=candidates.item_type,
                 items=selected,
+            )
+        }
+
+    def _execute_multi_objective(
+        self,
+        *,
+        candidates: CandidateCollection,
+        scores: ScoreCollection,
+        node_parameters: Mapping[str, Any],
+    ) -> dict[str, CandidateCollection]:
+        objective_ids = node_parameters.get("objective_ids")
+        if (
+            not isinstance(objective_ids, (list, tuple))
+            or not objective_ids
+            or not all(isinstance(item, str) for item in objective_ids)
+            or len(objective_ids) != len(set(objective_ids))
+        ):
+            raise ValueError(
+                "multi-objective selection requires unique objective_ids"
+            )
+        objectives = tuple(
+            self._objectives.get(objective_id)
+            for objective_id in objective_ids
+        )
+        if any(objective is None for objective in objectives):
+            raise ValueError(
+                "selection objective_ids do not resolve compiled objectives"
+            )
+        if node_parameters.get("tie_policy") != "candidate_id_ascending":
+            raise ValueError("selection tie policy is unsupported")
+        typed_objectives = tuple(
+            objective
+            for objective in objectives
+            if objective is not None
+        )
+        candidate_references = {
+            objective.candidate_input for objective in typed_objectives
+        }
+        score_references = {
+            objective.score_collection_input
+            for objective in typed_objectives
+        }
+        if len(candidate_references) != 1 or len(score_references) != 1:
+            raise SelectionError(
+                "multi-objective selection requires exact shared Candidate "
+                "and Score Collection inputs"
+            )
+        profile = resolve_candidate_utilities(
+            candidate_inputs={next(iter(candidate_references)): candidates},
+            score_collection_inputs={next(iter(score_references)): scores},
+            objectives=typed_objectives,
+            catalog=self._catalog,
+        )
+        aggregate = {
+            candidate_id: math.fsum(
+                utility * weight
+                for utility, weight in zip(
+                    utilities,
+                    profile.effective_weights,
+                    strict=True,
+                )
+            )
+            for candidate_id, utilities in profile.utilities.items()
+        }
+        if self._operation == "weighted_rank":
+            selected = sorted(
+                candidates.items,
+                key=lambda candidate: (
+                    -aggregate[candidate.candidate_id],
+                    candidate.candidate_id,
+                ),
+            )
+        elif self._operation == "pareto":
+            dominated: set[str] = set()
+            candidate_ids = tuple(sorted(profile.utilities))
+            for candidate_id in candidate_ids:
+                vector = profile.utilities[candidate_id]
+                for other_id in candidate_ids:
+                    if other_id == candidate_id:
+                        continue
+                    other = profile.utilities[other_id]
+                    if (
+                        all(
+                            other_value >= value
+                            for other_value, value in zip(
+                                other,
+                                vector,
+                                strict=True,
+                            )
+                        )
+                        and any(
+                            other_value > value
+                            for other_value, value in zip(
+                                other,
+                                vector,
+                                strict=True,
+                            )
+                        )
+                    ):
+                        dominated.add(candidate_id)
+                        break
+            candidates_by_id = {
+                candidate.candidate_id: candidate
+                for candidate in candidates.items
+            }
+            selected = [
+                candidates_by_id[candidate_id]
+                for candidate_id in candidate_ids
+                if candidate_id not in dominated
+            ]
+        elif self._operation == "diversity":
+            k = node_parameters.get("k")
+            if type(k) is not int or k < 1:
+                raise ValueError(
+                    "diversity selection requires a positive integer k"
+                )
+            if k > len(candidates.items):
+                raise ValueError(
+                    "diversity selection k cannot exceed Candidate input "
+                    "cardinality"
+                )
+            candidates_by_id = {
+                candidate.candidate_id: candidate
+                for candidate in candidates.items
+            }
+            first_id = min(
+                profile.utilities,
+                key=lambda candidate_id: (
+                    -aggregate[candidate_id],
+                    candidate_id,
+                ),
+            )
+            selected_ids = [first_id]
+            remaining = set(profile.utilities) - {first_id}
+
+            def distance(left_id: str, right_id: str) -> float:
+                return math.sqrt(
+                    math.fsum(
+                        weight * ((left - right) ** 2)
+                        for left, right, weight in zip(
+                            profile.utilities[left_id],
+                            profile.utilities[right_id],
+                            profile.effective_weights,
+                            strict=True,
+                        )
+                    )
+                )
+
+            while len(selected_ids) < k:
+                next_id = min(
+                    remaining,
+                    key=lambda candidate_id: (
+                        -min(
+                            distance(candidate_id, selected_id)
+                            for selected_id in selected_ids
+                        ),
+                        candidate_id,
+                    ),
+                )
+                selected_ids.append(next_id)
+                remaining.remove(next_id)
+            selected = [
+                candidates_by_id[candidate_id]
+                for candidate_id in selected_ids
+            ]
+        else:
+            raise RuntimeError("unknown multi-objective selection operation")
+
+        collection_identity = canonical_sha256(
+            {
+                "schema_namespace": (
+                    "protein-workbench-multi-objective-selection-output/v2"
+                ),
+                "operation": self._operation,
+                "input_collection_id": candidates.collection_id,
+                "objectives": profile.public_provenance()["objectives"],
+                "parameters": {
+                    name: list(value) if isinstance(value, tuple) else value
+                    for name, value in node_parameters.items()
+                },
+                "selected_candidate_ids": [
+                    candidate.candidate_id for candidate in selected
+                ],
+            }
+        ).removeprefix("sha256:")
+        return {
+            "candidates": CandidateCollection(
+                collection_id=(
+                    f"selection-{self._operation}-{collection_identity}"
+                ),
+                item_type=candidates.item_type,
+                items=list(selected),
             )
         }
 
