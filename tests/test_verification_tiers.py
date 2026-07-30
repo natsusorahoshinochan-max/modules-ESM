@@ -49,6 +49,7 @@ def test_every_public_tier_has_only_existing_v2_test_targets() -> None:
     assert set(TIERS) == {
         "deterministic-acceptance",
         "examples-v2",
+        "fresh-remote-3gb1",
         "installed-biohub-esmc",
         "installed-local-esm3",
         "installed-package",
@@ -83,6 +84,7 @@ def test_required_installed_provider_tiers_fail_on_any_skip() -> None:
         "installed-simplefold-confidence",
         "installed-simplefold-folding",
         "installed-soluprot",
+        "fresh-remote-3gb1",
     }
 
 

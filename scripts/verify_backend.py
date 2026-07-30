@@ -10,6 +10,7 @@ import json
 import os
 import secrets
 import signal
+import shutil
 import stat
 import subprocess
 import sys
@@ -44,6 +45,8 @@ class Tier:
     pytest_arguments: tuple[str, ...]
     timeout_seconds: int = DEFAULT_TIMEOUT_SECONDS
     zero_skip: bool = False
+    clean_source: bool = False
+    retain_evidence_bundle: bool = False
 
 
 TIERS = {
@@ -165,6 +168,17 @@ TIERS = {
             "test_installed_protein_sol_gate"
         ),),
         zero_skip=True,
+    ),
+    "fresh-remote-3gb1": Tier(
+        ((
+            "tests/test_fresh_remote_3gb1_v2.py::"
+            "test_fresh_remote_3gb1_installed_public_run_"
+            "retains_auditable_bundle"
+        ),),
+        timeout_seconds=90 * 60,
+        zero_skip=True,
+        clean_source=True,
+        retain_evidence_bundle=True,
     ),
     "provider-isolation": Tier((
         (
@@ -434,6 +448,13 @@ def run(tier_name: str, pytest_override: tuple[str, ...]) -> int:
         f"PROJECT ENVIRONMENT: {Path(sys.executable).resolve()}",
         flush=True,
     )
+    if tier.clean_source and dirty:
+        print(
+            "BACKEND VERIFICATION RESULT: failed "
+            "(fresh remote tier requires a clean source revision)",
+            flush=True,
+        )
+        return 1
 
     with tempfile.TemporaryDirectory(
         prefix=f"protein-workbench-{tier_name}-"
@@ -446,6 +467,11 @@ def run(tier_name: str, pytest_override: tuple[str, ...]) -> int:
             root.mkdir(mode=0o700)
             env[variable] = str(root)
         env["PROTEIN_WORKBENCH_VERIFICATION_TIER"] = tier_name
+        if tier.retain_evidence_bundle:
+            env["PROTEIN_WORKBENCH_FRESH_SOURCE_REVISION"] = revision
+            env["PROTEIN_WORKBENCH_FRESH_EVIDENCE_STAGING"] = str(
+                staging_root / "fresh-remote-3gb1-evidence"
+            )
         env.pop("PROTEIN_WORKBENCH_PROVIDER_CALL_EVIDENCE", None)
         env.pop("PROTEIN_WORKBENCH_PROVIDER_EVIDENCE_SCOPE", None)
 
@@ -531,6 +557,17 @@ def run(tier_name: str, pytest_override: tuple[str, ...]) -> int:
         )
         result_dir.mkdir(parents=True, mode=0o700)
         result_dir.chmod(0o700)
+        evidence_staging = staging_root / "fresh-remote-3gb1-evidence"
+        if (
+            tier.retain_evidence_bundle
+            and evidence_staging.is_dir()
+            and not evidence_staging.is_symlink()
+        ):
+            shutil.copytree(
+                evidence_staging,
+                result_dir / "evidence",
+                symlinks=False,
+            )
         transcript = (
             "cwd=$PROJECT_ROOT\n"
             + "$ "
@@ -566,6 +603,10 @@ def run(tier_name: str, pytest_override: tuple[str, ...]) -> int:
                     "isolated_roots": list(ROOT_VARIABLES),
                     "historical_cache_allowed": False,
                     "parallel_provider_evidence_allowed": False,
+                    "clean_source_required": tier.clean_source,
+                    "evidence_bundle_required": (
+                        tier.retain_evidence_bundle
+                    ),
                 },
                 sort_keys=True,
                 separators=(",", ":"),
