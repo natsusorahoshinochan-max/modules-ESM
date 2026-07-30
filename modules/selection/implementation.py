@@ -5,20 +5,16 @@ from __future__ import annotations
 from collections.abc import Mapping
 from typing import Any
 
-from core.port_types import CatalogBuildError, canonical_json_bytes, canonical_sha256
+from core.port_types import canonical_sha256
 from core.scoring_v2 import (
-    PairwiseContextSelector,
     SelectionError,
-    SelectionInput,
     SelectionObjective,
+    resolve_objective_observations,
     resolve_selection_objective,
     select_candidates,
 )
 from datatypes import (
     CandidateCollection,
-    IntrinsicObservationContext,
-    PairwiseObservationContext,
-    Score,
     ScoreCollection,
     ScoreObservation,
 )
@@ -75,16 +71,21 @@ class SelectionImplementation:
         if out_of_scope_policy not in {"error", "ignore"}:
             raise ValueError("selection out-of-scope policy is unsupported")
 
-        matching = self._matching_observations(
+        matching = resolve_objective_observations(
             candidates=candidates,
-            scores=scores,
+            collection=scores,
             objective=objective,
             out_of_scope_policy=out_of_scope_policy,
+            duplicate_policy="error",
+        )
+        scoped_scores = ScoreCollection(
+            collection_id=f"{scores.collection_id}.selected-scope",
+            entries=list(matching.values()),
         )
         ranked = select_candidates(
             candidate_inputs={objective.candidate_input: candidates},
             score_collection_inputs={
-                objective.score_collection_input: scores
+                objective.score_collection_input: scoped_scores
             },
             objectives=(objective,),
             catalog=self._catalog,
@@ -135,71 +136,6 @@ class SelectionImplementation:
             )
         }
 
-    def _matching_observations(
-        self,
-        *,
-        candidates: CandidateCollection,
-        scores: ScoreCollection,
-        objective: SelectionObjective,
-        out_of_scope_policy: str,
-    ) -> dict[str, ScoreObservation]:
-        candidate_ids = [candidate.candidate_id for candidate in candidates.items]
-        if len(candidate_ids) != len(set(candidate_ids)):
-            raise ValueError("selection Candidate input has duplicate identities")
-        candidate_set = set(candidate_ids)
-        seen: dict[tuple[object, ...], bytes] = {}
-        matches: dict[str, ScoreObservation] = {}
-        for entry in scores.entries:
-            if isinstance(entry, Score):
-                raise ValueError("selection rejects legacy subject-free scores")
-            if type(entry) is not ScoreObservation:
-                raise ValueError("selection requires exact typed Observations")
-            try:
-                encoded = canonical_json_bytes(entry.value)
-            except CatalogBuildError as error:
-                raise ValueError(
-                    "selection Observation value must be canonical I-JSON"
-                ) from error
-            previous = seen.get(entry.identity)
-            if previous is not None:
-                if previous != encoded:
-                    raise ValueError(
-                        "selection has a conflicting observation identity"
-                    )
-                raise ValueError(
-                    "selection has a duplicate observation identity"
-                )
-            seen[entry.identity] = encoded
-            in_scope = (
-                entry.candidate_id in candidate_set
-                and entry.source_partition == objective.source_partition
-                and entry.metric == objective.metric
-                and entry.method == objective.method
-                and _context_matches(entry.context, objective.context_selector)
-            )
-            if not in_scope:
-                if out_of_scope_policy == "error":
-                    raise ValueError(
-                        "selection received an out-of-scope observation"
-                    )
-                continue
-            if entry.candidate_id in matches:
-                raise ValueError(
-                    "selection requires exactly one observation per Candidate"
-                )
-            matches[entry.candidate_id] = entry
-        missing = [
-            candidate_id
-            for candidate_id in candidate_ids
-            if candidate_id not in matches
-        ]
-        if missing:
-            raise ValueError(
-                "selection has a missing observation for Candidate "
-                f"{missing[0]!r}"
-            )
-        return matches
-
     def _filter(
         self,
         *,
@@ -238,17 +174,3 @@ class SelectionImplementation:
             for candidate in candidates.items
             if comparison(matching[candidate.candidate_id].value)
         ]
-
-
-def _context_matches(context: object, selector: object) -> bool:
-    if isinstance(selector, IntrinsicObservationContext):
-        return context == selector
-    return (
-        isinstance(selector, PairwiseContextSelector)
-        and isinstance(context, PairwiseObservationContext)
-        and context.kind == selector.kind
-        and context.subject.role == selector.subject_role
-        and context.reference.role == selector.reference_role
-        and context.pairing_mode == selector.pairing_mode
-        and context.normalization == selector.normalization
-    )

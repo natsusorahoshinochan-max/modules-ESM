@@ -2828,6 +2828,17 @@ def _result_identity_descriptor(
             )
         ),
     }
+    selected_objective = _consumed_selection_objective(
+        plan,
+        node,
+        binding_contract,
+    )
+    if selected_objective is not None:
+        descriptor["selection_objective"] = (
+            _normalize_nested_contract_references(
+                selected_objective.to_public()
+            )
+        )
     if resolved_resource_inputs:
         descriptor["resolved_resource_inputs"] = [
             _plain_json(identity)
@@ -2972,6 +2983,34 @@ def _result_identity(
     )
 
 
+def _consumed_selection_objective(
+    plan: ExecutionPlan,
+    node: ExecutionPlanNode,
+    binding_contract: Any,
+) -> Any | None:
+    consumption = binding_contract.descriptor.get(
+        "selection_objective_consumption"
+    )
+    if not isinstance(consumption, Mapping):
+        return None
+    parameter_name = consumption.get("objective_id_parameter")
+    objective_id = (
+        node.node_parameters.get(parameter_name)
+        if isinstance(parameter_name, str)
+        else None
+    )
+    matches = [
+        objective
+        for objective in plan.selection_objectives
+        if objective.objective_id == objective_id
+    ]
+    if len(matches) != 1:
+        raise PortValueError(
+            "Selection Objective consumption is unresolved at execution"
+        )
+    return matches[0]
+
+
 def _relevant_result_contract_keys(
     catalog: FrozenCatalog,
     plan: ExecutionPlan,
@@ -3009,6 +3048,26 @@ def _relevant_result_contract_keys(
             if entry.contract_kind == "utility_transform"
         },
     }
+    selected_objective = _consumed_selection_objective(
+        plan,
+        node,
+        binding_contract,
+    )
+    if selected_objective is not None:
+        keys.update(
+            {
+                (
+                    reference.contract_kind,
+                    reference.contract_id,
+                    reference.contract_version,
+                )
+                for reference in (
+                    selected_objective.metric,
+                    selected_objective.method,
+                    selected_objective.utility_transform,
+                )
+            }
+        )
     unresolved = list(keys)
     while unresolved:
         key = unresolved.pop()
@@ -3115,7 +3174,7 @@ def _result_contract_metadata(
         )
         for identity in relevant_keys
     }
-    return {
+    metadata = {
         "contracts": [contracts[key] for key in sorted(contracts)],
         "outputs": [
             {
@@ -3127,6 +3186,16 @@ def _result_contract_metadata(
             for port in node_contract.descriptor.get("outputs", ())
         ],
     }
+    selected_objective = _consumed_selection_objective(
+        plan,
+        node,
+        binding_contract,
+    )
+    if selected_objective is not None:
+        metadata["selection_objective"] = _plain_json(
+            selected_objective.to_public()
+        )
+    return metadata
 
 
 def _with_result_provenance(

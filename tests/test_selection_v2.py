@@ -443,6 +443,28 @@ def test_duplicate_conflicting_and_out_of_scope_observations_fail_closed() -> No
             node_parameters=parameters,
             binding_parameters={},
         )
+    ignored_duplicate = ScoreCollection(
+        "ignored-duplicate",
+        [
+            *scores.entries,
+            replace(scores.entries[0], candidate_id="candidate-ghost"),
+            replace(
+                scores.entries[0],
+                candidate_id="candidate-ghost",
+                value=0.1,
+            ),
+        ],
+    )
+    ignored = implementation.execute(
+        inputs={"candidates": candidates, "scores": ignored_duplicate},
+        node_parameters={**parameters, "out_of_scope_policy": "ignore"},
+        binding_parameters={},
+    )["candidates"]
+    assert [candidate.candidate_id for candidate in ignored.items] == [
+        "candidate-z",
+        "candidate-a",
+        "candidate-b",
+    ]
 
 
 def test_all_three_nodes_pass_the_contract_test_kit(tmp_path: Path) -> None:
@@ -582,3 +604,113 @@ def test_public_execution_is_cache_replay_stable(
         if disposition["node_id"] == "select"
     )
     assert second_select["resolution"] == "cache_replayed"
+
+
+def test_changing_resolved_objective_invalidates_selection_cache(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    catalog = _catalog()
+    for name in ("PROJECT", "CACHE", "OUTPUT", "RUN"):
+        root = tmp_path / name.lower()
+        root.mkdir()
+        monkeypatch.setenv(f"PROTEIN_WORKBENCH_{name}_ROOT", str(root))
+    project_id = ProjectManager(tmp_path / "project").create(
+        "selection objective cache identity"
+    ).id
+    workflow = replace(
+        _workflow(catalog, "top_k"),
+        workflow_id=project_id,
+    )
+
+    def save_compile_run(
+        client: TestClient,
+        document: WorkflowDocument,
+        *,
+        expected_revision: int,
+        request_id: str,
+    ):
+        saved = client.put(
+            f"/api/v2/projects/{project_id}/workflow",
+            json={
+                "expected_workflow_revision": expected_revision,
+                "workflow": document.to_public(),
+            },
+        )
+        assert saved.status_code == 200
+        relocked = client.post(
+            f"/api/v2/projects/{project_id}/workflow:relock",
+            json={"workflow_revision": saved.json()["workflow_revision"]},
+        )
+        assert relocked.status_code == 200
+        revision = relocked.json()["workflow_revision"]
+        compiled = client.post(
+            f"/api/v2/projects/{project_id}/workflow:compile",
+            json={
+                "workflow_revision": revision,
+                "workflow": relocked.json()["workflow"],
+            },
+        )
+        assert compiled.status_code == 200
+        started = client.post(
+            f"/api/v2/projects/{project_id}/runs",
+            json={
+                "workflow_revision": revision,
+                "compile_id": compiled.json()["compile_id"],
+                "client_request_id": request_id,
+            },
+        )
+        assert started.status_code == 202
+        return (
+            revision,
+            wait_for_testclient_run_terminal(
+                client,
+                project_id,
+                started.json()["run_id"],
+            ),
+        )
+
+    with TestClient(
+        create_app(frozen_catalog_override=catalog)
+    ) as client:
+        revision, first = save_compile_run(
+            client,
+            workflow,
+            expected_revision=0,
+            request_id="objective-weight-one",
+        )
+        changed = replace(
+            workflow,
+            selection_objectives=(
+                replace(workflow.selection_objectives[0], weight=2),
+            ),
+            contract_lock=(),
+        )
+        _, second = save_compile_run(
+            client,
+            changed,
+            expected_revision=revision,
+            request_id="objective-weight-two",
+        )
+
+    first_output = next(
+        output
+        for output in first["outputs"]
+        if output["node_id"] == "select"
+    )
+    second_output = next(
+        output
+        for output in second["outputs"]
+        if output["node_id"] == "select"
+    )
+    assert first_output["result_identity"] != second_output["result_identity"]
+    assert (
+        first_output["values"][0]["fields"]["collection_id"]
+        != second_output["values"][0]["fields"]["collection_id"]
+    )
+    second_selection = next(
+        disposition
+        for disposition in second["node_dispositions"]
+        if disposition["node_id"] == "select"
+    )
+    assert second_selection["resolution"] == "executed"

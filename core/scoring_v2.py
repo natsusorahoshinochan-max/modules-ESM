@@ -592,6 +592,88 @@ def _context_matches_selector(
     )
 
 
+def resolve_objective_observations(
+    *,
+    candidates: CandidateCollection,
+    collection: ScoreCollection,
+    objective: SelectionObjective,
+    out_of_scope_policy: str = "ignore",
+    duplicate_policy: str = "deduplicate_identical",
+) -> Mapping[str, ScoreObservation]:
+    """Resolve one exact runtime Observation per Candidate or fail closed."""
+    if out_of_scope_policy not in {"error", "ignore"}:
+        raise SelectionError("selection out-of-scope policy is unsupported")
+    if duplicate_policy not in {"error", "deduplicate_identical"}:
+        raise SelectionError("selection duplicate policy is unsupported")
+    candidate_ids = [candidate.candidate_id for candidate in candidates.items]
+    if len(candidate_ids) != len(set(candidate_ids)):
+        raise SelectionError(
+            "Selection Candidate input has duplicate identities"
+        )
+    candidate_set = set(candidate_ids)
+    seen: dict[tuple[object, ...], bytes] = {}
+    matched: dict[str, list[ScoreObservation]] = {
+        candidate_id: [] for candidate_id in candidate_ids
+    }
+    for entry in collection.entries:
+        if isinstance(entry, Score):
+            raise SelectionError(
+                "Selection rejects ambiguous legacy score_id entries"
+            )
+        if type(entry) is not ScoreObservation:
+            raise SelectionError("Score Collection contains an unknown entry")
+        in_scope = (
+            entry.candidate_id in candidate_set
+            and entry.source_partition == objective.source_partition
+            and entry.metric == objective.metric
+            and entry.method == objective.method
+            and _context_matches_selector(
+                entry.context,
+                objective.context_selector,
+            )
+        )
+        if not in_scope:
+            if out_of_scope_policy == "error":
+                raise SelectionError(
+                    "selection received an out-of-scope observation"
+                )
+            continue
+        try:
+            encoded = canonical_json_bytes(entry.value)
+        except CatalogBuildError as error:
+            raise SelectionError(
+                "Observation value must be canonical I-JSON"
+            ) from error
+        previous = seen.get(entry.identity)
+        if previous is not None:
+            if previous != encoded:
+                raise SelectionError(
+                    "selection has a conflicting observation identity"
+                )
+            if duplicate_policy == "error":
+                raise SelectionError(
+                    "selection has a duplicate observation identity"
+                )
+            continue
+        seen[entry.identity] = encoded
+        matched[entry.candidate_id].append(entry)
+    resolved: dict[str, ScoreObservation] = {}
+    for candidate_id in candidate_ids:
+        matches = matched[candidate_id]
+        if not matches:
+            raise SelectionError(
+                f"Objective {objective.objective_id!r} has a missing "
+                f"observation for Candidate {candidate_id!r}"
+            )
+        if len(matches) != 1:
+            raise SelectionError(
+                f"Objective {objective.objective_id!r} requires exactly "
+                "one observation per Candidate"
+            )
+        resolved[candidate_id] = matches[0]
+    return MappingProxyType(resolved)
+
+
 def _context_profile(context: object) -> dict[str, str]:
     if isinstance(context, IntrinsicObservationContext):
         return context.to_public()
@@ -872,36 +954,21 @@ def select_candidates(
                 f"Objective {objective.objective_id!r} Score Collection "
                 "input is missing"
             ) from error
-        observations = _deduplicated_observations(collection)
+        normalized_collection = ScoreCollection(
+            collection_id=collection.collection_id,
+            entries=list(_deduplicated_observations(collection)),
+        )
+        observations = resolve_objective_observations(
+            candidates=candidates,
+            collection=normalized_collection,
+            objective=objective,
+        )
         runtime = catalog.require_utility_transform(
             objective.utility_transform.contract_id,
             objective.utility_transform.contract_version,
         )
         for candidate_id in candidate_ids:
-            matches = [
-                observation
-                for observation in observations
-                if observation.candidate_id == candidate_id
-                and observation.source_partition
-                == objective.source_partition
-                and observation.metric == objective.metric
-                and observation.method == objective.method
-                and _context_matches_selector(
-                    observation.context,
-                    objective.context_selector,
-                )
-            ]
-            if not matches:
-                raise SelectionError(
-                    f"Objective {objective.objective_id!r} has a missing "
-                    f"observation for Candidate {candidate_id!r}"
-                )
-            if len(matches) != 1:
-                raise SelectionError(
-                    f"Objective {objective.objective_id!r} requires exactly "
-                    "one observation per Candidate"
-                )
-            observation = matches[0]
+            observation = observations[candidate_id]
             if isinstance(
                 objective.context_selector,
                 PairwiseContextSelector,
