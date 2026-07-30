@@ -44,4 +44,3 @@ node_parameters:
     type: string
     const: "candidate_id_ascending"
     default: "candidate_id_ascending"
-
