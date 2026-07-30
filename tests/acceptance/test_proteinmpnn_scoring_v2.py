@@ -27,6 +27,7 @@ from datatypes import (
     ScoreObservation,
 )
 from modules.proteinmpnn.v2_adapter import configured_runtime_fingerprint
+from tests.acceptance.conftest import require_ready
 
 
 def _source_node() -> WorkflowNodeInstance:
@@ -144,7 +145,9 @@ def _decode(catalog: Any, output: dict[str, Any]) -> object:
 @pytest.mark.slow
 def test_proteinmpnn_v2_scoring_publishes_exact_native_observation(
     tmp_path: Path,
+    readiness: dict[str, bool],
 ) -> None:
+    require_ready("proteinmpnn", readiness)
     nodes = (
         _source_node(),
         WorkflowNodeInstance(
@@ -236,7 +239,9 @@ def test_proteinmpnn_v2_scoring_publishes_exact_native_observation(
 @pytest.mark.slow
 def test_proteinmpnn_v2_sibling_design_remains_exact_and_complete(
     tmp_path: Path,
+    readiness: dict[str, bool],
 ) -> None:
+    require_ready("proteinmpnn", readiness)
     nodes = (
         _source_node(),
         WorkflowNodeInstance(
