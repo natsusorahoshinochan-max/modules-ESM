@@ -4,7 +4,7 @@
 
 **Blocked by:** 13 — Consolidate protein I/O; 15 — Assemble and update ProteinPrompts; 16 — Make stochastic prompt authoring reproducible; 18 — Consolidate structure annotations; 19 — Migrate remote ESM-3 generation; 21 — Unify remote and local ESMFold2 folding; 24 — Consolidate ProteinMPNN constraints and design; 27 — Produce scoped TM-score Observations; 28 — Preserve partitions in collection operations; 30 — Migrate explicit multi-objective selection.
 
-**Status:** awaiting-controller
+**Status:** completed
 
 - [x] The maintained canonical seed uses v2 schema, exact Node/Binding versions, separate parameters, explicit effective seeds, and a complete reachable Contract Lock.
 - [x] Public compilation proves exact Port compatibility, Binding ownership, Produced Observation capabilities, the two objective source scopes, and immutable resolved contract digests before execution.
@@ -29,3 +29,40 @@
 - `routine`: `1334 passed, 64 deselected`; retained at `verification-results/routine/20260730T124720.226349Z-81819-a57e44d17040198c`.
 - No repository static type-checker or linter command is configured; `git diff --check` passed.
 - Executor handoff stops here for the Controller's cumulative Ticket 01–34 joint gate.
+
+## Controller joint-test evidence
+
+- Previous accepted multi-ticket gate:
+  `7bc24971394be628878468c348284ab33933c63d`; independently tested Ticket 34
+  executor SHA: `51d787f5ad7b366eea4dbf9ecce8f985ebbdcbfc`.
+- Tickets 01–34 ordinary v2 gate:
+  `uv run --no-sync pytest -q tests/*_v2.py` →
+  `640 passed, 7 deselected`; the seven canonical-tier cases are exercised
+  below.
+- Canonical and review-repair focused gate:
+  `uv run --no-sync pytest -q tests/test_canonical_3gb1_v2.py
+  tests/test_collection_ops_v2.py tests/test_prompt_authoring_v2.py
+  tests/test_project.py tests/test_seed_project.py` →
+  `60 passed, 3 deselected`.
+- Exact canonical deterministic acceptance and failure variants:
+  `uv run --no-sync python scripts/verify_backend.py
+  deterministic-acceptance` →
+  `17 passed, 5 deselected`; retained result
+  `verification-results/deterministic-acceptance/20260730T125813.323705Z-96281-f88ce0ef135008a0`.
+- Installed-artifact canonical public-protocol journey:
+  `uv run --no-sync python scripts/verify_backend.py installed-package` →
+  `4 passed`; retained result
+  `verification-results/installed-package/20260730T130030.243958Z-97306-d003406e2b142a4e`.
+- Repository examples:
+  `uv run --no-sync python scripts/verify_backend.py examples-v2` →
+  `11 passed`; retained result
+  `verification-results/examples-v2/20260730T130255.839181Z-98548-99751687fa37abc7`.
+- Full routine joint gate:
+  `uv run --no-sync python scripts/verify_backend.py routine` →
+  `1334 passed, 64 deselected`; retained result
+  `verification-results/routine/20260730T130315.472437Z-98939-b55a63b6667ac2bb`.
+- All four retained Controller records report
+  `project_revision=51d787f5ad7b366eea4dbf9ecce8f985ebbdcbfc` and
+  `project_dirty=false`. The worktree was clean before this evidence-only
+  status update, and no cross-ticket, canonical-proof, or repaired-boundary
+  regression was found.
