@@ -11,6 +11,7 @@ import time
 from typing import Any
 
 from fastapi.testclient import TestClient
+import pytest
 
 from core import ResultReplayHit, ResultReplaySource
 import core.run_execution_v2 as run_execution_v2
