@@ -4,7 +4,7 @@
 
 **Blocked by:** 13 — Consolidate protein I/O.
 
-**Status:** awaiting-controller
+**Status:** completed
 
 - [x] The Workbench adapter is based only on the SoluProt dependency repository under the agreed external workspace and does not adopt unrelated surrounding workflow code or modify the vendor repository.
 - [x] SoluProt full and no-TM are distinct exact Methods/Bindings rather than values of a mutable `model_name` parameter.
@@ -57,3 +57,38 @@
 - Handoff boundary: executor work is complete and awaits the Controller-owned
   joint Ticket 01–31 gate; this ticket must not be marked `completed` until
   that cumulative gate passes.
+
+## Controller joint-test evidence
+
+- Previous accepted multi-ticket gate:
+  `2f78c3d1dbd59cb7e70e911afa66e18c2b2cae7a`; independently tested Ticket 31
+  executor SHA: `a40451b329a40258d58be27e943358f633d19322`.
+- SoluProt full/no-TM local-model gate:
+  `uv run --no-sync python scripts/verify_backend.py
+  soluprot-v2-local-model` →
+  `3 passed`; retained result
+  `verification-results/soluprot-v2-local-model/20260730T083546.388866Z-88408-3f5e1116ee3417f3`.
+- Tickets 01–31 cumulative v2 gate:
+  `uv run --no-sync pytest -q tests/*_v2.py` →
+  `612 passed`.
+- Ticket 31 focused gate:
+  `uv run --no-sync pytest -q tests/test_solubility_v2.py
+  tests/test_port_types_v2.py tests/test_verification_tiers.py` →
+  `77 passed`.
+- Full routine joint gate:
+  `uv run --no-sync python scripts/verify_backend.py routine` →
+  `1302 passed, 55 deselected`; retained result
+  `verification-results/routine/20260730T083955.949869Z-93517-91813359f9e73251`.
+- Deterministic acceptance:
+  `uv run --no-sync python scripts/verify_backend.py
+  deterministic-acceptance` →
+  `10 passed, 5 deselected`; retained result
+  `verification-results/deterministic-acceptance/20260730T084510.557730Z-1470-8299eff982d68af8`.
+- Installed-package isolation:
+  `uv run --no-sync python scripts/verify_backend.py installed-package` →
+  `3 passed`; retained result
+  `verification-results/installed-package/20260730T084623.867554Z-2106-d5c4421bb3ac3236`.
+- All four retained Controller records report
+  `project_revision=a40451b329a40258d58be27e943358f633d19322` and
+  `project_dirty=false`. The worktree was clean before this evidence-only
+  status update, and no cross-ticket or sibling-provider regression was found.
