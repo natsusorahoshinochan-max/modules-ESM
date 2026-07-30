@@ -15,6 +15,8 @@ import tarfile
 import time
 import urllib.request
 import zipfile
+from collections.abc import Iterator
+from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
 from xml.etree import ElementTree
@@ -44,10 +46,6 @@ SOURCE_CATALOG_DIGEST = SOURCE_CATALOG.contract_digest
 SOURCE_PROTOCOL_BYTES = bundle_bytes()
 SOURCE_PROTOCOL_DIGEST = bundle_digest()
 REQUIRED_PROVIDER_CASES = {
-    "local_esmfold2": (
-        "tests/acceptance/test_esmfold2_v2.py::"
-        "test_local_esmfold2_v2_invokes_exact_source_bound_assets"
-    ),
     "local_esm3": (
         "tests/acceptance/test_local_esm3.py::"
         "test_local_esm3_all_generation_modes"
@@ -246,6 +244,28 @@ def _wait_terminal(
             return projection
         time.sleep(0.02)
     raise AssertionError("installed Run did not reach a terminal projection")
+
+
+def _collect_run_events(
+    port: int,
+    project_id: str,
+    run_id: str,
+) -> list[dict[str, object]]:
+    stream = prepare_run_event_stream_request(
+        {"project_id": project_id, "run_id": run_id}
+    )
+    messages: list[dict[str, object]] = []
+    with connect(
+        f"ws://127.0.0.1:{port}{stream.route}",
+        open_timeout=5,
+        close_timeout=5,
+    ) as websocket:
+        while True:
+            message = json.loads(websocket.recv(timeout=30))
+            validate_event(message)
+            messages.append(message)
+            if message["event"]["type"] == "run_terminal":
+                return messages
 
 
 def test_built_artifact_is_reproducible_complete_and_fixture_free(
@@ -662,22 +682,6 @@ def _run_installed_provider_case(
     env["PW_SOURCE_ROOT"] = str(PROJECT_ROOT)
     env["PROTEIN_WORKBENCH_REQUIRE_PROVIDER_CALL"] = "1"
     env.setdefault(
-        "PROTEIN_WORKBENCH_ESMFOLD2_MODEL_ROOT",
-        (
-            "/Users/sorachan/.cache/huggingface/hub/"
-            "models--biohub--ESMFold2/snapshots/"
-            "1ebf0e3481a5184eb6171d40615c79e384b48796"
-        ),
-    )
-    env.setdefault(
-        "PROTEIN_WORKBENCH_ESMFOLD2_ESMC_MODEL_ROOT",
-        (
-            "/Users/sorachan/.cache/huggingface/hub/"
-            "models--biohub--ESMC-6B/snapshots/"
-            "45b0fa5d7fb06faefbd5e3b89bdcef35d564e79a"
-        ),
-    )
-    env.setdefault(
         "PROTEIN_WORKBENCH_SIMPLEFOLD_MODEL_ROOT",
         "/Users/sorachan/Documents/ESM-workflow-NEXT/var/cache/models/simplefold",
     )
@@ -758,12 +762,306 @@ raise SystemExit(pytest.main(sys.argv[1:]))
     assert tests > 0 and failures == 0 and skipped == 0, completed.stdout
 
 
-@pytest.mark.local_provider
-def test_installed_local_esmfold2_gate(
+@contextmanager
+def _running_installed_biohub_esmc_server(
+    installed_artifact: InstalledArtifact,
+    tmp_path: Path,
+) -> Iterator[tuple[int, str]]:
+    token_file = Path(
+        os.environ.get(
+            "PROTEIN_WORKBENCH_BIOHUB_TOKEN_FILE",
+            PROJECT_ROOT / "keys" / "esmkey.txt",
+        )
+    )
+    assert (
+        token_file.is_absolute()
+        and not token_file.is_symlink()
+        and token_file.is_file()
+        and 0 < token_file.stat().st_size <= 16 * 1024
+        and stat.S_IMODE(token_file.stat().st_mode) & 0o077 == 0
+    )
+    launcher = tmp_path / "installed_biohub_esmc_server.py"
+    launcher.write_text(
+        """
+import os
+from pathlib import Path
+import core
+import datatypes
+import examples
+import modules
+import pdbs
+import protein_workbench_public
+from core.server import create_app
+from modules.esm3.esmc_adapter import biohub_esmc_client_factory
+from modules.provider_contract import read_biohub_token
+
+source = Path(os.environ["PW_SOURCE_ROOT"]).resolve()
+for package in (
+    core,
+    datatypes,
+    examples,
+    modules,
+    pdbs,
+    protein_workbench_public,
+):
+    assert not Path(package.__file__).resolve().is_relative_to(source)
+binding = ("esm3.represent_sequence.biohub_esmc_600m_2024_12", "2.0.0")
+app = create_app(v2_environment_configuration={
+    binding: {
+        "values": {
+            "endpoint_id": "biohub",
+            "credential_handle": read_biohub_token(),
+            "client_factory": biohub_esmc_client_factory,
+        },
+        "safe_fingerprint": "biohub-esmc-600m-2024-12",
+        "invalidation_token": "biohub-esmc-600m-2024-12",
+    },
+})
+
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run(
+        app,
+        host="127.0.0.1",
+        port=int(os.environ["PW_SERVER_PORT"]),
+        log_level="warning",
+    )
+""".lstrip(),
+        encoding="utf-8",
+    )
+    port = _free_port()
+    env = os.environ.copy()
+    env.pop("PYTHONPATH", None)
+    env["PW_SOURCE_ROOT"] = str(PROJECT_ROOT)
+    env["PW_SERVER_PORT"] = str(port)
+    env["PROTEIN_WORKBENCH_BIOHUB_TOKEN_FILE"] = str(token_file)
+    for name in ("PROJECT", "CACHE", "OUTPUT", "RUN"):
+        root = tmp_path / name.lower()
+        root.mkdir()
+        env[f"PROTEIN_WORKBENCH_{name}_ROOT"] = str(root)
+    server = subprocess.Popen(
+        [str(installed_artifact.python), "-I", str(launcher)],
+        cwd=installed_artifact.run_root,
+        env=env,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        text=True,
+    )
+    try:
+        _wait_for_server(port, server)
+        yield port, f"http://127.0.0.1:{port}"
+    finally:
+        if server.poll() is None:
+            server.terminate()
+        try:
+            server.communicate(timeout=10)
+        except subprocess.TimeoutExpired:
+            server.kill()
+            server.communicate(timeout=5)
+
+
+def _assert_installed_esmc_catalog(
+    catalog: dict[str, object],
+) -> str:
+    contracts = {
+        (
+            item["reference"]["contract_kind"],
+            item["reference"]["contract_id"],
+            item["reference"]["contract_version"],
+        ): item
+        for item in catalog["contracts"]
+    }
+    binding_id = "esm3.represent_sequence.biohub_esmc_600m_2024_12"
+    binding_key = ("binding", binding_id, "2.0.0")
+    method_key = (
+        "method",
+        "esm3.represent_sequence.esmc_600m_2024_12",
+        "2.0.0",
+    )
+    assert contracts[binding_key]["descriptor"]["method"]["contract_id"] == (
+        method_key[1]
+    )
+    assert contracts[method_key]["descriptor"]["model_identity"]["model"] == (
+        "esmc-600m-2024-12"
+    )
+    return binding_id
+
+
+def _start_installed_esmc_run(
+    client: PublicProtocolAcceptanceClient,
+    base_url: str,
+    binding_id: str,
+) -> tuple[str, str]:
+    provisioned = httpx.post(
+        f"{base_url}/api/projects",
+        json={"name": "installed Biohub ESMC acceptance"},
+        timeout=5,
+    )
+    provisioned.raise_for_status()
+    project_id = provisioned.json()["id"]
+    uploaded = httpx.post(
+        f"{base_url}/api/projects/{project_id}/inputs",
+        files={
+            "file": (
+                "3GB1.fasta",
+                b">3GB1\nMTYKLILNGKTLKGETTTEAVDAATAEKVFKQYANDNGVDGEWTYDDATKTFTVTE\n",
+                "text/x-fasta",
+            )
+        },
+        timeout=5,
+    )
+    uploaded.raise_for_status()
+    workflow = {
+        "schema_version": "2.0.0",
+        "workflow_id": project_id,
+        "nodes": [
+            {
+                "node_id": "import",
+                "node_type_id": "protein_io.import_sequence",
+                "node_type_version": "2.0.0",
+                "binding_id": "protein_io.import_sequence.direct",
+                "binding_version": "2.0.0",
+                "node_parameters": {
+                    "project_input_ref": uploaded.json()["project_input_ref"]
+                },
+                "binding_parameters": {},
+            },
+            {
+                "node_id": "represent",
+                "node_type_id": "esm3.represent_sequence",
+                "node_type_version": "2.0.0",
+                "binding_id": binding_id,
+                "binding_version": "2.0.0",
+                "node_parameters": {},
+                "binding_parameters": {},
+            },
+        ],
+        "edges": [
+            {
+                "source_node_id": "import",
+                "source_port": "sequence",
+                "target_node_id": "represent",
+                "target_port": "sequence",
+            }
+        ],
+        "selection_objectives": [],
+        "contract_lock": [],
+    }
+    saved = client.request(
+        "save_project_workflow",
+        {
+            "project_id": project_id,
+            "expected_workflow_revision": 0,
+            "workflow": workflow,
+        },
+    )
+    relocked = client.request(
+        "relock_project_workflow",
+        {
+            "project_id": project_id,
+            "workflow_revision": saved["workflow_revision"],
+        },
+    )
+    compiled = client.request(
+        "workflow_compile",
+        {
+            "project_id": project_id,
+            "workflow_revision": relocked["workflow_revision"],
+            "workflow": relocked["workflow"],
+        },
+    )
+    started = client.request(
+        "start_run",
+        {
+            "project_id": project_id,
+            "workflow_revision": relocked["workflow_revision"],
+            "compile_id": compiled["compile_id"],
+            "client_request_id": "installed-biohub-esmc",
+        },
+    )
+    return project_id, started["run_id"]
+
+
+@pytest.mark.live_provider
+def test_installed_biohub_esmc_gate(
     installed_artifact: InstalledArtifact,
     tmp_path: Path,
 ) -> None:
-    _run_installed_provider_case(installed_artifact, tmp_path, "local_esmfold2")
+    with _running_installed_biohub_esmc_server(
+        installed_artifact,
+        tmp_path,
+    ) as (port, base_url):
+        with PublicProtocolAcceptanceClient(base_url) as client:
+            binding_id = _assert_installed_esmc_catalog(
+                client.request("catalog_snapshot", {})
+            )
+            project_id, run_id = _start_installed_esmc_run(
+                client,
+                base_url,
+                binding_id,
+            )
+            messages = _collect_run_events(port, project_id, run_id)
+            projection = _wait_terminal(
+                client,
+                project_id,
+                run_id,
+                timeout=120,
+            )
+
+    assert projection["status"] == "succeeded"
+    representation = next(
+        output
+        for output in projection["outputs"]
+        if output["node_id"] == "represent"
+        and output["output_port"] == "representation"
+    )
+    assert representation["port_type"]["contract_id"] == (
+        "esm3.esmc_sequence_representation"
+    )
+    value = representation["values"][0]
+    assert value["sequence"].startswith("MTYKLILNGKTL")
+    assert len(value["mean_embedding"]) == 1152
+    assert all(
+        isinstance(item, (int, float))
+        and item == item
+        and abs(item) != float("inf")
+        for item in value["mean_embedding"]
+    )
+    assert value["sequence_logits_shape"][-2:] == [
+        len(value["sequence"]) + 2,
+        64,
+    ]
+
+    events = [message["event"] for message in messages]
+    readiness = [
+        event
+        for event in events
+        if event["type"] == "readiness_attested"
+        and event["binding"]["contract_id"] == binding_id
+    ]
+    assert len(readiness) == 1
+    assert readiness[0]["conclusion"] == "passing"
+    invocations = [
+        event
+        for event in events
+        if event["type"] == "engine_invocation_started"
+        and event["engine_identity"].startswith(
+            "esmc.biohub.esmc-600m-2024-12."
+        )
+    ]
+    assert [event["engine_role"] for event in invocations] == [
+        "sequence_encode",
+        "sequence_logits",
+    ]
+    terminal_by_id = {
+        event["invocation_id"]: event
+        for event in events
+        if event["type"] == "engine_invocation_terminal"
+    }
+    assert all(
+        terminal_by_id[event["invocation_id"]]["status"] == "succeeded"
+        for event in invocations
+    )
 
 
 @pytest.mark.local_provider

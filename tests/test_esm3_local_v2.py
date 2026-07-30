@@ -67,7 +67,7 @@ def _local_environment(tmp_path: Path) -> dict[str, Any]:
     }
 
 
-def test_local_esm3_reuses_remote_nodes_and_observation_contracts() -> None:
+def test_local_esm3_reuses_generation_nodes_alongside_direct_esmc() -> None:
     registrations = {
         registration.package_id: registration
         for registration in discover_module_packages()
@@ -79,6 +79,7 @@ def test_local_esm3_reuses_remote_nodes_and_observation_contracts() -> None:
         "definitions/generate_sequence.yaml",
         "definitions/generate_structure.yaml",
         "definitions/generate_paired.yaml",
+        "definitions/represent_sequence.yaml",
     }
 
     catalog = build_discovered_frozen_catalog()

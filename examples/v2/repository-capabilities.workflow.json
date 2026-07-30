@@ -524,6 +524,15 @@
         ]
       },
       "binding_parameters": {}
+    },
+    {
+      "node_id": "esm3-represent-sequence-biohub-esmc-600m-2024-12",
+      "node_type_id": "esm3.represent_sequence",
+      "node_type_version": "2.0.0",
+      "binding_id": "esm3.represent_sequence.biohub_esmc_600m_2024_12",
+      "binding_version": "2.0.0",
+      "node_parameters": {},
+      "binding_parameters": {}
     }
   ],
   "edges": [
@@ -946,6 +955,12 @@
       "source_port": "scores",
       "target_node_id": "collection-ops-merge-scores-direct",
       "target_port": "scores_c"
+    },
+    {
+      "source_node_id": "protein-io-import-sequence-direct",
+      "source_port": "sequence",
+      "target_node_id": "esm3-represent-sequence-biohub-esmc-600m-2024-12",
+      "target_port": "sequence"
     }
   ],
   "selection_objectives": [],
@@ -1015,6 +1030,12 @@
       "contract_id": "esm3.generate_structure.local_open",
       "contract_version": "2.0.0",
       "contract_digest": "sha256:c0915585802b341349ee0f5d70e66375b1eaa6528f2958945b67c1f79e67da95"
+    },
+    {
+      "contract_kind": "binding",
+      "contract_id": "esm3.represent_sequence.biohub_esmc_600m_2024_12",
+      "contract_version": "2.0.0",
+      "contract_digest": "sha256:458d4ea9a195f25a33b076048c6bd9a67c41c7fd94e60e424bc28406eabe4abd"
     },
     {
       "contract_kind": "binding",
@@ -1309,6 +1330,12 @@
       "contract_id": "esm3.generate_structure.esm3_sm_open_v1_local",
       "contract_version": "2.0.0",
       "contract_digest": "sha256:e16abf7dceab4d06b2c89c52ad7d067a6f6f010cd80d04372da4c53f1ee7fef5"
+    },
+    {
+      "contract_kind": "method",
+      "contract_id": "esm3.represent_sequence.esmc_600m_2024_12",
+      "contract_version": "2.0.0",
+      "contract_digest": "sha256:d3c65e7bcb9cf317f36ff9c721c308cf08fb15732f8f577bfa9df4e7a2a7d642"
     },
     {
       "contract_kind": "method",
@@ -1612,6 +1639,12 @@
     },
     {
       "contract_kind": "node_type",
+      "contract_id": "esm3.represent_sequence",
+      "contract_version": "2.0.0",
+      "contract_digest": "sha256:f235b4f1b9d632f0277eac8b8bfbab8347d9336dd3ea15aa8117d920db72e38d"
+    },
+    {
+      "contract_kind": "node_type",
       "contract_id": "folding.fold",
       "contract_version": "2.0.0",
       "contract_digest": "sha256:17c058b26f491d3706c6091f6984f57161118c1eeb37cb820c3a135584d8efbe"
@@ -1807,6 +1840,12 @@
       "contract_id": "candidate.pairing",
       "contract_version": "2.0.0",
       "contract_digest": "sha256:6c7ef38ba52f660d189f4a0d4cffd57acf564f3243f4334e164d746ee57b6865"
+    },
+    {
+      "contract_kind": "port_type",
+      "contract_id": "esm3.esmc_sequence_representation",
+      "contract_version": "2.0.0",
+      "contract_digest": "sha256:aa83c81361820c117898998710e89720af9ea1aba328dd226af14e009935fc95"
     },
     {
       "contract_kind": "port_type",

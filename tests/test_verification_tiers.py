@@ -49,8 +49,8 @@ def test_every_public_tier_has_only_existing_v2_test_targets() -> None:
     assert set(TIERS) == {
         "deterministic-acceptance",
         "examples-v2",
+        "installed-biohub-esmc",
         "installed-local-esm3",
-        "installed-local-esmfold2",
         "installed-package",
         "installed-protein-sol",
         "installed-simplefold-confidence",
@@ -77,8 +77,8 @@ def test_required_installed_provider_tiers_fail_on_any_skip() -> None:
         for name, tier in TIERS.items()
         if tier.zero_skip
     } == {
+        "installed-biohub-esmc",
         "installed-local-esm3",
-        "installed-local-esmfold2",
         "installed-protein-sol",
         "installed-simplefold-confidence",
         "installed-simplefold-folding",

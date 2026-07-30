@@ -12,6 +12,7 @@ import pytest
 from core import (
     EnvironmentConfiguration,
     ModulePackageContractCase,
+    ModulePackagePortCase,
     ProjectManager,
     ResultReplaySource,
     V2RunError,
@@ -31,12 +32,13 @@ from datatypes import (
     FunctionAnnotation,
     FunctionAnnotations,
     ProteinPrompt,
+    ProteinSequence,
     ResidueLayout,
     ResidueTrack,
 )
 
 
-def test_remote_esm3_is_one_package_with_three_fixed_generation_nodes() -> None:
+def test_esm_package_owns_generation_and_direct_esmc_representation_nodes() -> None:
     registrations = {
         registration.package_id: registration
         for registration in discover_module_packages()
@@ -50,6 +52,7 @@ def test_remote_esm3_is_one_package_with_three_fixed_generation_nodes() -> None:
         "definitions/generate_sequence.yaml",
         "definitions/generate_structure.yaml",
         "definitions/generate_paired.yaml",
+        "definitions/represent_sequence.yaml",
     }
 
     catalog = build_discovered_frozen_catalog()
@@ -63,6 +66,63 @@ def test_remote_esm3_is_one_package_with_three_fixed_generation_nodes() -> None:
         ("esm3.generate_sequence", "2.0.0"),
         ("esm3.generate_structure", "2.0.0"),
         ("esm3.generate_paired", "2.0.0"),
+        ("esm3.represent_sequence", "2.0.0"),
+    }
+
+    representation = catalog.require_contract(
+        "node_type",
+        "esm3.represent_sequence",
+        "2.0.0",
+    )
+    assert representation.descriptor["inputs"][0]["port_type"][
+        "contract_id"
+    ] == "protein.sequence"
+    assert representation.descriptor["outputs"][0]["port_type"][
+        "contract_id"
+    ] == "esm3.esmc_sequence_representation"
+    assert representation.descriptor["title"] == "Represent a sequence"
+    assert "Biohub" not in representation.descriptor["summary"]
+    assert "ESMC" not in representation.descriptor["summary"]
+    binding = catalog.require_contract(
+        "binding",
+        "esm3.represent_sequence.biohub_esmc_600m_2024_12",
+        "2.0.0",
+    )
+    assert binding.descriptor["method"]["contract_id"] == (
+        "esm3.represent_sequence.esmc_600m_2024_12"
+    )
+    assert {
+        key: binding.descriptor["implementation_identity"][key]
+        for key in (
+            "name",
+            "model",
+            "source",
+            "provider_operations",
+            "output_contract",
+        )
+    } == {
+        "name": "esm3.represent_sequence.biohub-esmc-adapter",
+        "model": "esmc-600m-2024-12",
+        "source": "Biohub",
+        "provider_operations": ("encode", "logits"),
+        "output_contract": (
+            "provider mean embedding plus validated sequence-logits shape"
+        ),
+    }
+    assert binding.descriptor["readiness_declaration"]["prerequisites"] == {
+        "credential": {
+            "source": "trusted_environment_configuration",
+        },
+        "endpoint": {
+            "endpoint_id": "biohub",
+            "source": "trusted_environment_configuration",
+        },
+        "provider_sdk": {
+            "name": "esm",
+            "source_revision": (
+                "917af90b624535eed1e072d343c717e3ec11fef4"
+            ),
+        },
     }
 
     models = (
@@ -134,6 +194,236 @@ def test_remote_esm3_is_one_package_with_three_fixed_generation_nodes() -> None:
                     ),
                 },
             }
+
+
+def test_direct_esmc_representation_crosses_public_run_and_engine_seams(
+    tmp_path: Path,
+) -> None:
+    import torch
+
+    from modules.esm3.domain import ESMCSequenceRepresentation
+    from modules.esm3.package import MODULE_PACKAGE as ESM3_PACKAGE
+    from modules.prompt_authoring.package import (
+        MODULE_PACKAGE as PROMPT_AUTHORING_PACKAGE,
+    )
+    from modules.protein_io.package import MODULE_PACKAGE as PROTEIN_IO_PACKAGE
+
+    class ESMCClient:
+        def __init__(self) -> None:
+            self.calls: list[tuple[str, object]] = []
+
+        def encode(self, protein: object) -> object:
+            self.calls.append(("encode", protein))
+            return SimpleNamespace(sequence=torch.tensor([0, 1, 2, 3, 4]))
+
+        def logits(self, encoded: object, config: object) -> object:
+            self.calls.append(("logits", (encoded, config)))
+            return SimpleNamespace(
+                logits=SimpleNamespace(
+                    sequence=torch.zeros((5, 64), dtype=torch.float32),
+                ),
+                mean_embedding=torch.cat((
+                    torch.tensor([0.0, 1.0, -0.25, 0.5]),
+                    torch.zeros(1148),
+                )).reshape(1, 1, 1152),
+            )
+
+    catalog = build_frozen_catalog((
+        ESM3_PACKAGE,
+        PROMPT_AUTHORING_PACKAGE,
+        PROTEIN_IO_PACKAGE,
+    ))
+    projects = ProjectManager(
+        tmp_path / "projects",
+        cache_root=tmp_path / "cache",
+        output_root=tmp_path / "outputs",
+        run_root=tmp_path / "runs",
+    )
+    project = projects.create("direct ESMC representation")
+    projects.publish_input(project.id, "sequence.fasta", b">3GB1\nACD\n")
+    authoring = WorkflowAuthoringService(projects, catalog)
+    workflow = WorkflowDocument(
+        schema_version="2.0.0",
+        workflow_id=project.id,
+        nodes=(
+            WorkflowNodeInstance(
+                node_id="import",
+                node_type_id="protein_io.import_sequence",
+                node_type_version="2.0.0",
+                binding_id="protein_io.import_sequence.direct",
+                binding_version="2.0.0",
+                node_parameters={"project_input_ref": "sequence.fasta"},
+                binding_parameters={},
+            ),
+            WorkflowNodeInstance(
+                node_id="represent",
+                node_type_id="esm3.represent_sequence",
+                node_type_version="2.0.0",
+                binding_id=(
+                    "esm3.represent_sequence.biohub_esmc_600m_2024_12"
+                ),
+                binding_version="2.0.0",
+                node_parameters={},
+                binding_parameters={},
+            ),
+        ),
+        edges=(
+            WorkflowEdge("import", "sequence", "represent", "sequence"),
+        ),
+        contract_lock=(),
+    )
+    saved = authoring.save(
+        project.id,
+        expected_workflow_revision=0,
+        workflow=workflow,
+    )
+    relocked = authoring.relock(
+        project.id,
+        workflow_revision=saved["workflow_revision"],
+    )
+    compiled = authoring.compile(
+        project.id,
+        workflow_revision=relocked["workflow_revision"],
+        workflow=parse_workflow_document(relocked["workflow"]),
+    )
+    client = ESMCClient()
+    environment = EnvironmentConfiguration({
+        (
+            "esm3.represent_sequence.biohub_esmc_600m_2024_12",
+            "2.0.0",
+        ): {
+            "values": {
+                "endpoint_id": "biohub",
+                "credential_handle": object(),
+                "provider_client": client,
+            },
+            "safe_fingerprint": "biohub-esmc-fixture-v1",
+            "invalidation_token": "biohub-esmc-fixture-v1",
+        }
+    })
+    service = V2RunService(projects, catalog, authoring, environment)
+    try:
+        receipt = service.start_background(
+            project.id,
+            workflow_revision=relocked["workflow_revision"],
+            compile_id=compiled.public_receipt()["compile_id"],
+            client_request_id="direct-esmc",
+        )
+        service.shutdown()
+        projection = service.projection(project.id, receipt["run_id"])
+        events = service.public_events(project.id, receipt["run_id"])
+    finally:
+        service.shutdown()
+
+    assert projection["status"] == "succeeded"
+    output = next(
+        item
+        for item in projection["outputs"]
+        if item["node_id"] == "represent"
+    )
+    representation = _decode_output(catalog, output)
+    assert representation == ESMCSequenceRepresentation(
+        sequence="ACD",
+        residue_ids=None,
+        mean_embedding=(0.0, 1.0, -0.25, 0.5) + (0.0,) * 1148,
+        sequence_logits_shape=(5, 64),
+    )
+    assert [call[0] for call in client.calls] == ["encode", "logits"]
+    started = [
+        event["event"]
+        for event in events
+        if event["event"]["type"] == "engine_invocation_started"
+        and event["event"]["engine_identity"].startswith("esmc.biohub.")
+    ]
+    assert [event["engine_role"] for event in started] == [
+        "sequence_encode",
+        "sequence_logits",
+    ]
+    assert all("parent_invocation_id" not in event for event in started)
+    terminals = [
+        event["event"]
+        for event in events
+        if event["event"]["type"] == "engine_invocation_terminal"
+        and event["event"]["invocation_id"]
+        in {started_event["invocation_id"] for started_event in started}
+    ]
+    assert len(terminals) == 2
+    assert all(event["status"] == "succeeded" for event in terminals)
+
+    port_type = catalog.require_port_type(
+        "esm3.esmc_sequence_representation",
+        "2.0.0",
+    )
+    assert port_type.decode(port_type.encode(representation)) == representation
+    integer_form_embedding = ESMCSequenceRepresentation(
+        sequence="ACD",
+        residue_ids=None,
+        mean_embedding=(0.0, 1.0),
+        sequence_logits_shape=(5, 64),
+    )
+    assert (
+        port_type.decode(port_type.encode(integer_form_embedding))
+        == integer_form_embedding
+    )
+    with pytest.raises(ValueError, match="finite"):
+        ESMCSequenceRepresentation(
+            sequence="ACD",
+            residue_ids=("A:1", "A:2", "A:3"),
+            mean_embedding=(float("nan"),),
+            sequence_logits_shape=(5, 64),
+        )
+    with pytest.raises(ValueError, match="binary32"):
+        ESMCSequenceRepresentation(
+            sequence="ACD",
+            residue_ids=None,
+            mean_embedding=(1e300,),
+            sequence_logits_shape=(5, 64),
+        )
+    with pytest.raises(ValueError, match="negative zero"):
+        ESMCSequenceRepresentation(
+            sequence="ACD",
+            residue_ids=None,
+            mean_embedding=(-0.0,),
+            sequence_logits_shape=(5, 64),
+        )
+
+
+def test_exact_esmc_rejects_contract_mismatched_feature_dimensions() -> None:
+    import torch
+
+    from modules.esm3.esmc_adapter import normalize_representation
+
+    sequence = ProteinSequence("ACD")
+
+    def result(
+        embedding_dimension: int,
+        logits_dimension: int,
+    ) -> SimpleNamespace:
+        return SimpleNamespace(
+            logits=SimpleNamespace(
+                sequence=torch.zeros(
+                    (5, logits_dimension),
+                    dtype=torch.float32,
+                )
+            ),
+            mean_embedding=torch.zeros(
+                (1, 1, embedding_dimension),
+                dtype=torch.float32,
+            ),
+        )
+
+    with pytest.raises(ValueError, match="embedding dimension"):
+        normalize_representation(
+            sequence,
+            result(1151, 64),
+            model_name="esmc-600m-2024-12",
+        )
+    with pytest.raises(ValueError, match="logits dimension"):
+        normalize_representation(
+            sequence,
+            result(1152, 63),
+            model_name="esmc-600m-2024-12",
+        )
 
 
 def test_adapter_preserves_every_representable_prompt_track_and_symbol() -> None:
@@ -1195,7 +1485,7 @@ def test_paired_generation_publishes_ten_exact_counterparts_and_real_calls(
     assert all(event["status"] == "succeeded" for event in terminals)
 
 
-def test_remote_and_local_esm3_pass_shared_ctk_for_all_three_nodes(
+def test_esm3_generation_and_direct_esmc_pass_the_shared_ctk(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -1205,9 +1495,11 @@ def test_remote_and_local_esm3_pass_shared_ctk_for_all_three_nodes(
     import modules.esm3.package as esm3_package
 
     from modules.esm3.package import MODULE_PACKAGE as ESM3_PACKAGE
+    from modules.esm3.domain import ESMCSequenceRepresentation
     from modules.prompt_authoring.package import (
         MODULE_PACKAGE as PROMPT_AUTHORING_PACKAGE,
     )
+    from modules.protein_io.package import MODULE_PACKAGE as PROTEIN_IO_PACKAGE
     from tests.fixtures.esm3_sources.package import (
         MODULE_PACKAGE as SOURCE_PACKAGE,
     )
@@ -1302,6 +1594,24 @@ def test_remote_and_local_esm3_pass_shared_ctk_for_all_three_nodes(
             "ctk-secret-must-not-publish",
         ),
     }
+
+    class ESMCClient:
+        def encode(self, protein: object) -> object:
+            del protein
+            return SimpleNamespace(sequence=torch.tensor([0, 1, 2, 3, 4]))
+
+        def logits(self, encoded: object, config: object) -> object:
+            del encoded, config
+            return SimpleNamespace(
+                logits=SimpleNamespace(
+                    sequence=torch.zeros((5, 64), dtype=torch.float32),
+                ),
+                mean_embedding=torch.zeros(
+                    (1, 1, 1152),
+                    dtype=torch.float32,
+                ),
+            )
+
     cases = (
         ModulePackageContractCase(
             case_id="sequence",
@@ -1502,13 +1812,64 @@ def test_remote_and_local_esm3_pass_shared_ctk_for_all_three_nodes(
             expected_observation_counts={"confidence_observations": 3},
             **common,
         ),
+        ModulePackageContractCase(
+            case_id="direct-esmc",
+            node_type_id="esm3.represent_sequence",
+            binding_id=(
+                "esm3.represent_sequence.biohub_esmc_600m_2024_12"
+            ),
+            node_parameters={},
+            environment_values={
+                "endpoint_id": "biohub",
+                "credential_handle": object(),
+                "provider_client": ESMCClient(),
+                "private_token": "ctk-secret-must-not-publish",
+            },
+            workflow_nodes=(
+                WorkflowNodeInstance(
+                    node_id="sequence-source",
+                    node_type_id="protein_io.import_sequence",
+                    node_type_version="2.0.0",
+                    binding_id="protein_io.import_sequence.direct",
+                    binding_version="2.0.0",
+                    node_parameters={
+                        "project_input_ref": "sequence-input",
+                    },
+                    binding_parameters={},
+                ),
+            ),
+            workflow_edges=(
+                WorkflowEdge(
+                    "sequence-source",
+                    "sequence",
+                    "contract-test-node",
+                    "sequence",
+                ),
+            ),
+            project_inputs={"sequence-input": b">ctk\nACD\n"},
+            **common,
+        ),
     )
 
     report = verify_module_package_contract(
         ESM3_PACKAGE,
         execution_cases=cases,
+        port_cases=(
+            ModulePackagePortCase(
+                type_id="esm3.esmc_sequence_representation",
+                version="2.0.0",
+                valid_value=ESMCSequenceRepresentation(
+                    sequence="ACD",
+                    residue_ids=None,
+                    mean_embedding=(0.125, -0.25, 0.5),
+                    sequence_logits_shape=(5, 64),
+                ),
+                invalid_values=(ProteinSequence("ACD"),),
+            ),
+        ),
         supporting_registrations=(
             PROMPT_AUTHORING_PACKAGE,
+            PROTEIN_IO_PACKAGE,
             SOURCE_PACKAGE,
         ),
         work_root=tmp_path / "ctk",
@@ -1524,4 +1885,8 @@ def test_remote_and_local_esm3_pass_shared_ctk_for_all_three_nodes(
         "succeeded",
         "succeeded",
         "succeeded",
+        "succeeded",
     ]
+    assert report.verified_port_types == (
+        "esm3.esmc_sequence_representation@2.0.0",
+    )

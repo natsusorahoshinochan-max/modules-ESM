@@ -253,7 +253,9 @@ def test_remote_and_local_esmfold2_are_explicit_bindings_of_one_node() -> None:
     assert forbidden.isdisjoint(node.descriptor["node_parameters"])
 
 
-def test_folding_binding_readiness_is_independent_not_fallback() -> None:
+def test_missing_local_esmfold2_stays_fail_closed_without_hiding_remote() -> None:
+    from modules.folding.adapter import local_readiness
+
     catalog = build_discovered_frozen_catalog()
     availability = {
         snapshot["binding"]["contract_id"]: snapshot
@@ -263,9 +265,20 @@ def test_folding_binding_readiness_is_independent_not_fallback() -> None:
         "folding.fold.esmfold2_remote",
         "folding.fold.esmfold2_local",
     }.issubset(availability)
+    assert catalog.require_contract(
+        "binding",
+        "folding.fold.esmfold2_remote",
+        "2.0.0",
+    )
+    assert catalog.require_contract(
+        "binding",
+        "folding.fold.esmfold2_local",
+        "2.0.0",
+    )
     assert availability["folding.fold.esmfold2_remote"] is not (
         availability["folding.fold.esmfold2_local"]
     )
+    assert not local_readiness({}).passing
 
 
 def _write_local_runtime_fixture(

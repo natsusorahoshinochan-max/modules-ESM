@@ -170,6 +170,11 @@ def test_catalog_snapshot_publishes_exact_port_type_contracts() -> None:
         ("esm3.generate_paired.local_open", "2.0.0", True),
         ("esm3.generate_sequence.local_open", "2.0.0", True),
         ("esm3.generate_structure.local_open", "2.0.0", True),
+        (
+            "esm3.represent_sequence.biohub_esmc_600m_2024_12",
+            "2.0.0",
+            True,
+        ),
         ("folding.fold.esmfold2_remote", "2.0.0", True),
             ("folding.fold.esmfold2_local", "2.0.0", True),
             ("folding.fold.simplefold_local", "2.0.0", True),

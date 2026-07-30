@@ -124,10 +124,10 @@ TIERS = {
             "test_installed_backend_completes_full_public_v2_journey"
         ),
     )),
-    "installed-local-esmfold2": Tier(
+    "installed-biohub-esmc": Tier(
         ((
             "tests/test_installed_backend_v2.py::"
-            "test_installed_local_esmfold2_gate"
+            "test_installed_biohub_esmc_gate"
         ),),
         zero_skip=True,
     ),
@@ -167,6 +167,10 @@ TIERS = {
         zero_skip=True,
     ),
     "provider-isolation": Tier((
+        (
+            "tests/test_folding_v2.py::"
+            "test_missing_local_esmfold2_stays_fail_closed_without_hiding_remote"
+        ),
         (
             "tests/test_esm3_local_v2.py::"
             "test_local_runtime_rejects_model_replacement_and_stale_configuration"

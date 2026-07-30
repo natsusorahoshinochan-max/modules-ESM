@@ -1,0 +1,22 @@
+schema_version: "2.0.0"
+node_type_id: esm3.represent_sequence
+version: "2.0.0"
+title: Represent a sequence
+summary: Computes a sequence-level mean embedding while validating that sequence logits were produced on the encoded residue axis.
+category: representation
+inputs:
+  - name: sequence
+    port_type_id: protein.sequence
+    port_type_version: "2.0.0"
+    required: true
+    multiplicity: one
+    scientific_meaning: One complete canonical protein sequence whose residue order is preserved exactly.
+outputs:
+  - name: representation
+    port_type_id: esm3.esmc_sequence_representation
+    port_type_version: "2.0.0"
+    required: true
+    multiplicity: one
+    scientific_meaning: Sequence-level mean embedding tied to the exact input sequence and validated sequence-logits tensor shape.
+parameter_groups: []
+node_parameters: {}

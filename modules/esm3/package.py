@@ -17,6 +17,7 @@ from core import (
     LazyImplementationFactory,
     MethodDefinition,
     ModulePackageRegistration,
+    PortTypeDefinition,
     ProducedObservationDefinition,
     ReadinessDeclaration,
 )
@@ -28,6 +29,14 @@ from .adapter import (
     ESM_SDK_REVISION,
 )
 from .implementation import ESM3GenerationImplementation
+from .esmc_implementation import ESMCRepresentationImplementation
+from .domain import ESMCSequenceRepresentation
+from .esmc_adapter import (
+    BIOHUB_ESMC_EMBEDDING_DIMENSION,
+    BIOHUB_ESMC_LOGITS_DIMENSION,
+    BIOHUB_ESMC_MODEL,
+    environment_ready as esmc_environment_ready,
+)
 from .local_adapter import (
     LOCAL_ESM3_DEVICE,
     LOCAL_ESM3_MODEL,
@@ -85,6 +94,238 @@ def _provider_installation_is_exact() -> bool:
     except (OSError, RuntimeError, ValueError):
         return False
     return True
+
+
+def _esmc_ready(environment: object) -> bool:
+    return (
+        esmc_environment_ready(environment)
+        and _provider_installation_is_exact()
+    )
+
+
+def _build_esmc(**kwargs: object) -> object:
+    return ESMCRepresentationImplementation(
+        kwargs["run_resources"],
+        kwargs["environment_configuration"],
+    )
+
+
+def _esmc_method() -> MethodDefinition:
+    return MethodDefinition(
+        method_id="esm3.represent_sequence.esmc_600m_2024_12",
+        version=_VERSION,
+        algorithm_identity={
+            "name": "ESMC masked-language-model sequence representation",
+            "provider_operations": ("encode", "logits"),
+            "logits_request": {
+                "sequence": True,
+                "return_mean_embedding": True,
+            },
+            "published_value": (
+                "provider mean embedding and validated sequence-logits shape"
+            ),
+        },
+        model_identity={
+            "model": BIOHUB_ESMC_MODEL,
+            "source": "Biohub",
+            "scale": "600M",
+            "release": "2024-12",
+        },
+        checkpoint_identity={
+            "kind": "provider_managed_exact_model_id",
+            "model": BIOHUB_ESMC_MODEL,
+        },
+        featurization_identity={
+            "input": "ESMProtein complete sequence",
+            "tokenization": "Biohub ESMC encode endpoint",
+            "residue_axis": "input order preserved",
+        },
+        source_identity={
+            "sdk": "esm",
+            "sdk_source_revision": ESM_SDK_REVISION,
+            "service": "Biohub",
+            "api_contract": "encode+logits@2026-07-16",
+        },
+        scale_contract={
+            "mean_embedding": {
+                "storage": "provider_returned_binary32",
+                "dimension": BIOHUB_ESMC_EMBEDDING_DIMENSION,
+            },
+            "sequence_logits": {
+                "storage": "validated_shape_only_not_persisted",
+                "vocabulary_dimension": BIOHUB_ESMC_LOGITS_DIMENSION,
+            },
+        },
+    )
+
+
+def _esmc_binding() -> ExecutionBindingDefinition:
+    return ExecutionBindingDefinition(
+        binding_id=(
+            "esm3.represent_sequence.biohub_esmc_600m_2024_12"
+        ),
+        version=_VERSION,
+        node_type=ContractIdentity(
+            "node_type",
+            "esm3.represent_sequence",
+            _VERSION,
+        ),
+        method=ContractIdentity(
+            "method",
+            "esm3.represent_sequence.esmc_600m_2024_12",
+            _VERSION,
+        ),
+        binding_parameters={},
+        execution_route="adapter",
+        factory=LazyImplementationFactory(
+            behavior=BehaviorReference(
+                "esm3.represent_sequence/factory",
+                _VERSION,
+                {
+                    "route": "biohub",
+                    "model": BIOHUB_ESMC_MODEL,
+                },
+            ),
+            build=_build_esmc,
+        ),
+        adapter_behavior=BehaviorReference(
+            "esm3.biohub_esmc/adapter",
+            _VERSION,
+            {
+                "provider_contract": "esm-sdk-encode+logits@917af90b",
+                "output_contract": "mean-embedding+logits-shape",
+            },
+        ),
+        availability=AvailabilityDeclaration(
+            behavior=BehaviorReference(
+                "esm3.biohub_esmc/availability",
+                _VERSION,
+                {"observation": "startup"},
+            ),
+            prerequisites={
+                "provider_sdk": {
+                    "name": "esm",
+                    "source_revision": ESM_SDK_REVISION,
+                }
+            },
+            check=_available,
+        ),
+        readiness=ReadinessDeclaration(
+            behavior=BehaviorReference(
+                "esm3.biohub_esmc/readiness",
+                _VERSION,
+                {
+                    "observation": "per-run",
+                    "cache_order": "before-cache-lookup",
+                    "secret_retention": "none",
+                },
+            ),
+            prerequisites={
+                "credential": {
+                    "source": "trusted_environment_configuration",
+                },
+                "endpoint": {
+                    "endpoint_id": "biohub",
+                    "source": "trusted_environment_configuration",
+                },
+                "provider_sdk": {
+                    "name": "esm",
+                    "source_revision": ESM_SDK_REVISION,
+                },
+            },
+            check=_esmc_ready,
+        ),
+        deterministic=True,
+        cacheable=True,
+        implementation_identity={
+            "name": "esm3.represent_sequence.biohub-esmc-adapter",
+            "model": BIOHUB_ESMC_MODEL,
+            "source": "Biohub",
+            "provider_operations": ("encode", "logits"),
+            "output_contract": (
+                "provider mean embedding plus validated sequence-logits shape"
+            ),
+        },
+    )
+
+
+def _validate_esmc_representation(value: object) -> None:
+    if type(value) is not ESMCSequenceRepresentation:
+        raise ValueError("ESMC representation has the wrong runtime type")
+
+
+def _esmc_representation_to_wire(value: object) -> object:
+    assert isinstance(value, ESMCSequenceRepresentation)
+    return {
+        "sequence": value.sequence,
+        "residue_ids": (
+            None if value.residue_ids is None else list(value.residue_ids)
+        ),
+        "mean_embedding": list(value.mean_embedding),
+        "sequence_logits_shape": list(value.sequence_logits_shape),
+    }
+
+
+def _esmc_representation_from_wire(value: object) -> object:
+    if not isinstance(value, dict) or set(value) != {
+        "sequence",
+        "residue_ids",
+        "mean_embedding",
+        "sequence_logits_shape",
+    }:
+        raise ValueError("ESMC representation wire value is not closed")
+    residue_ids = value["residue_ids"]
+    mean_embedding = value["mean_embedding"]
+    logits_shape = value["sequence_logits_shape"]
+    if (
+        (residue_ids is not None and not isinstance(residue_ids, list))
+        or not isinstance(mean_embedding, list)
+        or not isinstance(logits_shape, list)
+    ):
+        raise ValueError("ESMC representation wire value has invalid fields")
+    if any(type(item) not in {int, float} for item in mean_embedding):
+        raise ValueError("ESMC representation embedding is not numeric")
+    return ESMCSequenceRepresentation(
+        sequence=value["sequence"],
+        residue_ids=(
+            None if residue_ids is None else tuple(residue_ids)
+        ),
+        mean_embedding=tuple(float(item) for item in mean_embedding),
+        sequence_logits_shape=tuple(logits_shape),
+    )
+
+
+def _esmc_port_type() -> PortTypeDefinition:
+    type_id = "esm3.esmc_sequence_representation"
+    return PortTypeDefinition(
+        type_id=type_id,
+        version=_VERSION,
+        validator=BehaviorReference(
+            f"{type_id}/validate",
+            _VERSION,
+            {
+                "accepted_value_kind": "esmc_sequence_representation",
+                "finite_binary32_embedding": True,
+                "sequence_logits": "validated_shape_only",
+            },
+        ),
+        codec=BehaviorReference(
+            f"{type_id}/codec",
+            _VERSION,
+            {
+                "canonicalization": "RFC 8785",
+                "character_encoding": "UTF-8",
+            },
+        ),
+        content_identity=BehaviorReference(
+            f"{type_id}/content",
+            _VERSION,
+            {"digest": "SHA-256"},
+        ),
+        runtime_validator=_validate_esmc_representation,
+        runtime_to_wire=_esmc_representation_to_wire,
+        runtime_from_wire=_esmc_representation_from_wire,
+    )
 
 
 def _available() -> AvailabilityResult:
@@ -627,6 +868,7 @@ MODULE_PACKAGE = ModulePackageRegistration(
         DefinitionResource("definitions/generate_sequence.yaml"),
         DefinitionResource("definitions/generate_structure.yaml"),
         DefinitionResource("definitions/generate_paired.yaml"),
+        DefinitionResource("definitions/represent_sequence.yaml"),
     ),
     metric_definitions=(
         DefinitionResource("definitions/plddt_per_residue_metric.yaml"),
@@ -638,10 +880,15 @@ MODULE_PACKAGE = ModulePackageRegistration(
         _method(operation, model)
         for model in _MODELS
         for operation in _OPERATIONS
-    ) + tuple(_local_method(operation) for operation in _OPERATIONS),
+    ) + tuple(_local_method(operation) for operation in _OPERATIONS) + (
+        _esmc_method(),
+    ),
     bindings=tuple(
         _binding(operation, model)
         for model in _MODELS
         for operation in _OPERATIONS
-    ) + tuple(_local_binding(operation) for operation in _OPERATIONS),
+    ) + tuple(_local_binding(operation) for operation in _OPERATIONS) + (
+        _esmc_binding(),
+    ),
+    port_types=(_esmc_port_type(),),
 )
