@@ -155,7 +155,10 @@ import hashlib
 import json
 from pathlib import Path
 import core
+import datatypes
+import examples
 import modules
+import pdbs
 import protein_workbench_public
 from core import build_discovered_frozen_catalog
 from protein_workbench_public import bundle_bytes, bundle_digest
@@ -163,7 +166,10 @@ from protein_workbench_public import bundle_bytes, bundle_digest
 source_root = Path(__import__("os").environ["PW_SOURCE_ROOT"]).resolve()
 origins = {
     "core": str(Path(core.__file__).resolve()),
+    "datatypes": str(Path(datatypes.__file__).resolve()),
+    "examples": str(Path(examples.__file__).resolve()),
     "modules": str(Path(modules.__file__).resolve()),
+    "pdbs": str(Path(pdbs.__file__).resolve()),
     "public": str(Path(protein_workbench_public.__file__).resolve()),
 }
 assert all(not Path(path).is_relative_to(source_root) for path in origins.values())
@@ -684,10 +690,20 @@ from pathlib import Path
 import os
 import sys
 import core
+import datatypes
+import examples
 import modules
+import pdbs
 import protein_workbench_public
 source = Path(os.environ["PW_SOURCE_ROOT"]).resolve()
-for package in (core, modules, protein_workbench_public):
+for package in (
+    core,
+    datatypes,
+    examples,
+    modules,
+    pdbs,
+    protein_workbench_public,
+):
     assert not Path(package.__file__).resolve().is_relative_to(source)
 import pytest
 raise SystemExit(pytest.main(sys.argv[1:]))

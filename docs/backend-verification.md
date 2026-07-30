@@ -43,7 +43,7 @@ pytest target overrides so a smaller test cannot replace the required case.
 
 The verifier exposes no v1 provider-evidence, mocked-workflow,
 aggregate-provider, live-provider, or fresh-remote tier. A provider gate
-consumes current v2 Run Ledger facts; an adapter-owned JSONL stream,
+consumes current v2 Run Evidence Ledger facts; an adapter-owned JSONL stream,
 readiness-only result, historical manifest, fixed call count, skip, or
 Cache-only replay cannot satisfy it.
 
