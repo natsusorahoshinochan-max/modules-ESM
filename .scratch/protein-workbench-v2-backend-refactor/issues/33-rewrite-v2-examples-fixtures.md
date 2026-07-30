@@ -4,7 +4,7 @@
 
 **Blocked by:** 13 — Consolidate protein I/O; 15 — Assemble and update ProteinPrompts; 16 — Make stochastic prompt authoring reproducible; 17 — Consolidate structure transforms; 18 — Consolidate structure annotations; 20 — Add local ESM-3 Bindings; 23 — Fix existing-structure SimpleFold confidence; 25 — Expose ProteinMPNN scoring Observations; 27 — Produce scoped TM-score Observations; 28 — Preserve partitions in collection operations; 30 — Migrate explicit multi-objective selection; 32 — Add Protein-Sol Metrics and calibration Context.
 
-**Status:** awaiting-controller
+**Status:** completed
 
 - [x] Every maintained example, seed other than the separately accepted canonical 3GB1 seed, and reusable fixture uses v2 Workflow schema, exact Node/Binding versions, separate parameter maps, and a valid reachable Contract Lock.
 - [x] Examples choose Bindings explicitly and never depend on Availability-driven selection, `latest`, mutable `model_name`, credential/path Workflow parameters, or silent fallback.
@@ -30,3 +30,34 @@
 - Routine tier: `1333 passed, 56 deselected`; retained result `/Users/sorachan/Documents/modules-ESM/verification-results/routine/20260730T104313.247265Z-91300-7f27038b0daea728`.
 - `compileall` and `git diff --check` passed.
 - Final dual-axis review: Standards `0 CRITICAL / 0 HIGH / 0 MEDIUM`; Spec `0 CRITICAL / 0 HIGH / 0 MEDIUM`.
+
+## Controller joint-test evidence
+
+- Previous accepted multi-ticket gate:
+  `49dacefd6505cc1a5c0c27cb41fe923218a1ea13`; independently tested Ticket 33
+  executor SHA: `5f8df75d04f9a0228dc274c23ac929ac6db5164d`.
+- Repository-owned v2 examples and capability inventory:
+  `uv run --no-sync python scripts/verify_backend.py examples-v2` →
+  `11 passed`; retained result
+  `verification-results/examples-v2/20260730T105024.452968Z-1600-5b5977a6b3d375b5`.
+- Tickets 01–33 cumulative v2 gate:
+  `uv run --no-sync pytest -q tests/*_v2.py` →
+  `641 passed`.
+- Full routine joint gate:
+  `uv run --no-sync python scripts/verify_backend.py routine` →
+  `1333 passed, 56 deselected`; retained result
+  `verification-results/routine/20260730T105335.846416Z-6431-7a7ff022f3029ed8`.
+- Deterministic acceptance:
+  `uv run --no-sync python scripts/verify_backend.py
+  deterministic-acceptance` →
+  `10 passed, 5 deselected`; retained result
+  `verification-results/deterministic-acceptance/20260730T105929.654887Z-15250-37ec2d2b96749a0b`.
+- Installed-package isolation:
+  `uv run --no-sync python scripts/verify_backend.py installed-package` →
+  `3 passed`; retained result
+  `verification-results/installed-package/20260730T110044.740385Z-15959-cfdff9e3b21782e8`.
+- All four retained Controller records report
+  `project_revision=5f8df75d04f9a0228dc274c23ac929ac6db5164d` and
+  `project_dirty=false`. The worktree was clean before this evidence-only
+  status update, and no cross-ticket or repository-example isolation
+  regression was found.
