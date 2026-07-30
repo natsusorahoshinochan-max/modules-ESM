@@ -2,7 +2,7 @@ schema_version: "2.0.0"
 node_type_id: solubility.score_sequence
 version: "2.0.0"
 title: Score sequence solubility
-summary: Observes candidate-level sequence solubility with one explicitly selected exact Method.
+summary: Observes candidate-level sequence solubility and related properties with one explicitly selected exact Method.
 category: protein_scoring
 inputs:
   - name: sequence_candidates
@@ -17,6 +17,6 @@ outputs:
     port_type_version: "2.0.0"
     required: true
     multiplicity: one
-    scientific_meaning: One declared intrinsic solubility Observation per input Candidate.
+    scientific_meaning: The complete closed set of solubility-package Observations declared by the selected Binding.
 parameter_groups: []
 node_parameters: {}

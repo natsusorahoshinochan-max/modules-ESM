@@ -1,0 +1,39 @@
+schema_version: "2.0.0"
+metric_id: solubility.protein_sol_scaled
+version: "2.0.0"
+title: Protein-Sol scaled soluble fraction
+description: Protein-Sol predicted soluble fraction normalized by the fixed Niwa low and top calibration bounds.
+value_shape: scalar
+unit: dimensionless
+direction: higher_is_better
+canonical_range:
+  minimum: 0
+  maximum: 1
+granularity: candidate
+aggregation_semantics:
+  kind: none
+observation_context_schema:
+  type: object
+  properties:
+    kind:
+      const: calibration
+    calibration_metric:
+      const: population_scaled_solubility
+    calibration_value:
+      const: 0.446
+    calibration_unit:
+      const: dimensionless
+    population_id:
+      const: niwa_non_membrane_2396
+  required:
+    - kind
+    - calibration_metric
+    - calibration_value
+    - calibration_unit
+    - population_id
+  additionalProperties: false
+validation_contract:
+  finite: true
+  minimum: 0
+  maximum: 1
+  decimal_places: 3

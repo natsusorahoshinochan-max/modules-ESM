@@ -209,6 +209,26 @@ class IntrinsicObservationContext:
 
 
 @dataclass(frozen=True, slots=True)
+class CalibrationObservationContext:
+    """A fixed population baseline required to interpret an Observation."""
+
+    calibration_metric: str
+    calibration_value: float
+    calibration_unit: str
+    population_id: str
+    kind: str = "calibration"
+
+    def to_public(self) -> dict[str, object]:
+        return {
+            "kind": self.kind,
+            "calibration_metric": self.calibration_metric,
+            "calibration_value": self.calibration_value,
+            "calibration_unit": self.calibration_unit,
+            "population_id": self.population_id,
+        }
+
+
+@dataclass(frozen=True, slots=True)
 class PairwiseCandidateMatch:
     """One explicit subject-to-reference Candidate relationship."""
 
@@ -319,7 +339,11 @@ class ScoreObservation:
     candidate_id: str
     metric: ExactContractReference
     method: ExactContractReference
-    context: IntrinsicObservationContext | PairwiseObservationContext
+    context: (
+        IntrinsicObservationContext
+        | CalibrationObservationContext
+        | PairwiseObservationContext
+    )
     value: object
     source_partition: str = "default"
 

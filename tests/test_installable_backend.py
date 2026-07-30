@@ -212,6 +212,9 @@ def test_built_artifacts_contain_backend_definitions_and_canonical_assets(
         "modules/selection/definitions/pareto.yaml",
         "modules/selection/definitions/weighted_rank.yaml",
         "modules/solubility/definitions/score_sequence.yaml",
+        "modules/solubility/definitions/protein_sol_percent_metric.yaml",
+        "modules/solubility/definitions/protein_sol_scaled_metric.yaml",
+        "modules/solubility/definitions/protein_sol_pi_metric.yaml",
         "modules/solubility/definitions/soluprot_probability_metric.yaml",
         "modules/structure_comparison/definitions/align_pairwise.yaml",
         "modules/structure_comparison/definitions/align_single.yaml",
@@ -413,10 +416,19 @@ assert {{
 }} >= {{
     ("node_type", "solubility.score_sequence", "2.0.0"),
     ("metric", "solubility.soluprot_probability", "2.0.0"),
+    ("metric", "solubility.protein_sol_percent", "2.0.0"),
+    ("metric", "solubility.protein_sol_scaled", "2.0.0"),
+    ("metric", "solubility.protein_sol_pi", "2.0.0"),
     ("method", "solubility.soluprot_full.v1_1_0", "2.0.0"),
     ("method", "solubility.soluprot_no_tm.v1_1_0", "2.0.0"),
+    (
+        "method",
+        "solubility.protein_sol.sequence_prediction_2017",
+        "2.0.0",
+    ),
     ("binding", "solubility.soluprot_full.local", "2.0.0"),
     ("binding", "solubility.soluprot_no_tm.local", "2.0.0"),
+    ("binding", "solubility.protein_sol.local", "2.0.0"),
 }}
 assert {{
     (

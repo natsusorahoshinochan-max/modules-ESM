@@ -1,0 +1,27 @@
+schema_version: "2.0.0"
+metric_id: solubility.protein_sol_pi
+version: "2.0.0"
+title: Protein-Sol isoelectric point
+description: Sequence isoelectric point calculated by the exact Protein-Sol preprocessing implementation.
+value_shape: scalar
+unit: ph
+direction: target
+canonical_range:
+  minimum: 1
+  maximum: 14
+granularity: candidate
+aggregation_semantics:
+  kind: none
+observation_context_schema:
+  type: object
+  properties:
+    kind:
+      const: intrinsic
+  required:
+    - kind
+  additionalProperties: false
+validation_contract:
+  finite: true
+  minimum: 1
+  maximum: 14
+  decimal_places: 3

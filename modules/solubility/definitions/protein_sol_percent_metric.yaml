@@ -1,0 +1,39 @@
+schema_version: "2.0.0"
+metric_id: solubility.protein_sol_percent
+version: "2.0.0"
+title: Protein-Sol predicted soluble fraction
+description: Protein-Sol prediction on the Niwa percentage-solubility scale after the upstream feature-wise bounded linear model.
+value_shape: scalar
+unit: percent_soluble_fraction
+direction: higher_is_better
+canonical_range:
+  minimum: 5.208
+  maximum: 113.241
+granularity: candidate
+aggregation_semantics:
+  kind: none
+observation_context_schema:
+  type: object
+  properties:
+    kind:
+      const: calibration
+    calibration_metric:
+      const: population_scaled_solubility
+    calibration_value:
+      const: 0.446
+    calibration_unit:
+      const: dimensionless
+    population_id:
+      const: niwa_non_membrane_2396
+  required:
+    - kind
+    - calibration_metric
+    - calibration_value
+    - calibration_unit
+    - population_id
+  additionalProperties: false
+validation_contract:
+  finite: true
+  minimum: 5.208
+  maximum: 113.241
+  decimal_places: 3

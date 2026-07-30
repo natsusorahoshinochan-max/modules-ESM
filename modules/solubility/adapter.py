@@ -121,6 +121,42 @@ SOLUPROT_TMHMM_SHA256 = {
 }
 _CANONICAL_AMINO_ACIDS = frozenset("ACDEFGHIKLMNPQRSTVWY")
 _MAX_PROVIDER_OUTPUT_BYTES = 1024 * 1024
+PROTEIN_SOL_RELEASE = "2017-10"
+PROTEIN_SOL_POPULATION_SCALED = 0.446
+PROTEIN_SOL_PERL_VERSION = "v5.34.1"
+PROTEIN_SOL_PERL_SHA256 = SOLUPROT_PERL_SHA256
+PROTEIN_SOL_BASH_VERSION = (
+    "GNU bash, version 3.2.57(1)-release (arm64-apple-darwin25)"
+)
+PROTEIN_SOL_BASH_SHA256 = (
+    "fde343ee184953c1fa1185abddeaa8be61c6acbebae4eb54db5d6b55b09a5755"
+)
+PROTEIN_SOL_SOURCE_SHA256 = {
+    "fasta_seq_reformat_export.pl": (
+        "ee671b4121e343e0dd660377a8204c2e5058fcf9185e8ea629b2c3c64562a8e9"
+    ),
+    "multiple_prediction_wrapper_export.sh": (
+        "a7e7d0137508f34734584a6b37157e980bed769f400032f8ecb36949d17dc232"
+    ),
+    "profiles_gather_export.pl": (
+        "ad1aadee73db9b828ed4e87b27bb75191cf48b4934cf8ab3855c80740b674eac"
+    ),
+    "seq_compositions_perc_pipeline_export.pl": (
+        "8e8888220984b77c472333fa57750585d33e7aff93d44cb6b090fccd728d87cb"
+    ),
+    "seq_props_ALL_export.pl": (
+        "f20eac44b526f9b694c6371b06a3a4a9c080d14da1241cb785d77230783efa15"
+    ),
+    "seq_reference_data.txt": (
+        "6943cd600741d5d22b7518b8be40f2850bfa5586e96d637de3db688c7337d1f0"
+    ),
+    "server_prediction_seq_export.pl": (
+        "80f8554e43d605c10a6feea983c222099869119b0a9d73411c5a1b2dd68c4b4d"
+    ),
+    "ss_propensities.txt": (
+        "3c634b252ed83ffd363e6b0936e95813584facddb399f0fcc6769710755fa33f"
+    ),
+}
 
 
 class SoluProtInvocationError(RuntimeError):
@@ -149,6 +185,26 @@ class SoluProtProviderOutputTruncated(SoluProtInvocationError):
 
 class SoluProtProviderOutputChanged(SoluProtInvocationError):
     """The provider output changed while it was validated."""
+
+
+class ProteinSolInvocationError(RuntimeError):
+    """A path-free Protein-Sol failure safe for durable diagnostics."""
+
+
+class ProteinSolProviderTimeout(ProteinSolInvocationError):
+    """The exact upstream invocation exceeded its closed time budget."""
+
+
+class ProteinSolProviderNonzeroExit(ProteinSolInvocationError):
+    """The exact upstream invocation returned a nonzero exit status."""
+
+
+class ProteinSolProviderOutputUnavailable(ProteinSolInvocationError):
+    """The exact upstream invocation produced no readable result."""
+
+
+class ProteinSolProviderOutputContractViolation(ProteinSolInvocationError):
+    """The exact upstream result violated its bounded file contract."""
 
 
 def _regular_file_sha256(path: object, *, executable: bool = False) -> str:
@@ -668,3 +724,374 @@ def parse_soluprot_output(payload: bytes, *, expected_count: int) -> list[float]
     if len(values) != expected_count:
         raise ValueError("SoluProt output row count is incomplete")
     return values
+
+
+def configured_protein_sol_runtime_fingerprint() -> str:
+    """Return one path-free identity for Protein-Sol source and runtimes."""
+    payload = {
+        "schema_namespace": "protein-workbench-protein-sol-runtime/v2",
+        "release": PROTEIN_SOL_RELEASE,
+        "source_sha256": PROTEIN_SOL_SOURCE_SHA256,
+        "bash_version": PROTEIN_SOL_BASH_VERSION,
+        "bash_sha256": PROTEIN_SOL_BASH_SHA256,
+        "perl_version": PROTEIN_SOL_PERL_VERSION,
+        "perl_sha256": PROTEIN_SOL_PERL_SHA256,
+    }
+    return "sha256:" + hashlib.sha256(
+        json.dumps(payload, sort_keys=True, separators=(",", ":")).encode()
+    ).hexdigest()
+
+
+def _validate_executable_runtime(
+    path: object,
+    *,
+    expected_path: Path,
+    expected_sha256: str,
+    version_command: Sequence[str],
+    expected_version: str,
+    runtime_name: str,
+) -> Path:
+    if (
+        not isinstance(path, Path)
+        or path.resolve() != expected_path.resolve()
+        or not path.is_file()
+        or not os.access(path, os.X_OK)
+    ):
+        raise FileNotFoundError(
+            f"configured Protein-Sol {runtime_name} is unavailable"
+        )
+    _require_digest(path.resolve(), expected_sha256, executable=True)
+    try:
+        completed = subprocess.run(
+            [str(path), *version_command],
+            check=True,
+            capture_output=True,
+            text=True,
+            timeout=15,
+            env={
+                "HOME": os.devnull,
+                "LANG": "C",
+                "LC_ALL": "C",
+                "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
+            },
+        )
+    except (
+        OSError,
+        subprocess.CalledProcessError,
+        subprocess.TimeoutExpired,
+    ) as error:
+        raise RuntimeError(
+            f"configured Protein-Sol {runtime_name} identity is unavailable"
+        ) from error
+    observed = completed.stdout.splitlines()[0] if completed.stdout else ""
+    if observed != expected_version:
+        raise RuntimeError(
+            f"configured Protein-Sol {runtime_name} identity changed"
+        )
+    return path
+
+
+def validate_protein_sol_environment(
+    environment: Mapping[str, Any],
+) -> dict[str, Any]:
+    """Attest the exact upstream dependency tree without executing it."""
+    if (
+        environment.get("resolved_runtime_fingerprint")
+        != configured_protein_sol_runtime_fingerprint()
+    ):
+        raise RuntimeError("configured Protein-Sol runtime identity changed")
+    source_root = environment.get("source_root")
+    if (
+        not isinstance(source_root, Path)
+        or source_root.is_symlink()
+        or not source_root.is_dir()
+    ):
+        raise FileNotFoundError(
+            "configured Protein-Sol source root is unavailable"
+        )
+    sources: dict[str, Path] = {}
+    for relative, expected in PROTEIN_SOL_SOURCE_SHA256.items():
+        sources[relative] = _require_digest(source_root / relative, expected)
+    bash = _validate_executable_runtime(
+        environment.get("bash_executable"),
+        expected_path=Path("/bin/bash"),
+        expected_sha256=PROTEIN_SOL_BASH_SHA256,
+        version_command=("--version",),
+        expected_version=PROTEIN_SOL_BASH_VERSION,
+        runtime_name="Bash",
+    )
+    perl = _validate_executable_runtime(
+        environment.get("perl_executable"),
+        expected_path=Path("/usr/bin/perl"),
+        expected_sha256=PROTEIN_SOL_PERL_SHA256,
+        version_command=("-e", "print $^V"),
+        expected_version=PROTEIN_SOL_PERL_VERSION,
+        runtime_name="Perl",
+    )
+    return {
+        "source_files": sources,
+        "bash_executable": bash,
+        "perl_executable": perl,
+        "resolved_runtime_fingerprint": (
+            configured_protein_sol_runtime_fingerprint()
+        ),
+    }
+
+
+def protein_sol_readiness(
+    environment: Mapping[str, Any],
+) -> ReadinessResult:
+    """Observe exact source and interpreter prerequisites for one Run."""
+    try:
+        validate_protein_sol_environment(environment)
+    except (FileNotFoundError, OSError, RuntimeError, ValueError):
+        return ReadinessResult(
+            False,
+            proof_source="direct-observation",
+            reason_code="protein_sol_runtime_unavailable",
+        )
+    return ReadinessResult(True, proof_source="direct-observation")
+
+
+def validate_protein_sol_sequences(sequences: Sequence[str]) -> None:
+    """Reject non-canonical input before crossing the upstream seam."""
+    if not sequences:
+        raise ValueError("Protein-Sol requires at least one sequence")
+    for sequence in sequences:
+        if (
+            not isinstance(sequence, str)
+            or not sequence
+            or not set(sequence) <= _CANONICAL_AMINO_ACIDS
+        ):
+            raise ValueError(
+                "Protein-Sol requires non-empty canonical protein sequences"
+            )
+
+
+def _copy_exact_protein_sol_source(
+    source: Path,
+    destination: Path,
+    expected_sha256: str,
+) -> None:
+    """Copy one verified regular source without following a replacement link."""
+    flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0)
+    descriptor = os.open(source, flags)
+    try:
+        metadata = os.fstat(descriptor)
+        if not stat.S_ISREG(metadata.st_mode):
+            raise ProteinSolProviderOutputContractViolation(
+                "Protein-Sol source is not a regular file"
+            )
+        digest = hashlib.sha256()
+        with (
+            os.fdopen(descriptor, "rb", closefd=False) as source_handle,
+            destination.open("xb") as destination_handle,
+        ):
+            while chunk := source_handle.read(1024 * 1024):
+                digest.update(chunk)
+                destination_handle.write(chunk)
+        if digest.hexdigest() != expected_sha256:
+            raise ProteinSolProviderOutputContractViolation(
+                "Protein-Sol source identity changed before invocation"
+            )
+    finally:
+        os.close(descriptor)
+
+
+def _read_protein_sol_output(path: Path) -> bytes:
+    flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0)
+    descriptor = os.open(path, flags)
+    try:
+        metadata = os.fstat(descriptor)
+        if (
+            not stat.S_ISREG(metadata.st_mode)
+            or metadata.st_size > 16 * 1024 * 1024
+        ):
+            raise ProteinSolProviderOutputContractViolation(
+                "Protein-Sol output violated the bounded byte contract"
+            )
+        chunks: list[bytes] = []
+        remaining = metadata.st_size
+        while remaining:
+            chunk = os.read(descriptor, min(remaining, 64 * 1024))
+            if not chunk:
+                raise ProteinSolProviderOutputContractViolation(
+                    "Protein-Sol output was truncated"
+                )
+            chunks.append(chunk)
+            remaining -= len(chunk)
+        final = os.fstat(descriptor)
+        if (
+            final.st_dev,
+            final.st_ino,
+            final.st_size,
+            final.st_mtime_ns,
+        ) != (
+            metadata.st_dev,
+            metadata.st_ino,
+            metadata.st_size,
+            metadata.st_mtime_ns,
+        ):
+            raise ProteinSolProviderOutputContractViolation(
+                "Protein-Sol output changed during validation"
+            )
+        return b"".join(chunks)
+    finally:
+        os.close(descriptor)
+
+
+def invoke_protein_sol(
+    *,
+    sequences: Sequence[str],
+    staging_directory: Path,
+    environment: Mapping[str, Any],
+    run_resources: Any,
+    resolved_environment: Mapping[str, Any] | None = None,
+) -> bytes:
+    """Stage and run only the exact external Protein-Sol dependency."""
+    validate_protein_sol_sequences(sequences)
+    resolved = (
+        dict(resolved_environment)
+        if resolved_environment is not None
+        else validate_protein_sol_environment(environment)
+    )
+    source_files = resolved.get("source_files")
+    if not isinstance(source_files, Mapping):
+        raise RuntimeError("Protein-Sol resolved source identity is incomplete")
+    for relative, expected in PROTEIN_SOL_SOURCE_SHA256.items():
+        source = source_files.get(relative)
+        if not isinstance(source, Path):
+            raise RuntimeError(
+                "Protein-Sol resolved source identity is incomplete"
+            )
+        _copy_exact_protein_sol_source(
+            source,
+            staging_directory / relative,
+            expected,
+        )
+    input_path = staging_directory / "input.fasta"
+    _write_fasta(input_path, sequences)
+    process = subprocess.Popen(
+        [
+            str(resolved["bash_executable"]),
+            "multiple_prediction_wrapper_export.sh",
+            input_path.name,
+        ],
+        cwd=staging_directory,
+        stdin=subprocess.DEVNULL,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        env={
+            "HOME": str(staging_directory),
+            "LANG": "C",
+            "LC_ALL": "C",
+            "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
+        },
+        start_new_session=True,
+    )
+    try:
+        with run_resources.cancellable_process_group(
+            process.pid,
+            fallback=process.kill,
+        ):
+            process.communicate(timeout=300)
+    except subprocess.TimeoutExpired as error:
+        try:
+            os.killpg(process.pid, signal.SIGKILL)
+        except ProcessLookupError:
+            pass
+        process.wait()
+        raise ProteinSolProviderTimeout(
+            "Protein-Sol provider invocation timed out safely"
+        ) from error
+    if process.returncode != 0:
+        raise ProteinSolProviderNonzeroExit(
+            "Protein-Sol provider invocation failed safely"
+        )
+    try:
+        return _read_protein_sol_output(
+            staging_directory / "seq_prediction.txt"
+        )
+    except OSError as error:
+        raise ProteinSolProviderOutputUnavailable(
+            "Protein-Sol provider produced no readable output"
+        ) from error
+
+
+def parse_protein_sol_output(
+    payload: bytes,
+    *,
+    expected_count: int,
+) -> list[dict[str, float]]:
+    """Decode upstream prediction records without scale inference or clamping."""
+    expected_header = (
+        "HEADERS PREDICTIONS LINE,ID,percent-sol,scaled-sol,"
+        "population-sol,pI"
+    )
+    try:
+        lines = payload.decode("utf-8").splitlines()
+    except UnicodeDecodeError as error:
+        raise ValueError("Protein-Sol output is not valid UTF-8") from error
+    prediction_headers = [
+        line for line in lines if line.startswith("HEADERS PREDICTIONS")
+    ]
+    if prediction_headers != [expected_header]:
+        raise ValueError(
+            "Protein-Sol output prediction header does not match"
+        )
+    rows = [
+        line.split(",")
+        for line in lines
+        if line.startswith("SEQUENCE PREDICTIONS,")
+    ]
+    if len(rows) != expected_count:
+        raise ValueError("Protein-Sol output row count is incomplete")
+    parsed: list[dict[str, float]] = []
+    decimal = re.compile(r"\s*-?\d+\.\d{3}\s*")
+    ranges = (
+        ("percent_sol", 5.208, 113.241),
+        ("scaled_sol", 0.0, 1.0),
+        ("population_sol", 0.0, 1.0),
+        ("pi", 1.0, 14.0),
+    )
+    for expected_index, row in enumerate(rows):
+        if len(row) != 6 or row[0] != "SEQUENCE PREDICTIONS":
+            raise ValueError("Protein-Sol output fields do not match")
+        if row[1] != f">candidate_{expected_index}":
+            raise ValueError(
+                "Protein-Sol output identity or ordering is invalid"
+            )
+        if any(decimal.fullmatch(raw) is None for raw in row[2:]):
+            raise ValueError(
+                "Protein-Sol values must use finite three-decimal output"
+            )
+        values = [float(raw) for raw in row[2:]]
+        for (_, minimum, maximum), value in zip(
+            ranges,
+            values,
+            strict=True,
+        ):
+            if not math.isfinite(value) or not minimum <= value <= maximum:
+                raise ValueError(
+                    "Protein-Sol output is outside its declared range"
+                )
+        if values[2] != PROTEIN_SOL_POPULATION_SCALED:
+            raise ValueError(
+                "Protein-Sol population calibration identity changed"
+            )
+        expected_scaled = (values[0] - 5.208) / (113.241 - 5.208)
+        if abs(values[1] - expected_scaled) > 0.00051:
+            raise ValueError(
+                "Protein-Sol percent and scaled outputs conflict"
+            )
+        parsed.append(
+            {
+                name: value
+                for (name, _, _), value in zip(
+                    ranges,
+                    values,
+                    strict=True,
+                )
+            }
+        )
+    return parsed

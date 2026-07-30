@@ -22,6 +22,7 @@ from core.parameter_contract import (
     validate_parameter_declarations,
 )
 from datatypes import (
+    CalibrationObservationContext,
     Candidate,
     CandidateCollection,
     ExactContractReference,
@@ -152,6 +153,7 @@ def _thaw_i_json(value: Any) -> Any:
 
 
 _DATACLASS_BY_TAG = {
+    "calibration_observation_context": CalibrationObservationContext,
     "candidate": Candidate,
     "candidate_collection": CandidateCollection,
     "exact_contract_reference": ExactContractReference,
@@ -518,6 +520,35 @@ def _validate_domain_value(value: Any, *, path: str) -> None:
         if value.kind != "intrinsic":
             raise PortValueError(
                 f"{path} must use the fixed intrinsic Observation Context"
+            )
+        return
+
+    if type(value) is CalibrationObservationContext:
+        if value.kind != "calibration":
+            raise PortValueError(
+                f"{path} must use the calibration Observation Context"
+            )
+        for name in (
+            "calibration_metric",
+            "calibration_unit",
+            "population_id",
+        ):
+            item = getattr(value, name)
+            if not isinstance(item, str) or _IDENTIFIER.fullmatch(item) is None:
+                raise PortValueError(
+                    f"{path}.{name} must be an exact identifier"
+                )
+        if (
+            isinstance(value.calibration_value, bool)
+            or not isinstance(value.calibration_value, (int, float))
+            or not math.isfinite(float(value.calibration_value))
+            or (
+                value.calibration_value == 0
+                and math.copysign(1.0, value.calibration_value) < 0
+            )
+        ):
+            raise PortValueError(
+                f"{path}.calibration_value must be a finite canonical number"
             )
         return
 

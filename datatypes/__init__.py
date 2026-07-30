@@ -1,4 +1,5 @@
 from datatypes.protein import (
+    CalibrationObservationContext,
     Candidate,
     CandidateCollection,
     ExactContractReference,
@@ -29,6 +30,7 @@ from datatypes.function_annotations import (
 )
 
 __all__ = [
+    "CalibrationObservationContext",
     "Candidate",
     "CandidateCollection",
     "ExactContractReference",

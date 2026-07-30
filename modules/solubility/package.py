@@ -17,6 +17,12 @@ from core import (
 )
 
 from .adapter import (
+    PROTEIN_SOL_BASH_SHA256,
+    PROTEIN_SOL_BASH_VERSION,
+    PROTEIN_SOL_PERL_SHA256,
+    PROTEIN_SOL_PERL_VERSION,
+    PROTEIN_SOL_RELEASE,
+    PROTEIN_SOL_SOURCE_SHA256,
     SOLUPROT_DATABASE_SHA256,
     SOLUPROT_FEATURES_SHA256,
     SOLUPROT_MODEL_SHA256,
@@ -30,13 +36,22 @@ from .adapter import (
     SOLUPROT_TMHMM_SHA256,
     SOLUPROT_USEARCH_SHA256,
     SOLUPROT_VERSION,
+    configured_protein_sol_runtime_fingerprint,
     configured_runtime_fingerprint,
+    protein_sol_readiness,
     soluprot_readiness,
 )
 
 
 _VERSION = "2.0.0"
 _MODES = ("full", "no_tm")
+_PROTEIN_SOL_CONTEXT = {
+    "kind": "calibration",
+    "calibration_metric": "population_scaled_solubility",
+    "calibration_value": 0.446,
+    "calibration_unit": "dimensionless",
+    "population_id": "niwa_non_membrane_2396",
+}
 
 
 def _available() -> AvailabilityResult:
@@ -56,6 +71,16 @@ def _build(mode: str):
         )
 
     return factory
+
+
+def _build_protein_sol(**kwargs: object) -> object:
+    from .implementation import ProteinSolImplementation
+
+    return ProteinSolImplementation(
+        kwargs["run_resources"],
+        kwargs["environment_configuration"],
+        kwargs["frozen_catalog"],
+    )
 
 
 def _method(mode: str) -> MethodDefinition:
@@ -260,6 +285,211 @@ def _binding(mode: str) -> ExecutionBindingDefinition:
     )
 
 
+def _protein_sol_method() -> MethodDefinition:
+    return MethodDefinition(
+        method_id="solubility.protein_sol.sequence_prediction_2017",
+        version=_VERSION,
+        algorithm_identity={
+            "name": "Protein-Sol sequence-based soluble-fraction predictor",
+            "training_population": "niwa_non_membrane_2396",
+            "feature_count": 36,
+            "fitted_feature_count": 10,
+            "feature_bounds": "clamped-by-upstream-before-linear-fit",
+            "provider_postprocessing": {
+                "decimal_places": 3,
+                "adapter_clamping": "forbidden",
+            },
+        },
+        model_identity={
+            "provider": "Protein-Sol",
+            "release": PROTEIN_SOL_RELEASE,
+            "training_data": "Niwa_2009_non_membrane_2396",
+            "population_percent_solubility": 53.347,
+            "low_percent_solubility": 5.208,
+            "top_percent_solubility": 113.241,
+            "population_scaled_solubility": 0.446,
+        },
+        checkpoint_identity={
+            "seq_reference_data_sha256": PROTEIN_SOL_SOURCE_SHA256[
+                "seq_reference_data.txt"
+            ],
+            "ss_propensities_sha256": PROTEIN_SOL_SOURCE_SHA256[
+                "ss_propensities.txt"
+            ],
+        },
+        featurization_identity={
+            "sequence_alphabet": "ACDEFGHIKLMNPQRSTVWY",
+            "whole_sequence_features": True,
+            "profile_windows": [21, 51],
+            "isoelectric_point_range": [1, 14],
+            "preprocessing": {
+                "fasta_reformat_sha256": PROTEIN_SOL_SOURCE_SHA256[
+                    "fasta_seq_reformat_export.pl"
+                ],
+                "composition_sha256": PROTEIN_SOL_SOURCE_SHA256[
+                    "seq_compositions_perc_pipeline_export.pl"
+                ],
+                "prediction_sha256": PROTEIN_SOL_SOURCE_SHA256[
+                    "server_prediction_seq_export.pl"
+                ],
+                "properties_sha256": PROTEIN_SOL_SOURCE_SHA256[
+                    "seq_props_ALL_export.pl"
+                ],
+                "profiles_sha256": PROTEIN_SOL_SOURCE_SHA256[
+                    "profiles_gather_export.pl"
+                ],
+            },
+        },
+        source_identity={
+            "dependency": "protein-sol",
+            "release": PROTEIN_SOL_RELEASE,
+            "workspace_repository": "ESM-workflow-NEXT",
+            "dependency_subpath": "vendor/protein-sol",
+            "source_files_sha256": PROTEIN_SOL_SOURCE_SHA256,
+        },
+        scale_contract={
+            "percent_sol": {
+                "unit": "percent_soluble_fraction",
+                "canonical_range": [5.208, 113.241],
+            },
+            "scaled_sol": {
+                "unit": "dimensionless",
+                "canonical_range": [0, 1],
+                "normalization": "(percent_sol-5.208)/(113.241-5.208)",
+            },
+            "population_sol": {
+                "role": "calibration_context",
+                "value": 0.446,
+                "unit": "dimensionless",
+            },
+            "pi": {
+                "unit": "ph",
+                "canonical_range": [1, 14],
+            },
+            "adapter_scale_inference": "forbidden",
+            "adapter_clamping": "forbidden",
+        },
+    )
+
+
+def _protein_sol_binding() -> ExecutionBindingDefinition:
+    return ExecutionBindingDefinition(
+        binding_id="solubility.protein_sol.local",
+        version=_VERSION,
+        node_type=ContractIdentity(
+            "node_type",
+            "solubility.score_sequence",
+            _VERSION,
+        ),
+        method=ContractIdentity(
+            "method",
+            "solubility.protein_sol.sequence_prediction_2017",
+            _VERSION,
+        ),
+        binding_parameters={},
+        execution_route="adapter",
+        factory=LazyImplementationFactory(
+            behavior=BehaviorReference(
+                "solubility.protein_sol/factory",
+                _VERSION,
+                {"provider_import": "not-applicable", "source_copy": "exact"},
+            ),
+            build=_build_protein_sol,
+        ),
+        adapter_behavior=BehaviorReference(
+            "solubility.protein_sol/adapter",
+            _VERSION,
+            {
+                "provider": "protein-sol",
+                "release": PROTEIN_SOL_RELEASE,
+                "parser": "closed-sequence-predictions-v1",
+            },
+        ),
+        availability=AvailabilityDeclaration(
+            behavior=BehaviorReference(
+                "solubility.protein_sol/availability",
+                _VERSION,
+                {
+                    "observation": "startup",
+                    "source_probe": "forbidden",
+                },
+            ),
+            prerequisites={},
+            check=_available,
+        ),
+        readiness=ReadinessDeclaration(
+            behavior=BehaviorReference(
+                "solubility.protein_sol/readiness",
+                _VERSION,
+                {
+                    "observation": "per-run",
+                    "cache_order": "before-cache-lookup",
+                    "source_execution": "forbidden",
+                },
+            ),
+            prerequisites={
+                "source_files_sha256": PROTEIN_SOL_SOURCE_SHA256,
+                "bash": {
+                    "version": PROTEIN_SOL_BASH_VERSION,
+                    "sha256": PROTEIN_SOL_BASH_SHA256,
+                },
+                "perl": {
+                    "version": PROTEIN_SOL_PERL_VERSION,
+                    "sha256": PROTEIN_SOL_PERL_SHA256,
+                },
+                "path_source": "trusted_environment_configuration",
+            },
+            check=lambda environment: protein_sol_readiness(environment),
+        ),
+        deterministic=True,
+        cacheable=True,
+        implementation_identity={
+            "name": "solubility.protein_sol.local-adapter",
+            "provider": "protein-sol",
+            "release": PROTEIN_SOL_RELEASE,
+            "source_files_sha256": PROTEIN_SOL_SOURCE_SHA256,
+            "bash_version": PROTEIN_SOL_BASH_VERSION,
+            "bash_sha256": PROTEIN_SOL_BASH_SHA256,
+            "perl_version": PROTEIN_SOL_PERL_VERSION,
+            "perl_sha256": PROTEIN_SOL_PERL_SHA256,
+            "resolved_runtime_fingerprint": (
+                configured_protein_sol_runtime_fingerprint()
+            ),
+            "runtime_directory_policy": "private-per-run-invocation",
+        },
+        produced_observations=tuple(
+            ProducedObservationDefinition(
+                output_port="scores",
+                output_partition=partition,
+                metric=ContractIdentity("metric", metric_id, _VERSION),
+                context_profile=context_profile,
+                subject_grain="candidate",
+                source_role="subject",
+                subject_direction="input",
+                subject_port="sequence_candidates",
+                guaranteed_multiplicity="one",
+            )
+            for partition, metric_id, context_profile in (
+                (
+                    "protein_sol_percent",
+                    "solubility.protein_sol_percent",
+                    _PROTEIN_SOL_CONTEXT,
+                ),
+                (
+                    "protein_sol_scaled",
+                    "solubility.protein_sol_scaled",
+                    _PROTEIN_SOL_CONTEXT,
+                ),
+                (
+                    "protein_sol_pi",
+                    "solubility.protein_sol_pi",
+                    {"kind": "intrinsic"},
+                ),
+            )
+        ),
+    )
+
+
 MODULE_PACKAGE = ModulePackageRegistration(
     schema_version=_VERSION,
     package_id="solubility",
@@ -270,7 +500,12 @@ MODULE_PACKAGE = ModulePackageRegistration(
     ),
     metric_definitions=(
         DefinitionResource("definitions/soluprot_probability_metric.yaml"),
+        DefinitionResource("definitions/protein_sol_percent_metric.yaml"),
+        DefinitionResource("definitions/protein_sol_scaled_metric.yaml"),
+        DefinitionResource("definitions/protein_sol_pi_metric.yaml"),
     ),
-    methods=tuple(_method(mode) for mode in _MODES),
-    bindings=tuple(_binding(mode) for mode in _MODES),
+    methods=tuple(_method(mode) for mode in _MODES)
+    + (_protein_sol_method(),),
+    bindings=tuple(_binding(mode) for mode in _MODES)
+    + (_protein_sol_binding(),),
 )

@@ -20,6 +20,7 @@ from core.port_types import (
     canonical_json_bytes,
 )
 from datatypes import (
+    CalibrationObservationContext,
     CandidateCollection,
     ExactContractReference,
     IntrinsicObservationContext,
@@ -688,8 +689,10 @@ def resolve_objective_observations(
     return MappingProxyType(resolved)
 
 
-def _context_profile(context: object) -> dict[str, str]:
+def _context_profile(context: object) -> dict[str, Any]:
     if isinstance(context, IntrinsicObservationContext):
+        return context.to_public()
+    if isinstance(context, CalibrationObservationContext):
         return context.to_public()
     if isinstance(context, PairwiseObservationContext):
         return {

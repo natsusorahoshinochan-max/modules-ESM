@@ -710,7 +710,7 @@ def test_provider_failure_retains_a_closed_safe_reason_code(
     assert "exit status 7" not in str(terminal)
 
 
-def test_both_soluprot_methods_pass_the_shared_contract_test_kit(
+def test_all_solubility_methods_pass_the_shared_contract_test_kit(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -731,6 +731,15 @@ def test_both_soluprot_methods_pass_the_shared_contract_test_kit(
         ),
     )
     monkeypatch.setattr(
+        package,
+        "protein_sol_readiness",
+        lambda environment: ReadinessResult(
+            environment.get("fixture_ready") is True,
+            proof_source="direct-observation",
+            reason_code="protein_sol_runtime_unavailable",
+        ),
+    )
+    monkeypatch.setattr(
         implementation,
         "validate_soluprot_environment",
         lambda environment, *, mode: {
@@ -748,6 +757,23 @@ def test_both_soluprot_methods_pass_the_shared_contract_test_kit(
                 if kwargs["mode"] == "full"
                 else b"0,candidate_0,0.3465\n"
             )
+        ),
+    )
+    monkeypatch.setattr(
+        implementation,
+        "validate_protein_sol_environment",
+        lambda environment: {
+            "resolved_runtime_fingerprint": f"sha256:{'c' * 64}",
+        },
+    )
+    monkeypatch.setattr(
+        implementation,
+        "invoke_protein_sol",
+        lambda **kwargs: (
+            b"HEADERS PREDICTIONS LINE,ID,percent-sol,scaled-sol,"
+            b"population-sol,pI\n"
+            b"SEQUENCE PREDICTIONS,>candidate_0,32.419,0.252,"
+            b"0.446,7.130\n"
         ),
     )
     source = WorkflowNodeInstance(
@@ -787,6 +813,33 @@ def test_both_soluprot_methods_pass_the_shared_contract_test_kit(
             forbidden_public_fragments=("/secret/runtime",),
         )
         for mode in ("full", "no_tm")
+    ) + (
+        ModulePackageContractCase(
+            case_id="protein-sol",
+            node_type_id="solubility.score_sequence",
+            node_type_version="2.0.0",
+            binding_id="solubility.protein_sol.local",
+            binding_version="2.0.0",
+            node_parameters={},
+            binding_parameters={},
+            environment_values={
+                "fixture_ready": True,
+                "private_runtime_path": "/secret/runtime",
+            },
+            safe_environment_fingerprint="protein-sol-fixture-v1",
+            invalidation_token="protein-sol-fixture-v1",
+            workflow_nodes=(source,),
+            workflow_edges=(
+                WorkflowEdge(
+                    "source",
+                    "sequence_candidates",
+                    "contract-test-node",
+                    "sequence_candidates",
+                ),
+            ),
+            expected_observation_counts={"scores": 3},
+            forbidden_public_fragments=("/secret/runtime",),
+        ),
     )
 
     report = verify_module_package_contract(
@@ -797,6 +850,7 @@ def test_both_soluprot_methods_pass_the_shared_contract_test_kit(
     )
 
     assert [case.status for case in report.case_reports] == [
+        "succeeded",
         "succeeded",
         "succeeded",
     ]
