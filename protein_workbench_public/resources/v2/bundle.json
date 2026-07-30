@@ -1203,6 +1203,16 @@
         "route_behavior": {
           "$ref": "#/$defs/BehaviorReference"
         },
+        "selection_objective_consumption": {
+          "oneOf": [
+            {
+              "$ref": "#/$defs/SelectionObjectiveConsumptionDeclaration"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
         "schema_namespace": {
           "const": "protein-workbench-contract/v2"
         }
@@ -1577,6 +1587,30 @@
         "pairing_direction",
         "pairing_port",
         "guaranteed_multiplicity"
+      ],
+      "type": "object"
+    },
+    "SelectionObjectiveConsumptionDeclaration": {
+      "additionalProperties": false,
+      "properties": {
+        "candidate_input_port": {
+          "$ref": "#/$defs/Identifier"
+        },
+        "objective_id_parameter": {
+          "$ref": "#/$defs/Identifier"
+        },
+        "schema_version": {
+          "const": "2.0.0"
+        },
+        "score_collection_input_port": {
+          "$ref": "#/$defs/Identifier"
+        }
+      },
+      "required": [
+        "schema_version",
+        "objective_id_parameter",
+        "candidate_input_port",
+        "score_collection_input_port"
       ],
       "type": "object"
     },

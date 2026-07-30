@@ -765,6 +765,10 @@ def _validate_static_semantics(
         plan_nodes=plan_nodes,
         node_order=tuple(order),
     )
+    _validate_selection_objective_consumers(
+        workflow,
+        plan_nodes=plan_nodes,
+    )
 
     availability = {
         (
@@ -967,6 +971,85 @@ def _connected_source(
         and edge.target_port == input_port
     ]
     return sources[0] if len(sources) == 1 else None
+
+
+def _validate_selection_objective_consumers(
+    workflow: WorkflowDocument,
+    *,
+    plan_nodes: Mapping[str, tuple[Any, Any]],
+) -> None:
+    """Bind generic declared selection consumers to exact Workflow sources."""
+    objectives = {
+        objective.objective_id: objective
+        for objective in workflow.selection_objectives
+    }
+    nodes = {node.node_id: node for node in workflow.nodes}
+    for node_id, (node_contract, binding) in plan_nodes.items():
+        consumption = binding.descriptor.get(
+            "selection_objective_consumption"
+        )
+        if not isinstance(consumption, Mapping):
+            continue
+        node = nodes[node_id]
+        parameters = _validate_parameter_values(
+            node.node_parameters,
+            node_contract.descriptor.get("node_parameters", {}),
+            node_id=node_id,
+            field_name="node_parameters",
+        )
+        parameter_name = consumption.get("objective_id_parameter")
+        objective_id = (
+            parameters.get(parameter_name)
+            if isinstance(parameter_name, str)
+            else None
+        )
+        objective = (
+            objectives.get(objective_id)
+            if isinstance(objective_id, str)
+            else None
+        )
+        if objective is None:
+            raise WorkflowCompileError(
+                "unsatisfied_selector",
+                "Selection selector does not resolve one Workflow Selection "
+                "Objective",
+                node_id=node_id,
+                field_path=(
+                    "nodes",
+                    node_id,
+                    "node_parameters",
+                    parameter_name or "objective_id",
+                ),
+            )
+        for label, port_name, expected in (
+            (
+                "Candidate",
+                consumption.get("candidate_input_port"),
+                objective.candidate_input.to_public(),
+            ),
+            (
+                "Score Collection",
+                consumption.get("score_collection_input_port"),
+                objective.score_collection_input.to_public(),
+            ),
+        ):
+            connected = (
+                _connected_source(
+                    workflow,
+                    node_id=node_id,
+                    input_port=port_name,
+                )
+                if isinstance(port_name, str)
+                else None
+            )
+            if connected != expected:
+                raise WorkflowCompileError(
+                    "unsatisfied_selector",
+                    f"Selection {label} input does not match the exact "
+                    "Workflow Selection Objective source",
+                    node_id=node_id,
+                    field_path=("nodes", node_id, "inputs", port_name or ""),
+                )
 
 
 def _capability_source(

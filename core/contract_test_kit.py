@@ -22,6 +22,7 @@ from core.port_types import (
     canonical_json_bytes,
 )
 from core.project import ProjectManager
+from core.scoring_v2 import SelectionObjective
 from core.run_execution_v2 import (
     EnvironmentConfiguration,
     V2RunError,
@@ -81,6 +82,7 @@ class ModulePackageContractCase:
     invalidation_token: str
     workflow_nodes: tuple[WorkflowNodeInstance, ...] = ()
     workflow_edges: tuple[WorkflowEdge, ...] = ()
+    selection_objectives: tuple[SelectionObjective, ...] = ()
     project_inputs: Mapping[str, bytes] = field(default_factory=dict)
     expected_scalar_outputs: Mapping[str, Any] = field(default_factory=dict)
     expected_candidate_counts: Mapping[str, int] = field(default_factory=dict)
@@ -119,15 +121,24 @@ class ModulePackageContractCase:
         )
         object.__setattr__(self, "workflow_nodes", tuple(self.workflow_nodes))
         object.__setattr__(self, "workflow_edges", tuple(self.workflow_edges))
+        object.__setattr__(
+            self,
+            "selection_objectives",
+            tuple(self.selection_objectives),
+        )
         if any(
             not isinstance(node, WorkflowNodeInstance)
             for node in self.workflow_nodes
         ) or any(
             not isinstance(edge, WorkflowEdge)
             for edge in self.workflow_edges
+        ) or any(
+            not isinstance(objective, SelectionObjective)
+            for objective in self.selection_objectives
         ):
             raise ModulePackageConformanceError(
-                "workflow_nodes and workflow_edges must use v2 Workflow types"
+                "workflow Nodes, Edges, and Selection Objectives must use "
+                "v2 Workflow types"
             )
         if any(
             not isinstance(reference, str) or type(payload) is not bytes
@@ -344,6 +355,7 @@ def _verify_case(
         ),
         edges=case.workflow_edges,
         contract_lock=(),
+        selection_objectives=case.selection_objectives,
     )
     saved = authoring.save(
         project.id,

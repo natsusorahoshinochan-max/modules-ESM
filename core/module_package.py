@@ -15,6 +15,7 @@ from typing import Any, Literal
 import yaml
 
 from core.artifacts import is_valid_artifact_media_type
+from core.parameter_contract import parameter_value_contract
 from core.port_types import (
     CONTRACT_NAMESPACE,
     BehaviorReference,
@@ -548,6 +549,36 @@ class ObservationPropagationDefinition:
 
 
 @dataclass(frozen=True, slots=True)
+class SelectionObjectiveConsumptionDefinition:
+    """Closed declaration binding a Node to one Workflow-owned objective."""
+
+    objective_id_parameter: str
+    candidate_input_port: str
+    score_collection_input_port: str
+    schema_version: str = "2.0.0"
+
+    def __post_init__(self) -> None:
+        _require_schema_version(
+            self.schema_version,
+            "Selection Objective consumption",
+        )
+        for field_name in (
+            "objective_id_parameter",
+            "candidate_input_port",
+            "score_collection_input_port",
+        ):
+            _require_identifier(getattr(self, field_name), field_name)
+
+    def descriptor_template(self) -> dict[str, str]:
+        return {
+            "schema_version": self.schema_version,
+            "objective_id_parameter": self.objective_id_parameter,
+            "candidate_input_port": self.candidate_input_port,
+            "score_collection_input_port": self.score_collection_input_port,
+        }
+
+
+@dataclass(frozen=True, slots=True)
 class ProducedObservationDefinition:
     """One closed guaranteed observation emitted by a Binding output."""
 
@@ -690,6 +721,9 @@ class ExecutionBindingDefinition:
     produced_observations: tuple[ProducedObservationDefinition, ...] = ()
     adapter_behavior: BehaviorReference | None = None
     observation_propagation: ObservationPropagationDefinition | None = None
+    selection_objective_consumption: (
+        SelectionObjectiveConsumptionDefinition | None
+    ) = None
     effective_randomness_parameters: tuple[str, ...] = ()
     effective_randomness_resolver: EffectiveRandomnessResolver | None = field(
         default=None,
@@ -839,6 +873,10 @@ class ExecutionBindingDefinition:
                 else None
             ),
         }
+        if self.selection_objective_consumption is not None:
+            descriptor["selection_objective_consumption"] = (
+                self.selection_objective_consumption.descriptor_template()
+            )
         if self.effective_randomness_parameters:
             descriptor["effective_randomness_parameters"] = list(
                 self.effective_randomness_parameters
@@ -1784,6 +1822,49 @@ def build_frozen_catalog(
                 input_port["name"]: input_port
                 for input_port in node_definition.inputs
             }
+            consumption = binding.selection_objective_consumption
+            if consumption is not None:
+                parameter = node_definition.node_parameters.get(
+                    consumption.objective_id_parameter
+                )
+                if (
+                    not isinstance(parameter, Mapping)
+                    or parameter_value_contract(parameter).get("type")
+                    != "string"
+                ):
+                    raise CatalogBuildError(
+                        f"Binding {binding.binding_id} Selection Objective "
+                        "consumption requires one declared string parameter"
+                    )
+                for field_name, port_name, expected_type in (
+                    (
+                        "candidate_input_port",
+                        consumption.candidate_input_port,
+                        "candidate.collection",
+                    ),
+                    (
+                        "score_collection_input_port",
+                        consumption.score_collection_input_port,
+                        "score.collection",
+                    ),
+                ):
+                    port = inputs_by_name.get(port_name)
+                    reference = (
+                        port.get("port_type")
+                        if isinstance(port, Mapping)
+                        else None
+                    )
+                    if (
+                        not isinstance(reference, ContractIdentity)
+                        or reference.key
+                        != ("port_type", expected_type, "2.0.0")
+                        or port.get("multiplicity") != "one"
+                        or port.get("required") is not True
+                    ):
+                        raise CatalogBuildError(
+                            f"Binding {binding.binding_id} {field_name} must "
+                            f"name one required {expected_type} input Port"
+                        )
             for observation in binding.produced_observations:
                 if observation.output_port not in output_names:
                     raise CatalogBuildError(

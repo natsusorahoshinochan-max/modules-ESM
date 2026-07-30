@@ -1,0 +1,46 @@
+schema_version: "2.0.0"
+node_type_id: selection.sort
+version: "2.0.0"
+title: Sort Candidates by one exact Utility
+summary: Orders original Candidates by a Workflow-owned exact Utility Transform with stable identity-based ties.
+category: selection
+inputs:
+  - name: candidates
+    port_type_id: candidate.collection
+    port_type_version: "2.0.0"
+    required: true
+    multiplicity: one
+    scientific_meaning: Exact Candidate subjects named by the selected Workflow objective.
+  - name: scores
+    port_type_id: score.collection
+    port_type_version: "2.0.0"
+    required: true
+    multiplicity: one
+    scientific_meaning: Exact partitioned Observation source named by the selected Workflow objective.
+outputs:
+  - name: candidates
+    port_type_id: candidate.collection
+    port_type_version: "2.0.0"
+    required: true
+    multiplicity: one
+    scientific_meaning: Original Candidates in descending exact Utility order with candidate identity ascending ties.
+parameter_groups: []
+node_parameters:
+  objective_id:
+    parameter_scope: scientific
+    scientific_meaning: Exact Workflow-owned Selection Objective whose Candidate, Observation, Method, Context, Utility, cardinality, and missing policy contracts are consumed.
+    required: true
+    type: string
+    pattern: "^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$"
+  out_of_scope_policy:
+    parameter_scope: scientific
+    scientific_meaning: Declared treatment of Observations outside the exact Candidate, partition, Metric, Method, and Context selector.
+    type: string
+    enum: ["error", "ignore"]
+    default: "error"
+  tie_policy:
+    parameter_scope: scientific
+    scientific_meaning: Stable resolution independent of Run, Cache, input order, and process hash order.
+    type: string
+    const: "candidate_id_ascending"
+    default: "candidate_id_ascending"

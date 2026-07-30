@@ -945,14 +945,11 @@ def select_candidates(
                 float(output) * objective.weight / declared_total
             )
 
-    input_order = {
-        candidate_id: index for index, candidate_id in enumerate(candidate_ids)
-    }
     ranked = sorted(
         candidates.items,
         key=lambda candidate: (
             -weighted_values[candidate.candidate_id],
-            input_order[candidate.candidate_id],
+            candidate.candidate_id,
         ),
     )
     selected = ranked[: min(limit, len(ranked))]
