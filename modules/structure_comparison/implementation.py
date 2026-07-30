@@ -21,7 +21,10 @@ from datatypes import (
     ScoreCollection,
     ScoreObservation,
 )
-from modules.structure_alignment import align_structures
+from modules.structure_alignment import (
+    align_structures,
+    count_structure_ca_residues,
+)
 
 from .domain import (
     AlignmentAtomCorrespondence,
@@ -459,6 +462,15 @@ class StructureComparisonImplementation:
         ):
             raise ValueError(
                 "alignment evidence conflicts with exact Candidate inputs"
+            )
+        if (
+            alignment.normalization.subject_residue_count
+            != count_structure_ca_residues(subject[0].data)
+            or alignment.normalization.reference_residue_count
+            != count_structure_ca_residues(reference[0].data)
+        ):
+            raise ValueError(
+                "alignment normalization conflicts with exact Candidate content"
             )
 
     def _observation(

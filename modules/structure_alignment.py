@@ -170,6 +170,11 @@ def _parse_pdb_ca(pdb_string: str) -> list[_ResidueCA]:
     return residues
 
 
+def count_structure_ca_residues(structure: ProteinStructure) -> int:
+    """Count residues using the exact CA parsing contract used by alignment."""
+    return len(_parse_pdb_ca(structure.pdb_string))
+
+
 def _sequence_correspondence(
     reference_sequence: str,
     mobile_sequence: str,

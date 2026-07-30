@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from contextlib import contextmanager
 from dataclasses import replace
 from pathlib import Path
 
@@ -10,15 +11,21 @@ from fastapi.testclient import TestClient
 
 from core import (
     EnvironmentConfiguration,
+    PairwiseContextSelector,
     ProjectManager,
+    SelectionInput,
+    SelectionObjective,
     V2RunService,
     WorkflowAuthoringService,
     WorkflowDocument,
+    WorkflowCompileError,
     WorkflowNodeInstance,
     build_discovered_frozen_catalog,
     build_frozen_catalog,
+    compile_workflow,
     discover_module_packages,
     parse_workflow_document,
+    relock_workflow,
 )
 from core.port_types import canonical_json_bytes
 from core.server import create_app
@@ -338,6 +345,84 @@ def test_nonfinite_tm_optimization_fails_before_score_publication(
         and event["event"]["status"] == "failed"
         for event in events
     )
+
+
+def test_reference_normalization_must_match_exact_candidate_content() -> None:
+    catalog = build_frozen_catalog(
+        (STRUCTURE_COMPARISON_PACKAGE, SOURCE_PACKAGE)
+    )
+
+    class RunResources:
+        def __init__(self) -> None:
+            self.invocations: list[str] = []
+
+        @contextmanager
+        def engine_invocation(self, **details: object):
+            self.invocations.append(str(details.get("engine_role")))
+            yield f"invocation-{len(self.invocations)}"
+
+    resources = RunResources()
+
+    def implementation(registration: object, binding_id: str) -> object:
+        binding = next(
+            binding
+            for binding in registration.bindings
+            if binding.binding_id == binding_id
+        )
+        return binding.factory.build(
+            run_resources=resources,
+            frozen_catalog=catalog,
+        )
+
+    source = implementation(
+        SOURCE_PACKAGE,
+        "contract_test.structure_comparison_source.direct",
+    ).execute(
+        inputs={},
+        node_parameters={"scenario": "single"},
+        binding_parameters={},
+    )
+    alignment = implementation(
+        STRUCTURE_COMPARISON_PACKAGE,
+        "structure_comparison.align_single.direct",
+    ).execute(
+        inputs={
+            "subjects": source["subjects"],
+            "references": source["references"],
+        },
+        node_parameters={},
+        binding_parameters={},
+    )["alignment"]
+    conflicting = replace(
+        alignment,
+        normalization=replace(
+            alignment.normalization,
+            reference_residue_count=30,
+        ),
+        coverage=(
+            alignment.normalization.aligned_atom_count / 30
+        ),
+    )
+    scorer = implementation(
+        STRUCTURE_COMPARISON_PACKAGE,
+        "structure_comparison.tm_score.fixed_reference",
+    )
+    resources.invocations.clear()
+
+    with pytest.raises(
+        ValueError,
+        match="normalization conflicts with exact Candidate content",
+    ):
+        scorer.execute(
+            inputs={
+                "alignment": conflicting,
+                "subjects": source["subjects"],
+                "references": source["references"],
+            },
+            node_parameters={},
+            binding_parameters={},
+        )
+    assert resources.invocations == []
 
 
 def test_tm_score_contracts_are_exact_and_publish_one_partition_per_binding() -> None:
@@ -788,6 +873,243 @@ def test_fixed_reference_batch_uses_one_exact_reference_for_every_subject(
         and observation.value == 0.75
         for observation in scores.entries
     )
+
+
+def _dual_scope_workflow(catalog: object) -> WorkflowDocument:
+    def reference(kind: str, contract_id: str) -> ExactContractReference:
+        contract = catalog.require_contract(kind, contract_id, VERSION)
+        return ExactContractReference(**contract.reference())
+
+    def source(node_id: str, scenario: str) -> WorkflowNodeInstance:
+        return WorkflowNodeInstance(
+            node_id=node_id,
+            node_type_id="contract_test.structure_comparison_source",
+            node_type_version=VERSION,
+            binding_id="contract_test.structure_comparison_source.direct",
+            binding_version=VERSION,
+            node_parameters={"scenario": scenario},
+            binding_parameters={},
+        )
+
+    fixed_objective = SelectionObjective(
+        objective_id="fixed-reference",
+        candidate_input=SelectionInput("paired-source", "subjects"),
+        score_collection_input=SelectionInput("fixed-score", "scores"),
+        metric=reference("metric", "structure_comparison.tm_score"),
+        method=reference(
+            "method",
+            "structure_comparison.tm_score.reference_normalized.method",
+        ),
+        context_selector=PairwiseContextSelector(
+            pairing_mode="fixed_reference",
+            normalization="standard-reference-residue-count",
+        ),
+        utility_transform=reference(
+            "utility_transform",
+            "contract_test.tm_score.fixed_identity",
+        ),
+        utility_parameters={},
+        weight=0.7,
+        source_partition="structure_comparison.tm_score.fixed_reference",
+        match_cardinality="exactly_one",
+        missing_policy="error",
+    )
+    paired_objective = SelectionObjective(
+        objective_id="per-subject-counterpart",
+        candidate_input=SelectionInput("paired-source", "subjects"),
+        score_collection_input=SelectionInput("paired-score", "scores"),
+        metric=reference("metric", "structure_comparison.tm_score"),
+        method=reference(
+            "method",
+            "structure_comparison.tm_score.reference_normalized.method",
+        ),
+        context_selector=PairwiseContextSelector(
+            pairing_mode="per_subject_counterpart",
+            normalization="standard-reference-residue-count",
+        ),
+        utility_transform=reference(
+            "utility_transform",
+            "contract_test.tm_score.paired_identity",
+        ),
+        utility_parameters={},
+        weight=0.3,
+        source_partition=(
+            "structure_comparison.tm_score.per_subject_counterpart"
+        ),
+        match_cardinality="exactly_one",
+        missing_policy="error",
+    )
+    return WorkflowDocument(
+        schema_version=VERSION,
+        workflow_id="dual-tm-score-scopes",
+        nodes=(
+            source("fixed-source", "fixed_batch"),
+            WorkflowNodeInstance(
+                node_id="fixed-alignment",
+                node_type_id="structure_comparison.align_pairwise",
+                node_type_version=VERSION,
+                binding_id=(
+                    "structure_comparison.align_pairwise.fixed_reference"
+                ),
+                binding_version=VERSION,
+                node_parameters={},
+                binding_parameters={},
+            ),
+            WorkflowNodeInstance(
+                node_id="fixed-score",
+                node_type_id="structure_comparison.batch_tm_score",
+                node_type_version=VERSION,
+                binding_id=(
+                    "structure_comparison.batch_tm_score.fixed_reference"
+                ),
+                binding_version=VERSION,
+                node_parameters={},
+                binding_parameters={},
+            ),
+            source("paired-source", "paired"),
+            WorkflowNodeInstance(
+                node_id="paired-alignment",
+                node_type_id="structure_comparison.align_pairwise",
+                node_type_version=VERSION,
+                binding_id="structure_comparison.align_pairwise.direct",
+                binding_version=VERSION,
+                node_parameters={},
+                binding_parameters={},
+            ),
+            WorkflowNodeInstance(
+                node_id="paired-score",
+                node_type_id="structure_comparison.batch_tm_score",
+                node_type_version=VERSION,
+                binding_id=(
+                    "structure_comparison.batch_tm_score."
+                    "per_subject_counterpart"
+                ),
+                binding_version=VERSION,
+                node_parameters={},
+                binding_parameters={},
+            ),
+        ),
+        edges=(
+            WorkflowEdge(
+                "paired-source",
+                "subjects",
+                "fixed-alignment",
+                "subjects",
+            ),
+            WorkflowEdge(
+                "fixed-source",
+                "references",
+                "fixed-alignment",
+                "references",
+            ),
+            WorkflowEdge(
+                "fixed-alignment",
+                "alignments",
+                "fixed-score",
+                "alignments",
+            ),
+            WorkflowEdge(
+                "paired-source",
+                "subjects",
+                "fixed-score",
+                "subjects",
+            ),
+            WorkflowEdge(
+                "fixed-source",
+                "references",
+                "fixed-score",
+                "references",
+            ),
+            WorkflowEdge(
+                "paired-source",
+                "subjects",
+                "paired-alignment",
+                "subjects",
+            ),
+            WorkflowEdge(
+                "paired-source",
+                "references",
+                "paired-alignment",
+                "references",
+            ),
+            WorkflowEdge(
+                "paired-source",
+                "pairing",
+                "paired-alignment",
+                "pairing",
+            ),
+            WorkflowEdge(
+                "paired-alignment",
+                "alignments",
+                "paired-score",
+                "alignments",
+            ),
+            WorkflowEdge(
+                "paired-source",
+                "subjects",
+                "paired-score",
+                "subjects",
+            ),
+            WorkflowEdge(
+                "paired-source",
+                "references",
+                "paired-score",
+                "references",
+            ),
+            WorkflowEdge(
+                "paired-source",
+                "pairing",
+                "paired-score",
+                "pairing",
+            ),
+        ),
+        contract_lock=(),
+        selection_objectives=(fixed_objective, paired_objective),
+    )
+
+
+def test_compiler_keeps_fixed_and_paired_tm_score_objectives_isolated() -> None:
+    catalog = build_frozen_catalog(
+        (STRUCTURE_COMPARISON_PACKAGE, SOURCE_PACKAGE)
+    )
+    workflow = _dual_scope_workflow(catalog)
+
+    compiled = compile_workflow(
+        relock_workflow(workflow, catalog),
+        workflow_revision=1,
+        catalog=catalog,
+    )
+    assert {
+        objective.source_partition
+        for objective in compiled.execution_plan.selection_objectives
+    } == {
+        "structure_comparison.tm_score.fixed_reference",
+        "structure_comparison.tm_score.per_subject_counterpart",
+    }
+
+    fixed, paired = workflow.selection_objectives
+    contaminated = replace(
+        workflow,
+        selection_objectives=(
+            replace(
+                fixed,
+                score_collection_input=SelectionInput(
+                    "paired-score",
+                    "scores",
+                ),
+            ),
+            paired,
+        ),
+    )
+    with pytest.raises(
+        WorkflowCompileError,
+        match="cannot guarantee",
+    ):
+        compile_workflow(
+            relock_workflow(contaminated, catalog),
+            workflow_revision=1,
+            catalog=catalog,
+        )
 
 
 def _mismatched_fixed_sources_workflow(workflow_id: str) -> WorkflowDocument:

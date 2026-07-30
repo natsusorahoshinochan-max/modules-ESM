@@ -16,6 +16,7 @@ from core import (
     MethodDefinition,
     ModulePackageRegistration,
     ReadinessDeclaration,
+    UtilityTransformDefinition,
 )
 from datatypes import (
     Candidate,
@@ -27,6 +28,16 @@ from datatypes import (
 
 
 _VERSION = "2.0.0"
+_TM_METRIC = ContractIdentity(
+    "metric",
+    "structure_comparison.tm_score",
+    _VERSION,
+)
+_TM_METHOD = ContractIdentity(
+    "method",
+    "structure_comparison.tm_score.reference_normalized.method",
+    _VERSION,
+)
 _RESIDUES = ("ALA", "GLY", "SER", "THR")
 _RESIDUE_NAMES = {
     "A": "ALA",
@@ -261,6 +272,43 @@ def _build(**kwargs: object) -> object:
     )
 
 
+def _tm_identity(value: object, parameters: Mapping[str, Any]) -> float:
+    if parameters:
+        raise ValueError("TM-score identity Utility accepts no parameters")
+    result = float(value)
+    if not 0.0 <= result <= 1.0:
+        raise ValueError("TM-score identity Utility requires [0, 1]")
+    return result
+
+
+def _tm_utility(
+    transform_id: str,
+    pairing_mode: str,
+) -> UtilityTransformDefinition:
+    return UtilityTransformDefinition(
+        transform_id=transform_id,
+        version=_VERSION,
+        compatible_input_contract={
+            "metric": _TM_METRIC,
+            "method": _TM_METHOD,
+            "context_profile": {
+                "kind": "pairwise",
+                "subject_role": "subject",
+                "reference_role": "reference",
+                "pairing_mode": pairing_mode,
+                "normalization": "standard-reference-residue-count",
+            },
+        },
+        parameters={},
+        behavior=BehaviorReference(
+            f"{transform_id}/transform",
+            _VERSION,
+            {"mapping": "identity"},
+        ),
+        transform=_tm_identity,
+    )
+
+
 MODULE_PACKAGE = ModulePackageRegistration(
     schema_version=_VERSION,
     package_id="contract_test.structure_comparison_sources",
@@ -327,6 +375,16 @@ MODULE_PACKAGE = ModulePackageRegistration(
                 "name": "contract_test.structure_comparison_source.direct",
                 "source": "contract-test-fixture",
             },
+        ),
+    ),
+    utility_transforms=(
+        _tm_utility(
+            "contract_test.tm_score.fixed_identity",
+            "fixed_reference",
+        ),
+        _tm_utility(
+            "contract_test.tm_score.paired_identity",
+            "per_subject_counterpart",
         ),
     ),
 )
