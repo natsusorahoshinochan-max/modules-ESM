@@ -163,3 +163,7 @@
   `project_dirty=false`.
 - The second repair diff under `core/` is empty, Ticket 27 remains untouched,
   and Ticket 26 remains `awaiting-controller`.
+- Final `/code-review` Standards and Spec re-reviews both report PASS with
+  zero CRITICAL/HIGH findings. The Spec reviewer independently confirmed both
+  clean routine records and the clean deterministic/installed evidence before
+  closing its earlier evidence-completeness finding.
