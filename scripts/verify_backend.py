@@ -406,6 +406,7 @@ TIERS = {
         "tests/test_repository_examples_v2.py",
     )),
     "deterministic-acceptance": Tier((
+        "tests/test_canonical_3gb1_v2.py",
         "tests/deterministic_acceptance",
         "-m",
         "deterministic_acceptance",

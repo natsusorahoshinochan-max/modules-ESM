@@ -1104,7 +1104,7 @@
       "contract_kind": "binding",
       "contract_id": "protein_io.import_structure.direct",
       "contract_version": "2.0.0",
-      "contract_digest": "sha256:7fa5124600c489713d529afd3b964d1e4714ba748467ef5d1fec4737c078e76d"
+      "contract_digest": "sha256:de7cf48c4ff3c0a7b00fd86087a1900a9503c1b6a096c60f1c1598a2ea9bb354"
     },
     {
       "contract_kind": "binding",
@@ -1686,7 +1686,7 @@
       "contract_kind": "node_type",
       "contract_id": "protein_io.import_structure",
       "contract_version": "2.0.0",
-      "contract_digest": "sha256:30e6178b7c47e0f63b5db3524cf0ba4015ccfc1dbbbf278dd73c29fd36f8ad0d"
+      "contract_digest": "sha256:46639987d13e8f28759832721414c2989effb174f41eb9f5a03820232ebbce33"
     },
     {
       "contract_kind": "node_type",

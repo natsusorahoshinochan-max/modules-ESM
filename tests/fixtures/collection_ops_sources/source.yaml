@@ -18,6 +18,42 @@ outputs:
     required: true
     multiplicity: one
     scientific_meaning: One intrinsic Observation per generated fixture Candidate.
+  - name: children
+    port_type_id: candidate.collection
+    port_type_version: "2.0.0"
+    required: true
+    multiplicity: one
+    scientific_meaning: One exact child per generated fixture Candidate.
+  - name: pairing
+    port_type_id: candidate.pairing
+    port_type_version: "2.0.0"
+    required: true
+    multiplicity: one
+    scientific_meaning: Exact pairing from this partition's Candidates to the matching partition-b Candidates.
+  - name: rebind_parents
+    port_type_id: candidate.collection
+    port_type_version: "2.0.0"
+    required: true
+    multiplicity: one
+    scientific_meaning: Exact parents for pairing-composition conformance.
+  - name: rebind_references
+    port_type_id: candidate.collection
+    port_type_version: "2.0.0"
+    required: true
+    multiplicity: one
+    scientific_meaning: Exact references for pairing-composition conformance.
+  - name: rebind_subjects
+    port_type_id: candidate.collection
+    port_type_version: "2.0.0"
+    required: true
+    multiplicity: one
+    scientific_meaning: Exact children for pairing-composition conformance.
+  - name: rebind_pairing
+    port_type_id: candidate.pairing
+    port_type_version: "2.0.0"
+    required: true
+    multiplicity: one
+    scientific_meaning: Exact parent-to-reference pairing for composition.
 parameter_groups:
   - id: fixture
     title: Fixture

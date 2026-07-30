@@ -22,7 +22,12 @@ from .implementation import CollectionOpsImplementation
 
 
 _VERSION = "2.0.0"
-_OPERATIONS = ("concat_candidates", "merge_scores")
+_OPERATIONS = (
+    "concat_candidates",
+    "merge_scores",
+    "rebind_candidate_pairing",
+    "take_candidates",
+)
 
 
 def _available() -> AvailabilityResult:
@@ -35,29 +40,44 @@ def _ready(environment: Mapping[str, object]) -> bool:
 
 def _build(operation: str):
     def factory(**kwargs: object) -> CollectionOpsImplementation:
-        del kwargs
-        return CollectionOpsImplementation(operation)
+        return CollectionOpsImplementation(
+            operation,
+            kwargs["frozen_catalog"],
+        )
 
     return factory
 
 
 def _method(operation: str) -> MethodDefinition:
+    input_partition_order = {
+        "concat_candidates": [
+            "candidates_a",
+            "candidates_b",
+            "candidates_c",
+        ],
+        "merge_scores": ["scores_a", "scores_b", "scores_c"],
+        "rebind_candidate_pairing": [
+            "subjects",
+            "parents",
+            "references",
+            "parent_pairing",
+        ],
+        "take_candidates": ["candidates"],
+    }[operation]
+    duplicate_policy = {
+        "concat_candidates": "reject-candidate-partition-collision",
+        "merge_scores": "deduplicate-identical-observation-only",
+        "rebind_candidate_pairing": "complete-one-to-one-parent-composition",
+        "take_candidates": "preserve-exact-ordered-prefix",
+    }[operation]
     return MethodDefinition(
         method_id=f"collection_ops.{operation}.method",
         version=_VERSION,
         algorithm_identity={
             "name": operation,
-            "input_partition_order": (
-                ["candidates_a", "candidates_b", "candidates_c"]
-                if operation == "concat_candidates"
-                else ["scores_a", "scores_b", "scores_c"]
-            ),
+            "input_partition_order": input_partition_order,
             "identity_policy": "exact-input-identity",
-            "duplicate_policy": (
-                "reject-candidate-partition-collision"
-                if operation == "concat_candidates"
-                else "deduplicate-identical-observation-only"
-            ),
+            "duplicate_policy": duplicate_policy,
         },
         model_identity={"kind": "none"},
         checkpoint_identity={"kind": "none"},
@@ -137,6 +157,8 @@ MODULE_PACKAGE = ModulePackageRegistration(
     node_definitions=(
         DefinitionResource("definitions/concat_candidates.yaml"),
         DefinitionResource("definitions/merge_scores.yaml"),
+        DefinitionResource("definitions/rebind_candidate_pairing.yaml"),
+        DefinitionResource("definitions/take_candidates.yaml"),
     ),
     methods=tuple(_method(operation) for operation in _OPERATIONS),
     bindings=tuple(_binding(operation) for operation in _OPERATIONS),

@@ -1,0 +1,29 @@
+schema_version: "2.0.0"
+node_type_id: collection_ops.take_candidates
+version: "2.0.0"
+title: Take an ordered Candidate prefix
+summary: Preserves the first k exact Candidates from an already ordered Candidate Collection.
+category: collection
+inputs:
+  - name: candidates
+    port_type_id: candidate.collection
+    port_type_version: "2.0.0"
+    required: true
+    multiplicity: one
+    scientific_meaning: Exact ordered Candidate Collection whose prefix is retained.
+outputs:
+  - name: candidates
+    port_type_id: candidate.collection
+    port_type_version: "2.0.0"
+    required: true
+    multiplicity: one
+    scientific_meaning: Exact first k Candidate identities in unchanged input order.
+parameter_groups: []
+node_parameters:
+  k:
+    parameter_scope: scientific
+    scientific_meaning: Exact positive prefix cardinality, which cannot exceed input cardinality.
+    required: true
+    value_contract:
+      type: integer
+      minimum: 1

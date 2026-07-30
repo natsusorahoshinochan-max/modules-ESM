@@ -22,6 +22,7 @@ from datatypes import (
     FunctionAnnotations,
     ProteinPrompt,
     ProteinSequence,
+    ProteinStructure,
     ResidueLayout,
     ResidueMap,
     ResidueTrack,
@@ -428,6 +429,21 @@ class _Source:
                         else list(source.residue_ids or ())
                     )
                 ),
+            ),
+            "structure": ProteinStructure(
+                "ATOM      1  N   ALA A   1       0.000   0.000   "
+                "0.000  1.00 20.00           N\n"
+                "ATOM      2  CA  ALA A   1       1.000   0.000   "
+                "0.000  1.00 20.00           C\n"
+                "ATOM      3  N   GLY A   2       2.000   0.000   "
+                "0.000  1.00 20.00           N\n"
+                "ATOM      4  CA  GLY A   2       3.000   0.000   "
+                "0.000  1.00 20.00           C\n"
+                "ATOM      5  N   SER B   1       4.000   0.000   "
+                "0.000  1.00 20.00           N\n"
+                "ATOM      6  CA  SER B   1       5.000   0.000   "
+                "0.000  1.00 20.00           C\n"
+                "END\n"
             ),
         }
 

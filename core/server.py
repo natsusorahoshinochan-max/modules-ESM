@@ -573,6 +573,14 @@ def create_app(
             canonical_structure = asset_stack.enter_context(
                 as_file(files("pdbs").joinpath("3GB1.pdb"))
             )
+            canonical_v2_workflow = asset_stack.enter_context(
+                as_file(
+                    files("examples").joinpath(
+                        "v2",
+                        "canonical-3gb1.workflow.json",
+                    )
+                )
+            )
             project_manager.ensure_seed_project(
                 workflow_path,
                 ui_path,
@@ -585,6 +593,13 @@ def create_app(
                     if packaged_workflow
                     else None
                 ),
+                additional_input_sources={
+                    "3GB1.pdb": canonical_structure,
+                },
+            )
+            project_manager.install_seed_workflow_v2(
+                canonical_v2_workflow,
+                input_sources={"3GB1.pdb": canonical_structure},
             )
         _cache_mutations.clear()
         app.state.frozen_catalog = catalog_candidate

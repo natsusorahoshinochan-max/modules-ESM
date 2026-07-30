@@ -33,7 +33,7 @@ from tests.fixtures.prompt_authoring_v2 import (
 )
 
 
-def test_prompt_authoring_is_one_package_with_nine_independent_nodes() -> None:
+def test_prompt_authoring_is_one_package_with_eleven_independent_nodes() -> None:
     registrations = {
         registration.package_id: registration
         for registration in discover_module_packages()
@@ -50,6 +50,8 @@ def test_prompt_authoring_is_one_package_with_nine_independent_nodes() -> None:
         "definitions/edit_residue_layout.yaml",
         "definitions/map_residue_track.yaml",
         "definitions/override_residue_track.yaml",
+        "definitions/override_protein_prompt_track.yaml",
+        "definitions/prompt_from_structure.yaml",
         "definitions/random_insert_masked.yaml",
         "definitions/random_mask.yaml",
         "definitions/update_prompt_sequence.yaml",
@@ -70,6 +72,8 @@ def test_prompt_authoring_is_one_package_with_nine_independent_nodes() -> None:
         ("prompt_authoring.edit_residue_layout", VERSION),
         ("prompt_authoring.map_residue_track", VERSION),
         ("prompt_authoring.override_residue_track", VERSION),
+        ("prompt_authoring.override_protein_prompt_track", VERSION),
+        ("prompt_authoring.prompt_from_structure", VERSION),
         ("prompt_authoring.random_insert_masked", VERSION),
         ("prompt_authoring.random_mask", VERSION),
         ("prompt_authoring.update_prompt_sequence", VERSION),
@@ -193,7 +197,7 @@ _TRACK_PORT_CASES = (
 )
 
 
-def test_all_nine_nodes_execute_through_shared_contract_kit(
+def test_all_eleven_nodes_execute_through_shared_contract_kit(
     tmp_path: Path,
 ) -> None:
     report = verify_module_package_contract(
@@ -475,6 +479,63 @@ def test_all_nine_nodes_execute_through_shared_contract_kit(
                 ),
             ),
             ModulePackageContractCase(
+                case_id="prompt-authoring-prompt-from-structure",
+                node_type_id="prompt_authoring.prompt_from_structure",
+                node_type_version=VERSION,
+                binding_id=(
+                    "prompt_authoring.prompt_from_structure.direct"
+                ),
+                binding_version=VERSION,
+                node_parameters={},
+                binding_parameters={},
+                environment_values={},
+                safe_environment_fingerprint="provider-free",
+                invalidation_token="prompt-authoring-from-structure-v1",
+                workflow_nodes=(_SOURCE,),
+                workflow_edges=(
+                    WorkflowEdge(
+                        "source",
+                        "structure",
+                        "contract-test-node",
+                        "structure",
+                    ),
+                ),
+            ),
+            ModulePackageContractCase(
+                case_id="prompt-authoring-override-protein-prompt",
+                node_type_id=(
+                    "prompt_authoring.override_protein_prompt_track"
+                ),
+                node_type_version=VERSION,
+                binding_id=(
+                    "prompt_authoring.override_protein_prompt_track.direct"
+                ),
+                binding_version=VERSION,
+                node_parameters={
+                    "track": "secondary_structure",
+                    "overrides": [
+                        {
+                            "action": "replace",
+                            "residue_id": "A:1",
+                            "value": "E",
+                        },
+                    ],
+                },
+                binding_parameters={},
+                environment_values={},
+                safe_environment_fingerprint="provider-free",
+                invalidation_token="prompt-authoring-prompt-override-v1",
+                workflow_nodes=(_SOURCE,),
+                workflow_edges=(
+                    WorkflowEdge(
+                        "source",
+                        "protein_prompt",
+                        "contract-test-node",
+                        "protein_prompt",
+                    ),
+                ),
+            ),
+            ModulePackageContractCase(
                 case_id="prompt-authoring-random-insert",
                 node_type_id="prompt_authoring.random_insert_masked",
                 node_type_version=VERSION,
@@ -508,6 +569,8 @@ def test_all_nine_nodes_execute_through_shared_contract_kit(
     )
 
     assert [case.status for case in report.case_reports] == [
+        "succeeded",
+        "succeeded",
         "succeeded",
         "succeeded",
         "succeeded",

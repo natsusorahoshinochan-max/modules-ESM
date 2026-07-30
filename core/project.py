@@ -369,6 +369,9 @@ class ProjectManager:
         *,
         version: str = "1",
         input_sources: Mapping[str, str | Path] | None = None,
+        additional_input_sources: (
+            Mapping[str, str | Path] | None
+        ) = None,
     ) -> ProjectMeta:
         """Install or upgrade the protected canonical 3GB1 project.
 
@@ -446,6 +449,29 @@ class ProjectManager:
             ):
                 raise CanonicalSeedError(
                     f"Canonical input file not found: {input_reference}"
+                )
+            seed_inputs.append((source, destination_parts))
+        for reference, configured_source in (
+            additional_input_sources or {}
+        ).items():
+            try:
+                destination_parts = validate_relative_path(
+                    reference,
+                    "input_path",
+                    allow_nested=False,
+                )
+            except StoragePathError as error:
+                raise CanonicalSeedError(
+                    f"Unsafe canonical input reference: {error}"
+                ) from error
+            source = Path(configured_source)
+            if (
+                not source.is_file()
+                or source.is_symlink()
+                or not destination_parts
+            ):
+                raise CanonicalSeedError(
+                    f"Canonical input file not found: {reference}"
                 )
             seed_inputs.append((source, destination_parts))
 
@@ -565,6 +591,126 @@ class ProjectManager:
 
         _logger.info("Created seed project '%s' (%s)", name, project_id)
         return meta
+
+    def install_seed_workflow_v2(
+        self,
+        workflow_json_path: str | Path,
+        *,
+        input_sources: Mapping[str, str | Path],
+    ) -> None:
+        """Install the exact protected v2 Workflow beside the legacy seed.
+
+        This is the only write path for the maintained protected v2 snapshot;
+        ordinary public authoring remains forbidden by ``assert_writable``.
+        """
+        project_id = CANONICAL_3GB1_PROJECT_ID
+        meta = self.load_meta(project_id)
+        if meta is None or not meta.seed or meta.legacy_seed:
+            raise CanonicalSeedError(
+                "Canonical v2 Workflow requires the protected seed project"
+            )
+        path = Path(workflow_json_path)
+        if not path.is_file() or path.is_symlink():
+            raise CanonicalSeedError(
+                f"Canonical v2 Workflow JSON not found: {path}"
+            )
+        try:
+            workflow = json.loads(path.read_text(encoding="utf-8"))
+            from core.workflow_v2 import parse_workflow_document
+
+            parsed = parse_workflow_document(workflow)
+        except (OSError, json.JSONDecodeError, ValueError) as error:
+            raise CanonicalSeedError(
+                "Canonical v2 Workflow is not an exact supported document"
+            ) from error
+        if (
+            parsed.workflow_id != project_id
+            or not parsed.contract_lock
+        ):
+            raise CanonicalSeedError(
+                "Canonical v2 Workflow identity or Contract Lock is invalid"
+            )
+        project_dir = self.project_dir(project_id)
+        for node in parsed.nodes:
+            reference = node.node_parameters.get("project_input_ref")
+            if reference is None:
+                continue
+            if not isinstance(reference, str):
+                raise CanonicalSeedError(
+                    "Canonical v2 input reference is invalid"
+                )
+            source_value = input_sources.get(reference)
+            if source_value is None:
+                raise CanonicalSeedError(
+                    f"Canonical v2 input source is missing: {reference}"
+                )
+            source = Path(source_value)
+            if not source.is_file() or source.is_symlink():
+                raise CanonicalSeedError(
+                    f"Canonical v2 input file is unavailable: {reference}"
+                )
+            destination = self.input_path(project_id, reference)
+            destination.parent.mkdir(parents=True, exist_ok=True)
+            payload = source.read_bytes()
+            if destination.is_symlink():
+                raise CanonicalSeedError(
+                    f"Canonical v2 input target is unsafe: {reference}"
+                )
+            if not destination.exists() or destination.read_bytes() != payload:
+                temporary = destination.with_name(
+                    f".{destination.name}.canonical-v2.tmp"
+                )
+                if temporary.exists() or temporary.is_symlink():
+                    temporary.unlink()
+                try:
+                    temporary.write_bytes(payload)
+                    os.replace(temporary, destination)
+                finally:
+                    if temporary.exists():
+                        temporary.unlink()
+        target = project_dir / "workflow-v2.json"
+        descriptor = {
+            "schema_version": "2.0.0",
+            "workflow_revision": 1,
+            "workflow": parsed.to_public(),
+        }
+        if target.is_symlink():
+            raise CanonicalSeedError(
+                "Canonical v2 Workflow storage target is unsafe"
+            )
+        if target.is_file():
+            try:
+                if json.loads(target.read_text(encoding="utf-8")) == descriptor:
+                    return
+            except (OSError, json.JSONDecodeError):
+                pass
+        file_descriptor, temporary_name = tempfile.mkstemp(
+            prefix=".canonical-workflow-v2-",
+            suffix=".json",
+            dir=project_dir,
+            text=True,
+        )
+        temporary_path = Path(temporary_name)
+        try:
+            with os.fdopen(
+                file_descriptor,
+                "w",
+                encoding="utf-8",
+            ) as stream:
+                json.dump(
+                    descriptor,
+                    stream,
+                    ensure_ascii=False,
+                    separators=(",", ":"),
+                    sort_keys=True,
+                    allow_nan=False,
+                )
+                stream.flush()
+                os.fsync(stream.fileno())
+            os.replace(temporary_path, target)
+        finally:
+            if temporary_path.exists():
+                temporary_path.unlink()
 
     @staticmethod
     def _write_json(path: Path, data: dict[str, Any]) -> None:

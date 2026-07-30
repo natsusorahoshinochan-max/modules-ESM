@@ -72,7 +72,7 @@
       "contract_kind": "binding",
       "contract_id": "contract_test.prompt_authoring_values.direct",
       "contract_version": "2.0.0",
-      "contract_digest": "sha256:45f5a6343f2cb68cbc2fbc3532a3698c80bb2e21c78b1beabdf8e21a700b7b37"
+      "contract_digest": "sha256:b0986e82cf9d08a3b2f3e0e47c11a24640f89aff87da9afe268e476fdb2b6a5a"
     },
     {
       "contract_kind": "binding",
@@ -108,7 +108,7 @@
       "contract_kind": "node_type",
       "contract_id": "contract_test.prompt_authoring_values",
       "contract_version": "2.0.0",
-      "contract_digest": "sha256:4723d4f973db98663b5e754f71c9ef9f151bb544c4b1bb8b21eba63c26a9bef9"
+      "contract_digest": "sha256:39479c02215aa8c9e9a13838dc5f51b8ea47ded49930ee894df0de1302f29e46"
     },
     {
       "contract_kind": "node_type",
@@ -169,6 +169,12 @@
       "contract_id": "protein.sequence",
       "contract_version": "2.0.0",
       "contract_digest": "sha256:5e4ca2f126c449f784b80de3815e717dea84e54205391eff0a68ffefc5527e91"
+    },
+    {
+      "contract_kind": "port_type",
+      "contract_id": "protein.structure",
+      "contract_version": "2.0.0",
+      "contract_digest": "sha256:5e15d0d47a0d0f95049e278756366461f0ec80817f72e742a6f023678b6ec90d"
     },
     {
       "contract_kind": "port_type",

@@ -1,0 +1,40 @@
+schema_version: "2.0.0"
+node_type_id: collection_ops.rebind_candidate_pairing
+version: "2.0.0"
+title: Rebind a Candidate pairing through exact parent identities
+summary: Composes an explicit parent-to-reference pairing with one exact child-parent relationship and emits a complete child-to-reference pairing.
+category: collection_ops
+inputs:
+  - name: subjects
+    port_type_id: candidate.collection
+    port_type_version: "2.0.0"
+    required: true
+    multiplicity: one
+    scientific_meaning: Exact child Candidates whose sole declared parent identifies the paired source Candidate.
+  - name: parents
+    port_type_id: candidate.collection
+    port_type_version: "2.0.0"
+    required: true
+    multiplicity: one
+    scientific_meaning: Exact parent Candidates named by every subject lineage.
+  - name: references
+    port_type_id: candidate.collection
+    port_type_version: "2.0.0"
+    required: true
+    multiplicity: one
+    scientific_meaning: Exact reference Candidates named by the supplied parent pairing.
+  - name: parent_pairing
+    port_type_id: candidate.pairing
+    port_type_version: "2.0.0"
+    required: true
+    multiplicity: one
+    scientific_meaning: Complete explicit parent-to-reference relationship with exact content digests.
+outputs:
+  - name: pairing
+    port_type_id: candidate.pairing
+    port_type_version: "2.0.0"
+    required: true
+    multiplicity: one
+    scientific_meaning: Complete exact subject-to-reference relationship in subject collection order.
+parameter_groups: []
+node_parameters: {}

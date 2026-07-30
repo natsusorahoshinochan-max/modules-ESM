@@ -35,8 +35,8 @@ marker expression.
 | --- | --- | --- |
 | Routine backend regression | `.venv/bin/python scripts/verify_backend.py routine` | Fast deterministic tests only; excludes acceptance, remote providers, local providers, heavy models, and intentionally red reproductions. |
 | Repository v2 examples | `.venv/bin/python scripts/verify_backend.py examples-v2` | Parses, exactly relocks, and compiles the shipped v2 Workflow suite; compares the 11-package capability inventory with the source Catalog; and checks the independent exact-objective CTK fixture without invoking providers or writing Project, Cache, output, or Run roots. |
-| Deterministic backend acceptance | `.venv/bin/python scripts/verify_backend.py deterministic-acceptance` | Runs the canonical provider-fixture Workflow and failure variants through a real backend process using only REST, run-scoped WebSocket, manifest, Cache, and artifact APIs. |
-| Installed backend artifact | `.venv/bin/python scripts/verify_backend.py installed-package` | Builds wheel and sdist, checks required YAML and canonical assets, installs the wheel with dependencies into a brand-new venv, then discovers all 45 Modules, starts the API outside the source checkout, and proves durable v2 Run replay and conservative restart reconciliation. |
+| Deterministic backend acceptance | `.venv/bin/python scripts/verify_backend.py deterministic-acceptance` | Runs both the retained failure-variant suite and the exact locked v2 canonical 3GB1 provider fixture, including its public compile, Run, replay, Ledger, selection, lineage, and artifact assertions. |
+| Installed backend artifact | `.venv/bin/python scripts/verify_backend.py installed-package` | Builds wheel and sdist, checks required YAML and canonical assets, installs the wheel with dependencies into a brand-new venv, then discovers all 44 legacy Modules and 48 v2 Node Types, starts the API outside the source checkout, and completes the exact canonical v2 journey through only the public protocol. |
 | Scientific reproduction | `.venv/bin/python scripts/verify_backend.py scientific-repro` | Runs the deterministic SCI-001 reproduction and confirms that legal amino-acid symbols reach the ESM3 boundary unchanged. |
 | Post-review repair findings | `.venv/bin/python scripts/verify_backend.py repair-findings` | Intentionally red cumulative gate for the four independently confirmed post-handoff findings. It must report exactly the shifted final secondary-structure layout, cross-run sequence-export path reuse, repeated SimpleFold staging collisions, and incomplete public readiness/call evidence until their repair tickets land. |
 | Mocked Workflow | `.venv/bin/python scripts/verify_backend.py mocked-workflow` | Runs the current deterministic 3GB1 Workflow tests with provider boundaries replaced by fixtures. |
@@ -284,19 +284,20 @@ behavior identities when discovered by the installed artifact.
 
 ## Deterministic public-protocol acceptance
 
-The deterministic tier starts a real uvicorn backend process and uses a small
-Python client with no frontend or React dependency. The client submits the
-canonical Workflow through REST, consumes only its project/run WebSocket,
-retrieves the durable manifest and outputs, and downloads every PDB through the
-manifest-bound artifact route. External providers and mkdssp are replaced only
-inside the test-only ASGI fixture module; the production FastAPI application,
-Workflow validation, Execution Engine, Cache, run manifest, and artifact
-retrieval paths remain real.
+The deterministic tier covers the retained legacy failure variants and the
+locked `examples/v2/canonical-3gb1.workflow.json`. The v2 client obtains Catalog
+and Project/Workflow snapshots, compiles, starts Runs, consumes the run-scoped
+WebSocket, retrieves the durable Run projection, and downloads every PDB through
+the Run-bound artifact route. ESM-3, ESMFold2, and ProteinMPNN are replaced only
+at their declared provider boundaries; the production prompt adapters, Frozen
+Catalog, compiler, Execution Engine, Cache, Ledger, selection, lineage, and
+artifact paths remain real.
 
 The tier fixes exact acceptance evidence for ten paired ESM3 sequence/structure
-Candidates, ten initial folds, both TM-score objectives, the weighted top three,
-three ProteinMPNN parents with five children each, fifteen per-sequence scores,
-fifteen final folds, complete lineage, and fifteen literal PDB SHA-256 values.
+Candidates, ten initial folds, isolated fixed-reference and paired-counterpart
+TM-score objectives, the weighted top three, three ProteinMPNN parents with five
+children each, fifteen final folds, complete causal closure, and fifteen
+retrievable PDB SHA-256 values.
 It also covers pre-run incompatible-edge and traversal rejection, a structured
 provider failure with an unrelated successful branch, cancellation, same-project
 overlap rejection, Cache replay in a fresh run scope, cross-scope reads, and

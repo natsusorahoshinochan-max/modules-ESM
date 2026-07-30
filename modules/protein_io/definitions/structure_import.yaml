@@ -12,6 +12,12 @@ outputs:
     required: true
     multiplicity: one
     scientific_meaning: Canonically validated imported PDB structure.
+  - name: structure_candidates
+    port_type_id: candidate.collection
+    port_type_version: "2.0.0"
+    required: true
+    multiplicity: one
+    scientific_meaning: Singleton exact Candidate collection for reference-scoped collection operations.
 parameter_groups:
   - id: project_input
     title: Project input

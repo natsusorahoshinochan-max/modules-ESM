@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from collections import Counter
+import importlib.util
 import json
 import os
 import shutil
@@ -158,6 +160,61 @@ uvicorn.run(app, host="127.0.0.1", port=__PORT__, log_level="warning")
 '''.replace("__PORT__", str(port))
 
 
+def _installed_canonical_v2_server_probe(
+    port: int,
+    *,
+    provider_site_packages: Path,
+    esm_source_root: Path,
+) -> str:
+    """Start the installed backend with controlled provider boundaries."""
+    return (
+        r'''
+from pathlib import Path
+import sys
+
+import core
+import modules
+import uvicorn
+from core.server import create_app
+
+source_root = Path("__SOURCE_ROOT__").resolve()
+assert not Path(core.__file__).resolve().is_relative_to(source_root)
+assert not Path(modules.__file__).resolve().is_relative_to(source_root)
+sys.path.append(str(Path.cwd()))
+sys.path.append("__PROVIDER_SITE_PACKAGES__")
+sys.path.append("__ESM_SOURCE_ROOT__")
+
+from canonical_3gb1_v2 import (
+    ControlledESM3Client,
+    ControlledFoldingClient,
+    ControlledProteinMPNNProvider,
+    controlled_catalog,
+    controlled_environment,
+)
+import modules.proteinmpnn.implementation as proteinmpnn_implementation
+
+esm3 = ControlledESM3Client()
+folding = ControlledFoldingClient()
+proteinmpnn = ControlledProteinMPNNProvider()
+proteinmpnn_implementation.provider_for_environment = (
+    lambda environment, *, staging_directory: proteinmpnn
+)
+app = create_app(
+    frozen_catalog_override=controlled_catalog(),
+    v2_environment_configuration=controlled_environment(esm3, folding),
+)
+uvicorn.run(app, host="127.0.0.1", port=__PORT__, log_level="warning")
+'''
+        .replace("__PORT__", str(port))
+        .replace("__SOURCE_ROOT__", str(PROJECT_ROOT))
+        .replace(
+            "__PROVIDER_SITE_PACKAGES__",
+            str(provider_site_packages),
+        )
+        .replace("__ESM_SOURCE_ROOT__", str(esm_source_root))
+    )
+
+
 def _build_artifacts(output_dir: Path) -> tuple[Path, Path]:
     subprocess.run(
         [
@@ -196,10 +253,13 @@ def test_built_artifacts_contain_backend_definitions_and_canonical_assets(
         "examples/3gb1_pipeline.json",
         "examples/3gb1_pipeline_ui.json",
         "examples/v2/capability-inventory.json",
+        "examples/v2/canonical-3gb1.workflow.json",
         "examples/v2/repository-capabilities.workflow.json",
         "examples/v2_suite.py",
         "modules/collection_ops/definitions/concat_candidates.yaml",
         "modules/collection_ops/definitions/merge_scores.yaml",
+        "modules/collection_ops/definitions/rebind_candidate_pairing.yaml",
+        "modules/collection_ops/definitions/take_candidates.yaml",
         "modules/esm3/definitions/generate_paired.yaml",
         "modules/esm3/definitions/generate_sequence.yaml",
         "modules/esm3/definitions/generate_structure.yaml",
@@ -214,6 +274,8 @@ def test_built_artifacts_contain_backend_definitions_and_canonical_assets(
         "modules/proteinmpnn/definitions/native_sequence_nll_metric.yaml",
         "modules/proteinmpnn/definitions/random_fixed_positions.yaml",
         "modules/proteinmpnn/definitions/score.yaml",
+        "modules/prompt_authoring/definitions/override_protein_prompt_track.yaml",
+        "modules/prompt_authoring/definitions/prompt_from_structure.yaml",
         "modules/selection/definitions/diversity.yaml",
         "modules/selection/definitions/pareto.yaml",
         "modules/selection/definitions/weighted_rank.yaml",
@@ -372,8 +434,8 @@ assert inventory["contracts"] == {SOURCE_CONTRACT_REFERENCES!r}
 assert verify_repository_examples() == {{
     "catalog_contract_digest": {SOURCE_PORT_CATALOG_DIGEST!r},
     "package_count": 11,
-    "node_type_count": 44,
-    "workflow_count": 1,
+    "node_type_count": 48,
+    "workflow_count": 2,
 }}
 assert {{
     (
@@ -464,10 +526,16 @@ assert {{
 }} == {{
     ("node_type", "collection_ops.concat_candidates", "2.0.0"),
     ("node_type", "collection_ops.merge_scores", "2.0.0"),
+    ("node_type", "collection_ops.rebind_candidate_pairing", "2.0.0"),
+    ("node_type", "collection_ops.take_candidates", "2.0.0"),
     ("method", "collection_ops.concat_candidates.method", "2.0.0"),
     ("method", "collection_ops.merge_scores.method", "2.0.0"),
+    ("method", "collection_ops.rebind_candidate_pairing.method", "2.0.0"),
+    ("method", "collection_ops.take_candidates.method", "2.0.0"),
     ("binding", "collection_ops.concat_candidates.direct", "2.0.0"),
     ("binding", "collection_ops.merge_scores.direct", "2.0.0"),
+    ("binding", "collection_ops.rebind_candidate_pairing.direct", "2.0.0"),
+    ("binding", "collection_ops.take_candidates.direct", "2.0.0"),
 }}
 assert {{
     (
@@ -1002,10 +1070,16 @@ assert sorted(item.module_id for item in registry.list_all()) == {expected}
         } == {
             ("node_type", "collection_ops.concat_candidates"),
             ("node_type", "collection_ops.merge_scores"),
+            ("node_type", "collection_ops.rebind_candidate_pairing"),
+            ("node_type", "collection_ops.take_candidates"),
             ("method", "collection_ops.concat_candidates.method"),
             ("method", "collection_ops.merge_scores.method"),
+            ("method", "collection_ops.rebind_candidate_pairing.method"),
+            ("method", "collection_ops.take_candidates.method"),
             ("binding", "collection_ops.concat_candidates.direct"),
             ("binding", "collection_ops.merge_scores.direct"),
+            ("binding", "collection_ops.rebind_candidate_pairing.direct"),
+            ("binding", "collection_ops.take_candidates.direct"),
         }
         merge_descriptor = collection_contracts[
             ("binding", "collection_ops.merge_scores.direct")
@@ -1255,6 +1329,307 @@ assert sorted(item.module_id for item in registry.list_all()) == {expected}
             message["event"]["type"]
             for message in replayed_events
         )
+    finally:
+        if server.poll() is None:
+            server.terminate()
+        try:
+            server.communicate(timeout=5)
+        except subprocess.TimeoutExpired:
+            server.kill()
+            server.communicate()
+
+
+@pytest.mark.installed_package
+def test_installed_backend_runs_exact_canonical_v2_through_public_protocol(
+    tmp_path: Path,
+) -> None:
+    """The built wheel completes canonical v2 with controlled providers."""
+    wheel, _ = _build_artifacts(tmp_path / "dist")
+    venv_dir = tmp_path / "installed"
+    subprocess.run([sys.executable, "-m", "venv", str(venv_dir)], check=True)
+    python = venv_dir / "bin" / "python"
+    subprocess.run(
+        [str(python), "-m", "pip", "install", str(wheel)],
+        cwd=tmp_path,
+        check=True,
+    )
+
+    torch_spec = importlib.util.find_spec("torch")
+    assert torch_spec is not None and torch_spec.origin is not None
+    provider_site_packages = Path(torch_spec.origin).resolve().parents[1]
+    esm_source_root = PROJECT_ROOT / "repositories" / "esm"
+    assert (esm_source_root / "esm" / "__init__.py").is_file()
+
+    run_dir = tmp_path / "outside-source"
+    run_dir.mkdir()
+    shutil.copy2(
+        PROJECT_ROOT / "tests" / "fixtures" / "canonical_3gb1_v2.py",
+        run_dir / "canonical_3gb1_v2.py",
+    )
+    env = os.environ.copy()
+    env.pop("PYTHONPATH", None)
+    for name in ("PROJECT", "CACHE", "OUTPUT", "RUN"):
+        root = tmp_path / name.lower()
+        root.mkdir()
+        env[f"PROTEIN_WORKBENCH_{name}_ROOT"] = str(root)
+
+    with socket.socket() as listener:
+        listener.bind(("127.0.0.1", 0))
+        port = listener.getsockname()[1]
+    server = subprocess.Popen(
+        [
+            str(python),
+            "-I",
+            "-c",
+            _installed_canonical_v2_server_probe(
+                port,
+                provider_site_packages=provider_site_packages,
+                esm_source_root=esm_source_root,
+            ),
+        ],
+        cwd=run_dir,
+        env=env,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        text=True,
+    )
+
+    def request_json(
+        operation_id: str,
+        payload: dict,
+        *,
+        expected_status: int = 200,
+    ) -> dict:
+        prepared = prepare_rest_request(operation_id, payload)
+        encoded = (
+            json.dumps(prepared.json_body).encode("utf-8")
+            if prepared.json_body is not None
+            else None
+        )
+        request = urllib.request.Request(
+            f"http://127.0.0.1:{port}{prepared.route}",
+            data=encoded,
+            headers=(
+                {"Content-Type": "application/json"}
+                if encoded is not None
+                else {}
+            ),
+            method=prepared.method,
+        )
+        try:
+            response = urllib.request.urlopen(request, timeout=5)
+        except urllib.error.HTTPError as error:
+            response = error
+        with response:
+            status = response.status
+            result = json.load(response)
+        assert status == expected_status
+        validate_response(operation_id, status, result)
+        return result
+
+    try:
+        deadline = time.monotonic() + 30
+        catalog = None
+        while time.monotonic() < deadline:
+            if server.poll() is not None:
+                break
+            try:
+                catalog = request_json("catalog_snapshot", {})
+                break
+            except (OSError, json.JSONDecodeError):
+                time.sleep(0.1)
+        if catalog is None:
+            output = server.communicate(timeout=5)[0]
+            pytest.fail(f"Installed canonical v2 API did not start:\n{output}")
+        assert catalog["catalog_contract_digest"] == (
+            SOURCE_PORT_CATALOG_DIGEST
+        )
+
+        project_id = "canonical-3gb1"
+        snapshot = request_json(
+            "project_workflow_snapshot",
+            {"project_id": project_id},
+        )
+        assert snapshot["workflow"]["schema_version"] == "2.0.0"
+        assert snapshot["workflow"]["contract_lock"]
+        compiled = request_json(
+            "workflow_compile",
+            {
+                "project_id": project_id,
+                "workflow_revision": snapshot["workflow_revision"],
+                "workflow": snapshot["workflow"],
+            },
+        )
+        assert compiled["accepted"] is True
+        started = request_json(
+            "start_run",
+            {
+                "project_id": project_id,
+                "workflow_revision": snapshot["workflow_revision"],
+                "compile_id": compiled["compile_id"],
+                "client_request_id": "installed-canonical-v2",
+            },
+            expected_status=202,
+        )
+        projection = wait_for_network_run_terminal(
+            websocket_origin=f"ws://127.0.0.1:{port}",
+            project_id=project_id,
+            run_id=started["run_id"],
+            fetch_projection=lambda: request_json(
+                "run_projection",
+                {
+                    "project_id": project_id,
+                    "run_id": started["run_id"],
+                },
+            ),
+            timeout_seconds=90,
+        )
+        assert projection["status"] == "succeeded"
+        assert len(projection["node_dispositions"]) == 21
+        assert all(
+            disposition["outcome"] == "succeeded"
+            for disposition in projection["node_dispositions"]
+        )
+
+        outputs = {
+            (output["node_id"], output["output_port"]): (
+                output["values"][0]
+            )
+            for output in projection["outputs"]
+        }
+
+        def fields(node_id: str, port: str) -> dict:
+            value = outputs[(node_id, port)]
+            assert isinstance(value, dict)
+            assert isinstance(value.get("fields"), dict)
+            return value["fields"]
+
+        generated_sequences = fields(
+            "generate-paired",
+            "sequence_candidates",
+        )["items"]
+        generated_structures = fields(
+            "generate-paired",
+            "structure_candidates",
+        )["items"]
+        counterpart_pairs = fields(
+            "generate-paired",
+            "counterpart_pairs",
+        )["entries"]
+        selected = fields("take-top-three", "candidates")["items"]
+        children = fields(
+            "design-children",
+            "sequence_candidates",
+        )["items"]
+        final_folds = fields(
+            "fold-final",
+            "structure_candidates",
+        )["items"]
+        assert len(generated_sequences) == 10
+        assert len(generated_structures) == 10
+        assert len(counterpart_pairs) == 10
+        assert len(selected) == 3
+        assert len(children) == 15
+        assert len(final_folds) == 15
+        assert len(projection["artifact_index"]) == 15
+        assert len({
+            artifact["content_digest"]
+            for artifact in projection["artifact_index"]
+        }) == 15
+
+        child_parent_ids = [
+            item["fields"]["parent_ids"][0] for item in children
+        ]
+        selected_ids = [
+            item["fields"]["candidate_id"] for item in selected
+        ]
+        assert Counter(child_parent_ids) == Counter({
+            candidate_id: 5 for candidate_id in selected_ids
+        })
+
+        for artifact in projection["artifact_index"]:
+            prepared = prepare_rest_request(
+                "artifact_retrieval",
+                {
+                    "project_id": project_id,
+                    "run_id": started["run_id"],
+                    "artifact_reference": artifact[
+                        "artifact_reference"
+                    ],
+                },
+            )
+            with urllib.request.urlopen(
+                urllib.request.Request(
+                    f"http://127.0.0.1:{port}{prepared.route}",
+                    method=prepared.method,
+                ),
+                timeout=5,
+            ) as response:
+                payload = response.read()
+                headers = dict(response.headers)
+                content_disposition = response.headers[
+                    "Content-Disposition"
+                ]
+            validate_artifact_response(
+                {
+                    "artifact": artifact,
+                    "content_disposition": content_disposition,
+                },
+                headers,
+                payload,
+            )
+            assert "sha256:" + sha256(payload).hexdigest() == (
+                artifact["content_digest"]
+            )
+
+        stream_request = prepare_run_event_stream_request(
+            {
+                "project_id": project_id,
+                "run_id": started["run_id"],
+            }
+        )
+        with connect(
+            f"ws://127.0.0.1:{port}{stream_request.route}",
+            open_timeout=5,
+            close_timeout=2,
+        ) as websocket:
+            events = []
+            while True:
+                message = json.loads(websocket.recv(timeout=5))
+                validate_event(message)
+                if message["event"]["type"] not in {
+                    "replay_started",
+                    "replay_complete",
+                }:
+                    events.append(message)
+                if message["event"]["type"] == "replay_complete":
+                    break
+        payloads = [message["event"] for message in events]
+        assert payloads[-1] == {
+            "type": "run_terminal",
+            "status": "succeeded",
+        }
+        assert Counter(
+            event["type"] for event in payloads
+        )["node_disposition"] == 21
+        assert {
+            event["operation_attempt_id"]
+            for event in payloads
+            if event["type"] == "operation_attempt_started"
+        } == {
+            event["operation_attempt_id"]
+            for event in payloads
+            if event["type"] == "operation_attempt_terminal"
+        }
+        assert {
+            event["invocation_id"]
+            for event in payloads
+            if event["type"] == "engine_invocation_started"
+        } == {
+            event["invocation_id"]
+            for event in payloads
+            if event["type"] == "engine_invocation_terminal"
+        }
     finally:
         if server.poll() is None:
             server.terminate()

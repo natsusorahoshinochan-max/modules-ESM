@@ -10,6 +10,7 @@ from Bio.PDB import PDBParser
 
 from core import ArtifactPayload
 from datatypes import (
+    Candidate,
     CandidateCollection,
     ProteinSequence,
     ProteinStructure,
@@ -113,11 +114,24 @@ class StructureImportImplementation:
                 raise ValueError("Structure input is malformed PDB text") from error
             if next(parsed.get_atoms(), None) is None:
                 raise ValueError("Structure input contains no parseable PDB atoms")
+        structure = ProteinStructure(
+            pdb_string=canonical,
+            source="project_input",
+        )
         return {
-            "structure": ProteinStructure(
-                pdb_string=canonical,
-                source="project_input",
-            )
+            "structure": structure,
+            "structure_candidates": CandidateCollection(
+                collection_id="imported-structure-reference",
+                item_type="protein.structure",
+                items=[
+                    Candidate(
+                        candidate_id="imported-structure",
+                        data=structure,
+                        parent_ids=[],
+                        metadata={"input_role": "reference"},
+                    )
+                ],
+            ),
         }
 
 

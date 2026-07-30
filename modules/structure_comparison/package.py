@@ -21,6 +21,7 @@ from core import (
     PortTypeDefinition,
     ProducedObservationDefinition,
     ReadinessDeclaration,
+    UtilityTransformDefinition,
 )
 from datatypes import ExactContractReference, PairwiseParticipant
 
@@ -41,6 +42,60 @@ _TM_SCORE_NORMALIZATION = "standard-reference-residue-count"
 _BIOPYTHON_VERSION = version("biopython")
 _NUMPY_VERSION = version("numpy")
 _TMTOOLS_VERSION = version("tmtools")
+
+
+def _tm_score_identity(
+    value: object,
+    parameters: Mapping[str, Any],
+) -> float:
+    if parameters:
+        raise ValueError("TM-score identity Utility accepts no parameters")
+    if (
+        isinstance(value, bool)
+        or not isinstance(value, (int, float))
+        or not math.isfinite(float(value))
+        or not 0 <= float(value) <= 1
+    ):
+        raise ValueError("TM-score identity Utility requires [0, 1]")
+    return float(value)
+
+
+def _tm_score_utility(
+    pairing_mode: str,
+) -> UtilityTransformDefinition:
+    return UtilityTransformDefinition(
+        transform_id=(
+            "structure_comparison.tm_score."
+            f"{pairing_mode}.identity"
+        ),
+        version=_VERSION,
+        compatible_input_contract={
+            "metric": ContractIdentity(
+                "metric",
+                "structure_comparison.tm_score",
+                _VERSION,
+            ),
+            "method": ContractIdentity(
+                "method",
+                "structure_comparison.tm_score.reference_normalized.method",
+                _VERSION,
+            ),
+            "context_profile": {
+                "kind": "pairwise",
+                "subject_role": "subject",
+                "reference_role": "reference",
+                "pairing_mode": pairing_mode,
+                "normalization": _TM_SCORE_NORMALIZATION,
+            },
+        },
+        parameters={},
+        behavior=BehaviorReference(
+            "structure_comparison.tm_score.identity/transform",
+            _VERSION,
+            {"mapping": "identity"},
+        ),
+        transform=_tm_score_identity,
+    )
 
 
 def _available() -> AvailabilityResult:
@@ -902,6 +957,10 @@ MODULE_PACKAGE = ModulePackageRegistration(
         _ALIGNMENT_METHOD_DEFINITION,
         _RMSD_METHOD_DEFINITION,
         _TM_SCORE_METHOD_DEFINITION,
+    ),
+    utility_transforms=(
+        _tm_score_utility("fixed_reference"),
+        _tm_score_utility("per_subject_counterpart"),
     ),
     bindings=(
         _binding("align_single"),

@@ -160,7 +160,13 @@ def test_catalog_snapshot_publishes_exact_port_type_contracts() -> None:
             "2.0.0",
             True,
         ),
-            ("collection_ops.merge_scores.direct", "2.0.0", True),
+        ("collection_ops.merge_scores.direct", "2.0.0", True),
+        (
+            "collection_ops.rebind_candidate_pairing.direct",
+            "2.0.0",
+            True,
+        ),
+        ("collection_ops.take_candidates.direct", "2.0.0", True),
             ("selection.filter.direct", "2.0.0", True),
             ("selection.sort.direct", "2.0.0", True),
             ("selection.top_k.direct", "2.0.0", True),
@@ -201,7 +207,13 @@ def test_catalog_snapshot_publishes_exact_port_type_contracts() -> None:
         ("prompt_authoring.build_residue_layout.direct", "2.0.0", True),
         ("prompt_authoring.edit_residue_layout.direct", "2.0.0", True),
         ("prompt_authoring.map_residue_track.direct", "2.0.0", True),
+        (
+            "prompt_authoring.override_protein_prompt_track.direct",
+            "2.0.0",
+            True,
+        ),
         ("prompt_authoring.override_residue_track.direct", "2.0.0", True),
+        ("prompt_authoring.prompt_from_structure.direct", "2.0.0", True),
         (
             "prompt_authoring.random_insert_masked.direct",
             "2.0.0",

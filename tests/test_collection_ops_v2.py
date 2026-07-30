@@ -65,16 +65,22 @@ def _public_collection_contracts() -> dict[tuple[str, str], dict]:
     }
 
 
-def test_public_catalog_has_two_exact_collection_operation_nodes() -> None:
+def test_public_catalog_has_exact_collection_operation_nodes() -> None:
     contracts = _public_collection_contracts()
 
     assert set(contracts) == {
         ("binding", "collection_ops.concat_candidates.direct"),
         ("binding", "collection_ops.merge_scores.direct"),
+        ("binding", "collection_ops.rebind_candidate_pairing.direct"),
+        ("binding", "collection_ops.take_candidates.direct"),
         ("method", "collection_ops.concat_candidates.method"),
         ("method", "collection_ops.merge_scores.method"),
+        ("method", "collection_ops.rebind_candidate_pairing.method"),
+        ("method", "collection_ops.take_candidates.method"),
         ("node_type", "collection_ops.concat_candidates"),
         ("node_type", "collection_ops.merge_scores"),
+        ("node_type", "collection_ops.rebind_candidate_pairing"),
+        ("node_type", "collection_ops.take_candidates"),
     }
     assert not any(
         "aggregate" in contract_id for _, contract_id in contracts
@@ -128,7 +134,7 @@ def test_collection_ports_and_score_union_are_closed_and_versioned() -> None:
     }
 
 
-def test_both_nodes_pass_the_shared_contract_test_kit(
+def test_all_collection_nodes_pass_the_shared_contract_test_kit(
     tmp_path: Path,
 ) -> None:
     from tests.fixtures.collection_ops_sources.package import (
@@ -193,15 +199,83 @@ def test_both_nodes_pass_the_shared_contract_test_kit(
         ),
         expected_observation_counts={"scores": 2},
     )
+    take_case = ModulePackageContractCase(
+        case_id="collection-ops-take-candidates",
+        node_type_id="collection_ops.take_candidates",
+        node_type_version=VERSION,
+        binding_id="collection_ops.take_candidates.direct",
+        binding_version=VERSION,
+        node_parameters={"k": 1},
+        binding_parameters={},
+        environment_values={},
+        safe_environment_fingerprint="provider-free",
+        invalidation_token="collection-ops-take-v1",
+        workflow_nodes=(source_a,),
+        workflow_edges=(
+            WorkflowEdge(
+                "source-a",
+                "candidates",
+                "contract-test-node",
+                "candidates",
+            ),
+        ),
+        expected_candidate_counts={"candidates": 1},
+    )
+    rebind_case = ModulePackageContractCase(
+        case_id="collection-ops-rebind-candidate-pairing",
+        node_type_id="collection_ops.rebind_candidate_pairing",
+        node_type_version=VERSION,
+        binding_id="collection_ops.rebind_candidate_pairing.direct",
+        binding_version=VERSION,
+        node_parameters={},
+        binding_parameters={},
+        environment_values={},
+        safe_environment_fingerprint="provider-free",
+        invalidation_token="collection-ops-rebind-v1",
+        workflow_nodes=(source_a,),
+        workflow_edges=(
+            WorkflowEdge(
+                "source-a",
+                "rebind_subjects",
+                "contract-test-node",
+                "subjects",
+            ),
+            WorkflowEdge(
+                "source-a",
+                "rebind_parents",
+                "contract-test-node",
+                "parents",
+            ),
+            WorkflowEdge(
+                "source-a",
+                "rebind_references",
+                "contract-test-node",
+                "references",
+            ),
+            WorkflowEdge(
+                "source-a",
+                "rebind_pairing",
+                "contract-test-node",
+                "parent_pairing",
+            ),
+        ),
+    )
 
     report = verify_module_package_contract(
         MODULE_PACKAGE,
-        execution_cases=(candidate_case, score_case),
+        execution_cases=(
+            candidate_case,
+            score_case,
+            rebind_case,
+            take_case,
+        ),
         supporting_registrations=(SOURCE_PACKAGE,),
         work_root=tmp_path,
     )
 
     assert [case.status for case in report.case_reports] == [
+        "succeeded",
+        "succeeded",
         "succeeded",
         "succeeded",
     ]

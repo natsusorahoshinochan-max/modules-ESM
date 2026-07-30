@@ -25,6 +25,8 @@ from datatypes import (
     ExactContractReference,
     IntrinsicObservationContext,
     ProteinSequence,
+    PairwiseCandidateMapping,
+    PairwiseCandidateMatch,
     Score,
     ScoreCollection,
     ScoreObservation,
@@ -48,6 +50,7 @@ class _Source:
         partition: str,
     ) -> None:
         self._resources = resources
+        self._catalog = catalog
         self._partition = partition
         self._metric = ExactContractReference(
             **catalog.require_contract(
@@ -75,7 +78,34 @@ class _Source:
             raise ValueError("collection source accepts no connected inputs")
         count = node_parameters["candidate_count"]
         candidates: list[Candidate] = []
+        children: list[Candidate] = []
         observations: list[ScoreObservation] = []
+        codec = self._catalog.require_port_type(
+            "protein.sequence",
+            VERSION,
+        )
+        rebind_parents = [
+            Candidate(
+                candidate_id=f"rebind-parent-{sample_index}",
+                data=ProteinSequence("ACD"),
+            )
+            for sample_index in range(count)
+        ]
+        rebind_references = [
+            Candidate(
+                candidate_id=f"rebind-reference-{sample_index}",
+                data=ProteinSequence("ACE"),
+            )
+            for sample_index in range(count)
+        ]
+        rebind_subjects = [
+            Candidate(
+                candidate_id=f"rebind-subject-{sample_index}",
+                data=ProteinSequence("ACF"),
+                parent_ids=[f"rebind-parent-{sample_index}"],
+            )
+            for sample_index in range(count)
+        ]
         with self._resources.engine_invocation(
             engine_identity=(
                 f"contract_test.collection_ops_source/{self._partition}"
@@ -104,6 +134,21 @@ class _Source:
                     },
                 )
                 candidates.append(candidate)
+                children.append(
+                    Candidate(
+                        candidate_id=(
+                            f"{self._partition}-child-{sample_index}"
+                        ),
+                        data=ProteinSequence(
+                            "ACD" if self._partition == "a" else "ACE"
+                        ),
+                        parent_ids=[candidate_id],
+                        metadata={
+                            "fixture_partition": self._partition,
+                            "sample_index": sample_index,
+                        },
+                    )
+                )
                 observations.append(
                     ScoreObservation(
                         candidate_id=candidate_id,
@@ -126,6 +171,58 @@ class _Source:
                 collection_id=f"{self._partition}-scores",
                 entries=observations,
             ),
+            "children": CandidateCollection(
+                collection_id=f"{self._partition}-children",
+                item_type="protein.sequence",
+                items=children,
+            ),
+            "pairing": PairwiseCandidateMapping([
+                PairwiseCandidateMatch(
+                    subject_candidate_id=(
+                        f"{self._partition}-candidate-{sample_index}"
+                    ),
+                    subject_content_digest=codec.content_digest(
+                        ProteinSequence(
+                            "ACD" if self._partition == "a" else "ACE"
+                        )
+                    ),
+                    reference_candidate_id=f"b-candidate-{sample_index}",
+                    reference_content_digest=codec.content_digest(
+                        ProteinSequence("ACE")
+                    ),
+                )
+                for sample_index in range(count)
+            ]),
+            "rebind_parents": CandidateCollection(
+                collection_id="rebind-parents",
+                item_type="protein.sequence",
+                items=rebind_parents,
+            ),
+            "rebind_references": CandidateCollection(
+                collection_id="rebind-references",
+                item_type="protein.sequence",
+                items=rebind_references,
+            ),
+            "rebind_subjects": CandidateCollection(
+                collection_id="rebind-subjects",
+                item_type="protein.sequence",
+                items=rebind_subjects,
+            ),
+            "rebind_pairing": PairwiseCandidateMapping([
+                PairwiseCandidateMatch(
+                    subject_candidate_id=parent.candidate_id,
+                    subject_content_digest=codec.content_digest(parent.data),
+                    reference_candidate_id=reference.candidate_id,
+                    reference_content_digest=codec.content_digest(
+                        reference.data
+                    ),
+                )
+                for parent, reference in zip(
+                    rebind_parents,
+                    rebind_references,
+                    strict=True,
+                )
+            ]),
         }
 
 
