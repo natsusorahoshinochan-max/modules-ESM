@@ -27,8 +27,8 @@ from datatypes import (
     IntrinsicObservationContext,
     PairwiseCandidateMapping,
     PairwiseCandidateMatch,
-    ProteinMPNNConstraints,
     ProteinPrompt,
+    ProteinMPNNConstraints,
     ProteinSequence,
     ProteinStructure,
     ResidueLayout,
@@ -44,13 +44,10 @@ from protein_workbench_public import validate_response
 EXPECTED_PORT_TYPE_IDS = {
     "candidate.collection",
     "candidate.pairing",
-    "file.path",
-    "file.path.collection",
     "function.annotations",
     "protein.prompt",
     "protein.sequence",
     "protein.structure",
-    "proteinmpnn.constraints",
     "residue.layout",
     "residue.map",
     "residue.track",
@@ -67,12 +64,6 @@ EXPECTED_PORT_TYPE_DIGESTS = {
     "candidate.pairing": (
         "sha256:6c7ef38ba52f660d189f4a0d4cffd57acf564f3243f4334e164d746ee57b6865"
     ),
-    "file.path": (
-        "sha256:1076b1d3c0159655b5a558dc81dac3069d894720634f743e1a124cca1ac91e91"
-    ),
-    "file.path.collection": (
-        "sha256:9b136ff44781a1e762a481cd9a7dbdbf4381e17475373229af57b856de8a6357"
-    ),
     "function.annotations": (
         "sha256:81b9d7d9c345101657abb0f229b08a8db0827336b3b145cb146702f3c44865f9"
     ),
@@ -84,9 +75,6 @@ EXPECTED_PORT_TYPE_DIGESTS = {
     ),
     "protein.structure": (
         "sha256:5e15d0d47a0d0f95049e278756366461f0ec80817f72e742a6f023678b6ec90d"
-    ),
-    "proteinmpnn.constraints": (
-        "sha256:36db16305da2a755c0a06481512524ac5a2b9693876aaeae31b71e2bf2a66b98"
     ),
     "residue.layout": (
         "sha256:911e7f11d03a26372aec750751caba34a934fefd64f041d9e8cce7c947f71ab0"
@@ -386,8 +374,6 @@ def test_every_builtin_port_type_round_trips_its_runtime_value() -> None:
                 )
             ],
         ),
-        "file.path": "artifacts/result.pdb",
-        "file.path.collection": ["artifacts/a.pdb", "artifacts/b.pdb"],
         "function.annotations": FunctionAnnotations(
             [{"label": "binding", "start": 0, "end": 2}]
         ),
@@ -399,12 +385,6 @@ def test_every_builtin_port_type_round_trips_its_runtime_value() -> None:
         ),
         "protein.sequence": sequence,
         "protein.structure": structure,
-        "proteinmpnn.constraints": ProteinMPNNConstraints(
-            fixed_positions=[0],
-            designed_chains=["A"],
-            tied_positions=[[0, 1]],
-            bias_by_res={2: {"A": 0.5}},
-        ),
         "residue.layout": layout,
         "residue.map": ResidueMap(
             layout,
@@ -484,18 +464,17 @@ def test_codec_rejects_malformed_and_noncanonical_values() -> None:
             canonical.replace(b"protein.sequence", b"protein.structure")
         )
 
-    constraints_type = builtin_frozen_catalog().require_port_type(
-        "proteinmpnn.constraints",
-        "2.0.0",
-    )
+    from modules.proteinmpnn.package import MODULE_PACKAGE as package
+
+    constraints_type = package.port_types[0]
     constraints = constraints_type.encode(
         ProteinMPNNConstraints(bias_by_res={1: {"A": 0.5}, 2: {"V": -0.5}})
     )
     with pytest.raises(PortValueError, match="canonical key order"):
         constraints_type.decode(
             constraints.replace(
-                b'[[1,{"$map":[["A",0.5]]}],[2,{"$map":[["V",-0.5]]}]]',
-                b'[[2,{"$map":[["V",-0.5]]}],[1,{"$map":[["A",0.5]]}]]',
+                b'[[1,{"A":0.5}],[2,{"V":-0.5}]]',
+                b'[[2,{"V":-0.5}],[1,{"A":0.5}]]',
             )
         )
 
@@ -593,7 +572,9 @@ def test_runtime_validators_recheck_mutable_domain_invariants() -> None:
 def test_proteinmpnn_port_reuses_the_authoritative_constraint_contract(
     constraints: ProteinMPNNConstraints,
 ) -> None:
-    definition = builtin_frozen_catalog().require_port_type(
+    from core import build_discovered_frozen_catalog
+
+    definition = build_discovered_frozen_catalog().require_port_type(
         "proteinmpnn.constraints",
         "2.0.0",
     )
@@ -604,10 +585,9 @@ def test_proteinmpnn_port_reuses_the_authoritative_constraint_contract(
 
 def test_proteinmpnn_port_rechecks_constraints_after_mutation() -> None:
     constraints = ProteinMPNNConstraints(tied_positions=[[0, 1]])
-    definition = builtin_frozen_catalog().require_port_type(
-        "proteinmpnn.constraints",
-        "2.0.0",
-    )
+    from modules.proteinmpnn.package import MODULE_PACKAGE as package
+
+    definition = package.port_types[0]
     definition.validate(constraints)
 
     constraints.tied_positions[0].pop()
@@ -724,7 +704,7 @@ def test_builtin_port_type_contract_digests_match_golden_vectors() -> None:
         for definition in catalog.port_types
     } == EXPECTED_PORT_TYPE_DIGESTS
     assert catalog.contract_digest == (
-        "sha256:0729c64c7b63854bcdbf091ae048bbe829a0355a0f0c1a593dbdbcc1b8768f8f"
+        "sha256:a10cac76124c7fdaace8ba44bca7d67a87838b2bcc8c10db59a5f769c35c629d"
     )
 
 
@@ -855,10 +835,9 @@ def test_runtime_callables_never_enter_stable_contract_identity() -> None:
 def test_codec_differentials_materialize_defaults_and_preserve_semantic_order() -> None:
     catalog = builtin_frozen_catalog()
     sequence_type = catalog.require_port_type("protein.sequence", "2.0.0")
-    constraints_type = catalog.require_port_type(
-        "proteinmpnn.constraints",
-        "2.0.0",
-    )
+    from modules.proteinmpnn.package import MODULE_PACKAGE as package
+
+    constraints_type = package.port_types[0]
     first_map_order = ProteinMPNNConstraints(
         bias_by_res={2: {"V": -0.5}, 1: {"A": 0.5}},
     )

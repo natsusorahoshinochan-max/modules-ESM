@@ -18,7 +18,7 @@ from pathlib import Path
 import pytest
 
 from datatypes import ProteinStructure
-from core.provider_contract import (
+from modules.provider_contract import (
     ESM_SDK_REVISION,
     SIMPLEFOLD_ARTIFACT_SHA256,
     SIMPLEFOLD_REVISION,
@@ -28,7 +28,7 @@ from core.provider_contract import (
     validate_installed_provider_checkout,
     validate_local_esm3_snapshot,
 )
-from core.provider_evidence import record_provider_readiness
+from modules.provider_evidence import record_provider_readiness
 from modules.folding.simplefold_adapter import (
     SIMPLEFOLD_DEVICE,
     configured_runtime_fingerprint,
@@ -111,9 +111,22 @@ def _check_mkdssp_ready() -> bool:
 
 def _check_proteinmpnn_ready() -> bool:
     """Check if ProteinMPNN checkpoints exist."""
-    from modules.proteinmpnn import check_proteinmpnn_readiness
+    from modules.proteinmpnn.v2_adapter import (
+        PROTEINMPNN_DEVICE,
+        configured_runtime_fingerprint,
+        proteinmpnn_readiness,
+    )
 
-    return check_proteinmpnn_readiness().ready
+    root = os.environ.get("PROTEIN_WORKBENCH_PROTEINMPNN_ROOT")
+    if root is None:
+        return False
+    return proteinmpnn_readiness(
+        {
+            "device": PROTEINMPNN_DEVICE,
+            "provider_root": Path(root),
+            "resolved_runtime_fingerprint": configured_runtime_fingerprint(),
+        }
+    ).ready
 
 
 def _check_simplefold_ready() -> bool:
@@ -190,7 +203,7 @@ def _check_simplefold_ready() -> bool:
         ):
             return False
         return True
-    from modules.simplefold_adapter import (
+    from modules.folding.simplefold_runtime import (
         validated_simplefold_esm2_runtime,
         validated_simplefold_model_dir,
     )

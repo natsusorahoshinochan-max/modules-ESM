@@ -7,13 +7,12 @@ import hashlib
 import math
 from typing import Any
 
-from core.provider_contract import (
+from modules.provider_contract import (
     SIMPLEFOLD_ESM2_ARTIFACT_SHA256,
     SIMPLEFOLD_REVISION,
     esm_provider_identity,
 )
-from core.provider_evidence import record_provider_call_result
-from core.run_context import RunContext
+from modules.provider_evidence import record_provider_call_result
 from datatypes import (
     Candidate,
     CandidateCollection,
@@ -21,7 +20,6 @@ from datatypes import (
     IntrinsicObservationContext,
     ProteinSequence,
     ProteinStructure,
-    Score,
     ScoreCollection,
     ScoreObservation,
 )
@@ -242,21 +240,6 @@ class ESMFold2FoldingImplementation:
                     parent_index,
                     sample_index,
                 )
-                provider = (
-                    "biohub"
-                    if self._route == "remote"
-                    else "local-esmfold2"
-                )
-                model = (
-                    REMOTE_ESMFOLD2_MODEL
-                    if self._route == "remote"
-                    else LOCAL_ESMFOLD2_MODEL
-                )
-                RunContext.record_active_provider_call(
-                    provider,
-                    "esmfold2.fold",
-                    model=model,
-                )
                 with self._run_resources.engine_invocation(
                     engine_role=f"fold_parent_{parent_index}_sample_{sample_index}",
                     engine_identity=(
@@ -296,7 +279,11 @@ class ESMFold2FoldingImplementation:
                     [parent.candidate_id],
                     {
                         "route": self._route,
-                        "model": model,
+                        "model": (
+                            REMOTE_ESMFOLD2_MODEL
+                            if self._route == "remote"
+                            else LOCAL_ESMFOLD2_MODEL
+                        ),
                         "parent_index": parent_index,
                         "sample_index": sample_index,
                         "effective_seed": effective_seed,
@@ -444,18 +431,21 @@ class SimpleFoldFoldingImplementation:
                 type(structure) is not ProteinStructure
                 for structure in structures
             )
-            or type(scores) is not ScoreCollection
+            or not isinstance(scores, Sequence)
         ):
             raise ValueError("SimpleFold result is incomplete")
         for structure in structures:
             if _pdb_sequence(structure.pdb_string) != sequence.sequence:
                 raise ValueError("SimpleFold structure is malformed")
         by_sample: dict[int, tuple[float, ...]] = {}
-        for entry in scores.entries:
-            if type(entry) is not Score or entry.score_id != "plddt":
+        for entry in scores:
+            if not isinstance(entry, Mapping) or set(entry) != {
+                "sample_index",
+                "per_residue",
+            }:
                 raise ValueError("SimpleFold confidence result is malformed")
-            sample_index = entry.details.get("sample_index")
-            values = entry.details.get("per_residue")
+            sample_index = entry.get("sample_index")
+            values = entry.get("per_residue")
             if (
                 type(sample_index) is not int
                 or sample_index in by_sample
@@ -515,15 +505,6 @@ class SimpleFoldFoldingImplementation:
             with self._run_resources.temporary_directory(
                 prefix="simplefold-fold-"
             ) as staging_directory:
-                RunContext.record_active_provider_call(
-                    "simplefold",
-                    "fold_sequence",
-                    model=SIMPLEFOLD_MODEL,
-                    details={
-                        "parent_candidate_id": parent.candidate_id,
-                        "candidate_ids": raw_ids,
-                    },
-                )
                 with self._run_resources.engine_invocation(
                     engine_role=f"fold_parent_{parent_index}",
                     engine_identity=(
@@ -768,14 +749,6 @@ class SimpleFoldConfidenceImplementation:
             with self._run_resources.temporary_directory(
                 prefix="simplefold-confidence-"
             ) as staging_directory:
-                RunContext.record_active_provider_call(
-                    "simplefold",
-                    "evaluate_structure",
-                    model="simplefold_confidence_1.6B",
-                    details={
-                        "candidate_id": candidate.candidate_id,
-                    },
-                )
                 with self._run_resources.engine_invocation(
                     engine_role=f"confidence_subject_{candidate_index}",
                     engine_identity=(

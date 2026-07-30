@@ -2795,6 +2795,8 @@
           "enum": [
             "cache",
             "manifest",
+            "project",
+            "run_evidence",
             "workflow"
           ]
         },

@@ -11,7 +11,6 @@ from datatypes import (
     CandidateCollection,
     PairwiseCandidateMapping,
     PairwiseCandidateMatch,
-    Score,
     ScoreCollection,
     ScoreObservation,
 )
@@ -280,10 +279,6 @@ class CollectionOpsImplementation:
             if type(collection) is not ScoreCollection:
                 raise ValueError(f"{port} is not a Score Collection")
             for entry in collection.entries:
-                if isinstance(entry, Score):
-                    raise ValueError(
-                        "Score merge does not accept legacy subject-free scores"
-                    )
                 if type(entry) is not ScoreObservation:
                     raise ValueError(
                         "Score merge requires exact typed Observations"

@@ -12,7 +12,7 @@ from pathlib import Path
 from typing import Any
 
 from core import ReadinessResult
-from core.provider_contract import (
+from modules.provider_contract import (
     SIMPLEFOLD_ARTIFACT_IDENTITIES,
     SIMPLEFOLD_ARTIFACT_SHA256,
     SIMPLEFOLD_ESM2_ARTIFACT_IDENTITIES,
@@ -24,7 +24,7 @@ from core.provider_contract import (
     validate_installed_provider_checkout,
 )
 from datatypes import ProteinSequence, ProteinStructure
-from modules.simplefold_contract import SIMPLEFOLD_FOLDING_ARTIFACTS
+from .simplefold_contract import SIMPLEFOLD_FOLDING_ARTIFACTS
 
 
 SIMPLEFOLD_MODEL = "simplefold_100M"
@@ -158,7 +158,7 @@ def validate_simplefold_folding_environment(
     source_root = environment.get("esm2_source_root")
     if not isinstance(source_root, Path):
         raise FileNotFoundError("SimpleFold ESM2 source root is unavailable")
-    from modules.simplefold_adapter import validated_simplefold_esm2_root
+    from .simplefold_runtime import validated_simplefold_esm2_root
 
     observed_source = validated_simplefold_esm2_root(source_root)
     if Path(observed_source).resolve() != source_root.resolve():
@@ -221,7 +221,7 @@ def fold(
             call_details=call_details,
         )
     validated = validate_simplefold_folding_environment(environment)
-    from modules.simplefold_adapter import fold_sequence
+    from .simplefold_runtime import fold_sequence
 
     return fold_sequence(
         sequence=sequence,

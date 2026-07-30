@@ -16,7 +16,7 @@ from typing import Any
 import weakref
 
 from core import ReadinessResult, canonical_sha256
-from core.provider_contract import (
+from modules.provider_contract import (
     LOCAL_ESM3_SNAPSHOT_REVISION,
     LOCAL_ESM3_WEIGHT_SHA256,
     validate_installed_provider_checkout,
@@ -464,20 +464,8 @@ def prepare_local_provider_call(
     effective_seed: int,
     runtime_fingerprint: str,
 ) -> dict[str, Any]:
-    """Record exact local call intent before entering the model seam."""
-    from core.run_context import RunContext
-
+    """Build exact local call identity before entering the model seam."""
     track_identity = _track_identity(protein)
-    RunContext.record_active_provider_call(
-        "local_open",
-        operation,
-        model=model_name,
-        details={
-            **track_identity,
-            "runtime_fingerprint": runtime_fingerprint,
-            "effective_seed": effective_seed,
-        },
-    )
     return track_identity
 
 
@@ -514,7 +502,7 @@ def record_local_provider_result(
     track_identity: Mapping[str, Any],
 ) -> None:
     """Persist safe local provider identity after the Engine Invocation."""
-    from core.provider_evidence import record_provider_call_result
+    from modules.provider_evidence import record_provider_call_result
 
     result_summary: dict[str, Any] = {
         "result_type": type(result).__name__,

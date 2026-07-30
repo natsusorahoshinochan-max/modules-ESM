@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import replace
 
 from core import (
+    ArtifactPayload,
     BehaviorReference,
     LazyImplementationFactory,
     ReadinessDeclaration,
@@ -60,9 +61,10 @@ class _IncompleteProvenanceImplementation:
                     )
                 ],
             ),
-            "artifact": self._run_resources.write_artifact(
-                "echo/result.txt",
-                echoed.encode("utf-8"),
+            "artifact": ArtifactPayload(
+                body=echoed.encode("utf-8"),
+                media_type="text/plain",
+                filename="result.txt",
             ),
         }
 

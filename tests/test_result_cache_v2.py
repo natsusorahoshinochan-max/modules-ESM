@@ -25,8 +25,6 @@ import core.run_execution_v2 as run_execution_v2
 from datatypes import Candidate, CandidateCollection, ProteinSequence
 from tests.fixtures.public_v2 import wait_for_testclient_run_terminal
 from tests.test_run_execution_v2 import (
-    _artifact_catalog,
-    _compile_artifact_node,
     _compile_one_node,
     _compile_pipeline,
     _contract,
@@ -1501,7 +1499,7 @@ def test_unresolved_port_behavior_identity_disables_cross_run_cache(
     assert not list((cache_root / project_id).rglob("*.json"))
 
 
-def test_standalone_path_outputs_are_never_stored_or_replayed(
+def test_legacy_pickle_cache_is_never_loaded_or_rewritten(
     tmp_path,
     monkeypatch,
 ) -> None:
@@ -1516,23 +1514,25 @@ def test_standalone_path_outputs_are_never_stored_or_replayed(
         str(tmp_path / "outputs"),
     )
     app = create_app(
-        frozen_catalog_override=_artifact_catalog(
-            calls,
-            cacheable=True,
-        )
+        frozen_catalog_override=_direct_catalog(calls, cacheable=True),
+        v2_environment_configuration={
+            ("test.direct.local", "2.0.0"): {
+                "values": {"credential": "credential-value"},
+            }
+        },
     )
 
     with TestClient(app) as client:
-        project_id, compiled = _compile_artifact_node(client)
-        first, _ = _start_run(client, project_id, compiled, "artifact-a")
-        second, _ = _start_run(client, project_id, compiled, "artifact-b")
+        project_id, compiled = _compile_one_node(client)
+        legacy_entry = cache_root / project_id / "legacy-result.pkl"
+        legacy_entry.parent.mkdir(parents=True)
+        legacy_entry.write_bytes(b"legacy-pickle-must-not-be-read")
+        first, _ = _start_run(client, project_id, compiled, "cache-a")
+        second, _ = _start_run(client, project_id, compiled, "cache-b")
 
-    assert first["artifact_index"]
-    assert second["artifact_index"]
-    assert first["outputs"] == []
-    assert second["outputs"] == []
-    assert calls == ["workspace:True", "workspace:True"]
-    assert not list((cache_root / project_id).rglob("*.json"))
+    assert first["status"] == second["status"] == "succeeded"
+    assert calls.count("execute:test.direct.local") == 1
+    assert legacy_entry.read_bytes() == b"legacy-pickle-must-not-be-read"
 
 
 def test_conflicting_output_for_one_result_identity_fails_without_overwrite(

@@ -19,8 +19,8 @@ from core import (
     ProducedObservationDefinition,
     ReadinessDeclaration,
 )
-from core.provider_contract import validate_installed_provider_checkout
-from core.provider_contract import (
+from modules.provider_contract import validate_installed_provider_checkout
+from modules.provider_contract import (
     SIMPLEFOLD_ARTIFACT_SHA256,
     SIMPLEFOLD_ESM2_ARTIFACT_SHA256,
     SIMPLEFOLD_ESM2_REVISION,

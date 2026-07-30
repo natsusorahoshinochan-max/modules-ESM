@@ -51,7 +51,19 @@ class WorkflowAuthoringService:
         self._plans: dict[tuple[str, int, str], CompiledWorkflow] = {}
 
     def _require_project(self, project_id: str) -> None:
-        if self._projects.load_meta(project_id) is None:
+        try:
+            project = self._projects.load_meta(project_id)
+        except ValueError as error:
+            raise WorkflowAuthoringError(
+                "unsupported_schema_version",
+                "Project metadata is not a supported exact v2 artifact",
+                details={
+                    "artifact_kind": "project",
+                    "expected_schema_version": "2.0.0",
+                    "received_schema_version": "unknown",
+                },
+            ) from error
+        if project is None:
             raise WorkflowAuthoringError(
                 "project_not_found",
                 "Project was not found",

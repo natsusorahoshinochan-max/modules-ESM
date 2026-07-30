@@ -1098,7 +1098,7 @@ def test_provider_evidence_failure_does_not_rewrite_engine_success(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    import core.provider_evidence as provider_evidence
+    import modules.provider_evidence as provider_evidence
 
     def fail_evidence(**kwargs: Any) -> None:
         del kwargs

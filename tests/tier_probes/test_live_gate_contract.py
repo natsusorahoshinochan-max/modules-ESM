@@ -46,7 +46,7 @@ def test_delayed_retained_directory_probe() -> None:
 
 @pytest.mark.live_provider
 def test_call_without_readiness_probe() -> None:
-    from core.provider_evidence import record_provider_call_result
+    from modules.provider_evidence import record_provider_call_result
 
     record_provider_call_result(
         provider="biohub",
@@ -61,7 +61,7 @@ def test_call_without_readiness_probe() -> None:
 
 @pytest.mark.live_provider
 def test_self_reported_call_and_readiness_probe() -> None:
-    from core.provider_evidence import (
+    from modules.provider_evidence import (
         record_provider_call_result,
         record_provider_readiness,
     )

@@ -25,12 +25,13 @@ outputs:
     multiplicity: one
     scientific_meaning: One typed intrinsic Observation for each Candidate.
   - name: artifact
-    port_type_id: file.path
+    port_type_id: contract_test.synthetic_artifact
     port_type_version: "2.0.0"
     required: true
     multiplicity: one
     scientific_meaning: Standalone text artifact containing the echoed value.
     artifact_kind: standalone
+    artifact_media_type: text/plain
 parameter_groups:
   - id: echo
     title: Echo contract

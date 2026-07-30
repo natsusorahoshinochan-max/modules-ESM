@@ -19,10 +19,11 @@ from core import (
     LazyImplementationFactory,
     MethodDefinition,
     ModulePackageRegistration,
+    PortTypeDefinition,
     ProducedObservationDefinition,
     ReadinessDeclaration,
 )
-from core.provider_contract import (
+from modules.provider_contract import (
     PROTEINMPNN_REVISION,
     PROTEINMPNN_V_48_020_SHA256,
 )
@@ -35,10 +36,132 @@ from .v2_adapter import (
     proteinmpnn_readiness,
 )
 from .domain import normalize_design_parameters
+from datatypes import ProteinMPNNConstraints, validate_proteinmpnn_constraints
 
 
 _VERSION = "2.0.0"
 _OPERATIONS = ("constraints", "random_fixed_positions", "design", "score")
+
+
+def _validate_constraints(value: object) -> None:
+    if type(value) is not ProteinMPNNConstraints:
+        raise ValueError("constraints must use the exact ProteinMPNN contract")
+    validate_proteinmpnn_constraints(value)
+
+
+def _constraints_to_wire(value: object) -> dict[str, object]:
+    _validate_constraints(value)
+    assert type(value) is ProteinMPNNConstraints
+    return {
+        "designable_positions": value.designable_positions,
+        "fixed_positions": value.fixed_positions,
+        "designed_chains": value.designed_chains,
+        "fixed_chains": value.fixed_chains,
+        "omit_amino_acids": value.omit_amino_acids,
+        "tied_positions": value.tied_positions,
+        "bias_by_res": (
+            None
+            if value.bias_by_res is None
+            else [
+                [position, dict(sorted(biases.items()))]
+                for position, biases in sorted(value.bias_by_res.items())
+            ]
+        ),
+    }
+
+
+def _constraints_from_wire(value: object) -> ProteinMPNNConstraints:
+    if not isinstance(value, dict) or set(value) != {
+        "designable_positions",
+        "fixed_positions",
+        "designed_chains",
+        "fixed_chains",
+        "omit_amino_acids",
+        "tied_positions",
+        "bias_by_res",
+    }:
+        raise ValueError("ProteinMPNN constraints wire value is not closed")
+    raw_biases = value["bias_by_res"]
+    if raw_biases is None:
+        biases = None
+    elif isinstance(raw_biases, list):
+        biases = {}
+        previous_position: int | None = None
+        for entry in raw_biases:
+            if (
+                not isinstance(entry, list)
+                or len(entry) != 2
+                or type(entry[0]) is not int
+                or not isinstance(entry[1], dict)
+                or entry[0] in biases
+            ):
+                raise ValueError(
+                    "ProteinMPNN constraint biases are malformed"
+                )
+            if (
+                previous_position is not None
+                and entry[0] <= previous_position
+            ) or list(entry[1]) != sorted(entry[1]):
+                raise ValueError(
+                    "ProteinMPNN constraint biases require canonical key order"
+                )
+            biases[entry[0]] = entry[1]
+            previous_position = entry[0]
+    else:
+        raise ValueError("ProteinMPNN constraint biases are malformed")
+    constraints = ProteinMPNNConstraints(
+        designable_positions=value["designable_positions"],
+        fixed_positions=value["fixed_positions"],
+        designed_chains=value["designed_chains"],
+        fixed_chains=value["fixed_chains"],
+        omit_amino_acids=value["omit_amino_acids"],
+        tied_positions=value["tied_positions"],
+        bias_by_res=biases,
+    )
+    _validate_constraints(constraints)
+    return constraints
+
+
+def _constraints_port_type() -> PortTypeDefinition:
+    behavior_prefix = (
+        "protein-workbench.port-type/proteinmpnn.constraints"
+    )
+    return PortTypeDefinition(
+        type_id="proteinmpnn.constraints",
+        version=_VERSION,
+        validator=BehaviorReference(
+            behavior_id=f"{behavior_prefix}/validate",
+            behavior_version=_VERSION,
+            parameters={
+                "accepted_value_kind": "proteinmpnn_constraints",
+                "complete_values_only": True,
+            },
+        ),
+        codec=BehaviorReference(
+            behavior_id=f"{behavior_prefix}/canonical-json-codec",
+            behavior_version=_VERSION,
+            parameters={
+                "canonicalization": "RFC 8785",
+                "character_encoding": "UTF-8",
+                "envelope_namespace": "protein-workbench-port-value/v2",
+                "value_kind": "proteinmpnn_constraints",
+            },
+        ),
+        content_identity=BehaviorReference(
+            behavior_id=f"{behavior_prefix}/content-sha256",
+            behavior_version=_VERSION,
+            parameters={
+                "digest_algorithm": "SHA-256",
+                "digest_input": "canonical_codec_bytes",
+                "digest_representation": (
+                    "sha256:<64 lowercase hexadecimal digits>"
+                ),
+            },
+        ),
+        runtime_validator=_validate_constraints,
+        runtime_to_wire=_constraints_to_wire,
+        runtime_from_wire=_constraints_from_wire,
+    )
 
 
 def _available() -> AvailabilityResult:
@@ -440,6 +563,7 @@ MODULE_PACKAGE = ModulePackageRegistration(
     package_id="proteinmpnn",
     package_version=_VERSION,
     package_module=__package__,
+    port_types=(_constraints_port_type(),),
     node_definitions=(
         DefinitionResource("definitions/constraints.yaml"),
         DefinitionResource("definitions/random_fixed_positions.yaml"),

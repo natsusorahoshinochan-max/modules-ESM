@@ -21,7 +21,7 @@ from datatypes import (
     ScoreCollection,
     ScoreObservation,
 )
-from modules.structure_alignment import (
+from .alignment import (
     align_structures,
     count_structure_ca_residues,
 )

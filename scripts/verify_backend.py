@@ -30,7 +30,7 @@ from pathlib import Path
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
 
-from core.provider_contract import (
+from modules.provider_contract import (
     BIOHUB_ESM3_MODEL,
     BIOHUB_ESMFOLD2_MODEL,
     LOCAL_ESM3_SNAPSHOT_REVISION,
@@ -44,14 +44,17 @@ from core.provider_contract import (
     SIMPLEFOLD_REVISION,
     ESM_SDK_REVISION,
 )
-from core.provider_evidence import (
+from modules.provider_evidence import (
     _IDENTITY_KEYS,
-    _MANIFEST_DETAIL_KEYS,
+    _CALL_DETAIL_KEYS,
     _READINESS_DETAIL_KEYS,
     _RESULT_KEYS,
-    validate_provider_call_manifest_details,
+    validate_provider_call_details,
 )
-from core.run_manifest import _validate_score_details, sanitize_public_value
+from core.public_values import (
+    sanitize_public_value,
+    validate_public_scientific_value,
+)
 from modules.folding.simplefold_adapter import (
     simplefold_folding_artifact_sha256,
 )
@@ -147,7 +150,7 @@ _CALL_DETAIL_KEYS = frozenset({
     "secondary_structure_sha256",
     "seed_control",
     "seed_scope",
-    *set().union(*_MANIFEST_DETAIL_KEYS.values()),
+    *set().union(*_CALL_DETAIL_KEYS.values()),
 })
 
 
@@ -433,7 +436,10 @@ TIERS = {
         "installed_package",
     )),
     "scientific-repro": Tier((
-        "tests/test_esm3.py::TestESM3Adapter::test_prompt_to_esm_protein_basic",
+        (
+            "tests/test_esm3_v2.py::"
+            "test_adapter_preserves_every_representable_prompt_track_and_symbol"
+        ),
     )),
     "repair-findings": Tier((
         "tests/deterministic_acceptance/test_review_findings.py",
@@ -1919,7 +1925,7 @@ def _fresh_manifest_schema_error(sealed: object) -> str | None:
         for score in backend["scores"]:
             if not isinstance(score.get("details"), dict):
                 return "sealed backend score details were invalid"
-            _validate_score_details(score["details"])
+            validate_public_scientific_value(score["details"])
     except ValueError:
         return "sealed backend score details were invalid"
 
@@ -2088,22 +2094,22 @@ def _fresh_manifest_schema_error(sealed: object) -> str | None:
         production_manifest = "created_at" in backend
         if (
             production_manifest
-            and operation in _MANIFEST_DETAIL_KEYS
+            and operation in _CALL_DETAIL_KEYS
             and "input_identity" not in details
         ):
             return "sealed backend scientific input schema was not closed"
         if (
             isinstance(operation, str)
-            and operation in _MANIFEST_DETAIL_KEYS
+            and operation in _CALL_DETAIL_KEYS
             and "input_identity" in details
         ):
             try:
-                validate_provider_call_manifest_details(
+                validate_provider_call_details(
                     str(operation),
                     {
                         key: value
                         for key, value in details.items()
-                        if key in _MANIFEST_DETAIL_KEYS[str(operation)]
+                        if key in _CALL_DETAIL_KEYS[str(operation)]
                     },
                 )
             except ValueError:

@@ -36,7 +36,7 @@ from core.port_types import (
 )
 from core.process_control import signal_process_group
 from core.project import ProjectManager
-from core.run_manifest import sanitize_public_value
+from core.public_values import sanitize_public_value
 from core.scoring_v2 import (
     SelectionError,
     SelectionInput,
@@ -662,7 +662,7 @@ class RunResources:
         return tuple(dict(identity) for identity in self._project_input_identities)
 
     def temporary_directory(self, *, prefix: str):
-        """Delegate to the hardened legacy workspace primitive."""
+        """Delegate to the hardened private workspace primitive."""
         context = self._projects.run_context(
             self.project_id,
             self.run_id,
@@ -2011,7 +2011,7 @@ class _RunEvidenceLedger:
             self._root,
             (self._run_id, "manifest.json"),
             manifest,
-            field="run_manifest_projection",
+            field="run_projection",
         )
         replace_private_regular_file(
             self._root,
@@ -3643,11 +3643,8 @@ class _ProjectResultCache(ResultReplaySource):
         stored_outputs: list[dict[str, Any]] = []
         for output in outputs:
             declaration = declarations[output["output_port"]]
-            port_type_id = output["port_type"]["contract_id"]
-            if port_type_id in {"file.path", "file.path.collection"}:
-                return None
             port_type = self._catalog.require_port_type(
-                port_type_id,
+                output["port_type"]["contract_id"],
                 output["port_type"]["contract_version"],
             )
             encoded_values = [
@@ -3826,6 +3823,7 @@ class V2RunService:
         )
         self._runs: dict[tuple[str, str], _RunRecord] = {}
         self._damaged_runs: dict[tuple[str, str], str] = {}
+        self._unsupported_runs: dict[tuple[str, str], str] = {}
         self._run_owners: dict[str, str] = {}
         self._worker_condition = threading.Condition(threading.RLock())
         self._workers: set[threading.Thread] = set()
@@ -3947,8 +3945,19 @@ class V2RunService:
                 if (
                     not run_dir.is_dir()
                     or run_dir.is_symlink()
-                    or not (run_dir / "ledger").is_dir()
-                    or (run_dir / "ledger").is_symlink()
+                ):
+                    continue
+                ledger = run_dir / "ledger"
+                manifest = run_dir / "manifest.json"
+                if (
+                    not (
+                        ledger.is_dir()
+                        and not ledger.is_symlink()
+                    )
+                    and not (
+                        manifest.is_file()
+                        and not manifest.is_symlink()
+                    )
                 ):
                     continue
                 try:
@@ -3957,8 +3966,49 @@ class V2RunService:
                     continue
                 yield project_id, run_id, run_parent
 
+    @staticmethod
+    def _unsupported_run_version(
+        run_parent: Path,
+        run_id: str,
+    ) -> str | None:
+        """Classify an old schema without using it as current Run evidence."""
+        run_dir = run_parent / run_id
+        ledger_files = sorted((run_dir / "ledger").glob("*.json"))
+        candidate = (
+            ledger_files[0]
+            if ledger_files
+            else run_dir / "manifest.json"
+        )
+        if not candidate.is_file() or candidate.is_symlink():
+            return None
+        try:
+            encoded = candidate.read_bytes()
+            if len(encoded) > MAX_LEDGER_FACT_BYTES:
+                return None
+            payload = json.loads(encoded)
+        except (OSError, json.JSONDecodeError):
+            return None
+        if not isinstance(payload, Mapping):
+            return None
+        observed = payload.get("schema_version")
+        if observed == RUN_LEDGER_SCHEMA_VERSION:
+            return None
+        if isinstance(observed, (str, int)):
+            return str(observed)[:64]
+        return "unknown"
+
     def _load_persisted_runs(self) -> None:
         for project_id, run_id, run_parent in self._run_directories():
+            unsupported_version = self._unsupported_run_version(
+                run_parent,
+                run_id,
+            )
+            if unsupported_version is not None:
+                self._unsupported_runs[(project_id, run_id)] = (
+                    unsupported_version
+                )
+                self._run_owners.setdefault(run_id, project_id)
+                continue
             try:
                 self._load_persisted_run(
                     project_id,
@@ -4074,6 +4124,19 @@ class V2RunService:
         try:
             return self._runs[(project_id, run_id)]
         except KeyError as error:
+            unsupported_version = self._unsupported_runs.get(
+                (project_id, run_id)
+            )
+            if unsupported_version is not None:
+                raise V2RunError(
+                    "unsupported_schema_version",
+                    "Run evidence is not a supported exact v2 artifact",
+                    details={
+                        "artifact_kind": "run_evidence",
+                        "expected_schema_version": RUN_LEDGER_SCHEMA_VERSION,
+                        "received_schema_version": unsupported_version,
+                    },
+                ) from error
             damaged_cursor = self._damaged_runs.get((project_id, run_id))
             if damaged_cursor is not None:
                 raise V2RunError(
@@ -4593,45 +4656,42 @@ class V2RunService:
                     continue
                 normalized_scores: list[Any] = []
                 for score in value.entries:
-                    if isinstance(score, ScoreObservation):
-                        context = score.context
-                        if isinstance(
-                            context,
-                            PairwiseObservationContext,
-                        ):
-                            context = replace(
-                                context,
-                                subject=replace(
-                                    context.subject,
-                                    candidate_id=normalized_ids.get(
-                                        context.subject.candidate_id,
-                                        context.subject.candidate_id,
-                                    ),
-                                ),
-                                reference=replace(
-                                    context.reference,
-                                    candidate_id=normalized_ids.get(
-                                        context.reference.candidate_id,
-                                        context.reference.candidate_id,
-                                    ),
-                                ),
-                            )
-                        normalized_scores.append(
-                            replace(
-                                score,
-                                candidate_id=normalized_ids.get(
-                                    score.candidate_id,
-                                    score.candidate_id,
-                                ),
-                                context=context,
-                            )
+                    if type(score) is not ScoreObservation:
+                        raise PortValueError(
+                            "Score Collection contains an unsupported entry"
                         )
-                    else:
-                        score.subjects = [
-                            normalized_ids.get(subject, subject)
-                            for subject in score.subjects
-                        ]
-                        normalized_scores.append(score)
+                    context = score.context
+                    if isinstance(
+                        context,
+                        PairwiseObservationContext,
+                    ):
+                        context = replace(
+                            context,
+                            subject=replace(
+                                context.subject,
+                                candidate_id=normalized_ids.get(
+                                    context.subject.candidate_id,
+                                    context.subject.candidate_id,
+                                ),
+                            ),
+                            reference=replace(
+                                context.reference,
+                                candidate_id=normalized_ids.get(
+                                    context.reference.candidate_id,
+                                    context.reference.candidate_id,
+                                ),
+                            ),
+                        )
+                    normalized_scores.append(
+                        replace(
+                            score,
+                            candidate_id=normalized_ids.get(
+                                score.candidate_id,
+                                score.candidate_id,
+                            ),
+                            context=context,
+                        )
+                    )
                 value.entries[:] = normalized_scores
                 value.collection_id = (
                     "scores-"
@@ -4680,13 +4740,6 @@ class V2RunService:
                                             score.source_partition
                                         ),
                                         "value": score.value,
-                                    }
-                                    if isinstance(score, ScoreObservation)
-                                    else {
-                                        "score_id": score.score_id,
-                                        "value": score.value,
-                                        "subjects": score.subjects,
-                                        "details": score.details,
                                     }
                                 )
                                 for score in value.entries
@@ -4779,56 +4832,6 @@ class V2RunService:
                 }
             )
         return published, runtime
-
-    @staticmethod
-    def _artifact_media_type(relative_name: str) -> str:
-        suffix = Path(relative_name).suffix.lower()
-        return {
-            ".pdb": "chemical/x-pdb",
-            ".fasta": "text/x-fasta",
-            ".fa": "text/x-fasta",
-            ".json": "application/json",
-        }.get(suffix, "application/octet-stream")
-
-    def _publish_artifact(
-        self,
-        *,
-        resources: RunResources,
-        node_id: str,
-        output_port: str,
-        relative_name: str,
-        maximum_size: int,
-    ) -> tuple[dict[str, Any], tuple[str, ...]]:
-        source_parts = validate_relative_path(
-            relative_name,
-            "artifact_path",
-        )
-        payload = _read_stable_private_file(
-            resources._output_root,
-            (resources.run_id, *source_parts),
-            field="artifact_path",
-            maximum_size=min(MAX_ARTIFACT_SIZE_BYTES, maximum_size),
-        )
-        reference = f"artifact-{uuid.uuid4().hex}"
-        stored_parts = ("published", reference)
-        write_private_new_file(
-            resources._output_root,
-            (resources.run_id, *stored_parts),
-            payload,
-            field="artifact_path",
-        )
-        descriptor = {
-            "artifact_reference": reference,
-            "artifact_kind": "standalone",
-            "node_id": node_id,
-            "output_port": output_port,
-            "media_type": self._artifact_media_type(relative_name),
-            "size": len(payload),
-            "content_digest": (
-                "sha256:" + hashlib.sha256(payload).hexdigest()
-            ),
-        }
-        return descriptor, stored_parts
 
     def _publish_artifact_payload(
         self,
@@ -4930,87 +4933,55 @@ class V2RunService:
             for port in node_contract.descriptor.get("outputs", ())
         }
         artifact_sources: list[
-            tuple[
-                str,
-                str,
-                str | ArtifactPayload,
-                tuple[str, ...] | None,
-            ]
+            tuple[str, str, ArtifactPayload, tuple[str, ...]]
         ] = []
         for output in published:
-            port_type_id = output["port_type"]["contract_id"]
             declaration = port_declarations[output["output_port"]]
             artifact_kind = declaration.get("artifact_kind")
-            if artifact_kind is None and port_type_id not in {
-                "file.path",
-                "file.path.collection",
-            }:
+            if artifact_kind is None:
+                port_reference = output["port_type"]
+                port_type = self._catalog.require_port_type(
+                    port_reference["contract_id"],
+                    port_reference["contract_version"],
+                )
+                if port_type.artifact_media_types is not None:
+                    raise PortValueError(
+                        "Artifact-capable output requires explicit publication "
+                        "intent"
+                    )
                 typed_outputs.append(output)
                 continue
-            if artifact_kind is None:
-                raise PortValueError(
-                    "Artifact output Port requires explicit standalone opt-in"
-                )
             decoded_values = runtime[
                 (node.node_id, output["output_port"])
             ]
-            if port_type_id in {"file.path", "file.path.collection"}:
-                if artifact_kind != "standalone":
-                    raise PortValueError(
-                        "Filesystem path artifacts can only be standalone"
-                    )
-                if port_type_id == "file.path.collection":
-                    relative_names = [
-                        relative_name
-                        for collection in decoded_values
-                        for relative_name in collection
-                    ]
-                else:
-                    relative_names = decoded_values
-                for relative_name in relative_names:
-                    if not isinstance(relative_name, str):
-                        raise PortValueError(
-                            "Artifact Port requires one private relative reference"
-                        )
-                    artifact_sources.append(
-                        (
-                            output["output_port"],
-                            artifact_kind,
-                            relative_name,
-                            None,
-                        )
-                    )
-            else:
-                port_type = self._catalog.require_port_type(
-                    output["port_type"]["contract_id"],
-                    output["port_type"]["contract_version"],
+            port_type = self._catalog.require_port_type(
+                output["port_type"]["contract_id"],
+                output["port_type"]["contract_version"],
+            )
+            accepted_media_types = port_type.artifact_media_types
+            if accepted_media_types is None:
+                raise PortValueError(
+                    "Artifact Port lacks a publication media contract"
                 )
-                accepted_media_types = port_type.artifact_media_types
-                if accepted_media_types is None:
-                    raise PortValueError(
-                        "Artifact Port lacks a publication media contract"
-                    )
-                declared_media_type = declaration.get(
-                    "artifact_media_type"
+            declared_media_type = declaration.get("artifact_media_type")
+            if declared_media_type not in accepted_media_types:
+                raise PortValueError(
+                    "Artifact Port media contract is invalid"
                 )
-                if declared_media_type not in accepted_media_types:
+            accepted_media_types = (declared_media_type,)
+            for payload in decoded_values:
+                if type(payload) is not ArtifactPayload:
                     raise PortValueError(
-                        "Artifact Port media contract is invalid"
+                        "Artifact output must contain ArtifactPayload values"
                     )
-                accepted_media_types = (declared_media_type,)
-                for payload in decoded_values:
-                    if type(payload) is not ArtifactPayload:
-                        raise PortValueError(
-                            "Artifact output must contain ArtifactPayload values"
-                        )
-                    artifact_sources.append(
-                        (
-                            output["output_port"],
-                            artifact_kind,
-                            payload,
-                            accepted_media_types,
-                        )
+                artifact_sources.append(
+                    (
+                        output["output_port"],
+                        artifact_kind,
+                        payload,
+                        accepted_media_types,
                     )
+                )
         if (
             current_artifact_count + len(artifact_sources)
             > MAX_ARTIFACTS_PER_RUN
@@ -5026,25 +4997,15 @@ class V2RunService:
                 source,
                 accepted_media_types,
             ) in artifact_sources:
-                if isinstance(source, str):
-                    descriptor, stored_parts = self._publish_artifact(
-                        resources=resources,
-                        node_id=node.node_id,
-                        output_port=output_port,
-                        relative_name=source,
-                        maximum_size=remaining_bytes,
-                    )
-                else:
-                    assert accepted_media_types is not None
-                    descriptor, stored_parts = self._publish_artifact_payload(
-                        resources=resources,
-                        node_id=node.node_id,
-                        output_port=output_port,
-                        artifact_kind=artifact_kind,
-                        payload=source,
-                        accepted_media_types=accepted_media_types,
-                        maximum_size=remaining_bytes,
-                    )
+                descriptor, stored_parts = self._publish_artifact_payload(
+                    resources=resources,
+                    node_id=node.node_id,
+                    output_port=output_port,
+                    artifact_kind=artifact_kind,
+                    payload=source,
+                    accepted_media_types=accepted_media_types,
+                    maximum_size=remaining_bytes,
+                )
                 remaining_bytes -= descriptor["size"]
                 artifact_index.append(descriptor)
                 artifacts[descriptor["artifact_reference"]] = (
@@ -5382,42 +5343,37 @@ class V2RunService:
                                 inputs=node_inputs,
                             )
                         )
-                        if not any(
-                            output["port_type"]["contract_id"]
-                            in {"file.path", "file.path.collection"}
-                            for output in candidate_published
-                        ):
-                            replay_resources = RunResources(
-                                project_id,
-                                run_id,
-                                node.node_id,
-                                self._projects,
-                                None,
-                                record.cancellation,
-                            )
-                            (
-                                replayed_typed_outputs,
-                                replayed_artifacts,
-                                replayed_artifact_records,
-                            ) = self._materialize_artifacts(
-                                node=node,
-                                resources=replay_resources,
-                                published=candidate_published,
-                                runtime=candidate_runtime,
-                                current_artifact_count=len(all_artifacts),
-                                current_artifact_bytes=sum(
-                                    artifact["size"]
-                                    for artifact in all_artifacts
-                                ),
-                            )
-                            replayed_published = _with_result_provenance(
-                                replayed_typed_outputs,
-                                result_identity=result_identity,
-                                current_run_id=run_id,
-                                producer_run_id=replay_producer_run_id,
-                                resolution="cache_replayed",
-                            )
-                            replayed_runtime = candidate_runtime
+                        replay_resources = RunResources(
+                            project_id,
+                            run_id,
+                            node.node_id,
+                            self._projects,
+                            None,
+                            record.cancellation,
+                        )
+                        (
+                            replayed_typed_outputs,
+                            replayed_artifacts,
+                            replayed_artifact_records,
+                        ) = self._materialize_artifacts(
+                            node=node,
+                            resources=replay_resources,
+                            published=candidate_published,
+                            runtime=candidate_runtime,
+                            current_artifact_count=len(all_artifacts),
+                            current_artifact_bytes=sum(
+                                artifact["size"]
+                                for artifact in all_artifacts
+                            ),
+                        )
+                        replayed_published = _with_result_provenance(
+                            replayed_typed_outputs,
+                            result_identity=result_identity,
+                            current_run_id=run_id,
+                            producer_run_id=replay_producer_run_id,
+                            resolution="cache_replayed",
+                        )
+                        replayed_runtime = candidate_runtime
                 except V2RunError as error:
                     cache_lookup_error = error
                 except Exception:

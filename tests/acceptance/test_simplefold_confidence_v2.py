@@ -175,7 +175,7 @@ def test_simplefold_confidence_v2_evaluates_3gb1_exact_assets_without_refold(
         reject_forbidden(path)
         return real_os_access(path, *args, **kwargs)
 
-    from modules.simplefold_adapter import _setup_simplefold_imports
+    from modules.folding.simplefold_runtime import _setup_simplefold_imports
 
     old_cwd = _setup_simplefold_imports()
     try:

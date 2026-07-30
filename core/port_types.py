@@ -32,18 +32,15 @@ from datatypes import (
     PairwiseCandidateMatch,
     PairwiseObservationContext,
     PairwiseParticipant,
-    ProteinMPNNConstraints,
     ProteinPrompt,
     ProteinSequence,
     ProteinStructure,
     ResidueLayout,
     ResidueMap,
     ResidueTrack,
-    Score,
     ScoreCollection,
     ScoreObservation,
     StructureAlignment,
-    validate_proteinmpnn_constraints,
 )
 
 
@@ -166,11 +163,9 @@ _DATACLASS_BY_TAG = {
     "protein_prompt": ProteinPrompt,
     "protein_sequence": ProteinSequence,
     "protein_structure": ProteinStructure,
-    "proteinmpnn_constraints": ProteinMPNNConstraints,
     "residue_layout": ResidueLayout,
     "residue_map": ResidueMap,
     "residue_track": ResidueTrack,
-    "score": Score,
     "score_collection": ScoreCollection,
     "score_observation": ScoreObservation,
     "structure_alignment": StructureAlignment,
@@ -181,13 +176,10 @@ _TAG_BY_DATACLASS = {
 _VALUE_TYPE_BY_KIND = {
     "candidate_collection": CandidateCollection,
     "pairwise_candidate_mapping": PairwiseCandidateMapping,
-    "file_path": str,
-    "file_path_collection": list,
     "function_annotations": FunctionAnnotations,
     "protein_prompt": ProteinPrompt,
     "protein_sequence": ProteinSequence,
     "protein_structure": ProteinStructure,
-    "proteinmpnn_constraints": ProteinMPNNConstraints,
     "residue_layout": ResidueLayout,
     "residue_map": ResidueMap,
     "residue_track": ResidueTrack,
@@ -490,11 +482,6 @@ def _validate_domain_value(value: Any, *, path: str) -> None:
                 )
         return
 
-    if type(value) is Score:
-        if not value.score_id:
-            raise PortValueError(f"{path}.score_id must not be empty")
-        return
-
     if type(value) is ExactContractReference:
         if value.contract_kind not in {
             "metric",
@@ -685,12 +672,11 @@ def _validate_domain_value(value: Any, *, path: str) -> None:
     if type(value) is ScoreCollection:
         if not value.collection_id:
             raise PortValueError(f"{path}.collection_id must not be empty")
-        entry_types = {type(score) for score in value.entries}
-        if Score in entry_types:
-            raise PortValueError(
-                f"{path}.entries cannot contain legacy score_id values"
-            )
         for index, score in enumerate(value.entries):
+            if type(score) is not ScoreObservation:
+                raise PortValueError(
+                    f"{path}.entries must contain exact Score Observations"
+                )
             _validate_domain_value(score, path=f"{path}.entries[{index}]")
         _deduplicated_score_entries(value, path=path)
         return
@@ -750,12 +736,6 @@ def _validate_domain_value(value: Any, *, path: str) -> None:
                 f"{path}.aligned_distances must be non-negative"
             )
         return
-
-    if type(value) is ProteinMPNNConstraints:
-        try:
-            validate_proteinmpnn_constraints(value)
-        except ValueError as error:
-            raise PortValueError(f"{path} is invalid: {error}") from error
 
 
 def _validate_builtin_semantics(value_kind: str, value: Any) -> None:
@@ -859,9 +839,9 @@ def _deduplicated_score_entries(
         tuple[bytes, str],
     ] = {}
     for index, score in enumerate(collection.entries):
-        if not isinstance(score, ScoreObservation):
+        if type(score) is not ScoreObservation:
             raise PortValueError(
-                f"{path}.entries cannot contain legacy score_id values"
+                f"{path}.entries must contain exact Score Observations"
             )
         encoded_value = canonical_json_bytes(
             _value_to_wire(
@@ -1158,10 +1138,6 @@ class PortTypeDefinition:
                 f"{self.type_id}@{self.version} requires "
                 f"{expected_type.__name__}, got {type(value).__name__}"
             )
-        if self.value_kind == "file_path_collection" and not all(
-            type(item) is str for item in value
-        ):
-            raise PortValueError("file.path.collection requires only string paths")
         _validate_builtin_semantics(self.value_kind, value)
         _value_to_wire(value)
 
@@ -1590,13 +1566,10 @@ class FrozenCatalog:
 _BUILTIN_VALUE_KINDS = (
     ("candidate.collection", "candidate_collection"),
     ("candidate.pairing", "pairwise_candidate_mapping"),
-    ("file.path", "file_path"),
-    ("file.path.collection", "file_path_collection"),
     ("function.annotations", "function_annotations"),
     ("protein.prompt", "protein_prompt"),
     ("protein.sequence", "protein_sequence"),
     ("protein.structure", "protein_structure"),
-    ("proteinmpnn.constraints", "proteinmpnn_constraints"),
     ("residue.layout", "residue_layout"),
     ("residue.map", "residue_map"),
     ("residue.track", "residue_track"),

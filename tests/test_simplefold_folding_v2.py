@@ -33,8 +33,6 @@ from datatypes import (
     CandidateCollection,
     ProteinSequence,
     ProteinStructure,
-    Score,
-    ScoreCollection,
 )
 
 
@@ -277,10 +275,10 @@ def _simplefold_environment(
         "validate_installed_provider_checkout",
         lambda *_args, **_kwargs: None,
     )
-    import modules.simplefold_adapter as legacy_adapter
+    import modules.folding.simplefold_runtime as provider_runtime
 
     monkeypatch.setattr(
-        legacy_adapter,
+        provider_runtime,
         "validated_simplefold_esm2_root",
         lambda root=None: root,
     )
@@ -415,31 +413,24 @@ def test_simplefold_preserves_high_level_plddt_and_exact_multi_sample_lineage(
         def __init__(self) -> None:
             self.calls: list[dict[str, Any]] = []
 
-        def fold(self, **kwargs: Any) -> tuple[list[ProteinStructure], ScoreCollection]:
+        def fold(self, **kwargs: Any) -> tuple[list[ProteinStructure], list[dict[str, Any]]]:
             self.calls.append(kwargs)
             return (
                 [
                     ProteinStructure(_two_residue_pdb(), source="simplefold"),
                     ProteinStructure(_two_residue_pdb(), source="simplefold"),
                 ],
-                ScoreCollection(
-                    "native-simplefold",
-                    [
-                        Score(
-                            "plddt",
-                            0.77 if sample == 0 else 77.0,
-                            details={
-                                "per_residue": (
-                                    [0.71, 0.83]
-                                    if sample == 0
-                                    else [71.0, 83.0]
-                                ),
-                                "sample_index": sample,
-                            },
-                        )
-                        for sample in range(2)
-                    ],
-                ),
+                [
+                    {
+                        "per_residue": (
+                            [0.71, 0.83]
+                            if sample == 0
+                            else [71.0, 83.0]
+                        ),
+                        "sample_index": sample,
+                    }
+                    for sample in range(2)
+                ],
             )
 
     client = Client()
@@ -525,26 +516,14 @@ def test_source_cache_replay_preserves_noncacheable_simplefold_execution(
         def __init__(self) -> None:
             self.staging: list[Path] = []
 
-        def fold(self, **kwargs: Any) -> tuple[list[ProteinStructure], ScoreCollection]:
+        def fold(self, **kwargs: Any) -> tuple[list[ProteinStructure], list[dict[str, Any]]]:
             staging = kwargs["staging_directory"]
             assert not (staging / "fixed-provider-name").exists()
             (staging / "fixed-provider-name").write_text("owned")
             self.staging.append(staging)
             return (
                 [ProteinStructure(_two_residue_pdb(), source="simplefold")],
-                ScoreCollection(
-                    "native-simplefold",
-                    [
-                        Score(
-                            "plddt",
-                            77.0,
-                            details={
-                                "per_residue": [71.0, 83.0],
-                                "sample_index": 0,
-                            },
-                        )
-                    ],
-                ),
+                [{"per_residue": [71.0, 83.0], "sample_index": 0}],
             )
 
     cached_source = CandidateCollection(
@@ -622,7 +601,7 @@ def test_concurrent_runs_use_disjoint_live_staging_and_stable_identity(
         def fold(
             self,
             **kwargs: Any,
-        ) -> tuple[list[ProteinStructure], ScoreCollection]:
+        ) -> tuple[list[ProteinStructure], list[dict[str, Any]]]:
             staging = kwargs["staging_directory"]
             owned = staging / "fixed-provider-name"
             assert not owned.exists()
@@ -633,19 +612,7 @@ def test_concurrent_runs_use_disjoint_live_staging_and_stable_identity(
             assert owned.read_text() == "owned"
             return (
                 [ProteinStructure(_two_residue_pdb(), source="simplefold")],
-                ScoreCollection(
-                    "native-simplefold",
-                    [
-                        Score(
-                            "plddt",
-                            77.0,
-                            details={
-                                "per_residue": [71.0, 83.0],
-                                "sample_index": 0,
-                            },
-                        )
-                    ],
-                ),
+                [{"per_residue": [71.0, 83.0], "sample_index": 0}],
             )
 
     client = Client()
@@ -697,45 +664,21 @@ def test_concurrent_runs_use_disjoint_live_staging_and_stable_identity(
     (
         (
             [ProteinStructure("END\n", source="simplefold")],
-            ScoreCollection(
-                "malformed-pdb",
-                [
-                    Score(
-                        "plddt",
-                        77.0,
-                        details={
-                            "per_residue": [71.0, 83.0],
-                            "sample_index": 0,
-                        },
-                    )
-                ],
-            ),
+            [{"per_residue": [71.0, 83.0], "sample_index": 0}],
         ),
         (
             [ProteinStructure(_two_residue_pdb(), source="simplefold")],
-            ScoreCollection(
-                "wrong-scale",
-                [
-                    Score(
-                        "plddt",
-                        0.77,
-                        details={
-                            "per_residue": [0.71, 101.0],
-                            "sample_index": 0,
-                        },
-                    )
-                ],
-            ),
+            [{"per_residue": [0.71, 101.0], "sample_index": 0}],
         ),
     ),
 )
 def test_malformed_simplefold_output_cannot_publish_a_candidate(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
-    native_result: tuple[list[ProteinStructure], ScoreCollection],
+    native_result: tuple[list[ProteinStructure], list[dict[str, Any]]],
 ) -> None:
     class Client:
-        def fold(self, **kwargs: Any) -> tuple[list[ProteinStructure], ScoreCollection]:
+        def fold(self, **kwargs: Any) -> tuple[list[ProteinStructure], list[dict[str, Any]]]:
             del kwargs
             return native_result
 
@@ -798,25 +741,13 @@ def test_simplefold_cleanup_failure_is_visible_without_masking_provider_failure(
     monkeypatch.setattr(run_context.shutil, "rmtree", fail_invocation_cleanup)
 
     class Client:
-        def fold(self, **kwargs: Any) -> tuple[list[ProteinStructure], ScoreCollection]:
+        def fold(self, **kwargs: Any) -> tuple[list[ProteinStructure], list[dict[str, Any]]]:
             del kwargs
             if provider_fails:
                 raise RuntimeError("fixture provider failure")
             return (
                 [ProteinStructure(_two_residue_pdb(), source="simplefold")],
-                ScoreCollection(
-                    "native-simplefold",
-                    [
-                        Score(
-                            "plddt",
-                            77.0,
-                            details={
-                                "per_residue": [71.0, 83.0],
-                                "sample_index": 0,
-                            },
-                        )
-                    ],
-                ),
+                [{"per_residue": [71.0, 83.0], "sample_index": 0}],
             )
 
     _, projection, events = _run_simplefold(

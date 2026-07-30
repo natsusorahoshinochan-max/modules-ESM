@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
+import base64
 
 from core import (
+    ArtifactPayload,
     AvailabilityDeclaration,
     AvailabilityResult,
     BehaviorReference,
@@ -39,6 +41,42 @@ _METRIC = ContractIdentity(
 def _validate_text(value: object) -> None:
     if type(value) is not str or not value:
         raise ValueError("synthetic text must be a non-empty string")
+
+
+def _validate_artifact(value: object) -> None:
+    if (
+        type(value) is not ArtifactPayload
+        or value.media_type != "text/plain"
+        or value.filename != "result.txt"
+        or value.candidate_id is not None
+    ):
+        raise ValueError("synthetic artifact is invalid")
+
+
+def _artifact_to_wire(value: object) -> object:
+    assert isinstance(value, ArtifactPayload)
+    return {
+        "body_base64": base64.b64encode(value.body).decode("ascii"),
+        "media_type": value.media_type,
+        "filename": value.filename,
+        "candidate_id": value.candidate_id,
+    }
+
+
+def _artifact_from_wire(value: object) -> object:
+    if not isinstance(value, dict) or set(value) != {
+        "body_base64",
+        "media_type",
+        "filename",
+        "candidate_id",
+    }:
+        raise ValueError("synthetic artifact wire value is invalid")
+    return ArtifactPayload(
+        body=base64.b64decode(value["body_base64"], validate=True),
+        media_type=value["media_type"],
+        filename=value["filename"],
+        candidate_id=value["candidate_id"],
+    )
 
 
 def _identity(value: object, parameters: object) -> float:
@@ -190,6 +228,36 @@ MODULE_PACKAGE = ModulePackageRegistration(
             runtime_validator=_validate_text,
             runtime_to_wire=lambda value: value,
             runtime_from_wire=lambda value: value,
+        ),
+        PortTypeDefinition(
+            type_id="contract_test.synthetic_artifact",
+            version="2.0.0",
+            validator=BehaviorReference(
+                "contract_test.synthetic_artifact/validate",
+                "2.0.0",
+                {
+                    "accepted_value_kind": "artifact_payload",
+                    "artifact_publication": {
+                        "media_types": ["text/plain"],
+                    },
+                },
+            ),
+            codec=BehaviorReference(
+                "contract_test.synthetic_artifact/codec",
+                "2.0.0",
+                {
+                    "canonicalization": "RFC 8785",
+                    "binary_encoding": "base64",
+                },
+            ),
+            content_identity=BehaviorReference(
+                "contract_test.synthetic_artifact/content",
+                "2.0.0",
+                {"digest": "SHA-256"},
+            ),
+            runtime_validator=_validate_artifact,
+            runtime_to_wire=_artifact_to_wire,
+            runtime_from_wire=_artifact_from_wire,
         ),
     ),
     utility_transforms=(

@@ -6,6 +6,7 @@ from pathlib import Path
 import time
 from typing import Any, Mapping
 
+from core import ArtifactPayload
 from datatypes import (
     Candidate,
     CandidateCollection,
@@ -81,9 +82,10 @@ class SyntheticEchoImplementation:
                 )
             ],
         )
-        artifact = self._run_resources.write_artifact(
-            "echo/result.txt",
-            echoed.encode("utf-8"),
+        artifact = ArtifactPayload(
+            body=echoed.encode("utf-8"),
+            media_type="text/plain",
+            filename="result.txt",
         )
         return {
             "text": echoed,

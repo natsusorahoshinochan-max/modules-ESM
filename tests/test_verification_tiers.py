@@ -369,7 +369,7 @@ def test_provider_summary_schema_accepts_per_structure_byte_counts() -> None:
 def test_full_provider_gate_rejects_one_missing_required_call(
     tmp_path: Path,
 ) -> None:
-    from core.provider_contract import ESM_SDK_REVISION
+    from modules.provider_contract import ESM_SDK_REVISION
     from scripts.verify_backend import (
         TIERS,
         validate_provider_evidence,
@@ -673,7 +673,7 @@ def test_simplefold_v2_gate_alias_writes_supported_provider_evidence(
     tmp_path: Path,
     monkeypatch,
 ) -> None:
-    from core.provider_evidence import record_provider_readiness
+    from modules.provider_evidence import record_provider_readiness
     from scripts.verify_backend import (
         TIERS,
         _expected_provider_identity,
@@ -752,7 +752,7 @@ def test_esmfold2_v2_has_explicit_remote_and_local_gates() -> None:
 def test_provider_evidence_rejects_unexpected_sensitive_event_field(
     tmp_path: Path,
 ) -> None:
-    from core.provider_contract import ESM_SDK_REVISION
+    from modules.provider_contract import ESM_SDK_REVISION
     from scripts.verify_backend import TIERS, validate_provider_evidence
 
     started_at = datetime.now(timezone.utc)
@@ -811,7 +811,7 @@ def test_provider_evidence_rejects_unexpected_sensitive_event_field(
 def test_fresh_remote_gate_requires_exact_repeated_provider_calls(
     tmp_path: Path,
 ) -> None:
-    from core.provider_contract import esm_provider_identity
+    from modules.provider_contract import esm_provider_identity
     from scripts.verify_backend import (
         TIERS,
         _expected_provider_identity,

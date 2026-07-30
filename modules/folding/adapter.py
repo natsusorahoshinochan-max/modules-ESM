@@ -15,7 +15,7 @@ import stat
 from typing import Any, Iterable
 
 from core import ReadinessResult, canonical_sha256
-from core.provider_contract import validate_installed_provider_checkout
+from modules.provider_contract import validate_installed_provider_checkout
 from datatypes import ProteinSequence, ProteinStructure
 
 

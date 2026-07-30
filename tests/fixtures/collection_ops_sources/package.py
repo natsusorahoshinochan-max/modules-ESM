@@ -27,7 +27,6 @@ from datatypes import (
     ProteinSequence,
     PairwiseCandidateMapping,
     PairwiseCandidateMatch,
-    Score,
     ScoreCollection,
     ScoreObservation,
 )
@@ -296,7 +295,7 @@ class _LegacyScores:
         return {
             "scores": ScoreCollection(
                 collection_id="legacy-scores",
-                entries=[Score("confidence", 0.5)],
+                entries=[object()],
             )
         }
 

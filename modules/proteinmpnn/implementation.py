@@ -6,7 +6,6 @@ from collections.abc import Mapping
 import hashlib
 from typing import Any
 
-from core.run_context import RunContext
 from datatypes import (
     Candidate,
     CandidateCollection,
@@ -280,16 +279,6 @@ class ProteinMPNNDesignImplementation:
                     constraints=constraints,
                     reference_sequence=reference,
                 )
-                RunContext.record_active_provider_call(
-                    provider.provider_identity,
-                    "design_sequences",
-                    model=PROTEINMPNN_MODEL,
-                    details={
-                        "parent_candidate_id": parent.candidate_id,
-                        "candidate_ids": raw_ids,
-                        "effective_seed": call_seed,
-                    },
-                )
                 with self._run_resources.engine_invocation(
                     engine_role=f"design_parent_{parent_index}",
                     engine_identity=(
@@ -446,15 +435,6 @@ class ProteinMPNNScoreImplementation:
                 provider=provider,
                 structure=structure,
                 sequence=sequence,
-            )
-            RunContext.record_active_provider_call(
-                provider.provider_identity,
-                "score_sequence",
-                model=PROTEINMPNN_MODEL,
-                details={
-                    "candidate_id": sequence_candidate.candidate_id,
-                    "parent_candidate_id": structure_candidate.candidate_id,
-                },
             )
             with self._run_resources.engine_invocation(
                 engine_role="score_subject",

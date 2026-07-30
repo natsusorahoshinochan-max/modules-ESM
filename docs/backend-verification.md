@@ -36,7 +36,7 @@ marker expression.
 | Routine backend regression | `.venv/bin/python scripts/verify_backend.py routine` | Fast deterministic tests only; excludes acceptance, remote providers, local providers, heavy models, and intentionally red reproductions. |
 | Repository v2 examples | `.venv/bin/python scripts/verify_backend.py examples-v2` | Parses, exactly relocks, and compiles the shipped v2 Workflow suite; compares the 11-package capability inventory with the source Catalog; and checks the independent exact-objective CTK fixture without invoking providers or writing Project, Cache, output, or Run roots. |
 | Deterministic backend acceptance | `.venv/bin/python scripts/verify_backend.py deterministic-acceptance` | Runs both the retained failure-variant suite and the exact locked v2 canonical 3GB1 provider fixture, including its public compile, Run, replay, Ledger, selection, lineage, and artifact assertions. |
-| Installed backend artifact | `.venv/bin/python scripts/verify_backend.py installed-package` | Builds wheel and sdist, checks required YAML and canonical assets, installs the wheel with dependencies into a brand-new venv, then discovers all 44 legacy Modules and 48 v2 Node Types, starts the API outside the source checkout, and completes the exact canonical v2 journey through only the public protocol. |
+| Installed backend artifact | `.venv/bin/python scripts/verify_backend.py installed-package` | Builds wheel and sdist, checks required YAML and canonical assets, installs the wheel with dependencies into a brand-new venv, then discovers the exact 11-package, 48-Node-Type v2 Catalog, starts the API outside the source checkout, and completes the exact canonical v2 journey through only the public protocol. |
 | Scientific reproduction | `.venv/bin/python scripts/verify_backend.py scientific-repro` | Runs the deterministic SCI-001 reproduction and confirms that legal amino-acid symbols reach the ESM3 boundary unchanged. |
 | Post-review repair findings | `.venv/bin/python scripts/verify_backend.py repair-findings` | Intentionally red cumulative gate for the four independently confirmed post-handoff findings. It must report exactly the shifted final secondary-structure layout, cross-run sequence-export path reuse, repeated SimpleFold staging collisions, and incomplete public readiness/call evidence until their repair tickets land. |
 | Mocked Workflow | `.venv/bin/python scripts/verify_backend.py mocked-workflow` | Runs the current deterministic 3GB1 Workflow tests with provider boundaries replaced by fixtures. |
@@ -252,8 +252,8 @@ V2 Ledger facts are bounded to 4 MiB, fsynced under a private temporary name,
 and atomically published without replacement; an invalid Run Ledger is isolated
 as unavailable instead of preventing unrelated Runs from loading. Background
 Run admission is bounded and Project-reserved, Node work is globally serial,
-and graceful backend shutdown joins every tracked v2 writer. Manifest and
-lifecycle projection publication is retried after a partial projection failure;
+and graceful backend shutdown joins every tracked v2 writer. Public projection
+publication is retried after a partial projection failure;
 while a persistent mismatch remains, public projection/event reads fail closed
 with the last durable cursor and retry the rebuild rather than serving
 contradictory generations.
@@ -284,7 +284,7 @@ behavior identities when discovered by the installed artifact.
 
 ## Deterministic public-protocol acceptance
 
-The deterministic tier covers the retained legacy failure variants and the
+The deterministic tier covers current v2 failure variants and the
 locked `examples/v2/canonical-3gb1.workflow.json`. The v2 client obtains Catalog
 and Project/Workflow snapshots, compiles, starts Runs, consumes the run-scoped
 WebSocket, retrieves the durable Run projection, and downloads every PDB through

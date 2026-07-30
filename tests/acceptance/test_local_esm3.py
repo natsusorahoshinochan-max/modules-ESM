@@ -16,7 +16,7 @@ def test_local_esm3_all_generation_modes(
 ) -> None:
     require_ready("local_esm3", readiness)
 
-    from core.provider_contract import validate_local_esm3_snapshot
+    from modules.provider_contract import validate_local_esm3_snapshot
     from modules.esm3.local_adapter import (
         LOCAL_ESM3_MODEL,
         LOCAL_ESM3_SNAPSHOT_REVISION,

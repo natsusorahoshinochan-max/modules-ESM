@@ -283,9 +283,7 @@ def prepare_remote_provider_call(
     *,
     model_name: str,
 ) -> dict[str, Any]:
-    """Record provider-call intent before crossing the engine boundary."""
-    from core.run_context import RunContext
-
+    """Build bounded call identity before crossing the engine boundary."""
     secondary_structure = getattr(protein, "secondary_structure", None)
     track_identity: dict[str, Any] = {}
     if isinstance(secondary_structure, str):
@@ -295,12 +293,6 @@ def prepare_remote_provider_call(
                 secondary_structure.encode()
             ).hexdigest(),
         }
-    RunContext.record_active_provider_call(
-        "biohub",
-        operation,
-        model=model_name,
-        details=track_identity,
-    )
     return track_identity
 
 
@@ -331,7 +323,7 @@ def record_remote_provider_result(
     track_identity: Mapping[str, Any],
 ) -> None:
     """Persist result evidence after the Engine Invocation has succeeded."""
-    from core.provider_evidence import record_provider_call_result
+    from modules.provider_evidence import record_provider_call_result
 
     result_summary: dict[str, Any] = {
         "result_type": type(result).__name__,

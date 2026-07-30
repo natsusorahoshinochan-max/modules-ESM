@@ -737,12 +737,10 @@ def test_function_annotation_port_rejects_noncanonical_collections(
         definition.encode(annotations)
 
 
-def test_protein_prompt_round_trip_preserves_esm3_adapter_intent(
+def test_multichain_prompt_round_trip_preserves_explicit_esm3_refusal(
     tmp_path: Path,
 ) -> None:
-    import torch
-
-    from modules.esm3_adapter import protein_prompt_to_esm_protein
+    from modules.esm3.adapter import protein_prompt_to_provider
 
     catalog, projection, _ = run_operation(
         tmp_path,
@@ -802,21 +800,9 @@ def test_protein_prompt_round_trip_preserves_esm3_adapter_intent(
     )
     round_tripped = prompt_codec.decode(prompt_codec.encode(prompt))
 
-    provider_prompt = protein_prompt_to_esm_protein(round_tripped)
-
-    assert provider_prompt.sequence == "AGS"
-    assert provider_prompt.secondary_structure == "HE_"
-    assert provider_prompt.sasa == [12.5, None, 30.0]
-    assert provider_prompt.function_annotations is not None
-    assert [
-        (
-            annotation.label,
-            annotation.start,
-            annotation.end,
-        )
-        for annotation in provider_prompt.function_annotations
-    ] == [("binding_site", 1, 2)]
-    assert provider_prompt.coordinates is not None
-    assert torch.isfinite(provider_prompt.coordinates[0, 1]).all()
-    assert torch.isnan(provider_prompt.coordinates[1]).all()
-    assert torch.isnan(provider_prompt.coordinates[2]).all()
+    assert round_tripped.target_layout.chain_id == "A,B"
+    with pytest.raises(
+        ValueError,
+        match="cannot preserve multi-chain aligned tracks",
+    ):
+        protein_prompt_to_provider(round_tripped)

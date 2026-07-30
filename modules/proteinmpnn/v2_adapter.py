@@ -13,15 +13,15 @@ import struct
 from typing import Any
 
 from core import ReadinessResult
-from core.provider_contract import proteinmpnn_provider_identity
-from core.provider_evidence import record_provider_call_result
+from modules.provider_contract import proteinmpnn_provider_identity
+from modules.provider_evidence import record_provider_call_result
 from datatypes import (
     ProteinMPNNConstraints,
     ProteinSequence,
     ProteinStructure,
 )
 
-from .adapter import (
+from .provider_runtime import (
     ProteinMPNNDesignRequest,
     ProteinMPNNProvider,
     _LocalProteinMPNNProvider,

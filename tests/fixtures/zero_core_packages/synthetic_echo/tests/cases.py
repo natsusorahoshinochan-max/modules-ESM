@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from core import ModulePackageContractCase, ModulePackagePortCase
+from core import ArtifactPayload, ModulePackageContractCase, ModulePackagePortCase
 
 
 EXECUTION_CASE = ModulePackageContractCase(
@@ -35,4 +35,15 @@ PORT_CASE = ModulePackagePortCase(
     version="2.0.0",
     valid_value="canonical echo",
     invalid_values=("", 7),
+)
+
+ARTIFACT_PORT_CASE = ModulePackagePortCase(
+    type_id="contract_test.synthetic_artifact",
+    version="2.0.0",
+    valid_value=ArtifactPayload(
+        body=b"fixture",
+        media_type="text/plain",
+        filename="result.txt",
+    ),
+    invalid_values=(b"fixture", "result.txt"),
 )

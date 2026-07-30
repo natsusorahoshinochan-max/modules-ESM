@@ -10,7 +10,7 @@ import numpy as np
 import pytest
 import torch
 
-from core.provider_contract import (
+from modules.provider_contract import (
     ESM_SDK_REVISION,
     read_biohub_token,
     validate_installed_provider_checkout,

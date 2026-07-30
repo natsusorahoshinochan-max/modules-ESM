@@ -20,7 +20,7 @@ from core import (
     ProducedObservationDefinition,
     ReadinessDeclaration,
 )
-from core.provider_contract import validate_installed_provider_checkout
+from modules.provider_contract import validate_installed_provider_checkout
 
 from .adapter import (
     BIOHUB_ESM3_MEDIUM_MODEL,

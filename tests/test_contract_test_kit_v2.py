@@ -32,6 +32,7 @@ from protein_workbench_public import (
     validate_response,
 )
 from tests.fixtures.zero_core_packages.synthetic_echo.tests.cases import (
+    ARTIFACT_PORT_CASE,
     EXECUTION_CASE,
     PORT_CASE,
 )
@@ -61,7 +62,7 @@ def test_contract_test_kit_executes_the_discovered_production_registration(
     report = verify_module_package_contract(
         registration,
         execution_cases=(EXECUTION_CASE,),
-        port_cases=(PORT_CASE,),
+        port_cases=(PORT_CASE, ARTIFACT_PORT_CASE),
         work_root=tmp_path,
     )
 
@@ -358,7 +359,7 @@ def test_contract_test_kit_rejects_a_false_readiness_attestation(
         verify_module_package_contract(
             FALSE_READINESS_PACKAGE,
             execution_cases=(EXECUTION_CASE,),
-            port_cases=(PORT_CASE,),
+            port_cases=(PORT_CASE, ARTIFACT_PORT_CASE),
             work_root=tmp_path,
         )
 
@@ -384,9 +385,15 @@ def test_contract_test_kit_rejects_an_invalid_package_codec(
         match="codec conformance failed",
     ):
         verify_module_package_contract(
-            replace(registration, port_types=(invalid_port_type,)),
+            replace(
+                registration,
+                port_types=(
+                    invalid_port_type,
+                    registration.port_types[1],
+                ),
+            ),
             execution_cases=(EXECUTION_CASE,),
-            port_cases=(PORT_CASE,),
+            port_cases=(PORT_CASE, ARTIFACT_PORT_CASE),
             work_root=tmp_path,
         )
 
@@ -401,7 +408,7 @@ def test_contract_test_kit_rejects_incomplete_observation_provenance(
         verify_module_package_contract(
             INCOMPLETE_PROVENANCE_PACKAGE,
             execution_cases=(EXECUTION_CASE,),
-            port_cases=(PORT_CASE,),
+            port_cases=(PORT_CASE, ARTIFACT_PORT_CASE),
             work_root=tmp_path,
         )
 

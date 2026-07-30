@@ -1177,10 +1177,6 @@ def _parse_port(
     if artifact_kind is not None and (
         not allow_artifact_publication
         or artifact_kind not in {"standalone", "candidate"}
-        or (
-            reference.contract_id in {"file.path", "file.path.collection"}
-            and artifact_kind != "standalone"
-        )
     ):
         raise CatalogBuildError(
             f"{resource_name}.artifact_kind is not a valid artifact output"
@@ -1749,16 +1745,20 @@ def build_frozen_catalog(
         if not isinstance(definition, _NodeDefinition):
             continue
         for output in definition.outputs:
-            if output.get("artifact_kind") is None:
-                continue
             reference = output["port_type"]
-            if reference.contract_id in {
-                "file.path",
-                "file.path.collection",
-            }:
-                continue
             port_entry = entry_by_key.get(reference.key)
             port_type = port_entry[1] if port_entry is not None else None
+            if (
+                isinstance(port_type, PortTypeDefinition)
+                and port_type.artifact_media_types is not None
+                and output.get("artifact_kind") is None
+            ):
+                raise CatalogBuildError(
+                    f"Node {definition.node_type_id} artifact-capable output "
+                    f"{output['name']!r} requires explicit publication intent"
+                )
+            if output.get("artifact_kind") is None:
+                continue
             if (
                 not isinstance(port_type, PortTypeDefinition)
                 or port_type.artifact_media_types is None

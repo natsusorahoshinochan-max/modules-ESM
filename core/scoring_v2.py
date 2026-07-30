@@ -28,7 +28,6 @@ from datatypes import (
     PairwiseCandidateMapping,
     ProteinSequence,
     ProteinStructure,
-    Score,
     ScoreCollection,
     ScoreObservation,
 )
@@ -580,11 +579,7 @@ def _deduplicated_observations(
     observations: dict[tuple[object, ...], ScoreObservation] = {}
     encoded_values: dict[tuple[object, ...], bytes] = {}
     for entry in collection.entries:
-        if isinstance(entry, Score):
-            raise SelectionError(
-                "Selection rejects ambiguous legacy score_id entries"
-            )
-        if not isinstance(entry, ScoreObservation):
+        if type(entry) is not ScoreObservation:
             raise SelectionError("Score Collection contains an unknown entry")
         try:
             encoded = canonical_json_bytes(entry.value)
@@ -658,10 +653,6 @@ def resolve_objective_observations(
         candidate_id: [] for candidate_id in candidate_ids
     }
     for entry in collection.entries:
-        if isinstance(entry, Score):
-            raise SelectionError(
-                "Selection rejects ambiguous legacy score_id entries"
-            )
         if type(entry) is not ScoreObservation:
             raise SelectionError("Score Collection contains an unknown entry")
         in_scope = (
@@ -1195,10 +1186,6 @@ def validate_produced_score_collection(
                 "Binding emitted an undeclared typed Score Observation"
             )
         return
-    if any(isinstance(item, Score) for item in collection.entries):
-        raise PortValueError(
-            "Binding with Produced Observations cannot emit legacy score_id"
-        )
     try:
         observations = _deduplicated_observations(collection)
     except (CatalogBuildError, SelectionError) as error:

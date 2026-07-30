@@ -19,7 +19,7 @@ from core import (
     parse_workflow_document,
 )
 from core.workflow_v2 import WorkflowEdge
-from modules.extract_sequence_from_structure.module import _extract_sequence
+from modules.folding.adapter import _pdb_sequence
 from tests.acceptance.conftest import require_ready
 
 
@@ -42,7 +42,7 @@ def test_simplefold_v2_folds_3gb1_through_exact_binding(
         MODULE_PACKAGE as SOURCE_PACKAGE,
     )
 
-    sequence = _extract_sequence(pdb_3gb1.pdb_string)
+    sequence = _pdb_sequence(pdb_3gb1.pdb_string)
     source = WorkflowNodeInstance(
         node_id="source",
         node_type_id="contract_test.folding_sequence_source",

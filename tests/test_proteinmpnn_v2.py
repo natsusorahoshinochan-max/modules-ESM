@@ -13,6 +13,7 @@ from core import (
     ContractIdentity,
     EnvironmentConfiguration,
     ModulePackageContractCase,
+    ModulePackagePortCase,
     ProjectManager,
     ResultReplayHit,
     ResultReplaySource,
@@ -1321,7 +1322,7 @@ def test_design_produces_canonical_three_parent_by_five_child_lineage(
     from modules.prompt_authoring.package import (
         MODULE_PACKAGE as PROMPT_AUTHORING_PACKAGE,
     )
-    from modules.proteinmpnn.adapter import _ALPHABET_DICT
+    from modules.proteinmpnn.provider_runtime import _ALPHABET_DICT
     from modules.proteinmpnn.package import (
         MODULE_PACKAGE as PROTEINMPNN_PACKAGE,
     )
@@ -1412,7 +1413,7 @@ def test_design_produces_canonical_three_parent_by_five_child_lineage(
 def test_design_binding_fixes_model_source_checkpoint_and_runtime_identity(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    import modules.proteinmpnn.adapter as legacy_adapter
+    import modules.proteinmpnn.provider_runtime as provider_runtime
     from modules.proteinmpnn.package import (
         MODULE_PACKAGE as PROTEINMPNN_PACKAGE,
     )
@@ -1421,7 +1422,7 @@ def test_design_binding_fixes_model_source_checkpoint_and_runtime_identity(
         del args, kwargs
         raise AssertionError("catalog discovery must not load ProteinMPNN")
 
-    monkeypatch.setattr(legacy_adapter, "_load_model", fail_if_loaded)
+    monkeypatch.setattr(provider_runtime, "_load_model", fail_if_loaded)
     catalog = build_frozen_catalog((PROTEINMPNN_PACKAGE,))
     binding = catalog.require_contract(
         "binding",
@@ -1495,7 +1496,7 @@ def test_readiness_validates_the_exact_checkout_checkpoint_and_runtime(
         / "ProteinMPNN"
     )
     monkeypatch.setattr(
-        "modules.proteinmpnn.adapter._load_model",
+        "modules.proteinmpnn.provider_runtime._load_model",
         lambda *args, **kwargs: (_ for _ in ()).throw(
             AssertionError("readiness must not load the model")
         ),
@@ -2072,6 +2073,16 @@ def test_proteinmpnn_passes_the_shared_contract_test_kit(
     report = verify_module_package_contract(
         PROTEINMPNN_PACKAGE,
         execution_cases=cases,
+        port_cases=(
+            ModulePackagePortCase(
+                type_id="proteinmpnn.constraints",
+                version="2.0.0",
+                valid_value=ProteinMPNNConstraints(
+                    fixed_positions=[0],
+                ),
+                invalid_values=(object(),),
+            ),
+        ),
         supporting_registrations=(
             PROMPT_AUTHORING_PACKAGE,
             SOURCE_PACKAGE,

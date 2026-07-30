@@ -32,8 +32,6 @@ from core.workflow_v2 import WorkflowEdge
 from datatypes import (
     ProteinSequence,
     ProteinStructure,
-    Score,
-    ScoreCollection,
 )
 
 
@@ -732,10 +730,10 @@ def test_remote_and_local_bindings_pass_shared_contract_test_kit(
         "validate_installed_provider_checkout",
         lambda *_args, **_kwargs: None,
     )
-    import modules.simplefold_adapter as legacy_simplefold_adapter
+    import modules.folding.simplefold_runtime as simplefold_runtime
 
     monkeypatch.setattr(
-        legacy_simplefold_adapter,
+        simplefold_runtime,
         "validated_simplefold_esm2_root",
         lambda root=None: root,
     )
@@ -794,7 +792,7 @@ def test_remote_and_local_bindings_pass_shared_contract_test_kit(
         def fold(
             self,
             **kwargs: Any,
-        ) -> tuple[list[ProteinStructure], ScoreCollection]:
+        ) -> tuple[list[ProteinStructure], list[dict[str, Any]]]:
             assert kwargs["num_steps"] == 10
             assert kwargs["num_samples"] == 1
             return (
@@ -804,19 +802,7 @@ def test_remote_and_local_bindings_pass_shared_contract_test_kit(
                         source="simplefold",
                     )
                 ],
-                ScoreCollection(
-                    "simplefold-native",
-                    [
-                        Score(
-                            "plddt",
-                            75.0,
-                            details={
-                                "per_residue": [70.0, 80.0],
-                                "sample_index": 0,
-                            },
-                        )
-                    ],
-                ),
+                [{"per_residue": [70.0, 80.0], "sample_index": 0}],
             )
 
     class ConfidenceClient:

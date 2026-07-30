@@ -15,6 +15,7 @@ import pytest
 from starlette.websockets import WebSocketDisconnect
 
 from core import (
+    ArtifactPayload,
     BehaviorReference,
     CatalogContract,
     EffectiveRandomnessResolver,
@@ -31,6 +32,7 @@ from core import (
     ReusableReadinessProof,
     builtin_frozen_catalog,
 )
+from modules.protein_io.package import MODULE_PACKAGE as PROTEIN_IO_PACKAGE
 from core.server import create_app
 import core.run_execution_v2 as run_execution_v2
 from protein_workbench_public import (
@@ -654,8 +656,7 @@ def _artifact_catalog(
     cacheable: bool = False,
 ) -> FrozenCatalog:
     builtin = builtin_frozen_catalog()
-    port_type_id = "file.path.collection" if collection else "file.path"
-    file_path = builtin.require_port_type(port_type_id, "2.0.0")
+    artifact_port_type = PROTEIN_IO_PACKAGE.port_types[0]
     method = _contract(
         "method",
         "test.artifact.method",
@@ -678,12 +679,15 @@ def _artifact_catalog(
             "inputs": [],
             "outputs": [{
                     "name": "structure",
-                    "port_type": file_path.reference(),
+                    "port_type": artifact_port_type.reference(),
                     "required": True,
-                    "multiplicity": "one",
+                    "multiplicity": "many" if collection else "one",
                     "scientific_meaning": "Published PDB structure",
                     **(
-                        {"artifact_kind": artifact_kind}
+                        {
+                            "artifact_kind": artifact_kind,
+                            "artifact_media_type": "chemical/x-pdb",
+                        }
                         if artifact_kind is not None
                         else {}
                     ),
@@ -745,15 +749,18 @@ def _artifact_catalog(
                 prefix="artifact-engine"
             ) as workspace:
                 calls.append(f"workspace:{workspace.name.startswith('artifact-engine-')}")
-            references = [
-                self._resources.write_artifact(
-                    f"models/result-{index}.pdb",
-                    payload,
+            payload_values = [
+                ArtifactPayload(
+                    body=payload,
+                    media_type="chemical/x-pdb",
+                    filename=f"result-{index}.pdb",
                 )
                 for index, payload in enumerate(artifact_payloads)
             ]
             return {
-                "structure": references if collection else references[0]
+                "structure": (
+                    payload_values if collection else payload_values[0]
+                )
             }
 
     def factory(**kwargs: Any) -> ArtifactImplementation:
@@ -761,7 +768,7 @@ def _artifact_catalog(
 
     observed_at = datetime(2026, 7, 29, 8, 0, tzinfo=timezone.utc)
     return FrozenCatalog(
-        builtin.port_types,
+        (*builtin.port_types, artifact_port_type),
         contracts=(method, node, binding),
         availability=(
             {

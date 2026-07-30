@@ -19,7 +19,7 @@ from pathlib import Path
 from typing import Any
 
 from core import ReadinessResult
-from core.provider_contract import (
+from modules.provider_contract import (
     SIMPLEFOLD_ARTIFACT_IDENTITIES,
     SIMPLEFOLD_ARTIFACT_SHA256,
     SIMPLEFOLD_ESM2_ARTIFACT_IDENTITIES,
@@ -89,7 +89,7 @@ def validated_simplefold_esm2_root(
     source_root: Path | None = None,
 ) -> Path:
     """Lazily cross the installed ESM2 source validator boundary."""
-    from modules.simplefold_adapter import (
+    from .simplefold_runtime import (
         validated_simplefold_esm2_root as validate,
     )
 
@@ -398,7 +398,7 @@ def _stage_file_set(
 
 
 def _stage_esm2_source(source_root: Path, destination_root: Path) -> Path:
-    from modules.simplefold_adapter import (
+    from .simplefold_runtime import (
         _stage_simplefold_esm2_source,
     )
 
@@ -600,7 +600,7 @@ def _native_existing_structure_confidence(
     import numpy as np
     import torch
 
-    from modules.simplefold_adapter import (
+    from .simplefold_runtime import (
         _restore_process_cwd,
         _setup_simplefold_imports,
     )
