@@ -63,3 +63,48 @@
   diff under `core/` is empty; this ticket adds no Core scoring logic.
 - Ticket 27 was not started. Ticket 26 remains `awaiting-controller` until
   the Controller independently runs the cumulative multi-ticket gate.
+
+## Executor repair evidence
+
+- Controller rejected executor revision
+  `74c4161011741778bf92ac0dc9b0a8169328a65a` after the cumulative routine
+  gate returned `2 failed, 1221 passed, 52 deselected`; retained failure:
+  `verification-results/routine/20260730T015429.530516Z-74646-bace01893cd3593e`.
+- `/diagnosing-bugs` isolated an existing cross-ticket race in the shared
+  prompt-authoring test helper: `PreparedPromptOperation.start()` called
+  `start_background()` and immediately read projection/events without
+  waiting for the durable Run terminal. Full-suite scheduling could therefore
+  expose `running` even though the same cases usually completed inside the
+  fast-run grace period.
+- Deterministic TDD RED blocks a real prompt Node with `threading.Event`,
+  fixes `FAST_RUN_COMPLETION_GRACE_SECONDS` to zero, and proves the old helper
+  returns a non-terminal projection. The fixed helper waits through
+  `wait_for_public_events()` until the ledger reports terminal; it adds no
+  polling sleep and preserves the real succeeded/failed outcome. Reviewer
+  differential verification produced `10/10 RED` for the old helper and
+  `10/10 GREEN` for the repair.
+- Repair commits: `ec5d3b5` and `5847fb6`. Clean repair implementation SHA:
+  `5847fb6a96d8cc6268ddc38abd81055905f03492`.
+- Prompt-authoring focused regression:
+  `uv run --no-sync pytest -q tests/test_prompt_authoring_prompt_v2.py
+  tests/test_prompt_authoring_behavior_v2.py
+  tests/test_prompt_stochastic_cache_v2.py` → `46 passed`.
+- Structure-comparison focused regression remained green:
+  `22 passed, 36 deselected`.
+- Tickets 01–26 v2 joint regression:
+  `uv run --no-sync pytest -q tests/*_v2.py` → `535 passed`.
+- Full routine gate:
+  `uv run --no-sync python scripts/verify_backend.py routine` →
+  `1224 passed, 52 deselected`; retained result
+  `verification-results/routine/20260730T021340.074396Z-92565-d5c61a1943a88482`.
+- Deterministic acceptance:
+  `uv run --no-sync python scripts/verify_backend.py
+  deterministic-acceptance` → `10 passed, 5 deselected`; retained result
+  `verification-results/deterministic-acceptance/20260730T021340.074690Z-92564-3374fb1c9b2e8ad5`.
+- Installed artifact:
+  `uv run --no-sync python scripts/verify_backend.py installed-package` →
+  `3 passed`; retained result
+  `verification-results/installed-package/20260730T021340.074396Z-92566-1244ef0a2c2bad79`.
+- Final `/code-review` Standards and Spec axes both report PASS with zero
+  CRITICAL/HIGH findings. The repair diff under `core/` is empty, Ticket 27
+  remains untouched, and Ticket 26 remains `awaiting-controller`.
