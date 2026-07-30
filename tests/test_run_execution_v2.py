@@ -38,6 +38,7 @@ from protein_workbench_public import (
     validate_response,
     validate_schema,
 )
+from tests.fixtures.public_v2 import wait_for_testclient_run_terminal
 
 
 def _contract(
@@ -992,12 +993,11 @@ def test_branch_failure_closes_every_disposition_and_unrelated_work_continues(
         )
         assert started.status_code == 202
         run_id = started.json()["run_id"]
-        projection = client.get(
-            f"/api/v2/projects/{project_id}/runs/{run_id}"
+        payload = wait_for_testclient_run_terminal(
+            client,
+            project_id=project_id,
+            run_id=run_id,
         )
-        assert projection.status_code == 200
-        validate_response("run_projection", 200, projection.json())
-        payload = projection.json()
         assert payload["status"] == "failed"
         assert [
             (
@@ -1098,10 +1098,11 @@ def test_failed_optional_input_does_not_block_a_node(
             },
         )
         assert started.status_code == 202
-        projection = client.get(
-            f"/api/v2/projects/{project_id}/runs/"
-            f"{started.json()['run_id']}"
-        ).json()
+        projection = wait_for_testclient_run_terminal(
+            client,
+            project_id=project_id,
+            run_id=started.json()["run_id"],
+        )
 
     assert [
         (item["node_id"], item["outcome"])
@@ -1154,9 +1155,11 @@ def test_started_engine_terminal_statuses_are_causally_closed(
         )
         assert started.status_code == 202
         run_id = started.json()["run_id"]
-        projection = client.get(
-            f"/api/v2/projects/{project_id}/runs/{run_id}"
-        ).json()
+        projection = wait_for_testclient_run_terminal(
+            client,
+            project_id=project_id,
+            run_id=run_id,
+        )
         events = app.state.run_execution_v2.public_events(project_id, run_id)
 
     assert projection["status"] == run_status
@@ -1221,9 +1224,11 @@ def test_pre_schedule_termination_has_disposition_without_false_attempt(
         )
         assert started.status_code == 202
         run_id = started.json()["run_id"]
-        projection = client.get(
-            f"/api/v2/projects/{project_id}/runs/{run_id}"
-        ).json()
+        projection = wait_for_testclient_run_terminal(
+            client,
+            project_id=project_id,
+            run_id=run_id,
+        )
         events = app.state.run_execution_v2.public_events(project_id, run_id)
 
     assert projection["status"] == outcome
@@ -1288,9 +1293,11 @@ def test_cache_replay_closes_only_the_scheduled_node_attempt(
         )
         assert started.status_code == 202
         run_id = started.json()["run_id"]
-        projection = client.get(
-            f"/api/v2/projects/{project_id}/runs/{run_id}"
-        ).json()
+        projection = wait_for_testclient_run_terminal(
+            client,
+            project_id=project_id,
+            run_id=run_id,
+        )
         events = app.state.run_execution_v2.public_events(project_id, run_id)
 
     assert projection["node_dispositions"] == [
@@ -1462,10 +1469,11 @@ def test_cache_boundary_failure_falls_back_to_causally_closed_execution(
             },
         )
         assert started.status_code == 202
-        projection = client.get(
-            f"/api/v2/projects/{project_id}/runs/"
-            f"{started.json()['run_id']}"
-        ).json()
+        projection = wait_for_testclient_run_terminal(
+            client,
+            project_id=project_id,
+            run_id=started.json()["run_id"],
+        )
 
     assert projection["status"] == "succeeded"
     assert projection["node_dispositions"][0]["resolution"] == "executed"
@@ -1475,6 +1483,70 @@ def test_cache_boundary_failure_falls_back_to_causally_closed_execution(
         "factory:test.direct.local",
         "execute:test.direct.local",
     ]
+
+
+def test_public_terminal_wait_helper_never_returns_a_running_projection(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    entered = threading.Event()
+    release = threading.Event()
+    returned = threading.Event()
+    projections: list[dict[str, Any]] = []
+    monkeypatch.setattr(
+        run_execution_v2,
+        "FAST_RUN_COMPLETION_GRACE_SECONDS",
+        0.0,
+    )
+    monkeypatch.setenv("PROTEIN_WORKBENCH_PROJECT_ROOT", str(tmp_path / "projects"))
+    monkeypatch.setenv("PROTEIN_WORKBENCH_RUN_ROOT", str(tmp_path / "runs"))
+    monkeypatch.setenv("PROTEIN_WORKBENCH_OUTPUT_ROOT", str(tmp_path / "outputs"))
+    app = create_app(
+        frozen_catalog_override=_direct_catalog(
+            [],
+            execution_gate=(entered, release),
+        ),
+        v2_environment_configuration={
+            ("test.direct.local", "2.0.0"): {
+                "values": {"credential": "credential-value"},
+            }
+        },
+    )
+
+    with TestClient(app) as client:
+        project_id, compiled = _compile_one_node(client)
+        started = client.post(
+            f"/api/v2/projects/{project_id}/runs",
+            json={
+                "workflow_revision": 2,
+                "compile_id": compiled["compile_id"],
+                "client_request_id": "terminal-wait-regression",
+            },
+        )
+        assert started.status_code == 202
+        assert entered.wait(timeout=2)
+
+        def wait_for_terminal() -> None:
+            projections.append(
+                wait_for_testclient_run_terminal(
+                    client,
+                    project_id=project_id,
+                    run_id=started.json()["run_id"],
+                )
+            )
+            returned.set()
+
+        waiter = threading.Thread(target=wait_for_terminal)
+        waiter.start()
+        try:
+            assert not returned.wait(timeout=0.2)
+        finally:
+            release.set()
+            waiter.join(timeout=5)
+
+    assert not waiter.is_alive()
+    assert len(projections) == 1
+    assert projections[0]["status"] == "succeeded"
 
 
 @pytest.mark.parametrize("invocation_count", (0, 2))
@@ -1509,6 +1581,11 @@ def test_one_operation_can_record_zero_or_multiple_engine_invocations(
             },
         )
         assert started.status_code == 202
+        wait_for_testclient_run_terminal(
+            client,
+            project_id,
+            started.json()["run_id"],
+        )
         events = app.state.run_execution_v2.public_events(
             project_id,
             started.json()["run_id"],
@@ -1564,27 +1641,27 @@ def test_public_start_run_binds_the_exact_compile_before_direct_execution(
         assert started.status_code == 202
         receipt = started.json()
         validate_response("start_run", 202, receipt)
-        projection = client.get(
-            f"/api/v2/projects/{project_id}/runs/{receipt['run_id']}"
+        projection = wait_for_testclient_run_terminal(
+            client,
+            project_id,
+            receipt["run_id"],
         )
-        assert projection.status_code == 200
-        validate_response("run_projection", 200, projection.json())
-        assert projection.json() == {
+        assert projection == {
             "project_id": project_id,
             "run_id": receipt["run_id"],
             "workflow_revision": 2,
             "workflow_digest": compiled["workflow_digest"],
             "compile_id": compiled["compile_id"],
             "status": "succeeded",
-            "terminal_sequence": projection.json()["terminal_sequence"],
-            "ledger_cursor": projection.json()["ledger_cursor"],
+            "terminal_sequence": projection["terminal_sequence"],
+            "ledger_cursor": projection["ledger_cursor"],
             "node_dispositions": [
                 {
                     "node_id": "direct",
                     "outcome": "succeeded",
                     "resolution": "executed",
                     "terminal_sequence": (
-                        projection.json()["node_dispositions"][0][
+                        projection["node_dispositions"][0][
                             "terminal_sequence"
                         ]
                     ),
@@ -1608,7 +1685,7 @@ def test_public_start_run_binds_the_exact_compile_before_direct_execution(
                         ).content_digest("READY")
                     ),
                     "result_identity": (
-                        projection.json()["outputs"][0]["result_identity"]
+                        projection["outputs"][0]["result_identity"]
                     ),
                     "materialization": {
                         "run_id": receipt["run_id"],
@@ -1617,7 +1694,7 @@ def test_public_start_run_binds_the_exact_compile_before_direct_execution(
                     "producer_provenance": {
                         "producer_run_id": receipt["run_id"],
                         "producer_result_identity": (
-                            projection.json()["outputs"][0][
+                            projection["outputs"][0][
                                 "result_identity"
                             ]
                         ),
@@ -2280,9 +2357,7 @@ def test_cleanup_failure_is_bounded_and_does_not_rewrite_engine_success(
         )
         assert response.status_code == 202
         run_id = response.json()["run_id"]
-        projection = client.get(
-            f"/api/v2/projects/{project_id}/runs/{run_id}"
-        ).json()
+        projection = wait_for_testclient_run_terminal(client, project_id, run_id)
         events = app.state.run_execution_v2.public_events(project_id, run_id)
 
     assert projection["status"] == "failed"
@@ -2326,13 +2401,14 @@ def test_connected_ports_publish_and_consume_only_canonical_validated_values(
                 "client_request_id": "canonical-port-boundary",
             },
         )
-        projection = client.get(
-            f"/api/v2/projects/{project_id}/runs/{started.json()['run_id']}"
+        projection = wait_for_testclient_run_terminal(
+            client,
+            project_id,
+            started.json()["run_id"],
         )
 
     assert started.status_code == 202
-    assert projection.status_code == 200
-    assert [output["values"] for output in projection.json()["outputs"]] == [
+    assert [output["values"] for output in projection["outputs"]] == [
         ["ready"],
         ["ready"],
     ]
@@ -2366,20 +2442,20 @@ def test_invalid_output_never_publishes_success_or_a_public_result(
             },
         )
         assert started.status_code == 202
-        projection = client.get(
-            f"/api/v2/projects/{project_id}/runs/"
-            f"{started.json()['run_id']}"
+        projection = wait_for_testclient_run_terminal(
+            client,
+            project_id,
+            started.json()["run_id"],
         )
 
-    assert projection.status_code == 200
-    assert projection.json()["status"] == "failed"
-    assert projection.json()["outputs"] == []
-    assert projection.json()["node_dispositions"] == [
+    assert projection["status"] == "failed"
+    assert projection["outputs"] == []
+    assert projection["node_dispositions"] == [
         {
             "node_id": "source",
             "outcome": "failed",
             "terminal_sequence": (
-                projection.json()["node_dispositions"][0][
+                projection["node_dispositions"][0][
                     "terminal_sequence"
                 ]
             ),
@@ -2389,7 +2465,7 @@ def test_invalid_output_never_publishes_success_or_a_public_result(
             "node_id": "sink",
             "outcome": "blocked",
             "terminal_sequence": (
-                projection.json()["node_dispositions"][1][
+                projection["node_dispositions"][1][
                     "terminal_sequence"
                 ]
             ),
@@ -2448,15 +2524,15 @@ def test_artifact_publication_requires_explicit_node_port_opt_in(
                 "client_request_id": "artifact-without-opt-in",
             },
         )
-        projection = client.get(
-            f"/api/v2/projects/{project_id}/runs/"
-            f"{response.json()['run_id']}"
+        projection = wait_for_testclient_run_terminal(
+            client,
+            project_id,
+            response.json()["run_id"],
         )
 
     assert response.status_code == 202
-    assert projection.status_code == 200
-    assert projection.json()["status"] == "failed"
-    assert projection.json()["artifact_index"] == []
+    assert projection["status"] == "failed"
+    assert projection["artifact_index"] == []
 
 
 def test_standalone_file_collection_projects_each_opaque_artifact(
@@ -2490,9 +2566,7 @@ def test_standalone_file_collection_projects_each_opaque_artifact(
         )
         assert started.status_code == 202
         run_id = started.json()["run_id"]
-        projection = client.get(
-            f"/api/v2/projects/{project_id}/runs/{run_id}"
-        ).json()
+        projection = wait_for_testclient_run_terminal(client, project_id, run_id)
         assert projection["outputs"] == []
         assert len(projection["artifact_index"]) == 2
         downloaded = [
@@ -2533,10 +2607,11 @@ def test_run_artifact_count_and_aggregate_size_are_bounded(
                 "client_request_id": "artifact-count-bound",
             },
         )
-        count_projection = client.get(
-            f"/api/v2/projects/{project_id}/runs/"
-            f"{count_response.json()['run_id']}"
-        ).json()
+        count_projection = wait_for_testclient_run_terminal(
+            client,
+            project_id,
+            count_response.json()["run_id"],
+        )
 
     assert count_response.status_code == 202
     assert count_projection["status"] == "failed"
@@ -2567,10 +2642,11 @@ def test_run_artifact_count_and_aggregate_size_are_bounded(
                 "client_request_id": "artifact-aggregate-bound",
             },
         )
-        aggregate_projection = client.get(
-            f"/api/v2/projects/{project_id}/runs/"
-            f"{aggregate_response.json()['run_id']}"
-        ).json()
+        aggregate_projection = wait_for_testclient_run_terminal(
+            client,
+            project_id,
+            aggregate_response.json()["run_id"],
+        )
 
     assert aggregate_response.status_code == 202
     assert aggregate_projection["status"] == "failed"
@@ -2612,11 +2688,11 @@ def test_success_ledger_projects_validated_events_and_opaque_artifact(
         )
         assert started.status_code == 202
         run_id = started.json()["run_id"]
-        projection = client.get(
-            f"/api/v2/projects/{project_id}/runs/{run_id}"
+        payload = wait_for_testclient_run_terminal(
+            client,
+            project_id,
+            run_id,
         )
-        assert projection.status_code == 200
-        payload = projection.json()
         assert payload["status"] == "succeeded"
         assert payload["outputs"] == []
         assert len(payload["artifact_index"]) == 1
@@ -2724,9 +2800,11 @@ def test_artifact_retrieval_rejects_cross_scope_tamper_and_symlink(
             },
         ).json()
         run_id = started["run_id"]
-        artifact = client.get(
-            f"/api/v2/projects/{project_id}/runs/{run_id}"
-        ).json()["artifact_index"][0]
+        artifact = wait_for_testclient_run_terminal(
+            client,
+            project_id,
+            run_id,
+        )["artifact_index"][0]
         reference = artifact["artifact_reference"]
 
         cross_scope = client.get(
@@ -2846,9 +2924,7 @@ def test_terminal_run_projection_and_events_rebuild_after_backend_restart(
         )
         assert started.status_code == 202
         run_id = started.json()["run_id"]
-        before = client.get(
-            f"/api/v2/projects/{project_id}/runs/{run_id}"
-        ).json()
+        before = wait_for_testclient_run_terminal(client, project_id, run_id)
         before_events = client.app.state.run_execution_v2.public_events(
             project_id,
             run_id,
@@ -2938,9 +3014,16 @@ def test_restart_isolates_one_damaged_ledger_without_hiding_healthy_runs(
                 "client_request_id": "damaged-ledger",
             },
         ).json()
-        healthy_projection = first.get(
-            f"/api/v2/projects/{healthy_project}/runs/{healthy['run_id']}"
-        ).json()
+        healthy_projection = wait_for_testclient_run_terminal(
+            first,
+            healthy_project,
+            healthy["run_id"],
+        )
+        wait_for_testclient_run_terminal(
+            first,
+            damaged_project,
+            damaged["run_id"],
+        )
 
     damaged_facts = sorted(
         (
@@ -3456,9 +3539,7 @@ def test_projection_failure_leaves_facts_intact_and_restart_rebuilds_outputs(
             },
         ).json()
         run_id = started["run_id"]
-        projection = client.get(
-            f"/api/v2/projects/{project_id}/runs/{run_id}"
-        ).json()
+        projection = wait_for_testclient_run_terminal(client, project_id, run_id)
         assert projection["status"] == "succeeded"
         repaired_events = client.app.state.run_execution_v2.public_events(
             project_id,

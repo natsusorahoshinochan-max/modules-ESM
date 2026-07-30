@@ -23,6 +23,7 @@ from core import (
 from core.server import create_app
 import core.run_execution_v2 as run_execution_v2
 from datatypes import Candidate, CandidateCollection, ProteinSequence
+from tests.fixtures.public_v2 import wait_for_testclient_run_terminal
 from tests.test_run_execution_v2 import (
     _artifact_catalog,
     _compile_artifact_node,
@@ -50,9 +51,7 @@ def _start_run(
     )
     assert started.status_code == 202
     run_id = started.json()["run_id"]
-    projection = client.get(
-        f"/api/v2/projects/{project_id}/runs/{run_id}"
-    ).json()
+    projection = wait_for_testclient_run_terminal(client, project_id, run_id)
     events = client.app.state.run_execution_v2.public_events(
         project_id,
         run_id,
@@ -569,9 +568,11 @@ def test_candidate_identity_is_run_independent_and_preserved_on_replay(
             },
         )
         assert forced.status_code == 202
-        forced_projection = client.get(
-            f"/api/v2/projects/{project_id}/runs/{forced.json()['run_id']}"
-        ).json()
+        forced_projection = wait_for_testclient_run_terminal(
+            client,
+            project_id,
+            forced.json()["run_id"],
+        )
         replayed, _ = _start_run(
             client,
             project_id,
@@ -1581,9 +1582,11 @@ def test_conflicting_output_for_one_result_identity_fails_without_overwrite(
         )
         assert forced.status_code == 202
         forced_run_id = forced.json()["run_id"]
-        projection = client.get(
-            f"/api/v2/projects/{project_id}/runs/{forced_run_id}"
-        ).json()
+        projection = wait_for_testclient_run_terminal(
+            client,
+            project_id,
+            forced_run_id,
+        )
         events = client.app.state.run_execution_v2.public_events(
             project_id,
             forced_run_id,

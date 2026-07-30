@@ -11,6 +11,7 @@ from core import build_frozen_catalog
 from core.server import create_app
 from modules.prompt_authoring.package import MODULE_PACKAGE
 from protein_workbench_public import validate_response
+from tests.fixtures.public_v2 import wait_for_testclient_run_terminal
 from tests.fixtures.prompt_authoring_sources.package import (
     MODULE_PACKAGE as SOURCE_PACKAGE,
 )
@@ -103,15 +104,15 @@ def test_stochastic_prompt_authoring_executes_through_public_rest(
         )
         assert started.status_code == 202
         validate_response("start_run", 202, started.json())
-        projection = client.get(
-            f"/api/v2/projects/{project_id}/runs/{started.json()['run_id']}"
+        projection = wait_for_testclient_run_terminal(
+            client,
+            project_id=project_id,
+            run_id=started.json()["run_id"],
         )
-        assert projection.status_code == 200
-        validate_response("run_projection", 200, projection.json())
 
-    assert projection.json()["status"] == "succeeded"
+    assert projection["status"] == "succeeded"
     assert any(
         output["node_id"] == "mask"
         and output["output_port"] == "protein_prompt"
-        for output in projection.json()["outputs"]
+        for output in projection["outputs"]
     )

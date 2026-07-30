@@ -35,6 +35,7 @@ from tests.fixtures.zero_core_packages.synthetic_echo.tests.cases import (
     EXECUTION_CASE,
     PORT_CASE,
 )
+from tests.fixtures.public_v2 import wait_for_testclient_run_terminal
 from tests.fixtures.zero_core_packages.synthetic_echo.tests.invalid_registrations import (
     FALSE_READINESS_PACKAGE,
     INCOMPLETE_PROVENANCE_PACKAGE,
@@ -257,12 +258,11 @@ def test_source_public_journey_discovers_compiles_executes_replays_and_retrieves
             expected_status=202,
         )
         run_id = started.json()["run_id"]
-        projection = public_request(
-            "run_projection",
-            {"project_id": project_id, "run_id": run_id},
-            expected_status=200,
+        payload = wait_for_testclient_run_terminal(
+            client,
+            project_id=project_id,
+            run_id=run_id,
         )
-        payload = projection.json()
         assert payload["status"] == "succeeded"
         assert {
             output["output_port"]: output["values"]
@@ -307,15 +307,12 @@ def test_source_public_journey_discovers_compiles_executes_replays_and_retrieves
             },
             expected_status=202,
         )
-        derived_projection = public_request(
-            "run_projection",
-            {
-                "project_id": project_id,
-                "run_id": derived.json()["run_id"],
-            },
-            expected_status=200,
+        derived_projection = wait_for_testclient_run_terminal(
+            client,
+            project_id=project_id,
+            run_id=derived.json()["run_id"],
         )
-        assert derived_projection.json()["derived_from_run_id"] == run_id
+        assert derived_projection["derived_from_run_id"] == run_id
         stream_request = prepare_run_event_stream_request(
             {"project_id": project_id, "run_id": run_id}
         )

@@ -16,6 +16,7 @@ from core import ResultReplayHit, ResultReplaySource
 import core.run_execution_v2 as run_execution_v2
 from core.server import create_app
 from protein_workbench_public import validate_response
+from tests.fixtures.public_v2 import wait_for_testclient_run_terminal
 from tests.test_run_execution_v2 import (
     _artifact_catalog,
     _compile_artifact_node,
@@ -51,17 +52,7 @@ def _wait_terminal(
     project_id: str,
     run_id: str,
 ) -> dict[str, Any]:
-    deadline = time.monotonic() + 5
-    while time.monotonic() < deadline:
-        response = client.get(
-            f"/api/v2/projects/{project_id}/runs/{run_id}"
-        )
-        assert response.status_code == 200
-        projection = response.json()
-        if projection["status"] not in {"admitted", "running"}:
-            return projection
-        time.sleep(0.01)
-    raise AssertionError("Run did not reach a terminal projection")
+    return wait_for_testclient_run_terminal(client, project_id, run_id)
 
 
 def _facts(app: Any, project_id: str, run_id: str) -> list[dict[str, Any]]:

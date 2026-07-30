@@ -14,6 +14,7 @@ from protein_workbench_public import (
     validate_artifact_response,
     validate_response,
 )
+from tests.fixtures.public_v2 import wait_for_testclient_run_terminal
 
 
 VERSION = "2.0.0"
@@ -264,14 +265,11 @@ def test_public_import_transform_export_keeps_artifacts_run_bound(
             },
             202,
         ).json()
-        projection = public_request(
-            "run_projection",
-            {
-                "project_id": project_id,
-                "run_id": started["run_id"],
-            },
-            200,
-        ).json()
+        projection = wait_for_testclient_run_terminal(
+            client,
+            project_id=project_id,
+            run_id=started["run_id"],
+        )
 
         assert projection["status"] == "succeeded"
         artifacts = projection["artifact_index"]

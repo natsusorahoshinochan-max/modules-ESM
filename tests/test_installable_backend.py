@@ -31,6 +31,7 @@ from protein_workbench_public import (
     validate_event,
     validate_response,
 )
+from tests.fixtures.public_v2 import wait_for_network_run_terminal
 
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
@@ -472,6 +473,20 @@ assert sorted(item.module_id for item in registry.list_all()) == {expected}
             validate_response(operation_id, status, result)
             return result
 
+        def wait_terminal(run_id: str) -> dict:
+            return wait_for_network_run_terminal(
+                websocket_origin=f"ws://127.0.0.1:{port}",
+                project_id=project_id,
+                run_id=run_id,
+                fetch_projection=lambda: request_json(
+                    "run_projection",
+                    {
+                        "project_id": project_id,
+                        "run_id": run_id,
+                    },
+                ),
+            )
+
         installed_catalog = request_json("catalog_snapshot", {})
         assert installed_catalog["catalog_contract_digest"] == (
             SOURCE_ZERO_CORE_CATALOG_DIGEST
@@ -563,13 +578,7 @@ assert sorted(item.module_id for item in registry.list_all()) == {expected}
             },
             expected_status=202,
         )
-        projection = request_json(
-            "run_projection",
-            {
-                "project_id": project_id,
-                "run_id": started["run_id"],
-            },
-        )
+        projection = wait_terminal(started["run_id"])
         assert projection["status"] == "succeeded"
         assert projection["compile_id"] == compiled["compile_id"]
         assert projection["workflow_revision"] == 2
@@ -632,13 +641,7 @@ assert sorted(item.module_id for item in registry.list_all()) == {expected}
             },
             expected_status=202,
         )
-        derived_projection = request_json(
-            "run_projection",
-            {
-                "project_id": project_id,
-                "run_id": derived["run_id"],
-            },
-        )
+        derived_projection = wait_terminal(derived["run_id"])
         assert derived_projection["derived_from_run_id"] == started["run_id"]
 
         block_marker.write_text("block")

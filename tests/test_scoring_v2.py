@@ -46,6 +46,7 @@ from datatypes import (
     ScoreCollection,
     ScoreObservation,
 )
+from tests.fixtures.public_v2 import wait_for_testclient_run_terminal
 
 
 def _contract(
@@ -1185,14 +1186,12 @@ def test_run_executes_objectives_and_publishes_effective_provenance(
             },
         )
         assert started.status_code == 202
-        projection_response = client.get(
-            f"/api/v2/projects/{project_id}/runs/"
-            f"{started.json()['run_id']}"
+        projection = wait_for_testclient_run_terminal(
+            client,
+            project_id,
+            started.json()["run_id"],
         )
 
-    assert projection_response.status_code == 200
-    projection = projection_response.json()
-    validate_response("run_projection", 200, projection)
     assert projection["status"] == "succeeded"
     candidate_output = next(
         output
@@ -1328,8 +1327,10 @@ def test_selection_failure_is_public_and_survives_ledger_reload(
             },
         )
         run_id = started.json()["run_id"]
-        projection_response = client.get(
-            f"/api/v2/projects/{project_id}/runs/{run_id}"
+        projection = wait_for_testclient_run_terminal(
+            client,
+            project_id,
+            run_id,
         )
         with client.websocket_connect(
             f"/api/v2/projects/{project_id}/runs/{run_id}/events"
@@ -1341,9 +1342,6 @@ def test_selection_failure_is_public_and_survives_ledger_reload(
             except WebSocketDisconnect as closed:
                 assert closed.code == 1000
 
-    assert projection_response.status_code == 200
-    projection = projection_response.json()
-    validate_response("run_projection", 200, projection)
     assert projection["status"] == "failed"
     assert projection["selection_results"] == []
     assert projection["selection_error"]["code"] == "selection_failed"

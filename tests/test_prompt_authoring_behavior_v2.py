@@ -22,6 +22,7 @@ from tests.fixtures.prompt_authoring_v2 import (
     run_operation,
     wire_value,
 )
+from tests.fixtures.public_v2 import wait_for_testclient_run_terminal
 
 
 def _author_output(projection: dict[str, Any]) -> dict[str, Any]:
@@ -523,14 +524,11 @@ def test_prompt_authoring_executes_through_the_public_protocol(
             },
             202,
         ).json()
-        projection = public_request(
-            "run_projection",
-            {
-                "project_id": project_id,
-                "run_id": started["run_id"],
-            },
-            200,
-        ).json()
+        projection = wait_for_testclient_run_terminal(
+            client,
+            project_id=project_id,
+            run_id=started["run_id"],
+        )
 
     assert projection["status"] == "succeeded"
     output = next(
