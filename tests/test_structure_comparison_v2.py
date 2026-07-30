@@ -122,7 +122,7 @@ def _alignment() -> StructureAlignmentEvidence:
     )
 
 
-def test_structure_comparison_is_one_package_with_three_nodes() -> None:
+def test_structure_comparison_is_one_package_with_five_nodes() -> None:
     registrations = {
         registration.package_id: registration
         for registration in discover_module_packages()
@@ -136,6 +136,8 @@ def test_structure_comparison_is_one_package_with_three_nodes() -> None:
         "definitions/align_single.yaml",
         "definitions/align_pairwise.yaml",
         "definitions/rmsd.yaml",
+        "definitions/tm_score.yaml",
+        "definitions/batch_tm_score.yaml",
     }
 
     catalog = build_discovered_frozen_catalog()
@@ -149,6 +151,8 @@ def test_structure_comparison_is_one_package_with_three_nodes() -> None:
         ("structure_comparison.align_single", VERSION),
         ("structure_comparison.align_pairwise", VERSION),
         ("structure_comparison.rmsd", VERSION),
+        ("structure_comparison.tm_score", VERSION),
+        ("structure_comparison.batch_tm_score", VERSION),
     }
 
 
@@ -668,13 +672,22 @@ def _source_node(scenario: str) -> WorkflowNodeInstance:
     )
 
 
-def _alignment_node(pairwise: bool) -> WorkflowNodeInstance:
+def _alignment_node(
+    pairwise: bool,
+    *,
+    fixed_reference: bool = False,
+) -> WorkflowNodeInstance:
     operation = "align_pairwise" if pairwise else "align_single"
+    binding_suffix = (
+        "fixed_reference"
+        if pairwise and fixed_reference
+        else "direct"
+    )
     return WorkflowNodeInstance(
         node_id="alignment-source",
         node_type_id=f"structure_comparison.{operation}",
         node_type_version=VERSION,
-        binding_id=f"structure_comparison.{operation}.direct",
+        binding_id=f"structure_comparison.{operation}.{binding_suffix}",
         binding_version=VERSION,
         node_parameters={},
         binding_parameters={},
@@ -686,8 +699,10 @@ def test_structure_comparison_passes_ctk_for_all_nodes_and_bindings(
 ) -> None:
     single_source = _source_node("single")
     paired_source = _source_node("paired")
+    fixed_source = _source_node("fixed_batch")
     single_alignment = _alignment_node(False)
     paired_alignment = _alignment_node(True)
+    fixed_alignment = _alignment_node(True, fixed_reference=True)
     source_to_single = (
         WorkflowEdge("source", "subjects", "contract-test-node", "subjects"),
         WorkflowEdge(
@@ -701,6 +716,7 @@ def test_structure_comparison_passes_ctk_for_all_nodes_and_bindings(
         *source_to_single,
         WorkflowEdge("source", "pairing", "contract-test-node", "pairing"),
     )
+    source_to_fixed = source_to_single
     cases = (
         ModulePackageContractCase(
             case_id="structure-comparison-align-single",
@@ -729,6 +745,22 @@ def test_structure_comparison_passes_ctk_for_all_nodes_and_bindings(
             invalidation_token="structure-comparison-ctk-v1",
             workflow_nodes=(paired_source,),
             workflow_edges=source_to_paired,
+        ),
+        ModulePackageContractCase(
+            case_id="structure-comparison-align-fixed-reference",
+            node_type_id="structure_comparison.align_pairwise",
+            node_type_version=VERSION,
+            binding_id=(
+                "structure_comparison.align_pairwise.fixed_reference"
+            ),
+            binding_version=VERSION,
+            node_parameters={},
+            binding_parameters={},
+            environment_values={},
+            safe_environment_fingerprint="provider-free",
+            invalidation_token="structure-comparison-ctk-v1",
+            workflow_nodes=(fixed_source,),
+            workflow_edges=source_to_fixed,
         ),
         ModulePackageContractCase(
             case_id="structure-comparison-rmsd-fixed",
@@ -808,6 +840,122 @@ def test_structure_comparison_passes_ctk_for_all_nodes_and_bindings(
             ),
             expected_observation_counts={"scores": 2},
         ),
+        ModulePackageContractCase(
+            case_id="structure-comparison-tm-score-single",
+            node_type_id="structure_comparison.tm_score",
+            node_type_version=VERSION,
+            binding_id="structure_comparison.tm_score.fixed_reference",
+            binding_version=VERSION,
+            node_parameters={},
+            binding_parameters={},
+            environment_values={},
+            safe_environment_fingerprint="provider-free",
+            invalidation_token="structure-comparison-ctk-v1",
+            workflow_nodes=(single_source, single_alignment),
+            workflow_edges=(
+                WorkflowEdge(
+                    "source",
+                    "subjects",
+                    "alignment-source",
+                    "subjects",
+                ),
+                WorkflowEdge(
+                    "source",
+                    "references",
+                    "alignment-source",
+                    "references",
+                ),
+                WorkflowEdge(
+                    "alignment-source",
+                    "alignment",
+                    "contract-test-node",
+                    "alignment",
+                ),
+                *source_to_single,
+            ),
+            expected_observation_counts={"scores": 1},
+        ),
+        ModulePackageContractCase(
+            case_id="structure-comparison-batch-tm-score-fixed",
+            node_type_id="structure_comparison.batch_tm_score",
+            node_type_version=VERSION,
+            binding_id=(
+                "structure_comparison.batch_tm_score.fixed_reference"
+            ),
+            binding_version=VERSION,
+            node_parameters={},
+            binding_parameters={},
+            environment_values={},
+            safe_environment_fingerprint="provider-free",
+            invalidation_token="structure-comparison-ctk-v1",
+            workflow_nodes=(fixed_source, fixed_alignment),
+            workflow_edges=(
+                WorkflowEdge(
+                    "source",
+                    "subjects",
+                    "alignment-source",
+                    "subjects",
+                ),
+                WorkflowEdge(
+                    "source",
+                    "references",
+                    "alignment-source",
+                    "references",
+                ),
+                WorkflowEdge(
+                    "alignment-source",
+                    "alignments",
+                    "contract-test-node",
+                    "alignments",
+                ),
+                *source_to_fixed,
+            ),
+            expected_observation_counts={"scores": 2},
+        ),
+        ModulePackageContractCase(
+            case_id="structure-comparison-batch-tm-score-paired",
+            node_type_id="structure_comparison.batch_tm_score",
+            node_type_version=VERSION,
+            binding_id=(
+                "structure_comparison.batch_tm_score."
+                "per_subject_counterpart"
+            ),
+            binding_version=VERSION,
+            node_parameters={},
+            binding_parameters={},
+            environment_values={},
+            safe_environment_fingerprint="provider-free",
+            invalidation_token="structure-comparison-ctk-v1",
+            workflow_nodes=(paired_source, paired_alignment),
+            workflow_edges=(
+                WorkflowEdge(
+                    "source",
+                    "subjects",
+                    "alignment-source",
+                    "subjects",
+                ),
+                WorkflowEdge(
+                    "source",
+                    "references",
+                    "alignment-source",
+                    "references",
+                ),
+                WorkflowEdge(
+                    "source",
+                    "pairing",
+                    "alignment-source",
+                    "pairing",
+                ),
+                WorkflowEdge(
+                    "alignment-source",
+                    "alignments",
+                    "contract-test-node",
+                    "alignments",
+                ),
+                *source_to_paired,
+            ),
+            expected_observation_counts={"scores": 2},
+        ),
     )
     alignment = _alignment()
     collection = StructureAlignmentEvidenceCollection(
@@ -842,6 +990,10 @@ def test_structure_comparison_passes_ctk_for_all_nodes_and_bindings(
 
     assert report.package_id == "structure_comparison"
     assert [case.status for case in report.case_reports] == [
+        "succeeded",
+        "succeeded",
+        "succeeded",
+        "succeeded",
         "succeeded",
         "succeeded",
         "succeeded",

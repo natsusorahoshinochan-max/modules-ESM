@@ -20,9 +20,9 @@ inputs:
   - name: pairing
     port_type_id: candidate.pairing
     port_type_version: "2.0.0"
-    required: true
+    required: false
     multiplicity: one
-    scientific_meaning: Complete one-to-one exact Candidate identity and content-digest mapping between subjects and references.
+    scientific_meaning: Complete one-to-one exact Candidate identity and content-digest mapping required by the direct counterpart Binding and omitted by the fixed-reference Binding.
 outputs:
   - name: alignments
     port_type_id: structure_comparison.alignment_collection

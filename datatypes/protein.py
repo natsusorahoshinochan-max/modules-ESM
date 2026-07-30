@@ -249,15 +249,33 @@ class PairwiseObservationContext:
     pairing_mode: str
     normalization: str
     kind: str = "pairwise"
+    evidence_content_digest: str | None = None
+    evidence_method: ExactContractReference | None = None
+    normalization_length: int | None = None
+    aligned_atom_count: int | None = None
 
     def to_public(self) -> dict[str, object]:
-        return {
+        value: dict[str, object] = {
             "kind": self.kind,
             "subject": self.subject.to_public(),
             "reference": self.reference.to_public(),
             "pairing_mode": self.pairing_mode,
             "normalization": self.normalization,
         }
+        if self.evidence_content_digest is not None:
+            value["evidence_content_digest"] = self.evidence_content_digest
+        if self.evidence_method is not None:
+            value["evidence_method"] = {
+                "contract_kind": self.evidence_method.contract_kind,
+                "contract_id": self.evidence_method.contract_id,
+                "contract_version": self.evidence_method.contract_version,
+                "contract_digest": self.evidence_method.contract_digest,
+            }
+        if self.normalization_length is not None:
+            value["normalization_length"] = self.normalization_length
+        if self.aligned_atom_count is not None:
+            value["aligned_atom_count"] = self.aligned_atom_count
+        return value
 
 
 @dataclass(frozen=True, slots=True)

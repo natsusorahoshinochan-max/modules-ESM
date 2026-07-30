@@ -37,6 +37,7 @@ from .implementation import StructureComparisonImplementation
 _VERSION = "2.0.0"
 _DIGEST = re.compile(r"^sha256:[0-9a-f]{64}$")
 _NORMALIZATION = "ca-correspondence-mean-square-angstrom"
+_TM_SCORE_NORMALIZATION = "standard-reference-residue-count"
 _BIOPYTHON_VERSION = version("biopython")
 _NUMPY_VERSION = version("numpy")
 _TMTOOLS_VERSION = version("tmtools")
@@ -499,8 +500,22 @@ def _validate_collection(value: object) -> None:
     if (
         type(value) is not StructureAlignmentEvidenceCollection
         or value.schema_version != _VERSION
-        or value.pairing_source != "candidate.pairing@2.0.0"
-        or value.accepted_cardinality != "one_to_one_complete"
+        or (
+            (
+                value.pairing_source,
+                value.accepted_cardinality,
+            )
+            not in {
+                (
+                    "candidate.pairing@2.0.0",
+                    "one_to_one_complete",
+                ),
+                (
+                    "fixed_reference.singleton@2.0.0",
+                    "many_to_one_complete",
+                ),
+            }
+        )
         or type(value.alignments) is not tuple
         or not value.alignments
     ):
@@ -513,7 +528,10 @@ def _validate_collection(value: object) -> None:
         subject_digest = alignment.subject.content_digest
         reference_id = alignment.reference.candidate_id
         reference_digest = alignment.reference.content_digest
-        if subject_id in subjects or reference_id in references:
+        if subject_id in subjects or (
+            value.accepted_cardinality == "one_to_one_complete"
+            and reference_id in references
+        ):
             raise ValueError(
                 "alignment collection is not complete one-to-one evidence"
             )
@@ -522,6 +540,13 @@ def _validate_collection(value: object) -> None:
     if set(subjects).intersection(references):
         raise ValueError(
             "alignment collection reuses Candidate identities across roles"
+        )
+    if (
+        value.accepted_cardinality == "many_to_one_complete"
+        and len(references) != 1
+    ):
+        raise ValueError(
+            "fixed-reference alignment collection requires one exact reference"
         )
 
 
@@ -613,7 +638,8 @@ def _method_definition(operation: str) -> MethodDefinition:
                 "transform": "subject-to-reference-row-vector",
             },
         )
-    return MethodDefinition(
+    if operation == "rmsd":
+        return MethodDefinition(
         method_id="structure_comparison.rmsd.method",
         version=_VERSION,
         algorithm_identity={
@@ -631,6 +657,34 @@ def _method_definition(operation: str) -> MethodDefinition:
         },
         source_identity={"kind": "repository-owned"},
         scale_contract={"unit": "angstrom"},
+        )
+    return MethodDefinition(
+        method_id="structure_comparison.tm_score.reference_normalized.method",
+        version=_VERSION,
+        algorithm_identity={
+            "name": "standard-reference-normalized-tm-score",
+            "correspondence": "structure_comparison.alignment@2.0.0",
+            "optimization": "tmtools.tm_align-fixed-correspondence",
+            "formula": "sum(1/(1+(distance/d0)^2))/reference_residue_count",
+            "d0": "max(0.5,1.24*(reference_residue_count-15)^(1/3)-1.8)",
+        },
+        model_identity={"kind": "none"},
+        checkpoint_identity={"kind": "none"},
+        featurization_identity={
+            "input": "structure_comparison.alignment@2.0.0",
+            "atom_selection": "CA",
+            "normalization": _TM_SCORE_NORMALIZATION,
+        },
+        source_identity={
+            "kind": "repository-owned",
+            "engine_api": "tmtools.tm_align",
+            "tmtools_version": _TMTOOLS_VERSION,
+        },
+        scale_contract={
+            "unit": "dimensionless",
+            "canonical_range": [0, 1],
+            "reference_normalization": "exact-reference-residue-count",
+        },
     )
 
 
@@ -639,31 +693,42 @@ def _binding(
     *,
     pairing_mode: str | None = None,
 ) -> ExecutionBindingDefinition:
-    node_id = (
-        f"structure_comparison.{operation}"
-        if operation != "rmsd"
-        else "structure_comparison.rmsd"
-    )
+    node_id = f"structure_comparison.{operation}"
     binding_suffix = (
         pairing_mode
-        if operation == "rmsd"
+        if operation
+        in {"align_pairwise", "rmsd", "tm_score", "batch_tm_score"}
+        and pairing_mode is not None
         else "direct"
     )
     method_id = (
         "structure_comparison.rmsd.method"
         if operation == "rmsd"
+        else "structure_comparison.tm_score.reference_normalized.method"
+        if operation in {"tm_score", "batch_tm_score"}
         else "structure_comparison.ca_sequence_svd.method"
     )
     produced = ()
-    if operation == "rmsd":
+    if operation in {"rmsd", "tm_score", "batch_tm_score"}:
         assert pairing_mode is not None
+        partition = (
+            "structure_comparison.rmsd"
+            if operation == "rmsd"
+            else "structure_comparison.tm_score.single"
+            if operation == "tm_score"
+            else f"structure_comparison.tm_score.{pairing_mode}"
+        )
         produced = (
             ProducedObservationDefinition(
                 output_port="scores",
-                output_partition="structure_comparison.rmsd",
+                output_partition=partition,
                 metric=ContractIdentity(
                     "metric",
-                    "structure_comparison.rmsd",
+                    (
+                        "structure_comparison.rmsd"
+                        if operation == "rmsd"
+                        else "structure_comparison.tm_score"
+                    ),
                     _VERSION,
                 ),
                 context_profile={
@@ -671,7 +736,11 @@ def _binding(
                     "subject_role": "subject",
                     "reference_role": "reference",
                     "pairing_mode": pairing_mode,
-                    "normalization": _NORMALIZATION,
+                    "normalization": (
+                        _NORMALIZATION
+                        if operation == "rmsd"
+                        else _TM_SCORE_NORMALIZATION
+                    ),
                 },
                 subject_grain="candidate",
                 source_role="subject",
@@ -786,6 +855,7 @@ def _port_type(
 
 _ALIGNMENT_METHOD_DEFINITION = _method_definition("alignment")
 _RMSD_METHOD_DEFINITION = _method_definition("rmsd")
+_TM_SCORE_METHOD_DEFINITION = _method_definition("tm_score")
 _ALIGNMENT_METHOD_DIGEST = CatalogContract(
     contract_kind="method",
     contract_id=_ALIGNMENT_METHOD_DEFINITION.method_id,
@@ -803,19 +873,30 @@ MODULE_PACKAGE = ModulePackageRegistration(
         DefinitionResource("definitions/align_single.yaml"),
         DefinitionResource("definitions/align_pairwise.yaml"),
         DefinitionResource("definitions/rmsd.yaml"),
+        DefinitionResource("definitions/tm_score.yaml"),
+        DefinitionResource("definitions/batch_tm_score.yaml"),
     ),
     metric_definitions=(
         DefinitionResource("definitions/rmsd_metric.yaml"),
+        DefinitionResource("definitions/tm_score_metric.yaml"),
     ),
     methods=(
         _ALIGNMENT_METHOD_DEFINITION,
         _RMSD_METHOD_DEFINITION,
+        _TM_SCORE_METHOD_DEFINITION,
     ),
     bindings=(
         _binding("align_single"),
         _binding("align_pairwise"),
+        _binding("align_pairwise", pairing_mode="fixed_reference"),
         _binding("rmsd", pairing_mode="fixed_reference"),
         _binding("rmsd", pairing_mode="per_subject_counterpart"),
+        _binding("tm_score", pairing_mode="fixed_reference"),
+        _binding("batch_tm_score", pairing_mode="fixed_reference"),
+        _binding(
+            "batch_tm_score",
+            pairing_mode="per_subject_counterpart",
+        ),
     ),
     port_types=(
         _port_type(

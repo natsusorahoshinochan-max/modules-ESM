@@ -4,7 +4,7 @@
 
 **Blocked by:** 26 — Consolidate alignment and RMSD.
 
-**Status:** ready-for-agent
+**Status:** in-progress
 
 - [ ] Single and batch TM-score each have one v2 Node Definition in the existing `structure_comparison` package and consume the explicit alignment evidence contract.
 - [ ] TM-score is a declared pairwise Metric with exact Method, canonical range, direction, context roles, and reference-normalization semantics rather than a caller-provided `score_id`.

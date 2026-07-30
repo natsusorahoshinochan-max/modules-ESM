@@ -1,0 +1,46 @@
+schema_version: "2.0.0"
+metric_id: structure_comparison.tm_score
+version: "2.0.0"
+title: Template modelling score
+description: Standard pairwise TM-score optimized over one explicit residue correspondence and normalized by the exact reference residue count.
+value_shape: scalar
+unit: dimensionless
+direction: higher_is_better
+canonical_range:
+  minimum: 0
+  maximum: 1
+granularity: candidate
+aggregation_semantics:
+  kind: none
+observation_context_schema:
+  type: object
+  properties:
+    kind:
+      const: pairwise
+    subject_role:
+      const: subject
+    reference_role:
+      const: reference
+    pairing_mode:
+      enum: [fixed_reference, per_subject_counterpart]
+    normalization:
+      const: standard-reference-residue-count
+    evidence_content_digest:
+      type: string
+    evidence_method:
+      type: object
+    normalization_length:
+      type: integer
+    aligned_atom_count:
+      type: integer
+  required:
+    - kind
+    - subject_role
+    - reference_role
+    - pairing_mode
+    - normalization
+  additionalProperties: false
+validation_contract:
+  finite: true
+  minimum: 0
+  maximum: 1

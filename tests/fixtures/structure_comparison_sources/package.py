@@ -27,7 +27,7 @@ from datatypes import (
 
 
 _VERSION = "2.0.0"
-_RESIDUES = ("ALA", "GLY", "SER")
+_RESIDUES = ("ALA", "GLY", "SER", "THR")
 _RESIDUE_NAMES = {
     "A": "ALA",
     "G": "GLY",
@@ -88,6 +88,23 @@ _SUBJECT_B = _pdb(
     ((-4.0, 6.0, 2.0), (-1.0, 6.0, 2.0), (-4.0, 8.0, 2.0)),
     chain="B",
 )
+_FIXED_REFERENCE = _pdb(
+    (
+        (0.0, 0.0, 0.0),
+        (2.0, 0.0, 0.0),
+        (0.0, 3.0, 0.0),
+        (2.0, 3.0, 1.0),
+    ),
+    chain="R",
+)
+_FIXED_SUBJECT_A = _pdb(
+    ((5.0, -2.0, 1.0), (7.0, -2.0, 1.0), (5.0, 1.0, 1.0)),
+    chain="A",
+)
+_FIXED_SUBJECT_B = _pdb(
+    ((-4.0, 6.0, 2.0), (-2.0, 6.0, 2.0), (-4.0, 9.0, 2.0)),
+    chain="B",
+)
 _INCOMPATIBLE = ProteinStructure(
     pdb_string="HEADER    NO COORDINATES\nEND\n",
     source="contract-test",
@@ -122,6 +139,7 @@ class _Source:
             not in {
                 "single",
                 "paired",
+                "fixed_batch",
                 "failing_pair",
                 "conflicting_pairing",
                 "ambiguous",
@@ -139,6 +157,15 @@ class _Source:
                 ("reference-ambiguous", _AMBIGUOUS_REFERENCE),
             )
             pairs = (("subject-ambiguous", "reference-ambiguous"),)
+        elif scenario == "fixed_batch":
+            subject_values = (
+                ("subject-fixed-a", _FIXED_SUBJECT_A),
+                ("subject-fixed-b", _FIXED_SUBJECT_B),
+            )
+            reference_values = (
+                ("reference-fixed", _FIXED_REFERENCE),
+            )
+            pairs = ()
         else:
             subject_values = (
                 ("subject-a", _SUBJECT_A),
