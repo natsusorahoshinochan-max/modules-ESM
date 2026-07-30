@@ -424,6 +424,61 @@ def test_reference_normalization_must_match_exact_candidate_content() -> None:
         )
     assert resources.invocations == []
 
+    batch_source = implementation(
+        SOURCE_PACKAGE,
+        "contract_test.structure_comparison_source.direct",
+    ).execute(
+        inputs={},
+        node_parameters={"scenario": "fixed_batch"},
+        binding_parameters={},
+    )
+    alignments = implementation(
+        STRUCTURE_COMPARISON_PACKAGE,
+        "structure_comparison.align_pairwise.fixed_reference",
+    ).execute(
+        inputs={
+            "subjects": batch_source["subjects"],
+            "references": batch_source["references"],
+        },
+        node_parameters={},
+        binding_parameters={},
+    )["alignments"]
+    second = alignments.alignments[1]
+    conflicting_batch = replace(
+        alignments,
+        alignments=(
+            alignments.alignments[0],
+            replace(
+                second,
+                normalization=replace(
+                    second.normalization,
+                    reference_residue_count=30,
+                ),
+                coverage=second.normalization.aligned_atom_count / 30,
+            ),
+        ),
+    )
+    batch_scorer = implementation(
+        STRUCTURE_COMPARISON_PACKAGE,
+        "structure_comparison.batch_tm_score.fixed_reference",
+    )
+    resources.invocations.clear()
+
+    with pytest.raises(
+        ValueError,
+        match="normalization conflicts with exact Candidate content",
+    ):
+        batch_scorer.execute(
+            inputs={
+                "alignments": conflicting_batch,
+                "subjects": batch_source["subjects"],
+                "references": batch_source["references"],
+            },
+            node_parameters={},
+            binding_parameters={},
+        )
+    assert resources.invocations == []
+
 
 def test_tm_score_contracts_are_exact_and_publish_one_partition_per_binding() -> None:
     catalog = build_discovered_frozen_catalog()

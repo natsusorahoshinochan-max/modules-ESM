@@ -607,7 +607,10 @@ class StructureComparisonImplementation:
             )
         }
 
-    def _tm_score(self, alignment: StructureAlignmentEvidence) -> float:
+    @staticmethod
+    def _validate_tm_score_evidence(
+        alignment: StructureAlignmentEvidence,
+    ) -> None:
         count = alignment.normalization.aligned_atom_count
         reference_count = alignment.normalization.reference_residue_count
         subject_count = alignment.normalization.subject_residue_count
@@ -620,6 +623,31 @@ class StructureComparisonImplementation:
             raise ValueError(
                 "TM-score requires complete non-empty alignment evidence"
             )
+        if any(
+            not math.isfinite(float(coordinate))
+            for item in alignment.correspondence
+            for coordinate in (
+                *item.reference_coordinate,
+                *item.subject_coordinate,
+            )
+        ):
+            raise ValueError("TM-score coordinates must be finite")
+
+    def _preflight_tm_alignment(
+        self,
+        alignment: StructureAlignmentEvidence,
+        subject: tuple[Candidate, str],
+        reference: tuple[Candidate, str],
+    ) -> None:
+        self._assert_alignment_identity(alignment, subject, reference)
+        self._assert_alignment_method(alignment)
+        self._validate_tm_score_evidence(alignment)
+
+    def _tm_score(self, alignment: StructureAlignmentEvidence) -> float:
+        self._validate_tm_score_evidence(alignment)
+        count = alignment.normalization.aligned_atom_count
+        reference_count = alignment.normalization.reference_residue_count
+        subject_count = alignment.normalization.subject_residue_count
         reference_coordinates = np.zeros(
             (reference_count, 3),
             dtype=np.float64,
@@ -756,7 +784,7 @@ class StructureComparisonImplementation:
             raise ValueError(
                 "single TM-score requires one exact alignment pair"
             )
-        self._assert_alignment_identity(
+        self._preflight_tm_alignment(
             alignment,
             subjects[0],
             references[0],
@@ -838,7 +866,7 @@ class StructureComparisonImplementation:
                 raise ValueError(
                     "alignment collection conflicts with the pairing source"
                 )
-            observations: list[ScoreObservation] = []
+            resolved_alignments: list[StructureAlignmentEvidence] = []
             for subject, reference in pairs:
                 alignment = index[
                     (
@@ -846,21 +874,23 @@ class StructureComparisonImplementation:
                         reference[0].candidate_id,
                     )
                 ]
-                self._assert_alignment_identity(
+                self._preflight_tm_alignment(
                     alignment,
                     subject,
                     reference,
                 )
-                observations.append(
-                    self._tm_observation(
-                        alignment,
-                        pairing_mode="per_subject_counterpart",
-                        source_partition=(
-                            "structure_comparison.tm_score."
-                            "per_subject_counterpart"
-                        ),
-                    )
+                resolved_alignments.append(alignment)
+            observations = [
+                self._tm_observation(
+                    alignment,
+                    pairing_mode="per_subject_counterpart",
+                    source_partition=(
+                        "structure_comparison.tm_score."
+                        "per_subject_counterpart"
+                    ),
                 )
+                for alignment in resolved_alignments
+            ]
         elif self._pairing_mode == "fixed_reference":
             if set(inputs) != {"alignments", "subjects", "references"}:
                 raise ValueError(
@@ -899,7 +929,7 @@ class StructureComparisonImplementation:
                 raise ValueError(
                     "fixed-reference alignments conflict with exact sources"
                 )
-            observations = []
+            resolved_alignments = []
             for subject in subjects:
                 alignment = index[
                     (
@@ -907,20 +937,22 @@ class StructureComparisonImplementation:
                         reference[0].candidate_id,
                     )
                 ]
-                self._assert_alignment_identity(
+                self._preflight_tm_alignment(
                     alignment,
                     subject,
                     reference,
                 )
-                observations.append(
-                    self._tm_observation(
-                        alignment,
-                        pairing_mode="fixed_reference",
-                        source_partition=(
-                            "structure_comparison.tm_score.fixed_reference"
-                        ),
-                    )
+                resolved_alignments.append(alignment)
+            observations = [
+                self._tm_observation(
+                    alignment,
+                    pairing_mode="fixed_reference",
+                    source_partition=(
+                        "structure_comparison.tm_score.fixed_reference"
+                    ),
                 )
+                for alignment in resolved_alignments
+            ]
         else:
             raise RuntimeError(
                 "batch TM-score Binding pairing mode is not declared"
