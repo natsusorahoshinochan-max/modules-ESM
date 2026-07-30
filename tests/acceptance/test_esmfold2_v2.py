@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+import os
 from pathlib import Path
 from typing import Any
 
@@ -246,6 +247,113 @@ def test_local_esmfold2_v2_source_contract_and_native_result(
         observation.method.contract_id
         for observation in (*confidence.entries, *pae.entries)
     } == {"folding.fold.esmfold2_hf_1ebf0e3"}
+    assert [
+        event["event"]["status"]
+        for event in events
+        if event["event"]["type"] == "run_terminal"
+    ] == ["succeeded"]
+    assert not any(
+        event["event"].get("engine_identity", "").startswith(
+            "folding.esmfold2_remote."
+        )
+        for event in events
+    )
+
+
+@pytest.mark.acceptance
+@pytest.mark.local_provider
+@pytest.mark.slow
+def test_local_esmfold2_v2_invokes_exact_source_bound_assets(
+    tmp_path: Path,
+) -> None:
+    """Invoke the real local Engine; a fixture cannot satisfy this gate."""
+    from modules.folding.adapter import (
+        LOCAL_ESMC_ARTIFACT_SHA256,
+        LOCAL_ESMC_REVISION,
+        LOCAL_ESMFOLD2_ARTIFACT_SHA256,
+        LOCAL_ESMFOLD2_REVISION,
+        configured_local_runtime_fingerprint,
+    )
+
+    model_snapshot = Path(
+        os.environ["PROTEIN_WORKBENCH_ESMFOLD2_MODEL_ROOT"]
+    )
+    language_snapshot = Path(
+        os.environ["PROTEIN_WORKBENCH_ESMFOLD2_ESMC_MODEL_ROOT"]
+    )
+    required = [
+        *(model_snapshot / name for name in LOCAL_ESMFOLD2_ARTIFACT_SHA256),
+        *(language_snapshot / name for name in LOCAL_ESMC_ARTIFACT_SHA256),
+    ]
+    missing = [str(path) for path in required if not path.exists()]
+    assert missing == [], (
+        "required locked local ESMFold2 assets are unavailable: "
+        + ", ".join(missing)
+    )
+    runtime_directory = tmp_path / "runtime"
+    runtime_directory.mkdir()
+    fingerprint = configured_local_runtime_fingerprint()
+    environment = {
+        "model_snapshot_path": model_snapshot,
+        "model_snapshot_revision": LOCAL_ESMFOLD2_REVISION,
+        "language_model_snapshot_path": language_snapshot,
+        "language_model_snapshot_revision": LOCAL_ESMC_REVISION,
+        "device": "cpu",
+        "runtime_directory": runtime_directory,
+        "resolved_runtime_fingerprint": fingerprint,
+    }
+    catalog, projection, events = _run_fold(
+        tmp_path,
+        route="local",
+        client=None,
+        environment_overrides=environment,
+        safe_environment_fingerprint=fingerprint,
+    )
+
+    assert projection["status"] == "succeeded", projection
+    structures, confidence, pae = _fold_outputs(catalog, projection)
+    assert len(structures.items) == 1
+    assert structures.items[0].metadata["route"] == "local"
+    assert structures.items[0].data.pdb_string
+    assert {
+        observation.method.contract_id
+        for observation in (*confidence.entries, *pae.entries)
+    } == {"folding.fold.esmfold2_hf_1ebf0e3"}
+    readiness_index = next(
+        index
+        for index, event in enumerate(events)
+        if event["event"]["type"] == "readiness_attested"
+        and event["event"]["binding"]["contract_id"]
+        == "folding.fold.esmfold2_local"
+        and event["event"]["conclusion"] == "passing"
+    )
+    started = [
+        event["event"]
+        for event in events
+        if event["event"]["type"] == "engine_invocation_started"
+        and event["event"]["engine_identity"].startswith(
+            "folding.esmfold2_local."
+        )
+    ]
+    terminal = [
+        event["event"]
+        for event in events
+        if event["event"]["type"] == "engine_invocation_terminal"
+        and event["event"]["invocation_id"] == started[0]["invocation_id"]
+    ]
+    assert len(started) == 1
+    assert [event["status"] for event in terminal] == ["succeeded"]
+    invocation_index = next(
+        index
+        for index, event in enumerate(events)
+        if event["event"] == started[0]
+    )
+    assert readiness_index < invocation_index
+    assert [
+        event["event"]["status"]
+        for event in events
+        if event["event"]["type"] == "run_terminal"
+    ] == ["succeeded"]
     assert not any(
         event["event"].get("engine_identity", "").startswith(
             "folding.esmfold2_remote."

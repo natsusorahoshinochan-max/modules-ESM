@@ -295,6 +295,26 @@ def test_simplefold_confidence_v2_evaluates_3gb1_exact_assets_without_refold(
     assert len(started) == len(terminal) == 1
     assert terminal[0]["status"] == "succeeded"
     assert started[0]["engine_identity"].endswith(fingerprint)
+    readiness_index = next(
+        index
+        for index, event in enumerate(events)
+        if event["event"]["type"] == "readiness_attested"
+        and event["event"]["binding"]["contract_id"]
+        == "folding.simplefold_confidence.simplefold_local"
+        and event["event"]["binding"]["contract_version"] == "2.0.0"
+        and event["event"]["conclusion"] == "passing"
+    )
+    invocation_index = next(
+        index
+        for index, event in enumerate(events)
+        if event["event"] == started[0]
+    )
+    assert readiness_index < invocation_index
+    assert [
+        event["event"]["status"]
+        for event in events
+        if event["event"]["type"] == "run_terminal"
+    ] == ["succeeded"]
     identity = provider_identity()
     assert set(identity["artifact_sha256"]) == {
         "ccd.pkl",

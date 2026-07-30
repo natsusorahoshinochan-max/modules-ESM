@@ -219,6 +219,7 @@ def test_model_backed_soluprot_golden_methods(
     catalog, projection, events = _run(tmp_path, mode=mode)
 
     assert projection["status"] == "succeeded", projection
+    binding_id = f"solubility.soluprot_{mode}.local"
     output = next(
         output
         for output in projection["outputs"]
@@ -257,6 +258,27 @@ def test_model_backed_soluprot_golden_methods(
         configured_runtime_fingerprint(mode)
     )
     assert [event["status"] for event in terminals] == ["succeeded"]
+    readiness_index = next(
+        index
+        for index, event in enumerate(events)
+        if event["event"]["type"] == "readiness_attested"
+        and event["event"]["binding"]["contract_id"] == binding_id
+        and event["event"]["binding"]["contract_version"] == "2.0.0"
+        and event["event"]["conclusion"] == "passing"
+    )
+    invocation_id = next(iter(started))[0]
+    invocation_index = next(
+        index
+        for index, event in enumerate(events)
+        if event["event"]["type"] == "engine_invocation_started"
+        and event["event"]["invocation_id"] == invocation_id
+    )
+    assert readiness_index < invocation_index
+    assert [
+        event["event"]["status"]
+        for event in events
+        if event["event"]["type"] == "run_terminal"
+    ] == ["succeeded"]
 
 
 def test_stale_no_tm_asset_replacement_invalidates_readiness(

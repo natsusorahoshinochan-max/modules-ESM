@@ -46,7 +46,7 @@ SOURCE_PROTOCOL_DIGEST = bundle_digest()
 REQUIRED_PROVIDER_CASES = {
     "local_esmfold2": (
         "tests/acceptance/test_esmfold2_v2.py::"
-        "test_local_esmfold2_v2_source_contract_and_native_result"
+        "test_local_esmfold2_v2_invokes_exact_source_bound_assets"
     ),
     "local_esm3": (
         "tests/acceptance/test_local_esm3.py::"
@@ -661,6 +661,22 @@ def _run_installed_provider_case(
     env.pop("PYTHONPATH", None)
     env["PW_SOURCE_ROOT"] = str(PROJECT_ROOT)
     env["PROTEIN_WORKBENCH_REQUIRE_PROVIDER_CALL"] = "1"
+    env.setdefault(
+        "PROTEIN_WORKBENCH_ESMFOLD2_MODEL_ROOT",
+        (
+            "/Users/sorachan/.cache/huggingface/hub/"
+            "models--biohub--ESMFold2/snapshots/"
+            "1ebf0e3481a5184eb6171d40615c79e384b48796"
+        ),
+    )
+    env.setdefault(
+        "PROTEIN_WORKBENCH_ESMFOLD2_ESMC_MODEL_ROOT",
+        (
+            "/Users/sorachan/.cache/huggingface/hub/"
+            "models--biohub--ESMC-6B/snapshots/"
+            "45b0fa5d7fb06faefbd5e3b89bdcef35d564e79a"
+        ),
+    )
     env.setdefault(
         "PROTEIN_WORKBENCH_SIMPLEFOLD_MODEL_ROOT",
         "/Users/sorachan/Documents/ESM-workflow-NEXT/var/cache/models/simplefold",

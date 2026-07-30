@@ -281,6 +281,19 @@ def test_local_protein_sol_golden_multiple_metrics(
     assert {
         entry.method.contract_id for entry in scores.entries
     } == {"solubility.protein_sol.sequence_prediction_2017"}
+    binding = catalog.require_contract(
+        "binding",
+        "solubility.protein_sol.local",
+        "2.0.0",
+    )
+    assert binding.descriptor["method"]["contract_id"] == (
+        "solubility.protein_sol.sequence_prediction_2017"
+    )
+    assert binding.descriptor["implementation_identity"][
+        "source_files_sha256"
+    ] == binding.descriptor["readiness_declaration"]["prerequisites"][
+        "source_files_sha256"
+    ]
     started = [
         event["event"]
         for event in events
@@ -291,3 +304,30 @@ def test_local_protein_sol_golden_multiple_metrics(
     ]
     assert len(started) == 1
     assert started[0]["engine_identity"].endswith(fingerprint)
+    terminal = [
+        event["event"]
+        for event in events
+        if event["event"]["type"] == "engine_invocation_terminal"
+        and event["event"]["invocation_id"] == started[0]["invocation_id"]
+    ]
+    assert [event["status"] for event in terminal] == ["succeeded"]
+    readiness_index = next(
+        index
+        for index, event in enumerate(events)
+        if event["event"]["type"] == "readiness_attested"
+        and event["event"]["binding"]["contract_id"]
+        == "solubility.protein_sol.local"
+        and event["event"]["binding"]["contract_version"] == "2.0.0"
+        and event["event"]["conclusion"] == "passing"
+    )
+    invocation_index = next(
+        index
+        for index, event in enumerate(events)
+        if event["event"] == started[0]
+    )
+    assert readiness_index < invocation_index
+    assert [
+        event["event"]["status"]
+        for event in events
+        if event["event"]["type"] == "run_terminal"
+    ] == ["succeeded"]

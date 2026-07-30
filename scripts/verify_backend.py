@@ -202,7 +202,7 @@ TIERS = {
         ),
         (
             "tests/test_run_execution_v2.py::"
-            "test_volatile_readiness_is_reobserved_and_rejects_stale_green"
+            "test_changed_credential_is_reobserved_and_rejects_stale_green"
         ),
         (
             "tests/test_run_execution_v2.py::"
@@ -212,6 +212,10 @@ TIERS = {
         (
             "tests/test_module_packages_v2.py::"
             "test_missing_optional_dependency_does_not_hide_available_sibling"
+        ),
+        (
+            "tests/acceptance/test_soluprot_v2.py::"
+            "test_stale_no_tm_asset_replacement_invalidates_readiness"
         ),
     )),
     "security-failure": Tier((

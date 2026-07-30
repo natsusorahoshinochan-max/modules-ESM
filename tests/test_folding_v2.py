@@ -77,6 +77,7 @@ def _run_fold(
     environment_overrides: dict[str, Any] | None = None,
     result_replay_source: ResultReplaySource | None = None,
     source_sequence: str = "AG",
+    safe_environment_fingerprint: str | None = None,
 ) -> tuple[Any, dict[str, Any], tuple[dict[str, Any], ...]]:
     from modules.folding.package import MODULE_PACKAGE as FOLDING_PACKAGE
     from tests.fixtures.folding_sources.package import (
@@ -154,8 +155,14 @@ def _run_fold(
         {
             (f"folding.fold.esmfold2_{route}", "2.0.0"): {
                 "values": environment_values,
-                "safe_fingerprint": f"{route}-fixture-v1",
-                "invalidation_token": f"{route}-fixture-v1",
+                "safe_fingerprint": (
+                    safe_environment_fingerprint
+                    or f"{route}-fixture-v1"
+                ),
+                "invalidation_token": (
+                    safe_environment_fingerprint
+                    or f"{route}-fixture-v1"
+                ),
             }
         }
     )

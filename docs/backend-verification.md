@@ -23,7 +23,7 @@ use mode `0700` and files use mode `0600`.
 | Scientific reproduction | `.venv/bin/python scripts/verify_backend.py scientific-repro` | Confirms that every provider-representable amino-acid symbol reaches the cohesive ESM-3 package boundary unchanged. |
 | Local ESMFold2 source contract | `.venv/bin/python scripts/verify_backend.py local-esmfold2-v2-contract` | Checks the exact source/native-result contract, static confidence normalization, no-fallback lineage, and shared folding CTK without claiming a real heavy-model invocation. |
 | Installed package | `.venv/bin/python scripts/verify_backend.py installed-package` | Reproducibly builds the wheel and sdist, installs the wheel outside the checkout, proves source/installed protocol and Catalog identity, and drives the installed server through the public v2 Workflow/Run journey. |
-| Installed local ESMFold2 | `.venv/bin/python scripts/verify_backend.py installed-local-esmfold2` | Imports the exact installed ESM and Transformers sources, then proves the local Binding's readiness-before-invocation, native result normalization, terminal evidence, and no remote fallback. |
+| Installed local ESMFold2 | `.venv/bin/python scripts/verify_backend.py installed-local-esmfold2` | Invokes the exact installed ESMFold2 and ESMC snapshots through the local Binding, proving readiness-before-invocation, native result normalization, terminal evidence, and no remote fallback. |
 | Installed local ESM-3 | `.venv/bin/python scripts/verify_backend.py installed-local-esm3` | Invokes the installed locked local model for paired, sequence, and structure generation and requires complete invocation evidence. |
 | Installed SimpleFold folding | `.venv/bin/python scripts/verify_backend.py installed-simplefold-folding` | Invokes the installed locked SimpleFold folding model with its exact model and ESM-2 assets. |
 | Installed SimpleFold confidence | `.venv/bin/python scripts/verify_backend.py installed-simplefold-confidence` | Invokes the installed exact confidence asset closure and proves direct-confidence output without refolding. |
@@ -40,6 +40,12 @@ checkout, and its bootstrap first proves that `core`, `modules`, and
 locked dependency locations to that isolated environment, but it cannot add
 the source checkout to Python's import path. Installed provider gates reject
 pytest target overrides so a smaller test cannot replace the required case.
+
+The local ESMFold2 gate reads exact snapshots from
+`PROTEIN_WORKBENCH_ESMFOLD2_MODEL_ROOT` and
+`PROTEIN_WORKBENCH_ESMFOLD2_ESMC_MODEL_ROOT`. Those roots must contain every
+digest-locked artifact declared by the Binding; the source/native fixture test
+is intentionally not the installed provider gate.
 
 The verifier exposes no v1 provider-evidence, mocked-workflow,
 aggregate-provider, live-provider, or fresh-remote tier. A provider gate

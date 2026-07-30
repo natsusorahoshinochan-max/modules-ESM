@@ -1838,7 +1838,7 @@ def test_failed_readiness_rejects_before_factory_and_redacts_environment(
     assert private_path not in response.text
 
 
-def test_volatile_readiness_is_reobserved_and_rejects_stale_green(
+def test_changed_credential_is_reobserved_and_rejects_stale_green(
     tmp_path,
     monkeypatch,
 ) -> None:

@@ -72,6 +72,29 @@ def test_local_esm3_all_generation_modes(
                 invalidation_token=fingerprint,
             )
             assert projection["status"] == "succeeded"
+            binding_id = f"esm3.{operation}.local_open"
+            binding = catalog.require_contract(
+                "binding",
+                binding_id,
+                "2.0.0",
+            )
+            assert binding.descriptor["method"]["contract_id"] == (
+                f"esm3.{operation}.esm3_sm_open_v1_local"
+            )
+            assert binding.descriptor["implementation_identity"][
+                "snapshot_revision"
+            ] == LOCAL_ESM3_SNAPSHOT_REVISION
+            assert binding.descriptor["implementation_identity"][
+                "weight_sha256"
+            ]
+            readiness_index = next(
+                index
+                for index, event in enumerate(events)
+                if event["event"]["type"] == "readiness_attested"
+                and event["event"]["binding"]["contract_id"] == binding_id
+                and event["event"]["binding"]["contract_version"] == "2.0.0"
+                and event["event"]["conclusion"] == "passing"
+            )
             invocations = [
                 event["event"]
                 for event in events
@@ -94,6 +117,17 @@ def test_local_esm3_all_generation_modes(
             assert all(
                 terminal["status"] == "succeeded" for terminal in terminals
             )
+            invocation_index = next(
+                index
+                for index, event in enumerate(events)
+                if event["event"] == invocations[0]
+            )
+            assert readiness_index < invocation_index
+            assert [
+                event["event"]["status"]
+                for event in events
+                if event["event"]["type"] == "run_terminal"
+            ] == ["succeeded"]
             results[operation] = (catalog, projection)
     finally:
         if shared_client is not None:

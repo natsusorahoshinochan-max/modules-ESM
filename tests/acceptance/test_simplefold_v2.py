@@ -37,6 +37,7 @@ def test_simplefold_v2_folds_3gb1_through_exact_binding(
     from modules.folding.simplefold_adapter import (
         SIMPLEFOLD_DEVICE,
         configured_runtime_fingerprint,
+        provider_identity,
     )
     from tests.fixtures.folding_sources.package import (
         MODULE_PACKAGE as SOURCE_PACKAGE,
@@ -145,6 +146,24 @@ def test_simplefold_v2_folds_3gb1_through_exact_binding(
         "confidence_observations",
         "pae_observations",
     } == set(outputs)
+    binding = catalog.require_contract(
+        "binding",
+        "folding.fold.simplefold_local",
+        "2.0.0",
+    )
+    assert binding.descriptor["method"]["contract_id"] == (
+        "folding.fold.simplefold_100m_c7a5570"
+    )
+    identity = provider_identity()
+    prerequisites = binding.descriptor["readiness_declaration"][
+        "prerequisites"
+    ]
+    assert prerequisites["simplefold_models"]["artifact_sha256"] == (
+        identity["artifact_sha256"]
+    )
+    assert prerequisites["esm2_models"]["artifact_sha256"] == (
+        identity["esm2_artifact_sha256"]
+    )
     public_evidence = json.dumps(
         {"projection": projection, "events": events}
     )
@@ -172,3 +191,24 @@ def test_simplefold_v2_folds_3gb1_through_exact_binding(
     ]
     assert len(invocations) == 1
     assert invocations[0]["status"] == "succeeded"
+    readiness_index = next(
+        index
+        for index, event in enumerate(events)
+        if event["event"]["type"] == "readiness_attested"
+        and event["event"]["binding"]["contract_id"]
+        == "folding.fold.simplefold_local"
+        and event["event"]["binding"]["contract_version"] == "2.0.0"
+        and event["event"]["conclusion"] == "passing"
+    )
+    invocation_index = next(
+        index
+        for index, event in enumerate(events)
+        if event["event"]["type"] == "engine_invocation_started"
+        and event["event"]["invocation_id"] == invocations[0]["invocation_id"]
+    )
+    assert readiness_index < invocation_index
+    assert [
+        event["event"]["status"]
+        for event in events
+        if event["event"]["type"] == "run_terminal"
+    ] == ["succeeded"]
