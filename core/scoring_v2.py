@@ -714,14 +714,28 @@ def _validate_propagated_score_collection(
         )
     source_maps: list[dict[tuple[object, ...], bytes]] = []
     source_observations: list[ScoreObservation] = []
+    absent_input_policy = propagation.get(
+        "absent_input_policy",
+        "reject",
+    )
+    if absent_input_policy not in {"reject", "ignore"}:
+        raise PortValueError(
+            "Binding Observation propagation absent input policy is malformed"
+        )
     for input_port in input_ports:
         source = inputs.get(input_port)
+        if source is None and absent_input_policy == "ignore":
+            continue
         if not isinstance(source, ScoreCollection):
             raise PortValueError(
                 "Binding Observation propagation input is unavailable"
             )
         source_maps.append(_observation_value_map(source))
         source_observations.extend(_deduplicated_observations(source))
+    if not source_maps:
+        raise PortValueError(
+            "Binding Observation propagation has no connected input"
+        )
     expected: dict[tuple[object, ...], bytes] = {}
     for source_map in source_maps:
         for identity, value in source_map.items():

@@ -4211,6 +4211,15 @@ class V2RunService:
                             "Candidate output reuses one producer identity"
                         )
                     seen_raw_candidate_ids.add(raw_candidate_id)
+                    input_candidate = input_candidates.get(raw_candidate_id)
+                    if input_candidate is not None:
+                        if candidate != input_candidate:
+                            raise PortValueError(
+                                "Candidate pass-through changed exact input "
+                                "identity, lineage, content, or metadata"
+                            )
+                        normalized_ids[raw_candidate_id] = raw_candidate_id
+                        continue
                     parents: list[str] = []
                     for parent_id in candidate.parent_ids:
                         if parent_id in normalized_ids:
@@ -4402,6 +4411,9 @@ class V2RunService:
                                             ),
                                         },
                                         "context": score.context.to_public(),
+                                        "source_partition": (
+                                            score.source_partition
+                                        ),
                                         "value": score.value,
                                     }
                                     if isinstance(score, ScoreObservation)

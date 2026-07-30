@@ -1583,6 +1583,12 @@
     "ObservationPropagationDeclaration": {
       "additionalProperties": false,
       "properties": {
+        "absent_input_policy": {
+          "enum": [
+            "reject",
+            "ignore"
+          ]
+        },
         "filter": {
           "oneOf": [
             {

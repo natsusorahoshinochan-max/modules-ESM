@@ -1,0 +1,269 @@
+"""Independent partitioned Candidate and Observation sources."""
+
+from __future__ import annotations
+
+from collections.abc import Mapping
+from typing import Any
+
+from core import (
+    AvailabilityDeclaration,
+    AvailabilityResult,
+    BehaviorReference,
+    ContractIdentity,
+    DefinitionResource,
+    ExecutionBindingDefinition,
+    LazyImplementationFactory,
+    MethodDefinition,
+    ModulePackageRegistration,
+    ProducedObservationDefinition,
+    ReadinessDeclaration,
+    UtilityTransformDefinition,
+)
+from datatypes import (
+    Candidate,
+    CandidateCollection,
+    ExactContractReference,
+    IntrinsicObservationContext,
+    ProteinSequence,
+    ScoreCollection,
+    ScoreObservation,
+)
+
+
+VERSION = "2.0.0"
+METRIC = ContractIdentity(
+    "metric",
+    "contract_test.collection_ops_value",
+    VERSION,
+)
+
+
+class _Source:
+    def __init__(
+        self,
+        *,
+        resources: Any,
+        catalog: Any,
+        partition: str,
+    ) -> None:
+        self._resources = resources
+        self._partition = partition
+        self._metric = ExactContractReference(
+            **catalog.require_contract(
+                "metric",
+                METRIC.contract_id,
+                VERSION,
+            ).reference()
+        )
+        self._method = ExactContractReference(
+            **catalog.require_contract(
+                "method",
+                f"contract_test.collection_ops_source.{partition}.method",
+                VERSION,
+            ).reference()
+        )
+
+    def execute(
+        self,
+        *,
+        inputs: Mapping[str, Any],
+        node_parameters: Mapping[str, Any],
+        binding_parameters: Mapping[str, Any],
+    ) -> dict[str, Any]:
+        if inputs or binding_parameters:
+            raise ValueError("collection source accepts no connected inputs")
+        count = node_parameters["candidate_count"]
+        candidates: list[Candidate] = []
+        observations: list[ScoreObservation] = []
+        with self._resources.engine_invocation(
+            engine_identity=(
+                f"contract_test.collection_ops_source/{self._partition}"
+            ),
+        ):
+            for sample_index in range(count):
+                candidate_id = (
+                    f"{self._partition}-candidate-{sample_index}"
+                )
+                candidate = Candidate(
+                    candidate_id=candidate_id,
+                    data=ProteinSequence(
+                        "ACD" if self._partition == "a" else "ACE"
+                    ),
+                    parent_ids=(
+                        [
+                            f"{self._partition}-candidate-"
+                            f"{sample_index - 1}"
+                        ]
+                        if sample_index > 0
+                        else []
+                    ),
+                    metadata={
+                        "fixture_partition": self._partition,
+                        "sample_index": sample_index,
+                    },
+                )
+                candidates.append(candidate)
+                observations.append(
+                    ScoreObservation(
+                        candidate_id=candidate_id,
+                        metric=self._metric,
+                        method=self._method,
+                        context=IntrinsicObservationContext(),
+                        value=0.25 if self._partition == "a" else 0.75,
+                        source_partition=(
+                            f"contract_test.partition.{self._partition}"
+                        ),
+                    )
+                )
+        return {
+            "candidates": CandidateCollection(
+                collection_id=f"{self._partition}-candidates",
+                item_type="protein.sequence",
+                items=candidates,
+            ),
+            "scores": ScoreCollection(
+                collection_id=f"{self._partition}-scores",
+                entries=observations,
+            ),
+        }
+
+
+def _available() -> AvailabilityResult:
+    return AvailabilityResult.available()
+
+
+def _ready(environment: object) -> bool:
+    return isinstance(environment, Mapping)
+
+
+def _method(partition: str) -> MethodDefinition:
+    return MethodDefinition(
+        method_id=f"contract_test.collection_ops_source.{partition}.method",
+        version=VERSION,
+        algorithm_identity={
+            "name": "deterministic-partition-source",
+            "partition": partition,
+        },
+        model_identity={"kind": "none"},
+        checkpoint_identity={"kind": "none"},
+        featurization_identity={"kind": "identity"},
+        source_identity={"kind": "contract-test"},
+        scale_contract={"kind": "identity"},
+    )
+
+
+def _binding(partition: str) -> ExecutionBindingDefinition:
+    method = ContractIdentity(
+        "method",
+        f"contract_test.collection_ops_source.{partition}.method",
+        VERSION,
+    )
+
+    def build(**kwargs: object) -> _Source:
+        return _Source(
+            resources=kwargs["run_resources"],
+            catalog=kwargs["frozen_catalog"],
+            partition=partition,
+        )
+
+    return ExecutionBindingDefinition(
+        binding_id=f"contract_test.collection_ops_source.{partition}",
+        version=VERSION,
+        node_type=ContractIdentity(
+            "node_type",
+            "contract_test.collection_ops_source",
+            VERSION,
+        ),
+        method=method,
+        binding_parameters={},
+        execution_route="direct",
+        factory=LazyImplementationFactory(
+            behavior=BehaviorReference(
+                f"contract_test.collection_ops_source/{partition}/factory",
+                VERSION,
+                {"execution_route": "direct"},
+            ),
+            build=build,
+        ),
+        availability=AvailabilityDeclaration(
+            behavior=BehaviorReference(
+                f"contract_test.collection_ops_source/{partition}/availability",
+                VERSION,
+                {"observation": "startup"},
+            ),
+            prerequisites={},
+            check=_available,
+        ),
+        readiness=ReadinessDeclaration(
+            behavior=BehaviorReference(
+                f"contract_test.collection_ops_source/{partition}/readiness",
+                VERSION,
+                {"observation": "per-run"},
+            ),
+            prerequisites={},
+            check=_ready,
+        ),
+        deterministic=True,
+        cacheable=True,
+        implementation_identity={
+            "name": f"contract_test.collection_ops_source.{partition}",
+            "source": "contract-test",
+        },
+        produced_observations=(
+            ProducedObservationDefinition(
+                output_port="scores",
+                metric=METRIC,
+                context_profile={"kind": "intrinsic"},
+                subject_grain="candidate",
+                source_role="subject",
+                subject_direction="output",
+                subject_port="candidates",
+                guaranteed_multiplicity="one",
+                output_partition=(
+                    f"contract_test.partition.{partition}"
+                ),
+            ),
+        ),
+    )
+
+
+def _identity(value: object, parameters: Mapping[str, Any]) -> float:
+    if parameters:
+        raise ValueError("fixture identity takes no parameters")
+    return float(value)
+
+
+def _utility(partition: str) -> UtilityTransformDefinition:
+    return UtilityTransformDefinition(
+        transform_id=f"contract_test.collection_ops_identity.{partition}",
+        version=VERSION,
+        compatible_input_contract={
+            "metric": METRIC,
+            "method": ContractIdentity(
+                "method",
+                f"contract_test.collection_ops_source.{partition}.method",
+                VERSION,
+            ),
+            "context_profile": {"kind": "intrinsic"},
+        },
+        parameters={},
+        behavior=BehaviorReference(
+            f"contract_test.collection_ops_identity/{partition}",
+            VERSION,
+            {},
+        ),
+        transform=_identity,
+    )
+
+
+MODULE_PACKAGE = ModulePackageRegistration(
+    schema_version=VERSION,
+    package_id="contract_test.collection_ops_sources",
+    package_version=VERSION,
+    package_module=__package__,
+    node_definitions=(DefinitionResource("source.yaml"),),
+    metric_definitions=(DefinitionResource("metric.yaml"),),
+    methods=(_method("a"), _method("b")),
+    bindings=(_binding("a"), _binding("b")),
+    utility_transforms=(_utility("a"), _utility("b")),
+)

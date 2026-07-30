@@ -429,6 +429,7 @@ class ObservationPropagationDefinition:
     output_port: str
     input_ports: tuple[str, ...]
     filter: Mapping[str, Any] | None = None
+    absent_input_policy: Literal["reject", "ignore"] = "reject"
     schema_version: str = "2.0.0"
 
     def __post_init__(self) -> None:
@@ -462,6 +463,17 @@ class ObservationPropagationDefinition:
         if self.mode == "union" and len(input_ports) < 2:
             raise CatalogBuildError(
                 "union Observation propagation requires at least two input Ports"
+            )
+        if self.absent_input_policy not in {"reject", "ignore"}:
+            raise CatalogBuildError(
+                "unknown Observation propagation absent input policy"
+            )
+        if (
+            self.absent_input_policy == "ignore"
+            and self.mode != "union"
+        ):
+            raise CatalogBuildError(
+                "only union Observation propagation may ignore absent inputs"
             )
         if self.mode == "filter":
             if not isinstance(self.filter, Mapping) or not self.filter:
@@ -523,13 +535,16 @@ class ObservationPropagationDefinition:
         object.__setattr__(self, "filter", frozen_filter)
 
     def descriptor_template(self) -> dict[str, Any]:
-        return {
+        descriptor = {
             "schema_version": self.schema_version,
             "mode": self.mode,
             "output_port": self.output_port,
             "input_ports": self.input_ports,
             "filter": self.filter,
         }
+        if self.absent_input_policy != "reject":
+            descriptor["absent_input_policy"] = self.absent_input_policy
+        return descriptor
 
 
 @dataclass(frozen=True, slots=True)
@@ -1933,6 +1948,14 @@ def build_frozen_catalog(
                         raise CatalogBuildError(
                             f"Binding {binding.binding_id} Observation "
                             "propagation inputs must use multiplicity one"
+                        )
+                    if (
+                        propagation.absent_input_policy == "ignore"
+                        and input_declaration.get("required") is not False
+                    ):
+                        raise CatalogBuildError(
+                            f"Binding {binding.binding_id} Observation "
+                            "propagation may ignore only optional inputs"
                         )
 
     resolved: dict[tuple[str, str, str], CatalogContract] = {}

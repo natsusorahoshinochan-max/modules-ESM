@@ -1,0 +1,34 @@
+schema_version: "2.0.0"
+node_type_id: collection_ops.merge_scores
+version: "2.0.0"
+title: Merge Score collections
+summary: Applies a controlled exact union while retaining Observation identities and source partitions.
+category: collection_ops
+inputs:
+  - name: scores_a
+    port_type_id: score.collection
+    port_type_version: "2.0.0"
+    required: false
+    multiplicity: one
+    scientific_meaning: Optional first Score collection source partition.
+  - name: scores_b
+    port_type_id: score.collection
+    port_type_version: "2.0.0"
+    required: false
+    multiplicity: one
+    scientific_meaning: Optional second Score collection source partition.
+  - name: scores_c
+    port_type_id: score.collection
+    port_type_version: "2.0.0"
+    required: false
+    multiplicity: one
+    scientific_meaning: Optional third Score collection source partition.
+outputs:
+  - name: scores
+    port_type_id: score.collection
+    port_type_version: "2.0.0"
+    required: true
+    multiplicity: one
+    scientific_meaning: Controlled union of exact typed Observations with source partitions preserved.
+parameter_groups: []
+node_parameters: {}

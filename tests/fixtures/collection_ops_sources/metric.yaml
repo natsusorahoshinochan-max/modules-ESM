@@ -1,0 +1,22 @@
+schema_version: "2.0.0"
+metric_id: contract_test.collection_ops_value
+version: "2.0.0"
+title: Collection operations fixture value
+description: Deterministic unit-interval fixture value used to prove exact Observation propagation.
+value_shape: scalar
+unit: dimensionless
+direction: higher_is_better
+canonical_range:
+  minimum: 0
+  maximum: 1
+  minimum_inclusive: true
+  maximum_inclusive: true
+granularity: candidate
+aggregation_semantics:
+  kind: none
+observation_context_schema:
+  kind:
+    const: intrinsic
+validation_contract:
+  representation: binary64
+  finite: true

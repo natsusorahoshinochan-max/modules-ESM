@@ -1,0 +1,33 @@
+schema_version: "2.0.0"
+node_type_id: contract_test.collection_ops_source
+version: "2.0.0"
+title: Collection operations source
+summary: Emits one independently partitioned Candidate and Observation collection fixture.
+category: contract_test
+inputs: []
+outputs:
+  - name: candidates
+    port_type_id: candidate.collection
+    port_type_version: "2.0.0"
+    required: true
+    multiplicity: one
+    scientific_meaning: Exact generated fixture Candidates.
+  - name: scores
+    port_type_id: score.collection
+    port_type_version: "2.0.0"
+    required: true
+    multiplicity: one
+    scientific_meaning: One intrinsic Observation per generated fixture Candidate.
+parameter_groups:
+  - id: fixture
+    title: Fixture
+    parameters:
+      - candidate_count
+node_parameters:
+  candidate_count:
+    parameter_scope: scientific
+    scientific_meaning: Exact number of fixture Candidates to emit.
+    type: integer
+    required: true
+    minimum: 0
+    maximum: 3

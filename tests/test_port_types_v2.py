@@ -155,6 +155,12 @@ def test_catalog_snapshot_publishes_exact_port_type_contracts() -> None:
         )
         for snapshot in payload["availability"]
     } == {
+        (
+            "collection_ops.concat_candidates.direct",
+            "2.0.0",
+            True,
+        ),
+        ("collection_ops.merge_scores.direct", "2.0.0", True),
         ("esm3.generate_paired.biohub_medium", "2.0.0", True),
         ("esm3.generate_sequence.biohub_medium", "2.0.0", True),
         ("esm3.generate_structure.biohub_medium", "2.0.0", True),
