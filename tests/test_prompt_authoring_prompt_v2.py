@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+import threading
 
 import pytest
 
@@ -20,7 +21,11 @@ from datatypes import (
     ResidueLayout,
     ResidueTrack,
 )
-from tests.fixtures.prompt_authoring_v2 import decoded_output, run_operation
+from tests.fixtures.prompt_authoring_v2 import (
+    decoded_output,
+    prepare_operation,
+    run_operation,
+)
 
 
 VERSION = "2.0.0"
@@ -447,6 +452,72 @@ def test_function_annotation_overlap_policy_is_retained_and_enforced(
         ),
     )
     assert rejected["status"] == "failed"
+
+
+def test_prepared_prompt_operation_waits_for_terminal_projection(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from modules.prompt_authoring.implementation import (
+        AddFunctionAnnotationImplementation,
+    )
+
+    entered = threading.Event()
+    release = threading.Event()
+    returned = threading.Event()
+    original_execute = AddFunctionAnnotationImplementation.execute
+
+    def delayed_execute(
+        implementation: AddFunctionAnnotationImplementation,
+        **kwargs: object,
+    ) -> dict[str, object]:
+        entered.set()
+        if not release.wait(timeout=5):
+            raise AssertionError("delayed prompt operation was not released")
+        return original_execute(implementation, **kwargs)
+
+    monkeypatch.setattr(
+        AddFunctionAnnotationImplementation,
+        "execute",
+        delayed_execute,
+    )
+    prepared = prepare_operation(
+        tmp_path,
+        operation="add_function_annotation",
+        node_parameters={
+            "annotation": {
+                "label": "binding_site",
+                "chain_id": "A",
+                "start_residue_id": "A:1",
+                "end_residue_id": "A:2",
+            },
+            "overlap_policy": "reject",
+        },
+        source_edges=(
+            WorkflowEdge("source", "source_layout", "author", "layout"),
+        ),
+    )
+    result: list[
+        tuple[dict[str, object], tuple[dict[str, object], ...]]
+    ] = []
+
+    def start() -> None:
+        result.append(prepared.start("wait-for-terminal"))
+        returned.set()
+
+    worker = threading.Thread(target=start)
+    worker.start()
+    try:
+        assert entered.wait(timeout=2)
+        assert not returned.wait(timeout=0.2)
+    finally:
+        release.set()
+        worker.join(timeout=5)
+        prepared.service.shutdown()
+
+    assert not worker.is_alive()
+    assert len(result) == 1
+    assert result[0][0]["status"] == "succeeded"
 
 
 def test_function_annotation_parameter_contract_rejects_blank_label(

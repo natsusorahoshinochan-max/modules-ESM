@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 from dataclasses import dataclass
 from pathlib import Path
+import time
 from typing import Any
 
 from core import (
@@ -27,6 +28,7 @@ from tests.fixtures.prompt_authoring_sources.package import (
 
 
 VERSION = "2.0.0"
+TERMINAL_WAIT_SECONDS = 5.0
 SOURCE_LAYOUT = ResidueLayout(
     chain_id="A,B",
     length=3,
@@ -87,6 +89,23 @@ class PreparedPromptOperation:
             compile_id=self.compile_id,
             client_request_id=client_request_id,
         )
+        deadline = time.monotonic() + TERMINAL_WAIT_SECONDS
+        after_sequence = 0
+        terminal = False
+        while not terminal:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                raise AssertionError(
+                    "prompt-authoring Run did not reach a terminal projection"
+                )
+            _, after_sequence, terminal = (
+                self.service.wait_for_public_events(
+                    self.project_id,
+                    receipt["run_id"],
+                    after_sequence,
+                    timeout_seconds=remaining,
+                )
+            )
         projection = self.service.projection(
             self.project_id,
             receipt["run_id"],
