@@ -10,6 +10,7 @@ import json
 import math
 import os
 from pathlib import Path
+import re
 import signal
 import stat
 import subprocess
@@ -35,6 +36,36 @@ SOLUPROT_DATABASE_SHA256 = (
 )
 SOLUPROT_USEARCH_SHA256 = (
     "de3c4206a92754ba8762237b4c436ed4b72bb7bcfe287891365b47cdda0f5095"
+)
+SOLUPROT_RUNTIME_DISTRIBUTIONS = {
+    "soluprot": {
+        "version": SOLUPROT_VERSION,
+        "tree_sha256": (
+            "4545de75323fc7bee9e680acc4cf53fbc72526884f343e9d8b516b3182f3eaf9"
+        ),
+    },
+    "numpy": {
+        "version": "2.5.1",
+        "tree_sha256": (
+            "0b0d04a80c0cf06abe5fbab7ddcb6c2e9fe9635a3cdecd4c9b8258ef6d4519c3"
+        ),
+    },
+    "pandas": {
+        "version": "3.0.3",
+        "tree_sha256": (
+            "8a46f6df5d74225edc2d1a22e7464e008c5513e4bb0b53a1df51a350e1af5bbd"
+        ),
+    },
+    "biopython": {
+        "version": "1.87",
+        "tree_sha256": (
+            "e3ebf1d5f5c4f12bb09ead365faa9142308256bf5ed2351a2e1f7b24805704ad"
+        ),
+    },
+}
+SOLUPROT_PERL_VERSION = "v5.34.1"
+SOLUPROT_PERL_SHA256 = (
+    "abda2bfd23a6c9a8e57adf2291f0aea4abd8faf440558ee49fe4ced55e8d9ad0"
 )
 SOLUPROT_MODEL_SHA256 = {
     "full": "20ec7d95ee71b31e1ad8e1ff66ad3b966d675bfcf877196dba1db6a3cbbf7e2b",
@@ -76,6 +107,30 @@ _MAX_PROVIDER_OUTPUT_BYTES = 1024 * 1024
 
 class SoluProtInvocationError(RuntimeError):
     """A path-free provider failure safe for durable public diagnostics."""
+
+
+class SoluProtProviderTimeout(SoluProtInvocationError):
+    """The provider exceeded its closed execution budget."""
+
+
+class SoluProtProviderNonzeroExit(SoluProtInvocationError):
+    """The provider returned a nonzero status without retaining raw output."""
+
+
+class SoluProtProviderOutputUnavailable(SoluProtInvocationError):
+    """The provider did not leave one readable output file."""
+
+
+class SoluProtProviderOutputContractViolation(SoluProtInvocationError):
+    """The provider output file violated its bounded file contract."""
+
+
+class SoluProtProviderOutputTruncated(SoluProtInvocationError):
+    """The provider output became shorter while it was read."""
+
+
+class SoluProtProviderOutputChanged(SoluProtInvocationError):
+    """The provider output changed while it was validated."""
 
 
 def _regular_file_sha256(path: object, *, executable: bool = False) -> str:
@@ -125,12 +180,72 @@ def _validate_python_runtime(
         SOLUPROT_PYTHON_SHA256
     ):
         raise RuntimeError("configured SoluProt Python identity changed")
-    probe = (
-        "import importlib.metadata as m,json,pathlib,platform,soluprot_core;"
-        "print(json.dumps({'python':platform.python_version(),"
-        "'soluprot':m.version('soluprot'),"
-        "'site':str(pathlib.Path(soluprot_core.__file__).resolve().parent.parent)}))"
-    )
+    distribution_names = tuple(SOLUPROT_RUNTIME_DISTRIBUTIONS)
+    probe = f"""
+import base64
+import hashlib
+import importlib.metadata as metadata
+import json
+import os
+import platform
+import stat
+
+distributions = {{}}
+site = None
+for name in {distribution_names!r}:
+    distribution = metadata.distribution(name)
+    records = []
+    for item in sorted(distribution.files or (), key=str):
+        recorded_hash = item.hash
+        if recorded_hash is None:
+            continue
+        if recorded_hash.mode != "sha256":
+            raise RuntimeError("unsupported installed-record digest")
+        descriptor = os.open(
+            item.locate(),
+            os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0),
+        )
+        try:
+            file_metadata = os.fstat(descriptor)
+            if not stat.S_ISREG(file_metadata.st_mode):
+                raise RuntimeError("installed runtime file is not regular")
+            digest = hashlib.sha256()
+            while chunk := os.read(descriptor, 1024 * 1024):
+                digest.update(chunk)
+        finally:
+            os.close(descriptor)
+        observed_hash = base64.urlsafe_b64encode(
+            digest.digest()
+        ).rstrip(b"=").decode()
+        if (
+            observed_hash != recorded_hash.value
+            or (
+                item.size is not None
+                and file_metadata.st_size != item.size
+            )
+        ):
+            raise RuntimeError("installed runtime file identity changed")
+        records.append(
+            [str(item), observed_hash, file_metadata.st_size]
+        )
+    distributions[name] = {{
+        "version": distribution.version,
+        "tree_sha256": hashlib.sha256(
+            json.dumps(
+                records,
+                sort_keys=True,
+                separators=(",", ":"),
+            ).encode()
+        ).hexdigest(),
+    }}
+    if name == "soluprot":
+        site = str(distribution.locate_file("").resolve())
+print(json.dumps({{
+    "python": platform.python_version(),
+    "site": site,
+    "distributions": distributions,
+}}))
+"""
     try:
         completed = subprocess.run(
             [str(path), "-I", "-c", probe],
@@ -157,12 +272,54 @@ def _validate_python_runtime(
         ) from error
     if (
         not isinstance(identity, dict)
-        or set(identity) != {"python", "soluprot", "site"}
+        or set(identity) != {"python", "site", "distributions"}
         or identity["python"] != SOLUPROT_PYTHON_VERSION
-        or identity["soluprot"] != SOLUPROT_VERSION
+        or not isinstance(identity["site"], str)
         or Path(identity["site"]).resolve() != site_packages_root.resolve()
+        or not isinstance(identity["distributions"], dict)
+        or identity["distributions"] != SOLUPROT_RUNTIME_DISTRIBUTIONS
     ):
         raise RuntimeError("configured SoluProt Python identity changed")
+    return path
+
+
+def _validate_perl_runtime(path: object) -> Path:
+    """Attest the exact interpreter selected by TMHMM's env shebang."""
+    if (
+        not isinstance(path, Path)
+        or path.resolve() != Path("/usr/bin/perl").resolve()
+        or not path.is_file()
+        or not os.access(path, os.X_OK)
+    ):
+        raise FileNotFoundError("configured SoluProt Perl is unavailable")
+    if _regular_file_sha256(path.resolve(), executable=True) != (
+        SOLUPROT_PERL_SHA256
+    ):
+        raise RuntimeError("configured SoluProt Perl identity changed")
+    try:
+        completed = subprocess.run(
+            [str(path), "-e", "print $^V"],
+            check=True,
+            capture_output=True,
+            text=True,
+            timeout=15,
+            env={
+                "HOME": os.devnull,
+                "LANG": "C",
+                "LC_ALL": "C",
+                "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
+            },
+        )
+    except (
+        OSError,
+        subprocess.CalledProcessError,
+        subprocess.TimeoutExpired,
+    ) as error:
+        raise RuntimeError(
+            "configured SoluProt Perl identity is unavailable"
+        ) from error
+    if completed.stdout != SOLUPROT_PERL_VERSION:
+        raise RuntimeError("configured SoluProt Perl identity changed")
     return path
 
 
@@ -191,6 +348,7 @@ def configured_runtime_fingerprint(mode: SoluProtMode) -> str:
         "mode": mode,
         "python_version": SOLUPROT_PYTHON_VERSION,
         "python_sha256": SOLUPROT_PYTHON_SHA256,
+        "runtime_distributions": SOLUPROT_RUNTIME_DISTRIBUTIONS,
         "provider_version": SOLUPROT_VERSION,
         "source_sha256": SOLUPROT_SOURCE_SHA256,
         "code_sha256": _SOLUPROT_CODE_SHA256,
@@ -201,6 +359,8 @@ def configured_runtime_fingerprint(mode: SoluProtMode) -> str:
     }
     if mode == "full":
         payload["tmhmm_sha256"] = SOLUPROT_TMHMM_SHA256
+        payload["perl_version"] = SOLUPROT_PERL_VERSION
+        payload["perl_sha256"] = SOLUPROT_PERL_SHA256
     return "sha256:" + hashlib.sha256(
         json.dumps(payload, sort_keys=True, separators=(",", ":")).encode()
     ).hexdigest()
@@ -246,6 +406,7 @@ def validate_soluprot_environment(
         executable=True,
     )
     tmhmm_executable: Path | None = None
+    perl_executable: Path | None = None
     if mode == "full":
         tmhmm_root = environment.get("tmhmm_root")
         if (
@@ -265,6 +426,9 @@ def validate_soluprot_environment(
                 },
             )
         tmhmm_executable = tmhmm_root / "bin" / "tmhmm"
+        perl_executable = _validate_perl_runtime(
+            environment.get("perl_executable")
+        )
     return {
         "python_executable": python_path,
         "site_packages_root": site_packages_root,
@@ -272,6 +436,8 @@ def validate_soluprot_environment(
         "reference_database": assets["reference_database"],
         "usearch_executable": usearch,
         "tmhmm_executable": tmhmm_executable,
+        "perl_executable": perl_executable,
+        "runtime_distributions": SOLUPROT_RUNTIME_DISTRIBUTIONS,
         "resolved_runtime_fingerprint": configured_runtime_fingerprint(mode),
     }
 
@@ -323,7 +489,7 @@ def _read_provider_output(path: Path) -> bytes:
             not stat.S_ISREG(metadata.st_mode)
             or metadata.st_size > _MAX_PROVIDER_OUTPUT_BYTES
         ):
-            raise SoluProtInvocationError(
+            raise SoluProtProviderOutputContractViolation(
                 "SoluProt provider output violated the byte contract"
             )
         chunks: list[bytes] = []
@@ -331,7 +497,7 @@ def _read_provider_output(path: Path) -> bytes:
         while remaining:
             chunk = os.read(descriptor, min(remaining, 64 * 1024))
             if not chunk:
-                raise SoluProtInvocationError(
+                raise SoluProtProviderOutputTruncated(
                     "SoluProt provider output was truncated"
                 )
             chunks.append(chunk)
@@ -348,7 +514,7 @@ def _read_provider_output(path: Path) -> bytes:
             metadata.st_size,
             metadata.st_mtime_ns,
         ):
-            raise SoluProtInvocationError(
+            raise SoluProtProviderOutputChanged(
                 "SoluProt provider output changed during validation"
             )
         return b"".join(chunks)
@@ -376,10 +542,14 @@ def invoke_soluprot(
     output_path = staging_directory / "output.csv"
     scratch_path = staging_directory / "provider-work"
     scratch_path.mkdir(mode=0o700)
+    bytecode_path = staging_directory / "bytecode-cache"
+    bytecode_path.mkdir(mode=0o700)
     _write_fasta(input_path, sequences)
     command = [
         str(resolved["python_executable"]),
         "-I",
+        "-X",
+        f"pycache_prefix={bytecode_path}",
         "-m",
         "soluprot_core.cli",
         "--i_fa",
@@ -428,18 +598,18 @@ def invoke_soluprot(
         except ProcessLookupError:
             pass
         process.wait()
-        raise SoluProtInvocationError(
+        raise SoluProtProviderTimeout(
             "SoluProt provider invocation timed out safely"
         ) from error
     if process.returncode != 0:
-        raise SoluProtInvocationError(
+        raise SoluProtProviderNonzeroExit(
             f"SoluProt provider invocation failed safely "
             f"(exit status {process.returncode})"
         )
     try:
         return _read_provider_output(output_path)
     except OSError as error:
-        raise SoluProtInvocationError(
+        raise SoluProtProviderOutputUnavailable(
             "SoluProt provider produced no readable output"
         ) from error
 
@@ -465,6 +635,13 @@ def parse_soluprot_output(payload: bytes, *, expected_count: int) -> list[float]
             value = float(row["soluble"])
             if not math.isfinite(value) or not 0 <= value <= 1:
                 raise ValueError("SoluProt output is outside its declared range")
+            if re.fullmatch(
+                r"(?:0(?:\.\d{1,4})?|1(?:\.0{1,4})?)",
+                row["soluble"],
+            ) is None:
+                raise ValueError(
+                    "SoluProt output precision does not match the exact contract"
+                )
             values.append(value)
     except (csv.Error, TypeError, ValueError) as error:
         if isinstance(error, ValueError) and str(error).startswith("SoluProt"):

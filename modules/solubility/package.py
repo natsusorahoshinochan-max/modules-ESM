@@ -21,8 +21,11 @@ from .adapter import (
     SOLUPROT_FEATURES_SHA256,
     SOLUPROT_MODEL_SHA256,
     SOLUPROT_MODEL_TREES_SHA256,
+    SOLUPROT_PERL_SHA256,
+    SOLUPROT_PERL_VERSION,
     SOLUPROT_PYTHON_VERSION,
     SOLUPROT_PYTHON_SHA256,
+    SOLUPROT_RUNTIME_DISTRIBUTIONS,
     SOLUPROT_SOURCE_SHA256,
     SOLUPROT_TMHMM_SHA256,
     SOLUPROT_USEARCH_SHA256,
@@ -65,7 +68,10 @@ def _method(mode: str) -> MethodDefinition:
             "name": "SoluProt gradient-boosting soluble-expression predictor",
             "variant": model_variant,
             "transmembrane_features": tm_feature,
-            "rounding_decimal_places": 4,
+            "provider_postprocessing": {
+                "rounding_decimal_places": 4,
+                "clipping_range": [0, 1],
+            },
         },
         model_identity={
             "provider": "SoluProt",
@@ -97,9 +103,12 @@ def _method(mode: str) -> MethodDefinition:
             "quantity": "soluble_expression_probability",
             "unit": "dimensionless_probability",
             "canonical_range": [0, 1],
-            "provider_rounding_decimal_places": 4,
             "normalization": "none",
-            "clamping": "forbidden",
+            "provider_postprocessing": {
+                "rounding_decimal_places": 4,
+                "clipping_range": [0, 1],
+            },
+            "adapter_clamping": "forbidden",
         },
     )
 
@@ -163,6 +172,9 @@ def _binding(mode: str) -> ExecutionBindingDefinition:
                 "python_runtime": {
                     "version": SOLUPROT_PYTHON_VERSION,
                     "sha256": SOLUPROT_PYTHON_SHA256,
+                    "installed_distribution_trees": (
+                        SOLUPROT_RUNTIME_DISTRIBUTIONS
+                    ),
                     "path_source": "trusted_environment_configuration",
                 },
                 "dependency_wheel": {
@@ -186,6 +198,8 @@ def _binding(mode: str) -> ExecutionBindingDefinition:
                     {
                         "required": True,
                         "asset_sha256": dict(SOLUPROT_TMHMM_SHA256),
+                        "perl_version": SOLUPROT_PERL_VERSION,
+                        "perl_sha256": SOLUPROT_PERL_SHA256,
                         "path_source": "trusted_environment_configuration",
                     }
                     if tm_feature
@@ -214,6 +228,15 @@ def _binding(mode: str) -> ExecutionBindingDefinition:
             ),
             "python_version": SOLUPROT_PYTHON_VERSION,
             "python_sha256": SOLUPROT_PYTHON_SHA256,
+            "runtime_distribution_trees": SOLUPROT_RUNTIME_DISTRIBUTIONS,
+            "perl": (
+                {
+                    "version": SOLUPROT_PERL_VERSION,
+                    "sha256": SOLUPROT_PERL_SHA256,
+                }
+                if tm_feature
+                else "not-used-or-probed"
+            ),
             "resolved_runtime_fingerprint": configured_runtime_fingerprint(mode),
             "runtime_directory_policy": "private-per-run-invocation",
         },

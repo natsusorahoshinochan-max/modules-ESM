@@ -69,6 +69,7 @@ def _environment(mode: str) -> dict[str, Any]:
         environment["tmhmm_root"] = (
             EXTERNAL_ROOT / "var/tools/soluprot/tmhmm"
         )
+        environment["perl_executable"] = Path("/usr/bin/perl")
     return environment
 
 
@@ -199,11 +200,18 @@ def test_model_backed_soluprot_golden_methods(
     mode: str,
     expected: float,
 ) -> None:
-    required = (
+    required = [
         EXTERNAL_ROOT / "var/environments/soluprot/bin/python",
         EXTERNAL_ROOT / "vendor/packages/soluprot-1.1.0-py3-none-any.whl",
         EXTERNAL_ROOT / "var/tools/soluprot/usearch",
-    )
+    ]
+    if mode == "full":
+        required.extend(
+            (
+                EXTERNAL_ROOT / "var/tools/soluprot/tmhmm",
+                Path("/usr/bin/perl"),
+            )
+        )
     assert all(path.exists() for path in required), (
         "required locked SoluProt assets are unavailable"
     )

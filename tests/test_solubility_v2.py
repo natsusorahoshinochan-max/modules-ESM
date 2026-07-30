@@ -115,6 +115,15 @@ def test_soluprot_methods_fix_source_features_scale_and_observation_identity() -
     assert methods["full"].descriptor["scale_contract"] == (
         methods["no_tm"].descriptor["scale_contract"]
     )
+    assert methods["full"].descriptor["scale_contract"][
+        "provider_postprocessing"
+    ] == {
+        "rounding_decimal_places": 4,
+        "clipping_range": (0, 1),
+    }
+    assert methods["full"].descriptor["scale_contract"][
+        "adapter_clamping"
+    ] == "forbidden"
 
     for mode in ("full", "no_tm"):
         binding = catalog.require_contract(
@@ -173,6 +182,10 @@ def test_soluprot_requires_no_core_dispatch_or_readiness_branch() -> None:
         (
             b"runtime_id,fa_id,soluble\n0,candidate_0,1.01\n",
             "outside its declared range",
+        ),
+        (
+            b"runtime_id,fa_id,soluble\n0,candidate_0,0.12345\n",
+            "precision does not match",
         ),
         (
             b"runtime_id,fa_id,soluble\n0,wrong,0.5\n",
@@ -263,7 +276,7 @@ def test_soluprot_provider_failure_does_not_retain_stderr_or_paths(
     )
 
     with pytest.raises(
-        adapter.SoluProtInvocationError,
+        adapter.SoluProtProviderNonzeroExit,
         match="failed safely",
     ) as rejected:
         adapter.invoke_soluprot(
@@ -276,6 +289,60 @@ def test_soluprot_provider_failure_does_not_retain_stderr_or_paths(
 
     assert "secret-token" not in str(rejected.value)
     assert "/private/" not in str(rejected.value)
+
+
+def test_soluprot_runtime_probe_rejects_dependency_tree_drift(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import json
+    from types import SimpleNamespace
+
+    import modules.solubility.adapter as adapter
+
+    python_executable = tmp_path / "python"
+    python_executable.write_bytes(b"locked python")
+    python_executable.chmod(0o700)
+    site_packages_root = tmp_path / "site-packages"
+    site_packages_root.mkdir()
+    monkeypatch.setattr(
+        adapter,
+        "_regular_file_sha256",
+        lambda path, *, executable=False: adapter.SOLUPROT_PYTHON_SHA256,
+    )
+    identity = {
+        "python": adapter.SOLUPROT_PYTHON_VERSION,
+        "site": str(site_packages_root),
+        "distributions": {
+            name: {
+                "version": expected["version"],
+                "tree_sha256": (
+                    "0" * 64
+                    if name == "numpy"
+                    else expected["tree_sha256"]
+                ),
+            }
+            for name, expected in (
+                adapter.SOLUPROT_RUNTIME_DISTRIBUTIONS.items()
+            )
+        },
+    }
+    monkeypatch.setattr(
+        adapter.subprocess,
+        "run",
+        lambda *args, **kwargs: SimpleNamespace(
+            stdout=json.dumps(identity),
+        ),
+    )
+
+    with pytest.raises(
+        RuntimeError,
+        match="Python identity changed",
+    ):
+        adapter._validate_python_runtime(
+            python_executable,
+            site_packages_root=site_packages_root,
+        )
 
 
 def test_full_readiness_failure_does_not_block_no_tm(
@@ -334,6 +401,7 @@ def _run_soluprot(
     mode: str,
     sequence: str = "ACDEFGHIKLMNPQRSTVWY",
     provider_payload: bytes | None = None,
+    provider_error: BaseException | None = None,
 ) -> tuple[Any, dict[str, Any], tuple[dict[str, Any], ...]]:
     import modules.solubility.implementation as implementation
     import modules.solubility.package as package
@@ -363,6 +431,8 @@ def _run_soluprot(
 
     def invoke(**kwargs: Any) -> bytes:
         calls.append((list(kwargs["sequences"]), kwargs["mode"]))
+        if provider_error is not None:
+            raise provider_error
         if provider_payload is not None:
             return provider_payload
         return (
@@ -601,6 +671,43 @@ def test_invalid_provider_output_fails_after_successful_engine_without_publicati
     ]
     assert len(terminal) == 1
     assert terminal[0]["status"] == "succeeded"
+
+
+def test_provider_failure_retains_a_closed_safe_reason_code(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from modules.solubility.adapter import SoluProtProviderNonzeroExit
+
+    _, projection, events = _run_soluprot(
+        tmp_path,
+        monkeypatch,
+        mode="full",
+        provider_error=SoluProtProviderNonzeroExit(
+            "SoluProt provider invocation failed safely (exit status 7)"
+        ),
+    )
+
+    assert projection["status"] == "failed"
+    invocation_id = next(
+        event["event"]["invocation_id"]
+        for event in events
+        if event["event"]["type"] == "engine_invocation_started"
+        and event["event"]["engine_identity"].startswith(
+            "soluprot.full.v1_1_0/"
+        )
+    )
+    terminal = next(
+        event["event"]
+        for event in events
+        if event["event"]["type"] == "engine_invocation_terminal"
+        and event["event"]["invocation_id"] == invocation_id
+    )
+    assert terminal["status"] == "failed"
+    assert terminal["error"]["details"] == {
+        "exception_type": "SoluProtProviderNonzeroExit",
+    }
+    assert "exit status 7" not in str(terminal)
 
 
 def test_both_soluprot_methods_pass_the_shared_contract_test_kit(
