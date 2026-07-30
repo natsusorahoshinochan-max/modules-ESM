@@ -458,10 +458,16 @@ def test_prepared_prompt_operation_waits_for_terminal_projection(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    import core.run_execution_v2 as run_execution_v2
     from modules.prompt_authoring.implementation import (
         AddFunctionAnnotationImplementation,
     )
 
+    monkeypatch.setattr(
+        run_execution_v2,
+        "FAST_RUN_COMPLETION_GRACE_SECONDS",
+        0.0,
+    )
     entered = threading.Event()
     release = threading.Event()
     returned = threading.Event()
