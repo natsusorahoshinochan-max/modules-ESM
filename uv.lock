@@ -2136,13 +2136,13 @@ providers = [
 
 [package.metadata]
 requires-dist = [
-    { name = "biopython", specifier = ">=1.85,<2" },
+    { name = "biopython", specifier = "==1.85" },
     { name = "build", marker = "extra == 'dev'", specifier = "==1.5.0" },
     { name = "esm", marker = "extra == 'dev'", git = "https://github.com/Biohub/esm.git?rev=917af90b624535eed1e072d343c717e3ec11fef4" },
     { name = "esm", marker = "extra == 'providers'", git = "https://github.com/Biohub/esm.git?rev=917af90b624535eed1e072d343c717e3ec11fef4" },
     { name = "fastapi", specifier = ">=0.115,<1" },
     { name = "httpx", marker = "extra == 'dev'", specifier = ">=0.27,<1" },
-    { name = "numpy", specifier = ">=2,<3" },
+    { name = "numpy", specifier = "==2.5.1" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=8,<10" },
     { name = "pytest-asyncio", marker = "extra == 'dev'", specifier = ">=0.24,<2" },
     { name = "python-multipart", specifier = ">=0.0.20,<1" },
@@ -2150,7 +2150,7 @@ requires-dist = [
     { name = "rfc8785", specifier = "==0.1.4" },
     { name = "setuptools", marker = "extra == 'dev'", specifier = "==83.0.0" },
     { name = "simplefold", marker = "extra == 'providers'", git = "https://github.com/apple/ml-simplefold.git?rev=c7a5570a6be9f5c695126e27c804e77567209934" },
-    { name = "tmtools", specifier = ">=0.3,<0.4" },
+    { name = "tmtools", specifier = "==0.3.0" },
     { name = "torch", marker = "extra == 'dev'", specifier = ">=2.2,<3" },
     { name = "torch", marker = "extra == 'providers'", specifier = ">=2.2,<3" },
     { name = "transformers", marker = "extra == 'dev'", git = "https://github.com/Biohub/transformers.git?rev=ef32577f55da19a4989cd7b22e004dc43a4998cb" },
