@@ -1,0 +1,202 @@
+{
+  "schema_version": "2.0.0",
+  "workflow_id": "exact-multi-objective-selection-fixture",
+  "nodes": [
+    {
+      "node_id": "canonical-source",
+      "node_type_id": "contract_test.multi_objective_selection_source",
+      "node_type_version": "2.0.0",
+      "binding_id": "contract_test.multi_objective_selection_source.direct",
+      "binding_version": "2.0.0",
+      "node_parameters": {},
+      "binding_parameters": {}
+    },
+    {
+      "node_id": "select",
+      "node_type_id": "selection.weighted_rank",
+      "node_type_version": "2.0.0",
+      "binding_id": "selection.weighted_rank.direct",
+      "binding_version": "2.0.0",
+      "node_parameters": {
+        "objective_ids": [
+          "fixed-3gb1",
+          "paired-esm3"
+        ],
+        "tie_policy": "candidate_id_ascending"
+      },
+      "binding_parameters": {}
+    }
+  ],
+  "edges": [
+    {
+      "source_node_id": "canonical-source",
+      "source_port": "candidates",
+      "target_node_id": "select",
+      "target_port": "candidates"
+    },
+    {
+      "source_node_id": "canonical-source",
+      "source_port": "scores",
+      "target_node_id": "select",
+      "target_port": "scores"
+    }
+  ],
+  "selection_objectives": [
+    {
+      "objective_id": "fixed-3gb1",
+      "candidate_input": {
+        "node_id": "canonical-source",
+        "output_port": "candidates"
+      },
+      "score_collection_input": {
+        "node_id": "canonical-source",
+        "output_port": "scores"
+      },
+      "source_partition": "canonical.tm_score.fixed_3gb1",
+      "metric": {
+        "contract_kind": "metric",
+        "contract_id": "structure_comparison.tm_score",
+        "contract_version": "2.0.0",
+        "contract_digest": "sha256:c4908eb9c82c290d5657e9593ed50e9e80652aa161a8649ad095715659a16a10"
+      },
+      "method": {
+        "contract_kind": "method",
+        "contract_id": "contract_test.multi_objective_selection_source.method",
+        "contract_version": "2.0.0",
+        "contract_digest": "sha256:0c53b7352a54fcfc4760775e3176ce41ca0ad492255b9f3eb5069e9e764978e7"
+      },
+      "context_selector": {
+        "kind": "pairwise",
+        "subject_role": "subject",
+        "reference_role": "reference",
+        "pairing_mode": "fixed_reference",
+        "normalization": "standard-reference-residue-count"
+      },
+      "utility_transform": {
+        "contract_kind": "utility_transform",
+        "contract_id": "contract_test.tm_score.fixed_3gb1.identity",
+        "contract_version": "2.0.0",
+        "contract_digest": "sha256:7581e92ea454a64d80165bf91944c2def16e3cb6698b7151e95fe45bfe1f8c05"
+      },
+      "utility_parameters": {},
+      "weight": 0.7,
+      "match_cardinality": "exactly_one",
+      "missing_policy": "error"
+    },
+    {
+      "objective_id": "paired-esm3",
+      "candidate_input": {
+        "node_id": "canonical-source",
+        "output_port": "candidates"
+      },
+      "score_collection_input": {
+        "node_id": "canonical-source",
+        "output_port": "scores"
+      },
+      "source_partition": "canonical.tm_score.paired_esm3",
+      "metric": {
+        "contract_kind": "metric",
+        "contract_id": "structure_comparison.tm_score",
+        "contract_version": "2.0.0",
+        "contract_digest": "sha256:c4908eb9c82c290d5657e9593ed50e9e80652aa161a8649ad095715659a16a10"
+      },
+      "method": {
+        "contract_kind": "method",
+        "contract_id": "contract_test.multi_objective_selection_source.method",
+        "contract_version": "2.0.0",
+        "contract_digest": "sha256:0c53b7352a54fcfc4760775e3176ce41ca0ad492255b9f3eb5069e9e764978e7"
+      },
+      "context_selector": {
+        "kind": "pairwise",
+        "subject_role": "subject",
+        "reference_role": "reference",
+        "pairing_mode": "per_subject_counterpart",
+        "normalization": "standard-reference-residue-count"
+      },
+      "utility_transform": {
+        "contract_kind": "utility_transform",
+        "contract_id": "contract_test.tm_score.paired_esm3.identity",
+        "contract_version": "2.0.0",
+        "contract_digest": "sha256:6eb92e7df18f04c8b48b94a7653f576bbeebea986fdca75589facc4d7e4ed2bd"
+      },
+      "utility_parameters": {},
+      "weight": 0.3,
+      "match_cardinality": "exactly_one",
+      "missing_policy": "error"
+    }
+  ],
+  "contract_lock": [
+    {
+      "contract_kind": "binding",
+      "contract_id": "contract_test.multi_objective_selection_source.direct",
+      "contract_version": "2.0.0",
+      "contract_digest": "sha256:077478faae8229afa80f753e2bb452b16e4bab31fbe93c74c2aa005cb1d5e4e2"
+    },
+    {
+      "contract_kind": "binding",
+      "contract_id": "selection.weighted_rank.direct",
+      "contract_version": "2.0.0",
+      "contract_digest": "sha256:011db4752ad690a7357f4eeb85c3e7ca4667fbbf9105652e0b678197367b2f87"
+    },
+    {
+      "contract_kind": "method",
+      "contract_id": "contract_test.multi_objective_selection_source.method",
+      "contract_version": "2.0.0",
+      "contract_digest": "sha256:0c53b7352a54fcfc4760775e3176ce41ca0ad492255b9f3eb5069e9e764978e7"
+    },
+    {
+      "contract_kind": "method",
+      "contract_id": "selection.weighted_rank.method",
+      "contract_version": "2.0.0",
+      "contract_digest": "sha256:ff17b2c5ef8eacc5609acb1bf18846f1b0c83142262f5f2935d7899483a52abd"
+    },
+    {
+      "contract_kind": "metric",
+      "contract_id": "structure_comparison.tm_score",
+      "contract_version": "2.0.0",
+      "contract_digest": "sha256:c4908eb9c82c290d5657e9593ed50e9e80652aa161a8649ad095715659a16a10"
+    },
+    {
+      "contract_kind": "node_type",
+      "contract_id": "contract_test.multi_objective_selection_source",
+      "contract_version": "2.0.0",
+      "contract_digest": "sha256:1f9022e17c138d03f99dc2a946773daed96f799e39a178797100c047043f188e"
+    },
+    {
+      "contract_kind": "node_type",
+      "contract_id": "selection.weighted_rank",
+      "contract_version": "2.0.0",
+      "contract_digest": "sha256:6e58e74e2ffe8fdced3939effb69fd3717498106abb0622e60308083caed1a90"
+    },
+    {
+      "contract_kind": "port_type",
+      "contract_id": "candidate.collection",
+      "contract_version": "2.0.0",
+      "contract_digest": "sha256:9bb806e8f171a89c82e89d47e0e47da4eed2c4977ad09899d4d60dc7e28bda00"
+    },
+    {
+      "contract_kind": "port_type",
+      "contract_id": "candidate.pairing",
+      "contract_version": "2.0.0",
+      "contract_digest": "sha256:6c7ef38ba52f660d189f4a0d4cffd57acf564f3243f4334e164d746ee57b6865"
+    },
+    {
+      "contract_kind": "port_type",
+      "contract_id": "score.collection",
+      "contract_version": "2.0.0",
+      "contract_digest": "sha256:830dcf99fdd861b0036d2082b3ad1e93a2dd894e7a909608c835a5458c4339e7"
+    },
+    {
+      "contract_kind": "utility_transform",
+      "contract_id": "contract_test.tm_score.fixed_3gb1.identity",
+      "contract_version": "2.0.0",
+      "contract_digest": "sha256:7581e92ea454a64d80165bf91944c2def16e3cb6698b7151e95fe45bfe1f8c05"
+    },
+    {
+      "contract_kind": "utility_transform",
+      "contract_id": "contract_test.tm_score.paired_esm3.identity",
+      "contract_version": "2.0.0",
+      "contract_digest": "sha256:6eb92e7df18f04c8b48b94a7653f576bbeebea986fdca75589facc4d7e4ed2bd"
+    }
+  ]
+}

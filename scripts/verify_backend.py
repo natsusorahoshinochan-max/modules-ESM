@@ -402,6 +402,9 @@ TIERS = {
         "and not slow and not scientific_repro "
         "and not repair_findings",
     )),
+    "examples-v2": Tier((
+        "tests/test_repository_examples_v2.py",
+    )),
     "deterministic-acceptance": Tier((
         "tests/deterministic_acceptance",
         "-m",

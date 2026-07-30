@@ -1,0 +1,668 @@
+{
+  "schema_version": "2.0.0",
+  "workflow_id": "repository-capabilities-v2",
+  "nodes": [
+    {
+      "node_id": "layout",
+      "node_type_id": "prompt_authoring.build_residue_layout",
+      "node_type_version": "2.0.0",
+      "binding_id": "prompt_authoring.build_residue_layout.direct",
+      "binding_version": "2.0.0",
+      "node_parameters": {
+        "chains": [
+          {
+            "chain_id": "A",
+            "length": 56
+          }
+        ]
+      },
+      "binding_parameters": {}
+    },
+    {
+      "node_id": "prompt",
+      "node_type_id": "prompt_authoring.assemble_protein_prompt",
+      "node_type_version": "2.0.0",
+      "binding_id": "prompt_authoring.assemble_protein_prompt.direct",
+      "binding_version": "2.0.0",
+      "node_parameters": {},
+      "binding_parameters": {}
+    },
+    {
+      "node_id": "esm3",
+      "node_type_id": "esm3.generate_paired",
+      "node_type_version": "2.0.0",
+      "binding_id": "esm3.generate_paired.biohub_open",
+      "binding_version": "2.0.0",
+      "node_parameters": {
+        "effective_seed": 3301,
+        "num_samples": 2
+      },
+      "binding_parameters": {}
+    },
+    {
+      "node_id": "fold",
+      "node_type_id": "folding.fold",
+      "node_type_version": "2.0.0",
+      "binding_id": "folding.fold.esmfold2_remote",
+      "binding_version": "2.0.0",
+      "node_parameters": {
+        "effective_seed": 3302,
+        "num_samples": 1
+      },
+      "binding_parameters": {}
+    },
+    {
+      "node_id": "structure-input",
+      "node_type_id": "protein_io.import_structure",
+      "node_type_version": "2.0.0",
+      "binding_id": "protein_io.import_structure.direct",
+      "binding_version": "2.0.0",
+      "node_parameters": {
+        "project_input_ref": "example-structure"
+      },
+      "binding_parameters": {}
+    },
+    {
+      "node_id": "extract-sequence",
+      "node_type_id": "structure_transform.extract_sequence",
+      "node_type_version": "2.0.0",
+      "binding_id": "structure_transform.extract_sequence.direct",
+      "binding_version": "2.0.0",
+      "node_parameters": {},
+      "binding_parameters": {}
+    },
+    {
+      "node_id": "export-sequence",
+      "node_type_id": "protein_io.export_sequence",
+      "node_type_version": "2.0.0",
+      "binding_id": "protein_io.export_sequence.direct",
+      "binding_version": "2.0.0",
+      "node_parameters": {},
+      "binding_parameters": {}
+    },
+    {
+      "node_id": "dssp",
+      "node_type_id": "structure_annotation.dssp_compute",
+      "node_type_version": "2.0.0",
+      "binding_id": "structure_annotation.dssp_compute.direct",
+      "binding_version": "2.0.0",
+      "node_parameters": {},
+      "binding_parameters": {}
+    },
+    {
+      "node_id": "secondary-structure",
+      "node_type_id": "structure_annotation.secondary_structure_extract",
+      "node_type_version": "2.0.0",
+      "binding_id": "structure_annotation.secondary_structure_extract.direct",
+      "binding_version": "2.0.0",
+      "node_parameters": {},
+      "binding_parameters": {}
+    },
+    {
+      "node_id": "mpnn-score",
+      "node_type_id": "proteinmpnn.score",
+      "node_type_version": "2.0.0",
+      "binding_id": "proteinmpnn.score.local",
+      "binding_version": "2.0.0",
+      "node_parameters": {},
+      "binding_parameters": {}
+    },
+    {
+      "node_id": "align",
+      "node_type_id": "structure_comparison.align_pairwise",
+      "node_type_version": "2.0.0",
+      "binding_id": "structure_comparison.align_pairwise.fixed_reference",
+      "binding_version": "2.0.0",
+      "node_parameters": {},
+      "binding_parameters": {}
+    },
+    {
+      "node_id": "tm-score",
+      "node_type_id": "structure_comparison.batch_tm_score",
+      "node_type_version": "2.0.0",
+      "binding_id": "structure_comparison.batch_tm_score.fixed_reference",
+      "binding_version": "2.0.0",
+      "node_parameters": {},
+      "binding_parameters": {}
+    },
+    {
+      "node_id": "protein-sol",
+      "node_type_id": "solubility.score_sequence",
+      "node_type_version": "2.0.0",
+      "binding_id": "solubility.protein_sol.local",
+      "binding_version": "2.0.0",
+      "node_parameters": {},
+      "binding_parameters": {}
+    },
+    {
+      "node_id": "merge-scores",
+      "node_type_id": "collection_ops.merge_scores",
+      "node_type_version": "2.0.0",
+      "binding_id": "collection_ops.merge_scores.direct",
+      "binding_version": "2.0.0",
+      "node_parameters": {},
+      "binding_parameters": {}
+    }
+  ],
+  "edges": [
+    {
+      "source_node_id": "layout",
+      "source_port": "layout",
+      "target_node_id": "prompt",
+      "target_port": "layout"
+    },
+    {
+      "source_node_id": "prompt",
+      "source_port": "protein_prompt",
+      "target_node_id": "esm3",
+      "target_port": "protein_prompt"
+    },
+    {
+      "source_node_id": "esm3",
+      "source_port": "sequence_candidates",
+      "target_node_id": "fold",
+      "target_port": "sequence_candidates"
+    },
+    {
+      "source_node_id": "structure-input",
+      "source_port": "structure",
+      "target_node_id": "extract-sequence",
+      "target_port": "structure"
+    },
+    {
+      "source_node_id": "extract-sequence",
+      "source_port": "sequence",
+      "target_node_id": "export-sequence",
+      "target_port": "sequence"
+    },
+    {
+      "source_node_id": "structure-input",
+      "source_port": "structure",
+      "target_node_id": "dssp",
+      "target_port": "structure"
+    },
+    {
+      "source_node_id": "dssp",
+      "source_port": "annotations",
+      "target_node_id": "secondary-structure",
+      "target_port": "annotations"
+    },
+    {
+      "source_node_id": "fold",
+      "source_port": "structure_candidates",
+      "target_node_id": "mpnn-score",
+      "target_port": "structure_candidates"
+    },
+    {
+      "source_node_id": "esm3",
+      "source_port": "sequence_candidates",
+      "target_node_id": "mpnn-score",
+      "target_port": "sequence_candidates"
+    },
+    {
+      "source_node_id": "fold",
+      "source_port": "structure_candidates",
+      "target_node_id": "align",
+      "target_port": "subjects"
+    },
+    {
+      "source_node_id": "esm3",
+      "source_port": "structure_candidates",
+      "target_node_id": "align",
+      "target_port": "references"
+    },
+    {
+      "source_node_id": "align",
+      "source_port": "alignments",
+      "target_node_id": "tm-score",
+      "target_port": "alignments"
+    },
+    {
+      "source_node_id": "fold",
+      "source_port": "structure_candidates",
+      "target_node_id": "tm-score",
+      "target_port": "subjects"
+    },
+    {
+      "source_node_id": "esm3",
+      "source_port": "structure_candidates",
+      "target_node_id": "tm-score",
+      "target_port": "references"
+    },
+    {
+      "source_node_id": "esm3",
+      "source_port": "sequence_candidates",
+      "target_node_id": "protein-sol",
+      "target_port": "sequence_candidates"
+    },
+    {
+      "source_node_id": "mpnn-score",
+      "source_port": "scores",
+      "target_node_id": "merge-scores",
+      "target_port": "scores_a"
+    },
+    {
+      "source_node_id": "tm-score",
+      "source_port": "scores",
+      "target_node_id": "merge-scores",
+      "target_port": "scores_b"
+    },
+    {
+      "source_node_id": "protein-sol",
+      "source_port": "scores",
+      "target_node_id": "merge-scores",
+      "target_port": "scores_c"
+    }
+  ],
+  "selection_objectives": [],
+  "contract_lock": [
+    {
+      "contract_kind": "binding",
+      "contract_id": "collection_ops.merge_scores.direct",
+      "contract_version": "2.0.0",
+      "contract_digest": "sha256:6cafa944907bf62f07bab0b27318696cffb9a4c35d17af969462acfc6e97f362"
+    },
+    {
+      "contract_kind": "binding",
+      "contract_id": "esm3.generate_paired.biohub_open",
+      "contract_version": "2.0.0",
+      "contract_digest": "sha256:89f5224cac9868e103d7d724562af44f02bc96744ab4f7f5f43e03eea294f583"
+    },
+    {
+      "contract_kind": "binding",
+      "contract_id": "folding.fold.esmfold2_remote",
+      "contract_version": "2.0.0",
+      "contract_digest": "sha256:1f1c3cf7cdeb9f5bfe8950511da7b668a3986249aa4ad891ddd38379647f194f"
+    },
+    {
+      "contract_kind": "binding",
+      "contract_id": "prompt_authoring.assemble_protein_prompt.direct",
+      "contract_version": "2.0.0",
+      "contract_digest": "sha256:ce0822c4ac74d31e083e0cd9e07acc9bf6d190efdd7bede9e8f7b3df6e912c85"
+    },
+    {
+      "contract_kind": "binding",
+      "contract_id": "prompt_authoring.build_residue_layout.direct",
+      "contract_version": "2.0.0",
+      "contract_digest": "sha256:98f799233d749d675f8dd4995e0c71a5fa1df9cc45431eccfd47f7e3a4f572bb"
+    },
+    {
+      "contract_kind": "binding",
+      "contract_id": "protein_io.export_sequence.direct",
+      "contract_version": "2.0.0",
+      "contract_digest": "sha256:528bb9fdcd35304d08a8fdfae2606812376d62c341827f5746568da118949c93"
+    },
+    {
+      "contract_kind": "binding",
+      "contract_id": "protein_io.import_structure.direct",
+      "contract_version": "2.0.0",
+      "contract_digest": "sha256:7fa5124600c489713d529afd3b964d1e4714ba748467ef5d1fec4737c078e76d"
+    },
+    {
+      "contract_kind": "binding",
+      "contract_id": "proteinmpnn.score.local",
+      "contract_version": "2.0.0",
+      "contract_digest": "sha256:8a110c98a24dff957c90a9abdbfee8b7759d14cdefacec383f5f2e45e71d3fa6"
+    },
+    {
+      "contract_kind": "binding",
+      "contract_id": "solubility.protein_sol.local",
+      "contract_version": "2.0.0",
+      "contract_digest": "sha256:e9cfef852eb2de969722f26590372a652bcbcc92ee8d35b6199fc49f859cbd33"
+    },
+    {
+      "contract_kind": "binding",
+      "contract_id": "structure_annotation.dssp_compute.direct",
+      "contract_version": "2.0.0",
+      "contract_digest": "sha256:8386f62b525b19c8cb984d46801a9bab4f685e39faf7f9ba7c43b82ea640a91d"
+    },
+    {
+      "contract_kind": "binding",
+      "contract_id": "structure_annotation.secondary_structure_extract.direct",
+      "contract_version": "2.0.0",
+      "contract_digest": "sha256:6ffc667aaedac137c36c9d49373194db2e34f695897036d28623af1c8e22060e"
+    },
+    {
+      "contract_kind": "binding",
+      "contract_id": "structure_comparison.align_pairwise.fixed_reference",
+      "contract_version": "2.0.0",
+      "contract_digest": "sha256:e0e12e45180be2164a5fb1b79317b60d7b83534886f113312e93fd981b032183"
+    },
+    {
+      "contract_kind": "binding",
+      "contract_id": "structure_comparison.batch_tm_score.fixed_reference",
+      "contract_version": "2.0.0",
+      "contract_digest": "sha256:f57c9715ea1a4a21ec96ba60ac0cfa5b4da3bc3654c2437000800ebb02d2c5db"
+    },
+    {
+      "contract_kind": "binding",
+      "contract_id": "structure_transform.extract_sequence.direct",
+      "contract_version": "2.0.0",
+      "contract_digest": "sha256:e8e028c007ba08a7c47a9d2e0e431f41f75b242cae57aecb7a013d86cf7ecfd0"
+    },
+    {
+      "contract_kind": "method",
+      "contract_id": "collection_ops.merge_scores.method",
+      "contract_version": "2.0.0",
+      "contract_digest": "sha256:fc0dee414b2e084f4ddd622fde780410b8296a1e847ee3def836f4b36892f3c5"
+    },
+    {
+      "contract_kind": "method",
+      "contract_id": "esm3.generate_paired.esm3_open_2024_03",
+      "contract_version": "2.0.0",
+      "contract_digest": "sha256:c5b4602d66429b015dd2df505232a5634ff0e543c0f0054292f718f7e9f6cd26"
+    },
+    {
+      "contract_kind": "method",
+      "contract_id": "folding.fold.esmfold2_fast_biohub_2026_05",
+      "contract_version": "2.0.0",
+      "contract_digest": "sha256:8538d6c91f811e3ce139084ed0393b521ae5f35f478807045b9f821053c27927"
+    },
+    {
+      "contract_kind": "method",
+      "contract_id": "prompt_authoring.assemble_protein_prompt.method",
+      "contract_version": "2.0.0",
+      "contract_digest": "sha256:75eb5f4609c250fb65f0e2758919f6ff7ed9454ee0e634d18a1b14e983911053"
+    },
+    {
+      "contract_kind": "method",
+      "contract_id": "prompt_authoring.build_residue_layout.method",
+      "contract_version": "2.0.0",
+      "contract_digest": "sha256:a78c09f35afca2e98d0545f13857d461b37357e4f7e7d29a51e5e550506aed9e"
+    },
+    {
+      "contract_kind": "method",
+      "contract_id": "protein_io.export_sequence.method",
+      "contract_version": "2.0.0",
+      "contract_digest": "sha256:b660b27c3a7315ec5f93f0512b61d1011bce67dc01d27dacfaa4fc3f6a5a4a11"
+    },
+    {
+      "contract_kind": "method",
+      "contract_id": "protein_io.import_structure.method",
+      "contract_version": "2.0.0",
+      "contract_digest": "sha256:b0e699779fb7166d22462c4781aa2566be2929e9938804f0ea9428020bf2a441"
+    },
+    {
+      "contract_kind": "method",
+      "contract_id": "proteinmpnn.score.v_48_020_8907e667",
+      "contract_version": "2.0.0",
+      "contract_digest": "sha256:e381fc495d8b4d4fa6101de6611b59e85b81d261080b7265eb5bef78de6d872c"
+    },
+    {
+      "contract_kind": "method",
+      "contract_id": "solubility.protein_sol.sequence_prediction_2017",
+      "contract_version": "2.0.0",
+      "contract_digest": "sha256:e4b20819e30b6cb546c5d96090d8a844e733946743f97fa7c309bb5640381b43"
+    },
+    {
+      "contract_kind": "method",
+      "contract_id": "structure_annotation.dssp_compute.method",
+      "contract_version": "2.0.0",
+      "contract_digest": "sha256:a9e511135c4094218cb87326c896a1dd5fd0d043578a8fb86dc4484fc72e75b3"
+    },
+    {
+      "contract_kind": "method",
+      "contract_id": "structure_annotation.secondary_structure_extract.method",
+      "contract_version": "2.0.0",
+      "contract_digest": "sha256:361ebdddc58447a7d9b0ac53d56a327b76264ba093da4dd932a4577d85e17cef"
+    },
+    {
+      "contract_kind": "method",
+      "contract_id": "structure_comparison.ca_sequence_svd.method",
+      "contract_version": "2.0.0",
+      "contract_digest": "sha256:c50fe1ab4ce13b4e32e23add09d152d668cd60d25fbcfe1bf03663b46fb9ef64"
+    },
+    {
+      "contract_kind": "method",
+      "contract_id": "structure_comparison.tm_score.reference_normalized.method",
+      "contract_version": "2.0.0",
+      "contract_digest": "sha256:a69ecf9a3dd3c80a4acd710b907a37cc95160274419dc971a3d3da58ccfb3ecd"
+    },
+    {
+      "contract_kind": "method",
+      "contract_id": "structure_transform.extract_sequence.method",
+      "contract_version": "2.0.0",
+      "contract_digest": "sha256:d0acf25031f51422f4d5b668eacb81062a08f97a93e131a8ea26bb096c11737c"
+    },
+    {
+      "contract_kind": "metric",
+      "contract_id": "proteinmpnn.native_sequence_nll",
+      "contract_version": "2.0.0",
+      "contract_digest": "sha256:1038a455268ff50ffaeaf7e485c41cac9dbecf4f2ba555b81a337d9c9702bbef"
+    },
+    {
+      "contract_kind": "metric",
+      "contract_id": "solubility.protein_sol_percent",
+      "contract_version": "2.0.0",
+      "contract_digest": "sha256:38d218bd0ea251613490b78c530bf2e9eb4d71e93f72c7a79c075d3c78a604d2"
+    },
+    {
+      "contract_kind": "metric",
+      "contract_id": "solubility.protein_sol_pi",
+      "contract_version": "2.0.0",
+      "contract_digest": "sha256:e635c47b8d3c2bb325cb51390536ecaac4b6112a0694c9cf295ddafb1b7c54fd"
+    },
+    {
+      "contract_kind": "metric",
+      "contract_id": "solubility.protein_sol_scaled",
+      "contract_version": "2.0.0",
+      "contract_digest": "sha256:144bbc47eebfc93416eff98342b1c5610ed12bc5195e651feb86978a69d6b36b"
+    },
+    {
+      "contract_kind": "metric",
+      "contract_id": "structure.pae",
+      "contract_version": "2.0.0",
+      "contract_digest": "sha256:19a641472413d5f71172f4becc789a4291363b239b0c96f243667e1148526ae8"
+    },
+    {
+      "contract_kind": "metric",
+      "contract_id": "structure.plddt.mean_residue",
+      "contract_version": "2.0.0",
+      "contract_digest": "sha256:17f96cf144fcd97a16eac44039361aa2c8b56f49263aee5a6bb6e2741462b863"
+    },
+    {
+      "contract_kind": "metric",
+      "contract_id": "structure.plddt.per_residue",
+      "contract_version": "2.0.0",
+      "contract_digest": "sha256:b0e1377bf8ac33e118bd0a506bb132f7198d3655fd46e2282b3593411a5c83e5"
+    },
+    {
+      "contract_kind": "metric",
+      "contract_id": "structure.ptm",
+      "contract_version": "2.0.0",
+      "contract_digest": "sha256:b9eb96a23b26ca5b1991db10f924b74429378426b180bd7d031822a706800b0e"
+    },
+    {
+      "contract_kind": "metric",
+      "contract_id": "structure_comparison.tm_score",
+      "contract_version": "2.0.0",
+      "contract_digest": "sha256:c4908eb9c82c290d5657e9593ed50e9e80652aa161a8649ad095715659a16a10"
+    },
+    {
+      "contract_kind": "node_type",
+      "contract_id": "collection_ops.merge_scores",
+      "contract_version": "2.0.0",
+      "contract_digest": "sha256:78d9629719be22d8b90e6659b577ab869c0338ec428b7d6ef3a4b9e149ac3769"
+    },
+    {
+      "contract_kind": "node_type",
+      "contract_id": "esm3.generate_paired",
+      "contract_version": "2.0.0",
+      "contract_digest": "sha256:2838fe13fd1586cd0082de018ce233b90d34755ce44d44f4cfb3074438f2248c"
+    },
+    {
+      "contract_kind": "node_type",
+      "contract_id": "folding.fold",
+      "contract_version": "2.0.0",
+      "contract_digest": "sha256:17c058b26f491d3706c6091f6984f57161118c1eeb37cb820c3a135584d8efbe"
+    },
+    {
+      "contract_kind": "node_type",
+      "contract_id": "prompt_authoring.assemble_protein_prompt",
+      "contract_version": "2.0.0",
+      "contract_digest": "sha256:bb3316031e16de1756684c6f526f8f1b84dc61e2295809a2e5df660893deff4f"
+    },
+    {
+      "contract_kind": "node_type",
+      "contract_id": "prompt_authoring.build_residue_layout",
+      "contract_version": "2.0.0",
+      "contract_digest": "sha256:bdd8d3c5bf2e1e79da8b41b5996a1ec54408b99d33242decb11b92ea39adccee"
+    },
+    {
+      "contract_kind": "node_type",
+      "contract_id": "protein_io.export_sequence",
+      "contract_version": "2.0.0",
+      "contract_digest": "sha256:ad84eb154d93c1644d8b3313b6b2e366a36be997f294e8134b0f1602c2697a8a"
+    },
+    {
+      "contract_kind": "node_type",
+      "contract_id": "protein_io.import_structure",
+      "contract_version": "2.0.0",
+      "contract_digest": "sha256:30e6178b7c47e0f63b5db3524cf0ba4015ccfc1dbbbf278dd73c29fd36f8ad0d"
+    },
+    {
+      "contract_kind": "node_type",
+      "contract_id": "proteinmpnn.score",
+      "contract_version": "2.0.0",
+      "contract_digest": "sha256:1614f359b942f31070b42f1b473b08a40997c5947a36518f323dfa8012b7083e"
+    },
+    {
+      "contract_kind": "node_type",
+      "contract_id": "solubility.score_sequence",
+      "contract_version": "2.0.0",
+      "contract_digest": "sha256:f1f1b2fc6d626c1d6cf544c6e73c8e4cd79ed18fe84f6ad94eccf19f5a22b93c"
+    },
+    {
+      "contract_kind": "node_type",
+      "contract_id": "structure_annotation.dssp_compute",
+      "contract_version": "2.0.0",
+      "contract_digest": "sha256:9dec605998ad47f9f9933764579468bcf445a0a21eb3c8fc5fa273623ea623a6"
+    },
+    {
+      "contract_kind": "node_type",
+      "contract_id": "structure_annotation.secondary_structure_extract",
+      "contract_version": "2.0.0",
+      "contract_digest": "sha256:3af545a28a983d02072e337197d970a40b2c2e8b8dc3d63b1d4d3868367f0f96"
+    },
+    {
+      "contract_kind": "node_type",
+      "contract_id": "structure_comparison.align_pairwise",
+      "contract_version": "2.0.0",
+      "contract_digest": "sha256:658f844ef44e2f81fc7857873b376664f0d4e3e60d121663cb29e8a76c0be60c"
+    },
+    {
+      "contract_kind": "node_type",
+      "contract_id": "structure_comparison.batch_tm_score",
+      "contract_version": "2.0.0",
+      "contract_digest": "sha256:73fad2918561ac48af40ba903a22bc6c7af31e0b15d34dc984a5be32f715f0b0"
+    },
+    {
+      "contract_kind": "node_type",
+      "contract_id": "structure_transform.extract_sequence",
+      "contract_version": "2.0.0",
+      "contract_digest": "sha256:0002debaa144aaee4d829fa40818fa8bc84c3a0da012695ed3ae8ded7433efb2"
+    },
+    {
+      "contract_kind": "port_type",
+      "contract_id": "candidate.collection",
+      "contract_version": "2.0.0",
+      "contract_digest": "sha256:9bb806e8f171a89c82e89d47e0e47da4eed2c4977ad09899d4d60dc7e28bda00"
+    },
+    {
+      "contract_kind": "port_type",
+      "contract_id": "candidate.pairing",
+      "contract_version": "2.0.0",
+      "contract_digest": "sha256:6c7ef38ba52f660d189f4a0d4cffd57acf564f3243f4334e164d746ee57b6865"
+    },
+    {
+      "contract_kind": "port_type",
+      "contract_id": "function.annotations",
+      "contract_version": "2.1.0",
+      "contract_digest": "sha256:eb7d7dd6dbe6fc62569d5f8fadcc52793e2cf4f5bb43387b892c8161671cfded"
+    },
+    {
+      "contract_kind": "port_type",
+      "contract_id": "prompt_authoring.track.sasa",
+      "contract_version": "2.0.0",
+      "contract_digest": "sha256:d74f71fcfe6b790695c831bcd9d84db98b890e79b171a072ff2518f9cbded544"
+    },
+    {
+      "contract_kind": "port_type",
+      "contract_id": "prompt_authoring.track.secondary_structure",
+      "contract_version": "2.0.0",
+      "contract_digest": "sha256:9f143737e983b6b7506ab1eebf9e645112fa9dd1cbecd225940c57682d6643f7"
+    },
+    {
+      "contract_kind": "port_type",
+      "contract_id": "prompt_authoring.track.sequence",
+      "contract_version": "2.0.0",
+      "contract_digest": "sha256:e7dc19ea26a4ae0308ff93dac6f9341d8f6752b8dbaf91685d451137a4860721"
+    },
+    {
+      "contract_kind": "port_type",
+      "contract_id": "prompt_authoring.track.structure",
+      "contract_version": "2.0.0",
+      "contract_digest": "sha256:8b996a42df7e55c0958c56b1f5d338be93216abefedcd6ea27b8123f7bc60dbc"
+    },
+    {
+      "contract_kind": "port_type",
+      "contract_id": "prompt_authoring.track.visibility",
+      "contract_version": "2.0.0",
+      "contract_digest": "sha256:daee5c2346d0c9309e90ff2232f61b27f6d589fde3daf014ef137f00c6db92c7"
+    },
+    {
+      "contract_kind": "port_type",
+      "contract_id": "protein.prompt",
+      "contract_version": "2.1.0",
+      "contract_digest": "sha256:884f41279dd9ad40f58282277ee8bde48e2d2e3c1d764c3f7354829a43c46043"
+    },
+    {
+      "contract_kind": "port_type",
+      "contract_id": "protein.sequence",
+      "contract_version": "2.0.0",
+      "contract_digest": "sha256:5e4ca2f126c449f784b80de3815e717dea84e54205391eff0a68ffefc5527e91"
+    },
+    {
+      "contract_kind": "port_type",
+      "contract_id": "protein.structure",
+      "contract_version": "2.0.0",
+      "contract_digest": "sha256:5e15d0d47a0d0f95049e278756366461f0ec80817f72e742a6f023678b6ec90d"
+    },
+    {
+      "contract_kind": "port_type",
+      "contract_id": "protein_io.artifact_payload",
+      "contract_version": "2.0.0",
+      "contract_digest": "sha256:fe23cc8b2e4943b425e549fdb806b2cf358e09fb77b3d6fd545aea7dd1ffa9f2"
+    },
+    {
+      "contract_kind": "port_type",
+      "contract_id": "residue.layout",
+      "contract_version": "2.0.0",
+      "contract_digest": "sha256:911e7f11d03a26372aec750751caba34a934fefd64f041d9e8cce7c947f71ab0"
+    },
+    {
+      "contract_kind": "port_type",
+      "contract_id": "score.collection",
+      "contract_version": "2.0.0",
+      "contract_digest": "sha256:830dcf99fdd861b0036d2082b3ad1e93a2dd894e7a909608c835a5458c4339e7"
+    },
+    {
+      "contract_kind": "port_type",
+      "contract_id": "structure_annotation.dssp_annotations",
+      "contract_version": "2.0.0",
+      "contract_digest": "sha256:be760e6cd9956ac858ba6a029a046157704026076b00c484bc7e460d383b2662"
+    },
+    {
+      "contract_kind": "port_type",
+      "contract_id": "structure_annotation.secondary_structure_track",
+      "contract_version": "2.0.0",
+      "contract_digest": "sha256:ae06ebb97e8d8cc3c9a359911e09db59e5fb9d6880b6d3ee0c1837f54fb34957"
+    },
+    {
+      "contract_kind": "port_type",
+      "contract_id": "structure_comparison.alignment_collection",
+      "contract_version": "2.0.0",
+      "contract_digest": "sha256:90bd4912559fa84aee1ac7d978f0b25fb72777ab5b2aa2c8dc3c4b10b5d96b87"
+    }
+  ]
+}

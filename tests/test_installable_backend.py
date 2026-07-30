@@ -54,6 +54,22 @@ SOURCE_PORT_TYPE_DIGESTS = {
     f"{definition.type_id}@{definition.version}": definition.contract_digest
     for definition in SOURCE_PORT_CATALOG.port_types
 }
+SOURCE_NODE_REFERENCES = sorted(
+    (
+        {
+            "contract_kind": "node_type",
+            "contract_id": contract.contract_id,
+            "contract_version": contract.contract_version,
+            "contract_digest": contract.contract_digest,
+        }
+        for contract in SOURCE_PORT_CATALOG.contracts
+        if contract.contract_kind == "node_type"
+    ),
+    key=lambda reference: (
+        reference["contract_id"],
+        reference["contract_version"],
+    ),
+)
 EXPECTED_MODULE_IDS = {
     "compute.dssp",
     "convert.extract_backbone",
@@ -192,6 +208,9 @@ def test_built_artifacts_contain_backend_definitions_and_canonical_assets(
     required_names = {
         "examples/3gb1_pipeline.json",
         "examples/3gb1_pipeline_ui.json",
+        "examples/v2/capability-inventory.json",
+        "examples/v2/repository-capabilities.workflow.json",
+        "examples/v2_suite.py",
         "modules/collection_ops/definitions/concat_candidates.yaml",
         "modules/collection_ops/definitions/merge_scores.yaml",
         "modules/esm3/definitions/generate_paired.yaml",
@@ -247,7 +266,7 @@ def test_built_artifacts_contain_backend_definitions_and_canonical_assets(
         and {"test", "tests", "fixture", "fixtures"}.intersection(
             Path(name).parts
         )
-        for name in wheel_names
+        for name in wheel_names | sdist_names
     )
     assert not any(
         name.startswith("tests/fixtures/zero_core_packages/")
@@ -320,7 +339,9 @@ def test_wheel_runs_discovery_canonical_validation_and_api_outside_source_tree(
     expected = repr(sorted(EXPECTED_MODULE_IDS))
     probe = f"""
 from pathlib import Path
+import json
 import core
+import examples
 import modules
 from core import (
     ModuleRegistry,
@@ -330,6 +351,7 @@ from core import (
 )
 from protein_workbench_public import bundle_bytes, bundle_digest
 import protein_workbench_public
+from examples.v2_suite import verify_repository_examples
 
 source_root = Path(__import__("os").environ["PROTEIN_WORKBENCH_SOURCE_ROOT"]).resolve()
 assert source_root not in Path(core.__file__).resolve().parents
@@ -352,6 +374,20 @@ assert {{
     )
     for definition in catalog.port_types
 }} == {SOURCE_PORT_TYPE_DIGESTS!r}
+inventory = json.loads(
+    (
+        Path(examples.__file__).resolve().parent
+        / "v2"
+        / "capability-inventory.json"
+    ).read_text(encoding="utf-8")
+)
+assert inventory["node_types"] == {SOURCE_NODE_REFERENCES!r}
+assert verify_repository_examples() == {{
+    "catalog_contract_digest": {SOURCE_PORT_CATALOG_DIGEST!r},
+    "package_count": 11,
+    "node_type_count": 44,
+    "workflow_count": 1,
+}}
 assert {{
     (
         contract.contract_kind,
