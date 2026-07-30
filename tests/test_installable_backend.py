@@ -133,6 +133,28 @@ uvicorn.run(app, host="127.0.0.1", port=__PORT__, log_level="warning")
 '''.replace("__PORT__", str(port))
 
 
+def _installed_collection_ops_server_probe(port: int) -> str:
+    """Start installed collection operations with an external source package."""
+    return r'''
+from pathlib import Path
+import sys
+import uvicorn
+from core import build_frozen_catalog
+from core.server import create_app
+from modules.collection_ops.package import MODULE_PACKAGE as COLLECTION_OPS
+
+sys.path.insert(0, str(Path.cwd()))
+from collection_ops_sources.package import MODULE_PACKAGE as SOURCES
+
+app = create_app(
+    frozen_catalog_override=build_frozen_catalog(
+        (COLLECTION_OPS, SOURCES)
+    ),
+)
+uvicorn.run(app, host="127.0.0.1", port=__PORT__, log_level="warning")
+'''.replace("__PORT__", str(port))
+
+
 def _build_artifacts(output_dir: Path) -> tuple[Path, Path]:
     subprocess.run(
         [
@@ -170,6 +192,8 @@ def test_built_artifacts_contain_backend_definitions_and_canonical_assets(
     required_names = {
         "examples/3gb1_pipeline.json",
         "examples/3gb1_pipeline_ui.json",
+        "modules/collection_ops/definitions/concat_candidates.yaml",
+        "modules/collection_ops/definitions/merge_scores.yaml",
         "modules/esm3/definitions/generate_paired.yaml",
         "modules/esm3/definitions/generate_sequence.yaml",
         "modules/esm3/definitions/generate_structure.yaml",
@@ -270,6 +294,11 @@ def test_wheel_runs_discovery_canonical_validation_and_api_outside_source_tree(
         run_dir / "zero_core_packages",
         ignore=shutil.ignore_patterns("tests", "__pycache__", "*.pyc"),
     )
+    shutil.copytree(
+        PROJECT_ROOT / "tests" / "fixtures" / "collection_ops_sources",
+        run_dir / "collection_ops_sources",
+        ignore=shutil.ignore_patterns("__pycache__", "*.pyc"),
+    )
     env = os.environ.copy()
     env.pop("PYTHONPATH", None)
     env["PROTEIN_WORKBENCH_SOURCE_ROOT"] = str(PROJECT_ROOT)
@@ -367,6 +396,22 @@ assert {{
     ("binding", "proteinmpnn.random_fixed_positions.local", "2.0.0"),
     ("binding", "proteinmpnn.design.local", "2.0.0"),
     ("binding", "proteinmpnn.score.local", "2.0.0"),
+}}
+assert {{
+    (
+        contract.contract_kind,
+        contract.contract_id,
+        contract.contract_version,
+    )
+    for contract in catalog.contracts
+    if contract.contract_id.startswith("collection_ops.")
+}} == {{
+    ("node_type", "collection_ops.concat_candidates", "2.0.0"),
+    ("node_type", "collection_ops.merge_scores", "2.0.0"),
+    ("method", "collection_ops.concat_candidates.method", "2.0.0"),
+    ("method", "collection_ops.merge_scores.method", "2.0.0"),
+    ("binding", "collection_ops.concat_candidates.direct", "2.0.0"),
+    ("binding", "collection_ops.merge_scores.direct", "2.0.0"),
 }}
 
 registry = ModuleRegistry(TypeRegistry())
@@ -834,6 +879,298 @@ assert sorted(item.module_id for item in registry.list_all()) == {expected}
         assert "installed-secret-must-not-publish" not in public_evidence
         assert "/private/installed-runtime" not in public_evidence
         assert not any((tmp_path / "cache").rglob("*"))
+
+        server.terminate()
+        server.communicate(timeout=5)
+        with socket.socket() as listener:
+            listener.bind(("127.0.0.1", 0))
+            port = listener.getsockname()[1]
+        server = subprocess.Popen(
+            [
+                str(python),
+                "-I",
+                "-c",
+                _installed_collection_ops_server_probe(port),
+            ],
+            cwd=run_dir,
+            env=env,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+        )
+        deadline = time.monotonic() + 20
+        collection_catalog = None
+        while time.monotonic() < deadline:
+            if server.poll() is not None:
+                break
+            try:
+                collection_catalog = request_json("catalog_snapshot", {})
+                break
+            except (OSError, json.JSONDecodeError):
+                time.sleep(0.1)
+        if collection_catalog is None:
+            output = server.communicate(timeout=5)[0]
+            pytest.fail(
+                "Installed collection operations API did not start:\n"
+                f"{output}"
+            )
+
+        collection_contracts = {
+            (
+                contract["reference"]["contract_kind"],
+                contract["reference"]["contract_id"],
+            ): contract
+            for contract in collection_catalog["contracts"]
+        }
+        assert {
+            key
+            for key in collection_contracts
+            if key[1].startswith("collection_ops.")
+        } == {
+            ("node_type", "collection_ops.concat_candidates"),
+            ("node_type", "collection_ops.merge_scores"),
+            ("method", "collection_ops.concat_candidates.method"),
+            ("method", "collection_ops.merge_scores.method"),
+            ("binding", "collection_ops.concat_candidates.direct"),
+            ("binding", "collection_ops.merge_scores.direct"),
+        }
+        merge_descriptor = collection_contracts[
+            ("binding", "collection_ops.merge_scores.direct")
+        ]["descriptor"]
+        assert merge_descriptor["observation_propagation"] == {
+            "schema_version": "2.0.0",
+            "mode": "union",
+            "output_port": "scores",
+            "input_ports": ["scores_a", "scores_b", "scores_c"],
+            "filter": None,
+            "absent_input_policy": "ignore",
+        }
+
+        legacy_project_request = urllib.request.Request(
+            f"http://127.0.0.1:{port}/api/projects",
+            data=json.dumps(
+                {"name": "installed collection operations"}
+            ).encode("utf-8"),
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
+        with urllib.request.urlopen(
+            legacy_project_request,
+            timeout=2,
+        ) as response:
+            project_id = json.load(response)["id"]
+
+        def exact_reference(kind: str, contract_id: str) -> dict:
+            return collection_contracts[(kind, contract_id)]["reference"]
+
+        collection_workflow = {
+            "schema_version": "2.0.0",
+            "workflow_id": project_id,
+            "nodes": [
+                {
+                    "node_id": "source-a",
+                    "node_type_id": "contract_test.collection_ops_source",
+                    "node_type_version": "2.0.0",
+                    "binding_id": "contract_test.collection_ops_source.a",
+                    "binding_version": "2.0.0",
+                    "node_parameters": {"candidate_count": 2},
+                    "binding_parameters": {},
+                },
+                {
+                    "node_id": "source-b",
+                    "node_type_id": "contract_test.collection_ops_source",
+                    "node_type_version": "2.0.0",
+                    "binding_id": "contract_test.collection_ops_source.b",
+                    "binding_version": "2.0.0",
+                    "node_parameters": {"candidate_count": 1},
+                    "binding_parameters": {},
+                },
+                {
+                    "node_id": "concat",
+                    "node_type_id": "collection_ops.concat_candidates",
+                    "node_type_version": "2.0.0",
+                    "binding_id": "collection_ops.concat_candidates.direct",
+                    "binding_version": "2.0.0",
+                    "node_parameters": {},
+                    "binding_parameters": {},
+                },
+                {
+                    "node_id": "merge",
+                    "node_type_id": "collection_ops.merge_scores",
+                    "node_type_version": "2.0.0",
+                    "binding_id": "collection_ops.merge_scores.direct",
+                    "binding_version": "2.0.0",
+                    "node_parameters": {},
+                    "binding_parameters": {},
+                },
+            ],
+            "edges": [
+                {
+                    "source_node_id": "source-a",
+                    "source_port": "candidates",
+                    "target_node_id": "concat",
+                    "target_port": "candidates_a",
+                },
+                {
+                    "source_node_id": "source-b",
+                    "source_port": "candidates",
+                    "target_node_id": "concat",
+                    "target_port": "candidates_b",
+                },
+                {
+                    "source_node_id": "source-a",
+                    "source_port": "scores",
+                    "target_node_id": "merge",
+                    "target_port": "scores_a",
+                },
+                {
+                    "source_node_id": "source-b",
+                    "source_port": "scores",
+                    "target_node_id": "merge",
+                    "target_port": "scores_b",
+                },
+            ],
+            "selection_objectives": [
+                {
+                    "objective_id": "partition-a-only",
+                    "candidate_input": {
+                        "node_id": "source-a",
+                        "output_port": "candidates",
+                    },
+                    "score_collection_input": {
+                        "node_id": "merge",
+                        "output_port": "scores",
+                    },
+                    "source_partition": "contract_test.partition.a",
+                    "metric": exact_reference(
+                        "metric",
+                        "contract_test.collection_ops_value",
+                    ),
+                    "method": exact_reference(
+                        "method",
+                        "contract_test.collection_ops_source.a.method",
+                    ),
+                    "context_selector": {"kind": "intrinsic"},
+                    "utility_transform": exact_reference(
+                        "utility_transform",
+                        "contract_test.collection_ops_identity.a",
+                    ),
+                    "utility_parameters": {},
+                    "weight": 1,
+                    "match_cardinality": "exactly_one",
+                    "missing_policy": "error",
+                }
+            ],
+            "contract_lock": [],
+        }
+        saved = request_json(
+            "save_project_workflow",
+            {
+                "project_id": project_id,
+                "expected_workflow_revision": 0,
+                "workflow": collection_workflow,
+            },
+        )
+        relocked = request_json(
+            "relock_project_workflow",
+            {
+                "project_id": project_id,
+                "workflow_revision": saved["workflow_revision"],
+            },
+        )
+        compiled = request_json(
+            "workflow_compile",
+            {
+                "project_id": project_id,
+                "workflow_revision": relocked["workflow_revision"],
+                "workflow": relocked["workflow"],
+            },
+        )
+        assert compiled["accepted"] is True
+
+        def run_collection(request_id: str) -> dict:
+            started = request_json(
+                "start_run",
+                {
+                    "project_id": project_id,
+                    "workflow_revision": relocked["workflow_revision"],
+                    "compile_id": compiled["compile_id"],
+                    "client_request_id": request_id,
+                },
+                expected_status=202,
+            )
+            return wait_terminal(started["run_id"])
+
+        first_collection = run_collection("installed-collection-first")
+        assert first_collection["status"] == "succeeded"
+        first_outputs = {
+            (output["node_id"], output["output_port"]): output["values"][0]
+            for output in first_collection["outputs"]
+        }
+        source_a_candidates = first_outputs[("source-a", "candidates")]
+        source_b_candidates = first_outputs[("source-b", "candidates")]
+        concatenated = first_outputs[("concat", "candidates")]
+        assert concatenated["$dataclass"] == "candidate_collection"
+        assert concatenated["fields"]["items"] == [
+            *source_a_candidates["fields"]["items"],
+            *source_b_candidates["fields"]["items"],
+        ]
+
+        source_a_scores = first_outputs[("source-a", "scores")]
+        source_b_scores = first_outputs[("source-b", "scores")]
+        merged = first_outputs[("merge", "scores")]
+        assert merged["$dataclass"] == "score_collection"
+        assert merged["fields"]["entries"] == [
+            *source_a_scores["fields"]["entries"],
+            *source_b_scores["fields"]["entries"],
+        ]
+        assert [
+            entry["fields"]["source_partition"]
+            for entry in merged["fields"]["entries"]
+        ] == [
+            "contract_test.partition.a",
+            "contract_test.partition.a",
+            "contract_test.partition.b",
+        ]
+
+        second_collection = run_collection("installed-collection-second")
+        assert second_collection["status"] == "succeeded"
+        assert all(
+            disposition["resolution"] == "cache_replayed"
+            for disposition in second_collection["node_dispositions"]
+        )
+        second_outputs = {
+            (output["node_id"], output["output_port"]): output["values"][0]
+            for output in second_collection["outputs"]
+        }
+        assert second_outputs[("concat", "candidates")] == concatenated
+        assert second_outputs[("merge", "scores")] == merged
+
+        stream_request = prepare_run_event_stream_request(
+            {
+                "project_id": project_id,
+                "run_id": second_collection["run_id"],
+            }
+        )
+        with connect(
+            f"ws://127.0.0.1:{port}{stream_request.route}",
+            open_timeout=5,
+            close_timeout=2,
+        ) as websocket:
+            replayed_events = []
+            while True:
+                message = json.loads(websocket.recv(timeout=5))
+                validate_event(message)
+                replayed_events.append(message)
+                if message["event"]["type"] == "replay_complete":
+                    break
+        assert not {
+            "operation_attempt_started",
+            "engine_invocation_started",
+        }.intersection(
+            message["event"]["type"]
+            for message in replayed_events
+        )
     finally:
         if server.poll() is None:
             server.terminate()
