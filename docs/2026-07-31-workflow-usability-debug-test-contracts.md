@@ -56,8 +56,8 @@ Workflow 当前不可用，也是有效调试结果。
 
 允许的状态变化仅限正常测试行为，例如创建 Project、导入 Project Input、保存
 Workflow、compile、启动 Run，以及由这些操作产生的 Run Evidence 和 artifact。任何此类
-状态变化必须能归属于准确测试 Run。另允许按第 13.6 节写入缺口报告、UI 截图和公开
-protocol 响应副本；这些是测试记录，不是项目修复。
+状态变化必须能归属于准确测试 Run。另允许按第 13.6 节写入缺口报告和公开 protocol
+响应副本；这些是测试记录，不是项目修复。
 
 ## 4. 理论可用的判定基础
 
@@ -679,7 +679,7 @@ ESMFold2–SimpleFold 三条 edge。前两条以 Method 输出为 subject、输�
 
 每条 Workflow 按两个判定阶段执行：
 
-1. **能力链路阶段**：检查 UI authoring、save/relock、compile、Run admission、execution、
+1. **能力链路阶段**：检查 public authoring、save/relock、compile、Run admission、execution、
    raw Candidate/Observation 产生和 Evidence inspection。该阶段只判断合同和执行能力，
    不根据数值宣布 Candidate 科学合格；
 2. **端到端科学判定阶段**：仅在所需 raw Observation 与 provenance 完整时，应用第 7–9 节
@@ -690,16 +690,14 @@ ESMFold2–SimpleFold 三条 edge。前两条以 Method 输出为 subject、输�
 provider。`FULLY_USABLE` 要求两阶段均可由公开产品 interface 完成。零个 Candidate 通过
 科学阈值本身不构成能力缺口。
 
-### 13.2 产品 surface 与诊断 surface
+### 13.2 测试 surface
 
-- 主要验收 surface 是 React 图形界面：Project 创建、Project Input 导入、Workflow
-  authoring、Binding 选择、compile、启动 Run、进度、结果与 Evidence inspection 均应先
-  通过 UI 尝试；
-- UI 使用的同一 Run 可以通过 v2 public REST/WebSocket protocol 读取 Catalog、compile、
-  Run Projection、Ledger 和 artifact，以定位最早 backend seam；这不是绕过 UI；
-- 若 UI 在 Run 创建前已经阻断，允许用完全相同合同通过 public v2 protocol 建立至多一个
-  独立 diagnostic Run，以区分 UI gap 与 backend gap。该 Run 必须带独立 Run ID，且不能
-  抵消产品级 UI 缺口或单独支持 `FULLY_USABLE`；
+- 根据 2026-07-31 正式测试开始后的用户澄清，当前 React 前端将被废弃并重写，不属于
+  本轮测试范围；其行为不得登记为 finding，也不得影响 Workflow 顶层状态；
+- 本轮唯一验收 surface 是 public v2 REST/WebSocket protocol：Project 创建、Project Input
+  导入、Workflow authoring、Binding 选择、save/relock、compile、启动 Run、进度、Run
+  Projection、Ledger、结果和 artifact inspection 均通过该 interface 执行；
+- 每条 Workflow 只建立合同规定的 primary Run；不再区分 UI Run 与 diagnostic Run；
 - 私有 Python 对象、临时目录、未公开数据库记录或 provider 原始日志不能替代 public
   Evidence。
 
@@ -773,7 +771,7 @@ device。缺失项分别记录为 `availability_gap` 或 `readiness_gap`。
 
 | seam | 最长等待时间 |
 |---|---:|
-| UI/API authoring、compile、admission 或 repository-owned Node | 2 分钟 |
+| public API authoring、compile、admission 或 repository-owned Node | 2 分钟 |
 | ProteinMPNN Operation Attempt | 15 分钟 |
 | Biohub ESM-3 Engine Invocation | 15 分钟 |
 | Biohub ESMFold2 Engine Invocation | 10 分钟 |
@@ -793,7 +791,7 @@ terminal outcome，应记录 `OPAQUE_FAILURE` 和相应 `evidence_gap`，不能�
   `docs/workflow-usability-debug-runs/2026-07-31-initial-pass.md`；
 - 原始 Run Evidence Ledger、manifest、Candidate 与 artifact 保持在所属 Project/Run 的
   durable storage 中，报告通过 identity 和 Run ID 引用，不复制改写；
-- UI 截图和公开 protocol 响应副本写入
+- 公开 protocol 响应副本写入
   `verification-results/workflow-usability-debug/2026-07-31/<workflow-id>/`，该目录不得提交；
 - 报告按第 12 节逐项登记 finding，并明确 primary Run 与 diagnostic/confirmation Run；
 - credential、key、未脱敏 provider payload 和本地私有路径不得进入提交的报告。
