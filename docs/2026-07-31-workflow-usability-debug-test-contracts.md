@@ -13,12 +13,12 @@
 本文定义的科学问题和判定 interface 为准；不能因为当前 Catalog、Port、Binding 或
 provider 不支持，就缩小需求、改写科学问题或在 Workbench 外补接结果。
 
-讨论固化时的仓库快照：
+理论工作流讨论所依据的代码基线与当前项目测试输入：
 
 - Git HEAD：`5dfb2c9`（`Refactor Protein Workbench modules and protocol workflows`）；
 - 分支：`main`；
-- `pdbs/2EMO.pdb` 与 `pdbs/5G53.pdb` 在固化时是用户提供的未跟踪文件；
-- `pdbs/1PGA-75-gen1_0690.pdb` 是已跟踪文件。
+- `pdbs/2EMO.pdb`、`pdbs/5G53.pdb` 与 `pdbs/1PGA-75-gen1_0690.pdb`
+  均是纳入 Git 的项目测试输入。
 
 本文采用 `CONTEXT.md` 中的准确领域词汇。Node Type、Node Instance、Workflow、Run、
 Execution Binding、Method、Candidate、Score Observation 和 Run Evidence Ledger 不得混用。
@@ -139,14 +139,14 @@ residue，可记录为 `valid_rejection`，顶层状态为 `SAFELY_BLOCKED`，�
 
 ## 6. 三个样例与 Workflow 映射
 
-| 样例 | SHA-256 | 理论 Workflow | 首要设计检验 |
-|---|---|---|---|
-| `pdbs/2EMO.pdb` | `6e985a8afe395c90e5979670f31cf517a2f8f04fbe657b529ac0c8a3a5683b62` | 已知骨架的约束序列重设计 | modified residue、功能位点约束、结构比较解释 |
-| `pdbs/5G53.pdb` | `06640b58186ffb5c8e26d9b8c5c43974b5e0b4dd73ea2a2ff9947750d1c4d305` | 多轨、可变长度的结构条件生成 | 多链选择、缺失 layout、显式长度分支 |
-| `pdbs/1PGA-75-gen1_0690.pdb` | `8b50244c61f01a52b7f07041413bd7e9e74d1bbbeaf6a86dbbd72b2c23b4425c` | 多 folding Method 的结构共识验证 | structure-to-sequence lineage、多 Binding、sibling pairing |
+| 样例 | 理论 Workflow | 首要设计检验 |
+|---|---|---|
+| `pdbs/2EMO.pdb` | 已知骨架的约束序列重设计 | modified residue、功能位点约束、结构比较解释 |
+| `pdbs/5G53.pdb` | 多轨、可变长度的结构条件生成 | 多链选择、缺失 layout、显式长度分支 |
+| `pdbs/1PGA-75-gen1_0690.pdb` | 多 folding Method 的结构共识验证 | structure-to-sequence lineage、多 Binding、sibling pairing |
 
-样例文件的哈希是测试身份的一部分。执行前必须复核；若文件变化，应建立新的输入快照和
-独立测试记录，不能沿用本文的原始结构事实。
+测试直接引用上述 Git 管理的文件路径。执行记录通过 Git HEAD 固定输入版本，不得以仓库外
+同名文件替代这些 Project Input。
 
 ## 7. Workflow 1：2EMO 约束骨架重设计
 
@@ -531,7 +531,7 @@ Observation 才可解释。两个 Method 的 confidence 必须保持分开。
 
 每条测试执行时必须：
 
-1. 记录当前 Git HEAD、工作树状态和输入 SHA-256；
+1. 记录当前 Git HEAD、工作树状态和准确输入文件名；
 2. 记录 FrozenCatalog identity；
 3. 保存准确 Workflow 文档和 revision；
 4. 记录每个 Node Instance 的 Node Type、Binding、Method、版本和 contract digest；
@@ -561,7 +561,7 @@ Observation 才可解释。两个 Method 的 confidence 必须保持分开。
 每个发现至少记录：
 
 - finding ID；
-- 样例和输入哈希；
+- 样例输入文件名；
 - Git HEAD、Catalog identity、Workflow revision 和 Run ID；
 - 预期理论合同；
 - 实际观察；
