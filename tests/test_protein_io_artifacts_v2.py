@@ -115,7 +115,8 @@ def test_sequence_export_publishes_only_an_opaque_run_bound_fasta(
 
     assert projection["status"] == "succeeded"
     assert [output["output_port"] for output in projection["outputs"]] == [
-        "sequence"
+        "sequence",
+        "sequence_candidates",
     ]
     assert len(projection["artifact_index"]) == 1
     artifact = projection["artifact_index"][0]

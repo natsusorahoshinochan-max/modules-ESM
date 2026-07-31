@@ -41,7 +41,7 @@ from tests.fixtures.prompt_authoring_v2 import (
 )
 
 
-def test_prompt_authoring_is_one_package_with_eleven_independent_nodes() -> None:
+def test_prompt_authoring_is_one_package_with_twelve_independent_nodes() -> None:
     registrations = {
         registration.package_id: registration
         for registration in discover_module_packages()
@@ -56,6 +56,7 @@ def test_prompt_authoring_is_one_package_with_eleven_independent_nodes() -> None
         "definitions/assemble_protein_prompt.yaml",
         "definitions/build_residue_layout.yaml",
         "definitions/edit_residue_layout.yaml",
+        "definitions/insert_masked_residues.yaml",
         "definitions/map_residue_track.yaml",
         "definitions/override_residue_track.yaml",
         "definitions/override_protein_prompt_track.yaml",
@@ -78,6 +79,7 @@ def test_prompt_authoring_is_one_package_with_eleven_independent_nodes() -> None
         ("prompt_authoring.assemble_protein_prompt", VERSION),
         ("prompt_authoring.build_residue_layout", VERSION),
         ("prompt_authoring.edit_residue_layout", VERSION),
+        ("prompt_authoring.insert_masked_residues", VERSION),
         ("prompt_authoring.map_residue_track", VERSION),
         ("prompt_authoring.override_residue_track", VERSION),
         ("prompt_authoring.override_protein_prompt_track", VERSION),
@@ -205,7 +207,7 @@ _TRACK_PORT_CASES = (
 )
 
 
-def test_all_eleven_nodes_execute_through_shared_contract_kit(
+def test_all_twelve_nodes_execute_through_shared_contract_kit(
     tmp_path: Path,
 ) -> None:
     report = verify_module_package_contract(
@@ -570,6 +572,35 @@ def test_all_eleven_nodes_execute_through_shared_contract_kit(
                     ),
                 ),
             ),
+            ModulePackageContractCase(
+                case_id="prompt-authoring-deterministic-insert",
+                node_type_id="prompt_authoring.insert_masked_residues",
+                node_type_version=VERSION,
+                binding_id=(
+                    "prompt_authoring.insert_masked_residues.direct"
+                ),
+                binding_version=VERSION,
+                node_parameters={
+                    "insertions": [{
+                        "after_residue_id": "A:1",
+                        "before_residue_id": "A:2",
+                        "inserted_residue_ids": ["A:inserted"],
+                    }]
+                },
+                binding_parameters={},
+                environment_values={},
+                safe_environment_fingerprint="provider-free",
+                invalidation_token="prompt-authoring-deterministic-insert-v1",
+                workflow_nodes=(_SOURCE,),
+                workflow_edges=(
+                    WorkflowEdge(
+                        "source",
+                        "protein_prompt",
+                        "contract-test-node",
+                        "protein_prompt",
+                    ),
+                ),
+            ),
         ),
         port_cases=_TRACK_PORT_CASES,
         supporting_registrations=(SOURCE_PACKAGE,),
@@ -577,6 +608,7 @@ def test_all_eleven_nodes_execute_through_shared_contract_kit(
     )
 
     assert [case.status for case in report.case_reports] == [
+        "succeeded",
         "succeeded",
         "succeeded",
         "succeeded",

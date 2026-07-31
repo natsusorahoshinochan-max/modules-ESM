@@ -91,7 +91,6 @@ def test_scoring_binding_fixes_exact_method_metric_and_observation_scope() -> No
     from modules.proteinmpnn.package import (
         MODULE_PACKAGE as PROTEINMPNN_PACKAGE,
     )
-
     catalog = build_frozen_catalog((PROTEINMPNN_PACKAGE,))
     node = catalog.require_contract(
         "node_type",
@@ -207,7 +206,6 @@ def test_scoring_metric_context_and_scope_mismatches_fail_catalog_build(
     from modules.proteinmpnn.package import (
         MODULE_PACKAGE as PROTEINMPNN_PACKAGE,
     )
-
     scoring = next(
         binding
         for binding in PROTEINMPNN_PACKAGE.bindings
@@ -416,15 +414,15 @@ def test_constraint_authoring_validates_and_publishes_the_complete_contract(
         binding_id="proteinmpnn.constraints.local",
         binding_version="2.1.0",
         node_parameters={
-            "designable_positions": [0, 2, 4],
-            "fixed_positions": [1, 3],
+            "designable_residue_ids": ["A:1", "B:1", "B:3"],
+            "fixed_residue_ids": ["A:2", "B:2"],
             "designed_chains": ["A", "B"],
             "fixed_chains": [],
             "omit_amino_acids": ["C", "M"],
-            "tied_positions": [[0, 2]],
-            "bias_by_res": [
-                {"position": 4, "amino_acid": "A", "bias": 1.5},
-                {"position": 4, "amino_acid": "G", "bias": -0.25},
+            "tied_residue_groups": [["A:1", "B:1"]],
+            "bias_by_residue": [
+                {"residue_id": "B:3", "amino_acid": "A", "bias": 1.5},
+                {"residue_id": "B:3", "amino_acid": "G", "bias": -0.25},
             ],
         },
         binding_parameters={},
@@ -446,13 +444,13 @@ def test_constraint_authoring_validates_and_publishes_the_complete_contract(
     )
     assert _decode_output(catalog, output) == ProteinMPNNConstraints(
         layout=TARGET_LAYOUT,
-        designable_positions=[0, 2, 4],
-        fixed_positions=[1, 3],
+        designable_residue_ids=["A:1", "B:1", "B:3"],
+        fixed_residue_ids=["A:2", "B:2"],
         designed_chains=["A", "B"],
         fixed_chains=None,
         omit_amino_acids=["C", "M"],
-        tied_positions=[[0, 2]],
-        bias_by_res={4: {"A": 1.5, "G": -0.25}},
+        tied_residue_groups=[["A:1", "B:1"]],
+        bias_by_residue={"B:3": {"A": 1.5, "G": -0.25}},
     )
     assert output["result_identity"].startswith("sha256:")
     assert any(
@@ -465,14 +463,14 @@ def test_constraint_authoring_validates_and_publishes_the_complete_contract(
 @pytest.mark.parametrize(
     "parameter_override",
     (
-        {"fixed_positions": [5]},
+        {"fixed_residue_ids": ["B:4"]},
         {"designed_chains": ["C"]},
         {
-            "designable_positions": [0, 1],
-            "fixed_positions": [],
+            "designable_residue_ids": ["A:1", "A:2"],
+            "fixed_residue_ids": [],
             "designed_chains": ["A"],
             "fixed_chains": ["B"],
-            "tied_positions": [[0, 2]],
+            "tied_residue_groups": [["A:1", "B:1"]],
         },
     ),
 )
@@ -488,13 +486,13 @@ def test_constraint_authoring_fails_closed_on_layout_or_chain_contradictions(
     )
 
     parameters = {
-        "designable_positions": [],
-        "fixed_positions": [],
+        "designable_residue_ids": [],
+        "fixed_residue_ids": [],
         "designed_chains": [],
         "fixed_chains": [],
         "omit_amino_acids": [],
-        "tied_positions": [],
-        "bias_by_res": [],
+        "tied_residue_groups": [],
+        "bias_by_residue": [],
         **parameter_override,
     }
     nodes = (
@@ -549,14 +547,18 @@ def test_constraint_authoring_rejects_public_x_bias() -> None:
         author_constraints(
             TARGET_LAYOUT,
             {
-                "designable_positions": [],
-                "fixed_positions": [],
+                "designable_residue_ids": [],
+                "fixed_residue_ids": [],
                 "designed_chains": [],
                 "fixed_chains": [],
                 "omit_amino_acids": [],
-                "tied_positions": [],
-                "bias_by_res": [
-                    {"position": 0, "amino_acid": "X", "bias": 1.0},
+                "tied_residue_groups": [],
+                "bias_by_residue": [
+                    {
+                        "residue_id": "A:1",
+                        "amino_acid": "X",
+                        "bias": 1.0,
+                    },
                 ],
             },
         )
@@ -643,12 +645,12 @@ def test_random_fixed_positions_replays_and_randomness_changes_identity(
     replay_identity, replay = run(1603)
     changed_identity, changed = run(1604)
 
-    assert first.fixed_positions is not None
-    assert len(first.fixed_positions) == 6
-    assert first.fixed_positions == sorted(set(first.fixed_positions))
+    assert first.fixed_residue_ids is not None
+    assert len(first.fixed_residue_ids) == 6
+    assert len(set(first.fixed_residue_ids)) == 6
     assert (first_identity, first) == (replay_identity, replay)
     assert changed_identity != first_identity
-    assert changed.fixed_positions != first.fixed_positions
+    assert changed.fixed_residue_ids != first.fixed_residue_ids
 
 
 class _CapturingProteinMPNN:
@@ -1120,10 +1122,38 @@ def test_scoring_rejects_sequence_residue_layout_drift_before_model_call() -> No
             structure=ProteinStructure("MODEL\nEND\n"),
             sequence=ProteinSequence(
                 "AGSTW",
-                ["A:1", "A:2", "B:1", "B:2", "B:99"],
+                ["A:1", "A:2", "A:3", "B:1", "B:2"],
             ),
         )
     assert provider.requests == []
+
+
+def test_scoring_uses_identity_complete_sequence_layout_for_provider_mapping() -> None:
+    from modules.proteinmpnn.v2_adapter import prepare_scoring_request
+
+    request = prepare_scoring_request(
+        provider=_CapturingProteinMPNN(),
+        structure=ProteinStructure("MODEL\nEND\n"),
+        sequence=ProteinSequence(
+            "AGSTW",
+            ["A:6", "A:7", "B:20", "B:21", "B:22"],
+        ),
+    )
+
+    assert request.target_layout.residue_ids == [
+        "A:6",
+        "A:7",
+        "B:20",
+        "B:21",
+        "B:22",
+    ]
+    assert request.residue_identity_mapping == (
+        ("A:6", "A", 1),
+        ("A:7", "A", 2),
+        ("B:20", "B", 1),
+        ("B:21", "B", 2),
+        ("B:22", "B", 3),
+    )
 
 
 def test_scoring_replay_preserves_candidate_and_observation_identity_only(
@@ -1294,14 +1324,18 @@ def _design_workflow() -> tuple[
             binding_id="proteinmpnn.constraints.local",
             binding_version="2.1.0",
             node_parameters={
-                "designable_positions": [0, 2, 4],
-                "fixed_positions": [1, 3],
+                "designable_residue_ids": ["A:1", "B:1", "B:3"],
+                "fixed_residue_ids": ["A:2", "B:2"],
                 "designed_chains": ["A", "B"],
                 "fixed_chains": [],
                 "omit_amino_acids": ["C", "M"],
-                "tied_positions": [[0, 2]],
-                "bias_by_res": [
-                    {"position": 4, "amino_acid": "A", "bias": 1.5},
+                "tied_residue_groups": [["A:1", "B:1"]],
+                "bias_by_residue": [
+                    {
+                        "residue_id": "B:3",
+                        "amino_acid": "A",
+                        "bias": 1.5,
+                    },
                 ],
             },
             binding_parameters={},
@@ -1338,6 +1372,68 @@ def _design_workflow() -> tuple[
         ),
     )
     return nodes, edges
+
+
+@pytest.mark.parametrize(
+    ("missing_position_fixed", "error_match"),
+    (
+        (True, None),
+        (False, "complete backbone coordinates"),
+    ),
+)
+def test_provider_decoding_requires_missing_backbone_residue_to_be_fixed(
+    missing_position_fixed: bool,
+    error_match: str | None,
+) -> None:
+    import torch
+
+    import modules.proteinmpnn.provider_runtime as provider_runtime
+
+    class Model:
+        def tied_sample(self, *args: Any, **kwargs: Any) -> dict[str, Any]:
+            del args, kwargs
+            return {
+                "S": torch.tensor(
+                    [[
+                        provider_runtime._ALPHABET_DICT["A"],
+                        provider_runtime._ALPHABET_DICT["C"],
+                        provider_runtime._ALPHABET_DICT["D"],
+                    ]],
+                    dtype=torch.int64,
+                )
+            }
+
+    batch = {
+        "X": torch.zeros((1, 3, 4, 3)),
+        "S": torch.tensor([[0, 1, 2]], dtype=torch.int64),
+        "mask": torch.tensor([[1.0, 0.0, 1.0]]),
+        "lengths": torch.tensor([3], dtype=torch.int64),
+        "chain_M": torch.ones((1, 3)),
+        "chain_encoding_all": torch.ones((1, 3)),
+        "residue_idx": torch.arange(3).reshape(1, 3),
+        "chain_M_pos": torch.tensor(
+            [[1.0, 0.0 if missing_position_fixed else 1.0, 1.0]]
+        ),
+        "tied_pos_list_of_lists_list": [[]],
+        "bias_by_res_all": torch.zeros((1, 3, 21)),
+    }
+
+    def run() -> list[ProteinSequence]:
+        return provider_runtime._run_design(
+            Model(),
+            batch,
+            num_sequences=1,
+            temperature=0.2,
+            device=torch.device("cpu"),
+            omit_amino_acids=["X"],
+        )
+
+    if error_match is not None:
+        with pytest.raises(RuntimeError, match=error_match):
+            run()
+        return
+
+    assert run() == [ProteinSequence("ACD")]
 
 
 def test_design_produces_canonical_three_parent_by_five_child_lineage(
@@ -1433,6 +1529,266 @@ def test_design_produces_canonical_three_parent_by_five_child_lineage(
     assert {item["status"] for item in design_terminal} == {"succeeded"}
     public_evidence = str({"projection": projection, "events": events})
     assert "proteinmpnn-secret-must-not-publish" not in public_evidence
+
+
+def test_design_seed_depends_on_structure_content_and_parent_slot_not_result_identity(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from modules.proteinmpnn.package import (
+        MODULE_PACKAGE as PROTEINMPNN_PACKAGE,
+    )
+    from modules.structure_transform.package import (
+        MODULE_PACKAGE as STRUCTURE_TRANSFORM_PACKAGE,
+    )
+    from tests.fixtures.proteinmpnn_sources.package import (
+        MODULE_PACKAGE as SOURCE_PACKAGE,
+    )
+
+    def run(transform_depth: int) -> tuple[int, str, str]:
+        provider = _CapturingProteinMPNN()
+        _install_test_provider(monkeypatch, provider)
+        source_node_id = "source"
+        transform_nodes = tuple(
+            WorkflowNodeInstance(
+                node_id=f"select-{index}",
+                node_type_id="structure_transform.select_candidate_chains",
+                node_type_version="2.1.0",
+                binding_id=(
+                    "structure_transform.select_candidate_chains.direct"
+                ),
+                binding_version="2.1.0",
+                node_parameters={"chain_ids": ["A"]},
+                binding_parameters={},
+            )
+            for index in range(transform_depth)
+        )
+        nodes = (
+            WorkflowNodeInstance(
+                node_id=source_node_id,
+                node_type_id="contract_test.proteinmpnn_source",
+                node_type_version="2.1.0",
+                binding_id="contract_test.proteinmpnn_source.direct",
+                binding_version="2.1.0",
+                node_parameters={"parent_count": 1},
+                binding_parameters={},
+            ),
+            *transform_nodes,
+            WorkflowNodeInstance(
+                node_id="design",
+                node_type_id="proteinmpnn.design",
+                node_type_version="2.1.0",
+                binding_id="proteinmpnn.design.local",
+                binding_version="2.1.0",
+                node_parameters={
+                    "effective_seed": 1603,
+                    "num_sequences": 1,
+                    "temperature": 0.2,
+                    "backbone_noise": 0,
+                },
+                binding_parameters={},
+            ),
+        )
+        transform_edges = tuple(
+            WorkflowEdge(
+                source_node_id if index == 0 else f"select-{index - 1}",
+                "structure_candidates",
+                f"select-{index}",
+                "structure_candidates",
+            )
+            for index in range(transform_depth)
+        )
+        final_parent_node = f"select-{transform_depth - 1}"
+        catalog, projection, events = _run(
+            tmp_path / f"depth-{transform_depth}",
+            nodes=nodes,
+            edges=(
+                *transform_edges,
+                WorkflowEdge(
+                    final_parent_node,
+                    "structure_candidates",
+                    "design",
+                    "structure_candidates",
+                ),
+            ),
+            registrations=(
+                PROTEINMPNN_PACKAGE,
+                SOURCE_PACKAGE,
+                STRUCTURE_TRANSFORM_PACKAGE,
+            ),
+            environment=_proteinmpnn_environment(),
+        )
+        assert projection["status"] == "succeeded", events
+        source_output = next(
+            output
+            for output in projection["outputs"]
+            if output["node_id"] == final_parent_node
+            and output["output_port"] == "structure_candidates"
+        )
+        parents = _decode_output(catalog, source_output)
+        assert len(provider.requests) == 1
+        return (
+            provider.requests[0].seed,
+            parents.items[0].candidate_id,
+            parents.items[0].data.pdb_string,
+        )
+
+    first_seed, first_parent_id, first_pdb = run(1)
+    second_seed, second_parent_id, second_pdb = run(2)
+
+    assert first_parent_id != second_parent_id
+    assert first_pdb == second_pdb
+    assert first_seed == second_seed
+
+
+def test_2emo_identity_layout_maps_to_provider_positions_and_result_provenance(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from modules.prompt_authoring.package import (
+        MODULE_PACKAGE as PROMPT_AUTHORING_PACKAGE,
+    )
+    from modules.proteinmpnn.package import (
+        MODULE_PACKAGE as PROTEINMPNN_PACKAGE,
+    )
+    from modules.structure_transform.package import (
+        MODULE_PACKAGE as STRUCTURE_TRANSFORM_PACKAGE,
+    )
+    from tests.fixtures.prompt_authoring_sources.package import (
+        MODULE_PACKAGE as PROMPT_SOURCE_PACKAGE,
+    )
+
+    class IdentityLayoutProvider(_CapturingProteinMPNN):
+        def parse_structure(self, pdb_string: str) -> list[dict[str, Any]]:
+            self.parsed.append(pdb_string)
+            return [{"name": "target", "seq_chain_A": "A" * 224}]
+
+        def design(
+            self,
+            request: Any,
+        ) -> tuple[list[ProteinSequence], list[float]]:
+            self.requests.append(request)
+            return (
+                [
+                    ProteinSequence("A" * request.target_length)
+                    for _ in range(request.num_sequences)
+                ],
+                [-1.0 for _ in range(request.num_sequences)],
+            )
+
+    provider = IdentityLayoutProvider()
+    _install_test_provider(monkeypatch, provider)
+    nodes = (
+        WorkflowNodeInstance(
+            node_id="source",
+            node_type_id="contract_test.prompt_authoring_values",
+            node_type_version="2.1.0",
+            binding_id="contract_test.prompt_authoring_values.direct",
+            binding_version="2.1.0",
+            node_parameters={"fixture": "2emo"},
+            binding_parameters={},
+        ),
+        WorkflowNodeInstance(
+            node_id="normalize",
+            node_type_id="structure_transform.normalize_csh_parent_span",
+            node_type_version="2.1.0",
+            binding_id=(
+                "structure_transform.normalize_csh_parent_span.direct"
+            ),
+            binding_version="2.1.0",
+            node_parameters={},
+            binding_parameters={},
+        ),
+        WorkflowNodeInstance(
+            node_id="prompt",
+            node_type_id="prompt_authoring.prompt_from_structure",
+            node_type_version="2.1.0",
+            binding_id="prompt_authoring.prompt_from_structure.direct",
+            binding_version="2.1.0",
+            node_parameters={},
+            binding_parameters={},
+        ),
+        WorkflowNodeInstance(
+            node_id="constraints",
+            node_type_id="proteinmpnn.constraints",
+            node_type_version="2.1.0",
+            binding_id="proteinmpnn.constraints.local",
+            binding_version="2.1.0",
+            node_parameters={
+                "designable_residue_ids": [],
+                "fixed_residue_ids": ["A:42", "A:65", "A:66", "A:67"],
+                "designed_chains": [],
+                "fixed_chains": [],
+                "omit_amino_acids": [],
+                "tied_residue_groups": [],
+                "bias_by_residue": [],
+            },
+            binding_parameters={},
+        ),
+        WorkflowNodeInstance(
+            node_id="design",
+            node_type_id="proteinmpnn.design",
+            node_type_version="2.1.0",
+            binding_id="proteinmpnn.design.local",
+            binding_version="2.1.0",
+            node_parameters={
+                "effective_seed": 1603,
+                "num_sequences": 1,
+                "temperature": 0.2,
+                "backbone_noise": 0,
+            },
+            binding_parameters={},
+        ),
+    )
+    catalog, projection, events = _run(
+        tmp_path,
+        nodes=nodes,
+        edges=(
+            WorkflowEdge("source", "structure", "normalize", "structure"),
+            WorkflowEdge("normalize", "structure", "prompt", "structure"),
+            WorkflowEdge("prompt", "layout", "constraints", "layout"),
+            WorkflowEdge("normalize", "structure", "design", "structure"),
+            WorkflowEdge(
+                "constraints",
+                "constraints",
+                "design",
+                "constraints",
+            ),
+        ),
+        registrations=(
+            PROMPT_AUTHORING_PACKAGE,
+            PROMPT_SOURCE_PACKAGE,
+            PROTEINMPNN_PACKAGE,
+            STRUCTURE_TRANSFORM_PACKAGE,
+        ),
+        environment=_proteinmpnn_environment(),
+    )
+
+    assert projection["status"] == "succeeded", events
+    assert len(provider.requests) == 1
+    request = provider.requests[0]
+    assert request.target_layout.length == 224
+    assert request.target_layout.residue_ids[:2] == ["A:6", "A:7"]
+    assert request.target_layout.residue_ids[-1] == "A:229"
+    assert request.fixed_position_dict == {
+        "target": {"A": [37, 60, 61, 62]}
+    }
+    assert request.residue_identity_mapping[0] == ("A:6", "A", 1)
+    assert request.residue_identity_mapping[-1] == ("A:229", "A", 224)
+    output = next(
+        item
+        for item in projection["outputs"]
+        if item["node_id"] == "design"
+        and item["output_port"] == "sequence_candidates"
+    )
+    candidates = _decode_output(catalog, output)
+    candidate = candidates.items[0]
+    assert candidate.data.residue_ids == request.target_layout.residue_ids
+    assert candidate.metadata["residue_identity_mapping"][0] == {
+        "residue_id": "A:6",
+        "provider_chain_id": "A",
+        "provider_position": 1,
+    }
 
 
 def test_design_binding_fixes_model_source_checkpoint_and_runtime_identity(
@@ -1609,7 +1965,7 @@ def test_design_rejects_noncanonical_sampling_and_reference_layout_drift() -> No
         5,
         ["A:1", "A:2", "A:3", "B:1", "B:2"],
     )
-    with pytest.raises(ValueError, match="constraint layout identity"):
+    with pytest.raises(ValueError, match="constraint residue identity"):
         prepare_design_request(
             provider=provider,
             structure=structure,
@@ -1660,6 +2016,27 @@ def test_design_restores_provider_designed_first_chain_order() -> None:
         )
     ]
     assert scores == [1.0]
+
+
+def test_design_canonicalizes_constraint_chain_sets_to_provider_order() -> None:
+    from modules.proteinmpnn.v2_adapter import prepare_design_request
+
+    request = prepare_design_request(
+        provider=_CapturingProteinMPNN(),
+        structure=ProteinStructure("REMARK exact-layout\nEND\n"),
+        num_sequences=1,
+        temperature=0.1,
+        backbone_noise=0,
+        seed=1603,
+        constraints=ProteinMPNNConstraints(
+            layout=TARGET_LAYOUT,
+            designed_chains=["B", "A"],
+        ),
+        reference_sequence=None,
+    )
+
+    assert request.chain_dict == {"target": (["A", "B"], [])}
+    assert request.provider_chain_order == ("A", "B")
 
 
 def test_design_normalizes_one_standalone_structure_without_inventing_a_parent(
@@ -2023,14 +2400,18 @@ def test_proteinmpnn_passes_the_shared_contract_test_kit(
             binding_id="proteinmpnn.constraints.local",
             binding_version="2.1.0",
             node_parameters={
-                "designable_positions": [0, 2, 4],
-                "fixed_positions": [1, 3],
+                "designable_residue_ids": ["A:1", "B:1", "B:3"],
+                "fixed_residue_ids": ["A:2", "B:2"],
                 "designed_chains": ["A", "B"],
                 "fixed_chains": [],
                 "omit_amino_acids": ["C", "M"],
-                "tied_positions": [[0, 2]],
-                "bias_by_res": [
-                    {"position": 4, "amino_acid": "A", "bias": 1.5}
+                "tied_residue_groups": [["A:1", "B:1"]],
+                "bias_by_residue": [
+                    {
+                        "residue_id": "B:3",
+                        "amino_acid": "A",
+                        "bias": 1.5,
+                    }
                 ],
             },
             binding_parameters={},
@@ -2162,7 +2543,7 @@ def test_proteinmpnn_passes_the_shared_contract_test_kit(
                 version="2.1.0",
                 valid_value=ProteinMPNNConstraints(
                     layout=ResidueLayout("A", 1, ["A:1"]),
-                    fixed_positions=[0],
+                    fixed_residue_ids=["A:1"],
                 ),
                 invalid_values=(object(),),
             ),

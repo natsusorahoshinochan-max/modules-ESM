@@ -47,6 +47,9 @@ class CollectionOpsImplementation:
         if self._operation == "rebind_candidate_pairing":
             self._require_no_node_parameters(node_parameters)
             return {"pairing": self._rebind_candidate_pairing(inputs)}
+        if self._operation == "pair_siblings_by_parent":
+            self._require_no_node_parameters(node_parameters)
+            return {"pairing": self._pair_siblings_by_parent(inputs)}
         if self._operation == "take_candidates":
             return {
                 "candidates": self._take_candidates(
@@ -217,6 +220,66 @@ class CollectionOpsImplementation:
         if used_parents != set(parents_by_id):
             raise ValueError("subjects do not cover every exact parent")
         return PairwiseCandidateMapping(rebound)
+
+    def _pair_siblings_by_parent(
+        self,
+        inputs: Mapping[str, Any],
+    ) -> PairwiseCandidateMapping:
+        if set(inputs) != {"subjects", "references"}:
+            raise ValueError(
+                "sibling pairing requires exact subject and reference inputs"
+            )
+        subjects, subjects_by_id = self._candidate_digests(
+            inputs["subjects"],
+            port="subjects",
+        )
+        references, references_by_id = self._candidate_digests(
+            inputs["references"],
+            port="references",
+        )
+
+        def by_parent(
+            collection: CandidateCollection,
+            *,
+            port: str,
+        ) -> dict[str, Candidate]:
+            indexed: dict[str, Candidate] = {}
+            for candidate in collection.items:
+                if len(candidate.parent_ids) != 1:
+                    raise ValueError(
+                        f"each {port} Candidate must have exactly one parent"
+                    )
+                parent_id = candidate.parent_ids[0]
+                if not parent_id or parent_id in indexed:
+                    raise ValueError(
+                        f"{port} must contain exactly one Candidate per parent"
+                    )
+                indexed[parent_id] = candidate
+            return indexed
+
+        subjects_by_parent = by_parent(subjects, port="subjects")
+        references_by_parent = by_parent(references, port="references")
+        if set(subjects_by_parent) != set(references_by_parent):
+            raise ValueError(
+                "subject and reference Candidates must cover the same parents"
+            )
+        return PairwiseCandidateMapping([
+            PairwiseCandidateMatch(
+                subject_candidate_id=subject.candidate_id,
+                subject_content_digest=subjects_by_id[
+                    subject.candidate_id
+                ][1],
+                reference_candidate_id=(
+                    references_by_parent[subject.parent_ids[0]].candidate_id
+                ),
+                reference_content_digest=references_by_id[
+                    references_by_parent[
+                        subject.parent_ids[0]
+                    ].candidate_id
+                ][1],
+            )
+            for subject in subjects.items
+        ])
 
     @staticmethod
     def _concat_candidates(

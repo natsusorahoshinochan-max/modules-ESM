@@ -23,6 +23,7 @@ from .implementation import (
     AssembleProteinPromptImplementation,
     BuildResidueLayoutImplementation,
     EditResidueLayoutImplementation,
+    InsertMaskedResiduesImplementation,
     MapResidueTrackImplementation,
     OverrideProteinPromptTrackImplementation,
     OverrideResidueTrackImplementation,
@@ -45,6 +46,7 @@ _OPERATIONS = (
     "assemble_protein_prompt",
     "build_residue_layout",
     "edit_residue_layout",
+    "insert_masked_residues",
     "map_residue_track",
     "override_protein_prompt_track",
     "override_residue_track",
@@ -58,6 +60,7 @@ _IMPLEMENTATIONS = {
     "assemble_protein_prompt": AssembleProteinPromptImplementation,
     "build_residue_layout": BuildResidueLayoutImplementation,
     "edit_residue_layout": EditResidueLayoutImplementation,
+    "insert_masked_residues": InsertMaskedResiduesImplementation,
     "map_residue_track": MapResidueTrackImplementation,
     "override_protein_prompt_track": OverrideProteinPromptTrackImplementation,
     "override_residue_track": OverrideResidueTrackImplementation,
@@ -108,6 +111,14 @@ def _method(operation: str) -> MethodDefinition:
             "mapping_operations": ["delete", "insert", "match"],
             "mapping_indexing": "zero-based-with-negative-unmapped-sentinel",
         },
+        "insert_masked_residues": {
+            "name": "deterministic-identity-addressed-masked-insertion",
+            "boundary": "adjacent-source-residue-identities",
+            "ordering": "declared-source-boundary-order",
+            "preservation": "all-source-identities-and-present-track-values",
+            "inserted_values": "explicit-null-on-every-present-track",
+            "residue_map": "complete-match-and-insert-only",
+        },
         "map_residue_track": {
             "name": "explicit-residue-map-conversion",
             "nullable_semantics": "JSON null means unmapped or unspecified",
@@ -128,6 +139,9 @@ def _method(operation: str) -> MethodDefinition:
             "residue_identity": "chain-residue-number-insertion-code",
             "coordinates": "named-atoms",
             "visibility": "present-coordinate-residues",
+            "modified_residue_policy": (
+                "fail-closed-on-unsupported-polymer-CSH"
+            ),
         },
         "random_insert_masked": {
             "name": "seeded-chain-local-masked-residue-insertion",
@@ -255,6 +269,7 @@ MODULE_PACKAGE = ModulePackageRegistration(
         DefinitionResource("definitions/assemble_protein_prompt.yaml"),
         DefinitionResource("definitions/build_residue_layout.yaml"),
         DefinitionResource("definitions/edit_residue_layout.yaml"),
+        DefinitionResource("definitions/insert_masked_residues.yaml"),
         DefinitionResource("definitions/map_residue_track.yaml"),
         DefinitionResource(
             "definitions/override_protein_prompt_track.yaml"

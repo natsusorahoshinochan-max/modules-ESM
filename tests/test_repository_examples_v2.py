@@ -347,7 +347,7 @@ def test_routine_example_verification_is_pure_and_provider_free(
             build_discovered_frozen_catalog().contract_digest
         ),
         "package_count": 11,
-        "node_type_count": 49,
+            "node_type_count": 54,
         "workflow_count": len(PRODUCTION_WORKFLOW_PATHS),
     }
     assert all(not any(root.iterdir()) for root in isolated_roots.values())

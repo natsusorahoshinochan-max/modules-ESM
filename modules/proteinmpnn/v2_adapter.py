@@ -18,6 +18,7 @@ from datatypes import (
     ProteinMPNNConstraints,
     ProteinSequence,
     ProteinStructure,
+    ResidueLayout,
 )
 
 from .provider_runtime import (
@@ -343,14 +344,28 @@ def prepare_scoring_request(
         None,
         sequence.sequence,
     )
-    if (
-        sequence.residue_ids is not None
-        and sequence.residue_ids != _target_residue_ids(request)
-    ):
-        raise ValueError(
-            "scoring sequence residue layout does not match the parsed "
-            "structure layout"
+    if sequence.residue_ids is not None:
+        scoring_layout = ResidueLayout(
+            chain_id=",".join(request.structure_chain_order),
+            length=len(sequence.residue_ids),
+            residue_ids=list(sequence.residue_ids),
         )
+        try:
+            request = _prepare_design_request(
+                parsed,
+                PROTEINMPNN_MODEL,
+                1,
+                0.1,
+                0.0,
+                PROTEINMPNN_SCORING_SEED,
+                ProteinMPNNConstraints(layout=scoring_layout),
+                sequence.sequence,
+            )
+        except ValueError as error:
+            raise ValueError(
+                "scoring sequence residue layout does not match the parsed "
+                "structure layout"
+            ) from error
     return request
 
 

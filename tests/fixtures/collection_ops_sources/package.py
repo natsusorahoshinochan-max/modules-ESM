@@ -92,13 +92,14 @@ class _Source:
             )
             for sample_index in range(count)
         ]
-        rebind_references = [
+        rebind_references = list(reversed([
             Candidate(
                 candidate_id=f"rebind-reference-{sample_index}",
                 data=ProteinSequence("ACE"),
+                parent_ids=[f"rebind-parent-{sample_index}"],
             )
             for sample_index in range(count)
-        ]
+        ]))
         rebind_subjects = [
             Candidate(
                 candidate_id=f"rebind-subject-{sample_index}",

@@ -28,6 +28,12 @@
     },
     {
       "contract_kind": "binding",
+      "contract_id": "collection_ops.pair_siblings_by_parent.direct",
+      "contract_version": "2.1.0",
+      "contract_digest": "sha256:4a4cf341dc3dd141ff91d3e0107b49e79c9b83acee6ec7b756b104c19049df12"
+    },
+    {
+      "contract_kind": "binding",
       "contract_id": "collection_ops.rebind_candidate_pairing.direct",
       "contract_version": "2.1.0",
       "contract_digest": "sha256:55f6102e60bda77276a4af81e8d9a4978ff39dce45abe5e90a3c68db6823a720"
@@ -148,6 +154,12 @@
     },
     {
       "contract_kind": "binding",
+      "contract_id": "prompt_authoring.insert_masked_residues.direct",
+      "contract_version": "2.1.0",
+      "contract_digest": "sha256:2c43589b86487e27df9715944fe57c0153aa166068295d87409103b04708b3c6"
+    },
+    {
+      "contract_kind": "binding",
       "contract_id": "prompt_authoring.map_residue_track.direct",
       "contract_version": "2.1.0",
       "contract_digest": "sha256:e7b5d9afb717b09e9d053d6a665a8c96a7b72d9f701bf85ce7e0253ab588730f"
@@ -168,7 +180,7 @@
       "contract_kind": "binding",
       "contract_id": "prompt_authoring.prompt_from_structure.direct",
       "contract_version": "2.1.0",
-      "contract_digest": "sha256:fb3278ea6ca53bba653208233c7a42fbdd85f1328dc60b24dfca5ab24cfcc970"
+      "contract_digest": "sha256:3998d2ef1aed3967d79964aebbf71e8868de9aed5f995eea63c375b76a178cd1"
     },
     {
       "contract_kind": "binding",
@@ -204,7 +216,7 @@
       "contract_kind": "binding",
       "contract_id": "protein_io.import_sequence.direct",
       "contract_version": "2.1.0",
-      "contract_digest": "sha256:74ad2cd3ba5dd3b3db9b0f0e53af02d7d7c2ffba9a0b3c9da5bd0908408202ec"
+      "contract_digest": "sha256:9d4f136670a06ae7c8f2f54ae93bf8049b773f661062ee2e0366a39d805b5cdf"
     },
     {
       "contract_kind": "binding",
@@ -216,25 +228,25 @@
       "contract_kind": "binding",
       "contract_id": "proteinmpnn.constraints.local",
       "contract_version": "2.1.0",
-      "contract_digest": "sha256:773923edd9d479307e16b209da24b8eea510e4be275dd04e1fac35e87baf6040"
+      "contract_digest": "sha256:86eb956e25f752087be03fcefdbd1061c50c2dc99602fa71cb5f67a5b37f762b"
     },
     {
       "contract_kind": "binding",
       "contract_id": "proteinmpnn.design.local",
       "contract_version": "2.1.0",
-      "contract_digest": "sha256:fd8ec3bd61227797ea85d815a48d8a902182375beebada5f0f37d84d82a3ce9e"
+      "contract_digest": "sha256:aaad73e2c5a7614694726122f8917e044fdb92ffe6390b74c2c5fd41fec2733d"
     },
     {
       "contract_kind": "binding",
       "contract_id": "proteinmpnn.random_fixed_positions.local",
       "contract_version": "2.1.0",
-      "contract_digest": "sha256:8b9ab25bb4f2e3afbbde21ca402d68ea1076b50412b24b3efce8bf5fcac6a853"
+      "contract_digest": "sha256:0125c95f8f8dc27376a106b099ff6018da45bf4ff779b9c18bd77689377b8032"
     },
     {
       "contract_kind": "binding",
       "contract_id": "proteinmpnn.score.local",
       "contract_version": "2.1.0",
-      "contract_digest": "sha256:cb9d3e49ebb0f080b5ce1b0d514a04cab64f85dbd98f64a780610fd11cd590dc"
+      "contract_digest": "sha256:076258290c3915afdfac78d78c361fd3bad2c600659f7fc57a93d5608ca45138"
     },
     {
       "contract_kind": "binding",
@@ -382,6 +394,24 @@
     },
     {
       "contract_kind": "binding",
+      "contract_id": "structure_transform.extract_sequence_candidates.direct",
+      "contract_version": "2.1.0",
+      "contract_digest": "sha256:f260226be479a9fc77d20216e052e0ca0df06a4a42f7537d577bf4e272b9f35d"
+    },
+    {
+      "contract_kind": "binding",
+      "contract_id": "structure_transform.normalize_csh_parent_span.direct",
+      "contract_version": "2.1.0",
+      "contract_digest": "sha256:8ad750a7f7e6059923a74648bd77aff9526f14c9658d8bbe1082cc34f0835f16"
+    },
+    {
+      "contract_kind": "binding",
+      "contract_id": "structure_transform.select_candidate_chains.direct",
+      "contract_version": "2.1.0",
+      "contract_digest": "sha256:e9f09e47fd2a3fef54946f49dd421c5dd1592353bbd784ed29cf27eab34648e3"
+    },
+    {
+      "contract_kind": "binding",
       "contract_id": "structure_transform.select_chains.direct",
       "contract_version": "2.1.0",
       "contract_digest": "sha256:0ee6ee334beb88a1b0d3ce499b29cd8f2b700f32618e39e0314633534f44e787"
@@ -397,6 +427,12 @@
       "contract_id": "collection_ops.merge_scores.method",
       "contract_version": "2.1.0",
       "contract_digest": "sha256:e64cf8476aeb299ec39d073fd533ef34374dea4838cc734fb4c80222ac6bba6a"
+    },
+    {
+      "contract_kind": "method",
+      "contract_id": "collection_ops.pair_siblings_by_parent.method",
+      "contract_version": "2.1.0",
+      "contract_digest": "sha256:18ca3d71e3755dcd2cd8dea00304b741ba33a67b612ce45ce60bd3c59197d4d8"
     },
     {
       "contract_kind": "method",
@@ -520,6 +556,12 @@
     },
     {
       "contract_kind": "method",
+      "contract_id": "prompt_authoring.insert_masked_residues.method",
+      "contract_version": "2.1.0",
+      "contract_digest": "sha256:32ea05f518633fe2a1969c65eb9437372a6a19bff0825abc71084e42d88bf122"
+    },
+    {
+      "contract_kind": "method",
       "contract_id": "prompt_authoring.map_residue_track.method",
       "contract_version": "2.1.0",
       "contract_digest": "sha256:51fa3429fb46006eb4d4c679fb228187e3f2df0e7f1177f65b44d93fff88bb7a"
@@ -540,7 +582,7 @@
       "contract_kind": "method",
       "contract_id": "prompt_authoring.prompt_from_structure.method",
       "contract_version": "2.1.0",
-      "contract_digest": "sha256:d69a9e20ab779ed09b09b4e8b61be9f11306a1d46e44b3f56108363c8a4dfe54"
+      "contract_digest": "sha256:6b338efa83542bbaf3d0668fdbe0915477e91cd16e0498881e91801ffbb5e05a"
     },
     {
       "contract_kind": "method",
@@ -588,19 +630,19 @@
       "contract_kind": "method",
       "contract_id": "proteinmpnn.constraints.repository_owned",
       "contract_version": "2.1.0",
-      "contract_digest": "sha256:ac5beb2e1882660360dd51d7ddb340a618653cf433c4a3caff90b06fbe763fde"
+      "contract_digest": "sha256:e815bfaacc70de539b3bec60f1844e536a8c6878f392430e3367822e3fcb7881"
     },
     {
       "contract_kind": "method",
       "contract_id": "proteinmpnn.design.v_48_020_8907e667",
       "contract_version": "2.1.0",
-      "contract_digest": "sha256:28611e9c3c87e0ece69a9373a1449c236c030b4c7f62f1377f26b86b8db6ed63"
+      "contract_digest": "sha256:e210ac8e470a111332df8b6052743d1a02fa5d0e734358c9ca8fdb2338c51d85"
     },
     {
       "contract_kind": "method",
       "contract_id": "proteinmpnn.random_fixed_positions.repository_owned",
       "contract_version": "2.1.0",
-      "contract_digest": "sha256:1429ea9899e5008c0f0d69bc320b6467e8061d1c321dd70bab1babe9560fec12"
+      "contract_digest": "sha256:9b8e1d8a6f6deefd296a04000c641daed826cee5395723c33cc3a76fc5eddbc7"
     },
     {
       "contract_kind": "method",
@@ -724,6 +766,24 @@
     },
     {
       "contract_kind": "method",
+      "contract_id": "structure_transform.extract_sequence_candidates.method",
+      "contract_version": "2.1.0",
+      "contract_digest": "sha256:2d4a40c3455c05f3c58e9e5508733268559ab0368a1177f1b1777c5660e6c4d8"
+    },
+    {
+      "contract_kind": "method",
+      "contract_id": "structure_transform.normalize_csh_parent_span.method",
+      "contract_version": "2.1.0",
+      "contract_digest": "sha256:100fd2b4705f66b121cde7ad2bed7993786085a77d172b32917356c9e0d354ba"
+    },
+    {
+      "contract_kind": "method",
+      "contract_id": "structure_transform.select_candidate_chains.method",
+      "contract_version": "2.1.0",
+      "contract_digest": "sha256:148d1d4b61f8f86a6bdf9f47d4fc2624f30a469339203254780ade1e221a0349"
+    },
+    {
+      "contract_kind": "method",
       "contract_id": "structure_transform.select_chains.method",
       "contract_version": "2.1.0",
       "contract_digest": "sha256:4cdf76d8d32ee330d5005be97691f84b95120c96cf8b2830c107e13de6843722"
@@ -814,6 +874,12 @@
     },
     {
       "contract_kind": "node_type",
+      "contract_id": "collection_ops.pair_siblings_by_parent",
+      "contract_version": "2.1.0",
+      "contract_digest": "sha256:9a5ec79691a1ddad857ada44c0a321ba22d36c6d85e06d94b86b5d5851b24c34"
+    },
+    {
+      "contract_kind": "node_type",
       "contract_id": "collection_ops.rebind_candidate_pairing",
       "contract_version": "2.1.0",
       "contract_digest": "sha256:34357daa59ff9ab26dc96b5fe56c83d901f48a5d557f068d38c9607d1d15e9ef"
@@ -886,6 +952,12 @@
     },
     {
       "contract_kind": "node_type",
+      "contract_id": "prompt_authoring.insert_masked_residues",
+      "contract_version": "2.1.0",
+      "contract_digest": "sha256:34466bfaea4c1b97bcdcd9ad9d507b464917acb442c92e7077382a67c39908be"
+    },
+    {
+      "contract_kind": "node_type",
       "contract_id": "prompt_authoring.map_residue_track",
       "contract_version": "2.1.0",
       "contract_digest": "sha256:c3d784b7946afc9692951a7598586cb0b67db8f80bf6dc66f29d30b27529e297"
@@ -942,7 +1014,7 @@
       "contract_kind": "node_type",
       "contract_id": "protein_io.import_sequence",
       "contract_version": "2.1.0",
-      "contract_digest": "sha256:39b3fbb1b2936de8ea65b70f46295a40eb8469eaced747177f97b80b36f837dd"
+      "contract_digest": "sha256:d8037c5a0edb506f50eea09a4d803909c7f2cdadbbd001314d73b5cbf29a77f1"
     },
     {
       "contract_kind": "node_type",
@@ -954,19 +1026,19 @@
       "contract_kind": "node_type",
       "contract_id": "proteinmpnn.constraints",
       "contract_version": "2.1.0",
-      "contract_digest": "sha256:59a10d03e280c34ec7ba2ab409d1c565576acd115598adca10577fe04185ad74"
+      "contract_digest": "sha256:aafaff9ba7a36d5f5e9171c1d809ed22a12fb10e39ca8aea98cc6ada45ce3960"
     },
     {
       "contract_kind": "node_type",
       "contract_id": "proteinmpnn.design",
       "contract_version": "2.1.0",
-      "contract_digest": "sha256:fc820b71fdb579e75ca666eb602a83c94ee5c08883c263afc33cd47dbadcf9eb"
+      "contract_digest": "sha256:2f4da9e324427ec503d788c43af4056707dfdb44a5b537a375293ff9c30a63ca"
     },
     {
       "contract_kind": "node_type",
       "contract_id": "proteinmpnn.random_fixed_positions",
       "contract_version": "2.1.0",
-      "contract_digest": "sha256:d4e2c92c63f354d4977ca686ec4d8183c55d57396c9f4e712759043a3fbb6966"
+      "contract_digest": "sha256:e54f328378d4190bb46041f52f5c1c0682a7930ee089ce33bf7d10eb28694a76"
     },
     {
       "contract_kind": "node_type",
@@ -1087,6 +1159,24 @@
       "contract_id": "structure_transform.extract_sequence",
       "contract_version": "2.1.0",
       "contract_digest": "sha256:fb2b968ea9c1427f13740a5aa54b75110eeb4990bc39d338e391568052afb06a"
+    },
+    {
+      "contract_kind": "node_type",
+      "contract_id": "structure_transform.extract_sequence_candidates",
+      "contract_version": "2.1.0",
+      "contract_digest": "sha256:85eb0073cd721ed1e417a38d1688fd7d50763b007fd2b74069ac8a2b3ae68e01"
+    },
+    {
+      "contract_kind": "node_type",
+      "contract_id": "structure_transform.normalize_csh_parent_span",
+      "contract_version": "2.1.0",
+      "contract_digest": "sha256:6b6cd1c5159670eba3edc0dde626f15b2669cb4ddc11baacdab0b10141500a83"
+    },
+    {
+      "contract_kind": "node_type",
+      "contract_id": "structure_transform.select_candidate_chains",
+      "contract_version": "2.1.0",
+      "contract_digest": "sha256:d6658e15ebbc63a0e3e22953f88f13687f76147c281ba678b0aa6e13138ad293"
     },
     {
       "contract_kind": "node_type",

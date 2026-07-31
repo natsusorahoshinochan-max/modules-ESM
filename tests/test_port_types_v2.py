@@ -160,11 +160,16 @@ def test_catalog_snapshot_publishes_exact_port_type_contracts() -> None:
             True,
         ),
         ("collection_ops.merge_scores.direct", "2.1.0", True),
-        (
-            "collection_ops.rebind_candidate_pairing.direct",
-            "2.1.0",
-            True,
-        ),
+            (
+                "collection_ops.rebind_candidate_pairing.direct",
+                "2.1.0",
+                True,
+            ),
+            (
+                "collection_ops.pair_siblings_by_parent.direct",
+                "2.1.0",
+                True,
+            ),
         ("collection_ops.take_candidates.direct", "2.1.0", True),
             ("selection.filter.direct", "2.1.0", True),
             ("selection.sort.direct", "2.1.0", True),
@@ -209,7 +214,12 @@ def test_catalog_snapshot_publishes_exact_port_type_contracts() -> None:
             True,
         ),
         ("prompt_authoring.build_residue_layout.direct", "2.1.0", True),
-        ("prompt_authoring.edit_residue_layout.direct", "2.1.0", True),
+            ("prompt_authoring.edit_residue_layout.direct", "2.1.0", True),
+            (
+                "prompt_authoring.insert_masked_residues.direct",
+                "2.1.0",
+                True,
+            ),
         ("prompt_authoring.map_residue_track.direct", "2.1.0", True),
         (
             "prompt_authoring.override_protein_prompt_track.direct",
@@ -240,9 +250,24 @@ def test_catalog_snapshot_publishes_exact_port_type_contracts() -> None:
             ("solubility.soluprot_full.local", "2.1.0", True),
             ("solubility.soluprot_no_tm.local", "2.1.0", True),
             ("solubility.protein_sol.local", "2.1.0", True),
-        ("structure_transform.select_chains.direct", "2.1.0", True),
-        ("structure_transform.extract_backbone.direct", "2.1.0", True),
-        ("structure_transform.extract_sequence.direct", "2.1.0", True),
+            ("structure_transform.select_chains.direct", "2.1.0", True),
+            (
+                "structure_transform.select_candidate_chains.direct",
+                "2.1.0",
+                True,
+            ),
+            ("structure_transform.extract_backbone.direct", "2.1.0", True),
+            ("structure_transform.extract_sequence.direct", "2.1.0", True),
+            (
+                "structure_transform.extract_sequence_candidates.direct",
+                "2.1.0",
+                True,
+            ),
+            (
+                "structure_transform.normalize_csh_parent_span.direct",
+                "2.1.0",
+                True,
+            ),
         (
             "structure_transform.backbone_to_structure.direct",
             "2.1.0",
@@ -477,14 +502,17 @@ def test_codec_rejects_malformed_and_noncanonical_values() -> None:
     constraints = constraints_type.encode(
         ProteinMPNNConstraints(
             layout=PROTEINMPNN_TEST_LAYOUT,
-            bias_by_res={1: {"A": 0.5}, 2: {"V": -0.5}},
+            bias_by_residue={
+                "A:2": {"A": 0.5},
+                "A:3": {"V": -0.5},
+            },
         )
     )
     with pytest.raises(PortValueError, match="canonical key order"):
         constraints_type.decode(
             constraints.replace(
-                b'[[1,{"A":0.5}],[2,{"V":-0.5}]]',
-                b'[[2,{"V":-0.5}],[1,{"A":0.5}]]',
+                b'[["A:2",{"A":0.5}],["A:3",{"V":-0.5}]]',
+                b'[["A:3",{"V":-0.5}],["A:2",{"A":0.5}]]',
             )
         )
 
@@ -574,12 +602,12 @@ def test_runtime_validators_recheck_mutable_domain_invariants() -> None:
     [
         ProteinMPNNConstraints(
             layout=PROTEINMPNN_TEST_LAYOUT,
-            tied_positions=[[0]],
+            tied_residue_groups=[["A:1"]],
         ),
         ProteinMPNNConstraints(
             layout=PROTEINMPNN_TEST_LAYOUT,
-            designable_positions=[0],
-            fixed_positions=[0],
+            designable_residue_ids=["A:1"],
+            fixed_residue_ids=["A:1"],
         ),
         ProteinMPNNConstraints(
             layout=PROTEINMPNN_TEST_LAYOUT,
@@ -587,7 +615,7 @@ def test_runtime_validators_recheck_mutable_domain_invariants() -> None:
         ),
         ProteinMPNNConstraints(
             layout=PROTEINMPNN_TEST_LAYOUT,
-            bias_by_res={0: {"B": 1.0}},
+            bias_by_residue={"A:1": {"B": 1.0}},
         ),
     ],
 )
@@ -608,16 +636,16 @@ def test_proteinmpnn_port_reuses_the_authoritative_constraint_contract(
 def test_proteinmpnn_port_rechecks_constraints_after_mutation() -> None:
     constraints = ProteinMPNNConstraints(
         layout=PROTEINMPNN_TEST_LAYOUT,
-        tied_positions=[[0, 1]],
+        tied_residue_groups=[["A:1", "A:2"]],
     )
     from modules.proteinmpnn.package import MODULE_PACKAGE as package
 
     definition = package.port_types[0]
     definition.validate(constraints)
 
-    constraints.tied_positions[0].pop()
+    constraints.tied_residue_groups[0].pop()
 
-    with pytest.raises(PortValueError, match="at least two positions"):
+    with pytest.raises(PortValueError, match="at least two residue identities"):
         definition.encode(constraints)
 
 
@@ -868,11 +896,17 @@ def test_codec_differentials_materialize_defaults_and_preserve_semantic_order() 
     constraints_type = package.port_types[0]
     first_map_order = ProteinMPNNConstraints(
         layout=PROTEINMPNN_TEST_LAYOUT,
-        bias_by_res={2: {"V": -0.5}, 1: {"A": 0.5}},
+        bias_by_residue={
+            "A:3": {"V": -0.5},
+            "A:2": {"A": 0.5},
+        },
     )
     second_map_order = ProteinMPNNConstraints(
         layout=PROTEINMPNN_TEST_LAYOUT,
-        bias_by_res={1: {"A": 0.5}, 2: {"V": -0.5}},
+        bias_by_residue={
+            "A:2": {"A": 0.5},
+            "A:3": {"V": -0.5},
+        },
     )
 
     assert sequence_type.encode(ProteinSequence("MA")) == (

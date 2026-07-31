@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
+from pathlib import Path
 from typing import Any
 
 from core import (
@@ -32,6 +33,7 @@ from modules.prompt_authoring.domain import AlignedResidueTrack
 
 
 _VERSION = "2.1.0"
+_PROJECT_ROOT = Path(__file__).resolve().parents[3]
 
 
 def _annotations(
@@ -352,6 +354,31 @@ class _Source:
                         (0, -1, "delete"),
                     ],
                 )
+            structure = ProteinStructure(
+                "ATOM      1  N   ALA A   1       0.000   0.000   "
+                "0.000  1.00 20.00           N\n"
+                "ATOM      2  CA  ALA A   1       1.000   0.000   "
+                "0.000  1.00 20.00           C\n"
+                "ATOM      3  N   GLY A   2       2.000   0.000   "
+                "0.000  1.00 20.00           N\n"
+                "ATOM      4  CA  GLY A   2       3.000   0.000   "
+                "0.000  1.00 20.00           C\n"
+                "ATOM      5  N   SER B   1       4.000   0.000   "
+                "0.000  1.00 20.00           N\n"
+                "ATOM      6  CA  SER B   1       5.000   0.000   "
+                "0.000  1.00 20.00           C\n"
+                "END\n"
+            )
+            if fixture == "2emo":
+                structure = ProteinStructure(
+                    (_PROJECT_ROOT / "pdbs" / "2EMO.pdb").read_text(),
+                    source="pdbs/2EMO.pdb",
+                )
+            elif fixture == "5g53":
+                structure = ProteinStructure(
+                    (_PROJECT_ROOT / "pdbs" / "5G53.pdb").read_text(),
+                    source="pdbs/5G53.pdb",
+                )
         return {
             "source_layout": source,
             "target_layout": target,
@@ -431,21 +458,7 @@ class _Source:
                     )
                 ),
             ),
-            "structure": ProteinStructure(
-                "ATOM      1  N   ALA A   1       0.000   0.000   "
-                "0.000  1.00 20.00           N\n"
-                "ATOM      2  CA  ALA A   1       1.000   0.000   "
-                "0.000  1.00 20.00           C\n"
-                "ATOM      3  N   GLY A   2       2.000   0.000   "
-                "0.000  1.00 20.00           N\n"
-                "ATOM      4  CA  GLY A   2       3.000   0.000   "
-                "0.000  1.00 20.00           C\n"
-                "ATOM      5  N   SER B   1       4.000   0.000   "
-                "0.000  1.00 20.00           N\n"
-                "ATOM      6  CA  SER B   1       5.000   0.000   "
-                "0.000  1.00 20.00           C\n"
-                "END\n"
-            ),
+            "structure": structure,
         }
 
 

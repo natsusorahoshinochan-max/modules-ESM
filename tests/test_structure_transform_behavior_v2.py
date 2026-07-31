@@ -21,8 +21,11 @@ from core import (
 )
 from core.port_types import canonical_json_bytes
 from core.workflow_v2 import WorkflowEdge
-from datatypes import ProteinSequence, ProteinStructure
+from datatypes import CandidateCollection, ProteinSequence, ProteinStructure
 from modules.structure_transform.package import MODULE_PACKAGE
+from tests.fixtures.proteinmpnn_model_sources.package import (
+    MODULE_PACKAGE as CANDIDATE_SOURCE_PACKAGE,
+)
 from tests.fixtures.structure_transform_sources.package import (
     MODULE_PACKAGE as SOURCE_PACKAGE,
 )
@@ -151,6 +154,88 @@ def _decode(catalog: Any, output: dict[str, Any]) -> Any:
             }
         )
     )
+
+
+def _run_candidate_transform(
+    tmp_path: Path,
+    *,
+    operation: str,
+    node_parameters: dict[str, Any] | None = None,
+) -> tuple[Any, dict[str, Any]]:
+    catalog = build_frozen_catalog((MODULE_PACKAGE, CANDIDATE_SOURCE_PACKAGE))
+    projects = ProjectManager(
+        tmp_path / "projects",
+        cache_root=tmp_path / "cache",
+        output_root=tmp_path / "outputs",
+        run_root=tmp_path / "runs",
+    )
+    project = projects.create(f"candidate transform {operation}")
+    authoring = WorkflowAuthoringService(projects, catalog)
+    saved = authoring.save(
+        project.id,
+        expected_workflow_revision=0,
+        workflow=WorkflowDocument(
+            schema_version=VERSION,
+            workflow_id=project.id,
+            nodes=(
+                WorkflowNodeInstance(
+                    node_id="source",
+                    node_type_id=(
+                        "contract_test.proteinmpnn_3gb1_structure"
+                    ),
+                    node_type_version=VERSION,
+                    binding_id=(
+                        "contract_test.proteinmpnn_3gb1_structure.direct"
+                    ),
+                    binding_version=VERSION,
+                    node_parameters={},
+                    binding_parameters={},
+                ),
+                WorkflowNodeInstance(
+                    node_id="transform",
+                    node_type_id=f"structure_transform.{operation}",
+                    node_type_version=VERSION,
+                    binding_id=f"structure_transform.{operation}.direct",
+                    binding_version=VERSION,
+                    node_parameters=node_parameters or {},
+                    binding_parameters={},
+                ),
+            ),
+            edges=(
+                WorkflowEdge(
+                    "source",
+                    "structure_candidates",
+                    "transform",
+                    "structure_candidates",
+                ),
+            ),
+            contract_lock=(),
+        ),
+    )
+    relocked = authoring.relock(
+        project.id,
+        workflow_revision=saved["workflow_revision"],
+    )
+    compiled = authoring.compile(
+        project.id,
+        workflow_revision=relocked["workflow_revision"],
+        workflow=parse_workflow_document(relocked["workflow"]),
+    )
+    service = V2RunService(
+        projects,
+        catalog,
+        authoring,
+        EnvironmentConfiguration({}),
+    )
+    receipt = service.start(
+        project.id,
+        workflow_revision=relocked["workflow_revision"],
+        compile_id=compiled.public_receipt()["compile_id"],
+        client_request_id=f"candidate-transform-{operation}",
+    )
+    projection = service.projection(project.id, receipt["run_id"])
+    service.shutdown()
+    return catalog, projection
 
 
 def test_chain_selection_obeys_requested_order_and_excludes_other_chains(
@@ -366,6 +451,68 @@ def test_sequence_ignores_non_protein_maps_unknown_and_keeps_correspondence(
         sequence="AXG",
         residue_ids=["A:1", "A:2", "B:5"],
     )
+
+
+def test_candidate_sequence_extraction_preserves_parent_lineage(
+    tmp_path: Path,
+) -> None:
+    catalog, projection = _run_candidate_transform(
+        tmp_path,
+        operation="extract_sequence_candidates",
+    )
+
+    assert projection["status"] == "succeeded"
+    source = _decode(
+        catalog,
+        next(
+            output
+            for output in projection["outputs"]
+            if output["node_id"] == "source"
+        ),
+    )
+    transformed = _decode(catalog, _transform_output(projection))
+    assert type(source) is CandidateCollection
+    assert type(transformed) is CandidateCollection
+    assert transformed.item_type == "protein.sequence"
+    assert len(transformed.items) == 1
+    child = transformed.items[0]
+    assert child.data == ProteinSequence(
+        sequence="MTYKLILNGKTLKGETTTEAVDAATAEKVFKQYANDNGVDGEWTYDDATKTFTVTE",
+        residue_ids=[f"A:{position}" for position in range(1, 57)],
+    )
+    assert child.parent_ids == [source.items[0].candidate_id]
+
+
+def test_candidate_chain_selection_preserves_parent_lineage(
+    tmp_path: Path,
+) -> None:
+    catalog, projection = _run_candidate_transform(
+        tmp_path,
+        operation="select_candidate_chains",
+        node_parameters={"chain_ids": ["A"]},
+    )
+
+    assert projection["status"] == "succeeded"
+    source = _decode(
+        catalog,
+        next(
+            output
+            for output in projection["outputs"]
+            if output["node_id"] == "source"
+        ),
+    )
+    transformed = _decode(catalog, _transform_output(projection))
+    assert type(source) is CandidateCollection
+    assert type(transformed) is CandidateCollection
+    assert transformed.item_type == "protein.structure"
+    assert len(transformed.items) == 1
+    child = transformed.items[0]
+    assert {
+        line[21]
+        for line in child.data.pdb_string.splitlines()
+        if line.startswith(("ATOM  ", "HETATM"))
+    } == {"A"}
+    assert child.parent_ids == [source.items[0].candidate_id]
 
 
 def test_provider_free_transform_identity_is_stable_across_environments(

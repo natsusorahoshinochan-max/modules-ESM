@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 import os
 from pathlib import Path
 
@@ -14,9 +15,12 @@ from datatypes import (
 )
 from modules.proteinmpnn.v2_adapter import (
     prepare_design_request,
+    prepare_scoring_request,
     provider_for_environment,
     validate_design_result,
+    validate_scoring_result,
 )
+from modules.structure_transform.implementation import normalize_csh_parent_span
 
 from .conftest import require_ready
 
@@ -110,3 +114,65 @@ def test_real_proteinmpnn_design_of_chain_b_restores_a_then_b_layout(
     assert restored[0].sequence[:28] == chain_a
     assert restored[0].residue_ids == layout.residue_ids
     assert scores is not None and len(scores) == 1
+
+
+def test_real_proteinmpnn_preserves_fixed_csh_parent_with_missing_backbone_atom(
+    tmp_path: Path,
+    readiness: dict[str, bool],
+) -> None:
+    require_ready("proteinmpnn", readiness)
+    provider_root = Path(
+        os.environ["PROTEIN_WORKBENCH_PROTEINMPNN_ROOT"]
+    ).resolve()
+    provider = provider_for_environment(
+        {
+            "device": "cpu",
+            "provider_root": provider_root,
+        },
+        staging_directory=tmp_path,
+    )
+    source = ProteinStructure(
+        (Path(__file__).parent.parent.parent / "pdbs" / "2EMO.pdb").read_text(),
+        source="pdbs/2EMO.pdb",
+    )
+    structure, _ = normalize_csh_parent_span(source)
+    layout = ResidueLayout(
+        "A",
+        224,
+        [f"A:{position}" for position in range(6, 230)],
+    )
+    request = prepare_design_request(
+        provider=provider,
+        structure=structure,
+        num_sequences=1,
+        temperature=0.1,
+        backbone_noise=0,
+        seed=1603,
+        constraints=ProteinMPNNConstraints(
+            layout=layout,
+            fixed_residue_ids=["A:65", "A:66", "A:67"],
+        ),
+        reference_sequence=None,
+    )
+
+    raw_result = provider.design(request)
+    restored, scores = validate_design_result(raw_result, request=request)
+    csh_parent_offset = layout.residue_ids.index("A:65")
+    scoring_request = prepare_scoring_request(
+        provider=provider,
+        structure=structure,
+        sequence=restored[0],
+    )
+    native_score = validate_scoring_result(
+        provider.score(scoring_request, restored[0])
+    )
+
+    assert request.fixed_position_dict == {
+        request.pdb_dict_list[0]["name"]: {"A": [60, 61, 62]}
+    }
+    assert restored[0].sequence[csh_parent_offset : csh_parent_offset + 3] == "SHG"
+    assert len(restored[0].sequence) == layout.length
+    assert restored[0].residue_ids == layout.residue_ids
+    assert scores is not None and len(scores) == 1
+    assert scoring_request.target_layout == layout
+    assert math.isfinite(native_score)

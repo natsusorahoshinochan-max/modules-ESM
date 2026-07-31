@@ -60,18 +60,20 @@ def _constraints_to_wire(value: object) -> dict[str, object]:
             "length": value.layout.length,
             "residue_ids": value.layout.residue_ids,
         },
-        "designable_positions": value.designable_positions,
-        "fixed_positions": value.fixed_positions,
+        "designable_residue_ids": value.designable_residue_ids,
+        "fixed_residue_ids": value.fixed_residue_ids,
         "designed_chains": value.designed_chains,
         "fixed_chains": value.fixed_chains,
         "omit_amino_acids": value.omit_amino_acids,
-        "tied_positions": value.tied_positions,
-        "bias_by_res": (
+        "tied_residue_groups": value.tied_residue_groups,
+        "bias_by_residue": (
             None
-            if value.bias_by_res is None
+            if value.bias_by_residue is None
             else [
-                [position, dict(sorted(biases.items()))]
-                for position, biases in sorted(value.bias_by_res.items())
+                [residue_id, dict(sorted(biases.items()))]
+                for residue_id, biases in sorted(
+                    value.bias_by_residue.items()
+                )
             ]
         ),
     }
@@ -80,26 +82,26 @@ def _constraints_to_wire(value: object) -> dict[str, object]:
 def _constraints_from_wire(value: object) -> ProteinMPNNConstraints:
     if not isinstance(value, dict) or set(value) != {
         "layout",
-        "designable_positions",
-        "fixed_positions",
+        "designable_residue_ids",
+        "fixed_residue_ids",
         "designed_chains",
         "fixed_chains",
         "omit_amino_acids",
-        "tied_positions",
-        "bias_by_res",
+        "tied_residue_groups",
+        "bias_by_residue",
     }:
         raise ValueError("ProteinMPNN constraints wire value is not closed")
-    raw_biases = value["bias_by_res"]
+    raw_biases = value["bias_by_residue"]
     if raw_biases is None:
         biases = None
     elif isinstance(raw_biases, list):
         biases = {}
-        previous_position: int | None = None
+        previous_residue_id: str | None = None
         for entry in raw_biases:
             if (
                 not isinstance(entry, list)
                 or len(entry) != 2
-                or type(entry[0]) is not int
+                or type(entry[0]) is not str
                 or not isinstance(entry[1], dict)
                 or entry[0] in biases
             ):
@@ -107,14 +109,14 @@ def _constraints_from_wire(value: object) -> ProteinMPNNConstraints:
                     "ProteinMPNN constraint biases are malformed"
                 )
             if (
-                previous_position is not None
-                and entry[0] <= previous_position
+                previous_residue_id is not None
+                and entry[0] <= previous_residue_id
             ) or list(entry[1]) != sorted(entry[1]):
                 raise ValueError(
                     "ProteinMPNN constraint biases require canonical key order"
                 )
             biases[entry[0]] = entry[1]
-            previous_position = entry[0]
+            previous_residue_id = entry[0]
     else:
         raise ValueError("ProteinMPNN constraint biases are malformed")
     raw_layout = value["layout"]
@@ -132,13 +134,13 @@ def _constraints_from_wire(value: object) -> ProteinMPNNConstraints:
     )
     constraints = ProteinMPNNConstraints(
         layout=layout,
-        designable_positions=value["designable_positions"],
-        fixed_positions=value["fixed_positions"],
+        designable_residue_ids=value["designable_residue_ids"],
+        fixed_residue_ids=value["fixed_residue_ids"],
         designed_chains=value["designed_chains"],
         fixed_chains=value["fixed_chains"],
         omit_amino_acids=value["omit_amino_acids"],
-        tied_positions=value["tied_positions"],
-        bias_by_res=biases,
+        tied_residue_groups=value["tied_residue_groups"],
+        bias_by_residue=biases,
     )
     _validate_constraints(constraints)
     return constraints
@@ -295,7 +297,10 @@ def _method(operation: str) -> MethodDefinition:
                 "sampling": "autoregressive decoding",
                 "children_order": "parent-then-zero-based-sample",
                 "constraint_indexing": (
-                    "zero-based-workbench-to-one-based-chain-qualified-provider"
+                    "workbench-residue-identity-to-one-based-chain-qualified-provider"
+                ),
+                "call_seed": (
+                    "sha256-effective-seed-parent-structure-content-parent-slot"
                 ),
             },
             model_identity={
@@ -311,6 +316,10 @@ def _method(operation: str) -> MethodDefinition:
                 "structure": "ProteinMPNN parse_PDB",
                 "constraints": "ProteinMPNN tied_featurize",
                 "reference_sequence": "exact-chain-layout",
+                "sequence_decoding": "complete-parsed-target-layout",
+                "incomplete_backbone": (
+                    "fixed-residue-preserved-designable-residue-rejected"
+                ),
             },
             source_identity={
                 "repository": "dauparas/ProteinMPNN",
@@ -332,7 +341,7 @@ def _method(operation: str) -> MethodDefinition:
                 if operation == "constraints"
                 else "sha256-ranked-fixed-position-selection"
             ),
-            "indexing": "zero-based-explicit-residue-layout",
+            "indexing": "stable-identity-explicit-residue-layout",
             "sampling": (
                 "none"
                 if operation == "constraints"
@@ -545,6 +554,11 @@ def _binding(operation: str) -> ExecutionBindingDefinition:
                     "torch_local"
                     if is_design
                     else "fixed_scoring_seed_42"
+                ),
+                "scientific_call_seed": (
+                    "effective-seed-plus-structure-content-plus-parent-slot"
+                    if is_design
+                    else "fixed-scoring-seed"
                 ),
                 "runtime_directory_policy": (
                     "private-per-parent-engine-invocation"

@@ -77,14 +77,17 @@ def test_public_catalog_has_exact_collection_operation_nodes() -> None:
     assert set(contracts) == {
         ("binding", "collection_ops.concat_candidates.direct"),
         ("binding", "collection_ops.merge_scores.direct"),
+        ("binding", "collection_ops.pair_siblings_by_parent.direct"),
         ("binding", "collection_ops.rebind_candidate_pairing.direct"),
         ("binding", "collection_ops.take_candidates.direct"),
         ("method", "collection_ops.concat_candidates.method"),
         ("method", "collection_ops.merge_scores.method"),
+        ("method", "collection_ops.pair_siblings_by_parent.method"),
         ("method", "collection_ops.rebind_candidate_pairing.method"),
         ("method", "collection_ops.take_candidates.method"),
         ("node_type", "collection_ops.concat_candidates"),
         ("node_type", "collection_ops.merge_scores"),
+        ("node_type", "collection_ops.pair_siblings_by_parent"),
         ("node_type", "collection_ops.rebind_candidate_pairing"),
         ("node_type", "collection_ops.take_candidates"),
     }
@@ -266,12 +269,40 @@ def test_all_collection_nodes_pass_the_shared_contract_test_kit(
             ),
         ),
     )
+    pair_case = ModulePackageContractCase(
+        case_id="collection-ops-pair-siblings-by-parent",
+        node_type_id="collection_ops.pair_siblings_by_parent",
+        node_type_version=VERSION,
+        binding_id="collection_ops.pair_siblings_by_parent.direct",
+        binding_version=VERSION,
+        node_parameters={},
+        binding_parameters={},
+        environment_values={},
+        safe_environment_fingerprint="provider-free",
+        invalidation_token="collection-ops-pair-siblings-v1",
+        workflow_nodes=(source_a,),
+        workflow_edges=(
+            WorkflowEdge(
+                "source-a",
+                "rebind_subjects",
+                "contract-test-node",
+                "subjects",
+            ),
+            WorkflowEdge(
+                "source-a",
+                "rebind_references",
+                "contract-test-node",
+                "references",
+            ),
+        ),
+    )
 
     report = verify_module_package_contract(
         MODULE_PACKAGE,
         execution_cases=(
             candidate_case,
             score_case,
+            pair_case,
             rebind_case,
             take_case,
         ),
@@ -280,6 +311,7 @@ def test_all_collection_nodes_pass_the_shared_contract_test_kit(
     )
 
     assert [case.status for case in report.case_reports] == [
+        "succeeded",
         "succeeded",
         "succeeded",
         "succeeded",
@@ -373,10 +405,12 @@ def _run_public_collection_workflow(
         root = tmp_path / name.lower()
         root.mkdir(parents=True)
         monkeypatch.setenv(f"PROTEIN_WORKBENCH_{name}_ROOT", str(root))
-    port = "candidates" if operation == "concat_candidates" else "scores"
-    target_port = (
-        "candidates" if operation == "concat_candidates" else "scores"
-    )
+    if operation == "concat_candidates":
+        port = "candidates"
+        target_port = "candidates"
+    else:
+        port = "scores"
+        target_port = "scores"
     project_id = ProjectManager(
         root_dir=tmp_path / "project"
     ).create(
@@ -417,14 +451,31 @@ def _run_public_collection_workflow(
                     binding_parameters={},
                 ),
             ),
-            edges=tuple(
-                WorkflowEdge(
-                    f"source-{partition}",
-                    port,
-                    "collection-op",
-                    f"{target_port}_{partition}",
+            edges=(
+                (
+                    WorkflowEdge(
+                        "source-a",
+                        "rebind_subjects",
+                        "collection-op",
+                        "subjects",
+                    ),
+                    WorkflowEdge(
+                        "source-a",
+                        "rebind_references",
+                        "collection-op",
+                        "references",
+                    ),
                 )
-                for partition in connected_partitions
+                if operation == "pair_siblings_by_parent"
+                else tuple(
+                    WorkflowEdge(
+                        f"source-{partition}",
+                        port,
+                        "collection-op",
+                        f"{target_port}_{partition}",
+                    )
+                    for partition in connected_partitions
+                )
             ),
             contract_lock=(),
         )
@@ -521,6 +572,43 @@ def _decoded_outputs(
             )
         )
     return decoded
+
+
+def test_public_pairing_uses_common_parent_not_collection_order(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    catalog, first, _, _ = _run_public_collection_workflow(
+        tmp_path,
+        monkeypatch,
+        operation="pair_siblings_by_parent",
+        counts=(2, 1),
+    )
+    decoded = _decoded_outputs(catalog, first)
+    subjects = decoded[("source-a", "rebind_subjects")]
+    references = decoded[("source-a", "rebind_references")]
+    pairing = decoded[("collection-op", "pairing")]
+
+    assert type(subjects) is CandidateCollection
+    assert type(references) is CandidateCollection
+    assert type(pairing) is PairwiseCandidateMapping
+    reference_by_parent = {
+        reference.parent_ids[0]: reference.candidate_id
+        for reference in reversed(references.items)
+    }
+    assert [
+        (
+            entry.subject_candidate_id,
+            entry.reference_candidate_id,
+        )
+        for entry in pairing.entries
+    ] == [
+        (
+            subject.candidate_id,
+            reference_by_parent[subject.parent_ids[0]],
+        )
+        for subject in subjects.items
+    ]
 
 
 def test_public_candidate_concatenation_preserves_exact_input_candidates(

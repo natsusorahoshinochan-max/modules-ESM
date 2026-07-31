@@ -120,4 +120,6 @@ node_parameters:
         - adapter-boundary
         - 3gb1-intent
         - insertion-identity-collision
+        - 2emo
+        - 5g53
     default: canonical

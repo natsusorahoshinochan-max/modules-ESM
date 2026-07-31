@@ -3,30 +3,31 @@
 from __future__ import annotations
 
 from math import isfinite
+import re
 from typing import Any
 
 from datatypes.protein import ProteinMPNNConstraints, ResidueLayout
 
 
 PROTEINMPNN_ALPHABET = frozenset("ACDEFGHIKLMNPQRSTVWY")
+_RESIDUE_ID = re.compile(
+    r"^[A-Za-z0-9]:[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$"
+)
 
 
-def _positions(value: Any, name: str) -> list[int]:
+def _residue_ids(value: Any, name: str) -> list[str]:
     if value is None:
         return []
     if not isinstance(value, list):
         raise ValueError(f"{name} must be a list")
     if any(
-        isinstance(position, bool)
-        or not isinstance(position, int)
-        or position < 0
-        for position in value
+        not isinstance(residue_id, str)
+        or _RESIDUE_ID.fullmatch(residue_id) is None
+        for residue_id in value
     ):
-        raise ValueError(
-            f"{name} entries must be non-negative zero-based integers"
-        )
+        raise ValueError(f"{name} entries must be stable residue identities")
     if len(set(value)) != len(value):
-        raise ValueError(f"{name} cannot contain duplicate positions")
+        raise ValueError(f"{name} cannot contain duplicate residue identities")
     return value
 
 
@@ -42,66 +43,69 @@ def _strings(value: Any, name: str) -> list[str]:
     return value
 
 
-def _tied_positions(value: Any) -> list[list[int]]:
+def _tied_residue_groups(value: Any) -> list[list[str]]:
     if value is None:
         return []
     if not isinstance(value, list):
-        raise ValueError("tied_positions must be a list of position groups")
-    tied_groups: list[list[int]] = []
-    seen: set[int] = set()
+        raise ValueError(
+            "tied_residue_groups must be a list of residue identity groups"
+        )
+    tied_groups: list[list[str]] = []
+    seen: set[str] = set()
     for group_index, group_value in enumerate(value):
-        group = _positions(
+        group = _residue_ids(
             group_value,
-            f"tied_positions group {group_index}",
+            f"tied_residue_groups group {group_index}",
         )
         if len(group) < 2:
             raise ValueError(
-                f"tied_positions group {group_index} must contain "
-                "at least two positions"
+                f"tied_residue_groups group {group_index} must contain "
+                "at least two residue identities"
             )
         overlap = seen & set(group)
         if overlap:
             raise ValueError(
-                "tied_positions cannot reuse positions across groups: "
-                + ", ".join(str(position) for position in sorted(overlap))
+                "tied_residue_groups cannot reuse residues across groups: "
+                + ", ".join(sorted(overlap))
             )
         seen.update(group)
         tied_groups.append(group)
     return tied_groups
 
 
-def _biases(value: Any) -> dict[int, dict[str, float]]:
+def _biases(value: Any) -> dict[str, dict[str, float]]:
     if value is None:
         return {}
     if not isinstance(value, dict):
-        raise ValueError("bias_by_res must map positions to amino-acid biases")
-    for position, amino_acid_biases in value.items():
+        raise ValueError(
+            "bias_by_residue must map residue identities to amino-acid biases"
+        )
+    for residue_id, amino_acid_biases in value.items():
         if (
-            isinstance(position, bool)
-            or not isinstance(position, int)
-            or position < 0
+            not isinstance(residue_id, str)
+            or _RESIDUE_ID.fullmatch(residue_id) is None
         ):
             raise ValueError(
-                "bias_by_res positions must be non-negative zero-based integers"
+                "bias_by_residue keys must be stable residue identities"
             )
         if not isinstance(amino_acid_biases, dict) or not amino_acid_biases:
             raise ValueError(
-                f"bias_by_res position {position} must map amino acids to biases"
+                f"bias_by_residue {residue_id} must map amino acids to biases"
             )
         for amino_acid, bias in amino_acid_biases.items():
             if amino_acid not in PROTEINMPNN_ALPHABET:
                 raise ValueError(
-                    "bias_by_res contains unsupported amino acid "
+                    "bias_by_residue contains unsupported amino acid "
                     f"{amino_acid!r}"
                 )
             if isinstance(bias, bool) or not isinstance(bias, (int, float)):
                 raise ValueError(
-                    f"bias_by_res bias for {position}/{amino_acid} "
+                    f"bias_by_residue bias for {residue_id}/{amino_acid} "
                     "must be numeric"
                 )
             if not isfinite(float(bias)):
                 raise ValueError(
-                    f"bias_by_res bias for {position}/{amino_acid} "
+                    f"bias_by_residue bias for {residue_id}/{amino_acid} "
                     "must be finite"
                 )
     return value
@@ -116,11 +120,14 @@ def validate_proteinmpnn_constraints(
     if type(constraints.layout) is not ResidueLayout:
         raise ValueError("constraints layout must be a ResidueLayout")
 
-    designable = _positions(
-        constraints.designable_positions,
-        "designable_positions",
+    designable = _residue_ids(
+        constraints.designable_residue_ids,
+        "designable_residue_ids",
     )
-    fixed = _positions(constraints.fixed_positions, "fixed_positions")
+    fixed = _residue_ids(
+        constraints.fixed_residue_ids,
+        "fixed_residue_ids",
+    )
     designed_chains = _strings(
         constraints.designed_chains,
         "designed_chains",
@@ -143,13 +150,13 @@ def validate_proteinmpnn_constraints(
             "omit_amino_acids must leave at least one amino acid available"
         )
 
-    tied_groups = _tied_positions(constraints.tied_positions)
-    biases = _biases(constraints.bias_by_res)
-    overlapping_positions = sorted(set(designable) & set(fixed))
-    if overlapping_positions:
+    tied_groups = _tied_residue_groups(constraints.tied_residue_groups)
+    biases = _biases(constraints.bias_by_residue)
+    overlapping_residues = sorted(set(designable) & set(fixed))
+    if overlapping_residues:
         raise ValueError(
-            "positions cannot be both designable and fixed: "
-            + ", ".join(str(position) for position in overlapping_positions)
+            "residues cannot be both designable and fixed: "
+            + ", ".join(overlapping_residues)
         )
     overlapping_chains = sorted(
         set(designed_chains) & set(fixed_chains)
@@ -159,16 +166,16 @@ def validate_proteinmpnn_constraints(
             "chains cannot be both designed and fixed: "
             + ", ".join(overlapping_chains)
         )
-    for position, amino_acid_biases in biases.items():
+    for residue_id, amino_acid_biases in biases.items():
         for group_index, group in enumerate(tied_groups):
-            if position in group:
+            if residue_id in group:
                 raise ValueError(
-                    f"bias_by_res position {position} belongs to tied "
-                    f"position group {group_index}"
+                    f"bias_by_residue {residue_id} belongs to tied "
+                    f"residue group {group_index}"
                 )
         for amino_acid in amino_acid_biases:
             if amino_acid in omitted:
                 raise ValueError(
-                    f"bias_by_res position {position} targets globally "
+                    f"bias_by_residue {residue_id} targets globally "
                     f"omitted amino acid {amino_acid}"
                 )

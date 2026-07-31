@@ -17,7 +17,7 @@ outputs:
     port_type_version: "2.1.0"
     required: true
     multiplicity: one
-    scientific_meaning: ProteinMPNN constraints containing the stable sorted zero-based fixed-position selection.
+    scientific_meaning: ProteinMPNN constraints containing the stable layout-ordered fixed-residue identity selection.
 parameter_groups:
   - id: random_selection
     title: Random fixed-position selection

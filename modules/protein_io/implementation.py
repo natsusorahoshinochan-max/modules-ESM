@@ -68,7 +68,22 @@ class SequenceImportImplementation:
                 raise ValueError(
                     "Sequence input does not contain canonical amino-acid text"
                 )
-        return {"sequence": ProteinSequence(sequence=sequence)}
+        imported = ProteinSequence(sequence=sequence)
+        return {
+            "sequence": imported,
+            "sequence_candidates": CandidateCollection(
+                collection_id="imported-sequence-reference",
+                item_type="protein.sequence",
+                items=[
+                    Candidate(
+                        candidate_id="imported-sequence",
+                        data=imported,
+                        parent_ids=[],
+                        metadata={"input_role": "reference"},
+                    )
+                ],
+            ),
+        }
 
 
 class StructureImportImplementation:

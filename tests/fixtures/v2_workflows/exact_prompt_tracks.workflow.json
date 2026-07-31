@@ -73,7 +73,7 @@
       "contract_kind": "binding",
       "contract_id": "contract_test.prompt_authoring_values.direct",
       "contract_version": "2.1.0",
-      "contract_digest": "sha256:88723bbf816f7f3b14e8fe84aa2e22eb73357445978ed55bf805012a6dc5ed13"
+      "contract_digest": "sha256:33f912cb9bcd6964ef29e0021d0af1fea314170b0ca85cabbb56890781acd689"
     },
     {
       "contract_kind": "binding",
@@ -109,7 +109,7 @@
       "contract_kind": "node_type",
       "contract_id": "contract_test.prompt_authoring_values",
       "contract_version": "2.1.0",
-      "contract_digest": "sha256:21589709feaf43c3b22f6952d8130c024c5ce7a3fdcfd1d9e3536d035286fc22"
+      "contract_digest": "sha256:8c82956e60b1beb89d3b99920a4b3b69f4ae008c2195b15a83fba11e38958f68"
     },
     {
       "contract_kind": "node_type",

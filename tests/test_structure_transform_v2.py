@@ -20,7 +20,12 @@ from core import (
     verify_module_package_contract,
 )
 from core.workflow_v2 import WorkflowEdge
-from datatypes import ProteinStructure
+from datatypes import (
+    ModifiedResidueAtomMapping,
+    ModifiedResidueNormalization,
+    ModifiedResidueNormalizationCollection,
+    ProteinStructure,
+)
 from modules.structure_transform.package import MODULE_PACKAGE
 from tests.fixtures.structure_transform_sources.package import (
     MODULE_PACKAGE as SOURCE_PACKAGE,
@@ -81,7 +86,7 @@ _MISSING_CHAIN_BREAK = ProteinStructure(
 )
 
 
-def test_structure_transform_has_three_scientific_transforms_and_one_bridge() -> None:
+def test_structure_transform_publishes_all_exact_transforms_and_bridge() -> None:
     registrations = {
         registration.package_id: registration
         for registration in discover_module_packages()
@@ -93,8 +98,11 @@ def test_structure_transform_has_three_scientific_transforms_and_one_bridge() ->
         resource.resource for resource in registration.node_definitions
     } == {
         "definitions/select_chains.yaml",
+        "definitions/select_candidate_chains.yaml",
         "definitions/extract_backbone.yaml",
         "definitions/extract_sequence.yaml",
+        "definitions/extract_sequence_candidates.yaml",
+        "definitions/normalize_csh_parent_span.yaml",
         "definitions/backbone_to_structure.yaml",
     }
     catalog = build_discovered_frozen_catalog()
@@ -106,8 +114,11 @@ def test_structure_transform_has_three_scientific_transforms_and_one_bridge() ->
         in catalog.owners[(kind, contract_id, version)]
     } == {
         ("structure_transform.select_chains", VERSION),
+        ("structure_transform.select_candidate_chains", VERSION),
         ("structure_transform.extract_backbone", VERSION),
         ("structure_transform.extract_sequence", VERSION),
+        ("structure_transform.extract_sequence_candidates", VERSION),
+        ("structure_transform.normalize_csh_parent_span", VERSION),
         ("structure_transform.backbone_to_structure", VERSION),
     }
 
@@ -222,6 +233,65 @@ def test_all_nodes_pass_the_shared_contract_test_kit(
             "extract_sequence",
         )
     )
+    candidate_cases = tuple(
+        ModulePackageContractCase(
+            case_id=f"structure-transform-{operation}",
+            node_type_id=f"structure_transform.{operation}",
+            node_type_version=VERSION,
+            binding_id=f"structure_transform.{operation}.direct",
+            binding_version=VERSION,
+            node_parameters=(
+                {"chain_ids": ["A"]}
+                if operation == "select_candidate_chains"
+                else {}
+            ),
+            binding_parameters={},
+            environment_values={},
+            safe_environment_fingerprint="provider-free",
+            invalidation_token=f"structure-transform-{operation}-v1",
+            workflow_nodes=(_SOURCE,),
+            workflow_edges=(WorkflowEdge(
+                "source",
+                "structure_candidates",
+                "contract-test-node",
+                "structure_candidates",
+            ),),
+        )
+        for operation in (
+            "select_candidate_chains",
+            "extract_sequence_candidates",
+        )
+    )
+    csh_source = WorkflowNodeInstance(
+        node_id="source",
+        node_type_id="contract_test.structure_transform_source",
+        node_type_version=VERSION,
+        binding_id="contract_test.structure_transform_source.direct",
+        binding_version=VERSION,
+        node_parameters={"fixture": "csh"},
+        binding_parameters={},
+    )
+    normalization_case = ModulePackageContractCase(
+        case_id="structure-transform-normalize-csh-parent-span",
+        node_type_id="structure_transform.normalize_csh_parent_span",
+        node_type_version=VERSION,
+        binding_id=(
+            "structure_transform.normalize_csh_parent_span.direct"
+        ),
+        binding_version=VERSION,
+        node_parameters={},
+        binding_parameters={},
+        environment_values={},
+        safe_environment_fingerprint="provider-free",
+        invalidation_token="structure-transform-normalize-csh-v1",
+        workflow_nodes=(csh_source,),
+        workflow_edges=(WorkflowEdge(
+            "source",
+            "structure",
+            "contract-test-node",
+            "structure",
+        ),),
+    )
     backbone_node = WorkflowNodeInstance(
         node_id="extract-backbone",
         node_type_id="structure_transform.extract_backbone",
@@ -260,7 +330,12 @@ def test_all_nodes_pass_the_shared_contract_test_kit(
     )
     report = verify_module_package_contract(
         MODULE_PACKAGE,
-        execution_cases=(*direct_cases, bridge_case),
+        execution_cases=(
+            *direct_cases,
+            *candidate_cases,
+            normalization_case,
+            bridge_case,
+        ),
         port_cases=(
             ModulePackagePortCase(
                 "structure_transform.backbone_structure",
@@ -283,17 +358,45 @@ def test_all_nodes_pass_the_shared_contract_test_kit(
                     _MISSING_CHAIN_BREAK,
                 ),
             ),
+            ModulePackagePortCase(
+                "structure_transform.modified_residue_normalizations",
+                VERSION,
+                ModifiedResidueNormalizationCollection(entries=[
+                    ModifiedResidueNormalization(
+                        component_id="CSH",
+                        observed_residue_id="A:66",
+                        parent_residue_ids=("A:65", "A:66", "A:67"),
+                        parent_sequence="SHG",
+                        atom_mappings=(
+                            ModifiedResidueAtomMapping(
+                                source_atom_name="CA1",
+                                parent_residue_id="A:65",
+                                parent_atom_name="CA",
+                            ),
+                            ModifiedResidueAtomMapping(
+                                source_atom_name="CA2",
+                                parent_residue_id="A:66",
+                                parent_atom_name="CA",
+                            ),
+                            ModifiedResidueAtomMapping(
+                                source_atom_name="CA3",
+                                parent_residue_id="A:67",
+                                parent_atom_name="CA",
+                            ),
+                        ),
+                    )
+                ]),
+                (object(), ModifiedResidueNormalizationCollection()),
+            ),
         ),
         supporting_registrations=(SOURCE_PACKAGE,),
         work_root=tmp_path,
     )
 
     assert [case.status for case in report.case_reports] == [
-        "succeeded",
-        "succeeded",
-        "succeeded",
-        "succeeded",
-    ]
+        "succeeded"
+    ] * 7
     assert report.verified_port_types == (
         "structure_transform.backbone_structure@2.1.0",
+        "structure_transform.modified_residue_normalizations@2.1.0",
     )

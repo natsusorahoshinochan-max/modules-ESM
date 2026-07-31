@@ -121,7 +121,7 @@ def _optional_list(value: object, name: str) -> list[Any] | None:
     ):
         raise ValueError(f"{name} must be an array")
     items = list(value)
-    if name == "tied_positions":
+    if name == "tied_residue_groups":
         items = [
             list(item)
             if isinstance(item, Sequence)
@@ -138,56 +138,57 @@ def author_constraints(
 ) -> ProteinMPNNConstraints:
     """Build and layout-validate one complete constraint value."""
     expected = {
-        "designable_positions",
-        "fixed_positions",
+        "designable_residue_ids",
+        "fixed_residue_ids",
         "designed_chains",
         "fixed_chains",
         "omit_amino_acids",
-        "tied_positions",
-        "bias_by_res",
+        "tied_residue_groups",
+        "bias_by_residue",
     }
     if set(parameters) != expected:
         raise ValueError(
             "constraint authoring parameters are not fully resolved"
         )
     layout, chain_order, residue_chains = validate_layout(layout_value)
-    bias_entries = parameters["bias_by_res"]
+    bias_entries = parameters["bias_by_residue"]
     if not isinstance(bias_entries, Sequence) or isinstance(
         bias_entries,
         (str, bytes, bytearray),
     ):
-        raise ValueError("bias_by_res must be an array")
-    bias_by_res: dict[int, dict[str, float]] = {}
-    seen_biases: set[tuple[int, str]] = set()
+        raise ValueError("bias_by_residue must be an array")
+    bias_by_residue: dict[str, dict[str, float]] = {}
+    seen_biases: set[tuple[str, str]] = set()
     for index, entry in enumerate(bias_entries):
         if not isinstance(entry, Mapping) or set(entry) != {
-            "position",
+            "residue_id",
             "amino_acid",
             "bias",
         }:
             raise ValueError(
-                f"bias_by_res[{index}] must contain position, amino_acid, bias"
+                f"bias_by_residue[{index}] must contain residue_id, "
+                "amino_acid, bias"
             )
-        position = entry["position"]
+        residue_id = entry["residue_id"]
         amino_acid = entry["amino_acid"]
         bias = entry["bias"]
-        pair = (position, amino_acid)
+        pair = (residue_id, amino_acid)
         if pair in seen_biases:
             raise ValueError(
-                "bias_by_res cannot repeat one position/amino-acid pair"
+                "bias_by_residue cannot repeat one residue/amino-acid pair"
             )
         seen_biases.add(pair)
-        bias_by_res.setdefault(position, {})[amino_acid] = bias
+        bias_by_residue.setdefault(residue_id, {})[amino_acid] = bias
 
     constraints = ProteinMPNNConstraints(
         layout=layout,
-        designable_positions=_optional_list(
-            parameters["designable_positions"],
-            "designable_positions",
+        designable_residue_ids=_optional_list(
+            parameters["designable_residue_ids"],
+            "designable_residue_ids",
         ),
-        fixed_positions=_optional_list(
-            parameters["fixed_positions"],
-            "fixed_positions",
+        fixed_residue_ids=_optional_list(
+            parameters["fixed_residue_ids"],
+            "fixed_residue_ids",
         ),
         designed_chains=_optional_list(
             parameters["designed_chains"],
@@ -201,11 +202,11 @@ def author_constraints(
             parameters["omit_amino_acids"],
             "omit_amino_acids",
         ),
-        tied_positions=_optional_list(
-            parameters["tied_positions"],
-            "tied_positions",
+        tied_residue_groups=_optional_list(
+            parameters["tied_residue_groups"],
+            "tied_residue_groups",
         ),
-        bias_by_res=bias_by_res or None,
+        bias_by_residue=bias_by_residue or None,
     )
     validate_constraints_against_layout(
         constraints,
@@ -262,48 +263,60 @@ def validate_constraints_against_layout(
     if not effective_designed:
         raise ValueError("constraints must leave at least one designed chain")
 
-    def validate_position(position: int, name: str) -> str:
-        if position >= layout.length:
-            raise ValueError(
-                f"{name} position {position} is outside layout length "
-                f"{layout.length}"
-            )
-        return residue_chains[position]
+    residue_ids = list(layout.residue_ids or ())
+    position_by_id = {
+        residue_id: position
+        for position, residue_id in enumerate(residue_ids)
+    }
 
-    designable = set(constraints.designable_positions or ())
-    explicitly_fixed = set(constraints.fixed_positions or ())
-    for position in sorted(designable):
-        chain = validate_position(position, "designable")
-        if chain not in effective_designed:
+    def validate_residue(residue_id: str, name: str) -> tuple[int, str]:
+        position = position_by_id.get(residue_id)
+        if position is None:
             raise ValueError(
-                f"designable position {position} belongs to fixed chain {chain}"
+                f"{name} residue {residue_id} is not present in the layout"
             )
-    for position in sorted(explicitly_fixed):
-        chain = validate_position(position, "fixed")
+        return position, residue_chains[position]
+
+    designable = set(constraints.designable_residue_ids or ())
+    explicitly_fixed = set(constraints.fixed_residue_ids or ())
+    for residue_id in sorted(designable):
+        _, chain = validate_residue(residue_id, "designable")
         if chain not in effective_designed:
             raise ValueError(
-                f"fixed position {position} belongs to already-fixed chain {chain}"
+                f"designable residue {residue_id} belongs to fixed chain {chain}"
+            )
+    for residue_id in sorted(explicitly_fixed):
+        _, chain = validate_residue(residue_id, "fixed")
+        if chain not in effective_designed:
+            raise ValueError(
+                f"fixed residue {residue_id} belongs to already-fixed chain {chain}"
             )
     effective_fixed = set(explicitly_fixed)
     if designable:
         effective_fixed.update(
-            position
-            for position, chain in enumerate(residue_chains)
-            if chain in effective_designed and position not in designable
+            residue_id
+            for residue_id, chain in zip(
+                residue_ids,
+                residue_chains,
+                strict=True,
+            )
+            if chain in effective_designed and residue_id not in designable
         )
-    for group_index, group in enumerate(constraints.tied_positions or ()):
-        for position in group:
-            chain = validate_position(position, "tied")
-            if chain not in effective_designed or position in effective_fixed:
+    for group_index, group in enumerate(
+        constraints.tied_residue_groups or ()
+    ):
+        for residue_id in group:
+            _, chain = validate_residue(residue_id, "tied")
+            if chain not in effective_designed or residue_id in effective_fixed:
                 raise ValueError(
-                    f"tied position group {group_index} includes non-designable "
-                    f"position {position}"
+                    f"tied residue group {group_index} includes non-designable "
+                    f"residue {residue_id}"
                 )
-    for position in (constraints.bias_by_res or {}):
-        chain = validate_position(position, "bias_by_res")
-        if chain not in effective_designed or position in effective_fixed:
+    for residue_id in (constraints.bias_by_residue or {}):
+        _, chain = validate_residue(residue_id, "bias_by_residue")
+        if chain not in effective_designed or residue_id in effective_fixed:
             raise ValueError(
-                f"bias_by_res position {position} is not designable"
+                f"bias_by_residue {residue_id} is not designable"
             )
 
 
@@ -345,5 +358,8 @@ def random_fixed_positions(
     )
     return ProteinMPNNConstraints(
         layout=layout,
-        fixed_positions=sorted(ranked[:count]),
+        fixed_residue_ids=[
+            layout.residue_ids[position]
+            for position in sorted(ranked[:count])
+        ],
     )

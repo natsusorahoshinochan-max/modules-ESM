@@ -17,15 +17,15 @@ outputs:
     port_type_version: "2.1.0"
     required: true
     multiplicity: one
-    scientific_meaning: Complete validated zero-based ProteinMPNN constraint value on the supplied layout.
+    scientific_meaning: Complete validated identity-addressed ProteinMPNN constraint value on the supplied layout.
 parameter_groups:
   - id: residue_constraints
     title: Residue constraints
     parameters:
-      - designable_positions
-      - fixed_positions
-      - tied_positions
-      - bias_by_res
+      - designable_residue_ids
+      - fixed_residue_ids
+      - tied_residue_groups
+      - bias_by_residue
   - id: chain_constraints
     title: Chain constraints
     parameters:
@@ -36,25 +36,25 @@ parameter_groups:
     parameters:
       - omit_amino_acids
 node_parameters:
-  designable_positions:
+  designable_residue_ids:
     parameter_scope: scientific
-    scientific_meaning: Unique zero-based positions that remain designable within the effective designed-chain partition.
+    scientific_meaning: Unique stable residue identities that remain designable within the effective designed-chain partition.
     value_contract:
       type: array
       uniqueItems: true
       items:
-        type: integer
-        minimum: 0
+        type: string
+        pattern: "^[A-Za-z0-9]:[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$"
     default: []
-  fixed_positions:
+  fixed_residue_ids:
     parameter_scope: scientific
-    scientific_meaning: Unique zero-based positions fixed to the supplied structure or optional reference sequence.
+    scientific_meaning: Unique stable residue identities fixed to the supplied structure or optional reference sequence.
     value_contract:
       type: array
       uniqueItems: true
       items:
-        type: integer
-        minimum: 0
+        type: string
+        pattern: "^[A-Za-z0-9]:[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$"
     default: []
   designed_chains:
     parameter_scope: scientific
@@ -86,9 +86,9 @@ node_parameters:
         type: string
         enum: [A, C, D, E, F, G, H, I, K, L, M, N, P, Q, R, S, T, V, W, Y]
     default: []
-  tied_positions:
+  tied_residue_groups:
     parameter_scope: scientific
-    scientific_meaning: Disjoint groups of two or more zero-based designable positions constrained to share one sampled amino acid.
+    scientific_meaning: Disjoint groups of two or more stable designable residue identities constrained to share one sampled amino acid.
     value_contract:
       type: array
       items:
@@ -96,24 +96,24 @@ node_parameters:
         minItems: 2
         uniqueItems: true
         items:
-          type: integer
-          minimum: 0
+          type: string
+          pattern: "^[A-Za-z0-9]:[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$"
     default: []
-  bias_by_res:
+  bias_by_residue:
     parameter_scope: scientific
-    scientific_meaning: Ordered per-residue amino-acid logit biases on unique zero-based designable positions.
+    scientific_meaning: Ordered per-residue amino-acid logit biases on stable designable residue identities.
     value_contract:
       type: array
       items:
         type: object
         additionalProperties: false
-        required: [position, amino_acid, bias]
+        required: [residue_id, amino_acid, bias]
         properties:
-          position:
+          residue_id:
             field_scope: scientific
-            scientific_meaning: Zero-based target-layout position receiving this bias.
-            type: integer
-            minimum: 0
+            scientific_meaning: Stable target-layout residue identity receiving this bias.
+            type: string
+            pattern: "^[A-Za-z0-9]:[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$"
           amino_acid:
             field_scope: scientific
             scientific_meaning: Canonical ProteinMPNN amino-acid symbol receiving this bias.

@@ -196,6 +196,7 @@ class ProteinMPNNDesignRequest:
     seed: int
     target_length: int
     target_layout: ResidueLayout
+    residue_identity_mapping: tuple[tuple[str, str, int], ...]
     structure_chain_order: tuple[str, ...]
     provider_chain_order: tuple[str, ...]
     chain_dict: dict[str, tuple[list[str], list[str]]]
@@ -373,13 +374,10 @@ def _run_design(
     temperature: float,
     device: torch.device,
     omit_amino_acids: list[str],
-    provider_root: Path | None = None,
 ) -> list[ProteinSequence]:
     """Run ProteinMPNN design and return list of ProteinSequence objects."""
     import numpy as np
     import torch
-
-    _S_to_seq = _provider_module(provider_root)._S_to_seq
 
     alphabet = "ACDEFGHIKLMNPQRSTVWYX"
     omit_AAs_np = np.array(
@@ -396,6 +394,22 @@ def _run_design(
     residue_idx = batch["residue_idx"]
     chain_M_pos = batch["chain_M_pos"]
     tied_position_batches = batch.get("tied_pos_list_of_lists_list")
+
+    designable_without_backbone = (
+        (chain_M > 0) & (chain_M_pos > 0) & (mask <= 0)
+    )
+    if bool(designable_without_backbone.any().item()):
+        provider_positions = [
+            int(position) + 1
+            for position in torch.nonzero(
+                designable_without_backbone[0], as_tuple=False
+            ).flatten().tolist()
+        ]
+        raise RuntimeError(
+            "ProteinMPNN cannot design provider positions without complete "
+            "backbone coordinates: "
+            + ", ".join(str(position) for position in provider_positions)
+        )
 
     sequences: list[ProteinSequence] = []
 
@@ -424,9 +438,21 @@ def _run_design(
             bias_by_res=bias_by_res,
         )
 
-        # Decode sequences — _S_to_seq expects 1D tensors, squeeze batch dim
         S_sample = sample_out["S"]
-        seq_str = _S_to_seq(S_sample[0], mask[0])
+        target_length = int(batch["lengths"][0])
+        if S_sample.shape[0] != 1 or S_sample.shape[1] < target_length:
+            raise RuntimeError(
+                "ProteinMPNN sampled tensor does not match the parsed target layout"
+            )
+        sampled_indices = S_sample[0, :target_length].detach().cpu().tolist()
+        if any(
+            not isinstance(index, int) or not 0 <= index < len(alphabet)
+            for index in sampled_indices
+        ):
+            raise RuntimeError(
+                "ProteinMPNN sampled tensor contains an invalid amino-acid index"
+            )
+        seq_str = "".join(alphabet[index] for index in sampled_indices)
         sequences.append(ProteinSequence(sequence=seq_str))
 
     return sequences
@@ -551,7 +577,6 @@ class _LocalProteinMPNNProvider:
                 request.temperature,
                 device,
                 request.omit_amino_acids,
-                self._provider_root,
             )
             _validate_generated_sequences(
                 sequences,
@@ -681,6 +706,39 @@ def _layout_from_chains(
     )
 
 
+def _residue_identity_mapping(
+    layout: ResidueLayout,
+    chains: list[tuple[str, str]],
+) -> tuple[tuple[str, str, int], ...]:
+    residue_ids = list(layout.residue_ids or ())
+    expected_length = sum(len(sequence) for _, sequence in chains)
+    if len(residue_ids) != expected_length:
+        raise ValueError(
+            "constraint layout cardinality does not match the parsed "
+            "structure cardinality"
+        )
+    if layout.chain_id != ",".join(chain for chain, _ in chains):
+        raise ValueError(
+            "constraint layout chain order does not match the parsed structure"
+        )
+    mapping: list[tuple[str, str, int]] = []
+    offset = 0
+    for chain, sequence in chains:
+        for provider_position in range(1, len(sequence) + 1):
+            residue_id = residue_ids[offset]
+            residue_chain, separator, _ = residue_id.partition(":")
+            if separator != ":" or residue_chain != chain:
+                raise ValueError(
+                    f"constraint residue identity {residue_id} does not "
+                    f"correspond to parsed chain {chain}"
+                )
+            mapping.append((residue_id, chain, provider_position))
+            offset += 1
+    if len({residue_id for residue_id, _, _ in mapping}) != len(mapping):
+        raise ValueError("constraint layout contains duplicate residue identities")
+    return tuple(mapping)
+
+
 def _chain_partition(
     chains: list[tuple[str, str]],
     constraints: ProteinMPNNConstraints,
@@ -697,19 +755,27 @@ def _chain_partition(
             + ", ".join(unknown_chains)
         )
     if requested_designed:
+        requested_designed_set = set(requested_designed)
+        designed_chains = [
+            chain for chain in chain_ids if chain in requested_designed_set
+        ]
         fixed_chains = [
-            chain for chain in chain_ids if chain not in set(requested_designed)
+            chain for chain in chain_ids if chain not in requested_designed_set
         ]
         if requested_fixed and set(requested_fixed) != set(fixed_chains):
             raise ValueError(
                 "designed_chains and fixed_chains must partition all structure chains"
             )
-        return requested_designed, fixed_chains
+        return designed_chains, fixed_chains
     elif requested_fixed:
+        requested_fixed_set = set(requested_fixed)
         designed_chains = [
-            chain for chain in chain_ids if chain not in set(requested_fixed)
+            chain for chain in chain_ids if chain not in requested_fixed_set
         ]
-        return designed_chains, requested_fixed
+        fixed_chains = [
+            chain for chain in chain_ids if chain in requested_fixed_set
+        ]
+        return designed_chains, fixed_chains
     return chain_ids, []
 
 
@@ -719,11 +785,20 @@ def _fixed_position_payload(
     designed_chains: list[str],
     constraints: ProteinMPNNConstraints,
 ) -> dict[str, dict[str, list[int]]] | None:
-    raw_fixed_positions = list(constraints.fixed_positions or [])
-    fixed_positions = set(raw_fixed_positions)
-    if constraints.designable_positions:
-        raw_designable_positions = list(constraints.designable_positions)
-        designable_positions = set(raw_designable_positions)
+    residue_ids = list(constraints.layout.residue_ids or ())
+    position_by_id = {
+        residue_id: position
+        for position, residue_id in enumerate(residue_ids)
+    }
+    fixed_positions = {
+        position_by_id[residue_id]
+        for residue_id in constraints.fixed_residue_ids or ()
+    }
+    if constraints.designable_residue_ids:
+        designable_positions = {
+            position_by_id[residue_id]
+            for residue_id in constraints.designable_residue_ids
+        }
         for position in designable_positions:
             chain, _ = _position_to_chain(position, chains)
             if chain not in designed_chains:
@@ -762,12 +837,19 @@ def _tied_position_payload(
     constraints: ProteinMPNNConstraints,
     fixed_position_dict: dict[str, dict[str, list[int]]] | None,
 ) -> dict[str, list[dict[str, list[int]]]] | None:
-    if not constraints.tied_positions:
+    if not constraints.tied_residue_groups:
         return None
+    position_by_id = {
+        residue_id: position
+        for position, residue_id in enumerate(
+            constraints.layout.residue_ids or ()
+        )
+    }
     tied_groups: list[dict[str, list[int]]] = []
-    for group_index, group in enumerate(constraints.tied_positions):
+    for group_index, group in enumerate(constraints.tied_residue_groups):
         chain_positions: dict[str, list[int]] = {}
-        for position in group:
+        for residue_id in group:
+            position = position_by_id[residue_id]
             chain, local_position = _position_to_chain(position, chains)
             chain_positions.setdefault(chain, []).append(local_position + 1)
         fixed_positions = (fixed_position_dict or {}).get(name, {})
@@ -799,22 +881,31 @@ def _bias_payload(
     constraints: ProteinMPNNConstraints,
     fixed_position_dict: dict[str, dict[str, list[int]]] | None,
 ) -> dict[str, dict[str, list[list[float]]]] | None:
-    if not constraints.bias_by_res:
+    if not constraints.bias_by_residue:
         return None
+    position_by_id = {
+        residue_id: position
+        for position, residue_id in enumerate(
+            constraints.layout.residue_ids or ()
+        )
+    }
     bias_by_chain = {
         chain: [[0.0] * len(_ALPHABET) for _ in sequence]
         for chain, sequence in chains
     }
-    for position, amino_acid_biases in constraints.bias_by_res.items():
+    for residue_id, amino_acid_biases in (
+        constraints.bias_by_residue.items()
+    ):
+        position = position_by_id[residue_id]
         chain, local_position = _position_to_chain(position, chains)
         if chain not in designed_chains:
             raise ValueError(
-                f"bias_by_res position {position} belongs to fixed chain {chain}"
+                f"bias_by_residue {residue_id} belongs to fixed chain {chain}"
             )
         fixed_positions = (fixed_position_dict or {}).get(name, {}).get(chain, [])
         if local_position + 1 in fixed_positions:
             raise ValueError(
-                f"bias_by_res position {position} is fixed by the effective "
+                f"bias_by_residue {residue_id} is fixed by the effective "
                 "position mask"
             )
         for amino_acid, bias in amino_acid_biases.items():
@@ -872,17 +963,15 @@ def _prepare_design_request(
         model_name, num_sequences, temperature, backbone_noise, seed
     )
     name, chains = _structure_target(pdb_dict_list)
-    target_layout = _layout_from_chains(chains)
+    provider_layout = _layout_from_chains(chains)
     selected_constraints = (
-        ProteinMPNNConstraints(layout=target_layout)
+        ProteinMPNNConstraints(layout=provider_layout)
         if constraints is None
         else constraints
     )
     validate_proteinmpnn_constraints(selected_constraints)
-    if selected_constraints.layout != target_layout:
-        raise ValueError(
-            "constraint layout identity does not match the parsed structure layout"
-        )
+    target_layout = selected_constraints.layout
+    identity_mapping = _residue_identity_mapping(target_layout, chains)
     designed_chains, fixed_chains = _chain_partition(
         chains, selected_constraints
     )
@@ -898,6 +987,7 @@ def _prepare_design_request(
         seed=seed,
         target_length=sum(len(sequence) for _, sequence in chains),
         target_layout=target_layout,
+        residue_identity_mapping=identity_mapping,
         structure_chain_order=tuple(chain for chain, _ in chains),
         provider_chain_order=tuple((*designed_chains, *fixed_chains)),
         chain_dict={name: (designed_chains, fixed_chains)},

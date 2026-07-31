@@ -25,6 +25,7 @@ _VERSION = "2.1.0"
 _OPERATIONS = (
     "concat_candidates",
     "merge_scores",
+    "pair_siblings_by_parent",
     "rebind_candidate_pairing",
     "take_candidates",
 )
@@ -57,6 +58,7 @@ def _method(operation: str) -> MethodDefinition:
             "candidates_c",
         ],
         "merge_scores": ["scores_a", "scores_b", "scores_c"],
+        "pair_siblings_by_parent": ["subjects", "references"],
         "rebind_candidate_pairing": [
             "subjects",
             "parents",
@@ -68,6 +70,7 @@ def _method(operation: str) -> MethodDefinition:
     duplicate_policy = {
         "concat_candidates": "reject-candidate-partition-collision",
         "merge_scores": "deduplicate-identical-observation-only",
+        "pair_siblings_by_parent": "one-sibling-per-common-parent",
         "rebind_candidate_pairing": "complete-one-to-one-parent-composition",
         "take_candidates": "preserve-exact-ordered-prefix",
     }[operation]
@@ -158,6 +161,7 @@ MODULE_PACKAGE = ModulePackageRegistration(
     node_definitions=(
         DefinitionResource("definitions/concat_candidates.yaml"),
         DefinitionResource("definitions/merge_scores.yaml"),
+        DefinitionResource("definitions/pair_siblings_by_parent.yaml"),
         DefinitionResource("definitions/rebind_candidate_pairing.yaml"),
         DefinitionResource("definitions/take_candidates.yaml"),
     ),

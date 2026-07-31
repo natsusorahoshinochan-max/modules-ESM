@@ -17,7 +17,7 @@ from core import (
     ReadinessDeclaration,
     ReadinessResult,
 )
-from datatypes import ProteinStructure
+from datatypes import Candidate, CandidateCollection, ProteinStructure
 
 
 def _atom(
@@ -202,6 +202,47 @@ def _sequence_edge_cases() -> str:
     )
 
 
+def _csh() -> str:
+    atom_names = (
+        "CA1",
+        "CA2",
+        "CA3",
+        "CB1",
+        "CB2",
+        "CG",
+        "OG2",
+        "CD2",
+        "ND1",
+        "CE1",
+        "NE2",
+        "C1",
+        "N1",
+        "C2",
+        "N2",
+        "O2",
+        "C3",
+        "N3",
+        "O3",
+    )
+    return "\n".join([
+        *(
+            _atom(
+                index,
+                atom_name,
+                "CSH",
+                "A",
+                66,
+                x=float(index),
+                record="HETATM",
+            )
+            for index, atom_name in enumerate(atom_names, start=1)
+        ),
+        "TER",
+        "END",
+        "",
+    ])
+
+
 _FIXTURES = {
     "canonical": _canonical,
     "alternate_locations": _alternate_locations,
@@ -209,6 +250,7 @@ _FIXTURES = {
     "multi_model": _multi_model,
     "residue_name_conflict": _residue_name_conflict,
     "sequence_edge_cases": _sequence_edge_cases,
+    "csh": _csh,
 }
 
 
@@ -229,11 +271,17 @@ class _Source:
         with self._resources.engine_invocation(
             engine_identity="contract_test.structure_transform_source/2.1.0",
         ):
+            structure = ProteinStructure(
+                pdb_string=_FIXTURES[fixture](),
+                source="contract-test",
+            )
             return {
-                "structure": ProteinStructure(
-                    pdb_string=_FIXTURES[fixture](),
-                    source="contract-test",
-                )
+                "structure": structure,
+                "structure_candidates": CandidateCollection(
+                    "fixture-structure-candidates",
+                    "protein.structure",
+                    [Candidate("fixture-structure", structure)],
+                ),
             }
 
 

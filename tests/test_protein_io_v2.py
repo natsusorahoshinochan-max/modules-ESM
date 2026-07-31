@@ -39,7 +39,7 @@ from core.parameter_contract import (
 )
 from core.storage import StoragePathError
 from core.workflow_v2 import WorkflowEdge
-from datatypes import ProteinSequence, ProteinStructure
+from datatypes import CandidateCollection, ProteinSequence, ProteinStructure
 from modules.protein_io.package import MODULE_PACKAGE as PROTEIN_IO_PACKAGE
 from tests.fixtures.protein_io_sources.package import (
     MODULE_PACKAGE as STRUCTURE_SOURCE_PACKAGE,
@@ -393,7 +393,11 @@ def test_sequence_import_reads_only_one_project_scoped_reference(
     )
 
     assert projection["status"] == "succeeded"
-    output = projection["outputs"][0]
+    output = next(
+        item
+        for item in projection["outputs"]
+        if item["output_port"] == "sequence"
+    )
     port_type = catalog.require_port_type("protein.sequence", "2.1.0")
     sequence = port_type.decode(
         canonical_json_bytes(
@@ -407,6 +411,30 @@ def test_sequence_import_reads_only_one_project_scoped_reference(
     )
     assert sequence == ProteinSequence(sequence="ACDE")
     assert output["content_digest"] == port_type.content_digest(sequence)
+    candidate_output = next(
+        item
+        for item in projection["outputs"]
+        if item["output_port"] == "sequence_candidates"
+    )
+    candidate_port = catalog.require_port_type(
+        "candidate.collection",
+        "2.1.0",
+    )
+    candidates = candidate_port.decode(
+        canonical_json_bytes(
+            {
+                "schema_namespace": "protein-workbench-port-value/v2",
+                "port_type_id": "candidate.collection",
+                "port_type_version": "2.1.0",
+                "value": candidate_output["values"][0],
+            }
+        )
+    )
+    assert type(candidates) is CandidateCollection
+    assert candidates.item_type == "protein.sequence"
+    assert len(candidates.items) == 1
+    assert candidates.items[0].data == sequence
+    assert candidates.items[0].parent_ids == []
     assert {
         event["event"]["type"] for event in events
     } >= {

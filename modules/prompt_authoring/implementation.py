@@ -24,6 +24,7 @@ from .domain import (
     override_track,
     TrackKind,
 )
+from .deterministic import insert_masked_residues
 from .prompts import (
     assemble_protein_prompt,
     override_protein_prompt_track,
@@ -271,6 +272,18 @@ def _prompt_from_structure(
             model_open = False
             model_closed = True
             continue
+        if line.startswith("HETATM") and len(line) >= 27:
+            residue_name = line[17:20].strip().upper()
+            if residue_name == "CSH":
+                chain_id = line[21:22].strip() or "?"
+                residue_label = (
+                    line[22:26].strip() + line[26:27].strip()
+                )
+                raise ValueError(
+                    "unsupported_modified_residue: CSH at "
+                    f"{chain_id}:{residue_label} requires an explicit "
+                    "parent-residue normalization contract"
+                )
         if not line.startswith("ATOM  "):
             continue
         if explicit_model and not model_open:
@@ -596,6 +609,33 @@ class RandomInsertMaskedImplementation(_Implementation):
                 effective_seed=node_parameters["effective_seed"],
                 count=node_parameters["count"],
                 eligible_chain_ids=node_parameters["eligible_chain_ids"],
+            )
+        return {
+            "protein_prompt": prompt,
+            "residue_map": residue_map,
+        }
+
+
+class InsertMaskedResiduesImplementation(_Implementation):
+    def execute(
+        self,
+        *,
+        inputs: Mapping[str, Any],
+        node_parameters: Mapping[str, Any],
+        binding_parameters: Mapping[str, Any],
+    ) -> dict[str, Any]:
+        if (
+            set(inputs) != {"protein_prompt"}
+            or set(node_parameters) != {"insertions"}
+            or binding_parameters
+        ):
+            raise ValueError(
+                "deterministic insertion requires one Prompt and insertions"
+            )
+        with self._invocation():
+            prompt, residue_map = insert_masked_residues(
+                inputs["protein_prompt"],
+                node_parameters["insertions"],
             )
         return {
             "protein_prompt": prompt,

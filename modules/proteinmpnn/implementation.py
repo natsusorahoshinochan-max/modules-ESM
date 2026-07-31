@@ -193,7 +193,7 @@ class ProteinMPNNDesignImplementation:
     def _call_seed(
         effective_seed: int,
         parent: Candidate,
-        parent_seed_identity: str,
+        parent_slot: int,
     ) -> int:
         structure = parent.data
         assert type(structure) is ProteinStructure
@@ -201,7 +201,7 @@ class ProteinMPNNDesignImplementation:
             (
                 "protein-workbench-proteinmpnn-parent-seed/v2\0"
                 f"{effective_seed}\0"
-                f"{parent_seed_identity}\0"
+                f"{parent_slot}\0"
                 + hashlib.sha256(
                     structure.pdb_string.encode()
                 ).hexdigest()
@@ -243,13 +243,13 @@ class ProteinMPNNDesignImplementation:
                 "constraints input must be complete ProteinMPNN constraints"
             )
         candidates: list[Candidate] = []
-        for parent_index, (parent, parent_seed_identity) in enumerate(parents):
+        for parent_index, (parent, _) in enumerate(parents):
             structure = parent.data
             assert type(structure) is ProteinStructure
             call_seed = self._call_seed(
                 seed,
                 parent,
-                parent_seed_identity,
+                parent_index,
             )
             raw_ids = [
                 (
@@ -311,6 +311,18 @@ class ProteinMPNNDesignImplementation:
                             "temperature": temperature,
                             "backbone_noise": noise,
                             "constraint_digest": constraint_digest,
+                            "residue_identity_mapping": [
+                                {
+                                    "residue_id": residue_id,
+                                    "provider_chain_id": provider_chain_id,
+                                    "provider_position": provider_position,
+                                }
+                                for (
+                                    residue_id,
+                                    provider_chain_id,
+                                    provider_position,
+                                ) in request.residue_identity_mapping
+                            ],
                         },
                     )
                 )

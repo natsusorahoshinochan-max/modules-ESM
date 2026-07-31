@@ -12,6 +12,12 @@ outputs:
     required: true
     multiplicity: one
     scientific_meaning: Canonically validated imported protein sequence.
+  - name: sequence_candidates
+    port_type_id: candidate.collection
+    port_type_version: "2.1.0"
+    required: true
+    multiplicity: one
+    scientific_meaning: One imported sequence Candidate with no upstream Candidate parent and exact Project Input provenance through the producing result.
 parameter_groups:
   - id: project_input
     title: Project input

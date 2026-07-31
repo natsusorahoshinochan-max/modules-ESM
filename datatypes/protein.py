@@ -41,6 +41,33 @@ class ProteinStructure:
     source: Optional[str] = None
 
 
+@dataclass(frozen=True, slots=True)
+class ModifiedResidueAtomMapping:
+    """One explicit atom mapping from a modified component to its parent."""
+
+    source_atom_name: str
+    parent_residue_id: str
+    parent_atom_name: str
+
+
+@dataclass(frozen=True, slots=True)
+class ModifiedResidueNormalization:
+    """Auditable expansion of one modified component into parent residues."""
+
+    component_id: str
+    observed_residue_id: str
+    parent_residue_ids: tuple[str, ...]
+    parent_sequence: str
+    atom_mappings: tuple[ModifiedResidueAtomMapping, ...]
+
+
+@dataclass
+class ModifiedResidueNormalizationCollection:
+    """Closed set of modified-residue normalization records."""
+
+    entries: list[ModifiedResidueNormalization] = field(default_factory=list)
+
+
 @dataclass
 class ResidueLayout:
     """Target residue layout: chain ID and residue count."""
@@ -423,23 +450,23 @@ class StructureAlignment:
 class ProteinMPNNConstraints:
     """Residue-level constraints for ProteinMPNN design.
 
-    Residue positions are zero-based indices into the complete target layout in
-    structure-chain order.  The ProteinMPNN adapter performs the single
-    conversion to upstream one-based, chain-qualified positions.
+    Residues are addressed by stable identities from the complete target
+    layout. The ProteinMPNN Adapter performs the single conversion to upstream
+    one-based, chain-qualified positions.
 
-    ``designable_positions`` is a whitelist within the designed chains;
-    unlisted positions are fixed. ``fixed_positions`` fixes individual
-    positions. ``designed_chains`` and ``fixed_chains`` select the chain
+    ``designable_residue_ids`` is a whitelist within the designed chains;
+    unlisted residues are fixed. ``fixed_residue_ids`` fixes individual
+    residues. ``designed_chains`` and ``fixed_chains`` select the chain
     partition. ``omit_amino_acids`` is a global sampling exclusion.
-    ``tied_positions`` contains groups of positions sampled as the same amino
-    acid. ``bias_by_res`` maps positions to per-amino-acid logit biases.
+    ``tied_residue_groups`` contains identity groups sampled as the same amino
+    acid. ``bias_by_residue`` maps identities to per-amino-acid logit biases.
     None means no constraint in that dimension.
     """
     layout: ResidueLayout
-    designable_positions: Optional[list[int]] = None
-    fixed_positions: Optional[list[int]] = None
+    designable_residue_ids: Optional[list[str]] = None
+    fixed_residue_ids: Optional[list[str]] = None
     designed_chains: Optional[list[str]] = None
     fixed_chains: Optional[list[str]] = None
     omit_amino_acids: Optional[list[str]] = None
-    tied_positions: Optional[list[list[int]]] = None
-    bias_by_res: Optional[dict[int, dict[str, float]]] = None
+    tied_residue_groups: Optional[list[list[str]]] = None
+    bias_by_residue: Optional[dict[str, dict[str, float]]] = None

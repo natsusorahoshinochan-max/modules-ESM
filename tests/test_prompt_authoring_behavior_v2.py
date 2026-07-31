@@ -149,6 +149,26 @@ def test_nominal_tracks_cannot_connect_by_structural_similarity(
     assert rejected.value.code == "port_type_mismatch"
 
 
+def test_prompt_from_structure_fails_closed_on_polymer_modified_residue(
+    tmp_path: Path,
+) -> None:
+    _, projection, _ = run_operation(
+        tmp_path,
+        operation="prompt_from_structure",
+        node_parameters={},
+        source_edges=(
+            WorkflowEdge("source", "structure", "author", "structure"),
+        ),
+        source_fixture="2emo",
+    )
+
+    assert projection["status"] == "failed"
+    assert not any(
+        output["node_id"] == "author"
+        for output in projection["outputs"]
+    )
+
+
 def test_override_rejects_unknown_residue_without_shifting_positions(
     tmp_path: Path,
 ) -> None:

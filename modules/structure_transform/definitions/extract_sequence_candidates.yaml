@@ -1,0 +1,22 @@
+schema_version: "2.1.0"
+node_type_id: structure_transform.extract_sequence_candidates
+version: "2.1.0"
+title: Extract structure Candidate sequences
+summary: Derives one sequence Candidate from every structure Candidate while preserving exact parent lineage.
+category: structure_transform
+inputs:
+  - name: structure_candidates
+    port_type_id: candidate.collection
+    port_type_version: "2.1.0"
+    required: true
+    multiplicity: one
+    scientific_meaning: Ordered complete structure Candidates whose identities become the sole parents of extracted sequence Candidates.
+outputs:
+  - name: sequence_candidates
+    port_type_id: candidate.collection
+    port_type_version: "2.1.0"
+    required: true
+    multiplicity: one
+    scientific_meaning: Ordered sequence Candidates in one-to-one correspondence with the input structure Candidates and carrying exact parent lineage.
+parameter_groups: []
+node_parameters: {}

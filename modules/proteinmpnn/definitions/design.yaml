@@ -28,7 +28,7 @@ inputs:
     port_type_version: "2.1.0"
     required: false
     multiplicity: one
-    scientific_meaning: Optional complete zero-based ProteinMPNN constraints validated against every selected structure target layout.
+    scientific_meaning: Optional complete identity-addressed ProteinMPNN constraints validated against every selected structure target layout.
 input_constraints:
   - kind: exactly_one
     ports:

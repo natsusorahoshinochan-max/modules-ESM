@@ -131,3 +131,35 @@ preflight 曾确认所有锁定 Binding 均存在且 startup Availability 为 gr
 Environment Configuration 下的 provider/model Readiness 不通过，但本轮三个 Workflow
 都没有越过更早的 authoring/compile 缺口，因此 Readiness 只保留为 preflight observation，
 不升级为本轮 Workflow finding。
+
+## 7. 2026-08-01 修复 addendum
+
+本节只记录后续修复状态，不改写上述首轮 Evidence 的历史事实。首轮 5G53 payload 是有效的
+负向 schema probe，但只列出了 8 个新增 identities，并未完整表达正确的 291-position target；
+后续验收使用完整 target identity 序列。因此，`WFDBG-5G53-001` 的首轮分类仍是
+`contract_gap` / `SAFELY_BLOCKED`，但不再把该 payload 描述成完整 target layout。
+
+本次修复增加了以下 public v2 scientific seams：
+
+1. Candidate-aware structure-to-sequence 与 chain-selection transforms、FASTA singleton root
+   Candidate，以及按共同父 Candidate 创建 sibling pairing 的 producer；
+2. CSH 到 `SER-HIS-GLY` parent span 的显式、类型化 atom mapping；未归一化 CSH 仍在
+   structure-to-Prompt 边界 fail closed；
+3. ProteinMPNN identity-addressed constraints 与唯一 Adapter
+   `ResidueIdentity → provider one-based position` 映射，并把完整映射保留在 Candidate
+   provenance；
+4. identity-addressed deterministic whole-Prompt insertion，保持所有 283 个 5G53 chain A
+   modeled identities 与原始 tracks，并生成 291/295/299 三个目标；
+5. ProteinMPNN scientific call seed 只绑定配置 seed、结构 content digest 与稳定 parent
+   slot，不再受 Candidate Result Identity 影响。
+
+对应 public Workflow 回归已经断言：2EMO Prompt 恢复为 224 residues，包含
+`A:65/A:66/A:67`；5G53 三个 target 均保留 `A:292–A:312`、保留
+`A:146→A:159` 非目标 discontinuity、只在 `A:211→A:224` 插入 8/12/16 个 identities，
+且 ResidueMap 为 283 matches、零 deletes 与准确 insertion 数。
+
+真实 ProteinMPNN `v_48_020`（锁定 source revision `8907e667` 与 checkpoint SHA-256）
+验收使用规范化后的实际 `pdbs/2EMO.pdb`，返回一条完整 224-aa sequence 与一个有限 native
+score；`A:65/A:66/A:67` 固定 parent span 保持为 `SHG`。验收同时确认 provider 的几何
+有效 mask 不再被误用作输出 sequence layout mask：缺少完整 backbone 的固定 residue 会按
+输入身份保留，而同一位置若被声明为 designable 则明确 fail closed。

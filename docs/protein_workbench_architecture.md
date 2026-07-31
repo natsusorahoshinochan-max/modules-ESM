@@ -852,16 +852,18 @@ Output:
 ### ProteinMPNNConstraints
 
 ```text
-designable_positions
-fixed_positions
+designable_residue_ids
+fixed_residue_ids
 designed_chains
 fixed_chains
 omit_amino_acids
-residue_bias
-tied_positions
+bias_by_residue
+tied_residue_groups
 ```
 
-约束应由独立节点产生或由用户编辑，而不是隐藏在 ProteinMPNN 模块内部。
+约束应由独立节点产生或由用户编辑，而不是隐藏在 ProteinMPNN 模块内部。残基字段使用
+identity-complete `ResidueLayout` 中的稳定身份；只有 ProteinMPNN Adapter 可以把它们转换为
+provider 的 chain-local one-based positions，并把完整映射写入结果 provenance。
 
 ---
 

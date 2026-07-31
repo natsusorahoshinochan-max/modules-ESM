@@ -823,7 +823,7 @@
       "contract_kind": "binding",
       "contract_id": "prompt_authoring.prompt_from_structure.direct",
       "contract_version": "2.1.0",
-      "contract_digest": "sha256:fb3278ea6ca53bba653208233c7a42fbdd85f1328dc60b24dfca5ab24cfcc970"
+      "contract_digest": "sha256:3998d2ef1aed3967d79964aebbf71e8868de9aed5f995eea63c375b76a178cd1"
     },
     {
       "contract_kind": "binding",
@@ -853,13 +853,13 @@
       "contract_kind": "binding",
       "contract_id": "proteinmpnn.design.local",
       "contract_version": "2.1.0",
-      "contract_digest": "sha256:fd8ec3bd61227797ea85d815a48d8a902182375beebada5f0f37d84d82a3ce9e"
+      "contract_digest": "sha256:aaad73e2c5a7614694726122f8917e044fdb92ffe6390b74c2c5fd41fec2733d"
     },
     {
       "contract_kind": "binding",
       "contract_id": "proteinmpnn.random_fixed_positions.local",
       "contract_version": "2.1.0",
-      "contract_digest": "sha256:8b9ab25bb4f2e3afbbde21ca402d68ea1076b50412b24b3efce8bf5fcac6a853"
+      "contract_digest": "sha256:0125c95f8f8dc27376a106b099ff6018da45bf4ff779b9c18bd77689377b8032"
     },
     {
       "contract_kind": "binding",
@@ -937,7 +937,7 @@
       "contract_kind": "method",
       "contract_id": "prompt_authoring.prompt_from_structure.method",
       "contract_version": "2.1.0",
-      "contract_digest": "sha256:d69a9e20ab779ed09b09b4e8b61be9f11306a1d46e44b3f56108363c8a4dfe54"
+      "contract_digest": "sha256:6b338efa83542bbaf3d0668fdbe0915477e91cd16e0498881e91801ffbb5e05a"
     },
     {
       "contract_kind": "method",
@@ -967,13 +967,13 @@
       "contract_kind": "method",
       "contract_id": "proteinmpnn.design.v_48_020_8907e667",
       "contract_version": "2.1.0",
-      "contract_digest": "sha256:28611e9c3c87e0ece69a9373a1449c236c030b4c7f62f1377f26b86b8db6ed63"
+      "contract_digest": "sha256:e210ac8e470a111332df8b6052743d1a02fa5d0e734358c9ca8fdb2338c51d85"
     },
     {
       "contract_kind": "method",
       "contract_id": "proteinmpnn.random_fixed_positions.repository_owned",
       "contract_version": "2.1.0",
-      "contract_digest": "sha256:1429ea9899e5008c0f0d69bc320b6467e8061d1c321dd70bab1babe9560fec12"
+      "contract_digest": "sha256:9b8e1d8a6f6deefd296a04000c641daed826cee5395723c33cc3a76fc5eddbc7"
     },
     {
       "contract_kind": "method",
@@ -1099,13 +1099,13 @@
       "contract_kind": "node_type",
       "contract_id": "proteinmpnn.design",
       "contract_version": "2.1.0",
-      "contract_digest": "sha256:fc820b71fdb579e75ca666eb602a83c94ee5c08883c263afc33cd47dbadcf9eb"
+      "contract_digest": "sha256:2f4da9e324427ec503d788c43af4056707dfdb44a5b537a375293ff9c30a63ca"
     },
     {
       "contract_kind": "node_type",
       "contract_id": "proteinmpnn.random_fixed_positions",
       "contract_version": "2.1.0",
-      "contract_digest": "sha256:d4e2c92c63f354d4977ca686ec4d8183c55d57396c9f4e712759043a3fbb6966"
+      "contract_digest": "sha256:e54f328378d4190bb46041f52f5c1c0682a7930ee089ce33bf7d10eb28694a76"
     },
     {
       "contract_kind": "node_type",

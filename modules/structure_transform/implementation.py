@@ -6,7 +6,15 @@ from collections import defaultdict
 from dataclasses import dataclass
 from typing import Any, Mapping
 
-from datatypes import ProteinSequence, ProteinStructure
+from datatypes import (
+    Candidate,
+    CandidateCollection,
+    ModifiedResidueAtomMapping,
+    ModifiedResidueNormalization,
+    ModifiedResidueNormalizationCollection,
+    ProteinSequence,
+    ProteinStructure,
+)
 
 
 _BACKBONE_ATOMS = ("N", "CA", "C", "O")
@@ -32,6 +40,34 @@ _AMINO_ACIDS = {
     "TYR": "Y",
     "VAL": "V",
 }
+
+_CSH_PARENT_ATOMS = (
+    ("SER", "S", (
+        ("N1", "N"),
+        ("CA1", "CA"),
+        ("C1", "C"),
+        ("CB1", "CB"),
+        ("OG2", "OG"),
+    )),
+    ("HIS", "H", (
+        ("N2", "N"),
+        ("CA2", "CA"),
+        ("C2", "C"),
+        ("O2", "O"),
+        ("CB2", "CB"),
+        ("CG", "CG"),
+        ("CD2", "CD2"),
+        ("ND1", "ND1"),
+        ("CE1", "CE1"),
+        ("NE2", "NE2"),
+    )),
+    ("GLY", "G", (
+        ("N3", "N"),
+        ("CA3", "CA"),
+        ("C3", "C"),
+        ("O3", "O"),
+    )),
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -181,6 +217,186 @@ def _normalized_backbone_atom_line(
 ) -> str:
     line = _renumbered_atom_line(record, serial).ljust(80)
     return f"{line[:16]} {line[17:]}".rstrip()
+
+
+def _parent_atom_line(
+    record: _AtomRecord,
+    *,
+    serial: int,
+    residue_name: str,
+    residue_number: int,
+    atom_name: str,
+) -> str:
+    line = list(record.line.ljust(80))
+    line[0:6] = "ATOM  "
+    line[6:11] = f"{serial:5d}"
+    line[12:16] = f" {atom_name:<3}"
+    line[16] = " "
+    line[17:20] = f"{residue_name:>3}"
+    line[22:26] = f"{residue_number:4d}"
+    line[26] = " "
+    return "".join(line).rstrip()
+
+
+def normalize_csh_parent_span(
+    structure: object,
+) -> tuple[ProteinStructure, ModifiedResidueNormalizationCollection]:
+    """Expand each exact CSH component into its SER-HIS-GLY parents."""
+    records = _single_model_records(structure)
+    coordinate_records = [
+        record for record in records if record is not None
+    ]
+    csh_groups: dict[tuple[str, str, str], list[_AtomRecord]] = {}
+    for record in coordinate_records:
+        if record.residue_name == "CSH":
+            csh_groups.setdefault(record.residue_identity, []).append(record)
+    if not csh_groups:
+        raise ValueError("structure contains no CSH component to normalize")
+    for identity in csh_groups:
+        positions = [
+            index
+            for index, record in enumerate(coordinate_records)
+            if record.residue_identity == identity
+            and record.residue_name == "CSH"
+        ]
+        if positions != list(range(positions[0], positions[-1] + 1)):
+            raise ValueError("CSH component coordinate records are noncontiguous")
+
+    occupied = {
+        record.residue_identity
+        for record in coordinate_records
+        if record.residue_name != "CSH"
+    }
+    replacements: dict[
+        tuple[str, str, str],
+        tuple[list[tuple[_AtomRecord, str, int, str]], ModifiedResidueNormalization],
+    ] = {}
+    expected_source_atoms = {
+        source_atom
+        for _, _, atoms in _CSH_PARENT_ATOMS
+        for source_atom, _ in atoms
+    }
+    for identity, component_records in csh_groups.items():
+        representative = component_records[0]
+        if representative.insertion_code:
+            raise ValueError(
+                "CSH normalization does not accept insertion-coded components"
+            )
+        try:
+            observed_number = int(representative.residue_number)
+        except ValueError as error:
+            raise ValueError("CSH residue number must be an integer") from error
+        by_atom: dict[str, _AtomRecord] = {}
+        for record in component_records:
+            if record.record != "HETATM" or record.altloc != " ":
+                raise ValueError(
+                    "CSH normalization requires unambiguous HETATM records"
+                )
+            if record.atom_name in by_atom:
+                raise ValueError(
+                    f"CSH {record.public_residue_id} has duplicate atom "
+                    f"{record.atom_name}"
+                )
+            by_atom[record.atom_name] = record
+        if set(by_atom) != expected_source_atoms:
+            missing = sorted(expected_source_atoms - set(by_atom))
+            unexpected = sorted(set(by_atom) - expected_source_atoms)
+            raise ValueError(
+                "CSH atom inventory does not match the exact parent mapping; "
+                f"missing={missing}, unexpected={unexpected}"
+            )
+
+        parent_ids = tuple(
+            f"{representative.chain_id}:{observed_number + offset}"
+            for offset in (-1, 0, 1)
+        )
+        collisions = [
+            parent_id
+            for parent_id, offset in zip(parent_ids, (-1, 0, 1), strict=True)
+            if (
+                representative.chain_id,
+                str(observed_number + offset),
+                "",
+            ) in occupied
+        ]
+        if collisions:
+            raise ValueError(
+                "CSH parent residues collide with existing coordinates: "
+                + ", ".join(collisions)
+            )
+
+        output_atoms: list[tuple[_AtomRecord, str, int, str]] = []
+        atom_mappings: list[ModifiedResidueAtomMapping] = []
+        for parent_index, (residue_name, _, atom_pairs) in enumerate(
+            _CSH_PARENT_ATOMS
+        ):
+            parent_number = observed_number + parent_index - 1
+            parent_id = parent_ids[parent_index]
+            for source_atom, parent_atom in atom_pairs:
+                output_atoms.append(
+                    (
+                        by_atom[source_atom],
+                        residue_name,
+                        parent_number,
+                        parent_atom,
+                    )
+                )
+                atom_mappings.append(
+                    ModifiedResidueAtomMapping(
+                        source_atom_name=source_atom,
+                        parent_residue_id=parent_id,
+                        parent_atom_name=parent_atom,
+                    )
+                )
+        replacements[identity] = (
+            output_atoms,
+            ModifiedResidueNormalization(
+                component_id="CSH",
+                observed_residue_id=representative.public_residue_id,
+                parent_residue_ids=parent_ids,
+                parent_sequence="SHG",
+                atom_mappings=tuple(atom_mappings),
+            ),
+        )
+
+    output_lines: list[str] = []
+    normalizations: list[ModifiedResidueNormalization] = []
+    emitted: set[tuple[str, str, str]] = set()
+    serial = 1
+    for record in records:
+        if record is None:
+            if output_lines and output_lines[-1] != "TER":
+                output_lines.append("TER")
+            continue
+        replacement = replacements.get(record.residue_identity)
+        if replacement is None:
+            output_lines.append(_renumbered_atom_line(record, serial))
+            serial += 1
+            continue
+        if record.residue_identity in emitted:
+            continue
+        emitted.add(record.residue_identity)
+        output_atoms, normalization = replacement
+        for source, residue_name, residue_number, atom_name in output_atoms:
+            output_lines.append(
+                _parent_atom_line(
+                    source,
+                    serial=serial,
+                    residue_name=residue_name,
+                    residue_number=residue_number,
+                    atom_name=atom_name,
+                )
+            )
+            serial += 1
+        normalizations.append(normalization)
+    output_lines.append("END")
+    return (
+        ProteinStructure(
+            pdb_string="\n".join(output_lines) + "\n",
+            source="structure_transform.normalize_csh_parent_span",
+        ),
+        ModifiedResidueNormalizationCollection(entries=normalizations),
+    )
 
 
 def select_chains(
@@ -348,6 +564,33 @@ def extract_sequence(structure: object) -> ProteinSequence:
     )
 
 
+def _structure_candidate_parents(value: object) -> list[Candidate]:
+    if (
+        type(value) is not CandidateCollection
+        or value.item_type != "protein.structure"
+        or not value.items
+    ):
+        raise ValueError(
+            "Candidate-aware structure transformation requires non-empty "
+            "protein structure Candidates"
+        )
+    parents: list[Candidate] = []
+    parent_ids: set[str] = set()
+    for parent in value.items:
+        if (
+            type(parent) is not Candidate
+            or type(parent.data) is not ProteinStructure
+            or not parent.candidate_id
+            or parent.candidate_id in parent_ids
+        ):
+            raise ValueError(
+                "structure Candidates contain incomplete or duplicate parents"
+            )
+        parent_ids.add(parent.candidate_id)
+        parents.append(parent)
+    return parents
+
+
 def validate_backbone_structure(value: object) -> None:
     """Validate the exact canonical backbone-only nominal value."""
     if type(value) is not ProteinStructure:
@@ -454,18 +697,27 @@ class StructureTransformImplementation:
         node_parameters: Mapping[str, Any],
         binding_parameters: Mapping[str, Any],
     ) -> dict[str, Any]:
-        expected_input = (
-            "backbone"
-            if self._operation == "backbone_to_structure"
-            else "structure"
-        )
+        if self._operation == "backbone_to_structure":
+            expected_input = "backbone"
+        elif self._operation in {
+            "extract_sequence_candidates",
+            "select_candidate_chains",
+        }:
+            expected_input = "structure_candidates"
+        else:
+            expected_input = "structure"
         if binding_parameters or set(inputs) != {expected_input}:
             raise ValueError(
                 "structure transform requires exactly one declared input"
             )
         structure = inputs[expected_input]
         expected_parameters = (
-            {"chain_ids"} if self._operation == "select_chains" else set()
+            {"chain_ids"}
+            if self._operation in {
+                "select_chains",
+                "select_candidate_chains",
+            }
+            else set()
         )
         if set(node_parameters) != expected_parameters:
             raise ValueError("structure transform parameters are invalid")
@@ -485,6 +737,72 @@ class StructureTransformImplementation:
                 return {"backbone": extract_backbone(structure)}
             if self._operation == "extract_sequence":
                 return {"sequence": extract_sequence(structure)}
+            if self._operation == "normalize_csh_parent_span":
+                normalized, normalizations = normalize_csh_parent_span(
+                    structure
+                )
+                return {
+                    "structure": normalized,
+                    "modified_residue_normalizations": normalizations,
+                }
+            if self._operation == "extract_sequence_candidates":
+                children: list[Candidate] = []
+                for index, parent in enumerate(
+                    _structure_candidate_parents(structure)
+                ):
+                    children.append(
+                        Candidate(
+                            candidate_id=f"extracted-sequence-{index}",
+                            data=extract_sequence(parent.data),
+                            parent_ids=[parent.candidate_id],
+                            metadata={
+                                "transform": (
+                                    "structure_transform."
+                                    "extract_sequence_candidates"
+                                ),
+                                "parent_index": index,
+                            },
+                        )
+                    )
+                return {
+                    "sequence_candidates": CandidateCollection(
+                        collection_id="extracted-sequence-candidates",
+                        item_type="protein.sequence",
+                        items=children,
+                    )
+                }
+            if self._operation == "select_candidate_chains":
+                children = []
+                for index, parent in enumerate(
+                    _structure_candidate_parents(structure)
+                ):
+                    children.append(
+                        Candidate(
+                            candidate_id=f"selected-structure-{index}",
+                            data=select_chains(
+                                parent.data,
+                                node_parameters["chain_ids"],
+                            ),
+                            parent_ids=[parent.candidate_id],
+                            metadata={
+                                "transform": (
+                                    "structure_transform."
+                                    "select_candidate_chains"
+                                ),
+                                "parent_index": index,
+                                "chain_ids": list(
+                                    node_parameters["chain_ids"]
+                                ),
+                            },
+                        )
+                    )
+                return {
+                    "structure_candidates": CandidateCollection(
+                        collection_id="selected-structure-candidates",
+                        item_type="protein.structure",
+                        items=children,
+                    )
+                }
             if self._operation == "backbone_to_structure":
                 if type(structure) is not ProteinStructure:
                     raise ValueError(
