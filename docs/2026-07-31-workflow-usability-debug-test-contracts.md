@@ -1,7 +1,7 @@
 # Protein Workbench 理论 Workflow 可用性调试任务与测试合同
 
 日期：2026-07-31  
-状态：讨论已接受；待锁定数值阈值与样例参数后执行
+状态：测试合同已闭合；待按本文执行
 
 ## 1. 文档地位
 
@@ -56,7 +56,8 @@ Workflow 当前不可用，也是有效调试结果。
 
 允许的状态变化仅限正常测试行为，例如创建 Project、导入 Project Input、保存
 Workflow、compile、启动 Run，以及由这些操作产生的 Run Evidence 和 artifact。任何此类
-状态变化必须能归属于准确测试 Run。
+状态变化必须能归属于准确测试 Run。另允许按第 13.6 节写入缺口报告、UI 截图和公开
+protocol 响应副本；这些是测试记录，不是项目修复。
 
 ## 4. 理论可用的判定基础
 
@@ -234,6 +235,25 @@ Workflow 不证明荧光、光谱性质、成熟效率或实验稳定性。
 
 不能在测试过程中手工换算被忽略 residue 后的 ProteinMPNN 索引。
 
+本轮设计范围固定如下：
+
+- `CSH A:66` 必须作为由三个 parent residues 形成的 modified residue 处理；根据
+  [RCSB 2EMO entry](https://www.rcsb.org/structure/2EMO) 的 polymer modification 记录，
+  其语义 parent span 为 A:65–A:67，固定为 Ser–His–Gly。该外部记录只用于声明
+  chromophore precursor 约束，不能替代或改写原始 Project Input；
+- 固定 residue identities 为 A:42、A:44、A:46、A:60–A:72、A:92、A:94、A:96、
+  A:110、A:112、A:121、A:123、A:145、A:148、A:150、A:165、A:167、A:183、
+  A:203、A:205、A:220 和 A:222；
+- A:60–A:72 整段固定，用于覆盖 chromophore precursor 和直接序列邻域；其余离散位置
+  来自原始坐标中距 `CSH A:66` 任一重原子不超过 6 Å 的 residue 集合；
+- A:6–A:229 中具有建模坐标且不在上述固定集合内的 canonical parent residues 全部允许
+  设计；不得增加未建模端部 residue；
+- 若系统不能把 `CSH A:66` 与 A:65–A:67 的 parent span 类型化关联，应在约束建立前
+  安全阻断，而不是把 A:65–A:67 当成三个无坐标普通位置。
+
+上述 residue identities 是测试合同。任何零基 ProteinMPNN 位置只能由 Workbench 内的
+显式 residue mapping 产生，不能由执行者手工换算。
+
 ### 7.7 ProteinMPNN、折叠与选择要求
 
 - ProteinMPNN 只能接收其准确合同支持的结构值；
@@ -244,6 +264,25 @@ Workflow 不证明荧光、光谱性质、成熟效率或实验稳定性。
 - 不同 Metric 的裸值不得直接相加；
 - 若使用 weighted rank 或 Pareto，必须存在准确注册的 Utility Transform；
 - 若当前缺少 Utility Transform，应记录 `contract_gap`，不能临时归一化。
+
+本轮准确执行参数为：
+
+- `proteinmpnn.constraints.local@2.1.0` 使用 `designed_chains=["A"]`、
+  `fixed_chains=[]`、`omit_amino_acids=[]`、`tied_positions=[]`、`bias_by_res=[]`；
+  `designable_positions` 与 `fixed_positions` 只能由上一节稳定 residue identities 显式映射；
+- ProteinMPNN Binding：`proteinmpnn.design.local@2.1.0`；
+- ProteinMPNN `effective_seed=2066001`、`num_sequences=8`、`temperature=0.1`、
+  `backbone_noise=0`；
+- 独立折叠 Binding：`folding.fold.esmfold2_remote@2.1.0`；
+- 折叠 `effective_seed=2066002`、`num_samples=1`；远程 Binding 不声明 provider seed
+  control，因此该 seed 只固定 Workbench randomness identity；
+- 可溶性 Binding：`solubility.protein_sol.local@2.1.0`；
+- 第二阶段按顺序应用四个 exact Observation filter：reference-normalized TM-score
+  `>= 0.80`、Cα RMSD `<= 2.50 Å`、mean-residue pLDDT `>= 70`、
+  `solubility.protein_sol_scaled >= 0.446`；
+- 不做 weighted rank，也不以“至少必须选出一个 Candidate”为可用性条件。若八个
+  Candidate 均未通过，但执行、Observation 和 Evidence 完整，仍可判定 Workflow 能力
+  可用，并报告零个科学筛选通过值。
 
 ### 7.8 结构比较与 Evidence 要求
 
@@ -339,19 +378,28 @@ A:146→A:159 和 A:211→A:224 不得被解释为普通连续肽键。理论 Wo
 
 ### 8.6 可变长度分支要求
 
-每个被测试的 gap 至少应形成三个显式分支：
+第一轮只生成 A:211 与 A:224 之间的缺口。A:146→A:159 仍必须作为明确的未解析 chain
+discontinuity 保留，不得压缩成普通肽键、被同时生成或计入已解析 core 的连续性判断。
 
-- shorter；
-- numbering-implied length；
-- longer。
+目标缺口形成三个已锁定分支：
 
-准确长度在执行前另行锁定。每个分支必须具有：
+| 分支 | 插入数 | 插入位置与 residue identity |
+|---|---:|---|
+| shorter | 8 | A:211 后、A:224 前；`A:gap211_224.short.01` 至 `.08` |
+| numbering-implied | 12 | A:211 后、A:224 前；A:212 至 A:223 |
+| longer | 16 | A:211 后、A:224 前；`A:gap211_224.long.01` 至 `.16` |
+
+synthetic identity 只表示本轮 target layout，不得伪装成原始 PDB residue 编号。每个分支
+必须具有：
 
 - 独立有效 residue layout；
 - 明确的有效随机性；
 - 独立 Candidate lineage；
 - 准确 Node/Binding/Method identity；
 - 可在 Workflow 内通过 collection-level Node 合并的输出。
+
+Candidate Collection 合并顺序固定为 shorter-8、numbering-implied-12、longer-16；该顺序
+只用于稳定展示与 sample-slot provenance，不能用于推断 pairing。
 
 不得在 Workbench 外复制运行三次后手工拼接 Candidate。若当前项目只能这样完成，应记录
 `composition_gap`。
@@ -365,6 +413,20 @@ A:146→A:159 和 A:211→A:224 不得被解释为普通连续肽键。理论 Wo
 - selected Binding 不支持该 Prompt 时必须结构化阻断；
 - 不允许从 remote Binding 切换到 local Binding，或从 paired generation 改成
   sequence-only generation。
+
+本轮固定使用 `esm3.generate_paired.biohub_medium@2.1.0`，不允许切换到 Biohub Open
+或 local-open Binding。三个分支的参数为：
+
+| 分支 | `effective_seed` | `num_samples` | `num_steps` | `temperature` |
+|---|---:|---:|---:|---:|
+| shorter-8 | 5353008 | 2 | 20 | 0.7 |
+| numbering-implied-12 | 5353012 | 2 | 20 | 0.7 |
+| longer-16 | 5353016 | 2 | 20 | 0.7 |
+
+三者共同使用 `top_p=1.0`、`schedule=cosine`、`strategy=random` 和
+`temperature_annealing=true`。远程 provider 不提供 seed control；`effective_seed` 固定
+Result Identity 与 sample-slot provenance，但不构成远程输出可逐位复现的声明。总计应产生
+六对 sequence/structure counterpart Candidates。
 
 ### 8.8 独立折叠、比较与选择要求
 
@@ -386,6 +448,26 @@ scope。不得直接使用不同 normalization length 的全链 TM-score 横向�
 - ESM-3 counterpart 与独立 folding Method 的结构一致性。
 
 如果只能获得无法解释 residue correspondence 的整体分数，应记录 `evidence_gap`。
+
+独立折叠固定使用 `folding.fold.esmfold2_remote@2.1.0`，参数为
+`effective_seed=5353999`、`num_samples=1`。第二阶段对每个 Candidate 使用以下闭合判定：
+
+- resolved core 是原始 chain A 中全部 283 个已建模标准 residues；插入 residues、HETATM
+  与 A:146→A:159 的未建模位置不属于 resolved core；
+- 独立折叠相对于原始 resolved core：reference-normalized TM-score `>= 0.75` 且 Cα RMSD
+  `<= 3.00 Å`；
+- 独立折叠相对于其 ESM-3 counterpart：TM-score `>= 0.70` 且 Cα RMSD
+  `<= 3.50 Å`；
+- 独立 folding Method 在 resolved-core scope 的 mean-residue pLDDT `>= 70`；新生成 loop
+  的 pLDDT 单独报告，不作为第一轮硬过滤项；
+- A:211–新 loop 和新 loop–A:224 两个连接处的主链 C–N 距离均在 `1.15–1.55 Å`；
+- 排除共价相邻 atom 后，新 loop 与 resolved core 之间不存在小于 `2.00 Å` 的非键合
+  heavy-atom 距离；
+- 所有比较必须使用显式 residue correspondence 和 counterpart pairing。
+
+这组阈值是本测试的保守一致性 gate，不是 GPCR 功能、膜稳定性或 G-protein coupling 的
+普适生物学阈值。零个 Candidate 通过不等于能力失败；只要执行链和 Evidence 完整，仍应
+报告为可执行但本轮没有科学筛选通过值。
 
 ## 9. Workflow 3：1PGA-75 生成结构的多 Method 共识验证
 
@@ -451,8 +533,10 @@ input structure Candidate
 
 两个 Node Instance 必须分别固定：
 
-- `folding.fold` 的准确 ESMFold2 Binding；
-- `folding.fold` 的准确 SimpleFold Binding。
+- `folding.fold.esmfold2_remote@2.1.0`：`effective_seed=1075001`、
+  `num_samples=1`；
+- `folding.fold.simplefold_local@2.1.0`：`effective_seed=1075002`、
+  `num_samples=1`，Binding parameter `num_steps=50`。
 
 二者消费同一个 sequence Candidate，各生成一个 structure Candidate。必须保留：
 
@@ -517,13 +601,26 @@ Observation 才可解释。两个 Method 的 confidence 必须保持分开。
 
 ### 9.9 Three-way 结果分类
 
-数值阈值锁定前，逻辑结果固定为：
+只有满足以下条件的 Method 输出才可进入 three-way 判定：
 
-- `three_way_consistent`：两个 Method 均接近输入结构，且彼此接近；
-- `method_disagreement`：一个 Method 接近输入，另一个明显不同；
-- `input_disagreement`：两个 Method 彼此一致，但都不同于输入；
-- `all_disagree`：三者均缺乏一致性；
-- `insufficient_evidence`：Binding 不可用、comparison 不完整或 provenance 不足。
+- 输出 sequence 与输入提取 sequence 完全一致且长度为 75；
+- 结构、alignment、residue/atom correspondence 和 Method provenance 完整；
+- 该 Method 的 mean-residue pLDDT `>= 70`。输入 PDB 的 B-factor 不参与此门槛。
+
+任意一对结构定义为 `close`，当且仅当该对的 reference-normalized TM-score `>= 0.80`
+且 Cα RMSD `<= 2.50 Å`。分别计算 input–ESMFold2、input–SimpleFold 和
+ESMFold2–SimpleFold 三条 edge。前两条以 Method 输出为 subject、输入结构为 reference；
+第三条以 ESMFold2 输出为 subject、SimpleFold 输出为 reference。然后按以下规则产生结果：
+
+- `three_way_consistent`：三条 edge 全部为 `close`；
+- `method_disagreement`：仅一条 input–Method edge 为 `close`，另外两条不为 `close`；
+- `input_disagreement`：仅 ESMFold2–SimpleFold edge 为 `close`；
+- `all_disagree`：三条 edge 均不为 `close`；
+- `insufficient_evidence`：Binding 不可用、任一 Method confidence 未达门槛、comparison
+  或 provenance 不完整；
+- 若出现两条 edge 为 `close`、第三条不为 `close` 的阈值非传递图样，也归入
+  `insufficient_evidence`，并记录 subreason `threshold_boundary_nontransitive`，不得强行
+  塞入一致或不一致类别。
 
 这些只描述计算结构一致性，不证明稳定性或功能。
 
@@ -548,7 +645,7 @@ Observation 才可解释。两个 Method 的 confidence 必须保持分开。
 阶段已因能力缺失无法表达，应记录该最早缺口，不通过外部加工强行推进该 Workflow；随后
 仍可执行不依赖该缺口的其他样例。
 
-## 11. 建议实际执行顺序
+## 11. 已锁定的实际执行顺序
 
 执行顺序按输入复杂度，而不是按 Workflow 编号：
 
@@ -576,17 +673,133 @@ Observation 才可解释。两个 Method 的 confidence 必须保持分开。
 缺口记录可以说明“缺少什么合同”以及“为什么当前结果不可用”，但不得在本调试任务内
 继续实施修复或把修复后的复测覆盖到原始证据中。
 
-## 13. 执行前尚需锁定的参数
+## 13. 已锁定的跨 Workflow 执行合同
 
-以下参数尚未在讨论中确定，不能由执行者擅自猜测：
+### 13.1 两阶段测试
 
-1. 2EMO 中除 chromophore 区域之外的固定位置和允许设计位置；
-2. 2EMO 的生成 Candidate 数、ProteinMPNN sampling 参数和筛选阈值；
-3. 5G53 选择哪一个缺口作为第一轮生成目标；
-4. 5G53 的 shorter、numbering-implied 和 longer 三个准确长度；
-5. 5G53 的 ESM-3 sampling 参数、Candidate 数和 resolved-core 比较阈值；
-6. 1PGA-75 three-way consistency 的 TM-score、RMSD 和 confidence 阈值；
-7. 每个真实 provider Binding 的执行预算和允许的最长等待时间。
+每条 Workflow 按两个判定阶段执行：
 
-在这些参数被讨论并明确接受以前，可以进行输入与 Catalog 的只读 preflight，但不能把
-任何临时数值作为正式测试合同执行。
+1. **能力链路阶段**：检查 UI authoring、save/relock、compile、Run admission、execution、
+   raw Candidate/Observation 产生和 Evidence inspection。该阶段只判断合同和执行能力，
+   不根据数值宣布 Candidate 科学合格；
+2. **端到端科学判定阶段**：仅在所需 raw Observation 与 provenance 完整时，应用第 7–9 节
+   已锁定的 filter 或 three-way 分类。若第一阶段阻断，第二阶段保持结构化 blocked，不能
+   由执行者在 Workbench 外手工计算补齐。
+
+两个阶段可以位于同一 Workflow 和同一 Run 中；阶段划分是判定边界，不要求重复调用
+provider。`FULLY_USABLE` 要求两阶段均可由公开产品 interface 完成。零个 Candidate 通过
+科学阈值本身不构成能力缺口。
+
+### 13.2 产品 surface 与诊断 surface
+
+- 主要验收 surface 是 React 图形界面：Project 创建、Project Input 导入、Workflow
+  authoring、Binding 选择、compile、启动 Run、进度、结果与 Evidence inspection 均应先
+  通过 UI 尝试；
+- UI 使用的同一 Run 可以通过 v2 public REST/WebSocket protocol 读取 Catalog、compile、
+  Run Projection、Ledger 和 artifact，以定位最早 backend seam；这不是绕过 UI；
+- 若 UI 在 Run 创建前已经阻断，允许用完全相同合同通过 public v2 protocol 建立至多一个
+  独立 diagnostic Run，以区分 UI gap 与 backend gap。该 Run 必须带独立 Run ID，且不能
+  抵消产品级 UI 缺口或单独支持 `FULLY_USABLE`；
+- 私有 Python 对象、临时目录、未公开数据库记录或 provider 原始日志不能替代 public
+  Evidence。
+
+### 13.3 Exact Binding 选择
+
+所有 Binding version 固定为 `2.1.0`。模型或 provider-backed Node Instance 固定如下：
+
+| Workflow | Node Type | Execution Binding |
+|---|---|---|
+| 2EMO | `proteinmpnn.design` | `proteinmpnn.design.local` |
+| 2EMO | `folding.fold` | `folding.fold.esmfold2_remote` |
+| 2EMO | `solubility.score_sequence` | `solubility.protein_sol.local` |
+| 5G53 | `esm3.generate_paired` | `esm3.generate_paired.biohub_medium` |
+| 5G53 | `folding.fold` | `folding.fold.esmfold2_remote` |
+| 1PGA-75 | `folding.fold` | `folding.fold.esmfold2_remote` |
+| 1PGA-75 | `folding.fold` | `folding.fold.simplefold_local` |
+
+所需 repository-owned Binding 也必须逐个写入 Workflow，不允许依赖“唯一可用项”的隐式
+选择。本轮允许使用的准确 IDs 为：
+
+- `protein_io.import_structure.direct`、`protein_io.export_structure.direct` 和
+  `protein_io.export_sequence.direct`；
+- `structure_transform.select_chains.direct` 与 `structure_transform.extract_sequence.direct`；
+- `prompt_authoring.prompt_from_structure.direct`、
+  `prompt_authoring.build_residue_layout.direct`、
+  `prompt_authoring.edit_residue_layout.direct`、
+  `prompt_authoring.map_residue_track.direct`、
+  `prompt_authoring.assemble_protein_prompt.direct` 和
+  `prompt_authoring.override_protein_prompt_track.direct`；
+- `proteinmpnn.constraints.local`；
+- `collection_ops.concat_candidates.direct`、`collection_ops.merge_scores.direct` 与
+  `collection_ops.rebind_candidate_pairing.direct`；
+- `structure_comparison.align_single.direct`、
+  `structure_comparison.align_pairwise.fixed_reference`、
+  `structure_comparison.align_pairwise.direct`、
+  `structure_comparison.rmsd.fixed_reference`、
+  `structure_comparison.rmsd.per_subject_counterpart`、
+  `structure_comparison.tm_score.fixed_reference`、
+  `structure_comparison.batch_tm_score.fixed_reference` 和
+  `structure_comparison.batch_tm_score.per_subject_counterpart`；
+- `selection.filter.direct`。
+
+authoring 时必须把实际使用的每个 exact Binding ID 写入 Node Instance，并把完整 Workflow
+文档作为证据保存。如果理论操作没有对应 Node Type 或 Binding，不得发明 ID；应在该位置
+登记 `contract_gap` 或 `composition_gap`。
+
+所有 `selection.filter` Node Instance 固定使用 `out_of_scope_policy=error`、
+`tie_policy=candidate_id_ascending`；对应 Observation Selector 固定
+`match_cardinality=exactly_one`、`missing_policy=error`。selector 必须同时固定 Candidate
+input、Score Collection input、source partition、Metric、Method 和 Observation Context；
+不得只用显示名称或 Metric ID 匹配分数。
+
+### 13.4 Randomness、Run 和重试
+
+- 每条 Workflow 只有一个 primary Run；本轮不以多次采样估计统计稳定性；
+- 所有 stochastic Node Instance 使用第 7–9 节锁定的 `effective_seed`；
+- `effective_seed` 固定 Result Identity 和有效随机性 provenance，但只有 Binding 明确声明
+  seed control 时才支持相应复现主张；
+- 禁止自动重试。若首次结果是疑似瞬时 `execution_gap` 或 `OPAQUE_FAILURE`，允许至多一个
+  confirmation Run；它必须保持相同 Workflow revision、FrozenCatalog、Binding 和参数，
+  使用新 Run ID，并与首次 Evidence 并列保存；
+- confirmation Run 的成功不得覆盖首次失败，也不得被描述为相同远程随机输出的复现。
+
+### 13.5 当前环境与执行预算
+
+测试使用启动时已有的 checkout、Environment Configuration、credential handle、provider
+安装和模型资产。不得为测试执行安装依赖、下载或替换模型、修改 key、补环境变量或改变
+device。缺失项分别记录为 `availability_gap` 或 `readiness_gap`。
+
+单次等待上限固定为：
+
+| seam | 最长等待时间 |
+|---|---:|
+| UI/API authoring、compile、admission 或 repository-owned Node | 2 分钟 |
+| ProteinMPNN Operation Attempt | 15 分钟 |
+| Biohub ESM-3 Engine Invocation | 15 分钟 |
+| Biohub ESMFold2 Engine Invocation | 10 分钟 |
+| SimpleFold local Engine Invocation | 120 分钟 |
+
+primary Run 总时限为：1PGA-75 `150 分钟`、2EMO `120 分钟`、5G53 `180 分钟`。远程请求
+预算为：1PGA-75 至多 1 次 ESMFold2；2EMO 至多 8 次 ESMFold2；5G53 至多 12 次
+ESM-3 generation Engine Invocations（六个 paired Candidate 各 sequence/structure 一次）和
+6 次 ESMFold2。confirmation Run 使用一份独立、相同上限的预算。
+
+到达上限时必须从公开 interface 请求取消并保存 terminal evidence。若取消后无法获得准确
+terminal outcome，应记录 `OPAQUE_FAILURE` 和相应 `evidence_gap`，不能继续无界等待。
+
+### 13.6 缺口与 Evidence 落盘位置
+
+- 首轮人类可读报告固定为
+  `docs/workflow-usability-debug-runs/2026-07-31-initial-pass.md`；
+- 原始 Run Evidence Ledger、manifest、Candidate 与 artifact 保持在所属 Project/Run 的
+  durable storage 中，报告通过 identity 和 Run ID 引用，不复制改写；
+- UI 截图和公开 protocol 响应副本写入
+  `verification-results/workflow-usability-debug/2026-07-31/<workflow-id>/`，该目录不得提交；
+- 报告按第 12 节逐项登记 finding，并明确 primary Run 与 diagnostic/confirmation Run；
+- credential、key、未脱敏 provider payload 和本地私有路径不得进入提交的报告。
+
+### 13.7 闭合结论
+
+三个样例的科学范围、固定与可设计位置、生成数量、随机性、长度分支、阈值、Binding、
+surface、预算、重试规则和记录位置均已锁定。执行者不得再补充临时科学参数；可以开始
+只读 preflight，并在 preflight 记录完成后按第 11 节启动正式测试。
