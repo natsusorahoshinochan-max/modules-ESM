@@ -37,7 +37,7 @@ from modules.collection_ops.package import MODULE_PACKAGE
 from tests.fixtures.public_v2 import wait_for_testclient_run_terminal
 
 
-VERSION = "2.0.0"
+VERSION = "2.1.0"
 
 
 def _source(partition: str) -> WorkflowNodeInstance:

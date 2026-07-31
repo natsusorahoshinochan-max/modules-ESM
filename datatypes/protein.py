@@ -435,6 +435,7 @@ class ProteinMPNNConstraints:
     acid. ``bias_by_res`` maps positions to per-amino-acid logit biases.
     None means no constraint in that dimension.
     """
+    layout: ResidueLayout
     designable_positions: Optional[list[int]] = None
     fixed_positions: Optional[list[int]] = None
     designed_chains: Optional[list[str]] = None

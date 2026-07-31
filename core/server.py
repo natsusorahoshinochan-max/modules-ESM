@@ -309,7 +309,7 @@ def create_app(
             )
             details: Mapping[str, Any] = {
                 "artifact_kind": "workflow",
-                "expected_schema_version": "2.0.0",
+                "expected_schema_version": "2.1.0",
                 "received_schema_version": str(received)[:64] or "missing",
             }
         elif error.code == "contract_digest_mismatch":
@@ -842,7 +842,7 @@ def create_app(
                 "Project metadata is not a supported exact v2 artifact",
                 {
                     "artifact_kind": "project",
-                    "expected_schema_version": "2.0.0",
+                    "expected_schema_version": "2.1.0",
                     "received_schema_version": "unknown",
                 },
             )

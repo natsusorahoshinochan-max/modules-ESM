@@ -20,8 +20,9 @@ from modules.provider_contract import (
 from datatypes import (
     ProteinMPNNConstraints,
     ProteinSequence,
+    ResidueLayout,
+    validate_proteinmpnn_constraints,
 )
-from modules.proteinmpnn.constraint_validation import validate_constraints
 
 _ALPHABET = "ACDEFGHIKLMNPQRSTVWYX"
 _ALPHABET_DICT = dict(zip(_ALPHABET, range(21)))
@@ -194,6 +195,9 @@ class ProteinMPNNDesignRequest:
     backbone_noise: float
     seed: int
     target_length: int
+    target_layout: ResidueLayout
+    structure_chain_order: tuple[str, ...]
+    provider_chain_order: tuple[str, ...]
     chain_dict: dict[str, tuple[list[str], list[str]]]
     fixed_position_dict: dict[str, dict[str, list[int]]] | None
     tied_positions_dict: dict[str, list[dict[str, list[int]]]] | None
@@ -661,6 +665,22 @@ def _structure_target(
     return str(pdb_entry["name"]), chains
 
 
+def _layout_from_chains(
+    chains: list[tuple[str, str]],
+) -> ResidueLayout:
+    chain_order = [chain for chain, _ in chains]
+    residue_ids = [
+        f"{chain}:{position}"
+        for chain, sequence in chains
+        for position in range(1, len(sequence) + 1)
+    ]
+    return ResidueLayout(
+        chain_id=",".join(chain_order),
+        length=len(residue_ids),
+        residue_ids=residue_ids,
+    )
+
+
 def _chain_partition(
     chains: list[tuple[str, str]],
     constraints: ProteinMPNNConstraints,
@@ -852,10 +872,17 @@ def _prepare_design_request(
         model_name, num_sequences, temperature, backbone_noise, seed
     )
     name, chains = _structure_target(pdb_dict_list)
+    target_layout = _layout_from_chains(chains)
     selected_constraints = (
-        ProteinMPNNConstraints() if constraints is None else constraints
+        ProteinMPNNConstraints(layout=target_layout)
+        if constraints is None
+        else constraints
     )
-    validate_constraints(selected_constraints)
+    validate_proteinmpnn_constraints(selected_constraints)
+    if selected_constraints.layout != target_layout:
+        raise ValueError(
+            "constraint layout identity does not match the parsed structure layout"
+        )
     designed_chains, fixed_chains = _chain_partition(
         chains, selected_constraints
     )
@@ -870,6 +897,9 @@ def _prepare_design_request(
         backbone_noise=backbone_noise,
         seed=seed,
         target_length=sum(len(sequence) for _, sequence in chains),
+        target_layout=target_layout,
+        structure_chain_order=tuple(chain for chain, _ in chains),
+        provider_chain_order=tuple((*designed_chains, *fixed_chains)),
         chain_dict={name: (designed_chains, fixed_chains)},
         fixed_position_dict=fixed_position_dict,
         tied_positions_dict=_tied_position_payload(

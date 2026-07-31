@@ -15,6 +15,7 @@ from core import (
     MethodDefinition,
     ModulePackageRegistration,
     ReadinessDeclaration,
+    ReadinessResult,
 )
 from datatypes import ProteinStructure
 
@@ -226,7 +227,7 @@ class _Source:
             raise ValueError("fixture source accepts no connected values")
         fixture = node_parameters["fixture"]
         with self._resources.engine_invocation(
-            engine_identity="contract_test.structure_transform_source/2.0.0",
+            engine_identity="contract_test.structure_transform_source/2.1.0",
         ):
             return {
                 "structure": ProteinStructure(
@@ -250,7 +251,7 @@ class _BackboneSink:
         if node_parameters or binding_parameters or set(inputs) != {"backbone"}:
             raise ValueError("backbone sink requires one backbone")
         with self._resources.engine_invocation(
-            engine_identity="contract_test.backbone_sink/2.0.0",
+            engine_identity="contract_test.backbone_sink/2.1.0",
         ):
             return {"accepted": "accepted"}
 
@@ -269,7 +270,7 @@ def _build(operation: str):
 def _method(operation: str) -> MethodDefinition:
     return MethodDefinition(
         method_id=f"contract_test.structure_transform.{operation}.method",
-        version="2.0.0",
+        version="2.1.0",
         algorithm_identity={"name": f"deterministic-{operation}"},
         model_identity={"kind": "none"},
         checkpoint_identity={"kind": "none"},
@@ -287,19 +288,19 @@ def _binding(operation: str) -> ExecutionBindingDefinition:
     )
     return ExecutionBindingDefinition(
         binding_id=f"{node_id}.direct",
-        version="2.0.0",
-        node_type=ContractIdentity("node_type", node_id, "2.0.0"),
+        version="2.1.0",
+        node_type=ContractIdentity("node_type", node_id, "2.1.0"),
         method=ContractIdentity(
             "method",
             f"contract_test.structure_transform.{operation}.method",
-            "2.0.0",
+            "2.1.0",
         ),
         binding_parameters={},
         execution_route="direct",
         factory=LazyImplementationFactory(
             behavior=BehaviorReference(
                 f"{node_id}/factory",
-                "2.0.0",
+                "2.1.0",
                 {},
             ),
             build=_build(operation),
@@ -307,7 +308,7 @@ def _binding(operation: str) -> ExecutionBindingDefinition:
         availability=AvailabilityDeclaration(
             behavior=BehaviorReference(
                 f"{node_id}/availability",
-                "2.0.0",
+                "2.1.0",
                 {},
             ),
             prerequisites={},
@@ -316,11 +317,11 @@ def _binding(operation: str) -> ExecutionBindingDefinition:
         readiness=ReadinessDeclaration(
             behavior=BehaviorReference(
                 f"{node_id}/readiness",
-                "2.0.0",
+                "2.1.0",
                 {},
             ),
             prerequisites={},
-            check=lambda environment: True,
+            check=lambda environment: ReadinessResult(True),
         ),
         deterministic=True,
         cacheable=True,
@@ -332,9 +333,9 @@ def _binding(operation: str) -> ExecutionBindingDefinition:
 
 
 MODULE_PACKAGE = ModulePackageRegistration(
-    schema_version="2.0.0",
+    schema_version="2.1.0",
     package_id="contract_test.structure_transform_sources",
-    package_version="2.0.0",
+    package_version="2.1.0",
     package_module=__package__,
     node_definitions=(
         DefinitionResource("source.yaml"),

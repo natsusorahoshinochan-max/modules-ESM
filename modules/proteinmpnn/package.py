@@ -21,7 +21,9 @@ from core import (
     ModulePackageRegistration,
     PortTypeDefinition,
     ProducedObservationDefinition,
+    ReadinessCheckInput,
     ReadinessDeclaration,
+    ReadinessResult,
 )
 from modules.provider_contract import (
     PROTEINMPNN_REVISION,
@@ -35,24 +37,29 @@ from .v2_adapter import (
     PROTEINMPNN_TORCH_VERSION,
     proteinmpnn_readiness,
 )
-from .domain import normalize_design_parameters
-from datatypes import ProteinMPNNConstraints, validate_proteinmpnn_constraints
+from .domain import normalize_design_parameters, validate_constraints_against_layout
+from datatypes import ProteinMPNNConstraints
 
 
-_VERSION = "2.0.0"
+_VERSION = "2.1.0"
 _OPERATIONS = ("constraints", "random_fixed_positions", "design", "score")
 
 
 def _validate_constraints(value: object) -> None:
     if type(value) is not ProteinMPNNConstraints:
         raise ValueError("constraints must use the exact ProteinMPNN contract")
-    validate_proteinmpnn_constraints(value)
+    validate_constraints_against_layout(value, layout=value.layout)
 
 
 def _constraints_to_wire(value: object) -> dict[str, object]:
     _validate_constraints(value)
     assert type(value) is ProteinMPNNConstraints
     return {
+        "layout": {
+            "chain_id": value.layout.chain_id,
+            "length": value.layout.length,
+            "residue_ids": value.layout.residue_ids,
+        },
         "designable_positions": value.designable_positions,
         "fixed_positions": value.fixed_positions,
         "designed_chains": value.designed_chains,
@@ -72,6 +79,7 @@ def _constraints_to_wire(value: object) -> dict[str, object]:
 
 def _constraints_from_wire(value: object) -> ProteinMPNNConstraints:
     if not isinstance(value, dict) or set(value) != {
+        "layout",
         "designable_positions",
         "fixed_positions",
         "designed_chains",
@@ -109,7 +117,21 @@ def _constraints_from_wire(value: object) -> ProteinMPNNConstraints:
             previous_position = entry[0]
     else:
         raise ValueError("ProteinMPNN constraint biases are malformed")
+    raw_layout = value["layout"]
+    if (
+        not isinstance(raw_layout, dict)
+        or set(raw_layout) != {"chain_id", "length", "residue_ids"}
+    ):
+        raise ValueError("ProteinMPNN constraint layout is malformed")
+    from datatypes import ResidueLayout
+
+    layout = ResidueLayout(
+        chain_id=raw_layout["chain_id"],
+        length=raw_layout["length"],
+        residue_ids=raw_layout["residue_ids"],
+    )
     constraints = ProteinMPNNConstraints(
+        layout=layout,
         designable_positions=value["designable_positions"],
         fixed_positions=value["fixed_positions"],
         designed_chains=value["designed_chains"],
@@ -185,9 +207,13 @@ def _model_available() -> AvailabilityResult:
     )
 
 
-def _ready(environment: object) -> bool:
-    del environment
-    return True
+def _ready(check_input: ReadinessCheckInput) -> ReadinessResult:
+    del check_input
+    return ReadinessResult(True)
+
+
+def _model_ready(check_input: ReadinessCheckInput) -> ReadinessResult:
+    return proteinmpnn_readiness(check_input.values)
 
 
 def _build(operation: str):
@@ -502,7 +528,7 @@ def _binding(operation: str) -> ExecutionBindingDefinition:
                 if is_model
                 else {}
             ),
-            check=proteinmpnn_readiness if is_model else _ready,
+            check=_model_ready if is_model else _ready,
         ),
         deterministic=True,
         cacheable=True,
@@ -559,7 +585,7 @@ def _binding(operation: str) -> ExecutionBindingDefinition:
 
 
 MODULE_PACKAGE = ModulePackageRegistration(
-    schema_version=_VERSION,
+    schema_version="2.1.0",
     package_id="proteinmpnn",
     package_version=_VERSION,
     package_module=__package__,

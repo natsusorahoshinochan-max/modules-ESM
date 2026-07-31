@@ -1,26 +1,26 @@
-schema_version: "2.0.0"
+schema_version: "2.1.0"
 node_type_id: prompt_authoring.edit_residue_layout
-version: "2.0.0"
+version: "2.1.0"
 title: Edit residue layout
 summary: Reconciles explicit identity-addressed insertions and deletions into a source-to-target residue map.
 category: prompt_authoring
 inputs:
   - name: source_layout
     port_type_id: residue.layout
-    port_type_version: "2.0.0"
+    port_type_version: "2.1.0"
     required: true
     multiplicity: one
     scientific_meaning: Identity-complete residue layout before editing.
   - name: target_layout
     port_type_id: residue.layout
-    port_type_version: "2.0.0"
+    port_type_version: "2.1.0"
     required: true
     multiplicity: one
     scientific_meaning: Identity-complete intended residue layout after editing.
 outputs:
   - name: residue_map
     port_type_id: residue.map
-    port_type_version: "2.0.0"
+    port_type_version: "2.1.0"
     required: true
     multiplicity: one
     scientific_meaning: Complete explicit source-to-target mapping with match, insert, and delete dispositions.
@@ -34,31 +34,32 @@ node_parameters:
     parameter_scope: scientific
     scientific_meaning: Complete identity-addressed declaration of every insertion and deletion between the two layouts.
     required: true
-    type: array
-    maxItems: 2000000
-    uniqueItems: true
-    items:
-      type: object
-      additionalProperties: false
-      required:
-        - operation
-        - chain_id
-        - residue_id
-      properties:
-        operation:
-          field_scope: scientific
-          scientific_meaning: Whether the identity is introduced in the target or removed from the source.
-          type: string
-          enum:
-            - insert
-            - delete
-        chain_id:
-          field_scope: scientific
-          scientific_meaning: Chain boundary that owns the edited residue identity.
-          type: string
-          pattern: "^[A-Za-z0-9]$"
-        residue_id:
-          field_scope: scientific
-          scientific_meaning: Canonical chain-qualified residue identity affected by the edit.
-          type: string
-          pattern: "^[A-Za-z0-9]:[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$"
+    value_contract:
+      type: array
+      maxItems: 2000000
+      uniqueItems: true
+      items:
+        type: object
+        additionalProperties: false
+        required:
+          - operation
+          - chain_id
+          - residue_id
+        properties:
+          operation:
+            field_scope: scientific
+            scientific_meaning: Whether the identity is introduced in the target or removed from the source.
+            type: string
+            enum:
+              - insert
+              - delete
+          chain_id:
+            field_scope: scientific
+            scientific_meaning: Chain boundary that owns the edited residue identity.
+            type: string
+            pattern: "^[A-Za-z0-9]$"
+          residue_id:
+            field_scope: scientific
+            scientific_meaning: Canonical chain-qualified residue identity affected by the edit.
+            type: string
+            pattern: "^[A-Za-z0-9]:[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$"

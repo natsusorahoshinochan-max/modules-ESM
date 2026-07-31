@@ -8,12 +8,12 @@ from typing import Any
 
 from core.port_types import canonical_sha256
 from core.scoring_v2 import (
+    ObservationSelector,
     SelectionError,
-    SelectionObjective,
     rank_candidates_by_weighted_utility,
     resolve_candidate_utilities,
     resolve_objective_observations,
-    resolve_selection_objective,
+    resolve_observation_selector,
     select_candidates,
     weighted_utility_totals,
 )
@@ -40,6 +40,10 @@ class SelectionImplementation:
             objective.objective_id: objective
             for objective in execution_plan.selection_objectives
         }
+        self._selectors = {
+            selector.selector_id: selector
+            for selector in execution_plan.observation_selectors
+        }
 
     def execute(
         self,
@@ -62,16 +66,6 @@ class SelectionImplementation:
                 scores=scores,
                 node_parameters=node_parameters,
             )
-        objective_id = node_parameters.get("objective_id")
-        objective = self._objectives.get(objective_id)
-        if objective is None:
-            raise ValueError(
-                "selection objective_id does not resolve one compiled objective"
-            )
-        if objective.match_cardinality != "exactly_one":
-            raise ValueError("selection requires exactly_one match cardinality")
-        if objective.missing_policy != "error":
-            raise ValueError("selection requires fail-closed missing policy")
         if (
             node_parameters.get("tie_policy")
             != "candidate_id_ascending"
@@ -81,36 +75,69 @@ class SelectionImplementation:
         if out_of_scope_policy not in {"error", "ignore"}:
             raise ValueError("selection out-of-scope policy is unsupported")
 
-        matching = resolve_objective_observations(
-            candidates=candidates,
-            collection=scores,
-            objective=objective,
-            out_of_scope_policy=out_of_scope_policy,
-            duplicate_policy="error",
-        )
-        scoped_scores = ScoreCollection(
-            collection_id=f"{scores.collection_id}.selected-scope",
-            entries=list(matching.values()),
-        )
-        ranked = select_candidates(
-            candidate_inputs={objective.candidate_input: candidates},
-            score_collection_inputs={
-                objective.score_collection_input: scoped_scores
-            },
-            objectives=(objective,),
-            catalog=self._catalog,
-            limit=max(1, len(candidates.items)),
-        ).candidates.items
-
         if self._operation == "filter":
+            selector = self._selectors.get(
+                node_parameters.get("selector_id")
+            )
+            if selector is None:
+                raise ValueError(
+                    "selection selector_id does not resolve one compiled "
+                    "Observation Selector"
+                )
+            matching = resolve_objective_observations(
+                candidates=candidates,
+                collection=scores,
+                objective=selector,
+                out_of_scope_policy=out_of_scope_policy,
+                duplicate_policy="error",
+            )
             selected = self._filter(
                 candidates=candidates,
                 matching=matching,
                 operator=node_parameters.get("operator"),
                 threshold=node_parameters.get("threshold"),
-                objective=objective,
+                selector=selector,
             )
-        elif self._operation == "sort":
+            selection_contract = selector.to_public()
+        else:
+            objective_id = node_parameters.get("objective_id")
+            objective = self._objectives.get(objective_id)
+            if objective is None:
+                raise ValueError(
+                    "selection objective_id does not resolve one compiled "
+                    "objective"
+                )
+            if objective.match_cardinality != "exactly_one":
+                raise ValueError(
+                    "selection requires exactly_one match cardinality"
+                )
+            if objective.missing_policy != "error":
+                raise ValueError(
+                    "selection requires fail-closed missing policy"
+                )
+            matching = resolve_objective_observations(
+                candidates=candidates,
+                collection=scores,
+                objective=objective,
+                out_of_scope_policy=out_of_scope_policy,
+                duplicate_policy="error",
+            )
+            scoped_scores = ScoreCollection(
+                collection_id=f"{scores.collection_id}.selected-scope",
+                entries=list(matching.values()),
+            )
+            ranked = select_candidates(
+                candidate_inputs={objective.candidate_input: candidates},
+                score_collection_inputs={
+                    objective.score_collection_input: scoped_scores
+                },
+                objectives=(objective,),
+                catalog=self._catalog,
+                limit=max(1, len(candidates.items)),
+            ).candidates.items
+            selection_contract = objective.to_public()
+
+        if self._operation == "sort":
             selected = list(ranked)
         elif self._operation == "top_k":
             k = node_parameters.get("k")
@@ -121,6 +148,8 @@ class SelectionImplementation:
                     "top-k k cannot exceed Candidate input cardinality"
                 )
             selected = list(ranked[:k])
+        elif self._operation == "filter":
+            pass
         else:
             raise RuntimeError("unknown selection operation")
 
@@ -129,7 +158,7 @@ class SelectionImplementation:
                 "schema_namespace": "protein-workbench-selection-output/v2",
                 "operation": self._operation,
                 "input_collection_id": candidates.collection_id,
-                "objective": objective.to_public(),
+                "selection_contract": selection_contract,
                 "parameters": dict(node_parameters),
                 "selected_candidate_ids": [
                     candidate.candidate_id for candidate in selected
@@ -329,10 +358,10 @@ class SelectionImplementation:
         matching: Mapping[str, ScoreObservation],
         operator: object,
         threshold: object,
-        objective: SelectionObjective,
+        selector: ObservationSelector,
     ) -> list[Any]:
-        metric, _, _, _ = resolve_selection_objective(
-            objective,
+        metric, _ = resolve_observation_selector(
+            selector,
             self._catalog,
         )
         if metric.descriptor.get("value_shape") != "scalar":

@@ -88,7 +88,7 @@ class SoluProtImplementation:
         contract = self._catalog.require_contract(
             kind,
             contract_id,
-            "2.0.0",
+            "2.1.0",
         )
         return ExactContractReference(**contract.reference())
 
@@ -219,7 +219,7 @@ class ProteinSolImplementation:
         contract = self._catalog.require_contract(
             kind,
             contract_id,
-            "2.0.0",
+            "2.1.0",
         )
         return ExactContractReference(**contract.reference())
 

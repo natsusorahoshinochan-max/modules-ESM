@@ -125,7 +125,7 @@ def test_local_protein_sol_golden_multiple_metrics(
         project.id,
         expected_workflow_revision=0,
         workflow=WorkflowDocument(
-            schema_version="2.0.0",
+            schema_version="2.1.0",
             workflow_id=project.id,
             nodes=(
                 WorkflowNodeInstance(
@@ -133,20 +133,20 @@ def test_local_protein_sol_golden_multiple_metrics(
                     node_type_id=(
                         "contract_test.folding_sequence_batch_source"
                     ),
-                    node_type_version="2.0.0",
+                    node_type_version="2.1.0",
                     binding_id=(
                         "contract_test.folding_sequence_batch_source.direct"
                     ),
-                    binding_version="2.0.0",
+                    binding_version="2.1.0",
                     node_parameters={"sequences": list(SEQUENCES)},
                     binding_parameters={},
                 ),
                 WorkflowNodeInstance(
                     node_id="score",
                     node_type_id="solubility.score_sequence",
-                    node_type_version="2.0.0",
+                    node_type_version="2.1.0",
                     binding_id="solubility.protein_sol.local",
-                    binding_version="2.0.0",
+                    binding_version="2.1.0",
                     node_parameters={},
                     binding_parameters={},
                 ),
@@ -178,7 +178,7 @@ def test_local_protein_sol_golden_multiple_metrics(
         authoring,
         EnvironmentConfiguration(
             {
-                ("solubility.protein_sol.local", "2.0.0"): {
+                ("solubility.protein_sol.local", "2.1.0"): {
                     "values": _environment(),
                     "safe_fingerprint": fingerprint,
                     "invalidation_token": fingerprint,
@@ -284,7 +284,7 @@ def test_local_protein_sol_golden_multiple_metrics(
     binding = catalog.require_contract(
         "binding",
         "solubility.protein_sol.local",
-        "2.0.0",
+        "2.1.0",
     )
     assert binding.descriptor["method"]["contract_id"] == (
         "solubility.protein_sol.sequence_prediction_2017"
@@ -317,7 +317,7 @@ def test_local_protein_sol_golden_multiple_metrics(
         if event["event"]["type"] == "readiness_attested"
         and event["event"]["binding"]["contract_id"]
         == "solubility.protein_sol.local"
-        and event["event"]["binding"]["contract_version"] == "2.0.0"
+        and event["event"]["binding"]["contract_version"] == "2.1.0"
         and event["event"]["conclusion"] == "passing"
     )
     invocation_index = next(

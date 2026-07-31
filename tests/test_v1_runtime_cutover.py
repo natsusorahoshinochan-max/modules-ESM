@@ -128,7 +128,7 @@ def test_legacy_persisted_workflow_and_run_are_stably_rejected(
         assert workflow.json()["error"]["code"] == "unsupported_schema_version"
         assert workflow.json()["error"]["details"] == {
             "artifact_kind": "workflow",
-            "expected_schema_version": "2.0.0",
+            "expected_schema_version": "2.1.0",
             "received_schema_version": "unknown",
         }
 
@@ -137,7 +137,7 @@ def test_legacy_persisted_workflow_and_run_are_stably_rejected(
         assert run.json()["error"]["code"] == "unsupported_schema_version"
         assert run.json()["error"]["details"] == {
             "artifact_kind": "run_evidence",
-            "expected_schema_version": "2.0.0",
+            "expected_schema_version": "2.1.0",
             "received_schema_version": "1",
         }
 

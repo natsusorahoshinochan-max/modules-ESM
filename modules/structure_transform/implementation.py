@@ -471,7 +471,7 @@ class StructureTransformImplementation:
             raise ValueError("structure transform parameters are invalid")
         with self._run_resources.engine_invocation(
             engine_identity=(
-                f"structure_transform.{self._operation}.method/2.0.0"
+                f"structure_transform.{self._operation}.method/2.1.0"
             ),
         ):
             if self._operation == "select_chains":

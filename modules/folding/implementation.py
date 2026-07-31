@@ -29,6 +29,7 @@ from .adapter import (
     decode_remote_fold_result,
     fixed_folding_config,
     load_local_engine,
+    normalize_residue_plddt,
     remote_client,
     resolve_local_runtime,
 )
@@ -125,7 +126,7 @@ class ESMFold2FoldingImplementation:
         contract = self._catalog.require_contract(
             kind,
             contract_id,
-            "2.0.0",
+            "2.1.0",
         )
         return ExactContractReference(**contract.reference())
 
@@ -334,7 +335,7 @@ class SimpleFoldFoldingImplementation:
         contract = self._catalog.require_contract(
             kind,
             contract_id,
-            "2.0.0",
+            "2.1.0",
         )
         return ExactContractReference(**contract.reference())
 
@@ -563,7 +564,7 @@ class SimpleFoldConfidenceImplementation:
         *,
         native_plddt: object,
         valid_protein_residues: object,
-    ) -> tuple[float, ...]:
+    ) -> tuple[float | None, ...]:
         """Apply the fixed direct-head scale after exact validity masking."""
         if (
             not isinstance(native_plddt, Sequence)
@@ -572,31 +573,22 @@ class SimpleFoldConfidenceImplementation:
             or isinstance(valid_protein_residues, (str, bytes))
             or len(native_plddt) != len(valid_protein_residues)
             or not native_plddt
-            or any(type(valid) is not bool for valid in valid_protein_residues)
-            or not any(valid_protein_residues)
         ):
             raise ValueError(
                 "SimpleFold direct-head pLDDT mask is malformed"
             )
-        values: list[float] = []
-        for native, valid in zip(
-            native_plddt,
-            valid_protein_residues,
-            strict=True,
-        ):
-            if not valid:
-                continue
-            if (
-                isinstance(native, bool)
-                or not isinstance(native, (int, float))
-                or not math.isfinite(float(native))
-                or not 0.0 <= float(native) <= 1.0
-            ):
-                raise ValueError(
-                    "SimpleFold direct-head pLDDT is outside [0,1]"
-                )
-            values.append(float(native) * 100.0)
-        return tuple(values)
+        try:
+            values, _, _ = normalize_residue_plddt(
+                native_plddt=native_plddt,
+                valid_residues=valid_protein_residues,
+                native_maximum=1.0,
+                project_to_valid_residues=False,
+            )
+        except ValueError as error:
+            raise ValueError(
+                "SimpleFold direct-head pLDDT is malformed"
+            ) from error
+        return values
 
     def _contract_reference(
         self,
@@ -606,7 +598,7 @@ class SimpleFoldConfidenceImplementation:
         contract = self._catalog.require_contract(
             kind,
             contract_id,
-            "2.0.0",
+            "2.1.0",
         )
         return ExactContractReference(**contract.reference())
 
@@ -673,7 +665,8 @@ class SimpleFoldConfidenceImplementation:
                     "valid_protein_residues"
                 ],
             )
-            mean_value = math.fsum(values) / len(values)
+            finite_values = [value for value in values if value is not None]
+            mean_value = math.fsum(finite_values) / len(finite_values)
             for metric_id, value in (
                 ("structure.plddt.per_residue", list(values)),
                 ("structure.plddt.mean_residue", mean_value),

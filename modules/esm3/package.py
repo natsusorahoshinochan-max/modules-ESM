@@ -19,7 +19,9 @@ from core import (
     ModulePackageRegistration,
     PortTypeDefinition,
     ProducedObservationDefinition,
+    ReadinessCheckInput,
     ReadinessDeclaration,
+    ReadinessResult,
 )
 from modules.provider_contract import validate_installed_provider_checkout
 
@@ -50,7 +52,7 @@ from .local_adapter import (
 )
 
 
-_VERSION = "2.0.0"
+_VERSION = "2.1.0"
 _OPERATIONS = (
     "generate_sequence",
     "generate_structure",
@@ -96,9 +98,9 @@ def _provider_installation_is_exact() -> bool:
     return True
 
 
-def _esmc_ready(environment: object) -> bool:
-    return (
-        esmc_environment_ready(environment)
+def _esmc_ready(check_input: ReadinessCheckInput) -> ReadinessResult:
+    return ReadinessResult(
+        esmc_environment_ready(check_input.values)
         and _provider_installation_is_exact()
     )
 
@@ -351,22 +353,25 @@ def _local_available() -> AvailabilityResult:
     )
 
 
-def _ready(environment: object) -> bool:
-    if not isinstance(environment, Mapping):
-        return False
+def _ready(check_input: ReadinessCheckInput) -> ReadinessResult:
+    environment = check_input.values
     if environment.get("endpoint_id") != "biohub":
-        return False
+        return ReadinessResult(False)
     client = environment.get("provider_client")
     client_factory = environment.get("client_factory")
     has_bound_client = (
         callable(getattr(client, "generate", None))
         or callable(client_factory)
     )
-    return (
+    return ReadinessResult(
         has_bound_client
         and environment.get("credential_handle") is not None
         and _provider_installation_is_exact()
     )
+
+
+def _local_ready(check_input: ReadinessCheckInput) -> ReadinessResult:
+    return local_readiness(check_input.values)
 
 
 def _resolve_effective_randomness(
@@ -819,7 +824,7 @@ def _local_binding(operation: str) -> ExecutionBindingDefinition:
                     "source_revision": ESM_SDK_REVISION,
                 },
             },
-            check=local_readiness,
+            check=_local_ready,
         ),
         deterministic=False,
         cacheable=False,
@@ -860,7 +865,7 @@ def _local_binding(operation: str) -> ExecutionBindingDefinition:
 
 
 MODULE_PACKAGE = ModulePackageRegistration(
-    schema_version=_VERSION,
+    schema_version="2.1.0",
     package_id="esm3",
     package_version=_VERSION,
     package_module=__package__,

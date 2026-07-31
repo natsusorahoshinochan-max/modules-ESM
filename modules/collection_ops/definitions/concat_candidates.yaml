@@ -1,32 +1,32 @@
-schema_version: "2.0.0"
+schema_version: "2.1.0"
 node_type_id: collection_ops.concat_candidates
-version: "2.0.0"
+version: "2.1.0"
 title: Concatenate Candidate collections
 summary: Preserves exact Candidate identities while concatenating connected input partitions in declared Port order.
 category: collection_ops
 inputs:
   - name: candidates_a
     port_type_id: candidate.collection
-    port_type_version: "2.0.0"
+    port_type_version: "2.1.0"
     required: false
     multiplicity: one
     scientific_meaning: Optional first ordered Candidate collection partition.
   - name: candidates_b
     port_type_id: candidate.collection
-    port_type_version: "2.0.0"
+    port_type_version: "2.1.0"
     required: false
     multiplicity: one
     scientific_meaning: Optional second ordered Candidate collection partition.
   - name: candidates_c
     port_type_id: candidate.collection
-    port_type_version: "2.0.0"
+    port_type_version: "2.1.0"
     required: false
     multiplicity: one
     scientific_meaning: Optional third ordered Candidate collection partition.
 outputs:
   - name: candidates
     port_type_id: candidate.collection
-    port_type_version: "2.0.0"
+    port_type_version: "2.1.0"
     required: true
     multiplicity: one
     scientific_meaning: Ordered union retaining every exact input Candidate identity, lineage, and producer slot.

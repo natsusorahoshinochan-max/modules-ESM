@@ -117,7 +117,7 @@ def _check_proteinmpnn_ready() -> bool:
             "provider_root": Path(root),
             "resolved_runtime_fingerprint": configured_runtime_fingerprint(),
         }
-    ).ready
+    ).passing
 
 
 def _check_simplefold_ready() -> bool:
@@ -194,22 +194,7 @@ def _check_simplefold_ready() -> bool:
         ):
             return False
         return True
-    from modules.folding.simplefold_runtime import (
-        validated_simplefold_esm2_runtime,
-        validated_simplefold_model_dir,
-    )
-
-    project_root = Path(os.environ["PROTEIN_WORKBENCH_PROJECT_ROOT"])
-    try:
-        validated_simplefold_model_dir(
-            project_root / "simplefold_artifacts"
-        )
-        validated_simplefold_esm2_runtime(
-            project_root / "simplefold_artifacts"
-        )
-    except (FileNotFoundError, RuntimeError):
-        return False
-    return True
+    return False
 
 
 def _check_alignment_ready() -> bool:

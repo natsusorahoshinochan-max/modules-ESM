@@ -10,7 +10,10 @@ from importlib import resources
 from pathlib import Path, PurePosixPath
 import re
 from types import MappingProxyType
-from typing import Any, Literal
+from typing import TYPE_CHECKING, Any, Literal
+
+if TYPE_CHECKING:
+    from core.run_execution_v2 import ReadinessCheckInput, ReadinessResult
 
 import yaml
 
@@ -27,7 +30,7 @@ from core.port_types import (
 )
 
 
-MODULE_PACKAGE_SCHEMA_VERSION = "2.0.0"
+MODULE_PACKAGE_SCHEMA_VERSION = "2.1.0"
 ContractKind = Literal[
     "binding",
     "method",
@@ -358,6 +361,21 @@ class AvailabilityResult:
         }
 
 
+class ExpectedOptionalDependencyMissing(ModuleNotFoundError):
+    """One checker-declared absent optional dependency."""
+
+    def __init__(self, dependency_id: str) -> None:
+        _require_identifier(
+            dependency_id,
+            "Optional dependency identifier",
+        )
+        self.dependency_id = dependency_id
+        super().__init__(
+            f"Optional dependency {dependency_id} is not installed",
+            name=dependency_id,
+        )
+
+
 @dataclass(frozen=True, slots=True)
 class AvailabilityDeclaration:
     """Stable Availability probe declaration and private startup checker."""
@@ -396,7 +414,7 @@ class ReadinessDeclaration:
 
     behavior: BehaviorReference
     prerequisites: Mapping[str, Any]
-    check: Callable[[Mapping[str, Any]], Any] = field(
+    check: Callable[["ReadinessCheckInput"], "ReadinessResult"] = field(
         repr=False,
         compare=False,
     )
@@ -431,7 +449,7 @@ class ObservationPropagationDefinition:
     input_ports: tuple[str, ...]
     filter: Mapping[str, Any] | None = None
     absent_input_policy: Literal["reject", "ignore"] = "reject"
-    schema_version: str = "2.0.0"
+    schema_version: str = "2.1.0"
 
     def __post_init__(self) -> None:
         _require_schema_version(
@@ -557,7 +575,7 @@ class SelectionObjectiveConsumptionDefinition:
     candidate_output_port: str
     objective_id_parameter: str | None = None
     objective_ids_parameter: str | None = None
-    schema_version: str = "2.0.0"
+    schema_version: str = "2.1.0"
 
     def __post_init__(self) -> None:
         _require_schema_version(
@@ -596,6 +614,39 @@ class SelectionObjectiveConsumptionDefinition:
         else:
             descriptor["objective_ids_parameter"] = self.objective_ids_parameter
         return descriptor
+
+
+@dataclass(frozen=True, slots=True)
+class ObservationSelectorConsumptionDefinition:
+    """Closed declaration binding a Node to one raw Observation selector."""
+
+    candidate_input_port: str
+    score_collection_input_port: str
+    candidate_output_port: str
+    selector_id_parameter: str
+    schema_version: str = "2.1.0"
+
+    def __post_init__(self) -> None:
+        _require_schema_version(
+            self.schema_version,
+            "Observation Selector consumption",
+        )
+        for field_name in (
+            "candidate_input_port",
+            "score_collection_input_port",
+            "candidate_output_port",
+            "selector_id_parameter",
+        ):
+            _require_identifier(getattr(self, field_name), field_name)
+
+    def descriptor_template(self) -> dict[str, str]:
+        return {
+            "schema_version": self.schema_version,
+            "candidate_input_port": self.candidate_input_port,
+            "score_collection_input_port": self.score_collection_input_port,
+            "candidate_output_port": self.candidate_output_port,
+            "selector_id_parameter": self.selector_id_parameter,
+        }
 
 
 @dataclass(frozen=True, slots=True)
@@ -743,6 +794,9 @@ class ExecutionBindingDefinition:
     observation_propagation: ObservationPropagationDefinition | None = None
     selection_objective_consumption: (
         SelectionObjectiveConsumptionDefinition | None
+    ) = None
+    observation_selector_consumption: (
+        ObservationSelectorConsumptionDefinition | None
     ) = None
     effective_randomness_parameters: tuple[str, ...] = ()
     effective_randomness_resolver: EffectiveRandomnessResolver | None = field(
@@ -896,6 +950,10 @@ class ExecutionBindingDefinition:
         if self.selection_objective_consumption is not None:
             descriptor["selection_objective_consumption"] = (
                 self.selection_objective_consumption.descriptor_template()
+            )
+        if self.observation_selector_consumption is not None:
+            descriptor["observation_selector_consumption"] = (
+                self.observation_selector_consumption.descriptor_template()
             )
         if self.effective_randomness_parameters:
             descriptor["effective_randomness_parameters"] = list(
@@ -1899,7 +1957,7 @@ def build_frozen_catalog(
                     if (
                         not isinstance(reference, ContractIdentity)
                         or reference.key
-                        != ("port_type", expected_type, "2.0.0")
+                        != ("port_type", expected_type, "2.1.0")
                         or port.get("multiplicity") != "one"
                         or port.get("required") is not True
                     ):
@@ -1918,7 +1976,7 @@ def build_frozen_catalog(
                 if (
                     not isinstance(output_reference, ContractIdentity)
                     or output_reference.key
-                    != ("port_type", "candidate.collection", "2.0.0")
+                    != ("port_type", "candidate.collection", "2.1.0")
                     or output.get("multiplicity") != "one"
                     or output.get("required") is not True
                 ):
@@ -1940,11 +1998,11 @@ def build_frozen_catalog(
                 if (
                     not isinstance(output_reference, ContractIdentity)
                     or output_reference.key
-                    != ("port_type", "score.collection", "2.0.0")
+                    != ("port_type", "score.collection", "2.1.0")
                 ):
                     raise CatalogBuildError(
                         f"Binding {binding.binding_id} Produced Observation "
-                        "output must use exact score.collection@2.0.0"
+                        "output must use exact score.collection@2.1.0"
                     )
                 subject_ports = (
                     input_names
@@ -1968,11 +2026,11 @@ def build_frozen_catalog(
                     or observation.source_role != "subject"
                     or not isinstance(subject_reference, ContractIdentity)
                     or subject_reference.key
-                    != ("port_type", "candidate.collection", "2.0.0")
+                    != ("port_type", "candidate.collection", "2.1.0")
                 ):
                     raise CatalogBuildError(
                         f"Binding {binding.binding_id} Produced Observation "
-                        "subject must use exact candidate.collection@2.0.0 "
+                        "subject must use exact candidate.collection@2.1.0 "
                         "with candidate subject grain"
                     )
                 metric_entry = entry_by_key.get(observation.metric.key)
@@ -2009,13 +2067,13 @@ def build_frozen_catalog(
                         != (
                             "port_type",
                             "candidate.collection",
-                            "2.0.0",
+                            "2.1.0",
                         )
                     ):
                         raise CatalogBuildError(
                             f"Binding {binding.binding_id} Produced "
                             "Observation reference source must use exact "
-                            "candidate.collection@2.0.0"
+                            "candidate.collection@2.1.0"
                         )
                 if observation.pairing_port is not None:
                     pairing_ports = (
@@ -2037,13 +2095,13 @@ def build_frozen_catalog(
                         != (
                             "port_type",
                             "candidate.pairing",
-                            "2.0.0",
+                            "2.1.0",
                         )
                     ):
                         raise CatalogBuildError(
                             f"Binding {binding.binding_id} Produced "
                             "Observation pairing source must use exact "
-                            "candidate.pairing@2.0.0"
+                            "candidate.pairing@2.1.0"
                         )
             propagation = binding.observation_propagation
             if propagation is not None:
@@ -2058,12 +2116,12 @@ def build_frozen_catalog(
                 if (
                     not isinstance(output_type, ContractIdentity)
                     or output_type.key
-                    != ("port_type", "score.collection", "2.0.0")
+                    != ("port_type", "score.collection", "2.1.0")
                 ):
                     raise CatalogBuildError(
                         f"Binding {binding.binding_id} Observation "
                         "propagation output must use exact "
-                        "score.collection@2.0.0"
+                        "score.collection@2.1.0"
                     )
                 if output_declaration.get("multiplicity") != "one":
                     raise CatalogBuildError(
@@ -2080,12 +2138,12 @@ def build_frozen_catalog(
                     if (
                         not isinstance(input_type, ContractIdentity)
                         or input_type.key
-                        != ("port_type", "score.collection", "2.0.0")
+                        != ("port_type", "score.collection", "2.1.0")
                     ):
                         raise CatalogBuildError(
                             f"Binding {binding.binding_id} Observation "
                             "propagation inputs must use exact "
-                            "score.collection@2.0.0"
+                            "score.collection@2.1.0"
                         )
                     if input_declaration.get("multiplicity") != "one":
                         raise CatalogBuildError(
@@ -2193,21 +2251,19 @@ def build_frozen_catalog(
         contract = resolved[key]
         try:
             availability = binding.availability.check()
-        except ModuleNotFoundError as error:
+        except ExpectedOptionalDependencyMissing as error:
             availability = AvailabilityResult.unavailable(
                 "optional_dependency_missing",
                 (
-                    f"Optional dependency {error.name or 'unknown'} "
+                    f"Optional dependency {error.dependency_id} "
                     "is not installed"
                 ),
                 retryable=False,
             )
         except Exception as error:
-            availability = AvailabilityResult.unavailable(
-                "availability_check_failed",
-                f"Availability check failed safely: {type(error).__name__}",
-                retryable=True,
-            )
+            raise CatalogBuildError(
+                f"Availability checker for {binding.binding_id} failed"
+            ) from error
         if not isinstance(availability, AvailabilityResult):
             raise CatalogBuildError(
                 f"Availability checker for {binding.binding_id} returned "

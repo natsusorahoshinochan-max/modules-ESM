@@ -25,6 +25,7 @@ from core import (
     PortTypeDefinition,
     PortValueError,
     PreScheduleTermination,
+    ReadinessCheckInput,
     ReadinessResult,
     ReadinessDeclaration,
     ResultReplayHit,
@@ -51,12 +52,12 @@ def _contract(
     return CatalogContract(
         contract_kind=contract_kind,
         contract_id=contract_id,
-        contract_version="2.0.0",
+        contract_version="2.1.0",
         descriptor={
             "schema_namespace": "protein-workbench-contract/v2",
             "contract_kind": contract_kind,
             "contract_id": contract_id,
-            "contract_version": "2.0.0",
+            "contract_version": "2.1.0",
             **descriptor,
         },
     )
@@ -85,7 +86,7 @@ def _direct_catalog(
     effective_randomness_resolver: EffectiveRandomnessResolver | None = None,
 ) -> FrozenCatalog:
     builtin = builtin_frozen_catalog()
-    text = builtin.require_port_type("text", "2.0.0")
+    text = builtin.require_port_type("text", "2.1.0")
     method = _contract(
         "method",
         "test.direct.method",
@@ -129,12 +130,12 @@ def _direct_catalog(
     for binding_id in binding_ids:
         binding_factory_behavior = BehaviorReference(
             f"{binding_id}/factory",
-            "2.0.0",
+            "2.1.0",
             {"route": "direct"},
         )
         binding_readiness_behavior = BehaviorReference(
             f"{binding_id}/readiness",
-            "2.0.0",
+            "2.1.0",
             {"observation": "per-run"},
         )
         binding = _contract(
@@ -149,7 +150,7 @@ def _direct_catalog(
                 "availability_declaration": {
                     "behavior": {
                         "behavior_id": f"{binding_id}/availability",
-                        "behavior_version": "2.0.0",
+                        "behavior_version": "2.1.0",
                         "parameters": {},
                     },
                     "prerequisites": {},
@@ -243,15 +244,22 @@ def _direct_catalog(
                 return {"text": value}
 
         def make_readiness(exact_binding_id: str):
-            def readiness(environment: dict[str, Any]) -> bool:
+            def readiness(
+                check_input: ReadinessCheckInput,
+            ) -> ReadinessResult:
                 if (
                     readiness_checks is not None
                     and exact_binding_id in readiness_checks
                 ):
-                    return readiness_checks[exact_binding_id](environment)
-                assert environment["credential"] == "credential-value"
+                    return readiness_checks[exact_binding_id](check_input)
+                assert (
+                    check_input.values["credential"]
+                    == "credential-value"
+                )
                 calls.append(f"readiness:{exact_binding_id}")
-                return exact_binding_id != failing_binding_id
+                return ReadinessResult(
+                    exact_binding_id != failing_binding_id
+                )
 
             return readiness
 
@@ -274,11 +282,11 @@ def _direct_catalog(
 
             return factory
 
-        factories[(binding_id, "2.0.0")] = LazyImplementationFactory(
+        factories[(binding_id, "2.1.0")] = LazyImplementationFactory(
             behavior=binding_factory_behavior,
             build=make_factory(binding_id),
         )
-        readiness_declarations[(binding_id, "2.0.0")] = ReadinessDeclaration(
+        readiness_declarations[(binding_id, "2.1.0")] = ReadinessDeclaration(
             behavior=binding_readiness_behavior,
             prerequisites=(
                 readiness_prerequisites
@@ -305,7 +313,7 @@ def _direct_catalog(
         readiness_declarations=readiness_declarations,
         effective_randomness_resolvers=(
             {
-                (binding_id, "2.0.0"): effective_randomness_resolver
+                (binding_id, "2.1.0"): effective_randomness_resolver
                 for binding_id in binding_ids
             }
             if effective_randomness_resolver is not None
@@ -318,15 +326,15 @@ def _compile_one_node(client: TestClient) -> tuple[str, dict[str, Any]]:
     project = client.post("/api/projects", json={"name": "v2 direct"}).json()
     project_id = project["id"]
     workflow = {
-        "schema_version": "2.0.0",
+        "schema_version": "2.1.0",
         "workflow_id": project_id,
         "nodes": [
             {
                 "node_id": "direct",
                 "node_type_id": "test.direct",
-                "node_type_version": "2.0.0",
+                "node_type_version": "2.1.0",
                 "binding_id": "test.direct.local",
-                "binding_version": "2.0.0",
+                "binding_version": "2.1.0",
                 "node_parameters": {},
                 "binding_parameters": {},
             }
@@ -362,15 +370,15 @@ def _compile_independent_nodes(
     project = client.post("/api/projects", json={"name": "v2 readiness"}).json()
     project_id = project["id"]
     workflow = {
-        "schema_version": "2.0.0",
+        "schema_version": "2.1.0",
         "workflow_id": project_id,
         "nodes": [
             {
                 "node_id": f"direct-{index}",
                 "node_type_id": "test.direct",
-                "node_type_version": "2.0.0",
+                "node_type_version": "2.1.0",
                 "binding_id": binding_id,
-                "binding_version": "2.0.0",
+                "binding_version": "2.1.0",
                 "node_parameters": {},
                 "binding_parameters": {},
             }
@@ -419,15 +427,15 @@ def _pipeline_catalog(
 
     canonical_text = PortTypeDefinition(
         type_id="test.canonical_text",
-        version="2.0.0",
+        version="2.1.0",
         validator=BehaviorReference(
             "test.canonical_text/validate",
-            "2.0.0",
+            "2.1.0",
             {"accepted_value_kind": "text"},
         ),
         codec=BehaviorReference(
             "test.canonical_text/codec",
-            "2.0.0",
+            "2.1.0",
             {
                 "normalization": "strip-and-lowercase",
                 **(
@@ -439,7 +447,7 @@ def _pipeline_catalog(
         ),
         content_identity=BehaviorReference(
             "test.canonical_text/content",
-            "2.0.0",
+            "2.1.0",
             {"digest": "SHA-256"},
         ),
         runtime_validator=validate_text,
@@ -558,12 +566,12 @@ def _pipeline_catalog(
     ):
         factory_behavior = BehaviorReference(
             f"{binding_id}/factory",
-            "2.0.0",
+            "2.1.0",
             {},
         )
         readiness_behavior = BehaviorReference(
             f"{binding_id}/readiness",
-            "2.0.0",
+            "2.1.0",
             {},
         )
         binding = _contract(
@@ -578,7 +586,7 @@ def _pipeline_catalog(
                 "availability_declaration": {
                     "behavior": {
                         "behavior_id": f"{binding_id}/availability",
-                        "behavior_version": "2.0.0",
+                        "behavior_version": "2.1.0",
                         "parameters": {},
                     },
                     "prerequisites": {},
@@ -614,14 +622,14 @@ def _pipeline_catalog(
                 return implementation(node_id, kwargs["run_resources"])
             return implementation(kwargs["run_resources"])
 
-        factories[(binding_id, "2.0.0")] = LazyImplementationFactory(
+        factories[(binding_id, "2.1.0")] = LazyImplementationFactory(
             behavior=factory_behavior,
             build=build_implementation,
         )
-        readiness[(binding_id, "2.0.0")] = ReadinessDeclaration(
+        readiness[(binding_id, "2.1.0")] = ReadinessDeclaration(
             behavior=readiness_behavior,
             prerequisites={},
-            check=lambda environment: True,
+            check=lambda check_input: ReadinessResult(True),
         )
         availability.append(
             {
@@ -698,12 +706,12 @@ def _artifact_catalog(
     )
     factory_behavior = BehaviorReference(
         "test.artifact/factory",
-        "2.0.0",
+        "2.1.0",
         {},
     )
     readiness_behavior = BehaviorReference(
         "test.artifact/readiness",
-        "2.0.0",
+        "2.1.0",
         {},
     )
     binding = _contract(
@@ -718,7 +726,7 @@ def _artifact_catalog(
             "availability_declaration": {
                 "behavior": {
                     "behavior_id": "test.artifact/availability",
-                    "behavior_version": "2.0.0",
+                    "behavior_version": "2.1.0",
                     "parameters": {},
                 },
                 "prerequisites": {},
@@ -779,16 +787,16 @@ def _artifact_catalog(
         ),
         availability_observed_at=observed_at,
         factories={
-            ("test.artifact.direct", "2.0.0"): LazyImplementationFactory(
+            ("test.artifact.direct", "2.1.0"): LazyImplementationFactory(
                 behavior=factory_behavior,
                 build=factory,
             )
         },
         readiness_declarations={
-            ("test.artifact.direct", "2.0.0"): ReadinessDeclaration(
+            ("test.artifact.direct", "2.1.0"): ReadinessDeclaration(
                 behavior=readiness_behavior,
                 prerequisites={},
-                check=lambda environment: True,
+                check=lambda check_input: ReadinessResult(True),
             )
         },
     )
@@ -802,15 +810,15 @@ def _compile_artifact_node(
         json={"name": "v2 artifact"},
     ).json()["id"]
     workflow = {
-        "schema_version": "2.0.0",
+        "schema_version": "2.1.0",
         "workflow_id": project_id,
         "nodes": [
             {
                 "node_id": "artifact",
                 "node_type_id": "test.artifact",
-                "node_type_version": "2.0.0",
+                "node_type_version": "2.1.0",
                 "binding_id": "test.artifact.direct",
-                "binding_version": "2.0.0",
+                "binding_version": "2.1.0",
                 "node_parameters": {},
                 "binding_parameters": {},
             }
@@ -843,24 +851,24 @@ def _compile_pipeline(client: TestClient) -> tuple[str, dict[str, Any]]:
         json={"name": "v2 canonical boundary"},
     ).json()["id"]
     workflow = {
-        "schema_version": "2.0.0",
+        "schema_version": "2.1.0",
         "workflow_id": project_id,
         "nodes": [
             {
                 "node_id": "source",
                 "node_type_id": "test.pipeline.source",
-                "node_type_version": "2.0.0",
+                "node_type_version": "2.1.0",
                 "binding_id": "test.pipeline.source.direct",
-                "binding_version": "2.0.0",
+                "binding_version": "2.1.0",
                 "node_parameters": {},
                 "binding_parameters": {},
             },
             {
                 "node_id": "sink",
                 "node_type_id": "test.pipeline.sink",
-                "node_type_version": "2.0.0",
+                "node_type_version": "2.1.0",
                 "binding_id": "test.pipeline.sink.direct",
-                "binding_version": "2.0.0",
+                "binding_version": "2.1.0",
                 "node_parameters": {},
                 "binding_parameters": {},
             },
@@ -905,9 +913,9 @@ def _compile_branching_pipeline(
         {
             "node_id": node_id,
             "node_type_id": node_type_id,
-            "node_type_version": "2.0.0",
+            "node_type_version": "2.1.0",
             "binding_id": binding_id,
-            "binding_version": "2.0.0",
+            "binding_version": "2.1.0",
             "node_parameters": {},
             "binding_parameters": {},
         }
@@ -935,7 +943,7 @@ def _compile_branching_pipeline(
         )
     ]
     workflow = {
-        "schema_version": "2.0.0",
+        "schema_version": "2.1.0",
         "workflow_id": project_id,
         "nodes": nodes,
         "edges": [
@@ -1283,7 +1291,7 @@ def test_cache_replay_closes_only_the_scheduled_node_attempt(
         frozen_catalog_override=_direct_catalog(calls, cacheable=True),
         v2_result_replay_source=FixtureReplaySource(),
         v2_environment_configuration={
-            ("test.direct.local", "2.0.0"): {
+            ("test.direct.local", "2.1.0"): {
                 "values": {"credential": "credential-value"},
             }
         },
@@ -1378,7 +1386,7 @@ def test_restart_does_not_publish_unclosed_cache_replay_output(
     )
     catalog = _direct_catalog([], cacheable=True)
     environment = {
-        ("test.direct.local", "2.0.0"): {
+        ("test.direct.local", "2.1.0"): {
             "values": {"credential": "credential-value"},
         }
     }
@@ -1435,7 +1443,7 @@ def test_restart_does_not_publish_unclosed_cache_replay_output(
 
 
 @pytest.mark.parametrize("cache_failure", ("lookup_error", "invalid_value"))
-def test_cache_boundary_failure_falls_back_to_causally_closed_execution(
+def test_cache_boundary_failure_does_not_execute_provider(
     tmp_path,
     monkeypatch,
     cache_failure: str,
@@ -1460,7 +1468,7 @@ def test_cache_boundary_failure_falls_back_to_causally_closed_execution(
         frozen_catalog_override=_direct_catalog(calls, cacheable=True),
         v2_result_replay_source=FailingReplaySource(),
         v2_environment_configuration={
-            ("test.direct.local", "2.0.0"): {
+            ("test.direct.local", "2.1.0"): {
                 "values": {"credential": "credential-value"},
             }
         },
@@ -1483,13 +1491,10 @@ def test_cache_boundary_failure_falls_back_to_causally_closed_execution(
             run_id=started.json()["run_id"],
         )
 
-    assert projection["status"] == "succeeded"
-    assert projection["node_dispositions"][0]["resolution"] == "executed"
+    assert projection["status"] == "failed"
     assert calls == [
         "readiness:test.direct.local",
         "cache-lookup",
-        "factory:test.direct.local",
-        "execute:test.direct.local",
     ]
 
 
@@ -1515,7 +1520,7 @@ def test_public_terminal_wait_helper_never_returns_a_running_projection(
             execution_gate=(entered, release),
         ),
         v2_environment_configuration={
-            ("test.direct.local", "2.0.0"): {
+            ("test.direct.local", "2.1.0"): {
                 "values": {"credential": "credential-value"},
             }
         },
@@ -1572,7 +1577,7 @@ def test_one_operation_can_record_zero_or_multiple_engine_invocations(
             invocation_count=invocation_count,
         ),
         v2_environment_configuration={
-            ("test.direct.local", "2.0.0"): {
+            ("test.direct.local", "2.1.0"): {
                 "values": {"credential": "credential-value"},
             }
         },
@@ -1624,7 +1629,7 @@ def test_public_start_run_binds_the_exact_compile_before_direct_execution(
     app = create_app(
         frozen_catalog_override=_direct_catalog(calls),
         v2_environment_configuration={
-            ("test.direct.local", "2.0.0"): {
+            ("test.direct.local", "2.1.0"): {
                 "values": {
                     "credential": "credential-value",
                     "runtime_path": str(tmp_path / "private-runtime"),
@@ -1683,13 +1688,13 @@ def test_public_start_run_binds_the_exact_compile_before_direct_execution(
                     "port_type": (
                         _direct_catalog([]).require_port_type(
                             "text",
-                            "2.0.0",
+                            "2.1.0",
                         ).reference()
                     ),
                     "content_digest": (
                         _direct_catalog([]).require_port_type(
                             "text",
-                            "2.0.0",
+                            "2.1.0",
                         ).content_digest("READY")
                     ),
                     "result_identity": (
@@ -1731,7 +1736,7 @@ def test_all_distinct_bindings_are_attested_before_any_factory_and_shared(
     monkeypatch.setenv("PROTEIN_WORKBENCH_OUTPUT_ROOT", str(tmp_path / "outputs"))
     bindings = ("test.direct.local", "test.other.local")
     environment = {
-        (binding_id, "2.0.0"): {
+        (binding_id, "2.1.0"): {
             "values": {"credential": "credential-value"},
             "safe_fingerprint": f"{binding_id}-config-v1",
             "invalidation_token": f"{binding_id}-assets-v1",
@@ -1798,7 +1803,7 @@ def test_failed_readiness_rejects_before_factory_and_redacts_environment(
             failing_binding_id="test.other.local",
         ),
         v2_environment_configuration={
-            (binding_id, "2.0.0"): {
+            (binding_id, "2.1.0"): {
                 "values": {
                     "credential": "credential-value",
                     "api_key": secret,
@@ -1845,9 +1850,11 @@ def test_changed_credential_is_reobserved_and_rejects_stale_green(
     calls: list[str] = []
     credential_state = {"present": True}
 
-    def readiness(environment) -> bool:
+    def readiness(check_input: ReadinessCheckInput) -> ReadinessResult:
         calls.append("readiness")
-        return environment["credential_state"]["present"]
+        return ReadinessResult(
+            check_input.values["credential_state"]["present"]
+        )
 
     monkeypatch.setenv("PROTEIN_WORKBENCH_PROJECT_ROOT", str(tmp_path / "projects"))
     monkeypatch.setenv("PROTEIN_WORKBENCH_RUN_ROOT", str(tmp_path / "runs"))
@@ -1858,7 +1865,7 @@ def test_changed_credential_is_reobserved_and_rejects_stale_green(
             readiness_checks={"test.direct.local": readiness},
         ),
         v2_environment_configuration={
-            ("test.direct.local", "2.0.0"): {
+            ("test.direct.local", "2.1.0"): {
                 "values": {
                     "credential": "credential-value",
                     "credential_state": credential_state,
@@ -1902,8 +1909,8 @@ def test_invalid_public_readiness_metadata_fails_before_factory(
 ) -> None:
     calls: list[str] = []
 
-    def readiness(environment) -> ReadinessResult:
-        assert environment["credential"] == "credential-value"
+    def readiness(check_input: ReadinessCheckInput) -> ReadinessResult:
+        assert check_input.values["credential"] == "credential-value"
         return ReadinessResult(True, proof_source="contains whitespace")
 
     monkeypatch.setenv("PROTEIN_WORKBENCH_PROJECT_ROOT", str(tmp_path / "projects"))
@@ -1915,7 +1922,7 @@ def test_invalid_public_readiness_metadata_fails_before_factory(
             readiness_checks={"test.direct.local": readiness},
         ),
         v2_environment_configuration={
-            ("test.direct.local", "2.0.0"): {
+            ("test.direct.local", "2.1.0"): {
                 "values": {"credential": "credential-value"},
             }
         },
@@ -1929,6 +1936,47 @@ def test_invalid_public_readiness_metadata_fails_before_factory(
                 "workflow_revision": 2,
                 "compile_id": compiled["compile_id"],
                 "client_request_id": "invalid-readiness-metadata",
+            },
+        )
+
+    assert response.status_code == 503
+    assert response.json()["error"]["code"] == "readiness_rejected"
+    assert not any(call.startswith("factory:") for call in calls)
+
+
+def test_boolean_readiness_conclusion_is_a_contract_failure(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    calls: list[str] = []
+
+    def readiness(check_input: ReadinessCheckInput) -> bool:
+        assert check_input.values["credential"] == "credential-value"
+        return True
+
+    monkeypatch.setenv("PROTEIN_WORKBENCH_PROJECT_ROOT", str(tmp_path / "projects"))
+    monkeypatch.setenv("PROTEIN_WORKBENCH_RUN_ROOT", str(tmp_path / "runs"))
+    monkeypatch.setenv("PROTEIN_WORKBENCH_OUTPUT_ROOT", str(tmp_path / "outputs"))
+    app = create_app(
+        frozen_catalog_override=_direct_catalog(
+            calls,
+            readiness_checks={"test.direct.local": readiness},
+        ),
+        v2_environment_configuration={
+            ("test.direct.local", "2.1.0"): {
+                "values": {"credential": "credential-value"},
+            }
+        },
+    )
+
+    with TestClient(app) as client:
+        project_id, compiled = _compile_one_node(client)
+        response = client.post(
+            f"/api/v2/projects/{project_id}/runs",
+            json={
+                "workflow_revision": 2,
+                "compile_id": compiled["compile_id"],
+                "client_request_id": "boolean-readiness-conclusion",
             },
         )
 
@@ -1963,7 +2011,7 @@ def test_reusable_readiness_proof_requires_identity_scope_age_fingerprint_and_in
             proof_source="fresh-proof",
             reusable_proof=ReusableReadinessProof(
                 proof_identity="immutable-model-proof-v1",
-                proof_scope="test.direct.local@2.0.0",
+                proof_scope="test.direct.local@2.1.0",
                 observed_at=current_time["value"],
                 maximum_age_seconds=60,
                 configuration_fingerprint=configuration["fingerprint"],
@@ -1980,14 +2028,14 @@ def test_reusable_readiness_proof_requires_identity_scope_age_fingerprint_and_in
             readiness_prerequisites={
                 "reusable_proof": {
                     "identity": "immutable-model-proof-v1",
-                    "scope": "test.direct.local@2.0.0",
+                    "scope": "test.direct.local@2.1.0",
                     "maximum_age_seconds": 60,
                 }
             },
             readiness_checks={"test.direct.local": readiness},
         ),
         v2_environment_configuration={
-            ("test.direct.local", "2.0.0"): {
+            ("test.direct.local", "2.1.0"): {
                 "values": {"credential": "credential-value"},
                 "safe_fingerprint": lambda: configuration["fingerprint"],
                 "invalidation_token": lambda: configuration["invalidation"],
@@ -2034,13 +2082,13 @@ def test_reusable_proof_rejects_implicit_environment_identities(
             True,
             reusable_proof=ReusableReadinessProof(
                 proof_identity="immutable-model-proof-v1",
-                proof_scope="test.direct.local@2.0.0",
+                proof_scope="test.direct.local@2.1.0",
                 observed_at=now,
                 maximum_age_seconds=60,
                 configuration_fingerprint=(
-                    "binding-test.direct.local-2.0.0"
+                    "binding-test.direct.local-2.1.0"
                 ),
-                invalidation_token="binding-test.direct.local-2.0.0",
+                invalidation_token="binding-test.direct.local-2.1.0",
             ),
         )
 
@@ -2054,14 +2102,14 @@ def test_reusable_proof_rejects_implicit_environment_identities(
             readiness_prerequisites={
                 "reusable_proof": {
                     "identity": "immutable-model-proof-v1",
-                    "scope": "test.direct.local@2.0.0",
+                    "scope": "test.direct.local@2.1.0",
                     "maximum_age_seconds": 60,
                 }
             },
             readiness_checks={"test.direct.local": readiness},
         ),
         v2_environment_configuration={
-            ("test.direct.local", "2.0.0"): {
+            ("test.direct.local", "2.1.0"): {
                 "values": {"credential": "credential-value"},
             }
         },
@@ -2098,7 +2146,7 @@ def test_new_reusable_proof_rejects_stale_or_future_observation(
             True,
             reusable_proof=ReusableReadinessProof(
                 proof_identity="immutable-model-proof-v1",
-                proof_scope="test.direct.local@2.0.0",
+                proof_scope="test.direct.local@2.1.0",
                 observed_at=now + timedelta(seconds=observed_offset_seconds),
                 maximum_age_seconds=60,
                 configuration_fingerprint="configuration-v1",
@@ -2116,14 +2164,14 @@ def test_new_reusable_proof_rejects_stale_or_future_observation(
             readiness_prerequisites={
                 "reusable_proof": {
                     "identity": "immutable-model-proof-v1",
-                    "scope": "test.direct.local@2.0.0",
+                    "scope": "test.direct.local@2.1.0",
                     "maximum_age_seconds": 60,
                 }
             },
             readiness_checks={"test.direct.local": readiness},
         ),
         v2_environment_configuration={
-            ("test.direct.local", "2.0.0"): {
+            ("test.direct.local", "2.1.0"): {
                 "values": {"credential": "credential-value"},
                 "safe_fingerprint": "configuration-v1",
                 "invalidation_token": "assets-v1",
@@ -2162,7 +2210,7 @@ def test_reusable_proof_is_cached_only_after_durable_attestation(
                 proof_source="refreshed-proof",
                 reusable_proof=ReusableReadinessProof(
                     proof_identity="immutable-model-proof-v1",
-                    proof_scope="test.direct.local@2.0.0",
+                    proof_scope="test.direct.local@2.1.0",
                     observed_at=now,
                     maximum_age_seconds=60,
                     configuration_fingerprint="configuration-v1",
@@ -2174,7 +2222,7 @@ def test_reusable_proof_is_cached_only_after_durable_attestation(
             proof_source="fresh-proof",
             reusable_proof=ReusableReadinessProof(
                 proof_identity="immutable-model-proof-v1",
-                proof_scope="test.direct.local@2.0.0",
+                proof_scope="test.direct.local@2.1.0",
                 observed_at=now,
                 maximum_age_seconds=60,
                 configuration_fingerprint="configuration-v1",
@@ -2210,14 +2258,14 @@ def test_reusable_proof_is_cached_only_after_durable_attestation(
             readiness_prerequisites={
                 "reusable_proof": {
                     "identity": "immutable-model-proof-v1",
-                    "scope": "test.direct.local@2.0.0",
+                    "scope": "test.direct.local@2.1.0",
                     "maximum_age_seconds": 60,
                 }
             },
             readiness_checks={"test.direct.local": readiness},
         ),
         v2_environment_configuration={
-            ("test.direct.local", "2.0.0"): {
+            ("test.direct.local", "2.1.0"): {
                 "values": {"credential": "credential-value"},
                 "safe_fingerprint": "configuration-v1",
                 "invalidation_token": "assets-v1",
@@ -2295,7 +2343,7 @@ def test_node_success_is_not_published_when_disposition_commit_fails(
     app = create_app(
         frozen_catalog_override=_direct_catalog(calls, cacheable=True),
         v2_environment_configuration={
-            ("test.direct.local", "2.0.0"): {
+            ("test.direct.local", "2.1.0"): {
                 "values": {"credential": "credential-value"},
             }
         },
@@ -2347,7 +2395,7 @@ def test_cleanup_failure_is_bounded_and_does_not_rewrite_engine_success(
     app = create_app(
         frozen_catalog_override=_direct_catalog([]),
         v2_environment_configuration={
-            ("test.direct.local", "2.0.0"): {
+            ("test.direct.local", "2.1.0"): {
                 "values": {"credential": "credential-value"},
             }
         },
@@ -2871,7 +2919,7 @@ def test_symlinked_run_workspace_fails_before_readiness_without_outside_write(
     app = create_app(
         frozen_catalog_override=_direct_catalog(calls),
         v2_environment_configuration={
-            ("test.direct.local", "2.0.0"): {
+            ("test.direct.local", "2.1.0"): {
                 "values": {"credential": "credential-value"},
                 "safe_fingerprint": "safe-config",
                 "invalidation_token": "safe-assets",
@@ -2910,7 +2958,7 @@ def test_terminal_run_projection_and_events_rebuild_after_backend_restart(
     monkeypatch.setenv("PROTEIN_WORKBENCH_OUTPUT_ROOT", str(output_root))
     catalog = _direct_catalog([])
     environment = {
-        ("test.direct.local", "2.0.0"): {
+        ("test.direct.local", "2.1.0"): {
             "values": {"credential": "credential-value"},
         }
     }
@@ -2993,7 +3041,7 @@ def test_restart_isolates_one_damaged_ledger_without_hiding_healthy_runs(
     )
     catalog = _direct_catalog([])
     environment = {
-        ("test.direct.local", "2.0.0"): {
+        ("test.direct.local", "2.1.0"): {
             "values": {"credential": "credential-value"},
         }
     }
@@ -3084,7 +3132,7 @@ def test_running_event_reconnect_switches_from_replay_to_live_without_loss(
             execution_gate=(entered, release),
         ),
         v2_environment_configuration={
-            ("test.direct.local", "2.0.0"): {
+            ("test.direct.local", "2.1.0"): {
                 "values": {"credential": "credential-value"},
             }
         },
@@ -3192,7 +3240,7 @@ def test_background_runs_are_bounded_project_reserved_serial_and_joined(
             execution_gate=(entered, release),
         ),
         v2_environment_configuration={
-            ("test.direct.local", "2.0.0"): {
+            ("test.direct.local", "2.1.0"): {
                 "values": {"credential": "credential-value"},
             }
         },
@@ -3283,7 +3331,7 @@ def test_restart_reconciliation_closes_started_work_without_guessing_success(
         execution_gate=(entered, release),
     )
     environment = {
-        ("test.direct.local", "2.0.0"): {
+        ("test.direct.local", "2.1.0"): {
             "values": {"credential": "credential-value"},
         }
     }
@@ -3426,7 +3474,7 @@ def test_run_event_stream_rejects_malformed_stale_and_cross_scope_cursors(
         str(tmp_path / "outputs"),
     )
     environment = {
-        ("test.direct.local", "2.0.0"): {
+        ("test.direct.local", "2.1.0"): {
             "values": {"credential": "credential-value"},
         }
     }
@@ -3527,7 +3575,7 @@ def test_projection_failure_leaves_facts_intact_and_restart_rebuilds_outputs(
     )
     catalog = _direct_catalog([])
     environment = {
-        ("test.direct.local", "2.0.0"): {
+        ("test.direct.local", "2.1.0"): {
             "values": {"credential": "credential-value"},
         }
     }
@@ -3684,7 +3732,7 @@ def test_restart_reconciliation_closes_each_started_outer_attempt(
     )
     catalog = _direct_catalog([])
     environment = {
-        ("test.direct.local", "2.0.0"): {
+        ("test.direct.local", "2.1.0"): {
             "values": {"credential": "credential-value"},
         }
     }

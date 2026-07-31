@@ -52,7 +52,7 @@ class SequenceImportImplementation:
         reference = node_parameters["project_input_ref"]
         _, payload = self._run_resources.read_project_input(reference)
         with self._run_resources.engine_invocation(
-            engine_identity="protein_io.import_sequence.method/2.0.0",
+            engine_identity="protein_io.import_sequence.method/2.1.0",
         ):
             try:
                 text = payload.decode("utf-8")
@@ -89,7 +89,7 @@ class StructureImportImplementation:
         reference = node_parameters["project_input_ref"]
         _, payload = self._run_resources.read_project_input(reference)
         with self._run_resources.engine_invocation(
-            engine_identity="protein_io.import_structure.method/2.0.0",
+            engine_identity="protein_io.import_structure.method/2.1.0",
         ):
             try:
                 text = payload.decode("utf-8")
@@ -154,7 +154,7 @@ class SequenceExportImplementation:
         if type(sequence) is not ProteinSequence or len(inputs) != 1:
             raise ValueError("sequence export requires one ProteinSequence")
         with self._run_resources.engine_invocation(
-            engine_identity="protein_io.export_sequence.method/2.0.0",
+            engine_identity="protein_io.export_sequence.method/2.1.0",
         ):
             chars = sequence.sequence
             if not chars.isascii():
@@ -212,7 +212,7 @@ class StructureExportImplementation:
             if len(structures.items) > 2_048:
                 raise ValueError("structures exceed the artifact count bound")
             with self._run_resources.engine_invocation(
-                engine_identity="protein_io.export_structure.method/2.0.0",
+                engine_identity="protein_io.export_structure.method/2.1.0",
             ):
                 artifacts = []
                 for index, candidate in enumerate(structures.items):
@@ -230,7 +230,7 @@ class StructureExportImplementation:
                     )
             return {"candidate_artifacts": artifacts}
         with self._run_resources.engine_invocation(
-            engine_identity="protein_io.export_structure.method/2.0.0",
+            engine_identity="protein_io.export_structure.method/2.1.0",
         ):
             body = _native_pdb_bytes(
                 structure,

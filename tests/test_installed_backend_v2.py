@@ -417,15 +417,15 @@ def test_installed_backend_completes_full_public_v2_journey(
             uploaded.raise_for_status()
             input_reference = uploaded.json()["project_input_ref"]
             workflow = {
-                "schema_version": "2.0.0",
+                "schema_version": "2.1.0",
                 "workflow_id": project_id,
                 "nodes": [
                     {
                         "node_id": "import",
                         "node_type_id": "protein_io.import_structure",
-                        "node_type_version": "2.0.0",
+                        "node_type_version": "2.1.0",
                         "binding_id": "protein_io.import_structure.direct",
-                        "binding_version": "2.0.0",
+                        "binding_version": "2.1.0",
                         "node_parameters": {
                             "project_input_ref": input_reference
                         },
@@ -434,9 +434,9 @@ def test_installed_backend_completes_full_public_v2_journey(
                     {
                         "node_id": "export",
                         "node_type_id": "protein_io.export_structure",
-                        "node_type_version": "2.0.0",
+                        "node_type_version": "2.1.0",
                         "binding_id": "protein_io.export_structure.direct",
-                        "binding_version": "2.0.0",
+                        "binding_version": "2.1.0",
                         "node_parameters": {},
                         "binding_parameters": {},
                     },
@@ -444,11 +444,11 @@ def test_installed_backend_completes_full_public_v2_journey(
                         {
                             "node_id": f"export-{index}",
                             "node_type_id": "protein_io.export_structure",
-                            "node_type_version": "2.0.0",
+                            "node_type_version": "2.1.0",
                             "binding_id": (
                                 "protein_io.export_structure.direct"
                             ),
-                            "binding_version": "2.0.0",
+                            "binding_version": "2.1.0",
                             "node_parameters": {},
                             "binding_parameters": {},
                         }
@@ -805,7 +805,7 @@ for package in (
     protein_workbench_public,
 ):
     assert not Path(package.__file__).resolve().is_relative_to(source)
-binding = ("esm3.represent_sequence.biohub_esmc_600m_2024_12", "2.0.0")
+binding = ("esm3.represent_sequence.biohub_esmc_600m_2024_12", "2.1.0")
 app = create_app(v2_environment_configuration={
     binding: {
         "values": {
@@ -872,11 +872,11 @@ def _assert_installed_esmc_catalog(
         for item in catalog["contracts"]
     }
     binding_id = "esm3.represent_sequence.biohub_esmc_600m_2024_12"
-    binding_key = ("binding", binding_id, "2.0.0")
+    binding_key = ("binding", binding_id, "2.1.0")
     method_key = (
         "method",
         "esm3.represent_sequence.esmc_600m_2024_12",
-        "2.0.0",
+        "2.1.0",
     )
     assert contracts[binding_key]["descriptor"]["method"]["contract_id"] == (
         method_key[1]
@@ -912,15 +912,15 @@ def _start_installed_esmc_run(
     )
     uploaded.raise_for_status()
     workflow = {
-        "schema_version": "2.0.0",
+        "schema_version": "2.1.0",
         "workflow_id": project_id,
         "nodes": [
             {
                 "node_id": "import",
                 "node_type_id": "protein_io.import_sequence",
-                "node_type_version": "2.0.0",
+                "node_type_version": "2.1.0",
                 "binding_id": "protein_io.import_sequence.direct",
-                "binding_version": "2.0.0",
+                "binding_version": "2.1.0",
                 "node_parameters": {
                     "project_input_ref": uploaded.json()["project_input_ref"]
                 },
@@ -929,9 +929,9 @@ def _start_installed_esmc_run(
             {
                 "node_id": "represent",
                 "node_type_id": "esm3.represent_sequence",
-                "node_type_version": "2.0.0",
+                "node_type_version": "2.1.0",
                 "binding_id": binding_id,
-                "binding_version": "2.0.0",
+                "binding_version": "2.1.0",
                 "node_parameters": {},
                 "binding_parameters": {},
             },

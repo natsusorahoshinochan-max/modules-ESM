@@ -10,6 +10,7 @@ from fastapi.testclient import TestClient
 
 from core import (
     ModulePackageContractCase,
+    ObservationSelector,
     SelectionInput,
     SelectionObjective,
     WorkflowDocument,
@@ -35,7 +36,7 @@ from modules.selection.package import MODULE_PACKAGE
 from tests.fixtures.public_v2 import wait_for_testclient_run_terminal
 
 
-VERSION = "2.0.0"
+VERSION = "2.1.0"
 SOURCE_PARTITION = "contract_test.partition.a"
 
 
@@ -79,6 +80,12 @@ def _selection_node(
         "out_of_scope_policy": "error",
         "tie_policy": "candidate_id_ascending",
     }
+    if operation == "filter":
+        defaults = {
+            "selector_id": "quality",
+            "out_of_scope_policy": "error",
+            "tie_policy": "candidate_id_ascending",
+        }
     if operation in {"weighted_rank", "pareto", "diversity"}:
         defaults = {
             "objective_ids": ["quality"],
@@ -135,6 +142,34 @@ def _objective(
     )
 
 
+def _selector(
+    catalog,
+    *,
+    selector_id: str = "quality",
+    candidate_node: str = "source",
+    score_node: str = "source",
+) -> ObservationSelector:
+    return ObservationSelector(
+        selector_id=selector_id,
+        candidate_input=SelectionInput(candidate_node, "candidates"),
+        score_collection_input=SelectionInput(score_node, "scores"),
+        source_partition=SOURCE_PARTITION,
+        metric=_reference(
+            catalog,
+            "metric",
+            "contract_test.collection_ops_value",
+        ),
+        method=_reference(
+            catalog,
+            "method",
+            "contract_test.collection_ops_source.a.method",
+        ),
+        context_selector=IntrinsicObservationContext(),
+        match_cardinality="exactly_one",
+        missing_policy="error",
+    )
+
+
 def _workflow(
     catalog,
     operation: str,
@@ -151,7 +186,16 @@ def _workflow(
             WorkflowEdge("source", "scores", "select", "scores"),
         ),
         contract_lock=(),
-        selection_objectives=(objective or _objective(catalog),),
+        observation_selectors=(
+            (_selector(catalog),)
+            if operation == "filter"
+            else ()
+        ),
+        selection_objectives=(
+            ()
+            if operation == "filter"
+            else (objective or _objective(catalog),)
+        ),
     )
 
 
@@ -200,13 +244,25 @@ def test_public_catalog_has_three_selection_nodes_in_one_package() -> None:
             if operation in {"weighted_rank", "pareto", "diversity"}
             else {"objective_id_parameter": "objective_id"}
         )
-        assert binding.descriptor["selection_objective_consumption"] == {
-            "schema_version": VERSION,
-            "candidate_input_port": "candidates",
-            "score_collection_input_port": "scores",
-            "candidate_output_port": "candidates",
-            **selector,
-        }
+        if operation == "filter":
+            assert binding.descriptor[
+                "observation_selector_consumption"
+            ] == {
+                "schema_version": VERSION,
+                "candidate_input_port": "candidates",
+                "score_collection_input_port": "scores",
+                "candidate_output_port": "candidates",
+                "selector_id_parameter": "selector_id",
+            }
+            assert "selection_objective_consumption" not in binding.descriptor
+        else:
+            assert binding.descriptor["selection_objective_consumption"] == {
+                "schema_version": VERSION,
+                "candidate_input_port": "candidates",
+                "score_collection_input_port": "scores",
+                "candidate_output_port": "candidates",
+                **selector,
+            }
 
 
 @pytest.mark.parametrize("operation", ["filter", "sort", "top_k"])
@@ -220,9 +276,15 @@ def test_compiler_resolves_exact_selector_sources(operation: str) -> None:
         catalog=catalog,
     )
 
-    assert compiled.execution_plan.selection_objectives == (
-        _objective(catalog),
-    )
+    if operation == "filter":
+        assert compiled.execution_plan.observation_selectors == (
+            _selector(catalog),
+        )
+        assert compiled.execution_plan.selection_objectives == ()
+    else:
+        assert compiled.execution_plan.selection_objectives == (
+            _objective(catalog),
+        )
 
 
 def test_compiler_rejects_unknown_or_mismatched_selector_before_execution() -> None:
@@ -353,7 +415,7 @@ def test_filter_preserves_exact_candidate_objects_and_fails_closed() -> None:
     output = implementation.execute(
         inputs={"candidates": candidates, "scores": scores},
         node_parameters={
-            "objective_id": "quality",
+            "selector_id": "quality",
             "operator": ">",
             "threshold": 0.5,
             "out_of_scope_policy": "error",
@@ -369,7 +431,7 @@ def test_filter_preserves_exact_candidate_objects_and_fails_closed() -> None:
         implementation.execute(
             inputs={"candidates": candidates, "scores": incomplete},
             node_parameters={
-                "objective_id": "quality",
+                "selector_id": "quality",
                 "operator": ">",
                 "threshold": 0.5,
                 "out_of_scope_policy": "error",
@@ -487,6 +549,7 @@ def test_duplicate_conflicting_and_out_of_scope_observations_fail_closed() -> No
 def test_all_three_nodes_pass_the_contract_test_kit(tmp_path: Path) -> None:
     catalog = _catalog()
     objective = _objective(catalog)
+    selector = _selector(catalog)
     cases = tuple(
         ModulePackageContractCase(
             case_id=f"selection-{operation}",
@@ -514,7 +577,12 @@ def test_all_three_nodes_pass_the_contract_test_kit(tmp_path: Path) -> None:
                     "scores",
                 ),
             ),
-            selection_objectives=(objective,),
+            observation_selectors=(
+                (selector,) if operation == "filter" else ()
+            ),
+            selection_objectives=(
+                () if operation == "filter" else (objective,)
+            ),
             expected_candidate_counts={
                 "candidates": (
                     2

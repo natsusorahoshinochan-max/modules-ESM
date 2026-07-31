@@ -42,8 +42,16 @@ from datatypes import (
     ProteinMPNNConstraints,
     ProteinSequence,
     ProteinStructure,
+    ResidueLayout,
     ScoreCollection,
     ScoreObservation,
+)
+
+
+TARGET_LAYOUT = ResidueLayout(
+    "A,B",
+    5,
+    ["A:1", "A:2", "B:1", "B:2", "B:3"],
 )
 
 
@@ -72,10 +80,10 @@ def test_proteinmpnn_is_one_package_with_four_independent_nodes() -> None:
         and "proteinmpnn" in catalog.owners[(kind, contract_id, version)]
     }
     assert owned_nodes == {
-        ("proteinmpnn.constraints", "2.0.0"),
-        ("proteinmpnn.random_fixed_positions", "2.0.0"),
-        ("proteinmpnn.design", "2.0.0"),
-        ("proteinmpnn.score", "2.0.0"),
+        ("proteinmpnn.constraints", "2.1.0"),
+        ("proteinmpnn.random_fixed_positions", "2.1.0"),
+        ("proteinmpnn.design", "2.1.0"),
+        ("proteinmpnn.score", "2.1.0"),
     }
 
 
@@ -88,22 +96,22 @@ def test_scoring_binding_fixes_exact_method_metric_and_observation_scope() -> No
     node = catalog.require_contract(
         "node_type",
         "proteinmpnn.score",
-        "2.0.0",
+        "2.1.0",
     )
     binding = catalog.require_contract(
         "binding",
         "proteinmpnn.score.local",
-        "2.0.0",
+        "2.1.0",
     )
     method = catalog.require_contract(
         "method",
         "proteinmpnn.score.v_48_020_8907e667",
-        "2.0.0",
+        "2.1.0",
     )
     metric = catalog.require_contract(
         "metric",
         "proteinmpnn.native_sequence_nll",
-        "2.0.0",
+        "2.1.0",
     )
 
     assert node.descriptor["node_parameters"] == {}
@@ -178,7 +186,7 @@ def test_scoring_binding_fixes_exact_method_metric_and_observation_scope() -> No
     assert produced[0]["metric"] == {
         "contract_kind": "metric",
         "contract_id": "proteinmpnn.native_sequence_nll",
-        "contract_version": "2.0.0",
+        "contract_version": "2.1.0",
         "contract_digest": produced[0]["metric"]["contract_digest"],
     }
     assert produced[0]["metric"]["contract_digest"].startswith("sha256:")
@@ -212,7 +220,7 @@ def test_scoring_metric_context_and_scope_mismatches_fail_catalog_build(
             metric=ContractIdentity(
                 "metric",
                 "proteinmpnn.undeclared_metric",
-                "2.0.0",
+                "2.1.0",
             ),
         )
     elif mismatch == "context":
@@ -265,7 +273,7 @@ def test_scoring_method_mismatch_fails_compilation_before_provider(
             node_type_id=score.node_type_id,
             node_type_version=score.node_type_version,
             binding_id="proteinmpnn.design.local",
-            binding_version="2.0.0",
+            binding_version="2.1.0",
             node_parameters={},
             binding_parameters={},
         ),
@@ -275,7 +283,7 @@ def test_scoring_method_mismatch_fails_compilation_before_provider(
     )
     workflow = relock_workflow(
         WorkflowDocument(
-            schema_version="2.0.0",
+            schema_version="2.1.0",
             workflow_id="proteinmpnn-method-mismatch",
             nodes=nodes,
             edges=edges,
@@ -337,7 +345,7 @@ def _run(
         project.id,
         expected_workflow_revision=0,
         workflow=WorkflowDocument(
-            schema_version="2.0.0",
+            schema_version="2.1.0",
             workflow_id=project.id,
             nodes=nodes,
             edges=edges,
@@ -390,9 +398,9 @@ def test_constraint_authoring_validates_and_publishes_the_complete_contract(
     layout = WorkflowNodeInstance(
         node_id="layout",
         node_type_id="prompt_authoring.build_residue_layout",
-        node_type_version="2.0.0",
+        node_type_version="2.1.0",
         binding_id="prompt_authoring.build_residue_layout.direct",
-        binding_version="2.0.0",
+        binding_version="2.1.0",
         node_parameters={
             "chains": [
                 {"chain_id": "A", "length": 2},
@@ -404,9 +412,9 @@ def test_constraint_authoring_validates_and_publishes_the_complete_contract(
     constraints = WorkflowNodeInstance(
         node_id="constraints",
         node_type_id="proteinmpnn.constraints",
-        node_type_version="2.0.0",
+        node_type_version="2.1.0",
         binding_id="proteinmpnn.constraints.local",
-        binding_version="2.0.0",
+        binding_version="2.1.0",
         node_parameters={
             "designable_positions": [0, 2, 4],
             "fixed_positions": [1, 3],
@@ -437,6 +445,7 @@ def test_constraint_authoring_validates_and_publishes_the_complete_contract(
         and item["output_port"] == "constraints"
     )
     assert _decode_output(catalog, output) == ProteinMPNNConstraints(
+        layout=TARGET_LAYOUT,
         designable_positions=[0, 2, 4],
         fixed_positions=[1, 3],
         designed_chains=["A", "B"],
@@ -492,9 +501,9 @@ def test_constraint_authoring_fails_closed_on_layout_or_chain_contradictions(
         WorkflowNodeInstance(
             node_id="layout",
             node_type_id="prompt_authoring.build_residue_layout",
-            node_type_version="2.0.0",
+            node_type_version="2.1.0",
             binding_id="prompt_authoring.build_residue_layout.direct",
-            binding_version="2.0.0",
+            binding_version="2.1.0",
             node_parameters={
                 "chains": [
                     {"chain_id": "A", "length": 2},
@@ -506,9 +515,9 @@ def test_constraint_authoring_fails_closed_on_layout_or_chain_contradictions(
         WorkflowNodeInstance(
             node_id="constraints",
             node_type_id="proteinmpnn.constraints",
-            node_type_version="2.0.0",
+            node_type_version="2.1.0",
             binding_id="proteinmpnn.constraints.local",
-            binding_version="2.0.0",
+            binding_version="2.1.0",
             node_parameters=parameters,
             binding_parameters={},
         ),
@@ -533,6 +542,26 @@ def test_constraint_authoring_fails_closed_on_layout_or_chain_contradictions(
     )
 
 
+def test_constraint_authoring_rejects_public_x_bias() -> None:
+    from modules.proteinmpnn.domain import author_constraints
+
+    with pytest.raises(ValueError, match="unsupported amino acid"):
+        author_constraints(
+            TARGET_LAYOUT,
+            {
+                "designable_positions": [],
+                "fixed_positions": [],
+                "designed_chains": [],
+                "fixed_chains": [],
+                "omit_amino_acids": [],
+                "tied_positions": [],
+                "bias_by_res": [
+                    {"position": 0, "amino_acid": "X", "bias": 1.0},
+                ],
+            },
+        )
+
+
 def test_random_fixed_positions_replays_and_randomness_changes_identity(
     tmp_path: Path,
 ) -> None:
@@ -547,7 +576,7 @@ def test_random_fixed_positions_replays_and_randomness_changes_identity(
     binding = catalog.require_contract(
         "binding",
         "proteinmpnn.random_fixed_positions.local",
-        "2.0.0",
+        "2.1.0",
     )
     assert binding.descriptor["effective_randomness_parameters"] == (
         "effective_seed",
@@ -562,9 +591,9 @@ def test_random_fixed_positions_replays_and_randomness_changes_identity(
             WorkflowNodeInstance(
                 node_id="layout",
                 node_type_id="prompt_authoring.build_residue_layout",
-                node_type_version="2.0.0",
+                node_type_version="2.1.0",
                 binding_id="prompt_authoring.build_residue_layout.direct",
-                binding_version="2.0.0",
+                binding_version="2.1.0",
                 node_parameters={
                     "chains": [{"chain_id": "A", "length": 20}]
                 },
@@ -573,9 +602,9 @@ def test_random_fixed_positions_replays_and_randomness_changes_identity(
             WorkflowNodeInstance(
                 node_id="random-fixed",
                 node_type_id="proteinmpnn.random_fixed_positions",
-                node_type_version="2.0.0",
+                node_type_version="2.1.0",
                 binding_id="proteinmpnn.random_fixed_positions.local",
-                binding_version="2.0.0",
+                binding_version="2.1.0",
                 node_parameters={
                     "effective_seed": seed,
                     "fraction": 0.3,
@@ -650,7 +679,6 @@ class _CapturingProteinMPNN:
             [
                 ProteinSequence(
                     "AGST" + alphabet[(request.seed + index) % len(alphabet)],
-                    ["A:1", "A:2", "B:1", "B:2", "B:3"],
                 )
                 for index in range(request.num_sequences)
             ],
@@ -696,7 +724,7 @@ def _proteinmpnn_environment(
     fingerprint = configured_runtime_fingerprint()
     return EnvironmentConfiguration(
         {
-            (binding_id, "2.0.0"): {
+            (binding_id, "2.1.0"): {
                 "values": {
                     "device": "cpu",
                     "resolved_runtime_fingerprint": fingerprint,
@@ -723,29 +751,29 @@ def _score_workflow() -> tuple[
             WorkflowNodeInstance(
                 node_id="source",
                 node_type_id="contract_test.proteinmpnn_source",
-                node_type_version="2.0.0",
+                node_type_version="2.1.0",
                 binding_id="contract_test.proteinmpnn_source.direct",
-                binding_version="2.0.0",
+                binding_version="2.1.0",
                 node_parameters={"parent_count": 1},
                 binding_parameters={},
             ),
             WorkflowNodeInstance(
                 node_id="sequence-source",
                 node_type_id="contract_test.proteinmpnn_sequence_source",
-                node_type_version="2.0.0",
+                node_type_version="2.1.0",
                 binding_id=(
                     "contract_test.proteinmpnn_sequence_source.direct"
                 ),
-                binding_version="2.0.0",
+                binding_version="2.1.0",
                 node_parameters={},
                 binding_parameters={},
             ),
             WorkflowNodeInstance(
                 node_id="score",
                 node_type_id="proteinmpnn.score",
-                node_type_version="2.0.0",
+                node_type_version="2.1.0",
                 binding_id="proteinmpnn.score.local",
-                binding_version="2.0.0",
+                binding_version="2.1.0",
                 node_parameters={},
                 binding_parameters={},
             ),
@@ -962,12 +990,12 @@ def test_scoring_replay_rejects_non_binary32_observation(
         contract = catalog.require_contract(
             contract_kind,
             contract_id,
-            "2.0.0",
+            "2.1.0",
         )
         return ExactContractReference(
             contract_kind=contract_kind,
             contract_id=contract_id,
-            contract_version="2.0.0",
+            contract_version="2.1.0",
             contract_digest=contract.contract_digest,
         )
 
@@ -1017,22 +1045,19 @@ def test_scoring_replay_rejects_non_binary32_observation(
         result_replay_source=Replay(),
     )
 
-    assert projection["status"] == "succeeded", events
-    assert len(provider.parsed) == len(provider.requests) == 1
-    score_output = next(
-        output
+    assert projection["status"] == "failed", events
+    assert provider.parsed == []
+    assert provider.requests == []
+    assert all(
+        output["node_id"] != "score"
         for output in projection["outputs"]
-        if output["node_id"] == "score"
     )
-    scores = _decode_output(run_catalog, score_output)
-    assert type(scores) is ScoreCollection
-    assert scores.entries[0].value == 2.75
     score_disposition = next(
         disposition
         for disposition in projection["node_dispositions"]
         if disposition["node_id"] == "score"
     )
-    assert score_disposition["resolution"] == "executed"
+    assert score_disposition["outcome"] == "failed"
 
 
 def test_scoring_rejects_ambiguous_subjects_before_provider_execution(
@@ -1128,7 +1153,7 @@ def test_scoring_replay_preserves_candidate_and_observation_identity_only(
         project.id,
         expected_workflow_revision=0,
         workflow=WorkflowDocument(
-            schema_version="2.0.0",
+            schema_version="2.1.0",
             workflow_id=project.id,
             nodes=nodes,
             edges=edges,
@@ -1242,18 +1267,18 @@ def _design_workflow() -> tuple[
         WorkflowNodeInstance(
             node_id="source",
             node_type_id="contract_test.proteinmpnn_source",
-            node_type_version="2.0.0",
+            node_type_version="2.1.0",
             binding_id="contract_test.proteinmpnn_source.direct",
-            binding_version="2.0.0",
+            binding_version="2.1.0",
             node_parameters={"parent_count": 3},
             binding_parameters={},
         ),
         WorkflowNodeInstance(
             node_id="layout",
             node_type_id="prompt_authoring.build_residue_layout",
-            node_type_version="2.0.0",
+            node_type_version="2.1.0",
             binding_id="prompt_authoring.build_residue_layout.direct",
-            binding_version="2.0.0",
+            binding_version="2.1.0",
             node_parameters={
                 "chains": [
                     {"chain_id": "A", "length": 2},
@@ -1265,9 +1290,9 @@ def _design_workflow() -> tuple[
         WorkflowNodeInstance(
             node_id="constraints",
             node_type_id="proteinmpnn.constraints",
-            node_type_version="2.0.0",
+            node_type_version="2.1.0",
             binding_id="proteinmpnn.constraints.local",
-            binding_version="2.0.0",
+            binding_version="2.1.0",
             node_parameters={
                 "designable_positions": [0, 2, 4],
                 "fixed_positions": [1, 3],
@@ -1284,9 +1309,9 @@ def _design_workflow() -> tuple[
         WorkflowNodeInstance(
             node_id="design",
             node_type_id="proteinmpnn.design",
-            node_type_version="2.0.0",
+            node_type_version="2.1.0",
             binding_id="proteinmpnn.design.local",
-            binding_version="2.0.0",
+            binding_version="2.1.0",
             node_parameters={
                 "effective_seed": 1603,
                 "num_sequences": 5,
@@ -1427,12 +1452,12 @@ def test_design_binding_fixes_model_source_checkpoint_and_runtime_identity(
     binding = catalog.require_contract(
         "binding",
         "proteinmpnn.design.local",
-        "2.0.0",
+        "2.1.0",
     )
     node = catalog.require_contract(
         "node_type",
         "proteinmpnn.design",
-        "2.0.0",
+        "2.1.0",
     )
     method_reference = binding.descriptor["method"]
     method = catalog.require_contract(
@@ -1546,6 +1571,7 @@ def test_design_rejects_noncanonical_sampling_and_reference_layout_drift() -> No
             backbone_noise=0,
             seed=1603,
             constraints=ProteinMPNNConstraints(
+                layout=TARGET_LAYOUT,
                 omit_amino_acids=list("ACDEFGHIKLMNPQRSTVWY"),
             ),
             reference_sequence=None,
@@ -1578,6 +1604,63 @@ def test_design_rejects_noncanonical_sampling_and_reference_layout_drift() -> No
     )
     assert request.reference_sequences == {"A": "AG", "B": "STW"}
 
+    changed_boundary_layout = ResidueLayout(
+        "A,B",
+        5,
+        ["A:1", "A:2", "A:3", "B:1", "B:2"],
+    )
+    with pytest.raises(ValueError, match="constraint layout identity"):
+        prepare_design_request(
+            provider=provider,
+            structure=structure,
+            num_sequences=1,
+            temperature=0.1,
+            backbone_noise=0,
+            seed=1603,
+            constraints=ProteinMPNNConstraints(
+                layout=changed_boundary_layout,
+                designed_chains=["B"],
+            ),
+            reference_sequence=None,
+        )
+
+
+def test_design_restores_provider_designed_first_chain_order() -> None:
+    from modules.proteinmpnn.v2_adapter import (
+        prepare_design_request,
+        validate_design_result,
+    )
+
+    request = prepare_design_request(
+        provider=_CapturingProteinMPNN(),
+        structure=ProteinStructure("REMARK exact-layout\nEND\n"),
+        num_sequences=1,
+        temperature=0.1,
+        backbone_noise=0,
+        seed=1603,
+        constraints=ProteinMPNNConstraints(
+            layout=TARGET_LAYOUT,
+            designed_chains=["B"],
+            fixed_chains=["A"],
+        ),
+        reference_sequence=None,
+    )
+
+    sequences, scores = validate_design_result(
+        ([ProteinSequence("VVVAG")], [1.0]),
+        request=request,
+    )
+
+    assert request.structure_chain_order == ("A", "B")
+    assert request.provider_chain_order == ("B", "A")
+    assert sequences == [
+        ProteinSequence(
+            "AGVVV",
+            ["A:1", "A:2", "B:1", "B:2", "B:3"],
+        )
+    ]
+    assert scores == [1.0]
+
 
 def test_design_normalizes_one_standalone_structure_without_inventing_a_parent(
     tmp_path: Path,
@@ -1596,18 +1679,18 @@ def test_design_normalizes_one_standalone_structure_without_inventing_a_parent(
         WorkflowNodeInstance(
             node_id="source",
             node_type_id="contract_test.protein_structure",
-            node_type_version="2.0.0",
+            node_type_version="2.1.0",
             binding_id="contract_test.protein_structure.direct",
-            binding_version="2.0.0",
+            binding_version="2.1.0",
             node_parameters={},
             binding_parameters={},
         ),
         WorkflowNodeInstance(
             node_id="design",
             node_type_id="proteinmpnn.design",
-            node_type_version="2.0.0",
+            node_type_version="2.1.0",
             binding_id="proteinmpnn.design.local",
-            binding_version="2.0.0",
+            binding_version="2.1.0",
             node_parameters={
                 "effective_seed": 1603,
                 "num_sequences": 1,
@@ -1655,18 +1738,18 @@ def test_standalone_design_seed_and_result_ignore_node_instance_rename(
             WorkflowNodeInstance(
                 node_id="source",
                 node_type_id="contract_test.protein_structure",
-                node_type_version="2.0.0",
+                node_type_version="2.1.0",
                 binding_id="contract_test.protein_structure.direct",
-                binding_version="2.0.0",
+                binding_version="2.1.0",
                 node_parameters={},
                 binding_parameters={},
             ),
             WorkflowNodeInstance(
                 node_id=design_node_id,
                 node_type_id="proteinmpnn.design",
-                node_type_version="2.0.0",
+                node_type_version="2.1.0",
                 binding_id="proteinmpnn.design.local",
-                binding_version="2.0.0",
+                binding_version="2.1.0",
                 node_parameters={
                     "effective_seed": 1603,
                     "num_sequences": 1,
@@ -1891,9 +1974,9 @@ def test_proteinmpnn_passes_the_shared_contract_test_kit(
         return WorkflowNodeInstance(
             node_id=node_id,
             node_type_id="prompt_authoring.build_residue_layout",
-            node_type_version="2.0.0",
+            node_type_version="2.1.0",
             binding_id="prompt_authoring.build_residue_layout.direct",
-            binding_version="2.0.0",
+            binding_version="2.1.0",
             node_parameters={
                 "chains": [
                     {"chain_id": "A", "length": 2},
@@ -1906,27 +1989,27 @@ def test_proteinmpnn_passes_the_shared_contract_test_kit(
     source = WorkflowNodeInstance(
         node_id="source",
         node_type_id="contract_test.proteinmpnn_source",
-        node_type_version="2.0.0",
+        node_type_version="2.1.0",
         binding_id="contract_test.proteinmpnn_source.direct",
-        binding_version="2.0.0",
+        binding_version="2.1.0",
         node_parameters={"parent_count": 3},
         binding_parameters={},
     )
     sequence_source = WorkflowNodeInstance(
         node_id="sequence-source",
         node_type_id="contract_test.proteinmpnn_sequence_source",
-        node_type_version="2.0.0",
+        node_type_version="2.1.0",
         binding_id="contract_test.proteinmpnn_sequence_source.direct",
-        binding_version="2.0.0",
+        binding_version="2.1.0",
         node_parameters={},
         binding_parameters={},
     )
     score_source = WorkflowNodeInstance(
         node_id="score-source",
         node_type_id="contract_test.proteinmpnn_source",
-        node_type_version="2.0.0",
+        node_type_version="2.1.0",
         binding_id="contract_test.proteinmpnn_source.direct",
-        binding_version="2.0.0",
+        binding_version="2.1.0",
         node_parameters={"parent_count": 1},
         binding_parameters={},
     )
@@ -1936,9 +2019,9 @@ def test_proteinmpnn_passes_the_shared_contract_test_kit(
         ModulePackageContractCase(
             case_id="constraints",
             node_type_id="proteinmpnn.constraints",
-            node_type_version="2.0.0",
+            node_type_version="2.1.0",
             binding_id="proteinmpnn.constraints.local",
-            binding_version="2.0.0",
+            binding_version="2.1.0",
             node_parameters={
                 "designable_positions": [0, 2, 4],
                 "fixed_positions": [1, 3],
@@ -1967,9 +2050,9 @@ def test_proteinmpnn_passes_the_shared_contract_test_kit(
         ModulePackageContractCase(
             case_id="random-fixed",
             node_type_id="proteinmpnn.random_fixed_positions",
-            node_type_version="2.0.0",
+            node_type_version="2.1.0",
             binding_id="proteinmpnn.random_fixed_positions.local",
-            binding_version="2.0.0",
+            binding_version="2.1.0",
             node_parameters={"effective_seed": 1603, "fraction": 0.4},
             binding_parameters={},
             environment_values={},
@@ -1988,9 +2071,9 @@ def test_proteinmpnn_passes_the_shared_contract_test_kit(
         ModulePackageContractCase(
             case_id="design",
             node_type_id="proteinmpnn.design",
-            node_type_version="2.0.0",
+            node_type_version="2.1.0",
             binding_id="proteinmpnn.design.local",
-            binding_version="2.0.0",
+            binding_version="2.1.0",
             node_parameters={
                 "effective_seed": 1603,
                 "num_sequences": 5,
@@ -2029,9 +2112,9 @@ def test_proteinmpnn_passes_the_shared_contract_test_kit(
         ModulePackageContractCase(
             case_id="score",
             node_type_id="proteinmpnn.score",
-            node_type_version="2.0.0",
+            node_type_version="2.1.0",
             binding_id="proteinmpnn.score.local",
-            binding_version="2.0.0",
+            binding_version="2.1.0",
             node_parameters={},
             binding_parameters={},
             environment_values={
@@ -2076,8 +2159,9 @@ def test_proteinmpnn_passes_the_shared_contract_test_kit(
         port_cases=(
             ModulePackagePortCase(
                 type_id="proteinmpnn.constraints",
-                version="2.0.0",
+                version="2.1.0",
                 valid_value=ProteinMPNNConstraints(
+                    layout=ResidueLayout("A", 1, ["A:1"]),
                     fixed_positions=[0],
                 ),
                 invalid_values=(object(),),

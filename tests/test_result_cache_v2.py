@@ -16,6 +16,7 @@ from core import (
     FrozenCatalog,
     LazyImplementationFactory,
     ReadinessDeclaration,
+    ReadinessResult,
     ResultReplaySource,
     V2RunError,
     builtin_frozen_catalog,
@@ -63,7 +64,7 @@ def _candidate_catalog(
     duplicate_output_ids: bool = False,
 ) -> FrozenCatalog:
     builtin = builtin_frozen_catalog()
-    candidates = builtin.require_port_type("candidate.collection", "2.0.0")
+    candidates = builtin.require_port_type("candidate.collection", "2.1.0")
     method = _contract(
         "method",
         "test.candidate.method",
@@ -99,12 +100,12 @@ def _candidate_catalog(
     )
     factory_behavior = BehaviorReference(
         "test.candidate/factory",
-        "2.0.0",
+        "2.1.0",
         {},
     )
     readiness_behavior = BehaviorReference(
         "test.candidate/readiness",
-        "2.0.0",
+        "2.1.0",
         {},
     )
     binding = _contract(
@@ -119,7 +120,7 @@ def _candidate_catalog(
             "availability_declaration": {
                 "behavior": {
                     "behavior_id": "test.candidate/availability",
-                    "behavior_version": "2.0.0",
+                    "behavior_version": "2.1.0",
                     "parameters": {},
                 },
                 "prerequisites": {},
@@ -193,16 +194,16 @@ def _candidate_catalog(
         ),
         availability_observed_at=observed_at,
         factories={
-            ("test.candidate.direct", "2.0.0"): LazyImplementationFactory(
+            ("test.candidate.direct", "2.1.0"): LazyImplementationFactory(
                 behavior=factory_behavior,
                 build=factory,
             )
         },
         readiness_declarations={
-            ("test.candidate.direct", "2.0.0"): ReadinessDeclaration(
+            ("test.candidate.direct", "2.1.0"): ReadinessDeclaration(
                 behavior=readiness_behavior,
                 prerequisites={},
-                check=lambda environment: True,
+                check=lambda environment: ReadinessResult(True),
             )
         },
     )
@@ -216,15 +217,15 @@ def _compile_candidate_node(
         json={"name": "v2 Candidate identity"},
     ).json()["id"]
     workflow = {
-        "schema_version": "2.0.0",
+        "schema_version": "2.1.0",
         "workflow_id": project_id,
         "nodes": [
             {
                 "node_id": "candidate-producer",
                 "node_type_id": "test.candidate",
-                "node_type_version": "2.0.0",
+                "node_type_version": "2.1.0",
                 "binding_id": "test.candidate.direct",
-                "binding_version": "2.0.0",
+                "binding_version": "2.1.0",
                 "node_parameters": {},
                 "binding_parameters": {},
             }
@@ -275,7 +276,7 @@ def test_deterministic_result_replays_from_project_cache_after_readiness(
     app = create_app(
         frozen_catalog_override=_direct_catalog(calls, cacheable=True),
         v2_environment_configuration={
-            ("test.direct.local", "2.0.0"): {
+            ("test.direct.local", "2.1.0"): {
                 "values": {"credential": "credential-value"},
             }
         },
@@ -339,7 +340,7 @@ def test_replay_without_identity_bound_producer_provenance_is_rejected(
         frozen_catalog_override=_direct_catalog([], cacheable=True),
         v2_result_replay_source=AmbiguousReplay(),
         v2_environment_configuration={
-            ("test.direct.local", "2.0.0"): {
+            ("test.direct.local", "2.1.0"): {
                 "values": {"credential": "credential-value"},
             }
         },
@@ -393,7 +394,7 @@ def test_publication_conflict_closes_node_and_run_as_failed(
         frozen_catalog_override=_direct_catalog([], cacheable=True),
         v2_result_replay_source=ConflictOnPublish(),
         v2_environment_configuration={
-            ("test.direct.local", "2.0.0"): {
+            ("test.direct.local", "2.1.0"): {
                 "values": {"credential": "credential-value"},
             }
         },
@@ -484,7 +485,7 @@ def test_stale_manifest_cannot_unlock_provisional_cache_entry(
     app = create_app(
         frozen_catalog_override=_direct_catalog(calls, cacheable=True),
         v2_environment_configuration={
-            ("test.direct.local", "2.0.0"): {
+            ("test.direct.local", "2.1.0"): {
                 "values": {"credential": "credential-value"},
             }
         },
@@ -527,9 +528,9 @@ def test_stale_manifest_cannot_unlock_provisional_cache_entry(
         )
 
     assert provisional.is_file()
-    assert recovered["status"] == "succeeded"
-    assert recovered["node_dispositions"][0]["resolution"] == "executed"
-    assert calls.count("execute:test.direct.local") == 2
+    assert recovered["status"] == "failed"
+    assert recovered["node_dispositions"][0]["outcome"] == "failed"
+    assert calls.count("execute:test.direct.local") == 1
 
 
 def test_candidate_identity_is_run_independent_and_preserved_on_replay(
@@ -653,7 +654,7 @@ def test_same_result_identity_is_physically_isolated_between_projects(
     app = create_app(
         frozen_catalog_override=_direct_catalog(calls, cacheable=True),
         v2_environment_configuration={
-            ("test.direct.local", "2.0.0"): {
+            ("test.direct.local", "2.1.0"): {
                 "values": {
                     "credential": "credential-value",
                     "runtime_path": str(tmp_path / "private-runtime"),
@@ -715,7 +716,11 @@ def test_runtime_credentials_paths_and_performance_choices_do_not_change_identit
         "PROTEIN_WORKBENCH_OUTPUT_ROOT",
         str(tmp_path / "outputs"),
     )
-    readiness = {"test.direct.local": lambda environment: bool(environment)}
+    readiness = {
+        "test.direct.local": lambda check_input: ReadinessResult(
+            bool(check_input.values)
+        )
+    }
     first_calls: list[str] = []
     with TestClient(
         create_app(
@@ -725,7 +730,7 @@ def test_runtime_credentials_paths_and_performance_choices_do_not_change_identit
                 readiness_checks=readiness,
             ),
             v2_environment_configuration={
-                ("test.direct.local", "2.0.0"): {
+                ("test.direct.local", "2.1.0"): {
                     "values": {
                         "credential": "secret-a",
                         "runtime_path": str(tmp_path / "private-a"),
@@ -753,7 +758,7 @@ def test_runtime_credentials_paths_and_performance_choices_do_not_change_identit
                 readiness_checks=readiness,
             ),
             v2_environment_configuration={
-                ("test.direct.local", "2.0.0"): {
+                ("test.direct.local", "2.1.0"): {
                     "values": {
                         "credential": "secret-b",
                         "runtime_path": str(tmp_path / "private-b"),
@@ -805,7 +810,7 @@ def test_presentation_only_contract_change_preserves_identity_and_replay(
         str(tmp_path / "outputs"),
     )
     environment = {
-        ("test.direct.local", "2.0.0"): {
+        ("test.direct.local", "2.1.0"): {
             "values": {"credential": "credential-value"},
         }
     }
@@ -893,7 +898,7 @@ def test_changed_implementation_identity_misses_the_existing_project_cache(
         str(tmp_path / "outputs"),
     )
     environment = {
-        ("test.direct.local", "2.0.0"): {
+        ("test.direct.local", "2.1.0"): {
             "values": {"credential": "credential-value"},
         }
     }
@@ -996,13 +1001,13 @@ def test_changed_scientific_parameter_changes_result_identity_and_misses(
                     "scientific_meaning": (
                         "A result-affecting scientific fixture label"
                     ),
-                    "type": "string",
+                    "value_contract": {"type": "string"},
                     "default": "alpha",
                 }
             },
         ),
         v2_environment_configuration={
-            ("test.direct.local", "2.0.0"): {
+            ("test.direct.local", "2.1.0"): {
                 "values": {"credential": "credential-value"},
             }
         },
@@ -1066,7 +1071,7 @@ def test_typed_codec_corruption_never_replays_or_overwrites(
     app = create_app(
         frozen_catalog_override=_direct_catalog(calls, cacheable=True),
         v2_environment_configuration={
-            ("test.direct.local", "2.0.0"): {
+            ("test.direct.local", "2.1.0"): {
                 "values": {"credential": "credential-value"},
             }
         },
@@ -1133,7 +1138,7 @@ def test_unsuccessful_or_unknown_outcomes_never_populate_cache(
             execution_action=terminate,
         ),
         v2_environment_configuration={
-            ("test.direct.local", "2.0.0"): {
+            ("test.direct.local", "2.1.0"): {
                 "values": {"credential": "credential-value"},
             }
         },
@@ -1184,7 +1189,7 @@ def test_uncontrolled_stochastic_binding_never_looks_up_or_publishes(
             deterministic=False,
         ),
         v2_environment_configuration={
-            ("test.direct.local", "2.0.0"): {
+            ("test.direct.local", "2.1.0"): {
                 "values": {"credential": "credential-value"},
             }
         },
@@ -1229,7 +1234,7 @@ def test_unresolved_result_affecting_identity_disables_cross_run_cache(
             source_identity={"kind": "unresolved"},
         ),
         v2_environment_configuration={
-            ("test.direct.local", "2.0.0"): {
+            ("test.direct.local", "2.1.0"): {
                 "values": {"credential": "credential-value"},
             }
         },
@@ -1281,15 +1286,17 @@ def test_unresolvable_declared_effective_seed_disables_cross_run_cache(
                     "scientific_meaning": (
                         "Fixture seed whose effective value cannot be resolved."
                     ),
-                    "type": "string",
-                    "enum": ["unresolved"],
+                    "value_contract": {
+                        "type": "string",
+                        "enum": ["unresolved"],
+                    },
                     "default": "unresolved",
                 },
             },
             effective_randomness_parameters=("effective_seed",),
         ),
         v2_environment_configuration={
-            ("test.direct.local", "2.0.0"): {
+            ("test.direct.local", "2.1.0"): {
                 "values": {"credential": "credential-value"},
             }
         },
@@ -1341,14 +1348,14 @@ def test_null_declared_effective_seed_disables_cross_run_cache(
                     "scientific_meaning": (
                         "Fixture seed whose effective value is null."
                     ),
-                    "type": "null",
+                    "value_contract": {"type": "null"},
                     "default": None,
                 },
             },
             effective_randomness_parameters=("effective_seed",),
         ),
         v2_environment_configuration={
-            ("test.direct.local", "2.0.0"): {
+            ("test.direct.local", "2.1.0"): {
                 "values": {"credential": "credential-value"},
             }
         },
@@ -1408,7 +1415,7 @@ def test_effective_randomness_is_resolved_once_and_drives_execution(
     resolver = EffectiveRandomnessResolver(
         behavior=BehaviorReference(
             "test.direct/effective-randomness",
-            "2.0.0",
+            "2.1.0",
             {"normalization": "increment-fixture"},
         ),
         resolve=resolve_randomness,
@@ -1421,7 +1428,7 @@ def test_effective_randomness_is_resolved_once_and_drives_execution(
                 "effective_seed": {
                     "parameter_scope": "scientific",
                     "scientific_meaning": "Fixture seed normalized before use.",
-                    "type": "integer",
+                    "value_contract": {"type": "integer"},
                     "default": 4,
                 },
             },
@@ -1429,7 +1436,7 @@ def test_effective_randomness_is_resolved_once_and_drives_execution(
             effective_randomness_resolver=resolver,
         ),
         v2_environment_configuration={
-            ("test.direct.local", "2.0.0"): {
+            ("test.direct.local", "2.1.0"): {
                 "values": {"credential": "credential-value"},
             }
         },
@@ -1516,7 +1523,7 @@ def test_legacy_pickle_cache_is_never_loaded_or_rewritten(
     app = create_app(
         frozen_catalog_override=_direct_catalog(calls, cacheable=True),
         v2_environment_configuration={
-            ("test.direct.local", "2.0.0"): {
+            ("test.direct.local", "2.1.0"): {
                 "values": {"credential": "credential-value"},
             }
         },
@@ -1556,7 +1563,7 @@ def test_conflicting_output_for_one_result_identity_fails_without_overwrite(
             execution_output=lambda: state["value"],
         ),
         v2_environment_configuration={
-            ("test.direct.local", "2.0.0"): {
+            ("test.direct.local", "2.1.0"): {
                 "values": {"credential": "credential-value"},
             }
         },

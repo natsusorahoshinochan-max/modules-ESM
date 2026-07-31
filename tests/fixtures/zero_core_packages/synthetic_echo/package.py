@@ -18,7 +18,9 @@ from core import (
     ModulePackageRegistration,
     PortTypeDefinition,
     ProducedObservationDefinition,
+    ReadinessCheckInput,
     ReadinessDeclaration,
+    ReadinessResult,
     UtilityTransformDefinition,
 )
 from datatypes import ExactContractReference
@@ -29,12 +31,12 @@ from .implementation import SyntheticEchoImplementation
 _METHOD = ContractIdentity(
     "method",
     "contract_test.synthetic_echo.method",
-    "2.0.0",
+    "2.1.0",
 )
 _METRIC = ContractIdentity(
     "metric",
     "contract_test.synthetic_identity",
-    "2.0.0",
+    "2.1.0",
 )
 
 
@@ -89,10 +91,9 @@ def _available() -> AvailabilityResult:
     return AvailabilityResult.available()
 
 
-def _ready(environment: object) -> bool:
-    return (
-        isinstance(environment, Mapping)
-        and environment.get("fixture_ready") is True
+def _ready(check_input: ReadinessCheckInput) -> ReadinessResult:
+    return ReadinessResult(
+        check_input.values.get("fixture_ready") is True
     )
 
 
@@ -101,12 +102,12 @@ def _build(**kwargs: object) -> SyntheticEchoImplementation:
     method = catalog.require_contract(
         "method",
         "contract_test.synthetic_echo.method",
-        "2.0.0",
+        "2.1.0",
     )
     metric = catalog.require_contract(
         "metric",
         "contract_test.synthetic_identity",
-        "2.0.0",
+        "2.1.0",
     )
     return SyntheticEchoImplementation(
         run_resources=kwargs["run_resources"],
@@ -117,9 +118,9 @@ def _build(**kwargs: object) -> SyntheticEchoImplementation:
 
 
 MODULE_PACKAGE = ModulePackageRegistration(
-    schema_version="2.0.0",
+    schema_version="2.1.0",
     package_id="contract_test.synthetic_echo",
-    package_version="2.0.0",
+    package_version="2.1.0",
     package_module=__package__,
     node_definitions=(DefinitionResource("definitions/echo.yaml"),),
     metric_definitions=(
@@ -128,7 +129,7 @@ MODULE_PACKAGE = ModulePackageRegistration(
     methods=(
         MethodDefinition(
             method_id="contract_test.synthetic_echo.method",
-            version="2.0.0",
+            version="2.1.0",
             algorithm_identity={"name": "deterministic-echo"},
             model_identity={"kind": "none"},
             checkpoint_identity={"kind": "none"},
@@ -140,11 +141,11 @@ MODULE_PACKAGE = ModulePackageRegistration(
     bindings=(
         ExecutionBindingDefinition(
             binding_id="contract_test.synthetic_echo.direct",
-            version="2.0.0",
+            version="2.1.0",
             node_type=ContractIdentity(
                 "node_type",
                 "contract_test.synthetic_echo",
-                "2.0.0",
+                "2.1.0",
             ),
             method=_METHOD,
             binding_parameters={
@@ -153,17 +154,19 @@ MODULE_PACKAGE = ModulePackageRegistration(
                     "scientific_meaning": (
                         "Exact number of deterministic echo repetitions."
                     ),
-                    "type": "integer",
                     "required": True,
-                    "minimum": 1,
-                    "maximum": 3,
+                    "value_contract": {
+                        "type": "integer",
+                        "minimum": 1,
+                        "maximum": 3,
+                    },
                 }
             },
             execution_route="direct",
             factory=LazyImplementationFactory(
                 behavior=BehaviorReference(
                     "contract_test.synthetic_echo/factory",
-                    "2.0.0",
+                    "2.1.0",
                     {"execution_route": "direct"},
                 ),
                 build=_build,
@@ -171,7 +174,7 @@ MODULE_PACKAGE = ModulePackageRegistration(
             availability=AvailabilityDeclaration(
                 behavior=BehaviorReference(
                     "contract_test.synthetic_echo/availability",
-                    "2.0.0",
+                    "2.1.0",
                     {"observation": "startup"},
                 ),
                 prerequisites={},
@@ -180,7 +183,7 @@ MODULE_PACKAGE = ModulePackageRegistration(
             readiness=ReadinessDeclaration(
                 behavior=BehaviorReference(
                     "contract_test.synthetic_echo/readiness",
-                    "2.0.0",
+                    "2.1.0",
                     {"observation": "per-run"},
                 ),
                 prerequisites={"fixture_ready": "required"},
@@ -209,20 +212,20 @@ MODULE_PACKAGE = ModulePackageRegistration(
     port_types=(
         PortTypeDefinition(
             type_id="contract_test.synthetic_text",
-            version="2.0.0",
+            version="2.1.0",
             validator=BehaviorReference(
                 "contract_test.synthetic_text/validate",
-                "2.0.0",
+                "2.1.0",
                 {"accepted_value_kind": "text"},
             ),
             codec=BehaviorReference(
                 "contract_test.synthetic_text/codec",
-                "2.0.0",
+                "2.1.0",
                 {"canonicalization": "RFC 8785"},
             ),
             content_identity=BehaviorReference(
                 "contract_test.synthetic_text/content",
-                "2.0.0",
+                "2.1.0",
                 {"digest": "SHA-256"},
             ),
             runtime_validator=_validate_text,
@@ -231,10 +234,10 @@ MODULE_PACKAGE = ModulePackageRegistration(
         ),
         PortTypeDefinition(
             type_id="contract_test.synthetic_artifact",
-            version="2.0.0",
+            version="2.1.0",
             validator=BehaviorReference(
                 "contract_test.synthetic_artifact/validate",
-                "2.0.0",
+                "2.1.0",
                 {
                     "accepted_value_kind": "artifact_payload",
                     "artifact_publication": {
@@ -244,7 +247,7 @@ MODULE_PACKAGE = ModulePackageRegistration(
             ),
             codec=BehaviorReference(
                 "contract_test.synthetic_artifact/codec",
-                "2.0.0",
+                "2.1.0",
                 {
                     "canonicalization": "RFC 8785",
                     "binary_encoding": "base64",
@@ -252,7 +255,7 @@ MODULE_PACKAGE = ModulePackageRegistration(
             ),
             content_identity=BehaviorReference(
                 "contract_test.synthetic_artifact/content",
-                "2.0.0",
+                "2.1.0",
                 {"digest": "SHA-256"},
             ),
             runtime_validator=_validate_artifact,
@@ -263,7 +266,7 @@ MODULE_PACKAGE = ModulePackageRegistration(
     utility_transforms=(
         UtilityTransformDefinition(
             transform_id="contract_test.synthetic_identity",
-            version="2.0.0",
+            version="2.1.0",
             compatible_input_contract={
                 "metric": _METRIC,
                 "method": _METHOD,
@@ -271,7 +274,7 @@ MODULE_PACKAGE = ModulePackageRegistration(
             parameters={},
             behavior=BehaviorReference(
                 "contract_test.synthetic_identity/transform",
-                "2.0.0",
+                "2.1.0",
                 {},
             ),
             transform=_identity,

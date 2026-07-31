@@ -28,7 +28,7 @@ from tests.fixtures.prompt_authoring_v2 import (
 )
 
 
-VERSION = "2.0.0"
+VERSION = "2.1.0"
 PROMPT_PORT_VERSION = "2.1.0"
 
 
@@ -667,10 +667,6 @@ def test_function_annotation_port_declares_canonical_provenance_shape() -> None:
         "ordering": "start,end,label,chain-and-residue-provenance",
         "overlap_policy": ("allow", "reject"),
     }
-    assert catalog.require_port_type(
-        "function.annotations",
-        VERSION,
-    ).contract_digest != definition.contract_digest
     prompt_definition = catalog.require_port_type(
         "protein.prompt",
         PROMPT_PORT_VERSION,

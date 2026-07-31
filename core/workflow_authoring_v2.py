@@ -59,7 +59,7 @@ class WorkflowAuthoringService:
                 "Project metadata is not a supported exact v2 artifact",
                 details={
                     "artifact_kind": "project",
-                    "expected_schema_version": "2.0.0",
+                    "expected_schema_version": "2.1.0",
                     "received_schema_version": "unknown",
                 },
             ) from error
@@ -99,7 +99,7 @@ class WorkflowAuthoringService:
                 details={"field_path": ["workflow"]},
             )
         descriptor = {
-            "schema_version": "2.0.0",
+            "schema_version": "2.1.0",
             **payload,
         }
         file_descriptor, temporary_name = tempfile.mkstemp(
@@ -143,7 +143,7 @@ class WorkflowAuthoringService:
             payload = json.loads(path.read_text(encoding="utf-8"))
             if (
                 not isinstance(payload, dict)
-                or payload.get("schema_version") != "2.0.0"
+                or payload.get("schema_version") != "2.1.0"
                 or type(payload.get("workflow_revision")) is not int
                 or payload["workflow_revision"] < 1
                 or not isinstance(payload.get("workflow"), dict)
@@ -158,7 +158,7 @@ class WorkflowAuthoringService:
                 "Persisted Workflow is not a supported exact v2 artifact",
                 details={
                     "artifact_kind": "workflow",
-                    "expected_schema_version": "2.0.0",
+                    "expected_schema_version": "2.1.0",
                     "received_schema_version": "unknown",
                 },
             ) from error

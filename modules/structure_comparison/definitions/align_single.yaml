@@ -1,26 +1,26 @@
-schema_version: "2.0.0"
+schema_version: "2.1.0"
 node_type_id: structure_comparison.align_single
-version: "2.0.0"
+version: "2.1.0"
 title: Align one structure pair
 summary: Superimposes one exact subject Candidate onto one exact reference Candidate and emits complete role-labelled correspondence evidence.
 category: structure_comparison
 inputs:
   - name: subjects
     port_type_id: candidate.collection
-    port_type_version: "2.0.0"
+    port_type_version: "2.1.0"
     required: true
     multiplicity: one
     scientific_meaning: Exactly one identified protein-structure Candidate in the subject role.
   - name: references
     port_type_id: candidate.collection
-    port_type_version: "2.0.0"
+    port_type_version: "2.1.0"
     required: true
     multiplicity: one
     scientific_meaning: Exactly one identified protein-structure Candidate in the reference role.
 outputs:
   - name: alignment
     port_type_id: structure_comparison.alignment
-    port_type_version: "2.0.0"
+    port_type_version: "2.1.0"
     required: true
     multiplicity: one
     scientific_meaning: Versioned nominal subject-to-reference alignment evidence with exact Candidate content and atom correspondence.

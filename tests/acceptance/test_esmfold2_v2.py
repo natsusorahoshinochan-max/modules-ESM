@@ -217,7 +217,7 @@ def test_local_esmfold2_v2_source_contract_and_native_result(
         if event["event"]["type"] == "readiness_attested"
         and event["event"]["binding"]["contract_id"]
         == "folding.fold.esmfold2_local"
-        and event["event"]["binding"]["contract_version"] == "2.0.0"
+        and event["event"]["binding"]["contract_version"] == "2.1.0"
         and event["event"]["conclusion"] == "passing"
     )
     started = [

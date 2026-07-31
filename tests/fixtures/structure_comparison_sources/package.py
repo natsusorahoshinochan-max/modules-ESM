@@ -16,6 +16,7 @@ from core import (
     MethodDefinition,
     ModulePackageRegistration,
     ReadinessDeclaration,
+    ReadinessResult,
     UtilityTransformDefinition,
 )
 from datatypes import (
@@ -27,7 +28,7 @@ from datatypes import (
 )
 
 
-_VERSION = "2.0.0"
+_VERSION = "2.1.0"
 _TM_METRIC = ContractIdentity(
     "metric",
     "structure_comparison.tm_score",
@@ -255,7 +256,7 @@ class _Source:
         )
         with self._run_resources.engine_invocation(
             engine_identity=(
-                "contract_test.structure_comparison_source.method/2.0.0"
+                "contract_test.structure_comparison_source.method/2.1.0"
             ),
         ):
             return {
@@ -310,7 +311,7 @@ def _tm_utility(
 
 
 MODULE_PACKAGE = ModulePackageRegistration(
-    schema_version=_VERSION,
+    schema_version="2.1.0",
     package_id="contract_test.structure_comparison_sources",
     package_version=_VERSION,
     package_module=__package__,
@@ -367,7 +368,7 @@ MODULE_PACKAGE = ModulePackageRegistration(
                     {},
                 ),
                 prerequisites={},
-                check=lambda environment: True,
+                check=lambda environment: ReadinessResult(True),
             ),
             deterministic=True,
             cacheable=True,

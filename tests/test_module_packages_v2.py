@@ -18,12 +18,14 @@ from core import (
     CatalogBuildError,
     ContractIdentity,
     ExecutionBindingDefinition,
+    ExpectedOptionalDependencyMissing,
     LazyImplementationFactory,
     MethodDefinition,
     ModulePackageRegistration,
     ObservationPropagationDefinition,
     ProducedObservationDefinition,
     ReadinessDeclaration,
+    ReadinessResult,
     build_discovered_frozen_catalog,
     build_frozen_catalog,
     discover_module_packages,
@@ -33,35 +35,35 @@ from protein_workbench_public import validate_response
 
 
 NODE_DEFINITION = """\
-schema_version: "2.0.0"
+schema_version: "2.1.0"
 node_type_id: synthetic.echo
-version: "2.0.0"
+version: "2.1.0"
 title: Synthetic Echo
 summary: Returns one text value for Module Package contract testing.
 category: test_support
 inputs:
   - name: value
     port_type_id: synthetic.text
-    port_type_version: "2.0.0"
+    port_type_version: "2.1.0"
     required: true
     multiplicity: one
     scientific_meaning: Text supplied to the synthetic operation.
 outputs:
   - name: value
     port_type_id: synthetic.text
-    port_type_version: "2.0.0"
+    port_type_version: "2.1.0"
     required: true
     multiplicity: one
     scientific_meaning: Text returned by the synthetic operation.
   - name: candidates
     port_type_id: candidate.collection
-    port_type_version: "2.0.0"
+    port_type_version: "2.1.0"
     required: false
     multiplicity: one
     scientific_meaning: Candidates observed by the synthetic operation.
   - name: scores
     port_type_id: score.collection
-    port_type_version: "2.0.0"
+    port_type_version: "2.1.0"
     required: false
     multiplicity: one
     scientific_meaning: Typed observations emitted by the synthetic operation.
@@ -70,9 +72,9 @@ node_parameters: {}
 """
 
 METRIC_DEFINITION = """\
-schema_version: "2.0.0"
+schema_version: "2.1.0"
 metric_id: synthetic.identity
-version: "2.0.0"
+version: "2.1.0"
 title: Synthetic identity score
 description: Contract-test score emitted by the synthetic echo operation.
 value_shape: scalar
@@ -123,21 +125,21 @@ def _validate_text(value):
 def _identity(value, parameters):
     return float(value)
 
-_METRIC = ContractIdentity("metric", "synthetic.identity", "2.0.0")
-_METHOD = ContractIdentity("method", "synthetic.echo", "2.0.0")
+_METRIC = ContractIdentity("metric", "synthetic.identity", "2.1.0")
+_METHOD = ContractIdentity("method", "synthetic.echo", "2.1.0")
 
 
 MODULE_PACKAGE = ModulePackageRegistration(
-    schema_version="2.0.0",
+    schema_version="2.1.0",
     package_id="synthetic",
-    package_version="2.0.0",
+    package_version="2.1.0",
     package_module=__package__,
     node_definitions=(DefinitionResource("node.yaml"),),
     metric_definitions=(DefinitionResource("metric.yaml"),),
     methods=(
         MethodDefinition(
             method_id="synthetic.echo",
-            version="2.0.0",
+            version="2.1.0",
             algorithm_identity={"name": "identity"},
             model_identity={"kind": "none"},
             checkpoint_identity={"kind": "none"},
@@ -149,20 +151,20 @@ MODULE_PACKAGE = ModulePackageRegistration(
     port_types=(
         PortTypeDefinition(
             type_id="synthetic.text",
-            version="2.0.0",
+            version="2.1.0",
             validator=BehaviorReference(
                 "synthetic.text/validate",
-                "2.0.0",
+                "2.1.0",
                 {"accepted_value_kind": "text"},
             ),
             codec=BehaviorReference(
                 "synthetic.text/codec",
-                "2.0.0",
+                "2.1.0",
                 {"canonicalization": "RFC 8785"},
             ),
             content_identity=BehaviorReference(
                 "synthetic.text/content",
-                "2.0.0",
+                "2.1.0",
                 {"digest": "SHA-256"},
             ),
             runtime_validator=_validate_text,
@@ -173,7 +175,7 @@ MODULE_PACKAGE = ModulePackageRegistration(
     utility_transforms=(
         UtilityTransformDefinition(
             transform_id="synthetic.identity",
-            version="2.0.0",
+            version="2.1.0",
             compatible_input_contract={
                 "metric": _METRIC,
                 "method": _METHOD,
@@ -181,7 +183,7 @@ MODULE_PACKAGE = ModulePackageRegistration(
             parameters={},
             behavior=BehaviorReference(
                 "synthetic.identity/transform",
-                "2.0.0",
+                "2.1.0",
                 {},
             ),
             transform=_identity,
@@ -190,15 +192,15 @@ MODULE_PACKAGE = ModulePackageRegistration(
     bindings=(
         ExecutionBindingDefinition(
             binding_id="synthetic.echo.direct",
-            version="2.0.0",
-            node_type=ContractIdentity("node_type", "synthetic.echo", "2.0.0"),
+            version="2.1.0",
+            node_type=ContractIdentity("node_type", "synthetic.echo", "2.1.0"),
             method=_METHOD,
             binding_parameters={},
             execution_route="direct",
             factory=LazyImplementationFactory(
                 behavior=BehaviorReference(
                     "synthetic.echo/factory",
-                    "2.0.0",
+                    "2.1.0",
                     {},
                 ),
                 build=_factory,
@@ -206,7 +208,7 @@ MODULE_PACKAGE = ModulePackageRegistration(
             availability=AvailabilityDeclaration(
                 behavior=BehaviorReference(
                     "synthetic.echo/availability",
-                    "2.0.0",
+                    "2.1.0",
                     {},
                 ),
                 prerequisites={},
@@ -215,11 +217,11 @@ MODULE_PACKAGE = ModulePackageRegistration(
             readiness=ReadinessDeclaration(
                 behavior=BehaviorReference(
                     "synthetic.echo/readiness",
-                    "2.0.0",
+                    "2.1.0",
                     {},
                 ),
                 prerequisites={},
-                check=lambda environment: True,
+                check=lambda environment: ReadinessResult(True),
             ),
             deterministic=True,
             cacheable=True,
@@ -243,22 +245,22 @@ MODULE_PACKAGE = ModulePackageRegistration(
 
 EXPECTED_SYNTHETIC_CONTRACT_DIGESTS = {
     ("binding", "synthetic.echo.direct"): (
-        "sha256:c507f1c5ab95c78d1ca69c60f251dfb08e0f28fb2ab9a1697e62598c71ebe20f"
+        "sha256:c8cd1c2bb713f574b48fa016378489261c75afc2138cbc698e8690d50ca91306"
     ),
     ("method", "synthetic.echo"): (
-        "sha256:1e44eccb730679996c9c9e2d65c61dc26745a8812c950b62c6c9a5963de2a176"
+        "sha256:e485971a5abafb8460fd29fc8978b89ed2dc4d66efec93c37b75d0289c807120"
     ),
     ("metric", "synthetic.identity"): (
-        "sha256:8b333f26b39be0d8ae55e6e2dffd0241a631d933cd0405f46b7099ab4b6a1770"
+        "sha256:51f0164af916ccf5c3e69c72fc2adb1be6d07c07254869e5a304e870d6bfb2e5"
     ),
     ("node_type", "synthetic.echo"): (
-        "sha256:65224a90b57d13beff0d9f8bfc004f7f4061c4b44b007cba2266006d90e0ff4e"
+        "sha256:e6638f21a85016e4c306368436465ac6c484dc18a65f3aedc6d52b3b8d0b92b6"
     ),
     ("port_type", "synthetic.text"): (
-        "sha256:f0d3dacfc4df11a4cced278907d6d11d0b364674657f0df0a098f943d6366c81"
+        "sha256:cc3fa0e72b72eb82ced2b58697b44a98587c61b6a6ce567c133ca847d2f47870"
     ),
     ("utility_transform", "synthetic.identity"): (
-        "sha256:048e746e9407a5036762efd55fa1927e279b85fe7d820088c8cdea3abfe5083b"
+        "sha256:b2e26cdb0fd42569fc280b594c2187f046c530311eb28972c4f60a9ce607b1b8"
     ),
 }
 
@@ -309,7 +311,7 @@ def _method(
 ) -> MethodDefinition:
     return MethodDefinition(
         method_id=method_id,
-        version="2.0.0",
+        version="2.1.0",
         algorithm_identity=algorithm_identity or {"name": method_id},
         model_identity={"kind": "none"},
         checkpoint_identity={"kind": "none"},
@@ -325,9 +327,9 @@ def _registration(
     methods=(),
 ) -> ModulePackageRegistration:
     return ModulePackageRegistration(
-        schema_version="2.0.0",
+        schema_version="2.1.0",
         package_id=package_id,
-        package_version="2.0.0",
+        package_version="2.1.0",
         package_module=f"unused_{package_id}",
         methods=tuple(methods),
     )
@@ -361,11 +363,11 @@ def test_package_owned_port_type_has_one_independent_exact_reference(
     assert catalog.require_contract(
         "port_type",
         "synthetic.text",
-        "2.0.0",
+        "2.1.0",
     ).reference() == {
         "contract_kind": "port_type",
         "contract_id": "synthetic.text",
-        "contract_version": "2.0.0",
+        "contract_version": "2.1.0",
         "contract_digest": EXPECTED_SYNTHETIC_CONTRACT_DIGESTS[
             ("port_type", "synthetic.text")
         ],
@@ -380,7 +382,7 @@ def test_package_owned_port_type_round_trips_a_complete_value(
     synthetic_text = catalog.require_contract(
         "port_type",
         "synthetic.text",
-        "2.0.0",
+        "2.1.0",
     )
 
     assert synthetic_text.decode(synthetic_text.encode("MÉTA")) == "MÉTA"
@@ -395,7 +397,7 @@ def test_node_descriptor_keeps_parameter_groups_separate(
     assert catalog.require_contract(
         "node_type",
         "synthetic.echo",
-        "2.0.0",
+        "2.1.0",
     ).descriptor["parameter_groups"] == ()
 
 
@@ -409,13 +411,13 @@ def test_legacy_path_artifact_port_is_rejected(
         NODE_DEFINITION.replace(
             "  - name: value\n"
             "    port_type_id: synthetic.text\n"
-            "    port_type_version: \"2.0.0\"\n"
+            "    port_type_version: \"2.1.0\"\n"
             "    required: true\n"
             "    multiplicity: one\n"
             "    scientific_meaning: Text returned by the synthetic operation.",
             "  - name: value\n"
             "    port_type_id: file.path\n"
-            "    port_type_version: \"2.0.0\"\n"
+            "    port_type_version: \"2.1.0\"\n"
             "    required: true\n"
             "    multiplicity: one\n"
             "    scientific_meaning: File returned by the synthetic operation.\n"
@@ -440,7 +442,7 @@ def test_package_owned_utility_runtime_is_resolved_by_exact_identity(
 
     assert catalog.require_utility_transform(
         "synthetic.identity",
-        "2.0.0",
+        "2.1.0",
     )(0.75, {}) == 0.75
 
 
@@ -452,7 +454,7 @@ def test_binding_keeps_its_factory_lazy_during_catalog_build(
 
     assert catalog.require_factory(
         "synthetic.echo.direct",
-        "2.0.0",
+        "2.1.0",
     ).behavior.behavior_id == "synthetic.echo/factory"
 
 
@@ -479,7 +481,7 @@ def test_binding_availability_is_published_with_the_catalog_observation(
         "binding": {
             "contract_kind": "binding",
             "contract_id": "synthetic.echo.direct",
-            "contract_version": "2.0.0",
+            "contract_version": "2.1.0",
             "contract_digest": EXPECTED_SYNTHETIC_CONTRACT_DIGESTS[
                 ("binding", "synthetic.echo.direct")
             ],
@@ -562,11 +564,11 @@ def test_binding_rejects_an_observation_for_an_unknown_output_port(
     [
         (
             {"output_port": "value"},
-            "output must use exact score.collection@2.0.0",
+            "output must use exact score.collection@2.1.0",
         ),
         (
             {"subject_port": "value"},
-            "subject must use exact candidate.collection@2.0.0",
+            "subject must use exact candidate.collection@2.1.0",
         ),
     ],
 )
@@ -609,12 +611,12 @@ def test_binding_rejects_many_valued_observation_propagation_inputs(
     node_path.write_text(
         NODE_DEFINITION.replace(
             "    port_type_id: synthetic.text\n"
-            "    port_type_version: \"2.0.0\"\n"
+            "    port_type_version: \"2.1.0\"\n"
             "    required: true\n"
             "    multiplicity: one\n"
             "    scientific_meaning: Text supplied to the synthetic operation.",
             "    port_type_id: score.collection\n"
-            "    port_type_version: \"2.0.0\"\n"
+            "    port_type_version: \"2.1.0\"\n"
             "    required: true\n"
             "    multiplicity: many\n"
             "    scientific_meaning: Scores supplied to the synthetic operation.",
@@ -692,7 +694,7 @@ def test_binding_rejects_a_context_profile_outside_the_metric_schema(
         ("\nunknown_field: true\n", "unknown fields"),
         (
             NODE_DEFINITION.replace(
-                'schema_version: "2.0.0"',
+                'schema_version: "2.1.0"',
                 'schema_version: "9.0.0"',
             ),
             "unsupported Node Definition schema_version",
@@ -770,7 +772,7 @@ def test_dangling_contract_reference_fails_closed() -> None:
             "dependency": ContractIdentity(
                 "method",
                 "synthetic.missing",
-                "2.0.0",
+                "2.1.0",
             )
         },
     )
@@ -789,7 +791,7 @@ def test_expected_contract_digest_conflict_fails_closed() -> None:
             "dependency": ContractIdentity(
                 "method",
                 "synthetic.target",
-                "2.0.0",
+                "2.1.0",
                 wrong_digest,
             )
         },
@@ -812,7 +814,7 @@ def test_cyclic_contract_reference_graph_fails_closed() -> None:
             "dependency": ContractIdentity(
                 "method",
                 "synthetic.cycle.second",
-                "2.0.0",
+                "2.1.0",
             )
         },
     )
@@ -822,7 +824,7 @@ def test_cyclic_contract_reference_graph_fails_closed() -> None:
             "dependency": ContractIdentity(
                 "method",
                 "synthetic.cycle.first",
-                "2.0.0",
+                "2.1.0",
             )
         },
     )
@@ -848,7 +850,7 @@ def test_failed_candidate_never_mutates_an_already_published_catalog() -> None:
             "dependency": ContractIdentity(
                 "method",
                 "synthetic.unknown",
-                "2.0.0",
+                "2.1.0",
             )
         },
     )
@@ -862,7 +864,7 @@ def test_failed_candidate_never_mutates_an_already_published_catalog() -> None:
     assert published.require_contract(
         "method",
         "synthetic.published",
-        "2.0.0",
+        "2.1.0",
     ).descriptor["algorithm_identity"] == {"name": "synthetic.published"}
 
 
@@ -907,9 +909,8 @@ def test_missing_optional_dependency_does_not_hide_available_sibling(
         available_binding = registration.bindings[0]
 
         def missing_optional_dependency() -> AvailabilityResult:
-            raise ModuleNotFoundError(
-                "No module named 'synthetic_optional_provider'",
-                name="synthetic_optional_provider",
+            raise ExpectedOptionalDependencyMissing(
+                "synthetic_optional_provider",
             )
 
         unavailable_binding = replace(
@@ -918,7 +919,7 @@ def test_missing_optional_dependency_does_not_hide_available_sibling(
             availability=AvailabilityDeclaration(
                 behavior=BehaviorReference(
                     "synthetic.echo.optional/availability",
-                    "2.0.0",
+                    "2.1.0",
                     {},
                 ),
                 prerequisites={
@@ -929,7 +930,7 @@ def test_missing_optional_dependency_does_not_hide_available_sibling(
             factory=LazyImplementationFactory(
                 behavior=BehaviorReference(
                     "synthetic.echo.optional/factory",
-                    "2.0.0",
+                    "2.1.0",
                     {},
                 ),
                 build=lambda: (_ for _ in ()).throw(
@@ -939,11 +940,11 @@ def test_missing_optional_dependency_does_not_hide_available_sibling(
             readiness=ReadinessDeclaration(
                 behavior=BehaviorReference(
                     "synthetic.echo.optional/readiness",
-                    "2.0.0",
+                    "2.1.0",
                     {},
                 ),
                 prerequisites={},
-                check=lambda environment: False,
+                check=lambda environment: ReadinessResult(False),
             ),
         )
         catalog = build_frozen_catalog(
@@ -968,7 +969,7 @@ def test_missing_optional_dependency_does_not_hide_available_sibling(
         "binding": catalog.require_contract(
             "binding",
             "synthetic.echo.optional",
-            "2.0.0",
+            "2.1.0",
         ).reference(),
         "observed_at": by_binding["synthetic.echo.optional"]["observed_at"],
         "available": False,
@@ -983,6 +984,53 @@ def test_missing_optional_dependency_does_not_hide_available_sibling(
     }
 
 
+@pytest.mark.parametrize(
+    "checker_error",
+    (
+        AssertionError("availability invariant failed"),
+        KeyError("missing implementation field"),
+        ModuleNotFoundError(
+            "No module named 'unexpected_internal_module'",
+            name="unexpected_internal_module",
+        ),
+    ),
+)
+def test_availability_checker_programming_errors_abort_catalog_atomically(
+    tmp_path: Path,
+    monkeypatch,
+    checker_error: Exception,
+) -> None:
+    root_name = _write_discovery_root(tmp_path)
+    monkeypatch.syspath_prepend(str(tmp_path))
+    importlib.invalidate_caches()
+    registration = discover_module_packages(root_name)[0]
+    binding = registration.bindings[0]
+
+    def broken_checker() -> AvailabilityResult:
+        raise checker_error
+
+    broken = replace(
+        binding,
+        availability=replace(
+            binding.availability,
+            check=broken_checker,
+        ),
+    )
+
+    try:
+        with pytest.raises(
+            CatalogBuildError,
+            match="Availability checker .* failed",
+        ) as rejected:
+            build_frozen_catalog(
+                (replace(registration, bindings=(broken,)),)
+            )
+    finally:
+        _forget_package(root_name)
+
+    assert rejected.value.__cause__ is checker_error
+
+
 def test_cross_package_exact_reference_is_order_independent() -> None:
     dependency = _method("synthetic.shared")
     consumer = _method(
@@ -991,7 +1039,7 @@ def test_cross_package_exact_reference_is_order_independent() -> None:
             "dependency": ContractIdentity(
                 "method",
                 "synthetic.shared",
-                "2.0.0",
+                "2.1.0",
             )
         },
     )
@@ -1006,12 +1054,12 @@ def test_cross_package_exact_reference_is_order_independent() -> None:
     dependency_contract = forward.require_contract(
         "method",
         "synthetic.shared",
-        "2.0.0",
+        "2.1.0",
     )
     assert forward.require_contract(
         "method",
         "synthetic.consumer",
-        "2.0.0",
+        "2.1.0",
     ).descriptor["algorithm_identity"]["dependency"] == (
         dependency_contract.reference()
     )
@@ -1035,7 +1083,7 @@ def test_lazy_factory_does_not_reload_definition_resources(
 
     assert catalog.require_factory(
         "synthetic.echo.direct",
-        "2.0.0",
+        "2.1.0",
     ).build() == {"implementation": "synthetic.echo"}
 
 
@@ -1049,7 +1097,7 @@ def test_frozen_contract_descriptor_is_immutable(
         catalog.require_contract(
             "node_type",
             "synthetic.echo",
-            "2.0.0",
+            "2.1.0",
         ).descriptor["title"] = "mutated"
 
 
@@ -1060,7 +1108,7 @@ def test_frozen_runtime_factory_view_is_immutable(
     catalog = _build_synthetic_catalog(tmp_path, monkeypatch)
 
     with pytest.raises(TypeError):
-        catalog.factories[("synthetic.echo.direct", "2.0.0")] = object()
+        catalog.factories[("synthetic.echo.direct", "2.1.0")] = object()
 
 
 def test_observed_availability_never_changes_stable_contract_identity(

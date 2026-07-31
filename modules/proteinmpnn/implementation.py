@@ -56,7 +56,7 @@ class ProteinMPNNConstraintsImplementation:
             )
         with self._run_resources.engine_invocation(
             engine_identity=(
-                "proteinmpnn.constraints.repository_owned/2.0.0"
+                "proteinmpnn.constraints.repository_owned/2.1.0"
             ),
         ):
             constraints = author_constraints(
@@ -94,7 +94,7 @@ class ProteinMPNNRandomFixedPositionsImplementation:
         with self._run_resources.engine_invocation(
             engine_identity=(
                 "proteinmpnn.random_fixed_positions."
-                "repository_owned/2.0.0"
+                "repository_owned/2.1.0"
             ),
         ):
             constraints = random_fixed_positions(
@@ -215,7 +215,7 @@ class ProteinMPNNDesignImplementation:
     ) -> str:
         port_type = self._catalog.require_port_type(
             "proteinmpnn.constraints",
-            "2.0.0",
+            "2.1.0",
         )
         return port_type.content_digest(constraints)
 
@@ -242,8 +242,6 @@ class ProteinMPNNDesignImplementation:
             raise ValueError(
                 "constraints input must be complete ProteinMPNN constraints"
             )
-        effective_constraints = constraints or ProteinMPNNConstraints()
-        constraint_digest = self._constraint_digest(effective_constraints)
         candidates: list[Candidate] = []
         for parent_index, (parent, parent_seed_identity) in enumerate(parents):
             structure = parent.data
@@ -276,6 +274,12 @@ class ProteinMPNNDesignImplementation:
                     seed=call_seed,
                     constraints=constraints,
                     reference_sequence=reference,
+                )
+                effective_constraints = constraints or ProteinMPNNConstraints(
+                    layout=request.target_layout
+                )
+                constraint_digest = self._constraint_digest(
+                    effective_constraints
                 )
                 with self._run_resources.engine_invocation(
                     engine_role=f"design_parent_{parent_index}",
@@ -395,7 +399,7 @@ class ProteinMPNNScoreImplementation:
         contract = self._catalog.require_contract(
             kind,
             contract_id,
-            "2.0.0",
+            "2.1.0",
         )
         return ExactContractReference(**contract.reference())
 

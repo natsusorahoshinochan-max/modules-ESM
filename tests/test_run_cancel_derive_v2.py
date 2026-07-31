@@ -98,7 +98,7 @@ def test_cancel_during_operation_is_idempotent_and_closes_active_evidence(
             execution_gate=(entered, release),
         ),
         v2_environment_configuration={
-            ("test.direct.local", "2.0.0"): {
+            ("test.direct.local", "2.1.0"): {
                 "values": {"credential": "credential-value"},
             }
         },
@@ -173,7 +173,7 @@ def test_cancel_before_schedule_disposes_every_node_without_attempts(
             execution_gate=(first_entered, first_release),
         ),
         v2_environment_configuration={
-            ("test.direct.local", "2.0.0"): {
+            ("test.direct.local", "2.1.0"): {
                 "values": {"credential": "credential-value"},
             }
         },
@@ -221,7 +221,7 @@ def test_completion_race_is_decided_by_the_ledger_cursor(
     app = create_app(
         frozen_catalog_override=_direct_catalog([]),
         v2_environment_configuration={
-            ("test.direct.local", "2.0.0"): {
+            ("test.direct.local", "2.1.0"): {
                 "values": {"credential": "credential-value"},
             }
         },
@@ -284,7 +284,7 @@ def test_retry_after_failure_creates_new_evidence_without_mutating_source(
         ),
         v2_result_replay_source=replay,
         v2_environment_configuration={
-            ("test.direct.local", "2.0.0"): {
+            ("test.direct.local", "2.1.0"): {
                 "values": {"credential": "credential-value"},
             }
         },
@@ -352,7 +352,7 @@ def test_force_recompute_executes_selected_node_and_reuses_only_typed_results(
         ),
         v2_result_replay_source=replay,
         v2_environment_configuration={
-            ("test.direct.local", "2.0.0"): {
+            ("test.direct.local", "2.1.0"): {
                 "values": {"credential": "credential-value"},
             }
         },
@@ -512,7 +512,7 @@ def test_cancel_terminates_registered_process_group_children_and_temp_work(
             execution_action=execute_in_process_group,
         ),
         v2_environment_configuration={
-            ("test.direct.local", "2.0.0"): {
+            ("test.direct.local", "2.1.0"): {
                 "values": {"credential": "credential-value"},
             }
         },
@@ -605,7 +605,7 @@ def test_process_group_registered_after_cancel_uses_full_cleanup_protocol(
             execution_action=register_after_cancel,
         ),
         v2_environment_configuration={
-            ("test.direct.local", "2.0.0"): {
+            ("test.direct.local", "2.1.0"): {
                 "values": {"credential": "credential-value"},
             }
         },
@@ -662,7 +662,7 @@ def test_successful_process_fallback_is_confirmed_when_context_exits(
             execution_action=execute_with_fallback,
         ),
         v2_environment_configuration={
-            ("test.direct.local", "2.0.0"): {
+            ("test.direct.local", "2.1.0"): {
                 "values": {"credential": "credential-value"},
             }
         },
@@ -712,7 +712,7 @@ def test_cancel_factory_cleanup_failure_is_interrupted_without_false_attempt(
             factory_action=hold_factory,
         ),
         v2_environment_configuration={
-            ("test.direct.local", "2.0.0"): {
+            ("test.direct.local", "2.1.0"): {
                 "values": {"credential": "credential-value"},
             }
         },
@@ -877,7 +877,7 @@ def test_one_process_cleanup_failure_does_not_skip_other_process_groups(
             execution_action=execute_with_two_groups,
         ),
         v2_environment_configuration={
-            ("test.direct.local", "2.0.0"): {
+            ("test.direct.local", "2.1.0"): {
                 "values": {"credential": "credential-value"},
             }
         },
@@ -918,7 +918,7 @@ def test_cancel_and_derive_reject_cross_project_scope_with_shared_errors(
     app = create_app(
         frozen_catalog_override=_direct_catalog([]),
         v2_environment_configuration={
-            ("test.direct.local", "2.0.0"): {
+            ("test.direct.local", "2.1.0"): {
                 "values": {"credential": "credential-value"},
             }
         },
@@ -1017,7 +1017,7 @@ def test_terminal_source_can_be_derived_after_backend_restart(
     monkeypatch.setenv("PROTEIN_WORKBENCH_RUN_ROOT", str(tmp_path / "runs"))
     monkeypatch.setenv("PROTEIN_WORKBENCH_OUTPUT_ROOT", str(tmp_path / "outputs"))
     environment = {
-        ("test.direct.local", "2.0.0"): {
+        ("test.direct.local", "2.1.0"): {
             "values": {"credential": "credential-value"},
         }
     }

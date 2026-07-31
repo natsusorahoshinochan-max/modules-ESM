@@ -7,7 +7,6 @@ import json
 import math
 import os
 import re
-import shutil
 import subprocess
 from typing import Any
 
@@ -23,7 +22,9 @@ from core import (
     ModulePackageRegistration,
     PortTypeDefinition,
     ProducedObservationDefinition,
+    ReadinessCheckInput,
     ReadinessDeclaration,
+    ReadinessResult,
     builtin_frozen_catalog,
 )
 from core.port_types import canonical_json_bytes
@@ -33,7 +34,7 @@ from .domain import DSSPAnnotation, StructureAnnotationTrack
 from .implementation import StructureAnnotationImplementation
 
 
-_VERSION = "2.0.0"
+_VERSION = "2.1.0"
 _DSSP_BINARY = "mkdssp"
 _DSSP_VERSION = "4.6.1"
 _OPERATIONS = (
@@ -43,6 +44,7 @@ _OPERATIONS = (
     "secondary_structure_agreement",
 )
 _DSSP_OPERATION = "dssp_compute"
+_ANNOTATION_SECONDARY_SYMBOLS = frozenset("GHITEBSPC_")
 _SECONDARY_SYMBOLS = frozenset("GHITEBSC_")
 _RESIDUE_ID = re.compile(
     r"^(?P<chain>[A-Za-z0-9]):[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$"
@@ -106,17 +108,22 @@ def _validate_layout(layout: object) -> ResidueLayout:
     return layout
 
 
-def _validate_secondary(values: object, *, length: int) -> tuple[str, ...]:
+def _validate_secondary(
+    values: object,
+    *,
+    length: int,
+    symbols: frozenset[str] = _SECONDARY_SYMBOLS,
+) -> tuple[str, ...]:
     if (
         not isinstance(values, tuple)
         or len(values) != length
         or any(
-            type(value) is not str or value not in _SECONDARY_SYMBOLS
+            type(value) is not str or value not in symbols
             for value in values
         )
     ):
         raise ValueError(
-            "secondary-structure values must be exact SS8 or '_'"
+            "secondary-structure values use an unsupported alphabet"
         )
     return values
 
@@ -147,7 +154,11 @@ def _validate_annotation(value: object) -> None:
     if type(value) is not DSSPAnnotation:
         raise ValueError("DSSP annotation has the wrong runtime type")
     layout = _validate_layout(value.layout)
-    _validate_secondary(value.secondary_structure, length=layout.length)
+    _validate_secondary(
+        value.secondary_structure,
+        length=layout.length,
+        symbols=_ANNOTATION_SECONDARY_SYMBOLS,
+    )
     _validate_sasa(value.sasa, length=layout.length)
 
 
@@ -239,17 +250,18 @@ def _available() -> AvailabilityResult:
     return AvailabilityResult.available()
 
 
-def _dssp_ready(environment: object) -> bool:
-    if not isinstance(environment, Mapping):
-        return False
-    path = environment.get("dssp_binary") or shutil.which(_DSSP_BINARY)
+def _dssp_ready(check_input: ReadinessCheckInput) -> ReadinessResult:
+    path = check_input.values.get("dssp_binary")
     if (
         not isinstance(path, str)
         or not path
         or not os.path.isfile(path)
         or not os.access(path, os.X_OK)
     ):
-        return False
+        return ReadinessResult(
+            False,
+            reason_code="dssp_binary_unavailable",
+        )
     try:
         result = subprocess.run(
             [path, "--version"],
@@ -259,22 +271,33 @@ def _dssp_ready(environment: object) -> bool:
             check=False,
         )
     except (OSError, subprocess.SubprocessError):
-        return False
+        return ReadinessResult(
+            False,
+            reason_code="dssp_binary_unavailable",
+        )
     version_text = f"{result.stdout}\n{result.stderr}"
     match = re.search(
         r"(?m)^mkdssp version (?P<version>\S+)\s*$",
         version_text,
     )
-    return (
+    passing = (
         result.returncode == 0
         and match is not None
         and match.group("version") == _DSSP_VERSION
     )
+    return ReadinessResult(
+        passing,
+        reason_code=(
+            "prerequisite_unavailable"
+            if passing
+            else "dssp_version_mismatch"
+        ),
+    )
 
 
-def _ready(environment: object) -> bool:
-    del environment
-    return True
+def _ready(check_input: ReadinessCheckInput) -> ReadinessResult:
+    del check_input
+    return ReadinessResult(True)
 
 
 def _build(operation: str):
@@ -482,7 +505,7 @@ def _port_type(
             _VERSION,
             {
                 "canonicalization": "RFC 8785",
-                "embedded_layout_contract": "residue.layout@2.0.0",
+                "embedded_layout_contract": "residue.layout@2.1.0",
             },
         ),
         content_identity=BehaviorReference(
@@ -497,7 +520,7 @@ def _port_type(
 
 
 MODULE_PACKAGE = ModulePackageRegistration(
-    schema_version=_VERSION,
+    schema_version="2.1.0",
     package_id="structure_annotation",
     package_version=_VERSION,
     package_module=__package__,

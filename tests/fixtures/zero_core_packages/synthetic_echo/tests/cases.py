@@ -8,9 +8,9 @@ from core import ArtifactPayload, ModulePackageContractCase, ModulePackagePortCa
 EXECUTION_CASE = ModulePackageContractCase(
     case_id="synthetic-echo-complete-journey",
     node_type_id="contract_test.synthetic_echo",
-    node_type_version="2.0.0",
+    node_type_version="2.1.0",
     binding_id="contract_test.synthetic_echo.direct",
-    binding_version="2.0.0",
+    binding_version="2.1.0",
     node_parameters={"message": "ECHO"},
     binding_parameters={"repeat_count": 2},
     environment_values={
@@ -32,14 +32,14 @@ EXECUTION_CASE = ModulePackageContractCase(
 
 PORT_CASE = ModulePackagePortCase(
     type_id="contract_test.synthetic_text",
-    version="2.0.0",
+    version="2.1.0",
     valid_value="canonical echo",
     invalid_values=("", 7),
 )
 
 ARTIFACT_PORT_CASE = ModulePackagePortCase(
     type_id="contract_test.synthetic_artifact",
-    version="2.0.0",
+    version="2.1.0",
     valid_value=ArtifactPayload(
         body=b"fixture",
         media_type="text/plain",

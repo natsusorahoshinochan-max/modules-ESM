@@ -15,6 +15,7 @@ from core import (
     FrozenCatalog,
     LazyImplementationFactory,
     ReadinessDeclaration,
+    ReadinessResult,
     SelectionError,
     SelectionInput,
     SelectionObjective,
@@ -57,12 +58,12 @@ def _contract(
     return CatalogContract(
         contract_kind=kind,  # type: ignore[arg-type]
         contract_id=contract_id,
-        contract_version="2.0.0",
+        contract_version="2.1.0",
         descriptor={
             "schema_namespace": "protein-workbench-contract/v2",
             "contract_kind": kind,
             "contract_id": contract_id,
-            "contract_version": "2.0.0",
+            "contract_version": "2.1.0",
             **descriptor,
         },
     )
@@ -70,8 +71,8 @@ def _contract(
 
 def _scoring_catalog() -> tuple[FrozenCatalog, dict[str, CatalogContract]]:
     builtin = builtin_frozen_catalog()
-    candidates_type = builtin.require_port_type("candidate.collection", "2.0.0")
-    scores_type = builtin.require_port_type("score.collection", "2.0.0")
+    candidates_type = builtin.require_port_type("candidate.collection", "2.1.0")
+    scores_type = builtin.require_port_type("score.collection", "2.1.0")
     metric_quality = _contract(
         "metric",
         "quality",
@@ -148,12 +149,18 @@ def _scoring_catalog() -> tuple[FrozenCatalog, dict[str, CatalogContract]]:
                 "context_profile": {"kind": "intrinsic"},
             },
             "parameters": {
-                "lower": {"type": "number", "default": 0},
-                "upper": {"type": "number", "default": 100},
+                "lower": {
+                    "value_contract": {"type": "number"},
+                    "default": 0,
+                },
+                "upper": {
+                    "value_contract": {"type": "number"},
+                    "default": 100,
+                },
             },
             "behavior": {
                 "behavior_id": "quality.linear/transform",
-                "behavior_version": "2.0.0",
+                "behavior_version": "2.1.0",
                 "parameters": {},
             },
             "output_contract": {"minimum": 0, "maximum": 1},
@@ -169,12 +176,18 @@ def _scoring_catalog() -> tuple[FrozenCatalog, dict[str, CatalogContract]]:
                 "context_profile": {"kind": "intrinsic"},
             },
             "parameters": {
-                "lower": {"type": "number", "default": 0},
-                "upper": {"type": "number", "default": 100},
+                "lower": {
+                    "value_contract": {"type": "number"},
+                    "default": 0,
+                },
+                "upper": {
+                    "value_contract": {"type": "number"},
+                    "default": 100,
+                },
             },
             "behavior": {
                 "behavior_id": "novelty.linear/transform",
-                "behavior_version": "2.0.0",
+                "behavior_version": "2.1.0",
                 "parameters": {},
             },
             "output_contract": {"minimum": 0, "maximum": 1},
@@ -218,13 +231,13 @@ def _scoring_catalog() -> tuple[FrozenCatalog, dict[str, CatalogContract]]:
             "execution_route": "direct",
             "route_behavior": {
                 "behavior_id": "score.intrinsic/execute",
-                "behavior_version": "2.0.0",
+                "behavior_version": "2.1.0",
                 "parameters": {},
             },
             "availability_declaration": {
                 "behavior": {
                     "behavior_id": "score.intrinsic/availability",
-                    "behavior_version": "2.0.0",
+                    "behavior_version": "2.1.0",
                     "parameters": {},
                 },
                 "prerequisites": {},
@@ -232,7 +245,7 @@ def _scoring_catalog() -> tuple[FrozenCatalog, dict[str, CatalogContract]]:
             "readiness_declaration": {
                 "behavior": {
                     "behavior_id": "score.intrinsic/readiness",
-                    "behavior_version": "2.0.0",
+                    "behavior_version": "2.1.0",
                     "parameters": {},
                 },
                 "prerequisites": {},
@@ -286,12 +299,12 @@ def _scoring_catalog() -> tuple[FrozenCatalog, dict[str, CatalogContract]]:
 
     factory_behavior = BehaviorReference(
         "score.intrinsic/execute",
-        "2.0.0",
+        "2.1.0",
         {},
     )
     readiness_behavior = BehaviorReference(
         "score.intrinsic/readiness",
-        "2.0.0",
+        "2.1.0",
         {},
     )
 
@@ -355,11 +368,11 @@ def _scoring_catalog() -> tuple[FrozenCatalog, dict[str, CatalogContract]]:
             tzinfo=timezone.utc,
         ),
         utility_transforms={
-            ("quality.linear", "2.0.0"): linear,
-            ("novelty.linear", "2.0.0"): linear,
+            ("quality.linear", "2.1.0"): linear,
+            ("novelty.linear", "2.1.0"): linear,
         },
         factories={
-            ("score.intrinsic.direct", "2.0.0"): (
+            ("score.intrinsic.direct", "2.1.0"): (
                 LazyImplementationFactory(
                     behavior=factory_behavior,
                     build=lambda **_: ScoringImplementation(),
@@ -367,10 +380,10 @@ def _scoring_catalog() -> tuple[FrozenCatalog, dict[str, CatalogContract]]:
             )
         },
         readiness_declarations={
-            ("score.intrinsic.direct", "2.0.0"): ReadinessDeclaration(
+            ("score.intrinsic.direct", "2.1.0"): ReadinessDeclaration(
                 behavior=readiness_behavior,
                 prerequisites={},
-                check=lambda _: True,
+                check=lambda _: ReadinessResult(True),
             )
         },
     )
@@ -431,7 +444,7 @@ def test_observation_identity_excludes_value_and_distinguishes_metric_and_method
 
 def test_score_collection_codec_deduplicates_equal_observations_and_fails_closed() -> None:
     catalog, contracts = _scoring_catalog()
-    score_type = catalog.require_port_type("score.collection", "2.0.0")
+    score_type = catalog.require_port_type("score.collection", "2.1.0")
     observation = _observation(contracts, "candidate-1", 90)
 
     encoded = score_type.encode(
@@ -521,7 +534,7 @@ def test_selection_rejects_one_observation_identity_in_two_partitions() -> None:
 
 def test_score_collection_codec_enforces_metric_and_method_reference_roles() -> None:
     catalog, contracts = _scoring_catalog()
-    score_type = catalog.require_port_type("score.collection", "2.0.0")
+    score_type = catalog.require_port_type("score.collection", "2.1.0")
     malformed = replace(
         _observation(contracts, "candidate-1", 90),
         metric=_reference(contracts["method.a"]),
@@ -876,7 +889,7 @@ def test_selection_result_defensively_freezes_all_provenance_paths() -> None:
 @pytest.mark.parametrize("weight", [-1, -0.0, float("inf"), float("nan")])
 def test_objective_rejects_negative_or_non_finite_weight(weight: float) -> None:
     _, contracts = _scoring_catalog()
-    with pytest.raises(SelectionError, match="finite and non-negative"):
+    with pytest.raises(SelectionError, match="finite and strictly positive"):
         SelectionObjective(
             objective_id="quality-objective",
             candidate_input=SelectionInput("producer", "candidates"),
@@ -902,7 +915,7 @@ def test_objective_rejects_non_i_json_integer_and_non_finite_total() -> None:
         "utility_transform": _reference(contracts["quality.linear"]),
         "utility_parameters": {},
     }
-    with pytest.raises(SelectionError, match="finite and non-negative"):
+    with pytest.raises(SelectionError, match="finite and strictly positive"):
         SelectionObjective(**arguments, weight=10**400)
 
     candidates = CandidateCollection(
@@ -941,6 +954,18 @@ def test_selection_rejects_zero_total_weight_missing_and_out_of_range_utility() 
     )
     candidate_input = SelectionInput("producer", "candidates")
     score_input = SelectionInput("producer", "scores")
+    with pytest.raises(SelectionError, match="strictly positive"):
+        SelectionObjective(
+            objective_id="quality-objective",
+            candidate_input=candidate_input,
+            score_collection_input=score_input,
+            metric=_reference(contracts["quality"]),
+            method=_reference(contracts["method.a"]),
+            context_selector=IntrinsicObservationContext(),
+            utility_transform=_reference(contracts["quality.linear"]),
+            utility_parameters={},
+            weight=0,
+        )
     objective = SelectionObjective(
         objective_id="quality-objective",
         candidate_input=candidate_input,
@@ -950,21 +975,8 @@ def test_selection_rejects_zero_total_weight_missing_and_out_of_range_utility() 
         context_selector=IntrinsicObservationContext(),
         utility_transform=_reference(contracts["quality.linear"]),
         utility_parameters={},
-        weight=0,
+        weight=1,
     )
-    with pytest.raises(SelectionError, match="finite positive total"):
-        select_candidates(
-            candidate_inputs={candidate_input: candidates},
-            score_collection_inputs={
-                score_input: ScoreCollection(
-                    "scores",
-                    [_observation(contracts, "candidate-1", 90)],
-                )
-            },
-            objectives=(objective,),
-            catalog=catalog,
-            limit=1,
-        )
     with pytest.raises(SelectionError, match="missing observation"):
         select_candidates(
             candidate_inputs={candidate_input: candidates},
@@ -979,7 +991,7 @@ def test_selection_rejects_zero_total_weight_missing_and_out_of_range_utility() 
         catalog,
         utility_transforms={
             **dict(catalog.utility_transforms),
-            ("quality.linear", "2.0.0"): lambda value, parameters: 1.01,
+            ("quality.linear", "2.1.0"): lambda value, parameters: 1.01,
         },
     )
     with pytest.raises(SelectionError, match=r"within \[0, 1\]"):
@@ -1005,15 +1017,15 @@ def _workflow_payload(
     utility: str = "quality.linear",
 ) -> dict:
     return {
-        "schema_version": "2.0.0",
+        "schema_version": "2.1.0",
         "workflow_id": "workflow-scoring",
         "nodes": [
             {
                 "node_id": "producer",
                 "node_type_id": "score.intrinsic",
-                "node_type_version": "2.0.0",
+                "node_type_version": "2.1.0",
                 "binding_id": "score.intrinsic.direct",
-                "binding_version": "2.0.0",
+                "binding_version": "2.1.0",
                 "node_parameters": {},
                 "binding_parameters": {},
             }
@@ -1140,7 +1152,7 @@ def test_run_executes_objectives_and_publishes_effective_provenance(
     app = create_app(
         frozen_catalog_override=catalog,
         v2_environment_configuration={
-            ("score.intrinsic.direct", "2.0.0"): {
+            ("score.intrinsic.direct", "2.1.0"): {
                 "values": {},
                 "safe_fingerprint": "scoring-fixture-v1",
                 "invalidation_token": "scoring-fixture-assets-v1",
@@ -1238,7 +1250,7 @@ def test_run_executes_objectives_and_publishes_effective_provenance(
     reloaded_app = create_app(
         frozen_catalog_override=catalog,
         v2_environment_configuration={
-            ("score.intrinsic.direct", "2.0.0"): {
+            ("score.intrinsic.direct", "2.1.0"): {
                 "values": {},
                 "safe_fingerprint": "scoring-fixture-v1",
                 "invalidation_token": "scoring-fixture-assets-v1",
@@ -1265,7 +1277,7 @@ def test_selection_failure_is_public_and_survives_ledger_reload(
         catalog,
         utility_transforms={
             **dict(catalog.utility_transforms),
-            ("quality.linear", "2.0.0"): lambda value, parameters: 1.01,
+            ("quality.linear", "2.1.0"): lambda value, parameters: 1.01,
         },
     )
     monkeypatch.setenv(
@@ -1281,7 +1293,7 @@ def test_selection_failure_is_public_and_survives_ledger_reload(
         str(tmp_path / "outputs"),
     )
     environment = {
-        ("score.intrinsic.direct", "2.0.0"): {
+        ("score.intrinsic.direct", "2.1.0"): {
             "values": {},
             "safe_fingerprint": "scoring-fixture-v1",
             "invalidation_token": "scoring-fixture-assets-v1",

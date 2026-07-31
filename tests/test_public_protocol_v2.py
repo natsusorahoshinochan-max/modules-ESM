@@ -167,7 +167,7 @@ def test_bundle_freezes_event_replay_close_and_error_vocabulary() -> None:
     }
 
     errors = bundle["structured_errors"]
-    assert errors["vocabulary_version"] == "2.0.0"
+    assert errors["vocabulary_version"] == "2.1.0"
     assert errors["envelope_schema"] == "#/$defs/StructuredErrorEnvelope"
     assert errors["details_max_bytes"] == 16384
     assert errors["redaction_contract"] == {
@@ -217,7 +217,7 @@ def test_availability_and_schema_version_fail_closed() -> None:
     binding = {
         "contract_kind": "binding",
         "contract_id": "folding.simplefold",
-        "contract_version": "2.0.0",
+        "contract_version": "2.1.0",
         "contract_digest": "sha256:" + "1" * 64,
     }
     validate_schema(
@@ -253,7 +253,7 @@ def test_availability_and_schema_version_fail_closed() -> None:
                 "correlation_id": "incident-version",
                 "details": {
                     "artifact_kind": "workflow",
-                    "expected_schema_version": "2.0.0",
+                    "expected_schema_version": "2.1.0",
                     "received_schema_version": "1.0.0",
                 },
             },
@@ -283,7 +283,7 @@ def test_catalog_descriptor_and_node_disposition_are_closed() -> None:
     port_type = {
         "contract_kind": "port_type",
         "contract_id": "protein.pdb_string",
-        "contract_version": "2.0.0",
+        "contract_version": "2.1.0",
         "contract_digest": "sha256:" + "2" * 64,
     }
     public_contract = {
@@ -292,20 +292,20 @@ def test_catalog_descriptor_and_node_disposition_are_closed() -> None:
             "schema_namespace": "protein-workbench-contract/v2",
             "contract_kind": "port_type",
             "contract_id": "protein.pdb_string",
-            "contract_version": "2.0.0",
+            "contract_version": "2.1.0",
             "validator": {
                 "behavior_id": "pdb.validate",
-                "behavior_version": "2.0.0",
+                "behavior_version": "2.1.0",
                 "parameters": {},
             },
             "codec": {
                 "behavior_id": "pdb.utf8",
-                "behavior_version": "2.0.0",
+                "behavior_version": "2.1.0",
                 "parameters": {},
             },
             "content_identity": {
                 "behavior_id": "pdb.sha256",
-                "behavior_version": "2.0.0",
+                "behavior_version": "2.1.0",
                 "parameters": {},
             },
         },

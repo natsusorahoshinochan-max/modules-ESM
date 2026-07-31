@@ -18,6 +18,7 @@ from core import (
     MethodDefinition,
     ModulePackageRegistration,
     ReadinessDeclaration,
+    ReadinessResult,
 )
 from datatypes import (
     Candidate,
@@ -27,7 +28,7 @@ from datatypes import (
 )
 
 
-_VERSION = "2.0.0"
+_VERSION = "2.1.0"
 _PROJECT_ROOT = Path(__file__).resolve().parents[3]
 _PDB_PATH = _PROJECT_ROOT / "pdbs" / "3GB1.pdb"
 _PDB_SHA256 = (
@@ -57,7 +58,7 @@ class _StructureSource:
             raise RuntimeError("3GB1 structure fixture does not match its source")
         with self._resources.engine_invocation(
             engine_identity=(
-                "contract_test.proteinmpnn_3gb1_structure/2.0.0"
+                "contract_test.proteinmpnn_3gb1_structure/2.1.0"
             ),
         ):
             candidate = Candidate(
@@ -104,7 +105,7 @@ class _SequenceSource:
         parent = parents.items[0]
         with self._resources.engine_invocation(
             engine_identity=(
-                "contract_test.proteinmpnn_3gb1_sequence/2.0.0"
+                "contract_test.proteinmpnn_3gb1_sequence/2.1.0"
             ),
         ):
             candidate = Candidate(
@@ -203,7 +204,7 @@ def _binding(operation: str) -> ExecutionBindingDefinition:
                 {},
             ),
             prerequisites={},
-            check=lambda environment: True,
+            check=lambda environment: ReadinessResult(True),
         ),
         deterministic=True,
         cacheable=True,
@@ -215,7 +216,7 @@ def _binding(operation: str) -> ExecutionBindingDefinition:
 
 
 MODULE_PACKAGE = ModulePackageRegistration(
-    schema_version=_VERSION,
+    schema_version="2.1.0",
     package_id="contract_test.proteinmpnn_model_sources",
     package_version=_VERSION,
     package_module=__package__,

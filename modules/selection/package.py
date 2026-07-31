@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping
-
 from core import (
     AvailabilityDeclaration,
     AvailabilityResult,
@@ -14,14 +12,17 @@ from core import (
     LazyImplementationFactory,
     MethodDefinition,
     ModulePackageRegistration,
+    ObservationSelectorConsumptionDefinition,
+    ReadinessCheckInput,
     ReadinessDeclaration,
+    ReadinessResult,
     SelectionObjectiveConsumptionDefinition,
 )
 
 from .implementation import SelectionImplementation
 
 
-VERSION = "2.0.0"
+VERSION = "2.1.0"
 OPERATIONS = (
     "filter",
     "sort",
@@ -39,8 +40,9 @@ def _available() -> AvailabilityResult:
     return AvailabilityResult.available()
 
 
-def _ready(environment: Mapping[str, object]) -> bool:
-    return isinstance(environment, Mapping)
+def _ready(check_input: ReadinessCheckInput) -> ReadinessResult:
+    del check_input
+    return ReadinessResult(True)
 
 
 def _factory(operation: str):
@@ -162,7 +164,9 @@ def _binding(operation: str) -> ExecutionBindingDefinition:
             "identity_preservation": "exact-candidate-object",
         },
         selection_objective_consumption=(
-            SelectionObjectiveConsumptionDefinition(
+            None
+            if operation == "filter"
+            else SelectionObjectiveConsumptionDefinition(
                 candidate_input_port="candidates",
                 score_collection_input_port="scores",
                 candidate_output_port="candidates",
@@ -173,11 +177,21 @@ def _binding(operation: str) -> ExecutionBindingDefinition:
                 ),
             )
         ),
+        observation_selector_consumption=(
+            ObservationSelectorConsumptionDefinition(
+                candidate_input_port="candidates",
+                score_collection_input_port="scores",
+                candidate_output_port="candidates",
+                selector_id_parameter="selector_id",
+            )
+            if operation == "filter"
+            else None
+        ),
     )
 
 
 MODULE_PACKAGE = ModulePackageRegistration(
-    schema_version=VERSION,
+    schema_version="2.1.0",
     package_id="selection",
     package_version=VERSION,
     package_module=__package__,

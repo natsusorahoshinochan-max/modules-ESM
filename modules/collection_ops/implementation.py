@@ -107,7 +107,7 @@ class CollectionOpsImplementation:
             or not value.items
         ):
             raise ValueError(f"{port} must be a non-empty Candidate Collection")
-        codec = self._catalog.require_port_type(value.item_type, "2.0.0")
+        codec = self._catalog.require_port_type(value.item_type, "2.1.0")
         by_id: dict[str, tuple[Candidate, str]] = {}
         for candidate in value.items:
             if (

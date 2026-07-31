@@ -897,11 +897,12 @@ def validate_protein_sol_sequences(sequences: Sequence[str]) -> None:
     for sequence in sequences:
         if (
             not isinstance(sequence, str)
-            or not sequence
+            or len(sequence) < 21
             or not set(sequence) <= _CANONICAL_AMINO_ACIDS
         ):
             raise ValueError(
-                "Protein-Sol requires non-empty canonical protein sequences"
+                "Protein-Sol requires canonical protein sequences of at least "
+                "21 residues"
             )
 
 

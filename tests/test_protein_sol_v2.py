@@ -30,18 +30,18 @@ def test_protein_sol_registers_one_exact_method_and_three_metrics() -> None:
     method = catalog.require_contract(
         "method",
         "solubility.protein_sol.sequence_prediction_2017",
-        "2.0.0",
+        "2.1.0",
     )
     binding = catalog.require_contract(
         "binding",
         "solubility.protein_sol.local",
-        "2.0.0",
+        "2.1.0",
     )
     metrics = {
         metric_id: catalog.require_contract(
             "metric",
             metric_id,
-            "2.0.0",
+            "2.1.0",
         )
         for metric_id in (
             "solubility.protein_sol_percent",
@@ -64,6 +64,9 @@ def test_protein_sol_registers_one_exact_method_and_three_metrics() -> None:
     assert method.descriptor["featurization_identity"]["sequence_alphabet"] == (
         "ACDEFGHIKLMNPQRSTVWY"
     )
+    assert method.descriptor["featurization_identity"][
+        "minimum_sequence_length"
+    ] == 21
     assert binding.descriptor["method"]["contract_id"] == method.contract_id
     assert binding.descriptor["binding_parameters"] == {}
     assert len(binding.descriptor["produced_observations"]) == 3
@@ -210,16 +213,16 @@ def test_calibration_context_is_typed_and_round_trips_with_observation() -> None
     )
 
     catalog = build_discovered_frozen_catalog()
-    score_type = catalog.require_port_type("score.collection", "2.0.0")
+    score_type = catalog.require_port_type("score.collection", "2.1.0")
     metric = catalog.require_contract(
         "metric",
         "solubility.protein_sol_scaled",
-        "2.0.0",
+        "2.1.0",
     )
     method = catalog.require_contract(
         "method",
         "solubility.protein_sol.sequence_prediction_2017",
-        "2.0.0",
+        "2.1.0",
     )
     context = CalibrationObservationContext(
         calibration_metric="population_scaled_solubility",
@@ -269,7 +272,7 @@ def test_calibration_context_is_an_exact_selection_selector() -> None:
     reference = lambda kind, contract_id: ExactContractReference(
         contract_kind=kind,
         contract_id=contract_id,
-        contract_version="2.0.0",
+        contract_version="2.1.0",
         contract_digest=f"sha256:{'a' * 64}",
     )
     objective = SelectionObjective(
@@ -359,7 +362,7 @@ def _run_protein_sol(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     *,
-    sequence: str = "ACDEFGHIKLMNPQRSTVWY",
+    sequence: str = "ACDEFGHIKLMNPQRSTVWYA",
     provider_payload: bytes | None = None,
     replay: bool = False,
 ) -> tuple[
@@ -406,18 +409,18 @@ def _run_protein_sol(
     source = WorkflowNodeInstance(
         node_id="source",
         node_type_id="contract_test.folding_sequence_source",
-        node_type_version="2.0.0",
+        node_type_version="2.1.0",
         binding_id="contract_test.folding_sequence_source.direct",
-        binding_version="2.0.0",
+        binding_version="2.1.0",
         node_parameters={"sequence": sequence},
         binding_parameters={},
     )
     score = WorkflowNodeInstance(
         node_id="score",
         node_type_id="solubility.score_sequence",
-        node_type_version="2.0.0",
+        node_type_version="2.1.0",
         binding_id="solubility.protein_sol.local",
-        binding_version="2.0.0",
+        binding_version="2.1.0",
         node_parameters={},
         binding_parameters={},
     )
@@ -434,7 +437,7 @@ def _run_protein_sol(
         project.id,
         expected_workflow_revision=0,
         workflow=WorkflowDocument(
-            schema_version="2.0.0",
+            schema_version="2.1.0",
             workflow_id=project.id,
             nodes=(source, score),
             edges=(
@@ -463,7 +466,7 @@ def _run_protein_sol(
         authoring,
         EnvironmentConfiguration(
             {
-                ("solubility.protein_sol.local", "2.0.0"): {
+                ("solubility.protein_sol.local", "2.1.0"): {
                     "values": {
                         "fixture_ready": True,
                         "private_runtime_path": "/must/not/publish",
@@ -510,7 +513,7 @@ def test_protein_sol_one_method_publishes_three_calibrated_metrics(
     )
 
     assert projection["status"] == "succeeded"
-    assert calls == [["ACDEFGHIKLMNPQRSTVWY"]]
+    assert calls == [["ACDEFGHIKLMNPQRSTVWYA"]]
     output = next(
         item for item in projection["outputs"] if item["node_id"] == "score"
     )
@@ -567,6 +570,20 @@ def test_protein_sol_one_method_publishes_three_calibrated_metrics(
     assert "/must/not/publish" not in str((projection, events))
 
 
+def test_protein_sol_rejects_twenty_residues_before_provider_invocation(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _, (projection,), _, calls = _run_protein_sol(
+        tmp_path,
+        monkeypatch,
+        sequence="ACDEFGHIKLMNPQRSTVWY",
+    )
+
+    assert projection["status"] == "failed"
+    assert calls == []
+
+
 def test_protein_sol_cache_replay_preserves_metrics_and_calibration_without_inference(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -590,7 +607,7 @@ def test_protein_sol_cache_replay_preserves_metrics_and_calibration_without_infe
         ),
     )
     assert replayed_scores == first_scores
-    assert calls == [["ACDEFGHIKLMNPQRSTVWY"]]
+    assert calls == [["ACDEFGHIKLMNPQRSTVWYA"]]
     assert not any(
         event["event"]["type"] == "engine_invocation_started"
         for event in event_groups[1]
@@ -621,8 +638,8 @@ def test_protein_sol_invalid_output_publishes_nothing_and_does_not_cache(
         "failed",
     ]
     assert calls == [
-        ["ACDEFGHIKLMNPQRSTVWY"],
-        ["ACDEFGHIKLMNPQRSTVWY"],
+        ["ACDEFGHIKLMNPQRSTVWYA"],
+        ["ACDEFGHIKLMNPQRSTVWYA"],
     ]
     assert all(
         not any(
@@ -654,7 +671,7 @@ def test_protein_sol_invalid_sequence_fails_before_engine_invocation() -> None:
 
     with pytest.raises(
         ValueError,
-        match="non-empty canonical protein sequences",
+        match="at least 21 residues",
     ):
         validate_protein_sol_sequences(["ACDEFGHIKLMNPQRSTVWX"])
 
@@ -774,10 +791,10 @@ def test_protein_sol_passes_shared_contract_test_kit(
     source = WorkflowNodeInstance(
         node_id="source",
         node_type_id="contract_test.folding_sequence_source",
-        node_type_version="2.0.0",
+        node_type_version="2.1.0",
         binding_id="contract_test.folding_sequence_source.direct",
-        binding_version="2.0.0",
-        node_parameters={"sequence": "ACDEFGHIKLMNPQRSTVWY"},
+        binding_version="2.1.0",
+        node_parameters={"sequence": "ACDEFGHIKLMNPQRSTVWYA"},
         binding_parameters={},
     )
     report = verify_module_package_contract(
@@ -786,9 +803,9 @@ def test_protein_sol_passes_shared_contract_test_kit(
             ModulePackageContractCase(
                 case_id=case_id,
                 node_type_id="solubility.score_sequence",
-                node_type_version="2.0.0",
+                node_type_version="2.1.0",
                 binding_id=binding_id,
-                binding_version="2.0.0",
+                binding_version="2.1.0",
                 node_parameters={},
                 binding_parameters={},
                 environment_values={

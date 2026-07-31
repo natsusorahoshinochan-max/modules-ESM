@@ -1,20 +1,20 @@
-schema_version: "2.0.0"
+schema_version: "2.1.0"
 node_type_id: structure_transform.backbone_to_structure
-version: "2.0.0"
+version: "2.1.0"
 title: Expose backbone as protein structure
 summary: Explicitly converts a validated backbone nominal value to the generic protein-structure contract without inventing atoms.
 category: structure_transform
 inputs:
   - name: backbone
     port_type_id: structure_transform.backbone_structure
-    port_type_version: "2.0.0"
+    port_type_version: "2.1.0"
     required: true
     multiplicity: one
     scientific_meaning: Canonical N-CA-C-O backbone-only structure.
 outputs:
   - name: structure
     port_type_id: protein.structure
-    port_type_version: "2.0.0"
+    port_type_version: "2.1.0"
     required: true
     multiplicity: one
     scientific_meaning: The same backbone PDB bytes explicitly viewed through the generic structure contract.

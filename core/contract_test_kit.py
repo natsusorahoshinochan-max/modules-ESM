@@ -22,7 +22,7 @@ from core.port_types import (
     canonical_json_bytes,
 )
 from core.project import ProjectManager
-from core.scoring_v2 import SelectionObjective
+from core.scoring_v2 import ObservationSelector, SelectionObjective
 from core.run_execution_v2 import (
     EnvironmentConfiguration,
     V2RunError,
@@ -82,6 +82,7 @@ class ModulePackageContractCase:
     invalidation_token: str
     workflow_nodes: tuple[WorkflowNodeInstance, ...] = ()
     workflow_edges: tuple[WorkflowEdge, ...] = ()
+    observation_selectors: tuple[ObservationSelector, ...] = ()
     selection_objectives: tuple[SelectionObjective, ...] = ()
     project_inputs: Mapping[str, bytes] = field(default_factory=dict)
     expected_scalar_outputs: Mapping[str, Any] = field(default_factory=dict)
@@ -116,6 +117,11 @@ class ModulePackageContractCase:
             object.__setattr__(self, name, _freeze_mapping(value))
         object.__setattr__(
             self,
+            "observation_selectors",
+            tuple(self.observation_selectors),
+        )
+        object.__setattr__(
+            self,
             "forbidden_public_fragments",
             tuple(self.forbidden_public_fragments),
         )
@@ -133,11 +139,15 @@ class ModulePackageContractCase:
             not isinstance(edge, WorkflowEdge)
             for edge in self.workflow_edges
         ) or any(
+            not isinstance(selector, ObservationSelector)
+            for selector in self.observation_selectors
+        ) or any(
             not isinstance(objective, SelectionObjective)
             for objective in self.selection_objectives
         ):
             raise ModulePackageConformanceError(
-                "workflow Nodes, Edges, and Selection Objectives must use "
+                "workflow Nodes, Edges, Observation Selectors, and Selection "
+                "Objectives must use "
                 "v2 Workflow types"
             )
         if any(
@@ -339,7 +349,7 @@ def _verify_case(
         project_manager.publish_input(project.id, reference, payload)
     authoring = WorkflowAuthoringService(project_manager, catalog)
     workflow = WorkflowDocument(
-        schema_version="2.0.0",
+        schema_version="2.1.0",
         workflow_id=project.id,
         nodes=(
             *case.workflow_nodes,
@@ -355,6 +365,7 @@ def _verify_case(
         ),
         edges=case.workflow_edges,
         contract_lock=(),
+        observation_selectors=case.observation_selectors,
         selection_objectives=case.selection_objectives,
     )
     saved = authoring.save(

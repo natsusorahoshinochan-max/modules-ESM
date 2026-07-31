@@ -27,7 +27,7 @@ from tests.fixtures.structure_transform_sources.package import (
 )
 
 
-VERSION = "2.0.0"
+VERSION = "2.1.0"
 _SOURCE = WorkflowNodeInstance(
     node_id="source",
     node_type_id="contract_test.structure_transform_source",
@@ -295,5 +295,5 @@ def test_all_nodes_pass_the_shared_contract_test_kit(
         "succeeded",
     ]
     assert report.verified_port_types == (
-        "structure_transform.backbone_structure@2.0.0",
+        "structure_transform.backbone_structure@2.1.0",
     )

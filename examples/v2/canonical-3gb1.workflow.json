@@ -1,31 +1,33 @@
 {
-  "schema_version": "2.0.0",
+  "schema_version": "2.1.0",
   "workflow_id": "canonical-3gb1",
   "nodes": [
     {
       "node_id": "import-3gb1",
       "node_type_id": "protein_io.import_structure",
-      "node_type_version": "2.0.0",
+      "node_type_version": "2.1.0",
       "binding_id": "protein_io.import_structure.direct",
-      "binding_version": "2.0.0",
-      "node_parameters": {"project_input_ref": "3GB1.pdb"},
+      "binding_version": "2.1.0",
+      "node_parameters": {
+        "project_input_ref": "3GB1.pdb"
+      },
       "binding_parameters": {}
     },
     {
       "node_id": "build-prompt",
       "node_type_id": "prompt_authoring.prompt_from_structure",
-      "node_type_version": "2.0.0",
+      "node_type_version": "2.1.0",
       "binding_id": "prompt_authoring.prompt_from_structure.direct",
-      "binding_version": "2.0.0",
+      "binding_version": "2.1.0",
       "node_parameters": {},
       "binding_parameters": {}
     },
     {
       "node_id": "mask-sequence",
       "node_type_id": "prompt_authoring.random_mask",
-      "node_type_version": "2.0.0",
+      "node_type_version": "2.1.0",
       "binding_id": "prompt_authoring.random_mask.direct",
-      "binding_version": "2.0.0",
+      "binding_version": "2.1.0",
       "node_parameters": {
         "effective_seed": 1603,
         "count": 20,
@@ -37,9 +39,9 @@
     {
       "node_id": "mask-structure",
       "node_type_id": "prompt_authoring.random_mask",
-      "node_type_version": "2.0.0",
+      "node_type_version": "2.1.0",
       "binding_id": "prompt_authoring.random_mask.direct",
-      "binding_version": "2.0.0",
+      "binding_version": "2.1.0",
       "node_parameters": {
         "effective_seed": 1603,
         "count": 10,
@@ -51,74 +53,272 @@
     {
       "node_id": "insert-masked",
       "node_type_id": "prompt_authoring.random_insert_masked",
-      "node_type_version": "2.0.0",
+      "node_type_version": "2.1.0",
       "binding_id": "prompt_authoring.random_insert_masked.direct",
-      "binding_version": "2.0.0",
+      "binding_version": "2.1.0",
       "node_parameters": {
         "effective_seed": 1603,
         "count": 15,
-        "eligible_chain_ids": ["A"]
+        "eligible_chain_ids": [
+          "A"
+        ]
       },
       "binding_parameters": {}
     },
     {
       "node_id": "override-secondary-structure",
       "node_type_id": "prompt_authoring.override_protein_prompt_track",
-      "node_type_version": "2.0.0",
+      "node_type_version": "2.1.0",
       "binding_id": "prompt_authoring.override_protein_prompt_track.direct",
-      "binding_version": "2.0.0",
+      "binding_version": "2.1.0",
       "node_parameters": {
         "track": "secondary_structure",
         "overrides": [
-          {"action": "replace", "residue_id": "A:1", "value": "E"},
-          {"action": "replace", "residue_id": "A:masked.1603.11", "value": "E"},
-          {"action": "replace", "residue_id": "A:2", "value": "E"},
-          {"action": "replace", "residue_id": "A:masked.1603.15", "value": "E"},
-          {"action": "replace", "residue_id": "A:3", "value": "E"},
-          {"action": "replace", "residue_id": "A:masked.1603.8", "value": "E"},
-          {"action": "replace", "residue_id": "A:4", "value": "E"},
-          {"action": "replace", "residue_id": "A:5", "value": "E"},
-          {"action": "replace", "residue_id": "A:6", "value": "E"},
-          {"action": "replace", "residue_id": "A:7", "value": "E"},
-          {"action": "replace", "residue_id": "A:8", "value": "E"},
-          {"action": "replace", "residue_id": "A:masked.1603.10", "value": "E"},
-          {"action": "replace", "residue_id": "A:9", "value": "E"},
-          {"action": "replace", "residue_id": "A:10", "value": "E"},
-          {"action": "replace", "residue_id": "A:11", "value": "E"},
-          {"action": "replace", "residue_id": "A:12", "value": "E"},
-          {"action": "replace", "residue_id": "A:masked.1603.12", "value": "E"},
-          {"action": "replace", "residue_id": "A:13", "value": "E"},
-          {"action": "replace", "residue_id": "A:14", "value": "E"},
-          {"action": "replace", "residue_id": "A:17", "value": "H"},
-          {"action": "replace", "residue_id": "A:18", "value": "H"},
-          {"action": "replace", "residue_id": "A:19", "value": "H"},
-          {"action": "replace", "residue_id": "A:20", "value": "H"},
-          {"action": "replace", "residue_id": "A:21", "value": "H"},
-          {"action": "replace", "residue_id": "A:22", "value": "H"},
-          {"action": "replace", "residue_id": "A:23", "value": "H"},
-          {"action": "replace", "residue_id": "A:24", "value": "H"},
-          {"action": "replace", "residue_id": "A:28", "value": "E"},
-          {"action": "replace", "residue_id": "A:29", "value": "E"},
-          {"action": "replace", "residue_id": "A:30", "value": "E"},
-          {"action": "replace", "residue_id": "A:31", "value": "E"},
-          {"action": "replace", "residue_id": "A:32", "value": "E"},
-          {"action": "replace", "residue_id": "A:masked.1603.2", "value": "E"},
-          {"action": "replace", "residue_id": "A:33", "value": "E"},
-          {"action": "replace", "residue_id": "A:masked.1603.4", "value": "E"},
-          {"action": "replace", "residue_id": "A:34", "value": "E"},
-          {"action": "replace", "residue_id": "A:35", "value": "E"},
-          {"action": "replace", "residue_id": "A:36", "value": "E"},
-          {"action": "replace", "residue_id": "A:masked.1603.7", "value": "E"},
-          {"action": "replace", "residue_id": "A:37", "value": "E"},
-          {"action": "replace", "residue_id": "A:masked.1603.3", "value": "E"},
-          {"action": "replace", "residue_id": "A:38", "value": "E"},
-          {"action": "replace", "residue_id": "A:39", "value": "E"},
-          {"action": "replace", "residue_id": "A:40", "value": "E"},
-          {"action": "replace", "residue_id": "A:masked.1603.1", "value": "E"},
-          {"action": "replace", "residue_id": "A:41", "value": "E"},
-          {"action": "replace", "residue_id": "A:42", "value": "E"},
-          {"action": "replace", "residue_id": "A:masked.1603.9", "value": "E"},
-          {"action": "replace", "residue_id": "A:43", "value": "E"}
+          {
+            "action": "replace",
+            "residue_id": "A:1",
+            "value": "E"
+          },
+          {
+            "action": "replace",
+            "residue_id": "A:masked.1603.11",
+            "value": "E"
+          },
+          {
+            "action": "replace",
+            "residue_id": "A:2",
+            "value": "E"
+          },
+          {
+            "action": "replace",
+            "residue_id": "A:masked.1603.15",
+            "value": "E"
+          },
+          {
+            "action": "replace",
+            "residue_id": "A:3",
+            "value": "E"
+          },
+          {
+            "action": "replace",
+            "residue_id": "A:masked.1603.8",
+            "value": "E"
+          },
+          {
+            "action": "replace",
+            "residue_id": "A:4",
+            "value": "E"
+          },
+          {
+            "action": "replace",
+            "residue_id": "A:5",
+            "value": "E"
+          },
+          {
+            "action": "replace",
+            "residue_id": "A:6",
+            "value": "E"
+          },
+          {
+            "action": "replace",
+            "residue_id": "A:7",
+            "value": "E"
+          },
+          {
+            "action": "replace",
+            "residue_id": "A:8",
+            "value": "E"
+          },
+          {
+            "action": "replace",
+            "residue_id": "A:masked.1603.10",
+            "value": "E"
+          },
+          {
+            "action": "replace",
+            "residue_id": "A:9",
+            "value": "E"
+          },
+          {
+            "action": "replace",
+            "residue_id": "A:10",
+            "value": "E"
+          },
+          {
+            "action": "replace",
+            "residue_id": "A:11",
+            "value": "E"
+          },
+          {
+            "action": "replace",
+            "residue_id": "A:12",
+            "value": "E"
+          },
+          {
+            "action": "replace",
+            "residue_id": "A:masked.1603.12",
+            "value": "E"
+          },
+          {
+            "action": "replace",
+            "residue_id": "A:13",
+            "value": "E"
+          },
+          {
+            "action": "replace",
+            "residue_id": "A:14",
+            "value": "E"
+          },
+          {
+            "action": "replace",
+            "residue_id": "A:17",
+            "value": "H"
+          },
+          {
+            "action": "replace",
+            "residue_id": "A:18",
+            "value": "H"
+          },
+          {
+            "action": "replace",
+            "residue_id": "A:19",
+            "value": "H"
+          },
+          {
+            "action": "replace",
+            "residue_id": "A:20",
+            "value": "H"
+          },
+          {
+            "action": "replace",
+            "residue_id": "A:21",
+            "value": "H"
+          },
+          {
+            "action": "replace",
+            "residue_id": "A:22",
+            "value": "H"
+          },
+          {
+            "action": "replace",
+            "residue_id": "A:23",
+            "value": "H"
+          },
+          {
+            "action": "replace",
+            "residue_id": "A:24",
+            "value": "H"
+          },
+          {
+            "action": "replace",
+            "residue_id": "A:28",
+            "value": "E"
+          },
+          {
+            "action": "replace",
+            "residue_id": "A:29",
+            "value": "E"
+          },
+          {
+            "action": "replace",
+            "residue_id": "A:30",
+            "value": "E"
+          },
+          {
+            "action": "replace",
+            "residue_id": "A:31",
+            "value": "E"
+          },
+          {
+            "action": "replace",
+            "residue_id": "A:32",
+            "value": "E"
+          },
+          {
+            "action": "replace",
+            "residue_id": "A:masked.1603.2",
+            "value": "E"
+          },
+          {
+            "action": "replace",
+            "residue_id": "A:33",
+            "value": "E"
+          },
+          {
+            "action": "replace",
+            "residue_id": "A:masked.1603.4",
+            "value": "E"
+          },
+          {
+            "action": "replace",
+            "residue_id": "A:34",
+            "value": "E"
+          },
+          {
+            "action": "replace",
+            "residue_id": "A:35",
+            "value": "E"
+          },
+          {
+            "action": "replace",
+            "residue_id": "A:36",
+            "value": "E"
+          },
+          {
+            "action": "replace",
+            "residue_id": "A:masked.1603.7",
+            "value": "E"
+          },
+          {
+            "action": "replace",
+            "residue_id": "A:37",
+            "value": "E"
+          },
+          {
+            "action": "replace",
+            "residue_id": "A:masked.1603.3",
+            "value": "E"
+          },
+          {
+            "action": "replace",
+            "residue_id": "A:38",
+            "value": "E"
+          },
+          {
+            "action": "replace",
+            "residue_id": "A:39",
+            "value": "E"
+          },
+          {
+            "action": "replace",
+            "residue_id": "A:40",
+            "value": "E"
+          },
+          {
+            "action": "replace",
+            "residue_id": "A:masked.1603.1",
+            "value": "E"
+          },
+          {
+            "action": "replace",
+            "residue_id": "A:41",
+            "value": "E"
+          },
+          {
+            "action": "replace",
+            "residue_id": "A:42",
+            "value": "E"
+          },
+          {
+            "action": "replace",
+            "residue_id": "A:masked.1603.9",
+            "value": "E"
+          },
+          {
+            "action": "replace",
+            "residue_id": "A:43",
+            "value": "E"
+          }
         ]
       },
       "binding_parameters": {}
@@ -126,83 +326,92 @@
     {
       "node_id": "generate-paired",
       "node_type_id": "esm3.generate_paired",
-      "node_type_version": "2.0.0",
+      "node_type_version": "2.1.0",
       "binding_id": "esm3.generate_paired.biohub_medium",
-      "binding_version": "2.0.0",
-      "node_parameters": {"effective_seed": 1603, "num_samples": 10},
+      "binding_version": "2.1.0",
+      "node_parameters": {
+        "effective_seed": 1603,
+        "num_samples": 10
+      },
       "binding_parameters": {}
     },
     {
       "node_id": "fold-sequences",
       "node_type_id": "folding.fold",
-      "node_type_version": "2.0.0",
+      "node_type_version": "2.1.0",
       "binding_id": "folding.fold.esmfold2_remote",
-      "binding_version": "2.0.0",
-      "node_parameters": {"effective_seed": 1603, "num_samples": 1},
+      "binding_version": "2.1.0",
+      "node_parameters": {
+        "effective_seed": 1603,
+        "num_samples": 1
+      },
       "binding_parameters": {}
     },
     {
       "node_id": "rebind-counterparts",
       "node_type_id": "collection_ops.rebind_candidate_pairing",
-      "node_type_version": "2.0.0",
+      "node_type_version": "2.1.0",
       "binding_id": "collection_ops.rebind_candidate_pairing.direct",
-      "binding_version": "2.0.0",
+      "binding_version": "2.1.0",
       "node_parameters": {},
       "binding_parameters": {}
     },
     {
       "node_id": "align-fixed",
       "node_type_id": "structure_comparison.align_pairwise",
-      "node_type_version": "2.0.0",
+      "node_type_version": "2.1.0",
       "binding_id": "structure_comparison.align_pairwise.fixed_reference",
-      "binding_version": "2.0.0",
+      "binding_version": "2.1.0",
       "node_parameters": {},
       "binding_parameters": {}
     },
     {
       "node_id": "score-fixed",
       "node_type_id": "structure_comparison.batch_tm_score",
-      "node_type_version": "2.0.0",
+      "node_type_version": "2.1.0",
       "binding_id": "structure_comparison.batch_tm_score.fixed_reference",
-      "binding_version": "2.0.0",
+      "binding_version": "2.1.0",
       "node_parameters": {},
       "binding_parameters": {}
     },
     {
       "node_id": "align-paired",
       "node_type_id": "structure_comparison.align_pairwise",
-      "node_type_version": "2.0.0",
+      "node_type_version": "2.1.0",
       "binding_id": "structure_comparison.align_pairwise.direct",
-      "binding_version": "2.0.0",
+      "binding_version": "2.1.0",
       "node_parameters": {},
       "binding_parameters": {}
     },
     {
       "node_id": "score-paired",
       "node_type_id": "structure_comparison.batch_tm_score",
-      "node_type_version": "2.0.0",
+      "node_type_version": "2.1.0",
       "binding_id": "structure_comparison.batch_tm_score.per_subject_counterpart",
-      "binding_version": "2.0.0",
+      "binding_version": "2.1.0",
       "node_parameters": {},
       "binding_parameters": {}
     },
     {
       "node_id": "merge-scores",
       "node_type_id": "collection_ops.merge_scores",
-      "node_type_version": "2.0.0",
+      "node_type_version": "2.1.0",
       "binding_id": "collection_ops.merge_scores.direct",
-      "binding_version": "2.0.0",
+      "binding_version": "2.1.0",
       "node_parameters": {},
       "binding_parameters": {}
     },
     {
       "node_id": "rank-candidates",
       "node_type_id": "selection.weighted_rank",
-      "node_type_version": "2.0.0",
+      "node_type_version": "2.1.0",
       "binding_id": "selection.weighted_rank.direct",
-      "binding_version": "2.0.0",
+      "binding_version": "2.1.0",
       "node_parameters": {
-        "objective_ids": ["fixed-3gb1", "paired-esm3"],
+        "objective_ids": [
+          "fixed-3gb1",
+          "paired-esm3"
+        ],
         "tie_policy": "candidate_id_ascending"
       },
       "binding_parameters": {}
@@ -210,36 +419,48 @@
     {
       "node_id": "take-top-three",
       "node_type_id": "collection_ops.take_candidates",
-      "node_type_version": "2.0.0",
+      "node_type_version": "2.1.0",
       "binding_id": "collection_ops.take_candidates.direct",
-      "binding_version": "2.0.0",
-      "node_parameters": {"k": 3},
+      "binding_version": "2.1.0",
+      "node_parameters": {
+        "k": 3
+      },
       "binding_parameters": {}
     },
     {
       "node_id": "build-final-layout",
       "node_type_id": "prompt_authoring.build_residue_layout",
-      "node_type_version": "2.0.0",
+      "node_type_version": "2.1.0",
       "binding_id": "prompt_authoring.build_residue_layout.direct",
-      "binding_version": "2.0.0",
-      "node_parameters": {"chains": [{"chain_id": "A", "length": 71}]},
+      "binding_version": "2.1.0",
+      "node_parameters": {
+        "chains": [
+          {
+            "chain_id": "A",
+            "length": 71
+          }
+        ]
+      },
       "binding_parameters": {}
     },
     {
       "node_id": "fixed-positions",
       "node_type_id": "proteinmpnn.random_fixed_positions",
-      "node_type_version": "2.0.0",
+      "node_type_version": "2.1.0",
       "binding_id": "proteinmpnn.random_fixed_positions.local",
-      "binding_version": "2.0.0",
-      "node_parameters": {"effective_seed": 1603, "fraction": 0.5},
+      "binding_version": "2.1.0",
+      "node_parameters": {
+        "effective_seed": 1603,
+        "fraction": 0.5
+      },
       "binding_parameters": {}
     },
     {
       "node_id": "design-children",
       "node_type_id": "proteinmpnn.design",
-      "node_type_version": "2.0.0",
+      "node_type_version": "2.1.0",
       "binding_id": "proteinmpnn.design.local",
-      "binding_version": "2.0.0",
+      "binding_version": "2.1.0",
       "node_parameters": {
         "effective_seed": 1603,
         "num_sequences": 5,
@@ -251,74 +472,249 @@
     {
       "node_id": "fold-final",
       "node_type_id": "folding.fold",
-      "node_type_version": "2.0.0",
+      "node_type_version": "2.1.0",
       "binding_id": "folding.fold.esmfold2_remote",
-      "binding_version": "2.0.0",
-      "node_parameters": {"effective_seed": 1603, "num_samples": 1},
+      "binding_version": "2.1.0",
+      "node_parameters": {
+        "effective_seed": 1603,
+        "num_samples": 1
+      },
       "binding_parameters": {}
     },
     {
       "node_id": "export-final",
       "node_type_id": "protein_io.export_structure",
-      "node_type_version": "2.0.0",
+      "node_type_version": "2.1.0",
       "binding_id": "protein_io.export_structure.direct",
-      "binding_version": "2.0.0",
+      "binding_version": "2.1.0",
       "node_parameters": {},
       "binding_parameters": {}
     }
   ],
   "edges": [
-    {"source_node_id": "import-3gb1", "source_port": "structure", "target_node_id": "build-prompt", "target_port": "structure"},
-    {"source_node_id": "build-prompt", "source_port": "protein_prompt", "target_node_id": "mask-sequence", "target_port": "protein_prompt"},
-    {"source_node_id": "mask-sequence", "source_port": "protein_prompt", "target_node_id": "mask-structure", "target_port": "protein_prompt"},
-    {"source_node_id": "mask-structure", "source_port": "protein_prompt", "target_node_id": "insert-masked", "target_port": "protein_prompt"},
-    {"source_node_id": "insert-masked", "source_port": "protein_prompt", "target_node_id": "override-secondary-structure", "target_port": "protein_prompt"},
-    {"source_node_id": "override-secondary-structure", "source_port": "protein_prompt", "target_node_id": "generate-paired", "target_port": "protein_prompt"},
-    {"source_node_id": "generate-paired", "source_port": "sequence_candidates", "target_node_id": "fold-sequences", "target_port": "sequence_candidates"},
-    {"source_node_id": "fold-sequences", "source_port": "structure_candidates", "target_node_id": "rebind-counterparts", "target_port": "subjects"},
-    {"source_node_id": "generate-paired", "source_port": "sequence_candidates", "target_node_id": "rebind-counterparts", "target_port": "parents"},
-    {"source_node_id": "generate-paired", "source_port": "structure_candidates", "target_node_id": "rebind-counterparts", "target_port": "references"},
-    {"source_node_id": "generate-paired", "source_port": "counterpart_pairs", "target_node_id": "rebind-counterparts", "target_port": "parent_pairing"},
-    {"source_node_id": "fold-sequences", "source_port": "structure_candidates", "target_node_id": "align-fixed", "target_port": "subjects"},
-    {"source_node_id": "import-3gb1", "source_port": "structure_candidates", "target_node_id": "align-fixed", "target_port": "references"},
-    {"source_node_id": "align-fixed", "source_port": "alignments", "target_node_id": "score-fixed", "target_port": "alignments"},
-    {"source_node_id": "fold-sequences", "source_port": "structure_candidates", "target_node_id": "score-fixed", "target_port": "subjects"},
-    {"source_node_id": "import-3gb1", "source_port": "structure_candidates", "target_node_id": "score-fixed", "target_port": "references"},
-    {"source_node_id": "fold-sequences", "source_port": "structure_candidates", "target_node_id": "align-paired", "target_port": "subjects"},
-    {"source_node_id": "generate-paired", "source_port": "structure_candidates", "target_node_id": "align-paired", "target_port": "references"},
-    {"source_node_id": "rebind-counterparts", "source_port": "pairing", "target_node_id": "align-paired", "target_port": "pairing"},
-    {"source_node_id": "align-paired", "source_port": "alignments", "target_node_id": "score-paired", "target_port": "alignments"},
-    {"source_node_id": "fold-sequences", "source_port": "structure_candidates", "target_node_id": "score-paired", "target_port": "subjects"},
-    {"source_node_id": "generate-paired", "source_port": "structure_candidates", "target_node_id": "score-paired", "target_port": "references"},
-    {"source_node_id": "rebind-counterparts", "source_port": "pairing", "target_node_id": "score-paired", "target_port": "pairing"},
-    {"source_node_id": "score-fixed", "source_port": "scores", "target_node_id": "merge-scores", "target_port": "scores_a"},
-    {"source_node_id": "score-paired", "source_port": "scores", "target_node_id": "merge-scores", "target_port": "scores_b"},
-    {"source_node_id": "fold-sequences", "source_port": "structure_candidates", "target_node_id": "rank-candidates", "target_port": "candidates"},
-    {"source_node_id": "merge-scores", "source_port": "scores", "target_node_id": "rank-candidates", "target_port": "scores"},
-    {"source_node_id": "rank-candidates", "source_port": "candidates", "target_node_id": "take-top-three", "target_port": "candidates"},
-    {"source_node_id": "build-final-layout", "source_port": "layout", "target_node_id": "fixed-positions", "target_port": "layout"},
-    {"source_node_id": "take-top-three", "source_port": "candidates", "target_node_id": "design-children", "target_port": "structure_candidates"},
-    {"source_node_id": "fixed-positions", "source_port": "constraints", "target_node_id": "design-children", "target_port": "constraints"},
-    {"source_node_id": "design-children", "source_port": "sequence_candidates", "target_node_id": "fold-final", "target_port": "sequence_candidates"},
-    {"source_node_id": "fold-final", "source_port": "structure_candidates", "target_node_id": "export-final", "target_port": "structures"}
+    {
+      "source_node_id": "import-3gb1",
+      "source_port": "structure",
+      "target_node_id": "build-prompt",
+      "target_port": "structure"
+    },
+    {
+      "source_node_id": "build-prompt",
+      "source_port": "protein_prompt",
+      "target_node_id": "mask-sequence",
+      "target_port": "protein_prompt"
+    },
+    {
+      "source_node_id": "mask-sequence",
+      "source_port": "protein_prompt",
+      "target_node_id": "mask-structure",
+      "target_port": "protein_prompt"
+    },
+    {
+      "source_node_id": "mask-structure",
+      "source_port": "protein_prompt",
+      "target_node_id": "insert-masked",
+      "target_port": "protein_prompt"
+    },
+    {
+      "source_node_id": "insert-masked",
+      "source_port": "protein_prompt",
+      "target_node_id": "override-secondary-structure",
+      "target_port": "protein_prompt"
+    },
+    {
+      "source_node_id": "override-secondary-structure",
+      "source_port": "protein_prompt",
+      "target_node_id": "generate-paired",
+      "target_port": "protein_prompt"
+    },
+    {
+      "source_node_id": "generate-paired",
+      "source_port": "sequence_candidates",
+      "target_node_id": "fold-sequences",
+      "target_port": "sequence_candidates"
+    },
+    {
+      "source_node_id": "fold-sequences",
+      "source_port": "structure_candidates",
+      "target_node_id": "rebind-counterparts",
+      "target_port": "subjects"
+    },
+    {
+      "source_node_id": "generate-paired",
+      "source_port": "sequence_candidates",
+      "target_node_id": "rebind-counterparts",
+      "target_port": "parents"
+    },
+    {
+      "source_node_id": "generate-paired",
+      "source_port": "structure_candidates",
+      "target_node_id": "rebind-counterparts",
+      "target_port": "references"
+    },
+    {
+      "source_node_id": "generate-paired",
+      "source_port": "counterpart_pairs",
+      "target_node_id": "rebind-counterparts",
+      "target_port": "parent_pairing"
+    },
+    {
+      "source_node_id": "fold-sequences",
+      "source_port": "structure_candidates",
+      "target_node_id": "align-fixed",
+      "target_port": "subjects"
+    },
+    {
+      "source_node_id": "import-3gb1",
+      "source_port": "structure_candidates",
+      "target_node_id": "align-fixed",
+      "target_port": "references"
+    },
+    {
+      "source_node_id": "align-fixed",
+      "source_port": "alignments",
+      "target_node_id": "score-fixed",
+      "target_port": "alignments"
+    },
+    {
+      "source_node_id": "fold-sequences",
+      "source_port": "structure_candidates",
+      "target_node_id": "score-fixed",
+      "target_port": "subjects"
+    },
+    {
+      "source_node_id": "import-3gb1",
+      "source_port": "structure_candidates",
+      "target_node_id": "score-fixed",
+      "target_port": "references"
+    },
+    {
+      "source_node_id": "fold-sequences",
+      "source_port": "structure_candidates",
+      "target_node_id": "align-paired",
+      "target_port": "subjects"
+    },
+    {
+      "source_node_id": "generate-paired",
+      "source_port": "structure_candidates",
+      "target_node_id": "align-paired",
+      "target_port": "references"
+    },
+    {
+      "source_node_id": "rebind-counterparts",
+      "source_port": "pairing",
+      "target_node_id": "align-paired",
+      "target_port": "pairing"
+    },
+    {
+      "source_node_id": "align-paired",
+      "source_port": "alignments",
+      "target_node_id": "score-paired",
+      "target_port": "alignments"
+    },
+    {
+      "source_node_id": "fold-sequences",
+      "source_port": "structure_candidates",
+      "target_node_id": "score-paired",
+      "target_port": "subjects"
+    },
+    {
+      "source_node_id": "generate-paired",
+      "source_port": "structure_candidates",
+      "target_node_id": "score-paired",
+      "target_port": "references"
+    },
+    {
+      "source_node_id": "rebind-counterparts",
+      "source_port": "pairing",
+      "target_node_id": "score-paired",
+      "target_port": "pairing"
+    },
+    {
+      "source_node_id": "score-fixed",
+      "source_port": "scores",
+      "target_node_id": "merge-scores",
+      "target_port": "scores_a"
+    },
+    {
+      "source_node_id": "score-paired",
+      "source_port": "scores",
+      "target_node_id": "merge-scores",
+      "target_port": "scores_b"
+    },
+    {
+      "source_node_id": "fold-sequences",
+      "source_port": "structure_candidates",
+      "target_node_id": "rank-candidates",
+      "target_port": "candidates"
+    },
+    {
+      "source_node_id": "merge-scores",
+      "source_port": "scores",
+      "target_node_id": "rank-candidates",
+      "target_port": "scores"
+    },
+    {
+      "source_node_id": "rank-candidates",
+      "source_port": "candidates",
+      "target_node_id": "take-top-three",
+      "target_port": "candidates"
+    },
+    {
+      "source_node_id": "build-final-layout",
+      "source_port": "layout",
+      "target_node_id": "fixed-positions",
+      "target_port": "layout"
+    },
+    {
+      "source_node_id": "take-top-three",
+      "source_port": "candidates",
+      "target_node_id": "design-children",
+      "target_port": "structure_candidates"
+    },
+    {
+      "source_node_id": "fixed-positions",
+      "source_port": "constraints",
+      "target_node_id": "design-children",
+      "target_port": "constraints"
+    },
+    {
+      "source_node_id": "design-children",
+      "source_port": "sequence_candidates",
+      "target_node_id": "fold-final",
+      "target_port": "sequence_candidates"
+    },
+    {
+      "source_node_id": "fold-final",
+      "source_port": "structure_candidates",
+      "target_node_id": "export-final",
+      "target_port": "structures"
+    }
   ],
+  "observation_selectors": [],
   "selection_objectives": [
     {
       "objective_id": "fixed-3gb1",
-      "candidate_input": {"node_id": "fold-sequences", "output_port": "structure_candidates"},
-      "score_collection_input": {"node_id": "merge-scores", "output_port": "scores"},
+      "candidate_input": {
+        "node_id": "fold-sequences",
+        "output_port": "structure_candidates"
+      },
+      "score_collection_input": {
+        "node_id": "merge-scores",
+        "output_port": "scores"
+      },
       "source_partition": "structure_comparison.tm_score.fixed_reference",
       "metric": {
         "contract_kind": "metric",
         "contract_id": "structure_comparison.tm_score",
-        "contract_version": "2.0.0",
-        "contract_digest": "sha256:c4908eb9c82c290d5657e9593ed50e9e80652aa161a8649ad095715659a16a10"
+        "contract_version": "2.1.0",
+        "contract_digest": "sha256:da420b1a3665d381c77e690116e976a112dc32946e8aeb84d5cb54398cfc97ba"
       },
       "method": {
         "contract_kind": "method",
         "contract_id": "structure_comparison.tm_score.reference_normalized.method",
-        "contract_version": "2.0.0",
-        "contract_digest": "sha256:a69ecf9a3dd3c80a4acd710b907a37cc95160274419dc971a3d3da58ccfb3ecd"
+        "contract_version": "2.1.0",
+        "contract_digest": "sha256:7809e22c2d0a3b7c180f72e5b6682f2d92f28df78ad9e129d933911a9558f36d"
       },
       "context_selector": {
         "kind": "pairwise",
@@ -330,8 +726,8 @@
       "utility_transform": {
         "contract_kind": "utility_transform",
         "contract_id": "structure_comparison.tm_score.fixed_reference.identity",
-        "contract_version": "2.0.0",
-        "contract_digest": "sha256:82533fb41121789021d85957e5f430a2b5d714f9fa4cacf06a2819476fb759d3"
+        "contract_version": "2.1.0",
+        "contract_digest": "sha256:95d409eadbc0b72a65d5641dacae3ba7c6104ef020021635f25cdccddc983bc2"
       },
       "utility_parameters": {},
       "weight": 0.7,
@@ -340,20 +736,26 @@
     },
     {
       "objective_id": "paired-esm3",
-      "candidate_input": {"node_id": "fold-sequences", "output_port": "structure_candidates"},
-      "score_collection_input": {"node_id": "merge-scores", "output_port": "scores"},
+      "candidate_input": {
+        "node_id": "fold-sequences",
+        "output_port": "structure_candidates"
+      },
+      "score_collection_input": {
+        "node_id": "merge-scores",
+        "output_port": "scores"
+      },
       "source_partition": "structure_comparison.tm_score.per_subject_counterpart",
       "metric": {
         "contract_kind": "metric",
         "contract_id": "structure_comparison.tm_score",
-        "contract_version": "2.0.0",
-        "contract_digest": "sha256:c4908eb9c82c290d5657e9593ed50e9e80652aa161a8649ad095715659a16a10"
+        "contract_version": "2.1.0",
+        "contract_digest": "sha256:da420b1a3665d381c77e690116e976a112dc32946e8aeb84d5cb54398cfc97ba"
       },
       "method": {
         "contract_kind": "method",
         "contract_id": "structure_comparison.tm_score.reference_normalized.method",
-        "contract_version": "2.0.0",
-        "contract_digest": "sha256:a69ecf9a3dd3c80a4acd710b907a37cc95160274419dc971a3d3da58ccfb3ecd"
+        "contract_version": "2.1.0",
+        "contract_digest": "sha256:7809e22c2d0a3b7c180f72e5b6682f2d92f28df78ad9e129d933911a9558f36d"
       },
       "context_selector": {
         "kind": "pairwise",
@@ -365,8 +767,8 @@
       "utility_transform": {
         "contract_kind": "utility_transform",
         "contract_id": "structure_comparison.tm_score.per_subject_counterpart.identity",
-        "contract_version": "2.0.0",
-        "contract_digest": "sha256:ac7fa0d75d9bbf03ea4affe6bf868f5cf100a63680f4cef786f446a2396e52a8"
+        "contract_version": "2.1.0",
+        "contract_digest": "sha256:6d43ea53ece2d9466adc27289e8630f8d460c4bab3b4c037080bfe51aa5714c1"
       },
       "utility_parameters": {},
       "weight": 0.3,
@@ -375,76 +777,431 @@
     }
   ],
   "contract_lock": [
-    {"contract_kind":"binding","contract_id":"collection_ops.merge_scores.direct","contract_version":"2.0.0","contract_digest":"sha256:6cafa944907bf62f07bab0b27318696cffb9a4c35d17af969462acfc6e97f362"},
-    {"contract_kind":"binding","contract_id":"collection_ops.rebind_candidate_pairing.direct","contract_version":"2.0.0","contract_digest":"sha256:c08f9a5fa7d4cd54499eef309561c04242246af2a43fd1bd77846dc988ba8d38"},
-    {"contract_kind":"binding","contract_id":"collection_ops.take_candidates.direct","contract_version":"2.0.0","contract_digest":"sha256:bdc31bcb79d29e5aaf97a3140ab92750530034e7af058a8ac83e450f551c92c3"},
-    {"contract_kind":"binding","contract_id":"esm3.generate_paired.biohub_medium","contract_version":"2.0.0","contract_digest":"sha256:de0e86f9824dccae461f5c2bf5729f87fbc8718ccc2b3e2bb455826ce58b8c92"},
-    {"contract_kind":"binding","contract_id":"folding.fold.esmfold2_remote","contract_version":"2.0.0","contract_digest":"sha256:1f1c3cf7cdeb9f5bfe8950511da7b668a3986249aa4ad891ddd38379647f194f"},
-    {"contract_kind":"binding","contract_id":"prompt_authoring.build_residue_layout.direct","contract_version":"2.0.0","contract_digest":"sha256:98f799233d749d675f8dd4995e0c71a5fa1df9cc45431eccfd47f7e3a4f572bb"},
-    {"contract_kind":"binding","contract_id":"prompt_authoring.override_protein_prompt_track.direct","contract_version":"2.0.0","contract_digest":"sha256:23461d3c9eb16b224509c111850fd5ae02e4440428cbc445f01c7e059e980b9b"},
-    {"contract_kind":"binding","contract_id":"prompt_authoring.prompt_from_structure.direct","contract_version":"2.0.0","contract_digest":"sha256:55f4dcaba17991ffba818fad6162cf76739bc172bdbca5cae3c93179448b8ad0"},
-    {"contract_kind":"binding","contract_id":"prompt_authoring.random_insert_masked.direct","contract_version":"2.0.0","contract_digest":"sha256:db3e32f4604136c08b38367052f4a04d7d4bc567e0a8de32d4b8c2076d43ba9d"},
-    {"contract_kind":"binding","contract_id":"prompt_authoring.random_mask.direct","contract_version":"2.0.0","contract_digest":"sha256:9f530a9a38e2790da8bc999a07fc2825749ad699e2f0319d160ba27481d781d1"},
-    {"contract_kind":"binding","contract_id":"protein_io.export_structure.direct","contract_version":"2.0.0","contract_digest":"sha256:45e5ec1aeb60d37109d415569ded20c6683059fbf3625f48b5004e9c155fb2d5"},
-    {"contract_kind":"binding","contract_id":"protein_io.import_structure.direct","contract_version":"2.0.0","contract_digest":"sha256:de7cf48c4ff3c0a7b00fd86087a1900a9503c1b6a096c60f1c1598a2ea9bb354"},
-    {"contract_kind":"binding","contract_id":"proteinmpnn.design.local","contract_version":"2.0.0","contract_digest":"sha256:91191b0d829547ac1cd8df884be92c522caa0bb976c47ec6d11f63fab5663b58"},
-    {"contract_kind":"binding","contract_id":"proteinmpnn.random_fixed_positions.local","contract_version":"2.0.0","contract_digest":"sha256:1f2e032c35f0a44d44471af25a362c455d77ff44d641d806ec0b5f012080823c"},
-    {"contract_kind":"binding","contract_id":"selection.weighted_rank.direct","contract_version":"2.0.0","contract_digest":"sha256:011db4752ad690a7357f4eeb85c3e7ca4667fbbf9105652e0b678197367b2f87"},
-    {"contract_kind":"binding","contract_id":"structure_comparison.align_pairwise.direct","contract_version":"2.0.0","contract_digest":"sha256:6370e053f2721ba97993f0c0365134789130ba2ba3740bc337ec73dbef574386"},
-    {"contract_kind":"binding","contract_id":"structure_comparison.align_pairwise.fixed_reference","contract_version":"2.0.0","contract_digest":"sha256:e0e12e45180be2164a5fb1b79317b60d7b83534886f113312e93fd981b032183"},
-    {"contract_kind":"binding","contract_id":"structure_comparison.batch_tm_score.fixed_reference","contract_version":"2.0.0","contract_digest":"sha256:f57c9715ea1a4a21ec96ba60ac0cfa5b4da3bc3654c2437000800ebb02d2c5db"},
-    {"contract_kind":"binding","contract_id":"structure_comparison.batch_tm_score.per_subject_counterpart","contract_version":"2.0.0","contract_digest":"sha256:6ecac762b3a3ac6718b5a421c6e4f917c92274d42c55dc8045b4f7ae2eaf8469"},
-    {"contract_kind":"method","contract_id":"collection_ops.merge_scores.method","contract_version":"2.0.0","contract_digest":"sha256:fc0dee414b2e084f4ddd622fde780410b8296a1e847ee3def836f4b36892f3c5"},
-    {"contract_kind":"method","contract_id":"collection_ops.rebind_candidate_pairing.method","contract_version":"2.0.0","contract_digest":"sha256:8e25c440af703fa13f81c53d6a4a89839cac41661e052fb0dda487eb8ba7e603"},
-    {"contract_kind":"method","contract_id":"collection_ops.take_candidates.method","contract_version":"2.0.0","contract_digest":"sha256:3582539a3b8c783d5d6a0d49c90bceeca332cf419d61ceef01dd63dae791d5ca"},
-    {"contract_kind":"method","contract_id":"esm3.generate_paired.esm3_medium_2024_08","contract_version":"2.0.0","contract_digest":"sha256:4afcd69252b91bee6538ac76af3dd1647f7bb2ba60669e712cbacfd6f8bba019"},
-    {"contract_kind":"method","contract_id":"folding.fold.esmfold2_fast_biohub_2026_05","contract_version":"2.0.0","contract_digest":"sha256:8538d6c91f811e3ce139084ed0393b521ae5f35f478807045b9f821053c27927"},
-    {"contract_kind":"method","contract_id":"prompt_authoring.build_residue_layout.method","contract_version":"2.0.0","contract_digest":"sha256:a78c09f35afca2e98d0545f13857d461b37357e4f7e7d29a51e5e550506aed9e"},
-    {"contract_kind":"method","contract_id":"prompt_authoring.override_protein_prompt_track.method","contract_version":"2.0.0","contract_digest":"sha256:67f22f349a53950a5808be90f5ceee2c000e3522860f63e22b0dbc85a410f836"},
-    {"contract_kind":"method","contract_id":"prompt_authoring.prompt_from_structure.method","contract_version":"2.0.0","contract_digest":"sha256:3915582b87fec3e78e5f502f421c05669d6f5ddd2ecc18f4782fde7e6a80611f"},
-    {"contract_kind":"method","contract_id":"prompt_authoring.random_insert_masked.method","contract_version":"2.0.0","contract_digest":"sha256:dc90fda1f5fb608f66c958cacb4c020d4c4c63d9bd1bba01510d0cd8c884e3e1"},
-    {"contract_kind":"method","contract_id":"prompt_authoring.random_mask.method","contract_version":"2.0.0","contract_digest":"sha256:e8da80baf3b38c526edef4d98ee70d899ed5a8daefdfab2ec150d937925e1b82"},
-    {"contract_kind":"method","contract_id":"protein_io.export_structure.method","contract_version":"2.0.0","contract_digest":"sha256:37632974cf86e7a6b3d2be262d3c2209563d97c607bf6915a0c07449fdd8a885"},
-    {"contract_kind":"method","contract_id":"protein_io.import_structure.method","contract_version":"2.0.0","contract_digest":"sha256:b0e699779fb7166d22462c4781aa2566be2929e9938804f0ea9428020bf2a441"},
-    {"contract_kind":"method","contract_id":"proteinmpnn.design.v_48_020_8907e667","contract_version":"2.0.0","contract_digest":"sha256:968299a0b73d4b6f1ca543767919db2c82b5d2a39ce469a91a96324307dda709"},
-    {"contract_kind":"method","contract_id":"proteinmpnn.random_fixed_positions.repository_owned","contract_version":"2.0.0","contract_digest":"sha256:139b51c8dad58d42e834e34fcc3ecf5f1066d1c2fd7eb6f0afa5d833130bfbdc"},
-    {"contract_kind":"method","contract_id":"selection.weighted_rank.method","contract_version":"2.0.0","contract_digest":"sha256:ff17b2c5ef8eacc5609acb1bf18846f1b0c83142262f5f2935d7899483a52abd"},
-    {"contract_kind":"method","contract_id":"structure_comparison.ca_sequence_svd.method","contract_version":"2.0.0","contract_digest":"sha256:c50fe1ab4ce13b4e32e23add09d152d668cd60d25fbcfe1bf03663b46fb9ef64"},
-    {"contract_kind":"method","contract_id":"structure_comparison.tm_score.reference_normalized.method","contract_version":"2.0.0","contract_digest":"sha256:a69ecf9a3dd3c80a4acd710b907a37cc95160274419dc971a3d3da58ccfb3ecd"},
-    {"contract_kind":"metric","contract_id":"structure.pae","contract_version":"2.0.0","contract_digest":"sha256:19a641472413d5f71172f4becc789a4291363b239b0c96f243667e1148526ae8"},
-    {"contract_kind":"metric","contract_id":"structure.plddt.mean_residue","contract_version":"2.0.0","contract_digest":"sha256:17f96cf144fcd97a16eac44039361aa2c8b56f49263aee5a6bb6e2741462b863"},
-    {"contract_kind":"metric","contract_id":"structure.plddt.per_residue","contract_version":"2.0.0","contract_digest":"sha256:b0e1377bf8ac33e118bd0a506bb132f7198d3655fd46e2282b3593411a5c83e5"},
-    {"contract_kind":"metric","contract_id":"structure.ptm","contract_version":"2.0.0","contract_digest":"sha256:b9eb96a23b26ca5b1991db10f924b74429378426b180bd7d031822a706800b0e"},
-    {"contract_kind":"metric","contract_id":"structure_comparison.tm_score","contract_version":"2.0.0","contract_digest":"sha256:c4908eb9c82c290d5657e9593ed50e9e80652aa161a8649ad095715659a16a10"},
-    {"contract_kind":"node_type","contract_id":"collection_ops.merge_scores","contract_version":"2.0.0","contract_digest":"sha256:78d9629719be22d8b90e6659b577ab869c0338ec428b7d6ef3a4b9e149ac3769"},
-    {"contract_kind":"node_type","contract_id":"collection_ops.rebind_candidate_pairing","contract_version":"2.0.0","contract_digest":"sha256:3e897418a8241087f6feb35d24354423b8869adcec00aab7e9aad9269577d59d"},
-    {"contract_kind":"node_type","contract_id":"collection_ops.take_candidates","contract_version":"2.0.0","contract_digest":"sha256:81a78f485a955f78b78df8178d18d28f2bb49d8c4b33b63ccf200ccf9910f62d"},
-    {"contract_kind":"node_type","contract_id":"esm3.generate_paired","contract_version":"2.0.0","contract_digest":"sha256:2838fe13fd1586cd0082de018ce233b90d34755ce44d44f4cfb3074438f2248c"},
-    {"contract_kind":"node_type","contract_id":"folding.fold","contract_version":"2.0.0","contract_digest":"sha256:17c058b26f491d3706c6091f6984f57161118c1eeb37cb820c3a135584d8efbe"},
-    {"contract_kind":"node_type","contract_id":"prompt_authoring.build_residue_layout","contract_version":"2.0.0","contract_digest":"sha256:bdd8d3c5bf2e1e79da8b41b5996a1ec54408b99d33242decb11b92ea39adccee"},
-    {"contract_kind":"node_type","contract_id":"prompt_authoring.override_protein_prompt_track","contract_version":"2.0.0","contract_digest":"sha256:91a0e865c4abf2949d33d3043e55b5d8150b7e762a1c4c5cdb31e19131bc1b81"},
-    {"contract_kind":"node_type","contract_id":"prompt_authoring.prompt_from_structure","contract_version":"2.0.0","contract_digest":"sha256:3aecec04938d16242b19fa3787e405be9038945f29d4522c97095ee1cc70146c"},
-    {"contract_kind":"node_type","contract_id":"prompt_authoring.random_insert_masked","contract_version":"2.0.0","contract_digest":"sha256:483a9a2ec159cd254eab8ef195a6a1cfc10ae792432754147698522bc539583b"},
-    {"contract_kind":"node_type","contract_id":"prompt_authoring.random_mask","contract_version":"2.0.0","contract_digest":"sha256:1d5fad34af3b136ec7ef4d17268fb9d8f9b549deec3b227dee0a88c4fd614d69"},
-    {"contract_kind":"node_type","contract_id":"protein_io.export_structure","contract_version":"2.0.0","contract_digest":"sha256:09205e7bb98529ab933a697ce562bb3971a3390fffc6fd7661a62081d0b0076d"},
-    {"contract_kind":"node_type","contract_id":"protein_io.import_structure","contract_version":"2.0.0","contract_digest":"sha256:46639987d13e8f28759832721414c2989effb174f41eb9f5a03820232ebbce33"},
-    {"contract_kind":"node_type","contract_id":"proteinmpnn.design","contract_version":"2.0.0","contract_digest":"sha256:4ab146ef22066541be339ab66d8383989cee93095d86a8d07d4e18d0bef0bf6f"},
-    {"contract_kind":"node_type","contract_id":"proteinmpnn.random_fixed_positions","contract_version":"2.0.0","contract_digest":"sha256:ee5e7c432aaa9c4163b4f58489c8e330174815d46dde75ec3f66c69ef297bc0f"},
-    {"contract_kind":"node_type","contract_id":"selection.weighted_rank","contract_version":"2.0.0","contract_digest":"sha256:6e58e74e2ffe8fdced3939effb69fd3717498106abb0622e60308083caed1a90"},
-    {"contract_kind":"node_type","contract_id":"structure_comparison.align_pairwise","contract_version":"2.0.0","contract_digest":"sha256:658f844ef44e2f81fc7857873b376664f0d4e3e60d121663cb29e8a76c0be60c"},
-    {"contract_kind":"node_type","contract_id":"structure_comparison.batch_tm_score","contract_version":"2.0.0","contract_digest":"sha256:73fad2918561ac48af40ba903a22bc6c7af31e0b15d34dc984a5be32f715f0b0"},
-    {"contract_kind":"port_type","contract_id":"candidate.collection","contract_version":"2.0.0","contract_digest":"sha256:9bb806e8f171a89c82e89d47e0e47da4eed2c4977ad09899d4d60dc7e28bda00"},
-    {"contract_kind":"port_type","contract_id":"candidate.pairing","contract_version":"2.0.0","contract_digest":"sha256:6c7ef38ba52f660d189f4a0d4cffd57acf564f3243f4334e164d746ee57b6865"},
-    {"contract_kind":"port_type","contract_id":"protein.prompt","contract_version":"2.1.0","contract_digest":"sha256:884f41279dd9ad40f58282277ee8bde48e2d2e3c1d764c3f7354829a43c46043"},
-    {"contract_kind":"port_type","contract_id":"protein.sequence","contract_version":"2.0.0","contract_digest":"sha256:5e4ca2f126c449f784b80de3815e717dea84e54205391eff0a68ffefc5527e91"},
-    {"contract_kind":"port_type","contract_id":"protein.structure","contract_version":"2.0.0","contract_digest":"sha256:5e15d0d47a0d0f95049e278756366461f0ec80817f72e742a6f023678b6ec90d"},
-    {"contract_kind":"port_type","contract_id":"protein_io.artifact_payload","contract_version":"2.0.0","contract_digest":"sha256:fe23cc8b2e4943b425e549fdb806b2cf358e09fb77b3d6fd545aea7dd1ffa9f2"},
-    {"contract_kind":"port_type","contract_id":"proteinmpnn.constraints","contract_version":"2.0.0","contract_digest":"sha256:36db16305da2a755c0a06481512524ac5a2b9693876aaeae31b71e2bf2a66b98"},
-    {"contract_kind":"port_type","contract_id":"residue.layout","contract_version":"2.0.0","contract_digest":"sha256:911e7f11d03a26372aec750751caba34a934fefd64f041d9e8cce7c947f71ab0"},
-    {"contract_kind":"port_type","contract_id":"residue.map","contract_version":"2.0.0","contract_digest":"sha256:ef6249643614d5c80f6354ac9d42b6b781bf4149f7cc4cfe8e9b965824e8c6ae"},
-    {"contract_kind":"port_type","contract_id":"score.collection","contract_version":"2.0.0","contract_digest":"sha256:830dcf99fdd861b0036d2082b3ad1e93a2dd894e7a909608c835a5458c4339e7"},
-    {"contract_kind":"port_type","contract_id":"structure_comparison.alignment_collection","contract_version":"2.0.0","contract_digest":"sha256:90bd4912559fa84aee1ac7d978f0b25fb72777ab5b2aa2c8dc3c4b10b5d96b87"},
-    {"contract_kind":"utility_transform","contract_id":"structure_comparison.tm_score.fixed_reference.identity","contract_version":"2.0.0","contract_digest":"sha256:82533fb41121789021d85957e5f430a2b5d714f9fa4cacf06a2819476fb759d3"},
-    {"contract_kind":"utility_transform","contract_id":"structure_comparison.tm_score.per_subject_counterpart.identity","contract_version":"2.0.0","contract_digest":"sha256:ac7fa0d75d9bbf03ea4affe6bf868f5cf100a63680f4cef786f446a2396e52a8"}
+    {
+      "contract_kind": "binding",
+      "contract_id": "collection_ops.merge_scores.direct",
+      "contract_version": "2.1.0",
+      "contract_digest": "sha256:5d4054f6924e4e145cf577e8752aaabdbff1f952d9dc4c1ec7e6a12480e22d7b"
+    },
+    {
+      "contract_kind": "binding",
+      "contract_id": "collection_ops.rebind_candidate_pairing.direct",
+      "contract_version": "2.1.0",
+      "contract_digest": "sha256:55f6102e60bda77276a4af81e8d9a4978ff39dce45abe5e90a3c68db6823a720"
+    },
+    {
+      "contract_kind": "binding",
+      "contract_id": "collection_ops.take_candidates.direct",
+      "contract_version": "2.1.0",
+      "contract_digest": "sha256:498a495a17ffec8ee2a99d506bbc012c1ef7b944bb7bc39524679d8e35fdd80b"
+    },
+    {
+      "contract_kind": "binding",
+      "contract_id": "esm3.generate_paired.biohub_medium",
+      "contract_version": "2.1.0",
+      "contract_digest": "sha256:c4edd68b070bea875bc944f06cc808d3fc26bdf6828207ccf2ea956690008cf3"
+    },
+    {
+      "contract_kind": "binding",
+      "contract_id": "folding.fold.esmfold2_remote",
+      "contract_version": "2.1.0",
+      "contract_digest": "sha256:6fdac484da9447ebd5638a8254fec7ac3e62e7c68f098d905773e6524b286610"
+    },
+    {
+      "contract_kind": "binding",
+      "contract_id": "prompt_authoring.build_residue_layout.direct",
+      "contract_version": "2.1.0",
+      "contract_digest": "sha256:ef2dd9b00f09aebbf788b5d1c1bdbf67d655d21c36a1c285f9427c740978cbf0"
+    },
+    {
+      "contract_kind": "binding",
+      "contract_id": "prompt_authoring.override_protein_prompt_track.direct",
+      "contract_version": "2.1.0",
+      "contract_digest": "sha256:c2399daca65abc689d8f75c8987e6c526e97d773203689a7c74ec83601c95276"
+    },
+    {
+      "contract_kind": "binding",
+      "contract_id": "prompt_authoring.prompt_from_structure.direct",
+      "contract_version": "2.1.0",
+      "contract_digest": "sha256:fb3278ea6ca53bba653208233c7a42fbdd85f1328dc60b24dfca5ab24cfcc970"
+    },
+    {
+      "contract_kind": "binding",
+      "contract_id": "prompt_authoring.random_insert_masked.direct",
+      "contract_version": "2.1.0",
+      "contract_digest": "sha256:08cab9f25240bf4346f0043be1e71dbcee6e5a677c5cc463e5b2a541f759ceda"
+    },
+    {
+      "contract_kind": "binding",
+      "contract_id": "prompt_authoring.random_mask.direct",
+      "contract_version": "2.1.0",
+      "contract_digest": "sha256:b3e81dcbe7c81d7794e831cd955b03901261ad52af3b4c31d2a084b8a2133631"
+    },
+    {
+      "contract_kind": "binding",
+      "contract_id": "protein_io.export_structure.direct",
+      "contract_version": "2.1.0",
+      "contract_digest": "sha256:7f55ae1263c7c9b644ee76d789d2c8eb49b84b944b9f0d4713fc0940f5204b27"
+    },
+    {
+      "contract_kind": "binding",
+      "contract_id": "protein_io.import_structure.direct",
+      "contract_version": "2.1.0",
+      "contract_digest": "sha256:3f7378dfaf25632e3ecb6af9cd80c5b688886e8928f551c45b3e1de0eedad586"
+    },
+    {
+      "contract_kind": "binding",
+      "contract_id": "proteinmpnn.design.local",
+      "contract_version": "2.1.0",
+      "contract_digest": "sha256:fd8ec3bd61227797ea85d815a48d8a902182375beebada5f0f37d84d82a3ce9e"
+    },
+    {
+      "contract_kind": "binding",
+      "contract_id": "proteinmpnn.random_fixed_positions.local",
+      "contract_version": "2.1.0",
+      "contract_digest": "sha256:8b9ab25bb4f2e3afbbde21ca402d68ea1076b50412b24b3efce8bf5fcac6a853"
+    },
+    {
+      "contract_kind": "binding",
+      "contract_id": "selection.weighted_rank.direct",
+      "contract_version": "2.1.0",
+      "contract_digest": "sha256:bca6123920afb5d2194add2ef18142093befa47529c65453523fc8ff2947a1b7"
+    },
+    {
+      "contract_kind": "binding",
+      "contract_id": "structure_comparison.align_pairwise.direct",
+      "contract_version": "2.1.0",
+      "contract_digest": "sha256:8ad52badc797dbd3cda73ca7084853493ff6d0d7a3340e21dd31e245eda6beed"
+    },
+    {
+      "contract_kind": "binding",
+      "contract_id": "structure_comparison.align_pairwise.fixed_reference",
+      "contract_version": "2.1.0",
+      "contract_digest": "sha256:568d4490e9752ce878499be3a8bd1eda006c88453111cfc20e229a7cf8708f48"
+    },
+    {
+      "contract_kind": "binding",
+      "contract_id": "structure_comparison.batch_tm_score.fixed_reference",
+      "contract_version": "2.1.0",
+      "contract_digest": "sha256:4e7a593c3b37729d7f1922c2bde237678574f7236b25c2f229acd70b6c09a4b9"
+    },
+    {
+      "contract_kind": "binding",
+      "contract_id": "structure_comparison.batch_tm_score.per_subject_counterpart",
+      "contract_version": "2.1.0",
+      "contract_digest": "sha256:68f2585a8f2b313a30d334a209061b7a9ddb9410fbbf0b9d99f0cd8b0f7af426"
+    },
+    {
+      "contract_kind": "method",
+      "contract_id": "collection_ops.merge_scores.method",
+      "contract_version": "2.1.0",
+      "contract_digest": "sha256:e64cf8476aeb299ec39d073fd533ef34374dea4838cc734fb4c80222ac6bba6a"
+    },
+    {
+      "contract_kind": "method",
+      "contract_id": "collection_ops.rebind_candidate_pairing.method",
+      "contract_version": "2.1.0",
+      "contract_digest": "sha256:1cd82ab625ff664a2d899cd0994d85db7404a865447a455d5368ad25e597b79a"
+    },
+    {
+      "contract_kind": "method",
+      "contract_id": "collection_ops.take_candidates.method",
+      "contract_version": "2.1.0",
+      "contract_digest": "sha256:1ec23ef4bd1a861c1a74dc8c22639b274699a9c0591b21d0b57e2357febf71bd"
+    },
+    {
+      "contract_kind": "method",
+      "contract_id": "esm3.generate_paired.esm3_medium_2024_08",
+      "contract_version": "2.1.0",
+      "contract_digest": "sha256:653b60ed987475e22055e8e4f51e4e06419c37b780db79952e439d07373970b4"
+    },
+    {
+      "contract_kind": "method",
+      "contract_id": "folding.fold.esmfold2_fast_biohub_2026_05",
+      "contract_version": "2.1.0",
+      "contract_digest": "sha256:a065b316fef478cc5b176b7f85e9e79f69c9358ec4268e48f020083c11594eb6"
+    },
+    {
+      "contract_kind": "method",
+      "contract_id": "prompt_authoring.build_residue_layout.method",
+      "contract_version": "2.1.0",
+      "contract_digest": "sha256:2a4fd636dd5a050827aef814f84d7e419efb9a4dfc8d9c718fe2d694a263d612"
+    },
+    {
+      "contract_kind": "method",
+      "contract_id": "prompt_authoring.override_protein_prompt_track.method",
+      "contract_version": "2.1.0",
+      "contract_digest": "sha256:f166bbfb93f7e18c7a562f004889d5542232e063312cd8d6943a8377085046f2"
+    },
+    {
+      "contract_kind": "method",
+      "contract_id": "prompt_authoring.prompt_from_structure.method",
+      "contract_version": "2.1.0",
+      "contract_digest": "sha256:d69a9e20ab779ed09b09b4e8b61be9f11306a1d46e44b3f56108363c8a4dfe54"
+    },
+    {
+      "contract_kind": "method",
+      "contract_id": "prompt_authoring.random_insert_masked.method",
+      "contract_version": "2.1.0",
+      "contract_digest": "sha256:fe3d728b18e9e855f042f8f6adb2b4a8ce63055dff9c6f1127e685356caacff9"
+    },
+    {
+      "contract_kind": "method",
+      "contract_id": "prompt_authoring.random_mask.method",
+      "contract_version": "2.1.0",
+      "contract_digest": "sha256:668c22d89940b6bd8affc850e046a220d1cac2bfbf5626050bff5397e915eaba"
+    },
+    {
+      "contract_kind": "method",
+      "contract_id": "protein_io.export_structure.method",
+      "contract_version": "2.1.0",
+      "contract_digest": "sha256:22e482b413d06a2e1ac6c6ea1c4f42a4b8a564501b4b612c49e5e71b1549e950"
+    },
+    {
+      "contract_kind": "method",
+      "contract_id": "protein_io.import_structure.method",
+      "contract_version": "2.1.0",
+      "contract_digest": "sha256:6c237f98e33b331a781ef348ac26d6955e12f9985d0b798805181bfdfd7f8b52"
+    },
+    {
+      "contract_kind": "method",
+      "contract_id": "proteinmpnn.design.v_48_020_8907e667",
+      "contract_version": "2.1.0",
+      "contract_digest": "sha256:28611e9c3c87e0ece69a9373a1449c236c030b4c7f62f1377f26b86b8db6ed63"
+    },
+    {
+      "contract_kind": "method",
+      "contract_id": "proteinmpnn.random_fixed_positions.repository_owned",
+      "contract_version": "2.1.0",
+      "contract_digest": "sha256:1429ea9899e5008c0f0d69bc320b6467e8061d1c321dd70bab1babe9560fec12"
+    },
+    {
+      "contract_kind": "method",
+      "contract_id": "selection.weighted_rank.method",
+      "contract_version": "2.1.0",
+      "contract_digest": "sha256:6aa75ac1f638779603da3048a9912c65a918a7effe73aa8c19df44a06e676f4b"
+    },
+    {
+      "contract_kind": "method",
+      "contract_id": "structure_comparison.ca_sequence_svd.method",
+      "contract_version": "2.1.0",
+      "contract_digest": "sha256:fcb9eef2116257b24ebcabd6604a93fde9831738b3c3f37b19bece04cb19cb6d"
+    },
+    {
+      "contract_kind": "method",
+      "contract_id": "structure_comparison.tm_score.reference_normalized.method",
+      "contract_version": "2.1.0",
+      "contract_digest": "sha256:7809e22c2d0a3b7c180f72e5b6682f2d92f28df78ad9e129d933911a9558f36d"
+    },
+    {
+      "contract_kind": "metric",
+      "contract_id": "structure.pae",
+      "contract_version": "2.1.0",
+      "contract_digest": "sha256:f085ba7d67dc190075b9076e3a3a9b37912bb2a4b2a8c9ff6d1dc02d6155f7c1"
+    },
+    {
+      "contract_kind": "metric",
+      "contract_id": "structure.plddt.mean_residue",
+      "contract_version": "2.1.0",
+      "contract_digest": "sha256:a2210252c653203415771258a8b2887f369dfd2ba0c1011b89829572c782e40c"
+    },
+    {
+      "contract_kind": "metric",
+      "contract_id": "structure.plddt.per_residue",
+      "contract_version": "2.1.0",
+      "contract_digest": "sha256:8c42c10b0cfc461feb3fc459c9e4225a1a7ea5135606c9164ea2b36e2775369d"
+    },
+    {
+      "contract_kind": "metric",
+      "contract_id": "structure.ptm",
+      "contract_version": "2.1.0",
+      "contract_digest": "sha256:f58dc87c4199d10aaaa5c4babeba12147e51628475c0738290d63ee530a5f506"
+    },
+    {
+      "contract_kind": "metric",
+      "contract_id": "structure_comparison.tm_score",
+      "contract_version": "2.1.0",
+      "contract_digest": "sha256:da420b1a3665d381c77e690116e976a112dc32946e8aeb84d5cb54398cfc97ba"
+    },
+    {
+      "contract_kind": "node_type",
+      "contract_id": "collection_ops.merge_scores",
+      "contract_version": "2.1.0",
+      "contract_digest": "sha256:ff771d35d9cbcc5859686df99249501d97c98842563fcc83066b82e5576ffc29"
+    },
+    {
+      "contract_kind": "node_type",
+      "contract_id": "collection_ops.rebind_candidate_pairing",
+      "contract_version": "2.1.0",
+      "contract_digest": "sha256:34357daa59ff9ab26dc96b5fe56c83d901f48a5d557f068d38c9607d1d15e9ef"
+    },
+    {
+      "contract_kind": "node_type",
+      "contract_id": "collection_ops.take_candidates",
+      "contract_version": "2.1.0",
+      "contract_digest": "sha256:f7a8ca5a368c92d355ec3362acd17ce2f258454e7a28ed2dbd4a7106753cbe5e"
+    },
+    {
+      "contract_kind": "node_type",
+      "contract_id": "esm3.generate_paired",
+      "contract_version": "2.1.0",
+      "contract_digest": "sha256:1451672365ae6e4c806d63777ec41a9b5c7d12e96e889bc6c0f17d31261d589d"
+    },
+    {
+      "contract_kind": "node_type",
+      "contract_id": "folding.fold",
+      "contract_version": "2.1.0",
+      "contract_digest": "sha256:0c9ac2fe5dc192a0ea1944d954df2bb36dc20edae7caa1282e996bcaa0339878"
+    },
+    {
+      "contract_kind": "node_type",
+      "contract_id": "prompt_authoring.build_residue_layout",
+      "contract_version": "2.1.0",
+      "contract_digest": "sha256:6c74193ec699dc53a0db070fb49d77e0f2ed12bcc1ec4253d17dc5d052d25eb3"
+    },
+    {
+      "contract_kind": "node_type",
+      "contract_id": "prompt_authoring.override_protein_prompt_track",
+      "contract_version": "2.1.0",
+      "contract_digest": "sha256:cb3bd17dc79bde6624d5f3ffc1decece99260dd46dc010e4e6b595f21db3da3c"
+    },
+    {
+      "contract_kind": "node_type",
+      "contract_id": "prompt_authoring.prompt_from_structure",
+      "contract_version": "2.1.0",
+      "contract_digest": "sha256:b0b6912c8802ef4bb140e963fbfc9c84dab46cd949a15dbdbb72f6a9382004e5"
+    },
+    {
+      "contract_kind": "node_type",
+      "contract_id": "prompt_authoring.random_insert_masked",
+      "contract_version": "2.1.0",
+      "contract_digest": "sha256:0d9c6cc07825bb576b582c5f2341e4b7cd96ae42fec929cc54636652940271c5"
+    },
+    {
+      "contract_kind": "node_type",
+      "contract_id": "prompt_authoring.random_mask",
+      "contract_version": "2.1.0",
+      "contract_digest": "sha256:c3cf6aad4091d6b9bb6ea712c56e6bb0eccad3e3b90c5bd0b315f227e98a331d"
+    },
+    {
+      "contract_kind": "node_type",
+      "contract_id": "protein_io.export_structure",
+      "contract_version": "2.1.0",
+      "contract_digest": "sha256:3941c5ce652cc52a954b53d73f9a14d5904a8583ad36764813de67848c0f3393"
+    },
+    {
+      "contract_kind": "node_type",
+      "contract_id": "protein_io.import_structure",
+      "contract_version": "2.1.0",
+      "contract_digest": "sha256:29c87864bdabd758d4164bf720dedfbe99e331056968ba9acea3fcda76bb8a74"
+    },
+    {
+      "contract_kind": "node_type",
+      "contract_id": "proteinmpnn.design",
+      "contract_version": "2.1.0",
+      "contract_digest": "sha256:fc820b71fdb579e75ca666eb602a83c94ee5c08883c263afc33cd47dbadcf9eb"
+    },
+    {
+      "contract_kind": "node_type",
+      "contract_id": "proteinmpnn.random_fixed_positions",
+      "contract_version": "2.1.0",
+      "contract_digest": "sha256:d4e2c92c63f354d4977ca686ec4d8183c55d57396c9f4e712759043a3fbb6966"
+    },
+    {
+      "contract_kind": "node_type",
+      "contract_id": "selection.weighted_rank",
+      "contract_version": "2.1.0",
+      "contract_digest": "sha256:b31fdc58442e1314cc3eae3f1e5f8bd4447e62fe76f7436093d08497c56b64e9"
+    },
+    {
+      "contract_kind": "node_type",
+      "contract_id": "structure_comparison.align_pairwise",
+      "contract_version": "2.1.0",
+      "contract_digest": "sha256:5d061b1cdf44d0c028fb3b301ddca6c9812658f478b61cfb92d6385df3dac1bc"
+    },
+    {
+      "contract_kind": "node_type",
+      "contract_id": "structure_comparison.batch_tm_score",
+      "contract_version": "2.1.0",
+      "contract_digest": "sha256:dbfb4c00967db21a914fb87ba0c3c9fc7fe703a036aec29cd3665104575a869e"
+    },
+    {
+      "contract_kind": "port_type",
+      "contract_id": "candidate.collection",
+      "contract_version": "2.1.0",
+      "contract_digest": "sha256:6425b44763bd03b2987d9c78e3675e11733416af7dafd01714f9ac121568685c"
+    },
+    {
+      "contract_kind": "port_type",
+      "contract_id": "candidate.pairing",
+      "contract_version": "2.1.0",
+      "contract_digest": "sha256:87f96a0b1047dc84683c7f6692ae085470fe68ee45cec2fbf697ac4d76b91c30"
+    },
+    {
+      "contract_kind": "port_type",
+      "contract_id": "protein.prompt",
+      "contract_version": "2.1.0",
+      "contract_digest": "sha256:87227c64305f9ac6b10203be5c72b3dd22bb96ba2aeb96d20ae750f2226e9607"
+    },
+    {
+      "contract_kind": "port_type",
+      "contract_id": "protein.sequence",
+      "contract_version": "2.1.0",
+      "contract_digest": "sha256:36ce4a625ff63ce0f90cebba84b4d72285054bebc74cc05119d241428ec9e533"
+    },
+    {
+      "contract_kind": "port_type",
+      "contract_id": "protein.structure",
+      "contract_version": "2.1.0",
+      "contract_digest": "sha256:2086d04a0e219966ed5f54d0a965023e79e63dcefa3f650109d40ac1a7197fdc"
+    },
+    {
+      "contract_kind": "port_type",
+      "contract_id": "protein_io.artifact_payload",
+      "contract_version": "2.1.0",
+      "contract_digest": "sha256:6f24a7784a0ca0ee6a58e72c1ffadfa02e7ac7cde4abf87d08c3bb75a2f5b4a1"
+    },
+    {
+      "contract_kind": "port_type",
+      "contract_id": "proteinmpnn.constraints",
+      "contract_version": "2.1.0",
+      "contract_digest": "sha256:07c8916cfc833b43ea3f8f76e35969deb0469c5082f511dffd4742d90271b3bb"
+    },
+    {
+      "contract_kind": "port_type",
+      "contract_id": "residue.layout",
+      "contract_version": "2.1.0",
+      "contract_digest": "sha256:ff3f084e99dab615dcab848d4dd8af3b36622c53e1cf095cbc4d53b873eefb33"
+    },
+    {
+      "contract_kind": "port_type",
+      "contract_id": "residue.map",
+      "contract_version": "2.1.0",
+      "contract_digest": "sha256:45889114e3e917fdb42f40bec014fbb94abcdbf050ce9e7e92866e0595142a9c"
+    },
+    {
+      "contract_kind": "port_type",
+      "contract_id": "score.collection",
+      "contract_version": "2.1.0",
+      "contract_digest": "sha256:f8575371f045e3405e2633ac2fbcd02a3df214a654b7570a021324e44387bb4d"
+    },
+    {
+      "contract_kind": "port_type",
+      "contract_id": "structure_comparison.alignment_collection",
+      "contract_version": "2.1.0",
+      "contract_digest": "sha256:b032079c116a66cc6664ae01a54fec13af1c7176fe7dcc9052cc336025f145f2"
+    },
+    {
+      "contract_kind": "utility_transform",
+      "contract_id": "structure_comparison.tm_score.fixed_reference.identity",
+      "contract_version": "2.1.0",
+      "contract_digest": "sha256:95d409eadbc0b72a65d5641dacae3ba7c6104ef020021635f25cdccddc983bc2"
+    },
+    {
+      "contract_kind": "utility_transform",
+      "contract_id": "structure_comparison.tm_score.per_subject_counterpart.identity",
+      "contract_version": "2.1.0",
+      "contract_digest": "sha256:6d43ea53ece2d9466adc27289e8630f8d460c4bab3b4c037080bfe51aa5714c1"
+    }
   ]
 }

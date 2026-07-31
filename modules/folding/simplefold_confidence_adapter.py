@@ -56,6 +56,7 @@ class PDBResidueIdentity:
     chain_id: str
     residue_number: str
     insertion_code: str
+    segment_index: int = 0
 
 
 @dataclass(frozen=True, slots=True)
@@ -478,23 +479,40 @@ def _pdb_residues(
         "VAL": "V",
     }
     order: list[PDBResidueIdentity] = []
-    chain_order: list[str] = []
-    chain_residues: dict[str, list[PDBResidueIdentity]] = {}
+    segment_order: list[int] = []
+    segment_chain_ids: dict[int, str] = {}
+    chain_residues: dict[int, list[PDBResidueIdentity]] = {}
     names: dict[PDBResidueIdentity, str] = {}
     coordinates: dict[
         PDBResidueIdentity,
         dict[str, tuple[float, float, float]],
     ] = {}
+    segment_index = -1
+    current_chain_id: str | None = None
+    segment_boundary = True
     for line in pdb_string.splitlines():
+        if line.startswith("TER"):
+            segment_boundary = True
+            current_chain_id = None
+            continue
         if not line.startswith("ATOM  ") or len(line) < 54:
             continue
         altloc = line[16]
         if altloc not in {" ", "A"}:
             continue
+        raw_chain_id = line[21]
+        if segment_boundary or raw_chain_id != current_chain_id:
+            segment_index += 1
+            segment_order.append(segment_index)
+            segment_chain_ids[segment_index] = raw_chain_id
+            chain_residues[segment_index] = []
+            current_chain_id = raw_chain_id
+            segment_boundary = False
         identity = PDBResidueIdentity(
-            chain_id=line[21],
+            chain_id=raw_chain_id,
             residue_number=line[22:26].strip(),
             insertion_code=line[26],
+            segment_index=segment_index,
         )
         residue_name = line[17:20].strip().upper()
         atom_name = line[12:16].strip()
@@ -516,10 +534,7 @@ def _pdb_residues(
             )
         if identity not in coordinates:
             order.append(identity)
-            if identity.chain_id not in chain_residues:
-                chain_order.append(identity.chain_id)
-                chain_residues[identity.chain_id] = []
-            chain_residues[identity.chain_id].append(identity)
+            chain_residues[segment_index].append(identity)
             names[identity] = residue_name
             coordinates[identity] = {}
         elif names[identity] != residue_name:
@@ -538,10 +553,10 @@ def _pdb_residues(
     return _ParsedExistingStructure(
         chains=tuple(
             _PDBChain(
-                chain_id=chain_id,
+                chain_id=segment_chain_ids[segment],
                 sequence="".join(
                     letters[names[identity]]
-                    for identity in chain_residues[chain_id]
+                    for identity in chain_residues[segment]
                 ),
                 residues=tuple(
                     _PDBResidue(
@@ -549,10 +564,10 @@ def _pdb_residues(
                         residue_name=names[identity],
                         atoms=dict(coordinates[identity]),
                     )
-                    for identity in chain_residues[chain_id]
+                    for identity in chain_residues[segment]
                 ),
             )
-            for chain_id in chain_order
+            for segment in segment_order
         )
     )
 
@@ -566,9 +581,10 @@ def _provider_chain_ids(
         if chain.chain_id.strip()
     }
     assigned: list[str] = []
+    used: set[str] = set()
     for chain in chains:
         chain_id = chain.chain_id.strip()
-        if not chain_id:
+        if not chain_id or chain_id in used:
             chain_id = next(
                 (
                     candidate
@@ -577,7 +593,7 @@ def _provider_chain_ids(
                         "abcdefghijklmnopqrstuvwxyz"
                         "0123456789"
                     )
-                    if candidate not in reserved
+                    if candidate not in reserved and candidate not in used
                 ),
                 "",
             )
@@ -587,6 +603,7 @@ def _provider_chain_ids(
                 )
             reserved.add(chain_id)
         assigned.append(chain_id)
+        used.add(chain_id)
     return tuple(assigned)
 
 

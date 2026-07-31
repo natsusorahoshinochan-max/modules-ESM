@@ -16,7 +16,9 @@ from core import (
     MethodDefinition,
     ModulePackageRegistration,
     ProducedObservationDefinition,
+    ReadinessCheckInput,
     ReadinessDeclaration,
+    ReadinessResult,
     UtilityTransformDefinition,
 )
 from datatypes import (
@@ -32,7 +34,7 @@ from datatypes import (
 )
 
 
-VERSION = "2.0.0"
+VERSION = "2.1.0"
 METRIC = ContractIdentity(
     "metric",
     "contract_test.collection_ops_value",
@@ -304,8 +306,9 @@ def _available() -> AvailabilityResult:
     return AvailabilityResult.available()
 
 
-def _ready(environment: object) -> bool:
-    return isinstance(environment, Mapping)
+def _ready(check_input: ReadinessCheckInput) -> ReadinessResult:
+    del check_input
+    return ReadinessResult(True)
 
 
 def _method(partition: str) -> MethodDefinition:
@@ -589,7 +592,7 @@ def _utility(partition: str) -> UtilityTransformDefinition:
 
 
 MODULE_PACKAGE = ModulePackageRegistration(
-    schema_version=VERSION,
+    schema_version="2.1.0",
     package_id="contract_test.collection_ops_sources",
     package_version=VERSION,
     package_module=__package__,

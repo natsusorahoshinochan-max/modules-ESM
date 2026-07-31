@@ -8,7 +8,6 @@ from io import StringIO
 import math
 from pathlib import Path
 import re
-import shutil
 import subprocess
 from typing import Any, Mapping
 
@@ -28,7 +27,8 @@ from datatypes import (
 from .domain import DSSPAnnotation, StructureAnnotationTrack
 
 
-_SS8 = frozenset("GHITEBSC")
+_DSSP_SECONDARY = frozenset("GHITEBSP")
+_DSSP_CA_COORDINATE_TOLERANCE = 0.0500001
 _PDB_RESIDUE_LABEL = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$")
 
 
@@ -36,15 +36,17 @@ _PDB_RESIDUE_LABEL = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$")
 class _ParsedStructure:
     layout: ResidueLayout
     residue_names: tuple[str, ...]
+    ca_coordinates: tuple[tuple[float, float, float] | None, ...]
 
 
 @dataclass(frozen=True, slots=True)
 class _DSSPRow:
     chain_id: str
-    chain_ordinal: int
+    label_seq_id: str
     residue_name: str
     secondary_structure: str
     accessibility: str
+    ca_coordinate: tuple[float, float, float]
 
 
 def _structure_layout(structure: ProteinStructure) -> _ParsedStructure:
@@ -60,6 +62,8 @@ def _structure_layout(structure: ProteinStructure) -> _ParsedStructure:
 
     residues: list[tuple[str, str]] = []
     residue_names: list[str] = []
+    ca_coordinates: list[tuple[float, float, float] | None] = []
+    ca_altlocs: list[str | None] = []
     seen: set[tuple[str, str]] = set()
     previous: tuple[str, str] | None = None
     closed_chains: set[str] = set()
@@ -90,25 +94,59 @@ def _structure_layout(structure: ProteinStructure) -> _ParsedStructure:
                 "structure residue label cannot be represented exactly"
             )
         identity = (chain, residue_label)
-        if identity == previous:
-            continue
-        if identity in seen:
-            raise ValueError(
-                "structure contains a non-contiguous duplicate residue"
-            )
-        if chain != previous_chain:
-            if chain in closed_chains:
+        if identity != previous:
+            if identity in seen:
                 raise ValueError(
-                    "structure chain boundaries are not contiguous"
+                    "structure contains a non-contiguous duplicate residue"
                 )
-            if previous_chain is not None:
-                closed_chains.add(previous_chain)
-            chain_order.append(chain)
-            previous_chain = chain
-        residues.append(identity)
-        residue_names.append(residue_name.upper())
-        seen.add(identity)
-        previous = identity
+            if chain != previous_chain:
+                if chain in closed_chains:
+                    raise ValueError(
+                        "structure chain boundaries are not contiguous"
+                    )
+                if previous_chain is not None:
+                    closed_chains.add(previous_chain)
+                chain_order.append(chain)
+                previous_chain = chain
+            residues.append(identity)
+            residue_names.append(residue_name.upper())
+            ca_coordinates.append(None)
+            ca_altlocs.append(None)
+            seen.add(identity)
+            previous = identity
+        elif residue_names[-1] != residue_name.upper():
+            raise ValueError(
+                "structure residue identity has conflicting names"
+            )
+
+        if line[12:16].strip() != "CA":
+            continue
+        altloc = line[16:17].strip()
+        if altloc not in {"", "A"}:
+            continue
+        try:
+            coordinate = (
+                float(line[30:38]),
+                float(line[38:46]),
+                float(line[46:54]),
+            )
+        except ValueError as error:
+            raise ValueError(
+                "structure contains malformed CA coordinates"
+            ) from error
+        if not all(math.isfinite(value) for value in coordinate):
+            raise ValueError("structure contains non-finite CA coordinates")
+        selected_altloc = ca_altlocs[-1]
+        if selected_altloc == "" or (
+            selected_altloc == "A" and altloc == "A"
+        ):
+            if ca_coordinates[-1] != coordinate:
+                raise ValueError(
+                    "structure contains duplicate selected CA coordinates"
+                )
+            continue
+        ca_coordinates[-1] = coordinate
+        ca_altlocs[-1] = altloc
     if not residues:
         raise ValueError("structure contains no protein ATOM residues")
     return _ParsedStructure(
@@ -121,6 +159,7 @@ def _structure_layout(structure: ProteinStructure) -> _ParsedStructure:
             ],
         ),
         residue_names=tuple(residue_names),
+        ca_coordinates=tuple(ca_coordinates),
     )
 
 
@@ -170,12 +209,18 @@ def _parse_dssp_rows(text: str) -> tuple[_DSSPRow, ...]:
         parsed,
         "_dssp_struct_summary.accessibility",
     )
+    x_ca_values = _column(parsed, "_dssp_struct_summary.x_ca")
+    y_ca_values = _column(parsed, "_dssp_struct_summary.y_ca")
+    z_ca_values = _column(parsed, "_dssp_struct_summary.z_ca")
     lengths = {
         len(chain_values),
         len(sequence_values),
         len(residue_names),
         len(secondary_values),
         len(accessibility_values),
+        len(x_ca_values),
+        len(y_ca_values),
+        len(z_ca_values),
     }
     if len(lengths) != 1:
         raise ValueError("DSSP output columns have inconsistent lengths")
@@ -186,6 +231,9 @@ def _parse_dssp_rows(text: str) -> tuple[_DSSPRow, ...]:
         residue_name,
         raw_secondary,
         raw_accessibility,
+        raw_x_ca,
+        raw_y_ca,
+        raw_z_ca,
     ) in enumerate(
         zip(
             chain_values,
@@ -193,30 +241,39 @@ def _parse_dssp_rows(text: str) -> tuple[_DSSPRow, ...]:
             residue_names,
             secondary_values,
             accessibility_values,
+            x_ca_values,
+            y_ca_values,
+            z_ca_values,
             strict=True,
         )
     ):
         try:
-            ordinal = int(sequence_number)
+            ca_coordinate = (
+                float(raw_x_ca),
+                float(raw_y_ca),
+                float(raw_z_ca),
+            )
         except ValueError as error:
             raise ValueError(
-                f"DSSP row {row_index} has an invalid residue ordinal"
+                f"DSSP row {row_index} has malformed CA coordinates"
             ) from error
         if (
             len(chain) != 1
             or not chain.isalnum()
-            or ordinal < 1
+            or not sequence_number
             or not residue_name
             or not residue_name.isalpha()
+            or not all(math.isfinite(value) for value in ca_coordinate)
         ):
             raise ValueError(f"DSSP row {row_index} has invalid residue identity")
         rows.append(
             _DSSPRow(
                 chain_id=chain,
-                chain_ordinal=ordinal,
+                label_seq_id=sequence_number,
                 residue_name=residue_name.upper(),
                 secondary_structure=raw_secondary,
                 accessibility=raw_accessibility,
+                ca_coordinate=ca_coordinate,
             )
         )
     return tuple(rows)
@@ -232,40 +289,53 @@ def _parse_dssp_output(
     rows = _parse_dssp_rows(text)
 
     residue_ids = layout.residue_ids or []
-    layout_indices_by_chain: dict[str, list[int]] = defaultdict(list)
+    layout_indices_by_identity: dict[tuple[str, str], list[int]] = defaultdict(
+        list
+    )
     for index, residue_id in enumerate(residue_ids):
         chain, _ = residue_id.split(":", 1)
-        layout_indices_by_chain[chain].append(index)
+        coordinate = structure.ca_coordinates[index]
+        if coordinate is None:
+            continue
+        layout_indices_by_identity[
+            (chain, structure.residue_names[index])
+        ].append(index)
     secondary = ["_"] * layout.length
     sasa: list[float | None] = [None] * layout.length
     mapped: set[int] = set()
     for row_index, row in enumerate(rows):
-        chain_indices = layout_indices_by_chain.get(row.chain_id)
-        if (
-            chain_indices is None
-            or row.chain_ordinal > len(chain_indices)
-        ):
+        candidates = [
+            index
+            for index in layout_indices_by_identity.get(
+                (row.chain_id, row.residue_name),
+                (),
+            )
+            if structure.ca_coordinates[index] is not None
+            and all(
+                abs(source - observed) <= _DSSP_CA_COORDINATE_TOLERANCE
+                for source, observed in zip(
+                    structure.ca_coordinates[index] or (),
+                    row.ca_coordinate,
+                    strict=True,
+                )
+            )
+        ]
+        if len(candidates) != 1:
             raise ValueError(
                 f"DSSP row {row_index} cannot be reconciled to the structure"
             )
-        layout_index = chain_indices[row.chain_ordinal - 1]
+        layout_index = candidates[0]
         if layout_index in mapped:
             raise ValueError(
                 f"DSSP row {row_index} duplicates one structure residue"
             )
         mapped.add(layout_index)
-        if structure.residue_names[layout_index] != row.residue_name:
-            raise ValueError(
-                f"DSSP row {row_index} residue identity contradicts "
-                "the structure"
-            )
-
         raw_secondary = row.secondary_structure
-        if raw_secondary == "-":
+        if raw_secondary == ".":
             normalized_secondary = "C"
-        elif raw_secondary in {".", "_", "?"}:
+        elif raw_secondary == "?":
             normalized_secondary = "_"
-        elif raw_secondary in _SS8:
+        elif raw_secondary in _DSSP_SECONDARY:
             normalized_secondary = raw_secondary
         else:
             raise ValueError(
@@ -344,12 +414,7 @@ class StructureAnnotationImplementation:
             )
         structure = inputs["structure"]
         parsed_structure = _structure_layout(structure)
-        configured = self._environment.get("dssp_binary")
-        binary = (
-            configured
-            if isinstance(configured, str) and configured
-            else shutil.which("mkdssp")
-        )
+        binary = self._environment.get("dssp_binary")
         if not isinstance(binary, str) or not binary:
             raise RuntimeError("the ready mkdssp binary is unavailable")
         timeout = self._environment.get("dssp_timeout_seconds", 30)
@@ -367,7 +432,7 @@ class StructureAnnotationImplementation:
             ):
                 try:
                     result = subprocess.run(
-                        [binary, str(input_path)],
+                        [binary, "--calculate-accessibility", str(input_path)],
                         capture_output=True,
                         timeout=timeout,
                         check=False,
@@ -416,12 +481,15 @@ class StructureAnnotationImplementation:
         with self._run_resources.engine_invocation(
             engine_identity=(
                 "structure_annotation.secondary_structure_extract.method/"
-                "2.0.0"
+                "2.1.0"
             ),
         ):
             track = StructureAnnotationTrack(
                 layout=annotation.layout,
-                values=annotation.secondary_structure,
+                values=tuple(
+                    "C" if value == "P" else value
+                    for value in annotation.secondary_structure
+                ),
             )
         return {"secondary_structure_track": track}
 
@@ -431,7 +499,7 @@ class StructureAnnotationImplementation:
     ) -> dict[str, Any]:
         annotation = self._annotation_input(inputs)
         with self._run_resources.engine_invocation(
-            engine_identity="structure_annotation.sasa_compute.method/2.0.0",
+            engine_identity="structure_annotation.sasa_compute.method/2.1.0",
         ):
             track = StructureAnnotationTrack(
                 layout=annotation.layout,
@@ -447,7 +515,7 @@ class StructureAnnotationImplementation:
         contract = self._catalog.require_contract(
             kind,
             contract_id,
-            "2.0.0",
+            "2.1.0",
         )
         return ExactContractReference(**contract.reference())
 
@@ -506,7 +574,7 @@ class StructureAnnotationImplementation:
         with self._run_resources.engine_invocation(
             engine_identity=(
                 "structure_annotation.secondary_structure_agreement.method/"
-                "2.0.0"
+                "2.1.0"
             ),
         ):
             compared = [
@@ -530,11 +598,11 @@ class StructureAnnotationImplementation:
             reference = references.items[0]
             subject_digest = self._catalog.require_port_type(
                 subjects.item_type,
-                "2.0.0",
+                "2.1.0",
             ).content_digest(subject.data)
             reference_digest = self._catalog.require_port_type(
                 references.item_type,
-                "2.0.0",
+                "2.1.0",
             ).content_digest(reference.data)
             observation = ScoreObservation(
                 candidate_id=subject.candidate_id,

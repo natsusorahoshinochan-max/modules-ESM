@@ -1,10 +1,11 @@
 """Sequence-aware CA alignment owned by structure comparison."""
 
-from collections import Counter
 from collections.abc import Callable
 from contextlib import AbstractContextManager, nullcontext
 from dataclasses import dataclass
+from functools import lru_cache
 from importlib.metadata import version
+import math
 
 import numpy as np
 from Bio.Align import PairwiseAligner, substitution_matrices
@@ -71,7 +72,7 @@ def _parse_pdb_ca(pdb_string: str) -> list[_ResidueCA]:
     seen: set[tuple[str, str, str]] = set()
 
     for line in pdb_string.splitlines():
-        if not (line.startswith("ATOM") or line.startswith("HETATM")):
+        if not line.startswith("ATOM  "):
             continue
         if line[12:16].strip() != "CA":
             continue
@@ -114,6 +115,16 @@ def count_structure_ca_residues(structure: ProteinStructure) -> int:
     return len(_parse_pdb_ca(structure.pdb_string))
 
 
+def _sequence_aligner() -> PairwiseAligner:
+    aligner = PairwiseAligner(mode="global")
+    aligner.substitution_matrix = substitution_matrices.load("BLOSUM62")
+    aligner.open_gap_score = _SEQUENCE_GAP_OPEN_SCORE
+    aligner.extend_gap_score = _SEQUENCE_GAP_EXTEND_SCORE
+    aligner.end_open_gap_score = _SEQUENCE_END_GAP_OPEN_SCORE
+    aligner.end_extend_gap_score = _SEQUENCE_END_GAP_EXTEND_SCORE
+    return aligner
+
+
 def _sequence_correspondence(
     reference_sequence: str,
     mobile_sequence: str,
@@ -137,16 +148,7 @@ def _sequence_correspondence(
         else nullcontext(None)
     )
     with sequence_context as sequence_invocation_id:
-        aligner = PairwiseAligner(mode="global")
-        aligner.substitution_matrix = substitution_matrices.load("BLOSUM62")
-        aligner.open_gap_score = _SEQUENCE_GAP_OPEN_SCORE
-        aligner.extend_gap_score = _SEQUENCE_GAP_EXTEND_SCORE
-        if hasattr(aligner, "open_end_gap_score"):
-            aligner.open_end_gap_score = _SEQUENCE_END_GAP_OPEN_SCORE
-            aligner.extend_end_gap_score = _SEQUENCE_END_GAP_EXTEND_SCORE
-        else:
-            aligner.end_open_gap_score = _SEQUENCE_END_GAP_OPEN_SCORE
-            aligner.end_extend_gap_score = _SEQUENCE_END_GAP_EXTEND_SCORE
+        aligner = _sequence_aligner()
         sequence_alignments = aligner.align(
             reference_sequence,
             mobile_sequence,
@@ -156,52 +158,6 @@ def _sequence_correspondence(
             alignment_count = len(sequence_alignments)
         except OverflowError:
             alignment_count = _MAX_EXHAUSTIVE_SEQUENCE_ALIGNMENTS + 1
-
-    if (
-        alignment_count > _MAX_EXHAUSTIVE_SEQUENCE_ALIGNMENTS
-        and min(len(reference_sequence), len(mobile_sequence)) >= 3
-    ):
-        from tmtools import tm_align
-
-        invocation = (
-            engine_invocation(
-                engine_role="correspondence_tiebreak",
-                engine_identity=(
-                    "tmtools.tm_align/"
-                    f"{version('tmtools')}"
-                ),
-                parent_invocation_id=sequence_invocation_id,
-            )
-            if engine_invocation is not None
-            else nullcontext(None)
-        )
-        with invocation:
-            structural_alignment = tm_align(
-                reference_coordinates,
-                mobile_coordinates,
-                reference_sequence,
-                mobile_sequence,
-            )
-        reference_indices: list[int] = []
-        mobile_indices: list[int] = []
-        reference_index = -1
-        mobile_index = -1
-        for reference_amino_acid, mobile_amino_acid in zip(
-            structural_alignment.seqxA,
-            structural_alignment.seqyA,
-        ):
-            if reference_amino_acid != "-":
-                reference_index += 1
-            if mobile_amino_acid != "-":
-                mobile_index += 1
-            if reference_amino_acid != "-" and mobile_amino_acid != "-":
-                reference_indices.append(reference_index)
-                mobile_indices.append(mobile_index)
-        return (
-            reference_indices,
-            mobile_indices,
-            sequence_invocation_id,
-        )
 
     selection_context = (
         engine_invocation(
@@ -219,7 +175,14 @@ def _sequence_correspondence(
     with selection_context:
         best_correspondence: tuple[list[int], list[int]] | None = None
         best_key: tuple[int, float, tuple[int, ...], tuple[int, ...]] | None = None
-        for alignment in sequence_alignments:
+        alignment_limit = (
+            1
+            if alignment_count > _MAX_EXHAUSTIVE_SEQUENCE_ALIGNMENTS
+            else alignment_count
+        )
+        for alignment_index, alignment in enumerate(sequence_alignments):
+            if alignment_index >= alignment_limit:
+                break
             paired_indices = [
                 (int(reference_index), int(mobile_index))
                 for reference_index, mobile_index in zip(*alignment.indices)
@@ -257,26 +220,183 @@ def _sequence_correspondence(
     return (*best_correspondence, sequence_invocation_id)
 
 
-def _chain_map(
+def _residues_by_chain(
+    residues: list[_ResidueCA],
+) -> dict[str, tuple[int, ...]]:
+    chains: dict[str, list[int]] = {}
+    for index, residue in enumerate(residues):
+        chains.setdefault(residue.chain, []).append(index)
+    return {
+        chain: tuple(indices)
+        for chain, indices in chains.items()
+    }
+
+
+def _sequence_score(
+    residues: list[_ResidueCA],
+    indices: tuple[int, ...],
+    other_residues: list[_ResidueCA],
+    other_indices: tuple[int, ...],
+) -> float:
+    sequence = "".join(residues[index].amino_acid for index in indices)
+    other_sequence = "".join(
+        other_residues[index].amino_acid for index in other_indices
+    )
+    return float(_sequence_aligner().score(sequence, other_sequence))
+
+
+def _sequence_optimal_chain_maps(
     reference_residues: list[_ResidueCA],
     mobile_residues: list[_ResidueCA],
-    reference_indices: list[int],
-    mobile_indices: list[int],
-) -> dict[str, str]:
-    """Infer each reference chain's dominant corresponding mobile chain."""
-    correspondences: dict[str, Counter[str]] = {}
-    for reference_index, mobile_index in zip(reference_indices, mobile_indices):
-        reference_chain = reference_residues[reference_index].chain
-        mobile_chain = mobile_residues[mobile_index].chain
-        correspondences.setdefault(reference_chain, Counter())[mobile_chain] += 1
+) -> tuple[list[dict[str, str]], bool]:
+    """Return bounded, lexicographic sequence-optimal one-to-one chain maps."""
+    reference_chains = _residues_by_chain(reference_residues)
+    mobile_chains = _residues_by_chain(mobile_residues)
+    common = sorted(set(reference_chains) & set(mobile_chains))
+    fixed = {chain: chain for chain in common}
+    remaining_reference = sorted(set(reference_chains) - set(common))
+    remaining_mobile = sorted(set(mobile_chains) - set(common))
+    if not remaining_reference or not remaining_mobile:
+        return [fixed], False
 
-    return {
-        reference_chain: min(
-            mobile_counts,
-            key=lambda mobile_chain: (-mobile_counts[mobile_chain], mobile_chain),
+    inverse = len(remaining_reference) > len(remaining_mobile)
+    left = remaining_mobile if inverse else remaining_reference
+    right = remaining_reference if inverse else remaining_mobile
+
+    def pair_score(left_chain: str, right_chain: str) -> float:
+        reference_chain = right_chain if inverse else left_chain
+        mobile_chain = left_chain if inverse else right_chain
+        return _sequence_score(
+            reference_residues,
+            reference_chains[reference_chain],
+            mobile_residues,
+            mobile_chains[mobile_chain],
         )
-        for reference_chain, mobile_counts in sorted(correspondences.items())
-    }
+
+    scores = tuple(
+        tuple(pair_score(left_chain, right_chain) for right_chain in right)
+        for left_chain in left
+    )
+
+    @lru_cache(maxsize=None)
+    def best_score(left_index: int, used_mask: int) -> float:
+        if left_index == len(left):
+            return 0.0
+        return max(
+            scores[left_index][right_index]
+            + best_score(left_index + 1, used_mask | (1 << right_index))
+            for right_index in range(len(right))
+            if not used_mask & (1 << right_index)
+        )
+
+    assignments: list[tuple[int, ...]] = []
+
+    def collect(
+        left_index: int,
+        used_mask: int,
+        selected: tuple[int, ...],
+    ) -> None:
+        if len(assignments) > _MAX_EXHAUSTIVE_SEQUENCE_ALIGNMENTS:
+            return
+        if left_index == len(left):
+            assignments.append(selected)
+            return
+        optimum = best_score(left_index, used_mask)
+        for right_index in range(len(right)):
+            if used_mask & (1 << right_index):
+                continue
+            branch_score = (
+                scores[left_index][right_index]
+                + best_score(
+                    left_index + 1,
+                    used_mask | (1 << right_index),
+                )
+            )
+            if math.isclose(
+                branch_score,
+                optimum,
+                rel_tol=0.0,
+                abs_tol=1e-12,
+            ):
+                collect(
+                    left_index + 1,
+                    used_mask | (1 << right_index),
+                    (*selected, right_index),
+                )
+
+    collect(0, 0, ())
+    exceeded = len(assignments) > _MAX_EXHAUSTIVE_SEQUENCE_ALIGNMENTS
+    maps: list[dict[str, str]] = []
+    for assignment in assignments[: _MAX_EXHAUSTIVE_SEQUENCE_ALIGNMENTS + 1]:
+        chain_map = dict(fixed)
+        for left_index, right_index in enumerate(assignment):
+            if inverse:
+                chain_map[right[right_index]] = left[left_index]
+            else:
+                chain_map[left[left_index]] = right[right_index]
+        maps.append(dict(sorted(chain_map.items())))
+    maps.sort(key=lambda mapping: tuple(mapping.items()))
+    return maps, exceeded
+
+
+def _correspondence_for_chain_map(
+    chain_map: dict[str, str],
+    reference_residues: list[_ResidueCA],
+    mobile_residues: list[_ResidueCA],
+    reference_coordinates: np.ndarray,
+    mobile_coordinates: np.ndarray,
+    *,
+    engine_invocation: (
+        Callable[..., AbstractContextManager[str]] | None
+    ),
+) -> tuple[list[int], list[int], str | None]:
+    reference_chains = _residues_by_chain(reference_residues)
+    mobile_chains = _residues_by_chain(mobile_residues)
+    pairs: list[tuple[int, int]] = []
+    parent_invocation_id: str | None = None
+    for reference_chain, mobile_chain in sorted(chain_map.items()):
+        reference_global = reference_chains[reference_chain]
+        mobile_global = mobile_chains[mobile_chain]
+        reference_sequence = "".join(
+            reference_residues[index].amino_acid
+            for index in reference_global
+        )
+        mobile_sequence = "".join(
+            mobile_residues[index].amino_acid for index in mobile_global
+        )
+        local_reference_coordinates = reference_coordinates[
+            list(reference_global)
+        ]
+        local_mobile_coordinates = mobile_coordinates[list(mobile_global)]
+        (
+            local_reference_indices,
+            local_mobile_indices,
+            invocation_id,
+        ) = _sequence_correspondence(
+            reference_sequence,
+            mobile_sequence,
+            local_reference_coordinates,
+            local_mobile_coordinates,
+            engine_invocation=engine_invocation,
+        )
+        if parent_invocation_id is None:
+            parent_invocation_id = invocation_id
+        pairs.extend(
+            (
+                reference_global[reference_index],
+                mobile_global[mobile_index],
+            )
+            for reference_index, mobile_index in zip(
+                local_reference_indices,
+                local_mobile_indices,
+            )
+        )
+    pairs.sort()
+    return (
+        [reference_index for reference_index, _ in pairs],
+        [mobile_index for _, mobile_index in pairs],
+        parent_invocation_id,
+    )
 
 
 def align_structures(
@@ -308,13 +428,48 @@ def align_structures(
         [residue.coordinate for residue in mobile_residues],
         dtype=np.float64,
     )
+    chain_maps, chain_map_limit_exceeded = _sequence_optimal_chain_maps(
+        reference_residues,
+        mobile_residues,
+    )
+    if chain_map_limit_exceeded:
+        selected_chain_map = chain_maps[0]
+    else:
+        selected_chain_map: dict[str, str] | None = None
+        selected_key: tuple[float, tuple[tuple[str, str], ...]] | None = None
+        for chain_map in chain_maps:
+            trial_reference_indices, trial_mobile_indices, _ = (
+                _correspondence_for_chain_map(
+                    chain_map,
+                    reference_residues,
+                    mobile_residues,
+                    all_reference_coordinates,
+                    all_mobile_coordinates,
+                    engine_invocation=None,
+                )
+            )
+            if trial_reference_indices:
+                trial_rmsd = float(
+                    _superimpose(
+                        all_reference_coordinates[trial_reference_indices],
+                        all_mobile_coordinates[trial_mobile_indices],
+                    ).get_rms()
+                )
+            else:
+                trial_rmsd = float("inf")
+            key = (trial_rmsd, tuple(sorted(chain_map.items())))
+            if selected_key is None or key < selected_key:
+                selected_key = key
+                selected_chain_map = chain_map
+        assert selected_chain_map is not None
     (
         reference_indices,
         mobile_indices,
         sequence_invocation_id,
-    ) = _sequence_correspondence(
-        reference_sequence,
-        mobile_sequence,
+    ) = _correspondence_for_chain_map(
+        selected_chain_map,
+        reference_residues,
+        mobile_residues,
         all_reference_coordinates,
         all_mobile_coordinates,
         engine_invocation=engine_invocation,
@@ -385,12 +540,7 @@ def align_structures(
                 mobile_indices,
             )
         ],
-        chain_map=_chain_map(
-            reference_residues,
-            mobile_residues,
-            reference_indices,
-            mobile_indices,
-        ),
+        chain_map=selected_chain_map,
         rotation=rotation_array.tolist(),
         translation=translation_array.tolist(),
         rmsd=fit_rmsd,

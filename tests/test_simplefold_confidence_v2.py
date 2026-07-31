@@ -71,6 +71,18 @@ def _blank_and_named_chain_pdb() -> str:
     )
 
 
+def _two_blank_chain_pdb() -> str:
+    return "\n".join(
+        (
+            "ATOM      1  CA  ALA     1       0.000   0.000   0.000  1.00 20.00           C",
+            "TER",
+            "ATOM      2  CA  GLY     1       1.000   0.000   0.000  1.00 20.00           C",
+            "END",
+            "",
+        )
+    )
+
+
 def test_existing_structure_parser_preserves_chain_breaks() -> None:
     from modules.folding.simplefold_confidence_adapter import (
         _pdb_residues,
@@ -90,6 +102,9 @@ def test_existing_structure_parser_preserves_chain_breaks() -> None:
     ] == ["A", "B"]
     blank_and_named = _pdb_residues(_blank_and_named_chain_pdb())
     assert _provider_chain_ids(blank_and_named.chains) == ("B", "A")
+    blank_segments = _pdb_residues(_two_blank_chain_pdb())
+    assert [chain.sequence for chain in blank_segments.chains] == ["A", "G"]
+    assert _provider_chain_ids(blank_segments.chains) == ("A", "B")
 
 
 def _confidence_environment(
@@ -207,18 +222,18 @@ def _run_confidence(
     source = WorkflowNodeInstance(
         node_id="source",
         node_type_id="contract_test.folding_structure_source",
-        node_type_version="2.0.0",
+        node_type_version="2.1.0",
         binding_id="contract_test.folding_structure_source.direct",
-        binding_version="2.0.0",
+        binding_version="2.1.0",
         node_parameters={"pdb_string": _two_residue_pdb()},
         binding_parameters={},
     )
     confidence = WorkflowNodeInstance(
         node_id="confidence",
         node_type_id="folding.simplefold_confidence",
-        node_type_version="2.0.0",
+        node_type_version="2.1.0",
         binding_id="folding.simplefold_confidence.simplefold_local",
-        binding_version="2.0.0",
+        binding_version="2.1.0",
         node_parameters={},
         binding_parameters={},
     )
@@ -232,7 +247,7 @@ def _run_confidence(
     project = projects.create("SimpleFold confidence")
     authoring = WorkflowAuthoringService(projects, catalog)
     workflow = WorkflowDocument(
-        schema_version="2.0.0",
+        schema_version="2.1.0",
         workflow_id=project.id,
         nodes=(source, confidence),
         edges=(
@@ -267,7 +282,7 @@ def _run_confidence(
         )
     fingerprint = environment_values["resolved_runtime_fingerprint"]
     environment = EnvironmentConfiguration({
-        ("folding.simplefold_confidence.simplefold_local", "2.0.0"): {
+        ("folding.simplefold_confidence.simplefold_local", "2.1.0"): {
             "values": environment_values,
             "safe_fingerprint": fingerprint,
             "invalidation_token": fingerprint,
@@ -312,12 +327,12 @@ def test_simplefold_confidence_is_a_separate_fixed_existing_structure_node() -> 
     binding = catalog.require_contract(
         "binding",
         "folding.simplefold_confidence.simplefold_local",
-        "2.0.0",
+        "2.1.0",
     )
     node = catalog.require_contract(
         "node_type",
         "folding.simplefold_confidence",
-        "2.0.0",
+        "2.1.0",
     )
     assert [item["name"] for item in node.descriptor["inputs"]] == [
         "structure_candidates"
@@ -441,8 +456,8 @@ def test_direct_head_is_statically_scaled_and_masks_invalid_residues(
         def evaluate(self, **kwargs: Any) -> dict[str, Any]:
             self.calls.append(kwargs)
             return {
-                "native_plddt": [0.71, float("nan"), 0.83],
-                "valid_protein_residues": [True, False, True],
+                "native_plddt": [float("nan"), 0.83],
+                "valid_protein_residues": [False, True],
             }
 
     client = Client()
@@ -469,8 +484,8 @@ def test_direct_head_is_statically_scaled_and_masks_invalid_residues(
         )
         for entry in scores.entries
     } == {
-        ("structure.plddt.per_residue", (71.0, 83.0)),
-        ("structure.plddt.mean_residue", 77.0),
+        ("structure.plddt.per_residue", (None, 83.0)),
+        ("structure.plddt.mean_residue", 83.0),
     }
     assert len({entry.candidate_id for entry in scores.entries}) == 1
     assert scores.entries[0].candidate_id.startswith("candidate-")

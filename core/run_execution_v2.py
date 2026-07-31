@@ -82,7 +82,7 @@ _PRESENTATION_CONTRACT_FIELDS = {
     "node_type": frozenset({"title", "summary", "category"}),
     "metric": frozenset({"title", "description"}),
 }
-RUN_LEDGER_SCHEMA_VERSION = "2.0.0"
+RUN_LEDGER_SCHEMA_VERSION = "2.1.0"
 MAX_ARTIFACTS_PER_RUN = 2_048
 MAX_ARTIFACT_SIZE_BYTES = 64 * 1024 * 1024
 MAX_ARTIFACT_BYTES_PER_RUN = 256 * 1024 * 1024
@@ -418,25 +418,21 @@ class ReusableReadinessProof:
         )
 
 
-class ReadinessCheckInput(Mapping[str, Any]):
-    """Mapping-compatible private checker input with an optional valid proof."""
+@dataclass(frozen=True, slots=True)
+class ReadinessCheckInput:
+    """Closed private checker input for one selected Binding."""
 
-    def __init__(
-        self,
-        environment: BindingEnvironment,
-        reusable_proof: ReusableReadinessProof | None,
-    ) -> None:
-        self._environment = environment
-        self.reusable_proof = reusable_proof
+    values: Mapping[str, Any]
+    reusable_proof: ReusableReadinessProof | None
 
-    def __getitem__(self, key: str) -> Any:
-        return self._environment.values[key]
-
-    def __iter__(self):
-        return iter(self._environment.values)
-
-    def __len__(self) -> int:
-        return len(self._environment.values)
+    def __post_init__(self) -> None:
+        if not isinstance(self.values, Mapping):
+            raise TypeError("Readiness values must be a Mapping")
+        object.__setattr__(
+            self,
+            "values",
+            MappingProxyType(dict(self.values)),
+        )
 
 
 @dataclass(frozen=True, slots=True)
@@ -763,6 +759,10 @@ class ResultReplaySource:
             outputs,
             producer_run_id,
         )
+
+
+class RecoverableCacheMiss(RuntimeError):
+    """Recognizable absent or corrupt raw cache storage safe to recompute."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -2905,6 +2905,20 @@ def _result_identity_descriptor(
                 )["objectives"]
             )
         )
+    selected_observation_selectors = _consumed_observation_selectors(
+        plan,
+        node,
+        binding_contract,
+    )
+    if selected_observation_selectors:
+        descriptor["observation_selectors"] = (
+            _normalize_nested_contract_references(
+                [
+                    selector.to_public()
+                    for selector in selected_observation_selectors
+                ]
+            )
+        )
     if resolved_resource_inputs:
         descriptor["resolved_resource_inputs"] = [
             _plain_json(identity)
@@ -3017,7 +3031,7 @@ def _candidate_data_content_digest(
         )
     return catalog.require_port_type(
         type_id,
-        "2.0.0",
+        "2.1.0",
     ).content_digest(candidate.data)
 
 
@@ -3086,6 +3100,34 @@ def _consumed_selection_objectives(
     return tuple(matches)
 
 
+def _consumed_observation_selectors(
+    plan: ExecutionPlan,
+    node: ExecutionPlanNode,
+    binding_contract: Any,
+) -> tuple[Any, ...]:
+    consumption = binding_contract.descriptor.get(
+        "observation_selector_consumption"
+    )
+    if not isinstance(consumption, Mapping):
+        return ()
+    parameter = consumption.get("selector_id_parameter")
+    selector_id = (
+        node.node_parameters.get(parameter)
+        if isinstance(parameter, str)
+        else None
+    )
+    selectors = {
+        selector.selector_id: selector
+        for selector in plan.observation_selectors
+    }
+    selector = selectors.get(selector_id)
+    if selector is None:
+        raise PortValueError(
+            "Observation Selector consumption is unresolved at execution"
+        )
+    return (selector,)
+
+
 def _selection_consumer_result(
     catalog: FrozenCatalog,
     plan: ExecutionPlan,
@@ -3094,15 +3136,29 @@ def _selection_consumer_result(
 ) -> dict[str, Any] | None:
     """Project one declared selection Node's actual typed output."""
     binding = catalog.require_contract(*node.binding.key)
-    consumption = binding.descriptor.get(
+    objective_consumption = binding.descriptor.get(
         "selection_objective_consumption"
     )
-    if not isinstance(consumption, Mapping):
+    selector_consumption = binding.descriptor.get(
+        "observation_selector_consumption"
+    )
+    if not isinstance(objective_consumption, Mapping) and not isinstance(
+        selector_consumption,
+        Mapping,
+    ):
         return None
-    objectives = _consumed_selection_objectives(plan, node, binding)
-    candidate_references = {
-        objective.candidate_input for objective in objectives
-    }
+    if isinstance(selector_consumption, Mapping):
+        selectors = _consumed_observation_selectors(plan, node, binding)
+        candidate_references = {
+            selector.candidate_input for selector in selectors
+        }
+        consumption = selector_consumption
+    else:
+        objectives = _consumed_selection_objectives(plan, node, binding)
+        candidate_references = {
+            objective.candidate_input for objective in objectives
+        }
+        consumption = objective_consumption
     if len(candidate_references) != 1:
         raise SelectionError(
             "Selection consumer objectives do not share one Candidate input"
@@ -3123,8 +3179,7 @@ def _selection_consumer_result(
         )
     selected = resolved[0]
     candidate_reference = next(iter(candidate_references))
-    provenance = selection_objective_provenance(objectives, catalog)
-    return {
+    result = {
         "status": "succeeded",
         "selection_node_id": node.node_id,
         "selection_method": node.method.to_public(),
@@ -3133,8 +3188,15 @@ def _selection_consumer_result(
         "selected_candidate_ids": [
             candidate.candidate_id for candidate in selected.items
         ],
-        "objectives": provenance["objectives"],
     }
+    if isinstance(selector_consumption, Mapping):
+        result["observation_selectors"] = [
+            selector.to_public() for selector in selectors
+        ]
+    else:
+        provenance = selection_objective_provenance(objectives, catalog)
+        result["objectives"] = provenance["objectives"]
+    return result
 
 
 def _workflow_weighted_selection_result(
@@ -3247,6 +3309,21 @@ def _relevant_result_contract_keys(
                     selected_objective.method,
                     selected_objective.utility_transform,
                 )
+            }
+        )
+    for selector in _consumed_observation_selectors(
+        plan,
+        node,
+        binding_contract,
+    ):
+        keys.update(
+            {
+                (
+                    reference.contract_kind,
+                    reference.contract_id,
+                    reference.contract_version,
+                )
+                for reference in (selector.metric, selector.method)
             }
         )
     unresolved = list(keys)
@@ -3379,6 +3456,16 @@ def _result_contract_metadata(
                 catalog,
             )["objectives"]
         )
+    selected_observation_selectors = _consumed_observation_selectors(
+        plan,
+        node,
+        binding_contract,
+    )
+    if selected_observation_selectors:
+        metadata["observation_selectors"] = [
+            selector.to_public()
+            for selector in selected_observation_selectors
+        ]
     return metadata
 
 
@@ -3474,8 +3561,10 @@ class _ProjectResultCache(ResultReplaySource):
             json.JSONDecodeError,
             PortValueError,
             ValueError,
-        ):
-            return None
+        ) as error:
+            raise RecoverableCacheMiss(
+                "Result cache entry storage is corrupt"
+            ) from error
         return payload
 
     def _producer_node_succeeded(
@@ -3546,7 +3635,11 @@ class _ProjectResultCache(ResultReplaySource):
             project_id,
             entry["producer"],
         ):
-            return None
+            raise V2RunError(
+                "cache_identity_conflict",
+                "Cache replay producer provenance is not durably successful",
+                details={"result_identity": result_identity},
+            )
         node_contract = self._catalog.require_contract(*node.node_type.key)
         declarations = {
             port["name"]: port
@@ -3568,11 +3661,15 @@ class _ProjectResultCache(ResultReplaySource):
                 or output["output_port"] not in declarations
                 or not isinstance(output["encoded_values"], list)
             ):
-                return None
+                raise RecoverableCacheMiss(
+                    "Result cache output storage is corrupt"
+                )
             seen_ports.add(output["output_port"])
             declaration = declarations[output["output_port"]]
             if output["port_type"] != declaration["port_type"]:
-                return None
+                raise RecoverableCacheMiss(
+                    "Result cache output contract storage is corrupt"
+                )
             port_type = self._catalog.require_port_type(
                 output["port_type"]["contract_id"],
                 output["port_type"]["contract_version"],
@@ -3586,9 +3683,13 @@ class _ProjectResultCache(ResultReplaySource):
                     if isinstance(item, str)
                 ]
             except (binascii.Error, PortValueError, ValueError):
-                return None
+                raise RecoverableCacheMiss(
+                    "Result cache encoded output storage is corrupt"
+                )
             if len(values) != len(output["encoded_values"]):
-                return None
+                raise RecoverableCacheMiss(
+                    "Result cache output cardinality storage is corrupt"
+                )
             expected_digest = (
                 port_type.content_digest(values[0])
                 if len(values) == 1
@@ -3603,7 +3704,9 @@ class _ProjectResultCache(ResultReplaySource):
                 )
             )
             if expected_digest != output["content_digest"]:
-                return None
+                raise RecoverableCacheMiss(
+                    "Result cache content digest storage is corrupt"
+                )
             decoded_outputs[output["output_port"]] = (
                 values
                 if declaration["multiplicity"] == "many"
@@ -3613,7 +3716,9 @@ class _ProjectResultCache(ResultReplaySource):
             declaration["required"] is True and port_name not in seen_ports
             for port_name, declaration in declarations.items()
         ):
-            return None
+            raise RecoverableCacheMiss(
+                "Result cache required output storage is incomplete"
+            )
         return ResultReplayHit(
             outputs=decoded_outputs,
             result_identity=result_identity,
@@ -3715,7 +3820,10 @@ class _ProjectResultCache(ResultReplaySource):
         )
         if entry is None:
             return None
-        existing = self._load_entry(project_id, result_identity)
+        try:
+            existing = self._load_entry(project_id, result_identity)
+        except RecoverableCacheMiss:
+            return None
         if existing is not None and self._conflicts(existing, entry):
             raise V2RunError(
                 "cache_identity_conflict",
@@ -3742,7 +3850,10 @@ class _ProjectResultCache(ResultReplaySource):
         )
         if entry is None:
             return None
-        existing = self._load_entry(project_id, result_identity)
+        try:
+            existing = self._load_entry(project_id, result_identity)
+        except RecoverableCacheMiss:
+            return None
         if existing is not None:
             if self._conflicts(existing, entry):
                 raise V2RunError(
@@ -3911,6 +4022,12 @@ class V2RunService:
                     self._catalog.require_contract(
                         *node.binding.key
                     ).descriptor.get("selection_objective_consumption"),
+                    Mapping,
+                )
+                or isinstance(
+                    self._catalog.require_contract(
+                        *node.binding.key
+                    ).descriptor.get("observation_selector_consumption"),
                     Mapping,
                 ),
             )
@@ -4273,7 +4390,7 @@ class V2RunService:
         if result is None:
             try:
                 observed = declaration.check(
-                    ReadinessCheckInput(environment, reusable)
+                    ReadinessCheckInput(environment.values, reusable)
                 )
             except Exception as error:
                 del error
@@ -4282,9 +4399,7 @@ class V2RunService:
                     proof_source="checker-failure",
                     reason_code="readiness_check_failed",
                 )
-            if isinstance(observed, bool):
-                result = ReadinessResult(observed)
-            elif isinstance(observed, ReadinessResult):
+            if isinstance(observed, ReadinessResult):
                 result = observed
             else:
                 result = ReadinessResult(
@@ -5103,7 +5218,9 @@ class V2RunService:
                 entry.to_public()
                 for entry in plan.resolved_contracts
             ],
-            "selection_required": bool(plan.selection_objectives),
+            "selection_required": bool(
+                plan.selection_objectives or plan.observation_selectors
+            ),
             "selection_terminal_keys": list(
                 (
                     tuple(
@@ -5113,7 +5230,7 @@ class V2RunService:
                     )
                     or ("__workflow__",)
                 )
-                if plan.selection_objectives
+                if plan.selection_objectives or plan.observation_selectors
                 else ()
             ),
             "plan_nodes": [
@@ -5380,11 +5497,17 @@ class V2RunService:
                             resolution="cache_replayed",
                         )
                         replayed_runtime = candidate_runtime
-                except V2RunError as error:
-                    cache_lookup_error = error
-                except Exception:
+                except RecoverableCacheMiss:
                     replayed_published = None
                     replayed_runtime = None
+                except V2RunError as error:
+                    cache_lookup_error = error
+                except Exception as error:
+                    cache_lookup_error = V2RunError(
+                        "node_execution_failed",
+                        "Cache replay failed before Provider execution",
+                        details={"exception_type": type(error).__name__},
+                    )
             if cache_lookup_error is not None:
                 ledger.append(
                     "node_attempt_started",
@@ -5853,7 +5976,7 @@ class V2RunService:
             disposition_outcomes[node.node_id] = outcome
         selection_failed = False
         if (
-            plan.selection_objectives
+            (plan.selection_objectives or plan.observation_selectors)
             and all(
                 outcome == "succeeded"
                 for outcome in disposition_outcomes.values()

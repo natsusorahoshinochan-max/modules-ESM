@@ -14,6 +14,7 @@ from fastapi.testclient import TestClient
 import core.run_execution_v2 as run_execution_v2
 from core import (
     ModulePackageContractCase,
+    ObservationSelector,
     PairwiseContextSelector,
     SelectionInput,
     SelectionObjective,
@@ -43,7 +44,7 @@ from tests.fixtures.multi_objective_selection_sources.package import (
 from tests.fixtures.public_v2 import wait_for_testclient_run_terminal
 
 
-VERSION = "2.0.0"
+VERSION = "2.1.0"
 OPERATIONS = ("weighted_rank", "pareto", "diversity")
 
 
@@ -143,6 +144,21 @@ def _objectives(catalog) -> tuple[SelectionObjective, SelectionObjective]:
             weight=0.3,
             source_partition=PAIRED_PARTITION,
             **common,
+        ),
+    )
+
+
+def _selectors(catalog) -> tuple[ObservationSelector, ...]:
+    objective = _objectives(catalog)[0]
+    return (
+        ObservationSelector(
+            selector_id="fixed-3gb1-raw",
+            candidate_input=objective.candidate_input,
+            score_collection_input=objective.score_collection_input,
+            metric=objective.metric,
+            method=objective.method,
+            context_selector=objective.context_selector,
+            source_partition=objective.source_partition,
         ),
     )
 
@@ -493,7 +509,7 @@ def test_all_three_nodes_pass_contract_test_kit(tmp_path: Path) -> None:
     catalog = _catalog()
     single_objective_parameters = {
         "filter": {
-            "objective_id": "fixed-3gb1",
+            "selector_id": "fixed-3gb1-raw",
             "operator": ">=",
             "threshold": 0.5,
             "out_of_scope_policy": "ignore",
@@ -543,6 +559,9 @@ def test_all_three_nodes_pass_contract_test_kit(tmp_path: Path) -> None:
                 ),
             ),
             selection_objectives=_objectives(catalog),
+            observation_selectors=(
+                _selectors(catalog) if operation == "filter" else ()
+            ),
             expected_candidate_counts={
                 "candidates": {
                     "filter": 3,

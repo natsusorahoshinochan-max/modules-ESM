@@ -47,7 +47,7 @@ from datatypes import (
 CONTRACT_NAMESPACE = "protein-workbench-contract/v2"
 CATALOG_NAMESPACE = "protein-workbench-catalog/v2"
 PORT_VALUE_NAMESPACE = "protein-workbench-port-value/v2"
-PORT_TYPE_VERSION = "2.0.0"
+PORT_TYPE_VERSION = "2.1.0"
 _I_JSON_INTEGER_LIMIT = 9_007_199_254_740_991
 _IDENTIFIER = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.:/+-]*$")
 _SEMANTIC_VERSION = re.compile(
@@ -1566,8 +1566,6 @@ class FrozenCatalog:
 _BUILTIN_VALUE_KINDS = (
     ("candidate.collection", "candidate_collection"),
     ("candidate.pairing", "pairwise_candidate_mapping"),
-    ("function.annotations", "function_annotations"),
-    ("protein.prompt", "protein_prompt"),
     ("protein.sequence", "protein_sequence"),
     ("protein.structure", "protein_structure"),
     ("residue.layout", "residue_layout"),

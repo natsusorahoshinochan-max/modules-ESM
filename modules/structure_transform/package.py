@@ -13,7 +13,9 @@ from core import (
     MethodDefinition,
     ModulePackageRegistration,
     PortTypeDefinition,
+    ReadinessCheckInput,
     ReadinessDeclaration,
+    ReadinessResult,
 )
 from datatypes import ProteinStructure
 
@@ -23,7 +25,7 @@ from .implementation import (
 )
 
 
-_VERSION = "2.0.0"
+_VERSION = "2.1.0"
 _OPERATIONS = (
     "select_chains",
     "extract_backbone",
@@ -36,9 +38,9 @@ def _available() -> AvailabilityResult:
     return AvailabilityResult.available()
 
 
-def _ready(environment: object) -> bool:
-    del environment
-    return True
+def _ready(check_input: ReadinessCheckInput) -> ReadinessResult:
+    del check_input
+    return ReadinessResult(True)
 
 
 def _build(operation: str):
@@ -84,9 +86,9 @@ def _method(operation: str) -> MethodDefinition:
         "backbone_to_structure": {
             "name": "explicit-backbone-to-generic-structure-conversion",
             "input_contract": (
-                "structure_transform.backbone_structure@2.0.0"
+                "structure_transform.backbone_structure@2.1.0"
             ),
-            "output_contract": "protein.structure@2.0.0",
+            "output_contract": "protein.structure@2.1.0",
             "pdb_bytes": "preserved",
             "atom_generation": "none",
         },
@@ -180,7 +182,7 @@ def _backbone_from_wire(value: object) -> object:
 
 
 MODULE_PACKAGE = ModulePackageRegistration(
-    schema_version=_VERSION,
+    schema_version="2.1.0",
     package_id="structure_transform",
     package_version=_VERSION,
     package_module=__package__,

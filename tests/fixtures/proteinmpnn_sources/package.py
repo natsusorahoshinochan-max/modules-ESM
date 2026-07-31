@@ -16,6 +16,7 @@ from core import (
     MethodDefinition,
     ModulePackageRegistration,
     ReadinessDeclaration,
+    ReadinessResult,
 )
 from datatypes import (
     Candidate,
@@ -25,7 +26,7 @@ from datatypes import (
 )
 
 
-_VERSION = "2.0.0"
+_VERSION = "2.1.0"
 
 
 class _Source:
@@ -51,7 +52,7 @@ class _Source:
         if type(count) is not int or not 1 <= count <= 10:
             raise ValueError("ProteinMPNN parent_count is invalid")
         with self._run_resources.engine_invocation(
-            engine_identity="contract_test.proteinmpnn_source/2.0.0",
+            engine_identity="contract_test.proteinmpnn_source/2.1.0",
         ):
             parents = [
                 Candidate(
@@ -111,7 +112,7 @@ class _SequenceSource:
             raise ValueError("ProteinMPNN sequence parents are invalid")
         with self._run_resources.engine_invocation(
             engine_identity=(
-                "contract_test.proteinmpnn_sequence_source/2.0.0"
+                "contract_test.proteinmpnn_sequence_source/2.1.0"
             ),
         ):
             sequences = [
@@ -148,7 +149,7 @@ def _build(operation: str):
 
 
 MODULE_PACKAGE = ModulePackageRegistration(
-    schema_version=_VERSION,
+    schema_version="2.1.0",
     package_id="contract_test.proteinmpnn_sources",
     package_version=_VERSION,
     package_module=__package__,
@@ -218,7 +219,7 @@ MODULE_PACKAGE = ModulePackageRegistration(
                     {},
                 ),
                 prerequisites={},
-                check=lambda environment: True,
+                check=lambda environment: ReadinessResult(True),
             ),
             deterministic=True,
             cacheable=True,
@@ -266,7 +267,7 @@ MODULE_PACKAGE = ModulePackageRegistration(
                     {},
                 ),
                 prerequisites={},
-                check=lambda environment: True,
+                check=lambda environment: ReadinessResult(True),
             ),
             deterministic=True,
             cacheable=True,

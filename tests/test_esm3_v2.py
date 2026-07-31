@@ -14,6 +14,7 @@ from core import (
     ModulePackageContractCase,
     ModulePackagePortCase,
     ProjectManager,
+    ReadinessCheckInput,
     ResultReplaySource,
     V2RunError,
     V2RunService,
@@ -63,16 +64,16 @@ def test_esm_package_owns_generation_and_direct_esmc_representation_nodes() -> N
         and "esm3" in catalog.owners[(kind, contract_id, version)]
     }
     assert owned_nodes == {
-        ("esm3.generate_sequence", "2.0.0"),
-        ("esm3.generate_structure", "2.0.0"),
-        ("esm3.generate_paired", "2.0.0"),
-        ("esm3.represent_sequence", "2.0.0"),
+        ("esm3.generate_sequence", "2.1.0"),
+        ("esm3.generate_structure", "2.1.0"),
+        ("esm3.generate_paired", "2.1.0"),
+        ("esm3.represent_sequence", "2.1.0"),
     }
 
     representation = catalog.require_contract(
         "node_type",
         "esm3.represent_sequence",
-        "2.0.0",
+        "2.1.0",
     )
     assert representation.descriptor["inputs"][0]["port_type"][
         "contract_id"
@@ -86,7 +87,7 @@ def test_esm_package_owns_generation_and_direct_esmc_representation_nodes() -> N
     binding = catalog.require_contract(
         "binding",
         "esm3.represent_sequence.biohub_esmc_600m_2024_12",
-        "2.0.0",
+        "2.1.0",
     )
     assert binding.descriptor["method"]["contract_id"] == (
         "esm3.represent_sequence.esmc_600m_2024_12"
@@ -145,7 +146,7 @@ def test_esm_package_owns_generation_and_direct_esmc_representation_nodes() -> N
         node = catalog.require_contract(
             "node_type",
             f"esm3.{operation}",
-            "2.0.0",
+            "2.1.0",
         )
         assert "model_name" not in node.descriptor["node_parameters"]
         if operation in {"generate_sequence", "generate_paired"}:
@@ -159,7 +160,7 @@ def test_esm_package_owns_generation_and_direct_esmc_representation_nodes() -> N
             binding = catalog.require_contract(
                 "binding",
                 f"esm3.{operation}.{route}",
-                "2.0.0",
+                "2.1.0",
             )
             assert "model_name" not in (
                 binding.descriptor["binding_parameters"]
@@ -243,26 +244,26 @@ def test_direct_esmc_representation_crosses_public_run_and_engine_seams(
     projects.publish_input(project.id, "sequence.fasta", b">3GB1\nACD\n")
     authoring = WorkflowAuthoringService(projects, catalog)
     workflow = WorkflowDocument(
-        schema_version="2.0.0",
+        schema_version="2.1.0",
         workflow_id=project.id,
         nodes=(
             WorkflowNodeInstance(
                 node_id="import",
                 node_type_id="protein_io.import_sequence",
-                node_type_version="2.0.0",
+                node_type_version="2.1.0",
                 binding_id="protein_io.import_sequence.direct",
-                binding_version="2.0.0",
+                binding_version="2.1.0",
                 node_parameters={"project_input_ref": "sequence.fasta"},
                 binding_parameters={},
             ),
             WorkflowNodeInstance(
                 node_id="represent",
                 node_type_id="esm3.represent_sequence",
-                node_type_version="2.0.0",
+                node_type_version="2.1.0",
                 binding_id=(
                     "esm3.represent_sequence.biohub_esmc_600m_2024_12"
                 ),
-                binding_version="2.0.0",
+                binding_version="2.1.0",
                 node_parameters={},
                 binding_parameters={},
             ),
@@ -290,7 +291,7 @@ def test_direct_esmc_representation_crosses_public_run_and_engine_seams(
     environment = EnvironmentConfiguration({
         (
             "esm3.represent_sequence.biohub_esmc_600m_2024_12",
-            "2.0.0",
+            "2.1.0",
         ): {
             "values": {
                 "endpoint_id": "biohub",
@@ -352,7 +353,7 @@ def test_direct_esmc_representation_crosses_public_run_and_engine_seams(
 
     port_type = catalog.require_port_type(
         "esm3.esmc_sequence_representation",
-        "2.0.0",
+        "2.1.0",
     )
     assert port_type.decode(port_type.encode(representation)) == representation
     integer_form_embedding = ESMCSequenceRepresentation(
@@ -427,7 +428,10 @@ def test_exact_esmc_rejects_contract_mismatched_feature_dimensions() -> None:
 
 
 def test_adapter_preserves_every_representable_prompt_track_and_symbol() -> None:
-    from modules.esm3.adapter import protein_prompt_to_provider
+    from modules.esm3.adapter import (
+        protein_prompt_to_provider,
+        structure_prompt_for_sequence,
+    )
 
     layout = ResidueLayout(
         chain_id="A",
@@ -492,6 +496,22 @@ def test_adapter_preserves_every_representable_prompt_track_and_symbol() -> None
     assert provider.coordinates[0, 1].tolist() == [4.0, 5.0, 6.0]
     assert math.isnan(float(provider.coordinates[1, 1, 0]))
 
+    paired_structure_prompt = structure_prompt_for_sequence(
+        provider,
+        "ACDEFGHI",
+    )
+    assert paired_structure_prompt.sequence == "ACDEFGHI"
+    assert paired_structure_prompt.coordinates is provider.coordinates
+    assert (
+        paired_structure_prompt.secondary_structure
+        == provider.secondary_structure
+    )
+    assert paired_structure_prompt.sasa == provider.sasa
+    assert (
+        paired_structure_prompt.function_annotations
+        is provider.function_annotations
+    )
+
     prompt.sequence_track.values[0] = "J"
     with pytest.raises(ValueError, match="cannot represent sequence symbol 'J'"):
         protein_prompt_to_provider(prompt)
@@ -529,6 +549,12 @@ class _ProviderClient:
     def generate(self, protein: Any, config: Any) -> _ProviderResponse:
         self.calls.append((protein, config))
         return next(self._responses)
+
+
+class _StepShorteningProviderClient(_ProviderClient):
+    def generate(self, protein: Any, config: Any) -> _ProviderResponse:
+        config.num_steps = 1
+        return super().generate(protein, config)
 
 
 def _decode_output(catalog: Any, output: dict[str, Any]) -> Any:
@@ -575,9 +601,9 @@ def _run_generation(
         WorkflowNodeInstance(
             node_id="layout",
             node_type_id="prompt_authoring.build_residue_layout",
-            node_type_version="2.0.0",
+            node_type_version="2.1.0",
             binding_id="prompt_authoring.build_residue_layout.direct",
-            binding_version="2.0.0",
+            binding_version="2.1.0",
             node_parameters={
                 "chains": [
                     {
@@ -591,9 +617,9 @@ def _run_generation(
         WorkflowNodeInstance(
             node_id="assemble",
             node_type_id="prompt_authoring.assemble_protein_prompt",
-            node_type_version="2.0.0",
+            node_type_version="2.1.0",
             binding_id="prompt_authoring.assemble_protein_prompt.direct",
-            binding_version="2.0.0",
+            binding_version="2.1.0",
             node_parameters={},
             binding_parameters={},
         ),
@@ -611,18 +637,18 @@ def _run_generation(
                 WorkflowNodeInstance(
                     node_id="import_sequence",
                     node_type_id="protein_io.import_sequence",
-                    node_type_version="2.0.0",
+                    node_type_version="2.1.0",
                     binding_id="protein_io.import_sequence.direct",
-                    binding_version="2.0.0",
+                    binding_version="2.1.0",
                     node_parameters={"project_input_ref": "sequence-input"},
                     binding_parameters={},
                 ),
                 WorkflowNodeInstance(
                     node_id="update_sequence",
                     node_type_id="prompt_authoring.update_prompt_sequence",
-                    node_type_version="2.0.0",
+                    node_type_version="2.1.0",
                     binding_id="prompt_authoring.update_prompt_sequence.direct",
-                    binding_version="2.0.0",
+                    binding_version="2.1.0",
                     node_parameters={},
                     binding_parameters={},
                 ),
@@ -650,9 +676,9 @@ def _run_generation(
                 WorkflowNodeInstance(
                     node_id="mask_sequence",
                     node_type_id="prompt_authoring.random_mask",
-                    node_type_version="2.0.0",
+                    node_type_version="2.1.0",
                     binding_id="prompt_authoring.random_mask.direct",
-                    binding_version="2.0.0",
+                    binding_version="2.1.0",
                     node_parameters={
                         "effective_seed": 1603,
                         "count": len(sequence_mask_residue_ids),
@@ -682,9 +708,9 @@ def _run_generation(
         WorkflowNodeInstance(
             node_id="generate",
             node_type_id=f"esm3.{operation}",
-            node_type_version="2.0.0",
+            node_type_version="2.1.0",
             binding_id=f"esm3.{operation}.{binding_route}",
-            binding_version="2.0.0",
+            binding_version="2.1.0",
             node_parameters=resolved_generation_parameters,
             binding_parameters={},
         )
@@ -710,7 +736,7 @@ def _run_generation(
         projects.publish_input(project.id, reference, payload)
     authoring = WorkflowAuthoringService(projects, catalog)
     workflow = WorkflowDocument(
-        schema_version="2.0.0",
+        schema_version="2.1.0",
         workflow_id=project.id,
         nodes=tuple(nodes),
         edges=tuple(edges),
@@ -740,7 +766,7 @@ def _run_generation(
     environment_values.update(environment_overrides or {})
     environment = EnvironmentConfiguration(
         {
-            (f"esm3.{operation}.{binding_route}", "2.0.0"): {
+            (f"esm3.{operation}.{binding_route}", "2.1.0"): {
                 "values": environment_values,
                 "safe_fingerprint": (
                     safe_environment_fingerprint
@@ -813,11 +839,14 @@ def test_readiness_has_no_implicit_process_credential_fallback(
     credential_file.write_text("must-not-be-read\n", encoding="utf-8")
 
     assert not _ready(
-        {
-            "endpoint_id": "biohub",
-            "credential_file": credential_file,
-        }
-    )
+        ReadinessCheckInput(
+            {
+                "endpoint_id": "biohub",
+                "credential_file": credential_file,
+            },
+            None,
+        )
+    ).passing
 
 
 def test_provider_installation_is_reobserved_without_process_cache(
@@ -844,8 +873,9 @@ def test_provider_installation_is_reobserved_without_process_cache(
         "credential_handle": object(),
         "provider_client": _ProviderClient([]),
     }
-    assert package._ready(environment)
-    assert package._ready(environment)
+    check_input = ReadinessCheckInput(environment, None)
+    assert package._ready(check_input).passing
+    assert package._ready(check_input).passing
     assert validations == [
         ("esm", package.ESM_SDK_REVISION),
         ("esm", package.ESM_SDK_REVISION),
@@ -925,24 +955,24 @@ def _run_generation_from_prompt_fixture(
     project = projects.create(f"ESM3 {operation} fixture")
     authoring = WorkflowAuthoringService(projects, catalog)
     workflow = WorkflowDocument(
-        schema_version="2.0.0",
+        schema_version="2.1.0",
         workflow_id=project.id,
         nodes=(
             WorkflowNodeInstance(
                 node_id="source",
                 node_type_id="contract_test.esm3_prompt_source",
-                node_type_version="2.0.0",
+                node_type_version="2.1.0",
                 binding_id="contract_test.esm3_prompt_source.direct",
-                binding_version="2.0.0",
+                binding_version="2.1.0",
                 node_parameters={"mode": mode},
                 binding_parameters={},
             ),
             WorkflowNodeInstance(
                 node_id="generate",
                 node_type_id=f"esm3.{operation}",
-                node_type_version="2.0.0",
+                node_type_version="2.1.0",
                 binding_id=f"esm3.{operation}.{binding_route}",
-                binding_version="2.0.0",
+                binding_version="2.1.0",
                 node_parameters={
                     "effective_seed": 1603,
                     "num_samples": num_samples,
@@ -976,7 +1006,7 @@ def _run_generation_from_prompt_fixture(
     )
     environment = EnvironmentConfiguration(
         {
-            (f"esm3.{operation}.{binding_route}", "2.0.0"): {
+            (f"esm3.{operation}.{binding_route}", "2.1.0"): {
                 "values": {
                     "endpoint_id": "biohub",
                     "credential_handle": object(),
@@ -1202,6 +1232,41 @@ def test_sequence_generation_calls_provider_with_explicit_workflow_mask(
     assert client.calls[0][0].sequence == "_CD"
 
 
+def test_generation_records_requested_and_sdk_effective_steps_per_call(
+    tmp_path: Path,
+) -> None:
+    client = _StepShorteningProviderClient(
+        [_ProviderResponse("ACD"), _ProviderResponse("ACD")]
+    )
+
+    catalog, projection, _ = _run_generation(
+        tmp_path,
+        operation="generate_sequence",
+        client=client,
+        num_samples=2,
+        sequence="ACD",
+        sequence_mask_residue_ids=("A:1",),
+        generation_parameters={"num_steps": 20},
+    )
+
+    assert projection["status"] == "succeeded"
+    output = next(
+        item
+        for item in projection["outputs"]
+        if item["node_id"] == "generate"
+        and item["output_port"] == "sequence_candidates"
+    )
+    candidates = _decode_output(catalog, output)
+    assert len({id(config) for _, config in client.calls}) == 2
+    for candidate in candidates.items:
+        assert candidate.metadata[
+            "requested_generation_parameters"
+        ]["num_steps"] == 20
+        assert candidate.metadata[
+            "effective_generation_parameters"
+        ]["sequence"]["num_steps"] == 1
+
+
 def _three_residue_pdb(sequence: str = "ACD") -> str:
     residue_names = {
         "A": "ALA",
@@ -1300,7 +1365,7 @@ def test_structure_generation_publishes_exact_provider_pae_matrix(
 
     pae = torch.tensor(
         [
-            [0.0, 1.0, 2.0],
+            [0.0, 31.75, 2.0],
             [3.0, 4.0, 5.0],
             [6.0, 7.0, 8.0],
         ]
@@ -1454,6 +1519,12 @@ def test_paired_generation_publishes_ten_exact_counterparts_and_real_calls(
         candidate.metadata["sample_index"]
         for candidate in structures.items
     ] == list(range(10))
+    assert all(
+        set(candidate.metadata["effective_generation_parameters"])
+        == {"sequence", "structure"}
+        for candidate in structures.items
+    )
+    assert len({id(config) for _, config in client.calls}) == 20
     assert [call[1].track for call in client.calls] == [
         track
         for _ in range(10)
@@ -1508,9 +1579,9 @@ def test_esm3_generation_and_direct_esmc_pass_the_shared_ctk(
         return WorkflowNodeInstance(
             node_id="source",
             node_type_id="contract_test.esm3_prompt_source",
-            node_type_version="2.0.0",
+            node_type_version="2.1.0",
             binding_id="contract_test.esm3_prompt_source.direct",
-            binding_version="2.0.0",
+            binding_version="2.1.0",
             node_parameters={"mode": mode},
             binding_parameters={},
         )
@@ -1585,8 +1656,8 @@ def test_esm3_generation_and_direct_esmc_pass_the_shared_ctk(
         for response in (_ProviderResponse("ACD"), structure_response())
     ]
     common = {
-        "node_type_version": "2.0.0",
-        "binding_version": "2.0.0",
+        "node_type_version": "2.1.0",
+        "binding_version": "2.1.0",
         "binding_parameters": {},
         "safe_environment_fingerprint": "esm3-ctk-fixture-v1",
         "invalidation_token": "esm3-ctk-fixture-v1",
@@ -1829,9 +1900,9 @@ def test_esm3_generation_and_direct_esmc_pass_the_shared_ctk(
                 WorkflowNodeInstance(
                     node_id="sequence-source",
                     node_type_id="protein_io.import_sequence",
-                    node_type_version="2.0.0",
+                    node_type_version="2.1.0",
                     binding_id="protein_io.import_sequence.direct",
-                    binding_version="2.0.0",
+                    binding_version="2.1.0",
                     node_parameters={
                         "project_input_ref": "sequence-input",
                     },
@@ -1857,7 +1928,7 @@ def test_esm3_generation_and_direct_esmc_pass_the_shared_ctk(
         port_cases=(
             ModulePackagePortCase(
                 type_id="esm3.esmc_sequence_representation",
-                version="2.0.0",
+                version="2.1.0",
                 valid_value=ESMCSequenceRepresentation(
                     sequence="ACD",
                     residue_ids=None,
@@ -1888,5 +1959,5 @@ def test_esm3_generation_and_direct_esmc_pass_the_shared_ctk(
         "succeeded",
     ]
     assert report.verified_port_types == (
-        "esm3.esmc_sequence_representation@2.0.0",
+        "esm3.esmc_sequence_representation@2.1.0",
     )

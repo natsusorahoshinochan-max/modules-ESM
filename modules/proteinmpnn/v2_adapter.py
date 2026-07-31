@@ -208,17 +208,39 @@ def prepare_design_request(
 def _target_residue_ids(
     request: ProteinMPNNDesignRequest,
 ) -> list[str]:
+    return list(request.target_layout.residue_ids or ())
+
+
+def _restore_structure_chain_order(
+    sequence: str,
+    *,
+    request: ProteinMPNNDesignRequest,
+) -> str:
     entry = request.pdb_dict_list[0]
-    chain_sequences = [
-        (key.removeprefix("seq_chain_"), str(value))
-        for key, value in entry.items()
-        if key.startswith("seq_chain_")
-    ]
-    return [
-        f"{chain}:{position}"
-        for chain, sequence in chain_sequences
-        for position in range(1, len(sequence) + 1)
-    ]
+    chain_lengths = {
+        chain: len(str(entry[f"seq_chain_{chain}"]))
+        for chain in request.structure_chain_order
+    }
+    if (
+        set(request.provider_chain_order)
+        != set(request.structure_chain_order)
+        or len(request.provider_chain_order)
+        != len(request.structure_chain_order)
+    ):
+        raise RuntimeError(
+            "ProteinMPNN provider chain order is internally inconsistent"
+        )
+    by_chain: dict[str, str] = {}
+    offset = 0
+    for chain in request.provider_chain_order:
+        chain_end = offset + chain_lengths[chain]
+        by_chain[chain] = sequence[offset:chain_end]
+        offset = chain_end
+    if offset != len(sequence):
+        raise RuntimeError(
+            "ProteinMPNN provider sequence does not match its chain layout"
+        )
+    return "".join(by_chain[chain] for chain in request.structure_chain_order)
 
 
 def validate_design_result(
@@ -261,15 +283,17 @@ def validate_design_result(
             raise RuntimeError(
                 f"ProteinMPNN sample {sample_index} sequence is malformed"
             )
-        if (
-            sequence.residue_ids is not None
-            and sequence.residue_ids != residue_ids
-        ):
+        if sequence.residue_ids is not None:
             raise RuntimeError(
-                f"ProteinMPNN sample {sample_index} residue layout is malformed"
+                f"ProteinMPNN sample {sample_index} provider result must not "
+                "pre-label repository residue identities"
             )
+        restored_sequence = _restore_structure_chain_order(
+            sequence.sequence,
+            request=request,
+        )
         sequences.append(
-            ProteinSequence(sequence.sequence, list(residue_ids))
+            ProteinSequence(restored_sequence, list(residue_ids))
         )
     if raw_scores is None:
         return sequences, None

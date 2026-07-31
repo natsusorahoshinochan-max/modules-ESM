@@ -1,6 +1,6 @@
-schema_version: "2.0.0"
+schema_version: "2.1.0"
 node_type_id: prompt_authoring.update_prompt_sequence
-version: "2.0.0"
+version: "2.1.0"
 title: Update ProteinPrompt sequence
 summary: Replaces only the sequence track while preserving the effective layout and every unaffected track.
 category: prompt_authoring
@@ -13,7 +13,7 @@ inputs:
     scientific_meaning: Validated multi-track ProteinPrompt whose sequence track will be replaced.
   - name: sequence
     port_type_id: protein.sequence
-    port_type_version: "2.0.0"
+    port_type_version: "2.1.0"
     required: true
     multiplicity: one
     scientific_meaning: Complete legal amino-acid sequence ordered by the Prompt's effective residue layout.

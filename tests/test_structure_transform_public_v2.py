@@ -17,7 +17,7 @@ from protein_workbench_public import (
 from tests.fixtures.public_v2 import wait_for_testclient_run_terminal
 
 
-VERSION = "2.0.0"
+VERSION = "2.1.0"
 _MULTI_CHAIN_PDB = (
     b"REMARK uploaded-label\n"
     b"ATOM      1  N   ALA A   1       1.000   2.000   3.000"

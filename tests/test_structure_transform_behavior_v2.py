@@ -28,7 +28,7 @@ from tests.fixtures.structure_transform_sources.package import (
 )
 
 
-VERSION = "2.0.0"
+VERSION = "2.1.0"
 
 
 def _run_transform(

@@ -35,7 +35,7 @@ from .domain import (
 )
 
 
-_VERSION = "2.0.0"
+_VERSION = "2.1.0"
 _ALIGNMENT_METHOD = "structure_comparison.ca_sequence_svd.method"
 _RMSD_METHOD = "structure_comparison.rmsd.method"
 _RMSD_METRIC = "structure_comparison.rmsd"
@@ -374,7 +374,7 @@ class StructureComparisonImplementation:
         return {
             "alignments": StructureAlignmentEvidenceCollection(
                 schema_version=_VERSION,
-                pairing_source="candidate.pairing@2.0.0",
+                pairing_source="candidate.pairing@2.1.0",
                 accepted_cardinality="one_to_one_complete",
                 alignments=alignments,
             )
@@ -418,7 +418,7 @@ class StructureComparisonImplementation:
         return {
             "alignments": StructureAlignmentEvidenceCollection(
                 schema_version=_VERSION,
-                pairing_source="fixed_reference.singleton@2.0.0",
+                pairing_source="fixed_reference.singleton@2.1.0",
                 accepted_cardinality="many_to_one_complete",
                 alignments=alignments,
             )
@@ -480,7 +480,7 @@ class StructureComparisonImplementation:
     ) -> ScoreObservation:
         with self._run_resources.engine_invocation(
             engine_role="rmsd_observation",
-            engine_identity="structure_comparison.rmsd/2.0.0",
+            engine_identity="structure_comparison.rmsd/2.1.0",
         ):
             value = self._rmsd(alignment)
         return ScoreObservation(
@@ -845,7 +845,7 @@ class StructureComparisonImplementation:
             collection = inputs["alignments"]
             if (
                 type(collection) is not StructureAlignmentEvidenceCollection
-                or collection.pairing_source != "candidate.pairing@2.0.0"
+                or collection.pairing_source != "candidate.pairing@2.1.0"
                 or collection.accepted_cardinality != "one_to_one_complete"
                 or len(collection.alignments) != len(pairs)
             ):
@@ -905,7 +905,7 @@ class StructureComparisonImplementation:
             if (
                 type(collection) is not StructureAlignmentEvidenceCollection
                 or collection.pairing_source
-                != "fixed_reference.singleton@2.0.0"
+                != "fixed_reference.singleton@2.1.0"
                 or collection.accepted_cardinality
                 != "many_to_one_complete"
                 or len(references) != 1

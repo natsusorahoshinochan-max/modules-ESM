@@ -247,10 +247,22 @@ def _validate(
     if expected_type in {"integer", "number"}:
         minimum = schema.get("minimum")
         maximum = schema.get("maximum")
+        exclusive_minimum = schema.get("exclusiveMinimum")
+        exclusive_maximum = schema.get("exclusiveMaximum")
         if minimum is not None and value < minimum:
             raise ProtocolValidationError(path, f"must be at least {minimum}")
         if maximum is not None and value > maximum:
             raise ProtocolValidationError(path, f"must be at most {maximum}")
+        if exclusive_minimum is not None and value <= exclusive_minimum:
+            raise ProtocolValidationError(
+                path,
+                f"must be greater than {exclusive_minimum}",
+            )
+        if exclusive_maximum is not None and value >= exclusive_maximum:
+            raise ProtocolValidationError(
+                path,
+                f"must be less than {exclusive_maximum}",
+            )
 
 
 def validate_schema(reference: str, payload: Any) -> None:

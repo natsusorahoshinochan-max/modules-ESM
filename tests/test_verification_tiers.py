@@ -123,7 +123,7 @@ def test_routine_tier_reports_result_and_preserves_configured_roots(
     assert stat.S_IMODE(retained[0].stat().st_mode) == 0o600
     assert stat.S_IMODE(result_dir.stat().st_mode) == 0o700
     environment = json.loads(environment_path.read_text())
-    assert environment["schema_version"] == "2.0.0"
+    assert environment["schema_version"] == "2.1.0"
     assert environment["historical_cache_allowed"] is False
     assert environment["parallel_provider_evidence_allowed"] is False
     for path in configured_roots.values():

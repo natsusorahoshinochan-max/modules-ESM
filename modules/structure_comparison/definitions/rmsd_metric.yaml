@@ -1,6 +1,6 @@
-schema_version: "2.0.0"
+schema_version: "2.1.0"
 metric_id: structure_comparison.rmsd
-version: "2.0.0"
+version: "2.1.0"
 title: Root mean square deviation
 description: Root mean square CA residual distance after one exact subject-to-reference rigid alignment correspondence.
 value_shape: scalar

@@ -19,8 +19,8 @@ from .prompts import validate_protein_prompt
 
 _VERSION = "2.1.0"
 _BUILTINS = builtin_frozen_catalog()
-_LAYOUT_CODEC = _BUILTINS.require_port_type("residue.layout", "2.0.0")
-_TRACK_CODEC = _BUILTINS.require_port_type("residue.track", "2.0.0")
+_LAYOUT_CODEC = _BUILTINS.require_port_type("residue.layout", "2.1.0")
+_TRACK_CODEC = _BUILTINS.require_port_type("residue.track", "2.1.0")
 _ANNOTATION_FIELDS = {
     "label",
     "start",
@@ -230,8 +230,8 @@ PROTEIN_PROMPT_PORT_TYPE = PortTypeDefinition(
             "envelope_namespace": "protein-workbench-port-value/v2",
             "embedded_contracts": {
                 "function_annotations": "function.annotations@2.1.0",
-                "target_layout": "residue.layout@2.0.0",
-                "tracks": "residue.track@2.0.0",
+                "target_layout": "residue.layout@2.1.0",
+                "tracks": "residue.track@2.1.0",
             },
             "nullable_semantics": "JSON null means unspecified",
         },

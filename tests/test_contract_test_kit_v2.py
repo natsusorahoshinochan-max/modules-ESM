@@ -196,7 +196,7 @@ def test_source_public_journey_discovers_compiles_executes_replays_and_retrieves
         ).json()
         project_id = project["id"]
         workflow = {
-            "schema_version": "2.0.0",
+            "schema_version": "2.1.0",
             "workflow_id": project_id,
             "nodes": [{
                 "node_id": "synthetic-echo",
@@ -417,7 +417,7 @@ def test_contract_test_kit_rejects_incomplete_observation_provenance(
     ("replacement", "message"),
     [
         (
-            'schema_version: "2.0.0"\nunknown_field: true\n',
+            'schema_version: "2.1.0"\nunknown_field: true\n',
             "unknown fields",
         ),
         ("schema_version: [", "malformed YAML"),

@@ -113,7 +113,7 @@ def test_repository_examples_are_exact_locked_compilable_v2_workflows() -> None:
     for path in PRODUCTION_WORKFLOW_PATHS:
         payload = _load(path)
         workflow = parse_workflow_document(payload)
-        assert workflow.schema_version == "2.0.0"
+        assert workflow.schema_version == "2.1.0"
         assert workflow.contract_lock
         assert relock_workflow(workflow, catalog) == workflow
         assert compile_workflow(
@@ -122,8 +122,8 @@ def test_repository_examples_are_exact_locked_compilable_v2_workflows() -> None:
             catalog=catalog,
         ).receipt["accepted"] is True
         for node in workflow.nodes:
-            assert node.node_type_version == "2.0.0"
-            assert node.binding_version == "2.0.0"
+            assert node.node_type_version == "2.1.0"
+            assert node.binding_version == "2.1.0"
 
 
 def test_examples_never_select_methods_or_environment_implicitly() -> None:
@@ -255,11 +255,11 @@ def test_scoring_fixture_uses_exact_scopes_contexts_and_utilities() -> None:
     } == {"fixed_reference", "per_subject_counterpart"}
     assert all(
         objective.metric.contract_id == "structure_comparison.tm_score"
-        and objective.metric.contract_version == "2.0.0"
+        and objective.metric.contract_version == "2.1.0"
         and objective.method.contract_id
         == "contract_test.multi_objective_selection_source.method"
-        and objective.method.contract_version == "2.0.0"
-        and objective.utility_transform.contract_version == "2.0.0"
+        and objective.method.contract_version == "2.1.0"
+        and objective.utility_transform.contract_version == "2.1.0"
         and objective.match_cardinality == "exactly_one"
         and objective.missing_policy == "error"
         for objective in workflow.selection_objectives

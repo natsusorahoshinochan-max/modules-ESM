@@ -15,6 +15,7 @@ from core import (
     MethodDefinition,
     ModulePackageRegistration,
     ReadinessDeclaration,
+    ReadinessResult,
 )
 from datatypes import Candidate, CandidateCollection, ProteinStructure, ResidueLayout
 from modules.structure_annotation import (
@@ -23,7 +24,7 @@ from modules.structure_annotation import (
 )
 
 
-_VERSION = "2.0.0"
+_VERSION = "2.1.0"
 
 
 class _Source:
@@ -56,7 +57,7 @@ class _Source:
         )
         with self._run_resources.engine_invocation(
             engine_identity=(
-                "contract_test.structure_annotation_source.method/2.0.0"
+                "contract_test.structure_annotation_source.method/2.1.0"
             ),
         ):
             annotations = DSSPAnnotation(
@@ -107,7 +108,7 @@ def _build(**kwargs: object) -> object:
 
 
 MODULE_PACKAGE = ModulePackageRegistration(
-    schema_version=_VERSION,
+    schema_version="2.1.0",
     package_id="contract_test.structure_annotation_sources",
     package_version=_VERSION,
     package_module=__package__,
@@ -164,7 +165,7 @@ MODULE_PACKAGE = ModulePackageRegistration(
                     {},
                 ),
                 prerequisites={},
-                check=lambda environment: True,
+                check=lambda environment: ReadinessResult(True),
             ),
             deterministic=True,
             cacheable=True,

@@ -1,20 +1,20 @@
-schema_version: "2.0.0"
+schema_version: "2.1.0"
 node_type_id: proteinmpnn.constraints
-version: "2.0.0"
+version: "2.1.0"
 title: Author ProteinMPNN constraints
 summary: Authors one complete ProteinMPNN constraint value against an explicit identity-complete residue layout.
 category: protein_design
 inputs:
   - name: layout
     port_type_id: residue.layout
-    port_type_version: "2.0.0"
+    port_type_version: "2.1.0"
     required: true
     multiplicity: one
     scientific_meaning: Exact ordered residue and chain layout against which every position and chain constraint is validated.
 outputs:
   - name: constraints
     port_type_id: proteinmpnn.constraints
-    port_type_version: "2.0.0"
+    port_type_version: "2.1.0"
     required: true
     multiplicity: one
     scientific_meaning: Complete validated zero-based ProteinMPNN constraint value on the supplied layout.
@@ -39,81 +39,88 @@ node_parameters:
   designable_positions:
     parameter_scope: scientific
     scientific_meaning: Unique zero-based positions that remain designable within the effective designed-chain partition.
-    type: array
-    uniqueItems: true
-    default: []
-    items:
-      type: integer
-      minimum: 0
-  fixed_positions:
-    parameter_scope: scientific
-    scientific_meaning: Unique zero-based positions fixed to the supplied structure or optional reference sequence.
-    type: array
-    uniqueItems: true
-    default: []
-    items:
-      type: integer
-      minimum: 0
-  designed_chains:
-    parameter_scope: scientific
-    scientific_meaning: Unique chain identifiers to design; omitted chains become fixed.
-    type: array
-    uniqueItems: true
-    default: []
-    items:
-      type: string
-      pattern: "^[A-Za-z0-9]$"
-  fixed_chains:
-    parameter_scope: scientific
-    scientific_meaning: Unique chain identifiers to preserve; omitted chains become designed when designed_chains is empty.
-    type: array
-    uniqueItems: true
-    default: []
-    items:
-      type: string
-      pattern: "^[A-Za-z0-9]$"
-  omit_amino_acids:
-    parameter_scope: scientific
-    scientific_meaning: Unique canonical ProteinMPNN amino-acid symbols excluded globally from sampling.
-    type: array
-    uniqueItems: true
-    default: []
-    items:
-      type: string
-      enum: [A, C, D, E, F, G, H, I, K, L, M, N, P, Q, R, S, T, V, W, Y, X]
-  tied_positions:
-    parameter_scope: scientific
-    scientific_meaning: Disjoint groups of two or more zero-based designable positions constrained to share one sampled amino acid.
-    type: array
-    default: []
-    items:
+    value_contract:
       type: array
-      minItems: 2
       uniqueItems: true
       items:
         type: integer
         minimum: 0
+    default: []
+  fixed_positions:
+    parameter_scope: scientific
+    scientific_meaning: Unique zero-based positions fixed to the supplied structure or optional reference sequence.
+    value_contract:
+      type: array
+      uniqueItems: true
+      items:
+        type: integer
+        minimum: 0
+    default: []
+  designed_chains:
+    parameter_scope: scientific
+    scientific_meaning: Unique chain identifiers to design; omitted chains become fixed.
+    value_contract:
+      type: array
+      uniqueItems: true
+      items:
+        type: string
+        pattern: "^[A-Za-z0-9]$"
+    default: []
+  fixed_chains:
+    parameter_scope: scientific
+    scientific_meaning: Unique chain identifiers to preserve; omitted chains become designed when designed_chains is empty.
+    value_contract:
+      type: array
+      uniqueItems: true
+      items:
+        type: string
+        pattern: "^[A-Za-z0-9]$"
+    default: []
+  omit_amino_acids:
+    parameter_scope: scientific
+    scientific_meaning: Unique canonical ProteinMPNN amino-acid symbols excluded globally from sampling.
+    value_contract:
+      type: array
+      uniqueItems: true
+      items:
+        type: string
+        enum: [A, C, D, E, F, G, H, I, K, L, M, N, P, Q, R, S, T, V, W, Y]
+    default: []
+  tied_positions:
+    parameter_scope: scientific
+    scientific_meaning: Disjoint groups of two or more zero-based designable positions constrained to share one sampled amino acid.
+    value_contract:
+      type: array
+      items:
+        type: array
+        minItems: 2
+        uniqueItems: true
+        items:
+          type: integer
+          minimum: 0
+    default: []
   bias_by_res:
     parameter_scope: scientific
     scientific_meaning: Ordered per-residue amino-acid logit biases on unique zero-based designable positions.
-    type: array
+    value_contract:
+      type: array
+      items:
+        type: object
+        additionalProperties: false
+        required: [position, amino_acid, bias]
+        properties:
+          position:
+            field_scope: scientific
+            scientific_meaning: Zero-based target-layout position receiving this bias.
+            type: integer
+            minimum: 0
+          amino_acid:
+            field_scope: scientific
+            scientific_meaning: Canonical ProteinMPNN amino-acid symbol receiving this bias.
+            type: string
+            enum: [A, C, D, E, F, G, H, I, K, L, M, N, P, Q, R, S, T, V, W, Y]
+          bias:
+            field_scope: scientific
+            scientific_meaning: Finite additive ProteinMPNN sampling-logit bias.
+            type: number
     default: []
-    items:
-      type: object
-      additionalProperties: false
-      required: [position, amino_acid, bias]
-      properties:
-        position:
-          field_scope: scientific
-          scientific_meaning: Zero-based target-layout position receiving this bias.
-          type: integer
-          minimum: 0
-        amino_acid:
-          field_scope: scientific
-          scientific_meaning: Canonical ProteinMPNN amino-acid symbol receiving this bias.
-          type: string
-          enum: [A, C, D, E, F, G, H, I, K, L, M, N, P, Q, R, S, T, V, W, Y, X]
-        bias:
-          field_scope: scientific
-          scientific_meaning: Finite additive ProteinMPNN sampling-logit bias.
-          type: number

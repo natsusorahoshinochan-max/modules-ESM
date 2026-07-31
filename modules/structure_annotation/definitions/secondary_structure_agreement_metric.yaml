@@ -1,6 +1,6 @@
-schema_version: "2.0.0"
+schema_version: "2.1.0"
 metric_id: structure_annotation.secondary_structure_agreement
-version: "2.0.0"
+version: "2.1.0"
 title: Secondary-structure agreement
 description: Fraction of residues with identical present SS8 annotations for one exact subject-reference comparison on one residue layout.
 value_shape: scalar

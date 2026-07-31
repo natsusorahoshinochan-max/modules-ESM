@@ -53,12 +53,12 @@ def test_simplefold_is_one_explicit_binding_of_the_shared_folding_node() -> None
     simplefold = catalog.require_contract(
         "binding",
         "folding.fold.simplefold_local",
-        "2.0.0",
+        "2.1.0",
     )
     esmfold2 = catalog.require_contract(
         "binding",
         "folding.fold.esmfold2_local",
-        "2.0.0",
+        "2.1.0",
     )
     assert simplefold.descriptor["node_type"] == esmfold2.descriptor["node_type"]
     assert simplefold.descriptor["execution_route"] == "adapter"
@@ -68,9 +68,11 @@ def test_simplefold_is_one_explicit_binding_of_the_shared_folding_node() -> None
             "scientific_meaning": (
                 "Exact SimpleFold Euler-Maruyama sampling step count."
             ),
-            "type": "integer",
-            "minimum": 1,
-            "maximum": 50,
+            "value_contract": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 50,
+            },
             "default": 50,
         },
     }
@@ -161,12 +163,12 @@ def test_simplefold_readiness_validates_assets_without_hiding_siblings(
     assert catalog.require_contract(
         "binding",
         "folding.fold.esmfold2_remote",
-        "2.0.0",
+        "2.1.0",
     )
     assert catalog.require_contract(
         "binding",
         "folding.fold.esmfold2_local",
-        "2.0.0",
+        "2.1.0",
     )
     snapshots = {
         item["binding"]["contract_id"]: item
@@ -311,18 +313,18 @@ def _run_simplefold(
     source = WorkflowNodeInstance(
         node_id="source",
         node_type_id="contract_test.folding_sequence_source",
-        node_type_version="2.0.0",
+        node_type_version="2.1.0",
         binding_id="contract_test.folding_sequence_source.direct",
-        binding_version="2.0.0",
+        binding_version="2.1.0",
         node_parameters={"sequence": "AG"},
         binding_parameters={},
     )
     fold = WorkflowNodeInstance(
         node_id="fold",
         node_type_id="folding.fold",
-        node_type_version="2.0.0",
+        node_type_version="2.1.0",
         binding_id="folding.fold.simplefold_local",
-        binding_version="2.0.0",
+        binding_version="2.1.0",
         node_parameters={
             "effective_seed": 1603,
             "num_samples": num_samples,
@@ -339,7 +341,7 @@ def _run_simplefold(
     project = projects.create(project_id)
     authoring = WorkflowAuthoringService(projects, catalog)
     workflow = WorkflowDocument(
-        schema_version="2.0.0",
+        schema_version="2.1.0",
         workflow_id=project.id,
         nodes=(source, fold),
         edges=(
@@ -373,7 +375,7 @@ def _run_simplefold(
             client,
         )
     environment = EnvironmentConfiguration({
-        ("folding.fold.simplefold_local", "2.0.0"): {
+        ("folding.fold.simplefold_local", "2.1.0"): {
             "values": environment_values,
             "safe_fingerprint": environment_values[
                 "resolved_runtime_fingerprint"

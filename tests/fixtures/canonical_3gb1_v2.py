@@ -12,13 +12,15 @@ import torch
 from core import (
     AvailabilityResult,
     ModulePackageRegistration,
+    ReadinessCheckInput,
+    ReadinessResult,
     build_frozen_catalog,
     discover_module_packages,
 )
 from datatypes import ProteinSequence
 
 
-VERSION = "2.0.0"
+VERSION = "2.1.0"
 PROVIDER_BINDINGS = frozenset({
     "esm3.generate_paired.biohub_medium",
     "folding.fold.esmfold2_remote",
@@ -157,6 +159,15 @@ class ControlledFoldResponse:
     plddt: list[float]
     pae: list[list[float]]
 
+    def to_protein_chain(self) -> "ControlledFoldResponse":
+        return self
+
+    def infer_oxygen(self) -> "ControlledFoldResponse":
+        return self
+
+    def to_pdb_string(self) -> str:
+        return self.pdb_string
+
 
 class ControlledFoldingClient:
     """Return ten ranking folds followed by fifteen final folds."""
@@ -226,10 +237,6 @@ class ControlledProteinMPNNProvider:
     ) -> tuple[list[ProteinSequence], list[float]]:
         seed_offset = request.seed % len(_ALPHABET)
         self.requests.append(request)
-        residue_ids = [
-            f"A:{position}"
-            for position in range(1, request.target_length + 1)
-        ]
         sequences = [
             ProteinSequence(
                 "".join(
@@ -242,8 +249,7 @@ class ControlledProteinMPNNProvider:
                         % len(_ALPHABET)
                     ]
                     for position in range(request.target_length)
-                ),
-                list(residue_ids),
+                )
             )
             for sample_index in range(request.num_sequences)
         ]
@@ -259,8 +265,8 @@ def controlled_catalog() -> Any:
     def available() -> AvailabilityResult:
         return AvailabilityResult.available()
 
-    def ready(environment: Any) -> bool:
-        return isinstance(environment, Mapping)
+    def ready(check_input: ReadinessCheckInput) -> ReadinessResult:
+        return ReadinessResult(isinstance(check_input.values, Mapping))
 
     registrations: list[ModulePackageRegistration] = []
     for registration in discover_module_packages():

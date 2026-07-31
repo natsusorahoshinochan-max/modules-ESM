@@ -466,7 +466,7 @@ def normalized_confidence(
         if (
             not bool(torch.isfinite(normalized).all())
             or bool((normalized < 0).any())
-            or bool((normalized > 31.5).any())
+            or bool((normalized > 31.75).any())
         ):
             raise ValueError(
                 "ESM-3 PAE is outside the locked angstrom scale"
@@ -498,7 +498,7 @@ def structure_prompt_for_sequence(
             "function_annotations",
             None,
         ),
-        coordinates=None,
+        coordinates=getattr(provider_prompt, "coordinates", None),
     )
 
 

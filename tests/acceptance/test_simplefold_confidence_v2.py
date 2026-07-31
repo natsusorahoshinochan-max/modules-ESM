@@ -52,18 +52,18 @@ def test_simplefold_confidence_v2_evaluates_3gb1_exact_assets_without_refold(
     source = WorkflowNodeInstance(
         node_id="source",
         node_type_id="contract_test.folding_structure_source",
-        node_type_version="2.0.0",
+        node_type_version="2.1.0",
         binding_id="contract_test.folding_structure_source.direct",
-        binding_version="2.0.0",
+        binding_version="2.1.0",
         node_parameters={"pdb_string": pdb_3gb1.pdb_string},
         binding_parameters={},
     )
     confidence = WorkflowNodeInstance(
         node_id="confidence",
         node_type_id="folding.simplefold_confidence",
-        node_type_version="2.0.0",
+        node_type_version="2.1.0",
         binding_id="folding.simplefold_confidence.simplefold_local",
-        binding_version="2.0.0",
+        binding_version="2.1.0",
         node_parameters={},
         binding_parameters={},
     )
@@ -77,7 +77,7 @@ def test_simplefold_confidence_v2_evaluates_3gb1_exact_assets_without_refold(
     project = projects.create("SimpleFold confidence v2 3GB1")
     authoring = WorkflowAuthoringService(projects, catalog)
     workflow = WorkflowDocument(
-        schema_version="2.0.0",
+        schema_version="2.1.0",
         workflow_id=project.id,
         nodes=(source, confidence),
         edges=(
@@ -208,7 +208,7 @@ def test_simplefold_confidence_v2_evaluates_3gb1_exact_assets_without_refold(
     monkeypatch.setattr(os, "access", guarded_os_access)
     fingerprint = configured_runtime_fingerprint()
     environment = EnvironmentConfiguration({
-        ("folding.simplefold_confidence.simplefold_local", "2.0.0"): {
+        ("folding.simplefold_confidence.simplefold_local", "2.1.0"): {
             "values": {
                 "model_root": model_root,
                 "esm2_source_root": Path(
@@ -301,7 +301,7 @@ def test_simplefold_confidence_v2_evaluates_3gb1_exact_assets_without_refold(
         if event["event"]["type"] == "readiness_attested"
         and event["event"]["binding"]["contract_id"]
         == "folding.simplefold_confidence.simplefold_local"
-        and event["event"]["binding"]["contract_version"] == "2.0.0"
+        and event["event"]["binding"]["contract_version"] == "2.1.0"
         and event["event"]["conclusion"] == "passing"
     )
     invocation_index = next(

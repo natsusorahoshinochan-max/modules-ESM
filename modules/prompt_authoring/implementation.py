@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from dataclasses import dataclass, field
+import math
 import re
 from typing import Any
 
@@ -48,7 +49,7 @@ class _Implementation:
     def _invocation(self):
         return self._run_resources.engine_invocation(
             engine_identity=(
-                f"prompt_authoring.{self._operation}.method/2.0.0"
+                f"prompt_authoring.{self._operation}.method/2.1.0"
             ),
         )
 
@@ -224,10 +225,20 @@ _PROMPT_ATOMS = frozenset({
 
 
 @dataclass
+class _StructureAtom:
+    coordinate: tuple[float, float, float]
+    occupancy: float
+
+
+@dataclass
 class _StructureResidue:
     residue_id: str
     amino_acid: str
     atoms: dict[str, tuple[float, float, float]] = field(
+        default_factory=dict
+    )
+    blank_atoms: dict[str, _StructureAtom] = field(default_factory=dict)
+    conformers: dict[str, dict[str, _StructureAtom]] = field(
         default_factory=dict
     )
 
@@ -264,11 +275,11 @@ def _prompt_from_structure(
             continue
         if explicit_model and not model_open:
             raise ValueError("structure contains atoms outside its sole model")
-        if len(line) < 54:
+        if len(line) < 60:
             raise ValueError("structure contains a truncated PDB atom record")
         alternate = line[16:17].strip()
-        if alternate not in {"", "A"}:
-            continue
+        if alternate and re.fullmatch(r"[A-Za-z0-9]", alternate) is None:
+            raise ValueError("structure contains an invalid altloc identifier")
         atom_name = line[12:16].strip()
         if atom_name not in _PROMPT_ATOMS:
             continue
@@ -305,20 +316,63 @@ def _prompt_from_structure(
             residues.append(residue)
         elif residue.amino_acid != _AA3_TO_1[residue_name]:
             raise ValueError("structure residue identity has conflicting names")
-        if atom_name in residue.atoms:
-            continue
         try:
-            residue.atoms[atom_name] = (
+            coordinate = (
                 float(line[30:38]),
                 float(line[38:46]),
                 float(line[46:54]),
             )
+            occupancy = float(line[54:60])
         except ValueError as error:
             raise ValueError(
-                "structure contains non-numeric atom coordinates"
+                "structure contains non-numeric coordinates or occupancy"
             ) from error
+        if (
+            not all(math.isfinite(value) for value in coordinate)
+            or not math.isfinite(occupancy)
+            or not 0.0 <= occupancy <= 1.0
+        ):
+            raise ValueError(
+                "structure contains invalid coordinates or occupancy"
+            )
+        atom = _StructureAtom(coordinate, occupancy)
+        conformer_atoms = (
+            residue.blank_atoms
+            if not alternate
+            else residue.conformers.setdefault(alternate, {})
+        )
+        if atom_name in conformer_atoms:
+            raise ValueError(
+                "structure selected conformer contains a duplicate atom"
+            )
+        conformer_atoms[atom_name] = atom
     if model_open:
         raise ValueError("structure has an unterminated coordinate model")
+    for residue in residues:
+        merged = dict(residue.blank_atoms)
+        if residue.conformers:
+            selected_altloc = min(
+                residue.conformers,
+                key=lambda altloc: (
+                    -math.fsum(
+                        atom.occupancy
+                        for atom in residue.conformers[altloc].values()
+                    ),
+                    altloc,
+                ),
+            )
+            for atom_name, atom in residue.conformers[
+                selected_altloc
+            ].items():
+                if atom_name in merged:
+                    raise ValueError(
+                        "structure blank and selected altloc atoms conflict"
+                    )
+                merged[atom_name] = atom
+        residue.atoms = {
+            atom_name: atom.coordinate
+            for atom_name, atom in merged.items()
+        }
     if not residues or any(not residue.atoms for residue in residues):
         raise ValueError("structure contains no complete canonical residues")
     layout = ResidueLayout(

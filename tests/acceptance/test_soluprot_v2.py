@@ -115,26 +115,26 @@ def _run(
         project.id,
         expected_workflow_revision=0,
         workflow=WorkflowDocument(
-            schema_version="2.0.0",
+            schema_version="2.1.0",
             workflow_id=project.id,
             nodes=(
                 WorkflowNodeInstance(
                     node_id="source",
                     node_type_id="contract_test.folding_sequence_source",
-                    node_type_version="2.0.0",
+                    node_type_version="2.1.0",
                     binding_id=(
                         "contract_test.folding_sequence_source.direct"
                     ),
-                    binding_version="2.0.0",
+                    binding_version="2.1.0",
                     node_parameters={"sequence": SEQUENCE},
                     binding_parameters={},
                 ),
                 WorkflowNodeInstance(
                     node_id="score",
                     node_type_id="solubility.score_sequence",
-                    node_type_version="2.0.0",
+                    node_type_version="2.1.0",
                     binding_id=binding_id,
-                    binding_version="2.0.0",
+                    binding_version="2.1.0",
                     node_parameters={},
                     binding_parameters={},
                 ),
@@ -166,7 +166,7 @@ def _run(
         authoring,
         EnvironmentConfiguration(
             {
-                (binding_id, "2.0.0"): {
+                (binding_id, "2.1.0"): {
                     "values": environment_values,
                     "safe_fingerprint": configured_runtime_fingerprint(mode),
                     "invalidation_token": configured_runtime_fingerprint(mode),
@@ -263,7 +263,7 @@ def test_model_backed_soluprot_golden_methods(
         for index, event in enumerate(events)
         if event["event"]["type"] == "readiness_attested"
         and event["event"]["binding"]["contract_id"] == binding_id
-        and event["event"]["binding"]["contract_version"] == "2.0.0"
+        and event["event"]["binding"]["contract_version"] == "2.1.0"
         and event["event"]["conclusion"] == "passing"
     )
     invocation_id = next(iter(started))[0]

@@ -41,9 +41,9 @@ WORKFLOW_PATH = (
     PROJECT_ROOT / "examples" / "v2" / "canonical-3gb1.workflow.json"
 )
 EXPECTED_TOP_THREE = [
-    "candidate-9f8a8c1b430ff92924b4480e6f68fecafb696d9044d9d1593d35a0a0e6a23ce2",
-    "candidate-569ac9726a10ca1491a4a8a5f191cee3d216c45031ec54744e33b5703e461925",
-    "candidate-88f6c50115f6aaaba9232835e6b4c070b90d620b8ae5a1ddea4b365a239f9964",
+    "candidate-93d0cc7ee6069d00bb4a6237fd082cc4112893212c2a1bb0f0e17aa18d997bc5",
+    "candidate-4e3952d724960f712685c0eff3d7f7d28d94017e40c609b9e183beed8b1ede05",
+    "candidate-96ed31bd516e5b4c4730fcda65dba279ba0076406bada958c81456b59b20cde1",
 ]
 pytestmark = pytest.mark.deterministic_acceptance
 
@@ -57,7 +57,7 @@ def test_canonical_seed_is_exact_locked_compilable_v2() -> None:
     workflow = parse_workflow_document(_workflow_payload())
 
     assert workflow.workflow_id == "canonical-3gb1"
-    assert workflow.schema_version == "2.0.0"
+    assert workflow.schema_version == "2.1.0"
     assert workflow.contract_lock
     assert relock_workflow(workflow, catalog) == workflow
     compiled = compile_workflow(
@@ -70,7 +70,7 @@ def test_canonical_seed_is_exact_locked_compilable_v2() -> None:
 
     nodes = {node.node_id: node for node in workflow.nodes}
     assert all(
-        node.node_type_version == node.binding_version == "2.0.0"
+        node.node_type_version == node.binding_version == "2.1.0"
         and not node.binding_parameters
         for node in nodes.values()
     )

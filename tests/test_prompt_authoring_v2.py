@@ -21,6 +21,7 @@ from datatypes import (
     FunctionAnnotations,
     ProteinPrompt,
     ProteinStructure,
+    ResidueLayout,
     ResidueMap,
     ResidueTrack,
 )
@@ -624,3 +625,33 @@ def test_prompt_from_structure_rejects_multiple_coordinate_models() -> None:
             node_parameters={},
             binding_parameters={},
         )
+
+
+def test_prompt_from_structure_retains_altloc_b_only_residue() -> None:
+    class RunResources:
+        @staticmethod
+        def engine_invocation(**kwargs):
+            del kwargs
+            return nullcontext()
+
+    structure = ProteinStructure(
+        "ATOM      1  CA BALA A   7       1.250   2.500   "
+        "3.750  0.75 20.00           C\n"
+        "TER\nEND\n"
+    )
+
+    outputs = PromptFromStructureImplementation(
+        RunResources(),
+        "prompt_from_structure",
+    ).execute(
+        inputs={"structure": structure},
+        node_parameters={},
+        binding_parameters={},
+    )
+
+    assert outputs["layout"] == ResidueLayout("A", 1, ["A:7"])
+    prompt = outputs["protein_prompt"]
+    assert prompt.sequence_track.values == ["A"]
+    assert prompt.structure_track.values == [
+        {"CA": (1.25, 2.5, 3.75)}
+    ]

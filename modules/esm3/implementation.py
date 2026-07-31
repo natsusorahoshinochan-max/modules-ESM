@@ -134,7 +134,7 @@ class ESM3GenerationImplementation:
         operation: str,
         parent_invocation_id: str | None = None,
         effective_call_seed: int,
-    ) -> tuple[Any, str]:
+    ) -> tuple[Any, str, int]:
         provider_operation = {
             "generate_sequence": "generate(track=sequence)",
             "generate_structure": "generate(track=structure)",
@@ -168,7 +168,15 @@ class ESM3GenerationImplementation:
                     config,
                     provider_operation,
                 )
-        return result, invocation_id
+        effective_num_steps = getattr(config, "num_steps", None)
+        if (
+            type(effective_num_steps) is not int
+            or effective_num_steps < 1
+        ):
+            raise RuntimeError(
+                "ESM-3 provider left an invalid effective num_steps"
+            )
+        return result, invocation_id, effective_num_steps
 
     def execute(
         self,
@@ -230,7 +238,32 @@ class ESM3GenerationImplementation:
         classification: str,
         parameters: Mapping[str, Any],
         call_track: str,
+        effective_num_steps: int,
+        effective_num_steps_by_track: Mapping[str, int] | None = None,
     ) -> dict[str, Any]:
+        requested = {
+            name: parameters[name]
+            for name in (
+                "num_steps",
+                "temperature",
+                "top_p",
+                "schedule",
+                "strategy",
+                "temperature_annealing",
+            )
+        }
+        steps_by_track = (
+            dict(effective_num_steps_by_track)
+            if effective_num_steps_by_track is not None
+            else {call_track: effective_num_steps}
+        )
+        effective = {
+            track: {
+                **requested,
+                "num_steps": steps,
+            }
+            for track, steps in steps_by_track.items()
+        }
         return {
             "provider": self._route_name,
             "model": self._model_name,
@@ -245,17 +278,8 @@ class ESM3GenerationImplementation:
             ),
             "effective_call_seed_scope": "sample_and_track",
             "seed_control": self._seed_control,
-            "generation_parameters": {
-                name: parameters[name]
-                for name in (
-                    "num_steps",
-                    "temperature",
-                    "top_p",
-                    "schedule",
-                    "strategy",
-                    "temperature_annealing",
-                )
-            },
+            "requested_generation_parameters": requested,
+            "effective_generation_parameters": effective,
         }
 
     def _generate_sequence(
@@ -266,11 +290,11 @@ class ESM3GenerationImplementation:
         client = self._client()
         provider_prompt = protein_prompt_to_provider(prompt)
         require_sequence_mask(provider_prompt)
-        config = generation_config("sequence", parameters)
         candidates: list[Candidate] = []
-        structure_responses: list[tuple[int, Any, Candidate]] = []
+        structure_responses: list[tuple[int, Any, Candidate, int]] = []
         for sample_index in range(parameters["num_samples"]):
-            result, _ = self._provider_call(
+            config = generation_config("sequence", parameters)
+            result, _, effective_num_steps = self._provider_call(
                 client,
                 provider_prompt,
                 config,
@@ -294,11 +318,19 @@ class ESM3GenerationImplementation:
                     classification="sequence",
                     parameters=parameters,
                     call_track="sequence",
+                    effective_num_steps=effective_num_steps,
                 ),
             )
             candidates.append(candidate)
             if response_has_structure(result):
-                structure_responses.append((sample_index, result, candidate))
+                structure_responses.append(
+                    (
+                        sample_index,
+                        result,
+                        candidate,
+                        effective_num_steps,
+                    )
+                )
             else:
                 reject_silent_sequence_fields(result)
         outputs: dict[str, Any] = {
@@ -316,7 +348,12 @@ class ESM3GenerationImplementation:
                 )
             reconstructed: list[Candidate] = []
             confidence_sources: list[tuple[Candidate, Any]] = []
-            for sample_index, response, sequence_candidate in structure_responses:
+            for (
+                sample_index,
+                response,
+                sequence_candidate,
+                effective_num_steps,
+            ) in structure_responses:
                 structure = complete_structure(
                     response,
                     prompt,
@@ -332,6 +369,7 @@ class ESM3GenerationImplementation:
                         classification="prompt_reconstruction",
                         parameters=parameters,
                         call_track="sequence",
+                        effective_num_steps=effective_num_steps,
                     ),
                 )
                 reconstructed.append(structure_candidate)
@@ -355,7 +393,7 @@ class ESM3GenerationImplementation:
         contract = self._catalog.require_contract(
             kind,
             contract_id,
-            "2.0.0",
+            "2.1.0",
         )
         return ExactContractReference(**contract.reference())
 
@@ -445,11 +483,11 @@ class ESM3GenerationImplementation:
         expected_sequence = self._assigned_prompt_sequence(prompt)
         client = self._client()
         provider_prompt = protein_prompt_to_provider(prompt)
-        config = generation_config("structure", parameters)
         candidates: list[Candidate] = []
         confidence_sources: list[tuple[Candidate, Any]] = []
         for sample_index in range(parameters["num_samples"]):
-            result, _ = self._provider_call(
+            config = generation_config("structure", parameters)
+            result, _, effective_num_steps = self._provider_call(
                 client,
                 provider_prompt,
                 config,
@@ -476,6 +514,7 @@ class ESM3GenerationImplementation:
                     classification="sampled_structure",
                     parameters=parameters,
                     call_track="structure",
+                    effective_num_steps=effective_num_steps,
                 ),
             )
             candidates.append(candidate)
@@ -504,7 +543,7 @@ class ESM3GenerationImplementation:
             )
         return self._catalog.require_port_type(
             type_id,
-            "2.0.0",
+            "2.1.0",
         ).content_digest(candidate.data)
 
     def _generate_paired(
@@ -515,8 +554,6 @@ class ESM3GenerationImplementation:
         client = self._client()
         provider_prompt = protein_prompt_to_provider(prompt)
         require_sequence_mask(provider_prompt)
-        sequence_config = generation_config("sequence", parameters)
-        structure_config = generation_config("structure", parameters)
         sequence_candidates: list[Candidate] = []
         structure_candidates: list[Candidate] = []
         pairing_entries: list[PairwiseCandidateMatch] = []
@@ -524,7 +561,12 @@ class ESM3GenerationImplementation:
         reconstruction_candidates: list[Candidate] = []
         reconstruction_confidence_sources: list[tuple[Candidate, Any]] = []
         for sample_index in range(parameters["num_samples"]):
-            sequence_result, sequence_invocation_id = self._provider_call(
+            sequence_config = generation_config("sequence", parameters)
+            (
+                sequence_result,
+                sequence_invocation_id,
+                sequence_effective_num_steps,
+            ) = self._provider_call(
                 client,
                 provider_prompt,
                 sequence_config,
@@ -547,6 +589,7 @@ class ESM3GenerationImplementation:
                     classification="sequence",
                     parameters=parameters,
                     call_track="sequence",
+                    effective_num_steps=sequence_effective_num_steps,
                 ),
             )
             if response_has_structure(sequence_result):
@@ -569,6 +612,7 @@ class ESM3GenerationImplementation:
                         classification="prompt_reconstruction",
                         parameters=parameters,
                         call_track="sequence",
+                        effective_num_steps=sequence_effective_num_steps,
                     ),
                 )
                 reconstruction_candidates.append(reconstruction_candidate)
@@ -581,7 +625,12 @@ class ESM3GenerationImplementation:
                 provider_prompt,
                 sequence.sequence,
             )
-            structure_result, _ = self._provider_call(
+            structure_config = generation_config("structure", parameters)
+            (
+                structure_result,
+                _,
+                structure_effective_num_steps,
+            ) = self._provider_call(
                 client,
                 structure_prompt,
                 structure_config,
@@ -609,6 +658,11 @@ class ESM3GenerationImplementation:
                     classification="sampled_structure",
                     parameters=parameters,
                     call_track="structure",
+                    effective_num_steps=structure_effective_num_steps,
+                    effective_num_steps_by_track={
+                        "sequence": sequence_effective_num_steps,
+                        "structure": structure_effective_num_steps,
+                    },
                 ),
             )
             sequence_candidates.append(sequence_candidate)

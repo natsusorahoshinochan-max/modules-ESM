@@ -20,7 +20,9 @@ from core import (
     ModulePackageRegistration,
     PortTypeDefinition,
     ProducedObservationDefinition,
+    ReadinessCheckInput,
     ReadinessDeclaration,
+    ReadinessResult,
     UtilityTransformDefinition,
 )
 from datatypes import ExactContractReference, PairwiseParticipant
@@ -35,7 +37,7 @@ from .domain import (
 from .implementation import StructureComparisonImplementation
 
 
-_VERSION = "2.0.0"
+_VERSION = "2.1.0"
 _DIGEST = re.compile(r"^sha256:[0-9a-f]{64}$")
 _NORMALIZATION = "ca-correspondence-mean-square-angstrom"
 _TM_SCORE_NORMALIZATION = "standard-reference-residue-count"
@@ -102,8 +104,9 @@ def _available() -> AvailabilityResult:
     return AvailabilityResult.available()
 
 
-def _ready(environment: Mapping[str, Any]) -> bool:
-    return isinstance(environment, Mapping)
+def _ready(check_input: ReadinessCheckInput) -> ReadinessResult:
+    del check_input
+    return ReadinessResult(True)
 
 
 def _build(operation: str, pairing_mode: str | None = None):
@@ -562,11 +565,11 @@ def _validate_collection(value: object) -> None:
             )
             not in {
                 (
-                    "candidate.pairing@2.0.0",
+                    "candidate.pairing@2.1.0",
                     "one_to_one_complete",
                 ),
                 (
-                    "fixed_reference.singleton@2.0.0",
+                    "fixed_reference.singleton@2.1.0",
                     "many_to_one_complete",
                 ),
             }
@@ -716,7 +719,7 @@ def _method_definition(operation: str) -> MethodDefinition:
         model_identity={"kind": "none"},
         checkpoint_identity={"kind": "none"},
         featurization_identity={
-            "input": "structure_comparison.alignment@2.0.0",
+            "input": "structure_comparison.alignment@2.1.0",
             "atom_selection": "CA",
         },
         source_identity={"kind": "repository-owned"},
@@ -727,7 +730,7 @@ def _method_definition(operation: str) -> MethodDefinition:
         version=_VERSION,
         algorithm_identity={
             "name": "standard-reference-normalized-tm-score",
-            "correspondence": "structure_comparison.alignment@2.0.0",
+            "correspondence": "structure_comparison.alignment@2.1.0",
             "optimization": "tmtools.tm_align-fixed-correspondence",
             "formula": "sum(1/(1+(distance/d0)^2))/reference_residue_count",
             "d0": (
@@ -738,7 +741,7 @@ def _method_definition(operation: str) -> MethodDefinition:
         model_identity={"kind": "none"},
         checkpoint_identity={"kind": "none"},
         featurization_identity={
-            "input": "structure_comparison.alignment@2.0.0",
+            "input": "structure_comparison.alignment@2.1.0",
             "atom_selection": "CA",
             "normalization": _TM_SCORE_NORMALIZATION,
         },
@@ -938,7 +941,7 @@ _ALIGNMENT_METHOD_DIGEST = CatalogContract(
 
 
 MODULE_PACKAGE = ModulePackageRegistration(
-    schema_version=_VERSION,
+    schema_version="2.1.0",
     package_id="structure_comparison",
     package_version=_VERSION,
     package_module=__package__,

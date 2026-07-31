@@ -138,6 +138,105 @@ class PairwiseContextSelector:
 
 
 @dataclass(frozen=True, slots=True)
+class ObservationSelector:
+    """One exact raw Observation source consumed without Utility."""
+
+    selector_id: str
+    candidate_input: SelectionInput
+    score_collection_input: SelectionInput
+    metric: ExactContractReference
+    method: ExactContractReference
+    context_selector: (
+        IntrinsicObservationContext
+        | CalibrationObservationContext
+        | PairwiseContextSelector
+    )
+    source_partition: str = "default"
+    match_cardinality: str = "exactly_one"
+    missing_policy: str = "error"
+
+    def __post_init__(self) -> None:
+        if not isinstance(
+            self.context_selector,
+            (
+                IntrinsicObservationContext,
+                CalibrationObservationContext,
+                PairwiseContextSelector,
+            ),
+        ):
+            raise SelectionError(
+                "Observation Selector requires a controlled Context selector"
+            )
+        if not isinstance(self.source_partition, str) or not self.source_partition:
+            raise SelectionError(
+                "Observation Selector requires an exact source partition"
+            )
+        if self.match_cardinality != "exactly_one":
+            raise SelectionError(
+                "Observation Selector match cardinality must be exactly_one"
+            )
+        if self.missing_policy != "error":
+            raise SelectionError(
+                "Observation Selector missing policy must be error"
+            )
+
+    @classmethod
+    def from_public(cls, value: Mapping[str, Any]) -> ObservationSelector:
+        def reference(name: str) -> ExactContractReference:
+            raw = value[name]
+            return ExactContractReference(
+                contract_kind=raw["contract_kind"],
+                contract_id=raw["contract_id"],
+                contract_version=raw["contract_version"],
+                contract_digest=raw["contract_digest"],
+            )
+
+        context = value["context_selector"]
+        if context["kind"] == "intrinsic":
+            context_selector: object = IntrinsicObservationContext(
+                context["kind"]
+            )
+        elif context["kind"] == "calibration":
+            context_selector = CalibrationObservationContext(
+                calibration_metric=context["calibration_metric"],
+                calibration_value=context["calibration_value"],
+                calibration_unit=context["calibration_unit"],
+                population_id=context["population_id"],
+                kind=context["kind"],
+            )
+        else:
+            context_selector = PairwiseContextSelector.from_public(context)
+        return cls(
+            selector_id=value["selector_id"],
+            candidate_input=SelectionInput.from_public(
+                value["candidate_input"]
+            ),
+            score_collection_input=SelectionInput.from_public(
+                value["score_collection_input"]
+            ),
+            metric=reference("metric"),
+            method=reference("method"),
+            context_selector=context_selector,
+            source_partition=value.get("source_partition", "default"),
+            match_cardinality=value["match_cardinality"],
+            missing_policy=value["missing_policy"],
+        )
+
+    def to_public(self) -> dict[str, Any]:
+        return {
+            "selector_id": self.selector_id,
+            "candidate_input": self.candidate_input.to_public(),
+            "score_collection_input": self.score_collection_input.to_public(),
+            "source_partition": self.source_partition,
+            "metric": _reference_public("metric", self.metric),
+            "method": _reference_public("method", self.method),
+            "context_selector": self.context_selector.to_public(),
+            "match_cardinality": self.match_cardinality,
+            "missing_policy": self.missing_policy,
+        }
+
+
+@dataclass(frozen=True, slots=True)
 class SelectionObjective:
     """One exact Workflow-owned preference."""
 
@@ -168,14 +267,10 @@ class SelectionObjective:
             isinstance(self.weight, bool)
             or not isinstance(self.weight, (int, float))
             or not math.isfinite(numeric_weight)
-            or numeric_weight < 0
-            or (
-                numeric_weight == 0
-                and math.copysign(1.0, numeric_weight) < 0
-            )
+            or numeric_weight <= 0
         ):
             raise SelectionError(
-                "Selection Objective weight must be finite and non-negative"
+                "Selection Objective weight must be finite and strictly positive"
             )
         if not isinstance(
             self.context_selector,
@@ -447,6 +542,16 @@ def resolve_selection_objective(
     return metric, method, utility, _freeze_json(parameters)
 
 
+def resolve_observation_selector(
+    selector: ObservationSelector,
+    catalog: FrozenCatalog,
+) -> tuple[Any, Any]:
+    """Resolve only the raw Metric and Method named by a selector."""
+    metric = _require_exact_contract(catalog, "metric", selector.metric)
+    method = _require_exact_contract(catalog, "method", selector.method)
+    return metric, method
+
+
 def _subject_residue_count(subject: Any) -> int:
     data = subject.data
     if isinstance(data, ProteinSequence):
@@ -633,7 +738,7 @@ def resolve_objective_observations(
     *,
     candidates: CandidateCollection,
     collection: ScoreCollection,
-    objective: SelectionObjective,
+    objective: SelectionObjective | ObservationSelector,
     out_of_scope_policy: str = "ignore",
     duplicate_policy: str = "deduplicate_identical",
 ) -> Mapping[str, ScoreObservation]:
@@ -691,16 +796,21 @@ def resolve_objective_observations(
         seen[entry.identity] = encoded
         matched[entry.candidate_id].append(entry)
     resolved: dict[str, ScoreObservation] = {}
+    selection_id = getattr(
+        objective,
+        "objective_id",
+        getattr(objective, "selector_id", ""),
+    )
     for candidate_id in candidate_ids:
         matches = matched[candidate_id]
         if not matches:
             raise SelectionError(
-                f"Objective {objective.objective_id!r} has a missing "
+                f"Selector {selection_id!r} has a missing "
                 f"observation for Candidate {candidate_id!r}"
             )
         if len(matches) != 1:
             raise SelectionError(
-                f"Objective {objective.objective_id!r} requires exactly "
+                f"Selector {selection_id!r} requires exactly "
                 "one observation per Candidate"
             )
         resolved[candidate_id] = matches[0]
@@ -735,7 +845,7 @@ def _candidate_content_digest(
         raise SelectionError(
             "Pairwise subject must carry a canonical protein value"
         )
-    return catalog.require_port_type(type_id, "2.0.0").content_digest(
+    return catalog.require_port_type(type_id, "2.1.0").content_digest(
         candidate.data
     )
 
@@ -813,7 +923,7 @@ def _validate_propagated_score_collection(
 ) -> bool:
     if propagation.get("output_port") != output_port:
         return False
-    if propagation.get("schema_version") != "2.0.0":
+    if propagation.get("schema_version") != "2.1.0":
         raise PortValueError(
             "Binding Observation propagation schema version is unsupported"
         )

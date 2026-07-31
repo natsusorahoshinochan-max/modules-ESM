@@ -48,9 +48,9 @@ def _run_import_export(
         WorkflowNodeInstance(
             node_id=role,
             node_type_id=f"protein_io.{role}_{value_kind}",
-            node_type_version="2.0.0",
+            node_type_version="2.1.0",
             binding_id=f"protein_io.{role}_{value_kind}.direct",
-            binding_version="2.0.0",
+            binding_version="2.1.0",
             node_parameters=(
                 {"project_input_ref": f"{value_kind}-input"}
                 if role == "import"
@@ -61,7 +61,7 @@ def _run_import_export(
         for role in ("import", "export")
     )
     workflow = WorkflowDocument(
-        schema_version="2.0.0",
+        schema_version="2.1.0",
         workflow_id=project.id,
         nodes=nodes,
         edges=(
@@ -277,24 +277,24 @@ def test_fifteen_candidate_pdbs_keep_identity_slots_and_cache_rematerialize(
     project = projects.create("fifteen PDB artifact acceptance")
     authoring = WorkflowAuthoringService(projects, catalog)
     workflow = WorkflowDocument(
-        schema_version="2.0.0",
+        schema_version="2.1.0",
         workflow_id=project.id,
         nodes=(
             WorkflowNodeInstance(
                 node_id="source",
                 node_type_id="contract_test.structure_candidates",
-                node_type_version="2.0.0",
+                node_type_version="2.1.0",
                 binding_id="contract_test.structure_candidates.direct",
-                binding_version="2.0.0",
+                binding_version="2.1.0",
                 node_parameters={},
                 binding_parameters={},
             ),
             WorkflowNodeInstance(
                 node_id="export",
                 node_type_id="protein_io.export_structure",
-                node_type_version="2.0.0",
+                node_type_version="2.1.0",
                 binding_id="protein_io.export_structure.direct",
-                binding_version="2.0.0",
+                binding_version="2.1.0",
                 node_parameters={},
                 binding_parameters={},
             ),
@@ -342,7 +342,7 @@ def test_fifteen_candidate_pdbs_keep_identity_slots_and_cache_rematerialize(
 
     candidate_port = catalog.require_port_type(
         "candidate.collection",
-        "2.0.0",
+        "2.1.0",
     )
     first_candidates_output = next(
         output
@@ -354,7 +354,7 @@ def test_fifteen_candidate_pdbs_keep_identity_slots_and_cache_rematerialize(
             {
                 "schema_namespace": "protein-workbench-port-value/v2",
                 "port_type_id": "candidate.collection",
-                "port_type_version": "2.0.0",
+                "port_type_version": "2.1.0",
                 "value": first_candidates_output["values"][0],
             }
         )

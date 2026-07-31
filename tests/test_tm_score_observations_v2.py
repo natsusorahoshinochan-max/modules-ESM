@@ -50,7 +50,7 @@ from tests.fixtures.structure_comparison_sources.package import (
 )
 
 
-VERSION = "2.0.0"
+VERSION = "2.1.0"
 
 
 def test_structure_comparison_declares_single_and_batch_tm_score_nodes() -> None:

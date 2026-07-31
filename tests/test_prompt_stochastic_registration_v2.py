@@ -78,7 +78,7 @@ def test_randomness_declaration_has_one_unambiguous_parameter_scope() -> None:
                         "parameter_scope": "scientific",
                         "scientific_meaning": "Ambiguous duplicate seed.",
                         "required": True,
-                        "type": "integer",
+                        "value_contract": {"type": "integer"},
                     },
                 },
             )

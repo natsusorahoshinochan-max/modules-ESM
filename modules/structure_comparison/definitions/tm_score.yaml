@@ -1,32 +1,32 @@
-schema_version: "2.0.0"
+schema_version: "2.1.0"
 node_type_id: structure_comparison.tm_score
-version: "2.0.0"
+version: "2.1.0"
 title: Observe one reference-normalized TM-score
 summary: Emits one declared pairwise TM-score Observation from one exact subject-to-reference alignment and its exact Candidate sources.
 category: structure_comparison
 inputs:
   - name: alignment
     port_type_id: structure_comparison.alignment
-    port_type_version: "2.0.0"
+    port_type_version: "2.1.0"
     required: true
     multiplicity: one
     scientific_meaning: One immutable exact subject-to-reference alignment whose correspondence and normalization determine the score.
   - name: subjects
     port_type_id: candidate.collection
-    port_type_version: "2.0.0"
+    port_type_version: "2.1.0"
     required: true
     multiplicity: one
     scientific_meaning: Exactly one subject structure Candidate named by the alignment and emitted Observation.
   - name: references
     port_type_id: candidate.collection
-    port_type_version: "2.0.0"
+    port_type_version: "2.1.0"
     required: true
     multiplicity: one
     scientific_meaning: Exactly one reference structure Candidate named by the alignment and emitted Observation.
 outputs:
   - name: scores
     port_type_id: score.collection
-    port_type_version: "2.0.0"
+    port_type_version: "2.1.0"
     required: true
     multiplicity: one
     scientific_meaning: One declared standard reference-normalized TM-score Observation with exact alignment provenance.

@@ -1,6 +1,6 @@
-schema_version: "2.0.0"
+schema_version: "2.1.0"
 node_type_id: contract_test.synthetic_echo
-version: "2.0.0"
+version: "2.1.0"
 title: Synthetic contract echo
 summary: Emits deterministic typed outputs for Module Package conformance.
 category: contract_test
@@ -8,25 +8,25 @@ inputs: []
 outputs:
   - name: text
     port_type_id: contract_test.synthetic_text
-    port_type_version: "2.0.0"
+    port_type_version: "2.1.0"
     required: true
     multiplicity: one
     scientific_meaning: Deterministically repeated contract-test text.
   - name: candidates
     port_type_id: candidate.collection
-    port_type_version: "2.0.0"
+    port_type_version: "2.1.0"
     required: true
     multiplicity: one
     scientific_meaning: One deterministic protein Candidate.
   - name: scores
     port_type_id: score.collection
-    port_type_version: "2.0.0"
+    port_type_version: "2.1.0"
     required: true
     multiplicity: one
     scientific_meaning: One typed intrinsic Observation for each Candidate.
   - name: artifact
     port_type_id: contract_test.synthetic_artifact
-    port_type_version: "2.0.0"
+    port_type_version: "2.1.0"
     required: true
     multiplicity: one
     scientific_meaning: Standalone text artifact containing the echoed value.
@@ -41,7 +41,8 @@ node_parameters:
   message:
     parameter_scope: scientific
     scientific_meaning: Text whose exact content defines the echo result.
-    type: string
+    value_contract:
+      type: string
+      minLength: 1
+      maxLength: 32
     required: true
-    minLength: 1
-    maxLength: 32

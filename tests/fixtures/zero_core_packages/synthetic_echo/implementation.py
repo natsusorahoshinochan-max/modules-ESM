@@ -47,7 +47,7 @@ class SyntheticEchoImplementation:
         repeat_count = binding_parameters["repeat_count"]
         echoed = message * repeat_count
         with self._run_resources.engine_invocation(
-            engine_identity="contract_test.synthetic_echo.method/2.0.0",
+            engine_identity="contract_test.synthetic_echo.method/2.1.0",
         ):
             marker_value = self._environment.get("block_marker")
             if isinstance(marker_value, str):

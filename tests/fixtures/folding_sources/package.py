@@ -16,6 +16,7 @@ from core import (
     MethodDefinition,
     ModulePackageRegistration,
     ReadinessDeclaration,
+    ReadinessResult,
 )
 from datatypes import (
     Candidate,
@@ -25,7 +26,7 @@ from datatypes import (
 )
 
 
-_VERSION = "2.0.0"
+_VERSION = "2.1.0"
 
 
 class _SequenceSource:
@@ -56,7 +57,7 @@ class _SequenceSource:
         ):
             raise ValueError("folding source sequence is invalid")
         with self._run_resources.engine_invocation(
-            engine_identity="contract_test.folding_sequence_source/2.0.0",
+            engine_identity="contract_test.folding_sequence_source/2.1.0",
         ):
             candidate = Candidate(
                 "fixture-sequence",
@@ -115,7 +116,7 @@ class _SequenceBatchSource:
             raise ValueError("folding batch source sequences are invalid")
         with self._run_resources.engine_invocation(
             engine_identity=(
-                "contract_test.folding_sequence_batch_source/2.0.0"
+                "contract_test.folding_sequence_batch_source/2.1.0"
             ),
         ):
             candidates = [
@@ -172,7 +173,7 @@ class _StructureSource:
             raise ValueError("folding structure source PDB is invalid")
         with self._run_resources.engine_invocation(
             engine_identity=(
-                "contract_test.folding_structure_source/2.0.0"
+                "contract_test.folding_structure_source/2.1.0"
             ),
         ):
             candidate = Candidate(
@@ -257,7 +258,7 @@ def _binding(kind: str) -> ExecutionBindingDefinition:
                 {},
             ),
             prerequisites={},
-            check=lambda environment: True,
+            check=lambda environment: ReadinessResult(True),
         ),
         deterministic=True,
         cacheable=True,
@@ -269,7 +270,7 @@ def _binding(kind: str) -> ExecutionBindingDefinition:
 
 
 MODULE_PACKAGE = ModulePackageRegistration(
-    schema_version=_VERSION,
+    schema_version="2.1.0",
     package_id="contract_test.folding_sources",
     package_version=_VERSION,
     package_module=__package__,

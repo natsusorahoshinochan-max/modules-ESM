@@ -152,16 +152,13 @@ def find_environment_parameter_field(
 def parameter_value_contract(
     declaration: Mapping[str, Any],
 ) -> Mapping[str, Any]:
-    """Separate one value schema from parameter-level metadata."""
+    """Return the only supported v2.1 parameter value schema."""
     value_contract = declaration.get("value_contract")
-    if isinstance(value_contract, Mapping):
-        return value_contract
-    return {
-        key: value
-        for key, value in declaration.items()
-        if key in _SUPPORTED_VALUE_CONTRACT_KEYS
-        and not (key == "required" and type(value) is bool)
-    }
+    if not isinstance(value_contract, Mapping):
+        raise ParameterContractDefinitionError(
+            "parameter declaration must contain a value_contract object"
+        )
+    return value_contract
 
 
 def validate_parameter_declarations(
@@ -210,19 +207,12 @@ def validate_parameter_declarations(
                 "required and cannot declare a default"
             )
         value_contract = declaration.get("value_contract")
-        if value_contract is None:
-            schema = parameter_value_contract(declaration)
-            allowed = (
-                _SUPPORTED_VALUE_CONTRACT_KEYS
-                | _PARAMETER_METADATA_KEYS
+        if not isinstance(value_contract, Mapping):
+            raise ParameterContractDefinitionError(
+                f"{declaration_path}.value_contract must be an object"
             )
-        else:
-            if not isinstance(value_contract, Mapping):
-                raise ParameterContractDefinitionError(
-                    f"{declaration_path}.value_contract must be an object"
-                )
-            schema = value_contract
-            allowed = _PARAMETER_METADATA_KEYS
+        schema = value_contract
+        allowed = _PARAMETER_METADATA_KEYS
         unexpected = set(declaration) - allowed
         if unexpected:
             raise ParameterContractDefinitionError(
@@ -231,12 +221,8 @@ def validate_parameter_declarations(
             )
         _validate_value_contract_schema(
             schema,
-            path=(
-                f"{declaration_path}.value_contract"
-                if value_contract is not None
-                else declaration_path
-            ),
-            allow_parameter_required=value_contract is None,
+            path=f"{declaration_path}.value_contract",
+            allow_parameter_required=False,
         )
         if "default" in declaration:
             unsafe_default = find_environment_parameter_field(

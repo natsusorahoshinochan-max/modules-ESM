@@ -1,20 +1,20 @@
-schema_version: "2.0.0"
+schema_version: "2.1.0"
 node_type_id: structure_annotation.sasa_compute
-version: "2.0.0"
+version: "2.1.0"
 title: Extract DSSP solvent accessibility
 summary: Extracts nullable SASA values while preserving the exact annotation layout.
 category: structure_annotation
 inputs:
   - name: annotations
     port_type_id: structure_annotation.dssp_annotations
-    port_type_version: "2.0.0"
+    port_type_version: "2.1.0"
     required: true
     multiplicity: one
     scientific_meaning: DSSP annotations carrying the exact source residue layout.
 outputs:
   - name: sasa_track
     port_type_id: structure_annotation.sasa_track
-    port_type_version: "2.0.0"
+    port_type_version: "2.1.0"
     required: true
     multiplicity: one
     scientific_meaning: Solvent-accessible surface area in square angstroms with null for unavailable residues.

@@ -12,6 +12,7 @@ import math
 import os
 from pathlib import Path
 import stat
+import threading
 from typing import Any, Iterable
 
 from core import ReadinessResult, canonical_sha256
@@ -77,6 +78,9 @@ LOCAL_ESMC_ARTIFACT_SHA256 = {
     ),
 }
 _PROTEIN_ALPHABET = frozenset("ACDEFGHIKLMNPQRSTVWY")
+_LOCAL_CCD_LOCK = threading.Lock()
+_LOCAL_CCD_DIGEST: str | None = None
+_LOCAL_CCD_OBJECT: object | None = None
 _PDB_RESIDUE_TO_ONE = {
     "ALA": "A",
     "ARG": "R",
@@ -213,6 +217,49 @@ class LocalESMFold2Runtime:
     runtime_directory: Path
     device: str
     safe_fingerprint: str
+
+
+def _local_input_builder(
+    builder_type: type,
+    runtime: LocalESMFold2Runtime,
+) -> object:
+    """Initialize the ESMFold2 CCD once from the validated local snapshot."""
+    from esm.models.esmfold2 import conformers
+
+    return _initialize_local_ccd(conformers, builder_type, runtime)
+
+
+def _initialize_local_ccd(
+    conformers: object,
+    builder_type: type,
+    runtime: LocalESMFold2Runtime,
+) -> object:
+    """Reject pre-existing CCD state not initialized by this adapter."""
+    expected_digest = LOCAL_ESMFOLD2_ARTIFACT_SHA256["ccd.pkl"]
+    global _LOCAL_CCD_DIGEST, _LOCAL_CCD_OBJECT
+    with _LOCAL_CCD_LOCK:
+        loaded = getattr(conformers, "_CCD_MOLECULES", None)
+        if _LOCAL_CCD_DIGEST is None:
+            if loaded is not None:
+                raise RuntimeError(
+                    "ESMFold2 CCD was initialized outside this adapter"
+                )
+            builder = builder_type(ccd_cache=runtime.model_snapshot_path)
+            if getattr(conformers, "_CCD_MOLECULES", None) is None:
+                raise RuntimeError("ESMFold2 CCD initialization did not complete")
+            _LOCAL_CCD_DIGEST = expected_digest
+            _LOCAL_CCD_OBJECT = getattr(conformers, "_CCD_MOLECULES")
+            return builder
+        if (
+            _LOCAL_CCD_DIGEST != expected_digest
+            or loaded is None
+            or loaded is not _LOCAL_CCD_OBJECT
+        ):
+            raise RuntimeError("ESMFold2 CCD global identity changed")
+        builder = builder_type(ccd_cache=runtime.model_snapshot_path)
+        if getattr(conformers, "_CCD_MOLECULES", None) is not _LOCAL_CCD_OBJECT:
+            raise RuntimeError("ESMFold2 CCD global identity changed")
+        return builder
 
 
 def configured_local_runtime_fingerprint() -> str:
@@ -416,7 +463,7 @@ def local_readiness(environment: object) -> ReadinessResult:
 class NormalizedConfidence:
     """Canonical confidence values for one complete structure Candidate."""
 
-    per_residue_plddt: tuple[float, ...]
+    per_residue_plddt: tuple[float | None, ...]
     mean_residue_plddt: float
     ptm: float
     pae: tuple[tuple[float, ...], ...]
@@ -506,40 +553,27 @@ def _validated_input_sequence(sequence: ProteinSequence) -> str:
 
 
 def _provider_pdb_string(result: object, *, local: bool) -> str:
-    direct = getattr(result, "pdb_string", None)
-    if isinstance(direct, str):
-        return direct
     if local:
         complex_value = getattr(result, "complex", None)
         if complex_value is None:
             raise ValueError("local ESMFold2 result lacks a structure")
-        direct = getattr(complex_value, "to_pdb_string", None)
-        if callable(direct):
-            rendered = direct()
-        else:
-            to_protein = getattr(complex_value, "to_protein_complex", None)
-            if not callable(to_protein):
-                raise ValueError("local ESMFold2 result cannot render PDB")
-            protein = to_protein()
-            infer_oxygen = getattr(protein, "infer_oxygen", None)
-            if callable(infer_oxygen):
-                protein = infer_oxygen()
-            render = getattr(protein, "to_pdb_string", None)
-            if not callable(render):
-                raise ValueError("local ESMFold2 result cannot render PDB")
-            rendered = render()
+        to_protein = getattr(complex_value, "to_protein_complex", None)
+        if not callable(to_protein):
+            raise ValueError("local ESMFold2 result cannot render PDB")
+        protein = to_protein()
     else:
         to_chain = getattr(result, "to_protein_chain", None)
         if not callable(to_chain):
             raise ValueError("remote ESMFold2 result cannot render PDB")
-        chain = to_chain()
-        infer_oxygen = getattr(chain, "infer_oxygen", None)
-        if callable(infer_oxygen):
-            chain = infer_oxygen()
-        render = getattr(chain, "to_pdb_string", None)
-        if not callable(render):
-            raise ValueError("remote ESMFold2 result cannot render PDB")
-        rendered = render()
+        protein = to_chain()
+    infer_oxygen = getattr(protein, "infer_oxygen", None)
+    if not callable(infer_oxygen):
+        raise ValueError("ESMFold2 result cannot infer oxygen")
+    protein = infer_oxygen()
+    render = getattr(protein, "to_pdb_string", None)
+    if not callable(render):
+        raise ValueError("ESMFold2 result cannot render PDB")
+    rendered = render()
     if not isinstance(rendered, str):
         raise ValueError("ESMFold2 PDB rendering returned the wrong type")
     return rendered
@@ -572,8 +606,6 @@ def decode_remote_fold_result(
         ptm=getattr(result, "ptm", None),
         pae=_matrix_values(getattr(result, "pae", None), "native PAE"),
     )
-    if len(confidence.per_residue_plddt) != len(expected):
-        raise ValueError("remote ESMFold2 confidence is incomplete")
     return DecodedFoldResult(
         ProteinStructure(pdb_string, source="esmfold2"),
         confidence,
@@ -604,17 +636,15 @@ def decode_local_fold_result(
     pdb_string = _provider_pdb_string(result, local=True)
     if _pdb_sequence(pdb_string) != expected:
         raise ValueError("local ESMFold2 PDB sequence is incomplete")
-    native_plddt = getattr(result, "plddt", None)
-    if native_plddt is None:
-        native_plddt = getattr(complex_value, "plddt", None)
     confidence = normalize_native_confidence(
-        native_plddt=_flat_values(native_plddt, "native pLDDT"),
+        native_plddt=_flat_values(
+            getattr(result, "plddt", None),
+            "native pLDDT",
+        ),
         valid_protein_residues=mask,
         ptm=getattr(result, "ptm", None),
         pae=_matrix_values(getattr(result, "pae", None), "native PAE"),
     )
-    if len(confidence.per_residue_plddt) != len(expected):
-        raise ValueError("local ESMFold2 confidence is incomplete")
     return DecodedFoldResult(
         ProteinStructure(pdb_string, source="esmfold2"),
         confidence,
@@ -690,7 +720,7 @@ def load_local_engine(
         config=configuration,
         local_files_only=True,
     ).to(runtime.device).eval()
-    builder = ESMFold2InputBuilder()
+    builder = _local_input_builder(ESMFold2InputBuilder, runtime)
 
     class LocalEngine:
         def fold(
@@ -740,6 +770,52 @@ def _finite_number(value: object, field: str) -> float:
     return float(value)
 
 
+def normalize_residue_plddt(
+    *,
+    native_plddt: Iterable[object],
+    valid_residues: Iterable[object],
+    native_maximum: float,
+    project_to_valid_residues: bool,
+) -> tuple[tuple[float | None, ...], float, tuple[int, ...]]:
+    """Normalize pLDDT while preserving the declared subject residue axis."""
+    native = tuple(native_plddt)
+    mask = tuple(valid_residues)
+    if len(native) != len(mask) or not native:
+        raise ValueError("native pLDDT and residue validity are inconsistent")
+    if any(type(valid) is not bool for valid in mask):
+        raise ValueError("protein-residue validity must be boolean")
+    if native_maximum <= 0 or not math.isfinite(native_maximum):
+        raise ValueError("native pLDDT maximum is invalid")
+
+    selected_indices: list[int] = []
+    canonical: list[float | None] = []
+    for index, (value, valid) in enumerate(zip(native, mask, strict=True)):
+        if project_to_valid_residues and not valid:
+            continue
+        selected_indices.append(index)
+        if (
+            not valid
+            or type(value) not in {int, float}
+            or not math.isfinite(float(value))
+        ):
+            canonical.append(None)
+            continue
+        native_value = float(value)
+        if native_value < 0.0 or native_value > native_maximum:
+            raise ValueError(
+                f"native pLDDT must remain in [0,{native_maximum:g}]"
+            )
+        canonical.append(native_value * (100.0 / native_maximum))
+    finite_plddt = [value for value in canonical if value is not None]
+    if not finite_plddt:
+        raise ValueError("native pLDDT has no valid protein residues")
+    return (
+        tuple(canonical),
+        math.fsum(finite_plddt) / len(finite_plddt),
+        tuple(selected_indices),
+    )
+
+
 def normalize_native_confidence(
     *,
     native_plddt: Iterable[object],
@@ -750,28 +826,12 @@ def normalize_native_confidence(
     """Convert exact native `[0,1]` ESMFold2 confidence without range guessing."""
     native = tuple(native_plddt)
     mask = tuple(valid_protein_residues)
-    if len(native) != len(mask) or not native:
-        raise ValueError("native pLDDT and residue validity are inconsistent")
-    if any(type(valid) is not bool for valid in mask):
-        raise ValueError("protein-residue validity must be boolean")
-
-    selected_indices: list[int] = []
-    canonical: list[float] = []
-    for index, (value, valid) in enumerate(zip(native, mask, strict=True)):
-        if not valid:
-            continue
-        if (
-            type(value) not in {int, float}
-            or not math.isfinite(float(value))
-        ):
-            continue
-        native_value = float(value)
-        if native_value < 0.0 or native_value > 1.0:
-            raise ValueError("native pLDDT must remain in [0,1]")
-        selected_indices.append(index)
-        canonical.append(native_value * 100.0)
-    if not canonical:
-        raise ValueError("native pLDDT has no valid protein residues")
+    canonical, mean_plddt, selected_indices = normalize_residue_plddt(
+        native_plddt=native,
+        valid_residues=mask,
+        native_maximum=1.0,
+        project_to_valid_residues=True,
+    )
 
     ptm_value = _finite_number(ptm, "native pTM")
     if ptm_value < 0.0 or ptm_value > 1.0:
@@ -798,7 +858,7 @@ def normalize_native_confidence(
 
     return NormalizedConfidence(
         per_residue_plddt=tuple(canonical),
-        mean_residue_plddt=sum(canonical) / len(canonical),
+        mean_residue_plddt=mean_plddt,
         ptm=ptm_value,
         pae=tuple(normalized_pae),
     )

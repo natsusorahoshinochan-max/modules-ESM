@@ -1,6 +1,6 @@
-schema_version: "2.0.0"
+schema_version: "2.1.0"
 node_type_id: esm3.generate_paired
-version: "2.0.0"
+version: "2.1.0"
 title: Generate paired sequences and structures with remote ESM-3
 summary: Generates each sequence from a Prompt with at least one masked sequence residue, then samples exactly one structure-track counterpart from that terminal sequence.
 category: generation
@@ -14,49 +14,49 @@ inputs:
 outputs:
   - name: sequence_candidates
     port_type_id: candidate.collection
-    port_type_version: "2.0.0"
+    port_type_version: "2.1.0"
     required: true
     multiplicity: one
     scientific_meaning: Ordered complete terminal sequence Candidates.
   - name: structure_candidates
     port_type_id: candidate.collection
-    port_type_version: "2.0.0"
+    port_type_version: "2.1.0"
     required: true
     multiplicity: one
     scientific_meaning: Ordered complete structure Candidates with exact sequence-Candidate parents at the same sample slot.
   - name: counterpart_pairs
     port_type_id: candidate.pairing
-    port_type_version: "2.0.0"
+    port_type_version: "2.1.0"
     required: true
     multiplicity: one
     scientific_meaning: Explicit one-to-one sequence-to-structure identity and content-digest mapping independent of collection order.
   - name: confidence_observations
     port_type_id: score.collection
-    port_type_version: "2.0.0"
+    port_type_version: "2.1.0"
     required: true
     multiplicity: one
     scientific_meaning: Exact intrinsic pTM and canonical per-residue and mean-residue pLDDT Observations for structure counterparts.
   - name: pae_observations
     port_type_id: score.collection
-    port_type_version: "2.0.0"
+    port_type_version: "2.1.0"
     required: false
     multiplicity: one
     scientific_meaning: Exact intrinsic provider PAE matrices for structure counterparts when returned.
   - name: sequence_reconstruction_candidates
     port_type_id: candidate.collection
-    port_type_version: "2.0.0"
+    port_type_version: "2.1.0"
     required: false
     multiplicity: one
     scientific_meaning: Coordinate-conditioned prompt reconstructions returned by sequence calls, never sampled structure counterparts.
   - name: sequence_reconstruction_confidence_observations
     port_type_id: score.collection
-    port_type_version: "2.0.0"
+    port_type_version: "2.1.0"
     required: false
     multiplicity: one
     scientific_meaning: Exact intrinsic confidence Observations for coordinate-conditioned prompt reconstructions returned by sequence calls.
   - name: sequence_reconstruction_pae_observations
     port_type_id: score.collection
-    port_type_version: "2.0.0"
+    port_type_version: "2.1.0"
     required: false
     multiplicity: one
     scientific_meaning: Exact intrinsic PAE matrices for coordinate-conditioned prompt reconstructions when returned by sequence calls.
@@ -77,51 +77,59 @@ node_parameters:
     parameter_scope: scientific
     scientific_meaning: Fully resolved Workbench sampling identity; each sample and track receives a stable derived identity while the remote provider exposes no seed control.
     required: true
-    type: integer
-    minimum: 0
-    maximum: 9007199254740991
+    value_contract:
+      type: integer
+      minimum: 0
+      maximum: 9007199254740991
   num_samples:
     parameter_scope: scientific
     scientific_meaning: Exact ordered number of one-to-one sequence and structure counterpart samples.
-    type: integer
-    minimum: 1
-    maximum: 100
+    value_contract:
+      type: integer
+      minimum: 1
+      maximum: 100
     default: 1
   num_steps:
     parameter_scope: scientific
     scientific_meaning: Exact number of ESM-3 iterative unmasking steps for each track.
-    type: integer
-    minimum: 1
-    maximum: 2048
+    value_contract:
+      type: integer
+      minimum: 1
+      maximum: 2048
     default: 20
   temperature:
     parameter_scope: scientific
     scientific_meaning: Fixed provider sampling temperature for both track operations.
-    type: number
-    minimum: 0
-    maximum: 10
+    value_contract:
+      type: number
+      minimum: 0
+      maximum: 10
     default: 1
   top_p:
     parameter_scope: scientific
     scientific_meaning: Fixed provider nucleus-sampling threshold for both track operations.
-    type: number
-    minimum: 0
-    maximum: 1
+    value_contract:
+      type: number
+      minimum: 0
+      maximum: 1
     default: 1
   schedule:
     parameter_scope: scientific
     scientific_meaning: Exact iterative unmasking schedule for both track operations.
-    type: string
-    enum: [cosine, linear]
+    value_contract:
+      type: string
+      enum: [cosine, linear]
     default: cosine
   strategy:
     parameter_scope: scientific
     scientific_meaning: Exact token unmasking strategy for both track operations.
-    type: string
-    enum: [random, entropy]
+    value_contract:
+      type: string
+      enum: [random, entropy]
     default: random
   temperature_annealing:
     parameter_scope: scientific
     scientific_meaning: Whether provider sampling temperature is annealed during unmasking.
-    type: boolean
+    value_contract:
+      type: boolean
     default: true

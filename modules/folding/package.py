@@ -17,7 +17,9 @@ from core import (
     MethodDefinition,
     ModulePackageRegistration,
     ProducedObservationDefinition,
+    ReadinessCheckInput,
     ReadinessDeclaration,
+    ReadinessResult,
 )
 from modules.provider_contract import validate_installed_provider_checkout
 from modules.provider_contract import (
@@ -64,12 +66,32 @@ from .simplefold_confidence_adapter import (
 )
 
 
-_VERSION = "2.0.0"
+_VERSION = "2.1.0"
 _METRICS = (
     "structure.ptm",
     "structure.plddt.per_residue",
     "structure.plddt.mean_residue",
 )
+
+
+def _remote_ready(check_input: ReadinessCheckInput) -> ReadinessResult:
+    return ReadinessResult(remote_readiness(check_input.values))
+
+
+def _local_ready(check_input: ReadinessCheckInput) -> ReadinessResult:
+    return local_readiness(check_input.values)
+
+
+def _simplefold_ready(
+    check_input: ReadinessCheckInput,
+) -> ReadinessResult:
+    return simplefold_readiness(check_input.values)
+
+
+def _simplefold_confidence_ready(
+    check_input: ReadinessCheckInput,
+) -> ReadinessResult:
+    return simplefold_confidence_readiness(check_input.values)
 
 
 def _remote_available() -> AvailabilityResult:
@@ -460,7 +482,7 @@ def _binding(route: str) -> ExecutionBindingDefinition:
                     "source_revision": ESM_SDK_REVISION,
                 },
             },
-            check=remote_readiness,
+            check=_remote_ready,
         )
         implementation_identity = {
             "name": "folding.esmfold2.remote-adapter",
@@ -536,7 +558,7 @@ def _binding(route: str) -> ExecutionBindingDefinition:
                     "safe_public_identity": True,
                 },
             },
-            check=local_readiness,
+            check=_local_ready,
         )
         implementation_identity = {
             "name": "folding.esmfold2.local-adapter",
@@ -618,9 +640,11 @@ def _simplefold_binding() -> ExecutionBindingDefinition:
                 "scientific_meaning": (
                     "Exact SimpleFold Euler-Maruyama sampling step count."
                 ),
-                "type": "integer",
-                "minimum": 1,
-                "maximum": 50,
+                "value_contract": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 50,
+                },
                 "default": 50,
             },
         },
@@ -696,7 +720,7 @@ def _simplefold_binding() -> ExecutionBindingDefinition:
                     "safe_public_identity": True,
                 },
             },
-            check=simplefold_readiness,
+            check=_simplefold_ready,
         ),
         deterministic=False,
         cacheable=False,
@@ -835,7 +859,7 @@ def _simplefold_confidence_binding() -> ExecutionBindingDefinition:
                     "safe_public_identity": True,
                 },
             },
-            check=simplefold_confidence_readiness,
+            check=_simplefold_confidence_ready,
         ),
         deterministic=True,
         cacheable=True,
@@ -874,7 +898,7 @@ def _simplefold_confidence_binding() -> ExecutionBindingDefinition:
 
 
 MODULE_PACKAGE = ModulePackageRegistration(
-    schema_version=_VERSION,
+    schema_version="2.1.0",
     package_id="folding",
     package_version=_VERSION,
     package_module=__package__,

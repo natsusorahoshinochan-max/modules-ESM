@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping
-
 from core import (
     AvailabilityDeclaration,
     AvailabilityResult,
@@ -15,13 +13,15 @@ from core import (
     MethodDefinition,
     ModulePackageRegistration,
     ObservationPropagationDefinition,
+    ReadinessCheckInput,
     ReadinessDeclaration,
+    ReadinessResult,
 )
 
 from .implementation import CollectionOpsImplementation
 
 
-_VERSION = "2.0.0"
+_VERSION = "2.1.0"
 _OPERATIONS = (
     "concat_candidates",
     "merge_scores",
@@ -34,8 +34,9 @@ def _available() -> AvailabilityResult:
     return AvailabilityResult.available()
 
 
-def _ready(environment: Mapping[str, object]) -> bool:
-    return isinstance(environment, Mapping)
+def _ready(check_input: ReadinessCheckInput) -> ReadinessResult:
+    del check_input
+    return ReadinessResult(True)
 
 
 def _build(operation: str):
@@ -150,7 +151,7 @@ def _binding(operation: str) -> ExecutionBindingDefinition:
 
 
 MODULE_PACKAGE = ModulePackageRegistration(
-    schema_version=_VERSION,
+    schema_version="2.1.0",
     package_id="collection_ops",
     package_version=_VERSION,
     package_module=__package__,

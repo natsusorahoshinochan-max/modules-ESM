@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import replace
 import math
 
+import numpy as np
 import pytest
 
 from core import build_discovered_frozen_catalog, discover_module_packages
@@ -29,6 +30,7 @@ from datatypes import (
     ExactContractReference,
     PairwiseCandidateMapping,
     PairwiseParticipant,
+    ProteinStructure,
     ScoreCollection,
     ScoreObservation,
 )
@@ -42,12 +44,13 @@ from modules.structure_comparison import (
 from modules.structure_comparison.package import (
     MODULE_PACKAGE as STRUCTURE_COMPARISON_PACKAGE,
 )
+from modules.structure_comparison.alignment import align_structures
 from tests.fixtures.structure_comparison_sources.package import (
     MODULE_PACKAGE as SOURCE_PACKAGE,
 )
 
 
-VERSION = "2.0.0"
+VERSION = "2.1.0"
 SUBJECT_DIGEST = "sha256:" + "1" * 64
 REFERENCE_DIGEST = "sha256:" + "2" * 64
 METHOD_DIGEST = build_frozen_catalog(
@@ -57,6 +60,41 @@ METHOD_DIGEST = build_frozen_catalog(
     "structure_comparison.ca_sequence_svd.method",
     VERSION,
 ).contract_digest
+
+_AA_1TO3 = {
+    "A": "ALA",
+    "G": "GLY",
+    "S": "SER",
+    "T": "THR",
+    "V": "VAL",
+}
+
+
+def _multi_chain_structure(
+    chains: tuple[
+        tuple[str, str, tuple[tuple[float, float, float], ...]],
+        ...,
+    ],
+    *,
+    extra_lines: tuple[str, ...] = (),
+) -> ProteinStructure:
+    lines: list[str] = []
+    serial = 1
+    for chain, sequence, coordinates in chains:
+        for residue_number, (amino_acid, coordinate) in enumerate(
+            zip(sequence, coordinates, strict=True),
+            start=1,
+        ):
+            x, y, z = coordinate
+            lines.append(
+                f"ATOM  {serial:5d}  CA  {_AA_1TO3[amino_acid]} {chain}"
+                f"{residue_number:4d}    "
+                f"{x:8.3f}{y:8.3f}{z:8.3f}"
+                "  1.00 20.00           C"
+            )
+            serial += 1
+        lines.append("TER")
+    return ProteinStructure("\n".join((*lines, *extra_lines, "END", "")))
 
 
 def _alignment() -> StructureAlignmentEvidence:
@@ -171,7 +209,7 @@ def test_alignment_nominal_values_round_trip_exact_evidence() -> None:
     assert alignment_type.decode(alignment_type.encode(alignment)) == alignment
     collection = StructureAlignmentEvidenceCollection(
         schema_version=VERSION,
-        pairing_source="candidate.pairing@2.0.0",
+        pairing_source="candidate.pairing@2.1.0",
         accepted_cardinality="one_to_one_complete",
         alignments=(alignment,),
     )
@@ -197,7 +235,7 @@ def test_fixed_reference_alignment_collection_rejects_ambiguous_evidence() -> No
     )
     valid = StructureAlignmentEvidenceCollection(
         schema_version=VERSION,
-        pairing_source="fixed_reference.singleton@2.0.0",
+        pairing_source="fixed_reference.singleton@2.1.0",
         accepted_cardinality="many_to_one_complete",
         alignments=(first, second),
     )
@@ -609,7 +647,7 @@ def test_high_ambiguity_alignment_records_true_nested_engine_invocation(
     ]
     assert [event["engine_role"] for event in invocations] == [
         "sequence_alignment",
-        "correspondence_tiebreak",
+        "bounded_correspondence_selection",
         "rigid_superposition",
     ]
     parent, child, superposition = invocations
@@ -620,8 +658,9 @@ def test_high_ambiguity_alignment_records_true_nested_engine_invocation(
         == parent["invocation_id"]
     )
     assert child["engine_identity"] == (
-        "tmtools.tm_align/"
-        f"{importlib.metadata.version('tmtools')}"
+        "structure_alignment.bounded_correspondence_selection/"
+        f"Bio.SVDSuperimposer-{importlib.metadata.version('biopython')}/"
+        f"numpy-{importlib.metadata.version('numpy')}"
     )
     terminals = [
         event["event"]
@@ -636,6 +675,98 @@ def test_high_ambiguity_alignment_records_true_nested_engine_invocation(
     ]
     assert len(terminals) == 3
     assert {event["status"] for event in terminals} == {"succeeded"}
+
+
+def test_chain_record_order_does_not_change_complete_dimer_alignment() -> None:
+    chain_a = (
+        "A",
+        "AGS",
+        ((0.0, 0.0, 0.0), (2.0, 0.0, 0.0), (0.0, 3.0, 0.0)),
+    )
+    chain_b = (
+        "B",
+        "TV",
+        ((10.0, 0.0, 0.0), (10.0, 2.0, 1.0)),
+    )
+
+    alignment = align_structures(
+        _multi_chain_structure((chain_a, chain_b)),
+        _multi_chain_structure((chain_b, chain_a)),
+    )
+
+    assert alignment.chain_map == {"A": "A", "B": "B"}
+    assert alignment.coverage == pytest.approx(1.0)
+    assert alignment.rmsd == pytest.approx(0.0, abs=1e-12)
+    assert alignment.residue_map == [
+        ("A:1", "A:1"),
+        ("A:2", "A:2"),
+        ("A:3", "A:3"),
+        ("B:1", "B:1"),
+        ("B:2", "B:2"),
+    ]
+
+
+def test_heteroatom_ca_ion_does_not_enter_alignment_axis() -> None:
+    chain = (
+        "A",
+        "AGS",
+        ((0.0, 0.0, 0.0), (2.0, 0.0, 0.0), (0.0, 3.0, 0.0)),
+    )
+    calcium = (
+        "HETATM 9999  CA   CA  Z   1      50.000  50.000  50.000"
+        "  1.00 20.00          CA"
+    )
+
+    alignment = align_structures(
+        _multi_chain_structure((chain,)),
+        _multi_chain_structure((chain,), extra_lines=(calcium,)),
+    )
+
+    assert alignment.reference_length == alignment.mobile_length == 3
+    assert alignment.coverage == pytest.approx(1.0)
+    assert alignment.rmsd == pytest.approx(0.0, abs=1e-12)
+
+
+def test_high_ambiguity_uses_a_true_sequence_optimal_correspondence() -> None:
+    from modules.structure_comparison.alignment import (
+        _sequence_aligner,
+        _sequence_correspondence,
+    )
+
+    reference_sequence = "GTSAGTATSTSTGGSTGGGAGTAGTSGASGTGGGGSAATS"
+    mobile_sequence = "SATSGTTSSASAAGTAAASTTGSTSGSSSGTTTTTASAAGSGSS"
+    reference_coordinates = np.asarray(
+        [
+            (index * 1.5, index % 3, index % 2)
+            for index in range(len(reference_sequence))
+        ],
+        dtype=np.float64,
+    )
+    mobile_coordinates = np.asarray(
+        [
+            (index * 1.5, index % 3, index % 2)
+            for index in range(len(mobile_sequence))
+        ],
+        dtype=np.float64,
+    )
+    expected = next(
+        iter(_sequence_aligner().align(reference_sequence, mobile_sequence))
+    )
+    expected_pairs = [
+        (int(reference_index), int(mobile_index))
+        for reference_index, mobile_index in zip(*expected.indices)
+        if reference_index >= 0 and mobile_index >= 0
+    ]
+
+    reference_indices, mobile_indices, _ = _sequence_correspondence(
+        reference_sequence,
+        mobile_sequence,
+        reference_coordinates,
+        mobile_coordinates,
+        engine_invocation=None,
+    )
+
+    assert list(zip(reference_indices, mobile_indices)) == expected_pairs
 
 
 def test_pairwise_alignment_uses_exact_mapping_not_collection_order(
@@ -1026,7 +1157,7 @@ def test_structure_comparison_passes_ctk_for_all_nodes_and_bindings(
     alignment = _alignment()
     collection = StructureAlignmentEvidenceCollection(
         schema_version=VERSION,
-        pairing_source="candidate.pairing@2.0.0",
+        pairing_source="candidate.pairing@2.1.0",
         accepted_cardinality="one_to_one_complete",
         alignments=(alignment,),
     )
@@ -1066,8 +1197,8 @@ def test_structure_comparison_passes_ctk_for_all_nodes_and_bindings(
         "succeeded",
     ]
     assert report.verified_port_types == (
-        "structure_comparison.alignment@2.0.0",
-        "structure_comparison.alignment_collection@2.0.0",
+        "structure_comparison.alignment@2.1.0",
+        "structure_comparison.alignment_collection@2.1.0",
     )
 
 

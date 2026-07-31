@@ -25,7 +25,7 @@ from core.storage import (
 
 CANONICAL_3GB1_PROJECT_ID = "canonical-3gb1"
 MAX_PROJECT_INPUT_BYTES = 64 * 1024 * 1024
-PROJECT_SCHEMA_VERSION = "2.0.0"
+PROJECT_SCHEMA_VERSION = "2.1.0"
 
 
 class CanonicalSeedError(RuntimeError):

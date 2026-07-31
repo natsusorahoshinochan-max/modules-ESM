@@ -18,6 +18,7 @@ from core import (
     ModulePackageRegistration,
     ProducedObservationDefinition,
     ReadinessDeclaration,
+    ReadinessResult,
     UtilityTransformDefinition,
 )
 from datatypes import (
@@ -34,7 +35,7 @@ from datatypes import (
 )
 
 
-VERSION = "2.0.0"
+VERSION = "2.1.0"
 NODE_TYPE = ContractIdentity(
     "node_type",
     "contract_test.multi_objective_selection_source",
@@ -255,7 +256,7 @@ def _utility(transform_id: str, pairing_mode: str) -> UtilityTransformDefinition
 
 
 MODULE_PACKAGE = ModulePackageRegistration(
-    schema_version=VERSION,
+    schema_version="2.1.0",
     package_id="contract_test.multi_objective_selection_sources",
     package_version=VERSION,
     package_module=__package__,
@@ -306,7 +307,7 @@ MODULE_PACKAGE = ModulePackageRegistration(
                     {},
                 ),
                 prerequisites={},
-                check=lambda environment: isinstance(environment, Mapping),
+                check=lambda environment: ReadinessResult(True),
             ),
             deterministic=True,
             cacheable=True,

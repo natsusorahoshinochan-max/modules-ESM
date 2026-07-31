@@ -1,43 +1,43 @@
-schema_version: "2.0.0"
+schema_version: "2.1.0"
 node_type_id: prompt_authoring.map_residue_track
-version: "2.0.0"
+version: "2.1.0"
 title: Map residue track
 summary: Explicitly converts one nominal identity-aligned residue track through a complete residue map.
 category: prompt_authoring
 inputs:
   - name: residue_map
     port_type_id: residue.map
-    port_type_version: "2.0.0"
+    port_type_version: "2.1.0"
     required: true
     multiplicity: one
     scientific_meaning: Complete identity-preserving source-to-target residue conversion.
   - name: sequence_track
     port_type_id: prompt_authoring.track.sequence
-    port_type_version: "2.0.0"
+    port_type_version: "2.1.0"
     required: false
     multiplicity: one
     scientific_meaning: Nullable amino-acid values carrying the exact source layout.
   - name: structure_track
     port_type_id: prompt_authoring.track.structure
-    port_type_version: "2.0.0"
+    port_type_version: "2.1.0"
     required: false
     multiplicity: one
     scientific_meaning: Nullable named-atom coordinates carrying the exact source layout.
   - name: visibility_track
     port_type_id: prompt_authoring.track.visibility
-    port_type_version: "2.0.0"
+    port_type_version: "2.1.0"
     required: false
     multiplicity: one
     scientific_meaning: Nullable boolean visibility values carrying the exact source layout.
   - name: secondary_structure_track
     port_type_id: prompt_authoring.track.secondary_structure
-    port_type_version: "2.0.0"
+    port_type_version: "2.1.0"
     required: false
     multiplicity: one
     scientific_meaning: Nullable SS8 values carrying the exact source layout.
   - name: sasa_track
     port_type_id: prompt_authoring.track.sasa
-    port_type_version: "2.0.0"
+    port_type_version: "2.1.0"
     required: false
     multiplicity: one
     scientific_meaning: Nullable non-negative solvent-accessibility values carrying the exact source layout.
@@ -52,31 +52,31 @@ input_constraints:
 outputs:
   - name: sequence_track
     port_type_id: prompt_authoring.track.sequence
-    port_type_version: "2.0.0"
+    port_type_version: "2.1.0"
     required: false
     multiplicity: one
     scientific_meaning: Amino-acid values explicitly mapped to and carrying the target layout.
   - name: structure_track
     port_type_id: prompt_authoring.track.structure
-    port_type_version: "2.0.0"
+    port_type_version: "2.1.0"
     required: false
     multiplicity: one
     scientific_meaning: Named-atom coordinates explicitly mapped to and carrying the target layout.
   - name: visibility_track
     port_type_id: prompt_authoring.track.visibility
-    port_type_version: "2.0.0"
+    port_type_version: "2.1.0"
     required: false
     multiplicity: one
     scientific_meaning: Boolean visibility explicitly mapped to and carrying the target layout.
   - name: secondary_structure_track
     port_type_id: prompt_authoring.track.secondary_structure
-    port_type_version: "2.0.0"
+    port_type_version: "2.1.0"
     required: false
     multiplicity: one
     scientific_meaning: SS8 values explicitly mapped to and carrying the target layout.
   - name: sasa_track
     port_type_id: prompt_authoring.track.sasa
-    port_type_version: "2.0.0"
+    port_type_version: "2.1.0"
     required: false
     multiplicity: one
     scientific_meaning: Solvent-accessibility values explicitly mapped to and carrying the target layout.

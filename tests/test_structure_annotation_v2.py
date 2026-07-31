@@ -65,10 +65,10 @@ def test_structure_annotation_is_one_package_with_four_nodes() -> None:
         in catalog.owners[(kind, contract_id, version)]
     }
     assert owned_nodes == {
-        ("structure_annotation.dssp_compute", "2.0.0"),
-        ("structure_annotation.secondary_structure_extract", "2.0.0"),
-        ("structure_annotation.sasa_compute", "2.0.0"),
-        ("structure_annotation.secondary_structure_agreement", "2.0.0"),
+        ("structure_annotation.dssp_compute", "2.1.0"),
+        ("structure_annotation.secondary_structure_extract", "2.1.0"),
+        ("structure_annotation.sasa_compute", "2.1.0"),
+        ("structure_annotation.secondary_structure_agreement", "2.1.0"),
     }
 
 
@@ -86,11 +86,11 @@ def test_annotation_ports_preserve_multichain_layout_missing_and_ss8() -> None:
     )
     annotation_type = catalog.require_port_type(
         "structure_annotation.dssp_annotations",
-        "2.0.0",
+        "2.1.0",
     )
     secondary_type = catalog.require_port_type(
         "structure_annotation.secondary_structure_track",
-        "2.0.0",
+        "2.1.0",
     )
 
     assert annotation_type.decode(annotation_type.encode(annotation)) == annotation
@@ -102,7 +102,7 @@ def test_annotation_ports_preserve_multichain_layout_missing_and_ss8() -> None:
     wire = json.loads(secondary_type.encode(track))["value"]
     assert wire["track"]["fields"]["values"] == ["G", "_", "C", "E"]
 
-    with pytest.raises(PortValueError, match="exact SS8"):
+    with pytest.raises(PortValueError, match="unsupported alphabet"):
         secondary_type.encode(
             StructureAnnotationTrack(layout=layout, values=("H", "-", "E", "C"))
         )
@@ -113,12 +113,12 @@ def test_dssp_binary_is_binding_environment_not_workflow_parameter() -> None:
     node = catalog.require_contract(
         "node_type",
         "structure_annotation.dssp_compute",
-        "2.0.0",
+        "2.1.0",
     )
     binding = catalog.require_contract(
         "binding",
         "structure_annotation.dssp_compute.direct",
-        "2.0.0",
+        "2.1.0",
     )
 
     assert node.descriptor["node_parameters"] == {}
@@ -201,20 +201,11 @@ def _run_dssp(
     configured_binary: str | None = None,
     result_replay_source: ResultReplaySource | None = None,
     binary_version: str = "4.6.1",
-    discover_binary: bool = True,
 ) -> tuple[Any, dict[str, Any], tuple[dict[str, Any], ...], str]:
     binary = _fake_dssp_binary(
         tmp_path,
         output=dssp_output,
         version=binary_version,
-    )
-    monkeypatch.setattr(
-        "modules.structure_annotation.package.shutil.which",
-        lambda name: (
-            str(binary)
-            if discover_binary and name == "mkdssp"
-            else None
-        ),
     )
     catalog = build_frozen_catalog(
         (PROTEIN_IO_PACKAGE, STRUCTURE_ANNOTATION_PACKAGE)
@@ -233,24 +224,24 @@ def _run_dssp(
     )
     authoring = WorkflowAuthoringService(projects, catalog)
     workflow = WorkflowDocument(
-        schema_version="2.0.0",
+        schema_version="2.1.0",
         workflow_id=project.id,
         nodes=(
             WorkflowNodeInstance(
                 node_id="import",
                 node_type_id="protein_io.import_structure",
-                node_type_version="2.0.0",
+                node_type_version="2.1.0",
                 binding_id="protein_io.import_structure.direct",
-                binding_version="2.0.0",
+                binding_version="2.1.0",
                 node_parameters={"project_input_ref": "structure-input"},
                 binding_parameters={},
             ),
             WorkflowNodeInstance(
                 node_id="annotate",
                 node_type_id="structure_annotation.dssp_compute",
-                node_type_version="2.0.0",
+                node_type_version="2.1.0",
                 binding_id="structure_annotation.dssp_compute.direct",
-                binding_version="2.0.0",
+                binding_version="2.1.0",
                 node_parameters={},
                 binding_parameters={},
             ),
@@ -282,7 +273,7 @@ def _run_dssp(
             {
                 (
                     "structure_annotation.dssp_compute.direct",
-                    "2.0.0",
+                    "2.1.0",
                 ): {
                     "values": {
                         "dssp_binary": configured_binary or str(binary)
@@ -331,9 +322,12 @@ _dssp_struct_summary.label_seq_id
 _dssp_struct_summary.label_comp_id
 _dssp_struct_summary.secondary_structure
 _dssp_struct_summary.accessibility
-fixture A 1 GLY H 10.5
-fixture B 1 SER - 20.0
-fixture B 2 THR G .
+_dssp_struct_summary.x_ca
+_dssp_struct_summary.y_ca
+_dssp_struct_summary.z_ca
+fixture A 1 GLY H 10.5 1.0 2.0 3.0
+fixture B 1 SER . 20.0 3.0 4.0 5.0
+fixture B 2 THR G . 4.0 5.0 6.0
 #
 """
 
@@ -390,16 +384,18 @@ _dssp_struct_summary.label_seq_id
 _dssp_struct_summary.label_comp_id
 _dssp_struct_summary.secondary_structure
 _dssp_struct_summary.accessibility
-fixture A 1 GLY H 10.0
+_dssp_struct_summary.x_ca
+_dssp_struct_summary.y_ca
+_dssp_struct_summary.z_ca
+fixture A 1 GLY H 10.0 1.0 2.0 3.0
 #
 """,
-        discover_binary=False,
     )
 
     assert projection["status"] == "succeeded"
 
 
-def test_dssp_dash_is_coil_but_dot_is_absent(
+def test_dssp_dot_is_coil_and_p_is_preserved(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -422,8 +418,11 @@ _dssp_struct_summary.label_seq_id
 _dssp_struct_summary.label_comp_id
 _dssp_struct_summary.secondary_structure
 _dssp_struct_summary.accessibility
-fixture A 1 GLY . 10.0
-fixture A 2 ALA - 20.0
+_dssp_struct_summary.x_ca
+_dssp_struct_summary.y_ca
+_dssp_struct_summary.z_ca
+fixture A 17 GLY . 10.0 1.0 2.0 3.0
+fixture A 29 ALA P 20.0 2.0 3.0 4.0
 #
 """,
     )
@@ -435,7 +434,7 @@ fixture A 2 ALA - 20.0
         if item["node_id"] == "annotate"
     )
     annotation = _decode_output(catalog, output)
-    assert annotation.secondary_structure == ("_", "C")
+    assert annotation.secondary_structure == ("C", "P")
 
 
 def test_dssp_readiness_rejects_version_prefix_collision(
@@ -486,7 +485,10 @@ _dssp_struct_summary.label_seq_id
 _dssp_struct_summary.label_comp_id
 _dssp_struct_summary.secondary_structure
 _dssp_struct_summary.accessibility
-fixture Z 1 GLY H 10.0
+_dssp_struct_summary.x_ca
+_dssp_struct_summary.y_ca
+_dssp_struct_summary.z_ca
+fixture Z 1 GLY H 10.0 1.0 2.0 3.0
 #
 """,
         """\
@@ -498,7 +500,10 @@ _dssp_struct_summary.label_seq_id
 _dssp_struct_summary.label_comp_id
 _dssp_struct_summary.secondary_structure
 _dssp_struct_summary.accessibility
-fixture A 1 ALA H 10.0
+_dssp_struct_summary.x_ca
+_dssp_struct_summary.y_ca
+_dssp_struct_summary.z_ca
+fixture A 1 ALA H 10.0 1.0 2.0 3.0
 #
 """,
     ),
@@ -610,21 +615,20 @@ _dssp_struct_summary.label_seq_id
 _dssp_struct_summary.label_comp_id
 _dssp_struct_summary.secondary_structure
 _dssp_struct_summary.accessibility
-fixture A 1 GLY H 10.0
-fixture A 2 ALA - 20.0
+_dssp_struct_summary.x_ca
+_dssp_struct_summary.y_ca
+_dssp_struct_summary.z_ca
+fixture A 1 GLY H 10.0 1.0 2.0 3.0
+fixture A 2 ALA . 20.0 2.0 3.0 4.0
 #
 """
     binary = _fake_dssp_binary(tmp_path, output=dssp_output)
-    monkeypatch.setattr(
-        "modules.structure_annotation.package.shutil.which",
-        lambda name: str(binary) if name == "mkdssp" else None,
-    )
     source = WorkflowNodeInstance(
         node_id="source",
         node_type_id="contract_test.structure_annotation_source",
-        node_type_version="2.0.0",
+        node_type_version="2.1.0",
         binding_id="contract_test.structure_annotation_source.direct",
-        binding_version="2.0.0",
+        binding_version="2.1.0",
         node_parameters={},
         binding_parameters={},
     )
@@ -632,9 +636,9 @@ fixture A 2 ALA - 20.0
         ModulePackageContractCase(
             case_id="structure-annotation-dssp",
             node_type_id="structure_annotation.dssp_compute",
-            node_type_version="2.0.0",
+            node_type_version="2.1.0",
             binding_id="structure_annotation.dssp_compute.direct",
-            binding_version="2.0.0",
+            binding_version="2.1.0",
             node_parameters={},
             binding_parameters={},
             environment_values={"dssp_binary": str(binary)},
@@ -654,11 +658,11 @@ fixture A 2 ALA - 20.0
         ModulePackageContractCase(
             case_id="structure-annotation-secondary",
             node_type_id="structure_annotation.secondary_structure_extract",
-            node_type_version="2.0.0",
+            node_type_version="2.1.0",
             binding_id=(
                 "structure_annotation.secondary_structure_extract.direct"
             ),
-            binding_version="2.0.0",
+            binding_version="2.1.0",
             node_parameters={},
             binding_parameters={},
             environment_values={},
@@ -677,9 +681,9 @@ fixture A 2 ALA - 20.0
         ModulePackageContractCase(
             case_id="structure-annotation-sasa",
             node_type_id="structure_annotation.sasa_compute",
-            node_type_version="2.0.0",
+            node_type_version="2.1.0",
             binding_id="structure_annotation.sasa_compute.direct",
-            binding_version="2.0.0",
+            binding_version="2.1.0",
             node_parameters={},
             binding_parameters={},
             environment_values={},
@@ -700,11 +704,11 @@ fixture A 2 ALA - 20.0
             node_type_id=(
                 "structure_annotation.secondary_structure_agreement"
             ),
-            node_type_version="2.0.0",
+            node_type_version="2.1.0",
             binding_id=(
                 "structure_annotation.secondary_structure_agreement.direct"
             ),
-            binding_version="2.0.0",
+            binding_version="2.1.0",
             node_parameters={},
             binding_parameters={},
             environment_values={},
@@ -748,7 +752,7 @@ fixture A 2 ALA - 20.0
     port_cases = (
         ModulePackagePortCase(
             type_id="structure_annotation.dssp_annotations",
-            version="2.0.0",
+            version="2.1.0",
             valid_value=DSSPAnnotation(
                 layout=layout,
                 secondary_structure=("H", "C"),
@@ -758,7 +762,7 @@ fixture A 2 ALA - 20.0
         ),
         ModulePackagePortCase(
             type_id="structure_annotation.secondary_structure_track",
-            version="2.0.0",
+            version="2.1.0",
             valid_value=StructureAnnotationTrack(
                 layout=layout,
                 values=("H", "_"),
@@ -767,7 +771,7 @@ fixture A 2 ALA - 20.0
         ),
         ModulePackagePortCase(
             type_id="structure_annotation.sasa_track",
-            version="2.0.0",
+            version="2.1.0",
             valid_value=StructureAnnotationTrack(
                 layout=layout,
                 values=(10.0, None),
@@ -811,17 +815,17 @@ def test_agreement_emits_one_exact_subject_metric_method_observation(
     project = projects.create("structure annotation agreement")
     authoring = WorkflowAuthoringService(projects, catalog)
     workflow = WorkflowDocument(
-        schema_version="2.0.0",
+        schema_version="2.1.0",
         workflow_id=project.id,
         nodes=(
             WorkflowNodeInstance(
                 node_id="source",
                 node_type_id="contract_test.structure_annotation_source",
-                node_type_version="2.0.0",
+                node_type_version="2.1.0",
                 binding_id=(
                     "contract_test.structure_annotation_source.direct"
                 ),
-                binding_version="2.0.0",
+                binding_version="2.1.0",
                 node_parameters={},
                 binding_parameters={},
             ),
@@ -830,12 +834,12 @@ def test_agreement_emits_one_exact_subject_metric_method_observation(
                 node_type_id=(
                     "structure_annotation.secondary_structure_agreement"
                 ),
-                node_type_version="2.0.0",
+                node_type_version="2.1.0",
                 binding_id=(
                     "structure_annotation."
                     "secondary_structure_agreement.direct"
                 ),
-                binding_version="2.0.0",
+                binding_version="2.1.0",
                 node_parameters={},
                 binding_parameters={},
             ),
@@ -914,7 +918,7 @@ def test_agreement_emits_one_exact_subject_metric_method_observation(
             "candidate_id": subjects.items[0].candidate_id,
             "content_digest": catalog.require_port_type(
                 subjects.item_type,
-                "2.0.0",
+                "2.1.0",
             ).content_digest(subjects.items[0].data),
         },
         "reference": {
@@ -922,7 +926,7 @@ def test_agreement_emits_one_exact_subject_metric_method_observation(
             "candidate_id": references.items[0].candidate_id,
             "content_digest": catalog.require_port_type(
                 references.item_type,
-                "2.0.0",
+                "2.1.0",
             ).content_digest(references.items[0].data),
         },
         "pairing_mode": "fixed_reference",

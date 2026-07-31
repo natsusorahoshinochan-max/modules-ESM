@@ -16,6 +16,7 @@ from core import (
     MethodDefinition,
     ModulePackageRegistration,
     ReadinessDeclaration,
+    ReadinessResult,
 )
 from datatypes import (
     FunctionAnnotation,
@@ -30,7 +31,7 @@ from datatypes import (
 from modules.prompt_authoring.domain import AlignedResidueTrack
 
 
-_VERSION = "2.0.0"
+_VERSION = "2.1.0"
 
 
 def _annotations(
@@ -63,7 +64,7 @@ class _Source:
             raise ValueError("prompt-authoring source accepts no values")
         with self._run_resources.engine_invocation(
             engine_identity=(
-                "contract_test.prompt_authoring_values.method/2.0.0"
+                "contract_test.prompt_authoring_values.method/2.1.0"
             ),
         ):
             fixture = node_parameters["fixture"]
@@ -453,7 +454,7 @@ def _factory(**kwargs: object) -> object:
 
 
 MODULE_PACKAGE = ModulePackageRegistration(
-    schema_version=_VERSION,
+    schema_version="2.1.0",
     package_id="contract_test.prompt_authoring_sources",
     package_version=_VERSION,
     package_module=__package__,
@@ -510,7 +511,7 @@ MODULE_PACKAGE = ModulePackageRegistration(
                     {},
                 ),
                 prerequisites={},
-                check=lambda environment: True,
+                check=lambda environment: ReadinessResult(True),
             ),
             deterministic=True,
             cacheable=True,

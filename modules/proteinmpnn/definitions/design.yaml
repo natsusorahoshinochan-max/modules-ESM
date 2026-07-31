@@ -1,31 +1,31 @@
-schema_version: "2.0.0"
+schema_version: "2.1.0"
 node_type_id: proteinmpnn.design
-version: "2.0.0"
+version: "2.1.0"
 title: Design sequences with ProteinMPNN
 summary: Designs an exact complete number of child sequences for each selected structure parent through one fixed ProteinMPNN Method.
 category: protein_design
 inputs:
   - name: structure
     port_type_id: protein.structure
-    port_type_version: "2.0.0"
+    port_type_version: "2.1.0"
     required: false
     multiplicity: one
     scientific_meaning: One complete structure value used when no structure Candidate Collection is supplied.
   - name: structure_candidates
     port_type_id: candidate.collection
-    port_type_version: "2.0.0"
+    port_type_version: "2.1.0"
     required: false
     multiplicity: one
     scientific_meaning: Ordered complete protein-structure parent Candidates whose exact identities become the parent of every designed child.
   - name: sequence
     port_type_id: protein.sequence
-    port_type_version: "2.0.0"
+    port_type_version: "2.1.0"
     required: false
     multiplicity: one
     scientific_meaning: Optional complete reference sequence aligned exactly to each selected structure target layout.
   - name: constraints
     port_type_id: proteinmpnn.constraints
-    port_type_version: "2.0.0"
+    port_type_version: "2.1.0"
     required: false
     multiplicity: one
     scientific_meaning: Optional complete zero-based ProteinMPNN constraints validated against every selected structure target layout.
@@ -37,7 +37,7 @@ input_constraints:
 outputs:
   - name: sequence_candidates
     port_type_id: candidate.collection
-    port_type_version: "2.0.0"
+    port_type_version: "2.1.0"
     required: true
     multiplicity: one
     scientific_meaning: Complete designed sequence children ordered by parent then zero-based sample slot with exact parent lineage.
@@ -54,27 +54,31 @@ node_parameters:
     parameter_scope: scientific
     scientific_meaning: Fully resolved Workbench seed from which one stable provider seed is derived per exact parent Candidate.
     required: true
-    type: integer
-    minimum: 0
-    maximum: 9007199254740991
+    value_contract:
+      type: integer
+      minimum: 0
+      maximum: 9007199254740991
   num_sequences:
     parameter_scope: scientific
     scientific_meaning: Exact complete number of sequence children requested independently for every selected parent.
-    type: integer
-    minimum: 1
-    maximum: 100
+    value_contract:
+      type: integer
+      minimum: 1
+      maximum: 100
     default: 1
   temperature:
     parameter_scope: scientific
     scientific_meaning: Positive finite ProteinMPNN sampling temperature fixed for every selected parent.
-    type: number
-    exclusiveMinimum: 0
-    maximum: 10
+    value_contract:
+      type: number
+      exclusiveMinimum: 0
+      maximum: 10
     default: 0.1
   backbone_noise:
     parameter_scope: scientific
     scientific_meaning: Finite non-negative angstrom standard deviation of ProteinMPNN backbone coordinate noise.
-    type: number
-    minimum: 0
-    maximum: 10
+    value_contract:
+      type: number
+      minimum: 0
+      maximum: 10
     default: 0

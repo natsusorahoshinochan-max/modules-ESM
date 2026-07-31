@@ -12,7 +12,7 @@ from datatypes import ResidueTrack
 from .domain import AlignedResidueTrack, TrackKind, validate_track
 
 
-_VERSION = "2.0.0"
+_VERSION = "2.1.0"
 _TYPE_ID_BY_KIND = {
     TrackKind.SEQUENCE: "prompt_authoring.track.sequence",
     TrackKind.STRUCTURE: "prompt_authoring.track.structure",
@@ -118,8 +118,8 @@ def aligned_track_port_type(kind: TrackKind) -> PortTypeDefinition:
             _VERSION,
             {
                 "canonicalization": "RFC 8785",
-                "embedded_layout_contract": "residue.layout@2.0.0",
-                "embedded_values_contract": "residue.track@2.0.0",
+                "embedded_layout_contract": "residue.layout@2.1.0",
+                "embedded_values_contract": "residue.track@2.1.0",
             },
         ),
         content_identity=BehaviorReference(

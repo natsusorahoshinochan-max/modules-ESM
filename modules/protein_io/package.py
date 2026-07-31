@@ -17,7 +17,9 @@ from core import (
     MethodDefinition,
     ModulePackageRegistration,
     PortTypeDefinition,
+    ReadinessCheckInput,
     ReadinessDeclaration,
+    ReadinessResult,
 )
 
 from .implementation import (
@@ -28,7 +30,7 @@ from .implementation import (
 )
 
 
-_VERSION = "2.0.0"
+_VERSION = "2.1.0"
 _SAFE_NAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$")
 _SAFE_CANDIDATE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$")
 
@@ -37,9 +39,9 @@ def _available() -> AvailabilityResult:
     return AvailabilityResult.available()
 
 
-def _ready(environment: object) -> bool:
-    del environment
-    return True
+def _ready(check_input: ReadinessCheckInput) -> ReadinessResult:
+    del check_input
+    return ReadinessResult(True)
 
 
 def _validate_artifact_payload(value: object) -> None:
@@ -175,7 +177,7 @@ _OPERATIONS = (
 
 
 MODULE_PACKAGE = ModulePackageRegistration(
-    schema_version=_VERSION,
+    schema_version="2.1.0",
     package_id="protein_io",
     package_version=_VERSION,
     package_module=__package__,

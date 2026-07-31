@@ -592,7 +592,7 @@ def run(tier_name: str, pytest_override: tuple[str, ...]) -> int:
             result_dir / "environment-summary.json",
             json.dumps(
                 {
-                    "schema_version": "2.0.0",
+                    "schema_version": "2.1.0",
                     "tier": tier_name,
                     "recorded_at": datetime.now(timezone.utc).isoformat(),
                     "project_revision": revision,

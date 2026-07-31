@@ -1,6 +1,6 @@
-schema_version: "2.0.0"
+schema_version: "2.1.0"
 node_type_id: contract_test.prompt_authoring_values
-version: "2.0.0"
+version: "2.1.0"
 title: Prompt authoring contract values
 summary: Supplies deterministic identity-complete layouts and tracks to the shared Contract Test Kit.
 category: contract_test
@@ -8,61 +8,61 @@ inputs: []
 outputs:
   - name: source_layout
     port_type_id: residue.layout
-    port_type_version: "2.0.0"
+    port_type_version: "2.1.0"
     required: true
     multiplicity: one
     scientific_meaning: Identity-complete pre-edit fixture layout.
   - name: target_layout
     port_type_id: residue.layout
-    port_type_version: "2.0.0"
+    port_type_version: "2.1.0"
     required: true
     multiplicity: one
     scientific_meaning: Identity-complete post-edit fixture layout.
   - name: source_sequence_track
     port_type_id: prompt_authoring.track.sequence
-    port_type_version: "2.0.0"
+    port_type_version: "2.1.0"
     required: true
     multiplicity: one
     scientific_meaning: Nullable amino-acid fixture values carrying source_layout.
   - name: source_structure_track
     port_type_id: prompt_authoring.track.structure
-    port_type_version: "2.0.0"
+    port_type_version: "2.1.0"
     required: true
     multiplicity: one
     scientific_meaning: Nullable named-atom coordinate fixture values carrying source_layout.
   - name: source_visibility_track
     port_type_id: prompt_authoring.track.visibility
-    port_type_version: "2.0.0"
+    port_type_version: "2.1.0"
     required: true
     multiplicity: one
     scientific_meaning: Nullable visibility fixture values carrying source_layout.
   - name: source_secondary_structure_track
     port_type_id: prompt_authoring.track.secondary_structure
-    port_type_version: "2.0.0"
+    port_type_version: "2.1.0"
     required: true
     multiplicity: one
     scientific_meaning: Nullable SS8 fixture values carrying source_layout.
   - name: source_sasa_track
     port_type_id: prompt_authoring.track.sasa
-    port_type_version: "2.0.0"
+    port_type_version: "2.1.0"
     required: true
     multiplicity: one
     scientific_meaning: Nullable solvent-accessibility fixture values carrying source_layout.
   - name: target_secondary_structure_track
     port_type_id: prompt_authoring.track.secondary_structure
-    port_type_version: "2.0.0"
+    port_type_version: "2.1.0"
     required: true
     multiplicity: one
     scientific_meaning: Nullable SS8 fixture values carrying target_layout.
   - name: target_structure_track
     port_type_id: prompt_authoring.track.structure
-    port_type_version: "2.0.0"
+    port_type_version: "2.1.0"
     required: true
     multiplicity: one
     scientific_meaning: Nullable structure-coordinate fixture values carrying target_layout.
   - name: residue_map
     port_type_id: residue.map
-    port_type_version: "2.0.0"
+    port_type_version: "2.1.0"
     required: true
     multiplicity: one
     scientific_meaning: Complete explicit fixture conversion from source_layout to target_layout.
@@ -80,13 +80,13 @@ outputs:
     scientific_meaning: Canonical multi-track ProteinPrompt fixture.
   - name: protein_sequence
     port_type_id: protein.sequence
-    port_type_version: "2.0.0"
+    port_type_version: "2.1.0"
     required: true
     multiplicity: one
     scientific_meaning: Complete sequence fixture aligned to source_layout.
   - name: structure
     port_type_id: protein.structure
-    port_type_version: "2.0.0"
+    port_type_version: "2.1.0"
     required: true
     multiplicity: one
     scientific_meaning: Complete canonical PDB fixture for prompt construction.
@@ -99,24 +99,25 @@ node_parameters:
   fixture:
     parameter_scope: scientific
     scientific_meaning: Exact deterministic residue-layout fixture used by this test-only source.
-    type: string
-    enum:
-      - canonical
-      - source-track-length-drift
-      - overlapping-residue-map
-      - unmapped-residue-map
-      - noncontiguous-chain-layout
-      - boundary-edit
-      - contradictory-residue-map
-      - annotation-overlap
-      - annotation-out-of-order
-      - annotation-cross-chain
-      - annotation-allow
-      - prompt-illegal-sequence
-      - sequence-length-drift
-      - sequence-identity-drift
-      - sequence-illegal-symbol
-      - adapter-boundary
-      - 3gb1-intent
-      - insertion-identity-collision
+    value_contract:
+      type: string
+      enum:
+        - canonical
+        - source-track-length-drift
+        - overlapping-residue-map
+        - unmapped-residue-map
+        - noncontiguous-chain-layout
+        - boundary-edit
+        - contradictory-residue-map
+        - annotation-overlap
+        - annotation-out-of-order
+        - annotation-cross-chain
+        - annotation-allow
+        - prompt-illegal-sequence
+        - sequence-length-drift
+        - sequence-identity-drift
+        - sequence-illegal-symbol
+        - adapter-boundary
+        - 3gb1-intent
+        - insertion-identity-collision
     default: canonical

@@ -91,12 +91,12 @@ def test_local_esm3_reuses_generation_nodes_alongside_direct_esmc() -> None:
         local = catalog.require_contract(
             "binding",
             f"esm3.{operation}.local_open",
-            "2.0.0",
+            "2.1.0",
         )
         remote = catalog.require_contract(
             "binding",
             f"esm3.{operation}.biohub_open",
-            "2.0.0",
+            "2.1.0",
         )
 
         assert local.descriptor["node_type"] == remote.descriptor["node_type"]
@@ -133,7 +133,7 @@ def test_local_esm3_reuses_generation_nodes_alongside_direct_esmc() -> None:
         node = catalog.require_contract(
             "node_type",
             f"esm3.{operation}",
-            "2.0.0",
+            "2.1.0",
         )
         forbidden = {
             "model",

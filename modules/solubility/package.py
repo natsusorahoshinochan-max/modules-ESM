@@ -44,7 +44,7 @@ from .adapter import (
 )
 
 
-_VERSION = "2.0.0"
+_VERSION = "2.1.0"
 _MODES = ("full", "no_tm")
 
 
@@ -225,7 +225,10 @@ def _binding(mode: str) -> ExecutionBindingDefinition:
                     else {"required": False, "must_not_be_probed": True}
                 ),
             },
-            check=lambda environment: soluprot_readiness(environment, mode=mode),
+            check=lambda check_input: soluprot_readiness(
+                check_input.values,
+                mode=mode,
+            ),
         ),
         deterministic=True,
         cacheable=True,
@@ -315,6 +318,7 @@ def _protein_sol_method() -> MethodDefinition:
         },
         featurization_identity={
             "sequence_alphabet": "ACDEFGHIKLMNPQRSTVWY",
+            "minimum_sequence_length": 21,
             "whole_sequence_features": True,
             "profile_windows": [21, 51],
             "isoelectric_point_range": [1, 14],
@@ -435,7 +439,9 @@ def _protein_sol_binding() -> ExecutionBindingDefinition:
                 },
                 "path_source": "trusted_environment_configuration",
             },
-            check=lambda environment: protein_sol_readiness(environment),
+            check=lambda check_input: protein_sol_readiness(
+                check_input.values
+            ),
         ),
         deterministic=True,
         cacheable=True,
@@ -487,7 +493,7 @@ def _protein_sol_binding() -> ExecutionBindingDefinition:
 
 
 MODULE_PACKAGE = ModulePackageRegistration(
-    schema_version=_VERSION,
+    schema_version="2.1.0",
     package_id="solubility",
     package_version=_VERSION,
     package_module=__package__,

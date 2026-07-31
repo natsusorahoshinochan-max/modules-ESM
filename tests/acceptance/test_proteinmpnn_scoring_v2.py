@@ -35,11 +35,11 @@ def _source_node() -> WorkflowNodeInstance:
     return WorkflowNodeInstance(
         node_id="source",
         node_type_id="contract_test.proteinmpnn_3gb1_structure",
-        node_type_version="2.0.0",
+        node_type_version="2.1.0",
         binding_id=(
             "contract_test.proteinmpnn_3gb1_structure.direct"
         ),
-        binding_version="2.0.0",
+        binding_version="2.1.0",
         node_parameters={},
         binding_parameters={},
     )
@@ -48,7 +48,7 @@ def _source_node() -> WorkflowNodeInstance:
 def _environment(binding_id: str) -> EnvironmentConfiguration:
     fingerprint = configured_runtime_fingerprint()
     return EnvironmentConfiguration({
-        (binding_id, "2.0.0"): {
+        (binding_id, "2.1.0"): {
             "values": {
                 "device": "cpu",
                 "resolved_runtime_fingerprint": fingerprint,
@@ -91,7 +91,7 @@ def _run(
         project.id,
         expected_workflow_revision=0,
         workflow=WorkflowDocument(
-            schema_version="2.0.0",
+            schema_version="2.1.0",
             workflow_id=project.id,
             nodes=nodes,
             edges=edges,
@@ -154,20 +154,20 @@ def test_proteinmpnn_v2_scoring_publishes_exact_native_observation(
         WorkflowNodeInstance(
             node_id="sequence-source",
             node_type_id="contract_test.proteinmpnn_3gb1_sequence",
-            node_type_version="2.0.0",
+            node_type_version="2.1.0",
             binding_id=(
                 "contract_test.proteinmpnn_3gb1_sequence.direct"
             ),
-            binding_version="2.0.0",
+            binding_version="2.1.0",
             node_parameters={},
             binding_parameters={},
         ),
         WorkflowNodeInstance(
             node_id="score",
             node_type_id="proteinmpnn.score",
-            node_type_version="2.0.0",
+            node_type_version="2.1.0",
             binding_id="proteinmpnn.score.local",
-            binding_version="2.0.0",
+            binding_version="2.1.0",
             node_parameters={},
             binding_parameters={},
         ),
@@ -247,9 +247,9 @@ def test_proteinmpnn_v2_sibling_design_remains_exact_and_complete(
         WorkflowNodeInstance(
             node_id="design",
             node_type_id="proteinmpnn.design",
-            node_type_version="2.0.0",
+            node_type_version="2.1.0",
             binding_id="proteinmpnn.design.local",
-            binding_version="2.0.0",
+            binding_version="2.1.0",
             node_parameters={
                 "effective_seed": 1603,
                 "num_sequences": 1,

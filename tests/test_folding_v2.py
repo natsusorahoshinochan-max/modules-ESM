@@ -51,6 +51,24 @@ def _two_residue_pdb() -> str:
     )
 
 
+class _RenderedProtein:
+    def infer_oxygen(self) -> "_RenderedProtein":
+        return self
+
+    def to_pdb_string(self) -> str:
+        return _two_residue_pdb()
+
+
+class _RemoteResultRenderer:
+    def to_protein_chain(self) -> _RenderedProtein:
+        return _RenderedProtein()
+
+
+class _LocalComplexRenderer:
+    def to_protein_complex(self) -> _RenderedProtein:
+        return _RenderedProtein()
+
+
 def _decode_output(catalog: Any, output: dict[str, Any]) -> Any:
     reference = output["port_type"]
     port_type = catalog.require_port_type(
@@ -87,18 +105,18 @@ def _run_fold(
     source = WorkflowNodeInstance(
         node_id="source",
         node_type_id="contract_test.folding_sequence_source",
-        node_type_version="2.0.0",
+        node_type_version="2.1.0",
         binding_id="contract_test.folding_sequence_source.direct",
-        binding_version="2.0.0",
+        binding_version="2.1.0",
         node_parameters={"sequence": source_sequence},
         binding_parameters={},
     )
     fold = WorkflowNodeInstance(
         node_id="fold",
         node_type_id="folding.fold",
-        node_type_version="2.0.0",
+        node_type_version="2.1.0",
         binding_id=f"folding.fold.esmfold2_{route}",
-        binding_version="2.0.0",
+        binding_version="2.1.0",
         node_parameters={"effective_seed": 1603, "num_samples": 1},
         binding_parameters={},
     )
@@ -112,7 +130,7 @@ def _run_fold(
     project = projects.create(f"folding {route}")
     authoring = WorkflowAuthoringService(projects, catalog)
     workflow = WorkflowDocument(
-        schema_version="2.0.0",
+        schema_version="2.1.0",
         workflow_id=project.id,
         nodes=(source, fold),
         edges=(
@@ -153,7 +171,7 @@ def _run_fold(
     environment_values.update(environment_overrides or {})
     environment = EnvironmentConfiguration(
         {
-            (f"folding.fold.esmfold2_{route}", "2.0.0"): {
+            (f"folding.fold.esmfold2_{route}", "2.1.0"): {
                 "values": environment_values,
                 "safe_fingerprint": (
                     safe_environment_fingerprint
@@ -205,12 +223,12 @@ def test_remote_and_local_esmfold2_are_explicit_bindings_of_one_node() -> None:
     remote = catalog.require_contract(
         "binding",
         "folding.fold.esmfold2_remote",
-        "2.0.0",
+        "2.1.0",
     )
     local = catalog.require_contract(
         "binding",
         "folding.fold.esmfold2_local",
-        "2.0.0",
+        "2.1.0",
     )
     assert remote.descriptor["node_type"] == local.descriptor["node_type"]
     assert remote.descriptor["produced_observations"] == (
@@ -234,7 +252,7 @@ def test_remote_and_local_esmfold2_are_explicit_bindings_of_one_node() -> None:
     node = catalog.require_contract(
         "node_type",
         "folding.fold",
-        "2.0.0",
+        "2.1.0",
     )
     assert set(node.descriptor["node_parameters"]) == {
         "effective_seed",
@@ -268,12 +286,12 @@ def test_missing_local_esmfold2_stays_fail_closed_without_hiding_remote() -> Non
     assert catalog.require_contract(
         "binding",
         "folding.fold.esmfold2_remote",
-        "2.0.0",
+        "2.1.0",
     )
     assert catalog.require_contract(
         "binding",
         "folding.fold.esmfold2_local",
-        "2.0.0",
+        "2.1.0",
     )
     assert availability["folding.fold.esmfold2_remote"] is not (
         availability["folding.fold.esmfold2_local"]
@@ -367,10 +385,79 @@ def test_native_plddt_is_statically_scaled_and_masks_invalid_tokens() -> None:
         ),
     )
 
-    assert confidence.per_residue_plddt == (70.0, 80.0)
+    assert confidence.per_residue_plddt == (70.0, 80.0, None)
     assert confidence.mean_residue_plddt == 75.0
     assert confidence.ptm == 0.625
-    assert confidence.pae == ((0.0, 1.0), (1.0, 0.0))
+    assert confidence.pae == (
+        (0.0, 1.0, 3.0),
+        (1.0, 0.0, 7.0),
+        (3.0, 7.0, 0.0),
+    )
+
+
+def test_local_builder_rejects_foreign_preinitialized_ccd(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import modules.folding.adapter as adapter
+
+    class ForeignConformers:
+        _CCD_MOLECULES = {"foreign": object()}
+
+    class Builder:
+        def __init__(self, **kwargs: object) -> None:
+            raise AssertionError(f"builder must not run: {kwargs}")
+
+    runtime = adapter.LocalESMFold2Runtime(
+        model_snapshot_path=tmp_path / "model",
+        language_model_snapshot_path=tmp_path / "language-model",
+        runtime_directory=tmp_path / "runtime",
+        device="cpu",
+        safe_fingerprint="sha256:" + "0" * 64,
+    )
+    monkeypatch.setattr(adapter, "_LOCAL_CCD_DIGEST", None)
+    monkeypatch.setattr(adapter, "_LOCAL_CCD_OBJECT", None)
+
+    with pytest.raises(RuntimeError, match="outside this adapter"):
+        adapter._initialize_local_ccd(
+            ForeignConformers,
+            Builder,
+            runtime,
+        )
+
+
+def test_local_builder_rejects_ccd_replaced_after_adapter_initialization(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import modules.folding.adapter as adapter
+
+    owned = {"owned": object()}
+
+    class Conformers:
+        _CCD_MOLECULES = owned
+
+    class Builder:
+        def __init__(self, **kwargs: object) -> None:
+            del kwargs
+
+    runtime = adapter.LocalESMFold2Runtime(
+        model_snapshot_path=tmp_path / "model",
+        language_model_snapshot_path=tmp_path / "language-model",
+        runtime_directory=tmp_path / "runtime",
+        device="cpu",
+        safe_fingerprint="sha256:" + "0" * 64,
+    )
+    monkeypatch.setattr(
+        adapter,
+        "_LOCAL_CCD_DIGEST",
+        adapter.LOCAL_ESMFOLD2_ARTIFACT_SHA256["ccd.pkl"],
+    )
+    monkeypatch.setattr(adapter, "_LOCAL_CCD_OBJECT", owned)
+    Conformers._CCD_MOLECULES = {"replaced": object()}
+
+    with pytest.raises(RuntimeError, match="global identity changed"):
+        adapter._initialize_local_ccd(Conformers, Builder, runtime)
 
 
 def test_remote_and_local_provider_native_results_normalize_identically() -> None:
@@ -381,14 +468,13 @@ def test_remote_and_local_provider_native_results_normalize_identically() -> Non
         decode_remote_fold_result,
     )
 
-    class RemoteResult:
+    class RemoteResult(_RemoteResultRenderer):
         sequence = "AG"
         plddt = (0.70, 0.80)
         ptm = torch.tensor([0.625])
         pae = ((0.0, 1.0), (1.0, 0.0))
-        pdb_string = _two_residue_pdb()
 
-    class LocalComplex:
+    class LocalComplex(_LocalComplexRenderer):
         sequence = ("ALA", "GLY", "LIG", "PAD")
 
     class LocalResult:
@@ -401,7 +487,6 @@ def test_remote_and_local_provider_native_results_normalize_identically() -> Non
             (2.0, 4.0, 0.0, 6.0),
             (3.0, 5.0, 6.0, 0.0),
         )
-        pdb_string = _two_residue_pdb()
 
     sequence = ProteinSequence("AG", ["A:1", "A:2"])
     remote = decode_remote_fold_result(RemoteResult(), sequence)
@@ -421,12 +506,11 @@ def test_selected_binding_folds_without_fallback_and_publishes_exact_lineage(
     monkeypatch: pytest.MonkeyPatch,
     route: str,
 ) -> None:
-    class RemoteResult:
+    class RemoteResult(_RemoteResultRenderer):
         sequence = "AG"
         plddt = (0.70, 0.80)
         ptm = 0.625
         pae = ((0.0, 31.75), (31.75, 0.0))
-        pdb_string = _two_residue_pdb()
 
     class RemoteClient:
         def __init__(self) -> None:
@@ -442,7 +526,7 @@ def test_selected_binding_folds_without_fallback_and_publishes_exact_lineage(
             self.calls.append((sequence, model_name, config))
             return RemoteResult()
 
-    class LocalComplex:
+    class LocalComplex(_LocalComplexRenderer):
         sequence = ("ALA", "GLY")
 
     class LocalResult:
@@ -450,7 +534,6 @@ def test_selected_binding_folds_without_fallback_and_publishes_exact_lineage(
         plddt = (0.70, 0.80)
         ptm = 0.625
         pae = ((0.0, 31.75), (31.75, 0.0))
-        pdb_string = _two_residue_pdb()
 
     class LocalClient:
         def __init__(self) -> None:
@@ -652,19 +735,18 @@ def test_remote_and_local_bindings_pass_shared_contract_test_kit(
         MODULE_PACKAGE as SOURCE_PACKAGE,
     )
 
-    class RemoteResult:
+    class RemoteResult(_RemoteResultRenderer):
         sequence = "AG"
         plddt = (0.70, 0.80)
         ptm = 0.625
         pae = ((0.0, 1.0), (1.0, 0.0))
-        pdb_string = _two_residue_pdb()
 
     class RemoteClient:
         def fold(self, **kwargs: Any) -> RemoteResult:
             del kwargs
             return RemoteResult()
 
-    class LocalComplex:
+    class LocalComplex(_LocalComplexRenderer):
         sequence = ("ALA", "GLY")
 
     class LocalResult:
@@ -672,7 +754,6 @@ def test_remote_and_local_bindings_pass_shared_contract_test_kit(
         plddt = (0.70, 0.80)
         ptm = 0.625
         pae = ((0.0, 1.0), (1.0, 0.0))
-        pdb_string = _two_residue_pdb()
 
     class LocalClient:
         def fold(self, **kwargs: Any) -> LocalResult:
@@ -682,9 +763,9 @@ def test_remote_and_local_bindings_pass_shared_contract_test_kit(
     source_node = WorkflowNodeInstance(
         node_id="source",
         node_type_id="contract_test.folding_sequence_source",
-        node_type_version="2.0.0",
+        node_type_version="2.1.0",
         binding_id="contract_test.folding_sequence_source.direct",
-        binding_version="2.0.0",
+        binding_version="2.1.0",
         node_parameters={"sequence": "AG"},
         binding_parameters={},
     )
@@ -858,16 +939,16 @@ def test_remote_and_local_bindings_pass_shared_contract_test_kit(
     structure_source_node = WorkflowNodeInstance(
         node_id="structure-source",
         node_type_id="contract_test.folding_structure_source",
-        node_type_version="2.0.0",
+        node_type_version="2.1.0",
         binding_id="contract_test.folding_structure_source.direct",
-        binding_version="2.0.0",
+        binding_version="2.1.0",
         node_parameters={"pdb_string": _two_residue_pdb()},
         binding_parameters={},
     )
     common = {
         "node_type_id": "folding.fold",
-        "node_type_version": "2.0.0",
-        "binding_version": "2.0.0",
+        "node_type_version": "2.1.0",
+        "binding_version": "2.1.0",
         "node_parameters": {
             "effective_seed": 1603,
             "num_samples": 1,
@@ -950,11 +1031,11 @@ def test_remote_and_local_bindings_pass_shared_contract_test_kit(
         ModulePackageContractCase(
             case_id="simplefold-confidence-local",
             node_type_id="folding.simplefold_confidence",
-            node_type_version="2.0.0",
+            node_type_version="2.1.0",
             binding_id=(
                 "folding.simplefold_confidence.simplefold_local"
             ),
-            binding_version="2.0.0",
+            binding_version="2.1.0",
             node_parameters={},
             binding_parameters={},
             environment_values=confidence_environment,

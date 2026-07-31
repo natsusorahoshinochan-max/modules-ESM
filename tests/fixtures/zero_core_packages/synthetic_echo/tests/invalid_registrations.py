@@ -9,6 +9,7 @@ from core import (
     BehaviorReference,
     LazyImplementationFactory,
     ReadinessDeclaration,
+    ReadinessResult,
 )
 from datatypes import (
     Candidate,
@@ -34,7 +35,7 @@ class _IncompleteProvenanceImplementation:
             raise ValueError("invalid fixture does not accept inputs")
         echoed = node_parameters["message"] * binding_parameters["repeat_count"]
         with self._run_resources.engine_invocation(
-            engine_identity="contract_test.incomplete_provenance/2.0.0",
+            engine_identity="contract_test.incomplete_provenance/2.1.0",
         ):
             pass
         candidate = Candidate(
@@ -74,12 +75,12 @@ def _build_incomplete_provenance(**kwargs):
     metric = catalog.require_contract(
         "metric",
         "contract_test.synthetic_identity",
-        "2.0.0",
+        "2.1.0",
     )
     method = catalog.require_contract(
         "method",
         "contract_test.synthetic_echo.method",
-        "2.0.0",
+        "2.1.0",
     )
     method_reference = method.reference()
     method_reference["contract_digest"] = "sha256:" + ("0" * 64)
@@ -93,9 +94,9 @@ def _build_incomplete_provenance(**kwargs):
 _BINDING = MODULE_PACKAGE.bindings[0]
 
 
-def _not_ready(environment) -> bool:
+def _not_ready(environment) -> ReadinessResult:
     del environment
-    return False
+    return ReadinessResult(False)
 
 
 FALSE_READINESS_PACKAGE = replace(
@@ -119,7 +120,7 @@ INCOMPLETE_PROVENANCE_PACKAGE = replace(
             factory=LazyImplementationFactory(
                 behavior=BehaviorReference(
                     "contract_test.incomplete_provenance/factory",
-                    "2.0.0",
+                    "2.1.0",
                     {},
                 ),
                 build=_build_incomplete_provenance,

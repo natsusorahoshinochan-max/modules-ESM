@@ -47,18 +47,18 @@ def test_simplefold_v2_folds_3gb1_through_exact_binding(
     source = WorkflowNodeInstance(
         node_id="source",
         node_type_id="contract_test.folding_sequence_source",
-        node_type_version="2.0.0",
+        node_type_version="2.1.0",
         binding_id="contract_test.folding_sequence_source.direct",
-        binding_version="2.0.0",
+        binding_version="2.1.0",
         node_parameters={"sequence": sequence},
         binding_parameters={},
     )
     fold = WorkflowNodeInstance(
         node_id="fold",
         node_type_id="folding.fold",
-        node_type_version="2.0.0",
+        node_type_version="2.1.0",
         binding_id="folding.fold.simplefold_local",
-        binding_version="2.0.0",
+        binding_version="2.1.0",
         node_parameters={"effective_seed": 1603, "num_samples": 1},
         binding_parameters={"num_steps": 10},
     )
@@ -72,7 +72,7 @@ def test_simplefold_v2_folds_3gb1_through_exact_binding(
     project = projects.create("SimpleFold v2 3GB1")
     authoring = WorkflowAuthoringService(projects, catalog)
     workflow = WorkflowDocument(
-        schema_version="2.0.0",
+        schema_version="2.1.0",
         workflow_id=project.id,
         nodes=(source, fold),
         edges=(
@@ -101,7 +101,7 @@ def test_simplefold_v2_folds_3gb1_through_exact_binding(
     )
     fingerprint = configured_runtime_fingerprint()
     environment = EnvironmentConfiguration({
-        ("folding.fold.simplefold_local", "2.0.0"): {
+        ("folding.fold.simplefold_local", "2.1.0"): {
             "values": {
                 "model_root": Path(
                     os.environ["PROTEIN_WORKBENCH_SIMPLEFOLD_MODEL_ROOT"]
@@ -149,7 +149,7 @@ def test_simplefold_v2_folds_3gb1_through_exact_binding(
     binding = catalog.require_contract(
         "binding",
         "folding.fold.simplefold_local",
-        "2.0.0",
+        "2.1.0",
     )
     assert binding.descriptor["method"]["contract_id"] == (
         "folding.fold.simplefold_100m_c7a5570"
@@ -197,7 +197,7 @@ def test_simplefold_v2_folds_3gb1_through_exact_binding(
         if event["event"]["type"] == "readiness_attested"
         and event["event"]["binding"]["contract_id"]
         == "folding.fold.simplefold_local"
-        and event["event"]["binding"]["contract_version"] == "2.0.0"
+        and event["event"]["binding"]["contract_version"] == "2.1.0"
         and event["event"]["conclusion"] == "passing"
     )
     invocation_index = next(

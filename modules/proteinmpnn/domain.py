@@ -180,6 +180,7 @@ def author_constraints(
         bias_by_res.setdefault(position, {})[amino_acid] = bias
 
     constraints = ProteinMPNNConstraints(
+        layout=layout,
         designable_positions=_optional_list(
             parameters["designable_positions"],
             "designable_positions",
@@ -224,6 +225,10 @@ def validate_constraints_against_layout(
 ) -> None:
     """Apply every layout- and chain-dependent constraint invariant."""
     validate_proteinmpnn_constraints(constraints)
+    if constraints.layout != layout:
+        raise ValueError(
+            "constraint layout identity does not match the target layout"
+        )
     if _CANONICAL_AMINO_ACIDS <= set(
         constraints.omit_amino_acids or ()
     ):
@@ -339,5 +344,6 @@ def random_fixed_positions(
         ),
     )
     return ProteinMPNNConstraints(
+        layout=layout,
         fixed_positions=sorted(ranked[:count]),
     )

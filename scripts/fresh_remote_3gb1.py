@@ -16,7 +16,7 @@ from typing import Any
 
 SCHEMA_NAMESPACE = "protein-workbench-fresh-remote-3gb1/v2"
 PROJECT_ID = "canonical-3gb1"
-VERSION = "2.0.0"
+VERSION = "2.1.0"
 CANONICAL_PROVIDER_PROMPT_CONTENT_DIGEST = (
     "sha256:4a00fdcb5cbf3d0175dd33b37f744b881f859765ca6d551a667e12910411f19f"
 )

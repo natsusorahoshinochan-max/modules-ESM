@@ -15,6 +15,7 @@ from core import (
     MethodDefinition,
     ModulePackageRegistration,
     ReadinessDeclaration,
+    ReadinessResult,
 )
 from datatypes import (
     Candidate,
@@ -38,7 +39,7 @@ class _StructureSource:
         if inputs or node_parameters or binding_parameters:
             raise ValueError("structure source accepts no values")
         with self._resources.engine_invocation(
-            engine_identity="contract_test.structure_candidates.method/2.0.0",
+            engine_identity="contract_test.structure_candidates.method/2.1.0",
         ):
             candidates = [
                 Candidate(
@@ -83,7 +84,7 @@ class _ScalarSource:
         if inputs or node_parameters or binding_parameters:
             raise ValueError("scalar source accepts no values")
         with self._resources.engine_invocation(
-            engine_identity=f"contract_test.{self._kind}.method/2.0.0",
+            engine_identity=f"contract_test.{self._kind}.method/2.1.0",
         ):
             if self._kind == "protein_sequence":
                 return {"sequence": ProteinSequence(sequence="ACDEFG")}
@@ -112,7 +113,7 @@ def _build(kind: str):
 def _method(kind: str) -> MethodDefinition:
     return MethodDefinition(
         method_id=f"contract_test.{kind}.method",
-        version="2.0.0",
+        version="2.1.0",
         algorithm_identity={"name": "deterministic-fixture"},
         model_identity={"kind": "none"},
         checkpoint_identity={"kind": "none"},
@@ -125,23 +126,23 @@ def _method(kind: str) -> MethodDefinition:
 def _binding(kind: str) -> ExecutionBindingDefinition:
     return ExecutionBindingDefinition(
         binding_id=f"contract_test.{kind}.direct",
-        version="2.0.0",
+        version="2.1.0",
         node_type=ContractIdentity(
             "node_type",
             f"contract_test.{kind}",
-            "2.0.0",
+            "2.1.0",
         ),
         method=ContractIdentity(
             "method",
             f"contract_test.{kind}.method",
-            "2.0.0",
+            "2.1.0",
         ),
         binding_parameters={},
         execution_route="direct",
         factory=LazyImplementationFactory(
             behavior=BehaviorReference(
                 f"contract_test.{kind}/factory",
-                "2.0.0",
+                "2.1.0",
                 {},
             ),
             build=_build(kind),
@@ -149,7 +150,7 @@ def _binding(kind: str) -> ExecutionBindingDefinition:
         availability=AvailabilityDeclaration(
             behavior=BehaviorReference(
                 f"contract_test.{kind}/availability",
-                "2.0.0",
+                "2.1.0",
                 {},
             ),
             prerequisites={},
@@ -158,11 +159,11 @@ def _binding(kind: str) -> ExecutionBindingDefinition:
         readiness=ReadinessDeclaration(
             behavior=BehaviorReference(
                 f"contract_test.{kind}/readiness",
-                "2.0.0",
+                "2.1.0",
                 {},
             ),
             prerequisites={},
-            check=lambda environment: True,
+            check=lambda environment: ReadinessResult(True),
         ),
         deterministic=True,
         cacheable=True,
@@ -174,9 +175,9 @@ def _binding(kind: str) -> ExecutionBindingDefinition:
 
 
 MODULE_PACKAGE = ModulePackageRegistration(
-    schema_version="2.0.0",
+    schema_version="2.1.0",
     package_id="contract_test.protein_io_sources",
-    package_version="2.0.0",
+    package_version="2.1.0",
     package_module=__package__,
     node_definitions=(
         DefinitionResource("definition.yaml"),

@@ -1190,6 +1190,16 @@
             }
           ]
         },
+        "observation_selector_consumption": {
+          "oneOf": [
+            {
+              "$ref": "#/$defs/ObservationSelectorConsumptionDeclaration"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
         "produced_observations": {
           "items": {
             "$ref": "#/$defs/ProducedObservationDeclaration"
@@ -1606,7 +1616,7 @@
           "$ref": "#/$defs/Identifier"
         },
         "schema_version": {
-          "const": "2.0.0"
+          "const": "2.1.0"
         },
         "score_collection_input_port": {
           "$ref": "#/$defs/Identifier"
@@ -1617,6 +1627,34 @@
         "candidate_input_port",
         "score_collection_input_port",
         "candidate_output_port"
+      ],
+      "type": "object"
+    },
+    "ObservationSelectorConsumptionDeclaration": {
+      "additionalProperties": false,
+      "properties": {
+        "candidate_input_port": {
+          "$ref": "#/$defs/Identifier"
+        },
+        "candidate_output_port": {
+          "$ref": "#/$defs/Identifier"
+        },
+        "schema_version": {
+          "const": "2.1.0"
+        },
+        "score_collection_input_port": {
+          "$ref": "#/$defs/Identifier"
+        },
+        "selector_id_parameter": {
+          "$ref": "#/$defs/Identifier"
+        }
+      },
+      "required": [
+        "schema_version",
+        "candidate_input_port",
+        "score_collection_input_port",
+        "candidate_output_port",
+        "selector_id_parameter"
       ],
       "type": "object"
     },
@@ -1659,7 +1697,7 @@
           "$ref": "#/$defs/Identifier"
         },
         "schema_version": {
-          "const": "2.0.0"
+          "const": "2.1.0"
         }
       },
       "required": [
@@ -2661,6 +2699,14 @@
           "minItems": 1,
           "type": "array"
         },
+        "observation_selectors": {
+          "items": {
+            "$ref": "#/$defs/ObservationSelector"
+          },
+          "maxItems": 256,
+          "minItems": 1,
+          "type": "array"
+        },
         "selected_candidate_ids": {
           "items": {
             "$ref": "#/$defs/Identifier"
@@ -2686,8 +2732,7 @@
         "status",
         "candidate_input",
         "selected_collection_id",
-        "selected_candidate_ids",
-        "objectives"
+        "selected_candidate_ids"
       ],
       "type": "object"
     },
@@ -2728,7 +2773,7 @@
           "$ref": "#/$defs/ContractReference"
         },
         "weight": {
-          "minimum": 0,
+          "exclusiveMinimum": 0,
           "type": "number"
         }
       },
@@ -2743,6 +2788,50 @@
         "utility_transform",
         "utility_parameters",
         "weight",
+        "match_cardinality",
+        "missing_policy"
+      ],
+      "type": "object"
+    },
+    "ObservationSelector": {
+      "additionalProperties": false,
+      "properties": {
+        "candidate_input": {
+          "$ref": "#/$defs/SelectionInput"
+        },
+        "context_selector": {
+          "$ref": "#/$defs/ObservationContextSelector"
+        },
+        "match_cardinality": {
+          "const": "exactly_one"
+        },
+        "method": {
+          "$ref": "#/$defs/ContractReference"
+        },
+        "metric": {
+          "$ref": "#/$defs/ContractReference"
+        },
+        "missing_policy": {
+          "const": "error"
+        },
+        "score_collection_input": {
+          "$ref": "#/$defs/SelectionInput"
+        },
+        "selector_id": {
+          "$ref": "#/$defs/Identifier"
+        },
+        "source_partition": {
+          "$ref": "#/$defs/Identifier"
+        }
+      },
+      "required": [
+        "selector_id",
+        "candidate_input",
+        "score_collection_input",
+        "source_partition",
+        "metric",
+        "method",
+        "context_selector",
         "match_cardinality",
         "missing_policy"
       ],
@@ -2861,8 +2950,15 @@
           "maxItems": 2048,
           "type": "array"
         },
+        "observation_selectors": {
+          "items": {
+            "$ref": "#/$defs/ObservationSelector"
+          },
+          "maxItems": 256,
+          "type": "array"
+        },
         "schema_version": {
-          "const": "2.0.0"
+          "const": "2.1.0"
         },
         "selection_objectives": {
           "items": {
@@ -3136,7 +3232,7 @@
     "transport": "websocket"
   },
   "schema_namespace": "protein-workbench-public/v2",
-  "schema_version": "2.0.0",
+  "schema_version": "2.1.0",
   "structured_errors": {
     "details_max_bytes": 16384,
     "envelope_schema": "#/$defs/StructuredErrorEnvelope",
@@ -3273,6 +3369,6 @@
         "retryable": false
       }
     },
-    "vocabulary_version": "2.0.0"
+    "vocabulary_version": "2.1.0"
   }
 }

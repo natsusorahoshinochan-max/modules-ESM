@@ -1,20 +1,20 @@
-schema_version: "2.0.0"
+schema_version: "2.1.0"
 node_type_id: proteinmpnn.random_fixed_positions
-version: "2.0.0"
+version: "2.1.0"
 title: Choose random fixed positions
 summary: Reproducibly chooses a fixed fraction of an explicit residue layout without process-global randomness.
 category: protein_design
 inputs:
   - name: layout
     port_type_id: residue.layout
-    port_type_version: "2.0.0"
+    port_type_version: "2.1.0"
     required: true
     multiplicity: one
     scientific_meaning: Exact identity-complete residue layout defining the eligible fixed-position population.
 outputs:
   - name: constraints
     port_type_id: proteinmpnn.constraints
-    port_type_version: "2.0.0"
+    port_type_version: "2.1.0"
     required: true
     multiplicity: one
     scientific_meaning: ProteinMPNN constraints containing the stable sorted zero-based fixed-position selection.
@@ -29,13 +29,15 @@ node_parameters:
     parameter_scope: scientific
     scientific_meaning: Fully resolved Workbench seed for deterministic without-replacement position ranking.
     required: true
-    type: integer
-    minimum: 0
-    maximum: 9007199254740991
+    value_contract:
+      type: integer
+      minimum: 0
+      maximum: 9007199254740991
   fraction:
     parameter_scope: scientific
     scientific_meaning: Fraction of all layout positions selected as fixed using floor of layout length times fraction.
-    type: number
-    minimum: 0
-    maximum: 1
+    value_contract:
+      type: number
+      minimum: 0
+      maximum: 1
     default: 0.5

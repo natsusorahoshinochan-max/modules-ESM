@@ -16,6 +16,7 @@ from core import (
     MethodDefinition,
     ModulePackageRegistration,
     ReadinessDeclaration,
+    ReadinessResult,
 )
 from datatypes import (
     FunctionAnnotations,
@@ -25,7 +26,7 @@ from datatypes import (
 )
 
 
-_VERSION = "2.0.0"
+_VERSION = "2.1.0"
 
 
 class _Source:
@@ -69,7 +70,7 @@ class _Source:
             )
             visibility_track = ResidueTrack([True, False, False], None)
         with self._run_resources.engine_invocation(
-            engine_identity="contract_test.esm3_prompt_source.method/2.0.0",
+            engine_identity="contract_test.esm3_prompt_source.method/2.1.0",
         ):
             prompt = ProteinPrompt(
                 target_layout=ResidueLayout(
@@ -92,7 +93,7 @@ def _build(**kwargs: object) -> object:
 
 
 MODULE_PACKAGE = ModulePackageRegistration(
-    schema_version=_VERSION,
+    schema_version="2.1.0",
     package_id="contract_test.esm3_sources",
     package_version=_VERSION,
     package_module=__package__,
@@ -149,7 +150,7 @@ MODULE_PACKAGE = ModulePackageRegistration(
                     {},
                 ),
                 prerequisites={},
-                check=lambda environment: True,
+                check=lambda environment: ReadinessResult(True),
             ),
             deterministic=True,
             cacheable=True,

@@ -35,17 +35,17 @@ def test_soluprot_full_and_no_tm_are_exact_sibling_bindings() -> None:
     node = catalog.require_contract(
         "node_type",
         "solubility.score_sequence",
-        "2.0.0",
+        "2.1.0",
     )
     full = catalog.require_contract(
         "binding",
         "solubility.soluprot_full.local",
-        "2.0.0",
+        "2.1.0",
     )
     no_tm = catalog.require_contract(
         "binding",
         "solubility.soluprot_no_tm.local",
-        "2.0.0",
+        "2.1.0",
     )
 
     assert node.descriptor["node_parameters"] == {}
@@ -68,7 +68,7 @@ def test_soluprot_methods_fix_source_features_scale_and_observation_identity() -
     metric = catalog.require_contract(
         "metric",
         "solubility.soluprot_probability",
-        "2.0.0",
+        "2.1.0",
     )
 
     assert metric.descriptor["unit"] == "dimensionless_probability"
@@ -88,7 +88,7 @@ def test_soluprot_methods_fix_source_features_scale_and_observation_identity() -
         mode: catalog.require_contract(
             "method",
             f"solubility.soluprot_{mode}.v1_1_0",
-            "2.0.0",
+            "2.1.0",
         )
         for mode in ("full", "no_tm")
     }
@@ -129,7 +129,7 @@ def test_soluprot_methods_fix_source_features_scale_and_observation_identity() -
         binding = catalog.require_contract(
             "binding",
             f"solubility.soluprot_{mode}.local",
-            "2.0.0",
+            "2.1.0",
         )
         produced = binding.descriptor["produced_observations"]
         assert len(produced) == 1
@@ -154,7 +154,7 @@ def test_soluprot_startup_is_lazy_and_keeps_unavailable_siblings_visible() -> No
         binding = catalog.require_contract(
             "binding",
             f"solubility.soluprot_{mode}.local",
-            "2.0.0",
+            "2.1.0",
         )
         del binding
         snapshot = availability[f"solubility.soluprot_{mode}.local"]
@@ -448,18 +448,18 @@ def _run_soluprot(
     source = WorkflowNodeInstance(
         node_id="source",
         node_type_id="contract_test.folding_sequence_source",
-        node_type_version="2.0.0",
+        node_type_version="2.1.0",
         binding_id="contract_test.folding_sequence_source.direct",
-        binding_version="2.0.0",
+        binding_version="2.1.0",
         node_parameters={"sequence": sequence},
         binding_parameters={},
     )
     score = WorkflowNodeInstance(
         node_id="score",
         node_type_id="solubility.score_sequence",
-        node_type_version="2.0.0",
+        node_type_version="2.1.0",
         binding_id=f"solubility.soluprot_{mode}.local",
-        binding_version="2.0.0",
+        binding_version="2.1.0",
         node_parameters={},
         binding_parameters={},
     )
@@ -476,7 +476,7 @@ def _run_soluprot(
         project.id,
         expected_workflow_revision=0,
         workflow=WorkflowDocument(
-            schema_version="2.0.0",
+            schema_version="2.1.0",
             workflow_id=project.id,
             nodes=(source, score),
             edges=(
@@ -505,7 +505,7 @@ def _run_soluprot(
         authoring,
         EnvironmentConfiguration(
             {
-                (f"solubility.soluprot_{mode}.local", "2.0.0"): {
+                (f"solubility.soluprot_{mode}.local", "2.1.0"): {
                     "values": {
                         "fixture_ready": True,
                         "private_runtime_path": "/must/not/publish",
@@ -779,19 +779,19 @@ def test_all_solubility_methods_pass_the_shared_contract_test_kit(
     source = WorkflowNodeInstance(
         node_id="source",
         node_type_id="contract_test.folding_sequence_source",
-        node_type_version="2.0.0",
+        node_type_version="2.1.0",
         binding_id="contract_test.folding_sequence_source.direct",
-        binding_version="2.0.0",
-        node_parameters={"sequence": "ACDEFGHIKLMNPQRSTVWY"},
+        binding_version="2.1.0",
+        node_parameters={"sequence": "ACDEFGHIKLMNPQRSTVWYA"},
         binding_parameters={},
     )
     cases = tuple(
         ModulePackageContractCase(
             case_id=f"soluprot-{mode}",
             node_type_id="solubility.score_sequence",
-            node_type_version="2.0.0",
+            node_type_version="2.1.0",
             binding_id=f"solubility.soluprot_{mode}.local",
-            binding_version="2.0.0",
+            binding_version="2.1.0",
             node_parameters={},
             binding_parameters={},
             environment_values={
@@ -817,9 +817,9 @@ def test_all_solubility_methods_pass_the_shared_contract_test_kit(
         ModulePackageContractCase(
             case_id="protein-sol",
             node_type_id="solubility.score_sequence",
-            node_type_version="2.0.0",
+            node_type_version="2.1.0",
             binding_id="solubility.protein_sol.local",
-            binding_version="2.0.0",
+            binding_version="2.1.0",
             node_parameters={},
             binding_parameters={},
             environment_values={

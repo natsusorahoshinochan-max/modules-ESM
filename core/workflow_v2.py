@@ -21,14 +21,17 @@ from core.port_types import (
     canonical_sha256,
 )
 from core.scoring_v2 import (
+    ObservationSelector,
     SelectionError,
     SelectionObjective,
     resolve_selection_objective,
+    resolve_observation_selector,
 )
+from datatypes import ExactContractReference
 from protein_workbench_public import ProtocolValidationError, validate_schema
 
 
-WORKFLOW_SCHEMA_VERSION = "2.0.0"
+WORKFLOW_SCHEMA_VERSION = "2.1.0"
 WORKFLOW_DIGEST_NAMESPACE = "protein-workbench-workflow/v2"
 CONTRACT_LOCK_NAMESPACE = "protein-workbench-contract-lock/v2"
 EXECUTION_PLAN_NAMESPACE = "protein-workbench-execution-plan/v2"
@@ -176,6 +179,7 @@ class WorkflowDocument:
     nodes: tuple[WorkflowNodeInstance, ...]
     edges: tuple[WorkflowEdge, ...]
     contract_lock: tuple[ContractLockEntry, ...]
+    observation_selectors: tuple[ObservationSelector, ...] = ()
     selection_objectives: tuple[SelectionObjective, ...] = ()
 
     def to_public(self) -> dict[str, Any]:
@@ -184,6 +188,10 @@ class WorkflowDocument:
             "workflow_id": self.workflow_id,
             "nodes": [node.to_public() for node in self.nodes],
             "edges": [edge.to_public() for edge in self.edges],
+            "observation_selectors": [
+                selector.to_public()
+                for selector in self.observation_selectors
+            ],
             "selection_objectives": [
                 objective.to_public()
                 for objective in self.selection_objectives
@@ -252,6 +260,7 @@ class ExecutionPlan:
     edges: tuple[WorkflowEdge, ...]
     node_order: tuple[str, ...]
     resolved_contracts: tuple[ContractLockEntry, ...]
+    observation_selectors: tuple[ObservationSelector, ...] = ()
     selection_objectives: tuple[SelectionObjective, ...] = ()
 
 
@@ -340,6 +349,10 @@ def parse_workflow_document(payload: Mapping[str, Any]) -> WorkflowDocument:
                 ContractLockEntry.from_public(entry)
                 for entry in payload["contract_lock"]
             ),
+            observation_selectors=tuple(
+                ObservationSelector.from_public(selector)
+                for selector in payload.get("observation_selectors", ())
+            ),
             selection_objectives=tuple(
                 SelectionObjective.from_public(objective)
                 for objective in payload.get("selection_objectives", ())
@@ -378,12 +391,19 @@ def _reachable_contract_lock(
         ):
             contract = catalog.require_contract(kind, contract_id, version)
             pending.append(ContractLockEntry.from_public(contract.reference()))
-    for objective in workflow.selection_objectives:
-        for kind, reference in (
-            ("metric", objective.metric),
-            ("method", objective.method),
-            ("utility_transform", objective.utility_transform),
-        ):
+    for selector in (
+        *workflow.observation_selectors,
+        *workflow.selection_objectives,
+    ):
+        references = [
+            ("metric", selector.metric),
+            ("method", selector.method),
+        ]
+        if isinstance(selector, SelectionObjective):
+            references.append(
+                ("utility_transform", selector.utility_transform)
+            )
+        for kind, reference in references:
             contract = catalog.require_contract(
                 kind,
                 reference.contract_id,
@@ -422,7 +442,39 @@ def relock_workflow(
     catalog: FrozenCatalog,
 ) -> WorkflowDocument:
     """Explicitly replace the Lock with the current reachable closure."""
+    def current_reference(
+        reference: ExactContractReference,
+    ) -> ExactContractReference:
+        contract = catalog.require_contract(
+            reference.contract_kind,
+            reference.contract_id,
+            reference.contract_version,
+        )
+        return ExactContractReference(**contract.reference())
+
     try:
+        workflow = replace(
+            workflow,
+            observation_selectors=tuple(
+                replace(
+                    selector,
+                    metric=current_reference(selector.metric),
+                    method=current_reference(selector.method),
+                )
+                for selector in workflow.observation_selectors
+            ),
+            selection_objectives=tuple(
+                replace(
+                    objective,
+                    metric=current_reference(objective.metric),
+                    method=current_reference(objective.method),
+                    utility_transform=current_reference(
+                        objective.utility_transform
+                    ),
+                )
+                for objective in workflow.selection_objectives
+            ),
+        )
         contract_lock = _reachable_contract_lock(workflow, catalog)
     except CatalogBuildError as error:
         raise WorkflowCompileError(
@@ -765,6 +817,13 @@ def _validate_static_semantics(
         plan_nodes=plan_nodes,
         node_order=tuple(order),
     )
+    _validate_observation_selectors(
+        workflow,
+        catalog,
+        nodes_by_id=nodes_by_id,
+        plan_nodes=plan_nodes,
+        node_order=tuple(order),
+    )
     _validate_selection_objective_consumers(
         workflow,
         plan_nodes=plan_nodes,
@@ -955,6 +1014,116 @@ def _validate_selection_objectives(
             ) from error
 
 
+def _validate_observation_selectors(
+    workflow: WorkflowDocument,
+    catalog: FrozenCatalog,
+    *,
+    nodes_by_id: Mapping[str, WorkflowNodeInstance],
+    plan_nodes: Mapping[str, tuple[Any, Any]],
+    node_order: tuple[str, ...],
+) -> None:
+    selectors = workflow.observation_selectors
+    selector_ids = [selector.selector_id for selector in selectors]
+    if len(selector_ids) != len(set(selector_ids)):
+        raise WorkflowCompileError(
+            "duplicate_observation_selector",
+            "Observation Selector IDs must be unique",
+            field_path=("observation_selectors",),
+        )
+    capabilities = _derive_observation_capabilities(
+        workflow,
+        plan_nodes=plan_nodes,
+        node_order=node_order,
+    )
+    for index, selector in enumerate(selectors):
+        selector_path = ("observation_selectors", index)
+        for field_name, input_reference, expected_type in (
+            (
+                "candidate_input",
+                selector.candidate_input,
+                "candidate.collection",
+            ),
+            (
+                "score_collection_input",
+                selector.score_collection_input,
+                "score.collection",
+            ),
+        ):
+            node = nodes_by_id.get(input_reference.node_id)
+            if node is None:
+                raise WorkflowCompileError(
+                    "invalid_observation_selector",
+                    f"{field_name} references a Node outside the Workflow",
+                    field_path=(*selector_path, field_name, "node_id"),
+                )
+            node_contract, _ = plan_nodes[node.node_id]
+            output = _port_map(node_contract, "outputs").get(
+                input_reference.output_port
+            )
+            if (
+                output is None
+                or output.get("port_type", {}).get("contract_id")
+                != expected_type
+                or output.get("multiplicity") != "one"
+            ):
+                raise WorkflowCompileError(
+                    "invalid_observation_selector",
+                    f"{field_name} must reference one exact {expected_type} "
+                    "output value",
+                    node_id=node.node_id,
+                    field_path=(*selector_path, field_name, "output_port"),
+                )
+        requested_method = {
+            "contract_kind": "method",
+            "contract_id": selector.method.contract_id,
+            "contract_version": selector.method.contract_version,
+            "contract_digest": selector.method.contract_digest,
+        }
+        requested_metric = {
+            "contract_kind": "metric",
+            "contract_id": selector.metric.contract_id,
+            "contract_version": selector.metric.contract_version,
+            "contract_digest": selector.metric.contract_digest,
+        }
+        produced = [
+            capability
+            for capability in capabilities.get(
+                (
+                    selector.score_collection_input.node_id,
+                    selector.score_collection_input.output_port,
+                ),
+                (),
+            )
+            if capability.get("source_partition")
+            == selector.source_partition
+            and capability.get("metric") == requested_metric
+            and capability.get("method") == requested_method
+            and capability.get("context_profile")
+            == selector.context_selector.to_public()
+            and capability.get("subject_grain") == "candidate"
+            and capability.get("source_role") == "subject"
+            and capability.get("guaranteed_multiplicity") == "one"
+            and capability.get("subject_source")
+            == selector.candidate_input.to_public()
+        ]
+        if len(produced) != 1:
+            raise WorkflowCompileError(
+                "unsatisfied_observation_selector",
+                "Selected scoring Binding cannot guarantee the requested raw "
+                "Observation with exactly-one multiplicity",
+                node_id=selector.score_collection_input.node_id,
+                field_path=(*selector_path, "metric"),
+            )
+        try:
+            resolve_observation_selector(selector, catalog)
+        except SelectionError as error:
+            raise WorkflowCompileError(
+                "invalid_observation_selector",
+                str(error),
+                field_path=selector_path,
+            ) from error
+
+
 def _connected_source(
     workflow: WorkflowDocument,
     *,
@@ -985,6 +1154,80 @@ def _validate_selection_objective_consumers(
     }
     nodes = {node.node_id: node for node in workflow.nodes}
     for node_id, (node_contract, binding) in plan_nodes.items():
+        selector_consumption = binding.descriptor.get(
+            "observation_selector_consumption"
+        )
+        if isinstance(selector_consumption, Mapping):
+            node = nodes[node_id]
+            parameters = _validate_parameter_values(
+                node.node_parameters,
+                node_contract.descriptor.get("node_parameters", {}),
+                node_id=node_id,
+                field_name="node_parameters",
+            )
+            parameter_name = selector_consumption.get(
+                "selector_id_parameter"
+            )
+            selector_id = (
+                parameters.get(parameter_name)
+                if isinstance(parameter_name, str)
+                else None
+            )
+            selectors = {
+                selector.selector_id: selector
+                for selector in workflow.observation_selectors
+            }
+            selector = selectors.get(selector_id)
+            if selector is None:
+                raise WorkflowCompileError(
+                    "unsatisfied_selector",
+                    "Selection selector does not resolve one Workflow "
+                    "Observation Selector",
+                    node_id=node_id,
+                    field_path=(
+                        "nodes",
+                        node_id,
+                        "node_parameters",
+                        parameter_name or "selector_id",
+                    ),
+                )
+            for label, port_name, reference in (
+                (
+                    "Candidate",
+                    selector_consumption.get("candidate_input_port"),
+                    selector.candidate_input,
+                ),
+                (
+                    "Score Collection",
+                    selector_consumption.get(
+                        "score_collection_input_port"
+                    ),
+                    selector.score_collection_input,
+                ),
+            ):
+                connected = (
+                    _connected_source(
+                        workflow,
+                        node_id=node_id,
+                        input_port=port_name,
+                    )
+                    if isinstance(port_name, str)
+                    else None
+                )
+                if connected != reference.to_public():
+                    raise WorkflowCompileError(
+                        "unsatisfied_selector",
+                        f"Selection {label} input does not match the exact "
+                        "Workflow Observation Selector source",
+                        node_id=node_id,
+                        field_path=(
+                            "nodes",
+                            node_id,
+                            "inputs",
+                            port_name or "",
+                        ),
+                    )
+            continue
         consumption = binding.descriptor.get(
             "selection_objective_consumption"
         )
@@ -1178,7 +1421,7 @@ def _derive_observation_capabilities(
         if (
             not isinstance(output_port, str)
             or not isinstance(input_ports, (list, tuple))
-            or propagation.get("schema_version") != "2.0.0"
+            or propagation.get("schema_version") != "2.1.0"
             or mode not in {"pass_through", "union", "filter"}
         ):
             continue
@@ -1292,6 +1535,10 @@ def compile_workflow(
             for node in nodes
         ],
         "edges": [edge.to_public() for edge in workflow.edges],
+        "observation_selectors": [
+            selector.to_public()
+            for selector in workflow.observation_selectors
+        ],
         "selection_objectives": [
             objective.to_public()
             for objective in workflow.selection_objectives
@@ -1312,6 +1559,7 @@ def compile_workflow(
         edges=workflow.edges,
         node_order=node_order,
         resolved_contracts=resolved_contracts,
+        observation_selectors=workflow.observation_selectors,
         selection_objectives=workflow.selection_objectives,
     )
     receipt = {

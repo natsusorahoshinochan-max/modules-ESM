@@ -27,7 +27,7 @@ from tests.fixtures.prompt_authoring_sources.package import (
 )
 
 
-VERSION = "2.0.0"
+VERSION = "2.1.0"
 SOURCE_LAYOUT = ResidueLayout(
     chain_id="A,B",
     length=3,

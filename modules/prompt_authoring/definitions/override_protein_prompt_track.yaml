@@ -1,6 +1,6 @@
-schema_version: "2.0.0"
+schema_version: "2.1.0"
 node_type_id: prompt_authoring.override_protein_prompt_track
-version: "2.0.0"
+version: "2.1.0"
 title: Override one ProteinPrompt track
 summary: Clears, preserves, or replaces identity-addressed values on one declared ProteinPrompt track without changing its layout or other tracks.
 category: prompt_authoring
@@ -29,93 +29,95 @@ node_parameters:
     parameter_scope: scientific
     scientific_meaning: Exact ProteinPrompt track receiving the declared overrides.
     required: true
-    type: string
-    enum:
-      - sequence
-      - structure
-      - visibility
-      - secondary_structure
-      - sasa
+    value_contract:
+      type: string
+      enum:
+        - sequence
+        - structure
+        - visibility
+        - secondary_structure
+        - sasa
   overrides:
     parameter_scope: scientific
     scientific_meaning: Identity-addressed clear, preserve, or concrete replacement operations.
     required: true
-    type: array
-    maxItems: 2000000
-    uniqueItems: true
-    items:
-      oneOf:
-        - type: object
-          additionalProperties: false
-          required: [action, residue_id]
-          properties:
-            action:
-              field_scope: scientific
-              scientific_meaning: Explicitly make this residue value nullable.
-              const: clear
-            residue_id:
-              field_scope: scientific
-              scientific_meaning: Canonical chain-qualified residue identity to clear.
-              type: string
-              pattern: "^[A-Za-z0-9]:[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$"
-        - type: object
-          additionalProperties: false
-          required: [action, residue_id]
-          properties:
-            action:
-              field_scope: scientific
-              scientific_meaning: Explicitly retain this residue's current value.
-              const: preserve
-            residue_id:
-              field_scope: scientific
-              scientific_meaning: Canonical chain-qualified residue identity to preserve.
-              type: string
-              pattern: "^[A-Za-z0-9]:[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$"
-        - type: object
-          additionalProperties: false
-          required: [action, residue_id, value]
-          properties:
-            action:
-              field_scope: scientific
-              scientific_meaning: Explicitly replace this residue's current value.
-              const: replace
-            residue_id:
-              field_scope: scientific
-              scientific_meaning: Canonical chain-qualified residue identity to replace.
-              type: string
-              pattern: "^[A-Za-z0-9]:[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$"
-            value:
-              field_scope: scientific
-              scientific_meaning: Concrete scalar or named-atom coordinate replacement interpreted by the selected nominal track.
-              oneOf:
-                - type: boolean
-                - type: number
-                - type: string
-                - type: object
-                  additionalProperties: false
-                  required: [atom_coordinates]
-                  properties:
-                    atom_coordinates:
-                      field_scope: scientific
-                      scientific_meaning: Ordered named-atom coordinates for one residue.
-                      type: array
-                      minItems: 1
-                      maxItems: 64
-                      items:
-                        type: object
-                        additionalProperties: false
-                        required: [atom_name, coordinates]
-                        properties:
-                          atom_name:
-                            field_scope: scientific
-                            scientific_meaning: Canonical atom name.
-                            type: string
-                            pattern: "^[A-Z0-9][A-Z0-9']{0,3}$"
-                          coordinates:
-                            field_scope: scientific
-                            scientific_meaning: Finite Cartesian position of the named atom.
-                            type: array
-                            minItems: 3
-                            maxItems: 3
-                            items:
-                              type: number
+    value_contract:
+      type: array
+      maxItems: 2000000
+      uniqueItems: true
+      items:
+        oneOf:
+          - type: object
+            additionalProperties: false
+            required: [action, residue_id]
+            properties:
+              action:
+                field_scope: scientific
+                scientific_meaning: Explicitly make this residue value nullable.
+                const: clear
+              residue_id:
+                field_scope: scientific
+                scientific_meaning: Canonical chain-qualified residue identity to clear.
+                type: string
+                pattern: "^[A-Za-z0-9]:[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$"
+          - type: object
+            additionalProperties: false
+            required: [action, residue_id]
+            properties:
+              action:
+                field_scope: scientific
+                scientific_meaning: Explicitly retain this residue's current value.
+                const: preserve
+              residue_id:
+                field_scope: scientific
+                scientific_meaning: Canonical chain-qualified residue identity to preserve.
+                type: string
+                pattern: "^[A-Za-z0-9]:[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$"
+          - type: object
+            additionalProperties: false
+            required: [action, residue_id, value]
+            properties:
+              action:
+                field_scope: scientific
+                scientific_meaning: Explicitly replace this residue's current value.
+                const: replace
+              residue_id:
+                field_scope: scientific
+                scientific_meaning: Canonical chain-qualified residue identity to replace.
+                type: string
+                pattern: "^[A-Za-z0-9]:[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$"
+              value:
+                field_scope: scientific
+                scientific_meaning: Concrete scalar or named-atom coordinate replacement interpreted by the selected nominal track.
+                oneOf:
+                  - type: boolean
+                  - type: number
+                  - type: string
+                  - type: object
+                    additionalProperties: false
+                    required: [atom_coordinates]
+                    properties:
+                      atom_coordinates:
+                        field_scope: scientific
+                        scientific_meaning: Ordered named-atom coordinates for one residue.
+                        type: array
+                        minItems: 1
+                        maxItems: 64
+                        items:
+                          type: object
+                          additionalProperties: false
+                          required: [atom_name, coordinates]
+                          properties:
+                            atom_name:
+                              field_scope: scientific
+                              scientific_meaning: Canonical atom name.
+                              type: string
+                              pattern: "^[A-Z0-9][A-Z0-9']{0,3}$"
+                            coordinates:
+                              field_scope: scientific
+                              scientific_meaning: Finite Cartesian position of the named atom.
+                              type: array
+                              minItems: 3
+                              maxItems: 3
+                              items:
+                                type: number

@@ -38,12 +38,12 @@ def _catalog_contract(
     return CatalogContract(
         contract_kind=contract_kind,
         contract_id=contract_id,
-        contract_version="2.0.0",
+        contract_version="2.1.0",
         descriptor={
             "schema_namespace": "protein-workbench-contract/v2",
             "contract_kind": contract_kind,
             "contract_id": contract_id,
-            "contract_version": "2.0.0",
+            "contract_version": "2.1.0",
             **descriptor,
         },
     )
@@ -59,10 +59,10 @@ def _workflow_catalog(
     source_node_parameter_overrides: dict | None = None,
 ) -> FrozenCatalog:
     builtin = builtin_frozen_catalog()
-    text = builtin.require_port_type("text", "2.0.0")
+    text = builtin.require_port_type("text", "2.1.0")
     sink_port_type = builtin.require_port_type(
         sink_port_type_id,
-        "2.0.0",
+        "2.1.0",
     )
     source_method = _catalog_contract(
         "method",
@@ -123,7 +123,7 @@ def _workflow_catalog(
                     "scientific_meaning": (
                         "Whether the scientific text transform uses uppercase"
                     ),
-                    "type": "boolean",
+                    "value_contract": {"type": "boolean"},
                     "required": True,
                     "utility_transform": utility.reference(),
                 },
@@ -132,7 +132,7 @@ def _workflow_catalog(
                     "scientific_meaning": (
                         "Stable scientific label attached to source output"
                     ),
-                    "type": "string",
+                    "value_contract": {"type": "string"},
                     "default": "default-label",
                 },
                 **parameter_overrides,
@@ -174,9 +174,11 @@ def _workflow_catalog(
                     "scientific_meaning": (
                         "Synthetic batch cardinality used by this Binding"
                     ),
-                    "type": "integer",
+                    "value_contract": {
+                        "type": "integer",
+                        "minimum": 1,
+                    },
                     "required": True,
-                    "minimum": 1,
                 }
             },
             "produced_observations": [
@@ -229,18 +231,18 @@ def _workflow_catalog(
         raise AssertionError("Workflow compilation constructed an implementation")
 
     factories = {
-        ("synthetic.source.direct", "2.0.0"): LazyImplementationFactory(
+        ("synthetic.source.direct", "2.1.0"): LazyImplementationFactory(
             behavior=BehaviorReference(
                 "synthetic.source/factory",
-                "2.0.0",
+                "2.1.0",
                 {},
             ),
             build=_factory,
         ),
-        ("synthetic.sink.direct", "2.0.0"): LazyImplementationFactory(
+        ("synthetic.sink.direct", "2.1.0"): LazyImplementationFactory(
             behavior=BehaviorReference(
                 "synthetic.sink/factory",
-                "2.0.0",
+                "2.1.0",
                 {},
             ),
             build=_factory,
@@ -282,24 +284,24 @@ def _workflow_catalog(
 def _unlocked_workflow() -> WorkflowDocument:
     return parse_workflow_document(
         {
-            "schema_version": "2.0.0",
+            "schema_version": "2.1.0",
             "workflow_id": "workflow-1",
             "nodes": [
                 {
                     "node_id": "source",
                     "node_type_id": "synthetic.source",
-                    "node_type_version": "2.0.0",
+                    "node_type_version": "2.1.0",
                     "binding_id": "synthetic.source.direct",
-                    "binding_version": "2.0.0",
+                    "binding_version": "2.1.0",
                     "node_parameters": {"uppercase": True},
                     "binding_parameters": {"batch_size": 2},
                 },
                 {
                     "node_id": "sink",
                     "node_type_id": "synthetic.sink",
-                    "node_type_version": "2.0.0",
+                    "node_type_version": "2.1.0",
                     "binding_id": "synthetic.sink.direct",
-                    "binding_version": "2.0.0",
+                    "binding_version": "2.1.0",
                     "node_parameters": {},
                     "binding_parameters": {},
                 },
@@ -379,7 +381,7 @@ def test_contract_lock_mismatch_fails_before_runtime_activity(
         unreachable = catalog.require_contract(
             "method",
             "synthetic.unreachable.method",
-            "2.0.0",
+            "2.1.0",
         )
         entries.append(
             ContractLockEntry.from_public(unreachable.reference())
@@ -453,7 +455,7 @@ def test_missing_selected_catalog_contract_is_a_lock_mismatch(
             ContractLockEntry(
                 "node_type",
                 "synthetic.missing",
-                "2.0.0",
+                "2.1.0",
                 "sha256:" + ("a" * 64),
             ),
         ),
@@ -487,7 +489,7 @@ def test_explicit_relock_rejects_a_missing_catalog_contract() -> None:
 @pytest.mark.parametrize(
     ("mutation", "expected_code"),
     [
-        ({"schema_version": "1.0.0"}, "unsupported_schema_version"),
+        ({"schema_version": "2.0.0"}, "unsupported_schema_version"),
         (
             {
                 "nodes": [
@@ -496,7 +498,7 @@ def test_explicit_relock_rejects_a_missing_catalog_contract() -> None:
                         "node_type_id": "synthetic.source",
                         "node_type_version": "latest",
                         "binding_id": "synthetic.source.direct",
-                        "binding_version": "2.0.0",
+                        "binding_version": "2.1.0",
                         "node_parameters": {"uppercase": True},
                         "binding_parameters": {"batch_size": 2},
                     }
@@ -510,9 +512,9 @@ def test_explicit_relock_rejects_a_missing_catalog_contract() -> None:
                     {
                         "node_id": "source",
                         "node_type_id": "synthetic.source",
-                        "node_type_version": ">=2.0.0",
+                        "node_type_version": ">=2.1.0",
                         "binding_id": "synthetic.source.direct",
-                        "binding_version": "2.0.0",
+                        "binding_version": "2.1.0",
                         "node_parameters": {"uppercase": True},
                         "binding_parameters": {"batch_size": 2},
                     }
@@ -526,8 +528,8 @@ def test_explicit_relock_rejects_a_missing_catalog_contract() -> None:
                     {
                         "node_id": "source",
                         "node_type_id": "synthetic.source",
-                        "node_type_version": "2.0.0",
-                        "binding_version": "2.0.0",
+                        "node_type_version": "2.1.0",
+                        "binding_version": "2.1.0",
                         "node_parameters": {"uppercase": True},
                         "binding_parameters": {"batch_size": 2},
                     }
@@ -541,9 +543,9 @@ def test_explicit_relock_rejects_a_missing_catalog_contract() -> None:
                     {
                         "node_id": "source",
                         "node_type_id": "synthetic.source",
-                        "node_type_version": "2.0.0",
+                        "node_type_version": "2.1.0",
                         "binding_id": "synthetic.source.direct",
-                        "binding_version": "2.0.0",
+                        "binding_version": "2.1.0",
                         "method_id": "synthetic.source.method",
                         "node_parameters": {"uppercase": True},
                         "binding_parameters": {"batch_size": 2},
@@ -719,7 +721,9 @@ def test_compile_enforces_complete_nested_parameter_value_contract(
     value: object,
 ) -> None:
     catalog = _workflow_catalog(
-        source_node_parameter_overrides={"options": declaration}
+        source_node_parameter_overrides={
+            "options": {"value_contract": declaration}
+        }
     )
     workflow = _unlocked_workflow()
     source, sink = workflow.nodes
@@ -770,26 +774,28 @@ def test_compile_rejects_nested_environment_configuration_fields(
     catalog = _workflow_catalog(
         source_node_parameter_overrides={
             "scientific_options": {
-                "type": "object",
-                "additionalProperties": False,
-                "properties": {
-                    "sampling": {
-                        "field_scope": "scientific",
-                        "scientific_meaning": (
-                            "Scientific sampling configuration"
-                        ),
-                        "type": "object",
-                        "additionalProperties": False,
-                        "properties": {
-                            "temperature": {
-                                "field_scope": "scientific",
-                                "scientific_meaning": (
-                                    "Scientific sampling temperature"
-                                ),
-                                "type": "number",
+                "value_contract": {
+                    "type": "object",
+                    "additionalProperties": False,
+                    "properties": {
+                        "sampling": {
+                            "field_scope": "scientific",
+                            "scientific_meaning": (
+                                "Scientific sampling configuration"
+                            ),
+                            "type": "object",
+                            "additionalProperties": False,
+                            "properties": {
+                                "temperature": {
+                                    "field_scope": "scientific",
+                                    "scientific_meaning": (
+                                        "Scientific sampling temperature"
+                                    ),
+                                    "type": "number",
+                                },
                             },
-                        },
-                    }
+                        }
+                    },
                 },
             }
         }
@@ -841,7 +847,9 @@ def test_catalog_rejects_unsupported_parameter_contract_keywords(
     with pytest.raises(CatalogBuildError, match="unsupported"):
         _workflow_catalog(
             source_node_parameter_overrides={
-                "closed_contract": unsupported_contract,
+                "closed_contract": {
+                    "value_contract": unsupported_contract
+                },
             }
         )
 
@@ -907,7 +915,11 @@ def test_catalog_rejects_malformed_supported_parameter_contracts(
     with pytest.raises(CatalogBuildError):
         _workflow_catalog(
             source_node_parameter_overrides={
-                "malformed_contract": malformed_contract,
+                "malformed_contract": (
+                    malformed_contract
+                    if "value_contract" in malformed_contract
+                    else {"value_contract": malformed_contract}
+                ),
             }
         )
 
@@ -934,7 +946,20 @@ def test_catalog_rejects_parameter_contracts_without_a_discriminator(
     with pytest.raises(CatalogBuildError, match="must declare"):
         _workflow_catalog(
             source_node_parameter_overrides={
-                "incomplete_contract": incomplete_contract,
+                "incomplete_contract": (
+                    incomplete_contract
+                    if "value_contract" in incomplete_contract
+                    else {"value_contract": incomplete_contract}
+                ),
+            }
+        )
+
+
+def test_catalog_rejects_flat_v20_parameter_value_schema() -> None:
+    with pytest.raises(CatalogBuildError, match="value_contract"):
+        _workflow_catalog(
+            source_node_parameter_overrides={
+                "legacy_flat": {"type": "string"},
             }
         )
 
@@ -953,7 +978,7 @@ def test_catalog_requires_explicit_scientific_parameter_classification(
         _workflow_catalog(
             source_node_parameter_overrides={
                 "temperature": {
-                    "type": "number",
+                    "value_contract": {"type": "number"},
                     **classification,
                 },
             }
@@ -987,9 +1012,11 @@ def test_catalog_classifies_nested_scientific_fields_explicitly(
         _workflow_catalog(
             source_node_parameter_overrides={
                 "scientific_options": {
-                    "type": "object",
-                    "additionalProperties": False,
-                    "properties": property_declaration,
+                    "value_contract": {
+                        "type": "object",
+                        "additionalProperties": False,
+                        "properties": property_declaration,
+                    },
                 },
             }
         )
@@ -1089,7 +1116,7 @@ def test_required_parameter_metadata_is_not_object_schema(
         source_node_parameter_overrides={
             "choice": {
                 "required": True,
-                **inline_contract,
+                "value_contract": inline_contract,
             },
         }
     )

@@ -5,10 +5,10 @@ from __future__ import annotations
 from math import isfinite
 from typing import Any
 
-from datatypes.protein import ProteinMPNNConstraints
+from datatypes.protein import ProteinMPNNConstraints, ResidueLayout
 
 
-PROTEINMPNN_ALPHABET = frozenset("ACDEFGHIKLMNPQRSTVWYX")
+PROTEINMPNN_ALPHABET = frozenset("ACDEFGHIKLMNPQRSTVWY")
 
 
 def _positions(value: Any, name: str) -> list[int]:
@@ -113,6 +113,8 @@ def validate_proteinmpnn_constraints(
     """Validate all structure-independent ProteinMPNN constraint rules."""
     if not isinstance(constraints, ProteinMPNNConstraints):
         raise ValueError("constraints must be ProteinMPNNConstraints")
+    if type(constraints.layout) is not ResidueLayout:
+        raise ValueError("constraints layout must be a ResidueLayout")
 
     designable = _positions(
         constraints.designable_positions,

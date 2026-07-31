@@ -13,7 +13,6 @@ import shutil
 import stat
 import subprocess
 import sys
-import tempfile
 import threading
 import uuid
 from argparse import Namespace
@@ -58,12 +57,11 @@ def _setup_simplefold_imports() -> str:
     os.chdir(sf_dir)
     return old_cwd
 
-def _get_artifact_dir(project_dir: str | None) -> Path:
+def _get_artifact_dir(project_dir: str) -> Path:
     """Get or create artifact directory for model checkpoints and outputs."""
-    if project_dir:
-        base = Path(project_dir)
-    else:
-        base = Path(tempfile.gettempdir())
+    if not project_dir:
+        raise ValueError("SimpleFold staging directory is required")
+    base = Path(project_dir)
     artifacts = base / "simplefold_artifacts"
     artifacts.mkdir(parents=True, exist_ok=True)
     return artifacts
@@ -99,21 +97,12 @@ def _sha256_regular_file(
 
 def validated_simplefold_model_dir(
     working_artifacts: Path,
-    model_root: Path | None = None,
+    model_root: Path,
     *,
     required_artifacts: tuple[str, ...] | None = None,
 ) -> Path:
     """Resolve only immutable, locally provisioned SimpleFold provider objects."""
-    configured = (
-        model_root
-        if model_root is not None
-        else os.environ.get("PROTEIN_WORKBENCH_SIMPLEFOLD_MODEL_ROOT")
-    )
-    if configured is None:
-        raise FileNotFoundError(
-            "SimpleFold model root is not explicitly configured"
-        )
-    model_dir = Path(configured).expanduser()
+    model_dir = model_root.expanduser()
     if model_dir.is_symlink() or not model_dir.is_dir():
         raise FileNotFoundError(
             "SimpleFold model root is unavailable or is a symlink"
@@ -220,19 +209,10 @@ def _run_simplefold_esm2_git(root: Path, *args: str) -> str:
 
 
 def validated_simplefold_esm2_root(
-    source_root: Path | None = None,
+    source_root: Path,
 ) -> Path:
     """Resolve the exact local ESM2 checkout used by SimpleFold."""
-    configured = (
-        source_root
-        if source_root is not None
-        else os.environ.get("PROTEIN_WORKBENCH_SIMPLEFOLD_ESM2_ROOT")
-    )
-    if configured is None:
-        raise FileNotFoundError(
-            "SimpleFold ESM2 source root is not explicitly configured"
-        )
-    source_root = Path(configured).expanduser()
+    source_root = source_root.expanduser()
     hubconf = source_root / "hubconf.py"
     if (
         source_root.is_symlink()
@@ -366,21 +346,10 @@ def _simplefold_esm2_runtime_files_without_git(
 
 def validated_simplefold_esm2_model_dir(
     working_artifacts: Path,
-    model_root: Path | None = None,
+    model_root: Path,
 ) -> Path:
     """Stage only reviewed ESM2 pickle inputs into the isolated run root."""
-    configured = (
-        model_root
-        if model_root is not None
-        else os.environ.get(
-            "PROTEIN_WORKBENCH_SIMPLEFOLD_ESM2_MODEL_ROOT"
-        )
-    )
-    if configured is None:
-        raise FileNotFoundError(
-            "SimpleFold ESM2 model root is not explicitly configured"
-        )
-    model_root = Path(configured).expanduser()
+    model_root = model_root.expanduser()
     if model_root.is_symlink() or not model_root.is_dir():
         raise FileNotFoundError(
             "SimpleFold ESM2 model root is unavailable or is a symlink"
@@ -419,8 +388,8 @@ def validated_simplefold_esm2_model_dir(
 
 def validated_simplefold_esm2_runtime(
     working_artifacts: Path,
-    source_root: Path | None = None,
-    model_root: Path | None = None,
+    source_root: Path,
+    model_root: Path,
 ) -> tuple[Path, Path]:
     """Stage reviewed ESM2 source and weights before provider import."""
     source_root = validated_simplefold_esm2_root(source_root)
@@ -523,17 +492,18 @@ def _restore_process_cwd(function: Callable[..., Any]) -> Callable[..., Any]:
 @_restore_process_cwd
 def fold_sequence(
     sequence: ProteinSequence,
-    model_name: str = "simplefold_100M",
-    num_steps: int = 50,
-    num_samples: int = 1,
-    project_dir: str | None = None,
-    call_details: dict[str, Any] | None = None,
-    effective_seed: int | None = None,
-    model_root: Path | None = None,
-    esm2_source_root: Path | None = None,
-    esm2_model_root: Path | None = None,
-    required_device: str | None = None,
-    record_evidence: bool = False,
+    *,
+    model_name: str,
+    num_steps: int,
+    num_samples: int,
+    project_dir: str,
+    call_details: dict[str, Any],
+    effective_seed: int,
+    model_root: Path,
+    esm2_source_root: Path,
+    esm2_model_root: Path,
+    required_device: str,
+    record_evidence: bool,
 ) -> tuple[list[ProteinStructure], list[dict[str, Any]]]:
     """Fold a protein sequence using SimpleFold.
 
@@ -545,24 +515,16 @@ def fold_sequence(
         raise ValueError("SimpleFold folding requires simplefold_100M")
     num_steps = min(num_steps, 50)
     artifacts = _get_artifact_dir(project_dir)
-    if model_root is None:
-        model_dir = validated_simplefold_model_dir(artifacts)
-    else:
-        model_dir = validated_simplefold_model_dir(
-            artifacts,
-            model_root,
-            required_artifacts=SIMPLEFOLD_FOLDING_ARTIFACTS,
-        )
-    if esm2_source_root is None and esm2_model_root is None:
-        esm2_source_root, esm2_model_dir = validated_simplefold_esm2_runtime(
-            artifacts
-        )
-    else:
-        esm2_source_root, esm2_model_dir = validated_simplefold_esm2_runtime(
-            artifacts,
-            esm2_source_root,
-            esm2_model_root,
-        )
+    model_dir = validated_simplefold_model_dir(
+        artifacts,
+        model_root,
+        required_artifacts=SIMPLEFOLD_FOLDING_ARTIFACTS,
+    )
+    esm2_source_root, esm2_model_dir = validated_simplefold_esm2_runtime(
+        artifacts,
+        esm2_source_root,
+        esm2_model_root,
+    )
     old_cwd = _setup_simplefold_imports()
     from simplefold.wrapper import ModelWrapper, InferenceWrapper
     from simplefold.utils.boltz_utils import (
@@ -611,7 +573,7 @@ def fold_sequence(
     model = model_wrapper.from_pretrained_folding_model()
     plddt_models = model_wrapper.from_pretrained_plddt_model()
     device = model_wrapper.device
-    if required_device is not None and str(device) != required_device:
+    if str(device) != required_device:
         raise RuntimeError(
             "SimpleFold provider device does not match the Binding"
         )
@@ -652,10 +614,9 @@ def fold_sequence(
         )
 
         # Run inference
-        resolved_seed = 42 if effective_seed is None else effective_seed
         if (
-            type(resolved_seed) is not int
-            or not 0 <= resolved_seed <= 9_007_199_254_740_991
+            type(effective_seed) is not int
+            or not 0 <= effective_seed <= 9_007_199_254_740_991
         ):
             raise ValueError("SimpleFold effective seed is invalid")
         torch_device = torch.device(device)
@@ -669,7 +630,7 @@ def fold_sequence(
             else []
         )
         with torch.random.fork_rng(devices=fork_devices):
-            torch.manual_seed(resolved_seed)
+            torch.manual_seed(effective_seed)
             results = inf_wrapper.run_inference(
                 batch,
                 model,
