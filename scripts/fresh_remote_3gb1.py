@@ -23,7 +23,7 @@ PROTEINMPNN_METHOD_VERSION = "3.0.0"
 PROTEINMPNN_BINDING_ID = "proteinmpnn.design.local"
 PROTEINMPNN_METHOD_ID = "proteinmpnn.design.v_48_020_8907e667"
 CANONICAL_PROVIDER_PROMPT_CONTENT_DIGEST = (
-    "sha256:4a00fdcb5cbf3d0175dd33b37f744b881f859765ca6d551a667e12910411f19f"
+    "sha256:dc2653e01ea98a529664fab883f1deb4b02d47ef029e9923724050bb59fce419"
 )
 CANONICAL_SEQUENCE_TRACK = (
     "____Y_KL__N_GKT___G__TT__AVDA_T_E_KV_KQ_Y_A_D_N_GVD_G__W_YD_____TF_V_TE"
@@ -700,13 +700,11 @@ def validate_evidence_bundle(root: Path) -> dict[str, Any]:
     expected_workflow = json.loads(expected_workflow_path.read_bytes())
     compile_receipt = _load_json(root / "compile-receipt.json")
     parsed_workflow = parse_workflow_document(workflow)
-    expected_compile_receipt = dict(
-        compile_workflow(
-            parsed_workflow,
-            workflow_revision=snapshot["workflow_revision"],
-            catalog=expected_catalog,
-        ).receipt
-    )
+    expected_compile_receipt = compile_workflow(
+        parsed_workflow,
+        workflow_revision=snapshot["workflow_revision"],
+        catalog=expected_catalog,
+    ).public_receipt()
     if (
         workflow["schema_version"] != VERSION
         or workflow["workflow_id"] != PROJECT_ID
@@ -899,6 +897,25 @@ def _decode_output(
     node_id: str,
     output_port: str,
 ) -> Any:
+    values = _decode_output_values(
+        catalog,
+        projection,
+        node_id,
+        output_port,
+    )
+    if len(values) != 1:
+        raise ValueError(
+            f"{node_id}.{output_port} must contain exactly one value"
+        )
+    return values[0]
+
+
+def _decode_output_values(
+    catalog: Any,
+    projection: dict[str, Any],
+    node_id: str,
+    output_port: str,
+) -> tuple[Any, ...]:
     from core.port_types import PORT_VALUE_NAMESPACE, canonical_json_bytes
 
     output = next(
@@ -912,13 +929,19 @@ def _decode_output(
         reference["contract_id"],
         reference["contract_version"],
     )
-    return codec.decode(
-        canonical_json_bytes({
-            "schema_namespace": PORT_VALUE_NAMESPACE,
-            "port_type_id": reference["contract_id"],
-            "port_type_version": reference["contract_version"],
-            "value": output["values"][0],
-        })
+    values = output.get("values")
+    if not isinstance(values, list) or not values:
+        raise ValueError(f"{node_id}.{output_port} has no public values")
+    return tuple(
+        codec.decode(
+            canonical_json_bytes({
+                "schema_namespace": PORT_VALUE_NAMESPACE,
+                "port_type_id": reference["contract_id"],
+                "port_type_version": reference["contract_version"],
+                "value": value,
+            })
+        )
+        for value in values
     )
 
 
@@ -1126,10 +1149,10 @@ def _candidate_lineage(catalog: Any, projection: dict[str, Any]) -> dict[str, An
         "override-secondary-structure",
         "protein_prompt",
     )
-    fixed_alignments = _decode_output(
+    fixed_alignments = _decode_output_values(
         catalog, projection, "align-fixed", "alignments"
     )
-    paired_alignments = _decode_output(
+    paired_alignments = _decode_output_values(
         catalog, projection, "align-paired", "alignments"
     )
     ranked = _decode_output(
@@ -1165,19 +1188,19 @@ def _candidate_lineage(catalog: Any, projection: dict[str, Any]) -> dict[str, An
         )
     fixed_references = {
         alignment.reference.candidate_id
-        for alignment in fixed_alignments.alignments
+        for alignment in fixed_alignments
     }
     paired_references = {
         alignment.reference.candidate_id
-        for alignment in paired_alignments.alignments
+        for alignment in paired_alignments
     }
     paired_subjects = {
         alignment.subject.candidate_id
-        for alignment in paired_alignments.alignments
+        for alignment in paired_alignments
     }
     fixed_subjects = {
         alignment.subject.candidate_id
-        for alignment in fixed_alignments.alignments
+        for alignment in fixed_alignments
     }
     pairing_pairs = {
         (entry.subject_candidate_id, entry.reference_candidate_id)
@@ -1203,7 +1226,7 @@ def _candidate_lineage(catalog: Any, projection: dict[str, Any]) -> dict[str, An
         raise ValueError("weighted selection did not feed the top three")
     if [
         folded.parent_ids for folded in final_folds.items
-    ] != [[child.candidate_id] for child in children.items]:
+    ] != [(child.candidate_id,) for child in children.items]:
         raise ValueError("final fold lineage is incomplete")
     return {
         "schema_namespace": SCHEMA_NAMESPACE,

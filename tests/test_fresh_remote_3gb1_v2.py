@@ -28,6 +28,8 @@ from scripts.fresh_remote_3gb1 import (
     REMOTE_BINDINGS,
     REMOTE_CONTRACT_VERSION,
     SCHEMA_NAMESPACE,
+    _decode_output,
+    _decode_output_values,
     _event_payloads,
     _invocation_proof,
     _require_catalog_snapshot_matches_current,
@@ -48,6 +50,50 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent
 WORKFLOW_PATH = (
     PROJECT_ROOT / "examples" / "v2" / "canonical-3gb1.workflow.json"
 )
+
+
+class _EchoPortType:
+    def decode(self, payload: bytes) -> object:
+        return json.loads(payload)["value"]
+
+
+class _EchoCatalog:
+    def require_port_type(
+        self,
+        contract_id: str,
+        contract_version: str,
+    ) -> _EchoPortType:
+        assert contract_id == "structure_comparison.alignment"
+        assert contract_version == "2.1.0"
+        return _EchoPortType()
+
+
+def test_decode_output_values_preserves_every_many_port_value() -> None:
+    projection = {
+        "outputs": [{
+            "node_id": "align-fixed",
+            "output_port": "alignments",
+            "port_type": {
+                "contract_id": "structure_comparison.alignment",
+                "contract_version": "2.1.0",
+            },
+            "values": [{"alignment": 1}, {"alignment": 2}],
+        }]
+    }
+
+    assert _decode_output_values(
+        _EchoCatalog(),
+        projection,
+        "align-fixed",
+        "alignments",
+    ) == ({"alignment": 1}, {"alignment": 2})
+    with pytest.raises(ValueError, match="exactly one value"):
+        _decode_output(
+            _EchoCatalog(),
+            projection,
+            "align-fixed",
+            "alignments",
+        )
 
 
 def _digest(path: Path) -> str:

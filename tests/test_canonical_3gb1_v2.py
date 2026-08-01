@@ -27,6 +27,9 @@ from core.port_types import PORT_VALUE_NAMESPACE, canonical_json_bytes
 from core.server import create_app
 from datatypes import CandidateCollection, PairwiseCandidateMapping
 from modules.proteinmpnn.adapter import LocalProteinMPNNAdapter
+from scripts.fresh_remote_3gb1 import (
+    CANONICAL_PROVIDER_PROMPT_CONTENT_DIGEST,
+)
 from tests.fixtures.canonical_3gb1_v2 import (
     ControlledESM3Client,
     ControlledFoldingClient,
@@ -395,6 +398,15 @@ def test_canonical_v2_public_protocol_reproduces_scientific_intent(
         ]
 
         first_prompt = esm3.sequence_prompts[0]
+        prompt_output = next(
+            item
+            for item in first["outputs"]
+            if item["node_id"] == "override-secondary-structure"
+            and item["output_port"] == "protein_prompt"
+        )
+        assert prompt_output["content_digest"] == (
+            CANONICAL_PROVIDER_PROMPT_CONTENT_DIGEST
+        )
         assert len(esm3.sequence_prompts) == len(esm3.structure_prompts) == 10
         assert len(first_prompt.sequence) == 71
         assert first_prompt.sequence.count("_") == 35
