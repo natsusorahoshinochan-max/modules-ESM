@@ -1,36 +1,33 @@
 # Repository Guidelines
 
-## Project Structure & Architecture
+## Priorities
 
-`core/` contains the server, workflow engine, storage, and evidence logic. `datatypes/` defines provider-independent scientific values. Extensions live in `modules/<package>/` and expose one `package.py:MODULE_PACKAGE`; keep provider SDK translation inside adapters. `protein_workbench_public/` owns the versioned protocol bundle. Tests are under `tests/`, workflows under `examples/v2/`, ADRs under `docs/adr/`, and the React/TypeScript client under `frontend/src/`. Treat `repositories/` as pinned upstream source.
+This is scientific software in development. Scientific correctness and interpretability outrank compatibility and implementation concerns. Preserve semantics for Node Types, Methods, Metric Definitions, units, shapes, residue mappings, masking, randomness, lineage, provenance, and evidence. Use `CONTEXT.md` vocabulary. Resolve ambiguity in a specification or ADR; never infer science from code, SDK shapes, or UI behavior.
 
-Use the exact domain vocabulary in `CONTEXT.md`.
+There is no historical compatibility obligation. Do not add shims, aliases, legacy parsers, dual paths, deprecation layers, or speculative abstractions. Change all current producers, consumers, tests, examples, and documentation together; delete superseded code. Development artifacts may be invalidated.
 
-## Build, Test, and Development Commands
+## Architecture
+
+`core/` owns runtime and evidence logic. `datatypes/` defines provider-independent scientific values. Extensions live in `modules/<package>/`; provider translation belongs in Adapters. `protein_workbench_public/` owns the current protocol. Treat `repositories/` as pinned upstream.
+
+## Trust Model
+
+This is a trusted, single-user, loopback-only application. Components trust values after validation by their contract-owning boundary. Validate once; do not add repeated checks, authentication, authorization, multi-tenancy, adversarial handling, sandboxing, or hosted-service hardening.
+
+Biohub and its official API specification are authoritative. Assume conforming requests receive conforming responses. Adapters must translate and record provenance exactly as documented. Do not guess schemas, repair or reject responses, cross-check providers, add fallback endpoints, or handle hypothetical malformed responses. Follow documented operational outcomes exactly.
+
+Fail fast on local invariant violations. Avoid broad catches, silent coercion, guessed defaults, catch-and-continue behavior, and undocumented retries or fallbacks. Retain checks only for scientific correctness, explicit contracts, durable writes, accidental data loss, and credential hygiene.
+
+## Verification
+
+Use Python 3.12, typed code, pytest, Oxlint, and `tsc`. Test current scientific and package contracts. Mocks cannot replace required real-provider acceptance.
+
+Run focused tests plus:
 
 ```bash
-uv sync --frozen --extra dev                    # install backend development dependencies
-.venv/bin/python run_server.py                  # serve on 127.0.0.1:8000
 .venv/bin/python scripts/verify_backend.py routine
 .venv/bin/python scripts/verify_backend.py deterministic-acceptance
-cd frontend && npm ci && npm run dev             # Vite development server
 cd frontend && npm run lint && npm run build
 ```
 
-Add `--extra providers` only for real provider verification. See `docs/backend-verification.md` for specialized and slow tiers.
-
-## Coding Style & Naming
-
-Target Python 3.12; use four-space indentation, type annotations, `snake_case` functions/modules, `PascalCase` classes, and uppercase constants. Prefer frozen dataclasses and explicit contracts. TypeScript uses two spaces, single quotes, and no semicolons; Oxlint and `tsc` are authoritative. Do not add compatibility fallbacks or hypothetical abstractions without an accepted contract.
-
-## Testing Guidelines
-
-Use pytest and name files/functions `test_*.py`/`test_*`. Add regressions at public or package-contract boundaries. Run the focused test plus `routine` for backend changes; run frontend lint and build for UI changes. Heavy or credentialed tiers must be intentional and cannot replace required real acceptance with mocks. No numeric coverage threshold is configured.
-
-## Commits & Pull Requests
-
-Use short imperative subjects, normally `feat:`, `fix:`, `test:`, `docs:`, or `refactor:`. Keep commits single-purpose. PRs must describe changed behavior, link a ticket/ADR when applicable, list verification results, and include screenshots for visible UI changes. Never commit `keys/`, `projects/`, `verification-results/`, virtual environments, or frontend build output.
-
-## Local-Only Threat Model
-
-This is a trusted, single-user desktop application. Keep services loopback-only; “public” means a stable component contract, not Internet exposure. Do not add authentication, RBAC, multi-tenancy, CSRF defenses, abuse controls, plugin sandboxes, or speculative hosted-service hardening. Every new safeguard must prevent a concrete non-malicious failure. Retain validation for malformed imports/provider responses, scientific and protocol correctness, accidental path or data loss, durable writes, resource exhaustion, and credential leakage. Changing the deployment model requires an explicit architecture decision.
+Never commit `keys/`, `projects/`, `verification-results/`, environments, or frontend build output.
