@@ -30,8 +30,14 @@ from core import (
 from core.port_types import canonical_json_bytes
 from core.workflow_v2 import WorkflowEdge
 from datatypes import (
+    Candidate,
+    CandidateCollection,
     ProteinSequence,
     ProteinStructure,
+)
+from tests.fixtures.scientific_operation import (
+    operation_call,
+    operation_context,
 )
 
 
@@ -114,9 +120,9 @@ def _run_fold(
     fold = WorkflowNodeInstance(
         node_id="fold",
         node_type_id="folding.fold",
-        node_type_version="2.1.0",
+        node_type_version="3.0.0",
         binding_id=f"folding.fold.esmfold2_{route}",
-        binding_version="2.1.0",
+        binding_version="3.0.0",
         node_parameters={"effective_seed": 1603, "num_samples": 1},
         binding_parameters={},
     )
@@ -171,7 +177,7 @@ def _run_fold(
     environment_values.update(environment_overrides or {})
     environment = EnvironmentConfiguration(
         {
-            (f"folding.fold.esmfold2_{route}", "2.1.0"): {
+            (f"folding.fold.esmfold2_{route}", "3.0.0"): {
                 "values": environment_values,
                 "safe_fingerprint": (
                     safe_environment_fingerprint
@@ -223,12 +229,12 @@ def test_remote_and_local_esmfold2_are_explicit_bindings_of_one_node() -> None:
     remote = catalog.require_contract(
         "binding",
         "folding.fold.esmfold2_remote",
-        "2.1.0",
+        "3.0.0",
     )
     local = catalog.require_contract(
         "binding",
         "folding.fold.esmfold2_local",
-        "2.1.0",
+        "3.0.0",
     )
     assert remote.descriptor["node_type"] == local.descriptor["node_type"]
     assert remote.descriptor["produced_observations"] == (
@@ -252,7 +258,7 @@ def test_remote_and_local_esmfold2_are_explicit_bindings_of_one_node() -> None:
     node = catalog.require_contract(
         "node_type",
         "folding.fold",
-        "2.1.0",
+        "3.0.0",
     )
     assert set(node.descriptor["node_parameters"]) == {
         "effective_seed",
@@ -286,12 +292,12 @@ def test_missing_local_esmfold2_stays_fail_closed_without_hiding_remote() -> Non
     assert catalog.require_contract(
         "binding",
         "folding.fold.esmfold2_remote",
-        "2.1.0",
+        "3.0.0",
     )
     assert catalog.require_contract(
         "binding",
         "folding.fold.esmfold2_local",
-        "2.1.0",
+        "3.0.0",
     )
     assert availability["folding.fold.esmfold2_remote"] is not (
         availability["folding.fold.esmfold2_local"]
@@ -386,7 +392,6 @@ def test_native_plddt_is_statically_scaled_and_masks_invalid_tokens() -> None:
     )
 
     assert confidence.per_residue_plddt == (70.0, 80.0, None)
-    assert confidence.mean_residue_plddt == 75.0
     assert confidence.ptm == 0.625
     assert confidence.pae == (
         (0.0, 1.0, 3.0),
@@ -495,9 +500,170 @@ def test_remote_and_local_provider_native_results_normalize_identically() -> Non
     assert remote.structure.pdb_string == local.structure.pdb_string
     assert remote.confidence == local.confidence
     assert remote.confidence.per_residue_plddt == (70.0, 80.0)
-    assert remote.confidence.mean_residue_plddt == 75.0
     assert remote.confidence.ptm == 0.625
     assert remote.confidence.pae == ((0.0, 1.0), (1.0, 0.0))
+
+
+def test_canonical_folding_operation_consumes_only_adapter_result_dto() -> None:
+    from modules.folding.adapter import (
+        ESMFold2AdapterResult,
+        NormalizedConfidence,
+    )
+    from modules.folding.implementation import (
+        ESMFold2FoldingImplementation,
+    )
+    from modules.folding.package import MODULE_PACKAGE as FOLDING_PACKAGE
+
+    class Adapter:
+        def __init__(self) -> None:
+            self.calls: list[tuple[ProteinSequence, int, str]] = []
+
+        def fold(
+            self,
+            *,
+            sequence: ProteinSequence,
+            derived_call_seed: int,
+            engine_role: str,
+        ) -> ESMFold2AdapterResult:
+            self.calls.append((sequence, derived_call_seed, engine_role))
+            return ESMFold2AdapterResult(
+                structure=ProteinStructure(
+                    _two_residue_pdb(),
+                ),
+                confidence=NormalizedConfidence(
+                    per_residue_plddt=(70.0, 80.0),
+                    ptm=0.625,
+                    pae=((0.0, 1.0), (1.0, 0.0)),
+                ),
+                effective_call_seed=derived_call_seed,
+            )
+
+    catalog = build_frozen_catalog((FOLDING_PACKAGE,))
+    context = operation_context(
+        catalog,
+        "folding.fold.esmfold2_remote",
+        object(),
+        binding_version="3.0.0",
+        environment={"raw_provider_value": object()},
+    )
+    adapter = Adapter()
+    operation = ESMFold2FoldingImplementation(
+        adapter=adapter,
+        method=context.method,
+        produced_observations=context.produced_observations,
+    )
+    parent = Candidate(
+        "parent",
+        ProteinSequence("AG", ["A:1", "A:2"]),
+        [],
+        {},
+    )
+
+    outputs = operation.execute(
+        operation_call(
+            catalog=catalog,
+            binding_id="folding.fold.esmfold2_remote",
+            binding_version="3.0.0",
+            inputs={
+                "sequence_candidates": CandidateCollection(
+                    "parents",
+                    "protein.sequence",
+                    [parent],
+                )
+            },
+            node_parameters={"effective_seed": 1603, "num_samples": 1},
+            binding_parameters={},
+        )
+    )
+
+    structures = outputs["structure_candidates"]
+    assert type(structures) is CandidateCollection
+    assert structures.items[0].data == ProteinStructure(_two_residue_pdb())
+    assert {
+        "provider",
+        "model",
+        "route",
+        "runtime_fingerprint",
+        "checkpoint",
+        "seed_control",
+    }.isdisjoint(structures.items[0].metadata)
+    assert structures.items[0].metadata["effective_call_seed"] == (
+        adapter.calls[0][1]
+    )
+    assert adapter.calls[0][0] == parent.data
+    assert adapter.calls[0][2] == "fold_parent_0_sample_0"
+
+
+def test_esmfold_call_seed_uses_candidate_content_not_candidate_identity() -> None:
+    from modules.folding.adapter import (
+        ESMFold2AdapterResult,
+        NormalizedConfidence,
+    )
+    from modules.folding.implementation import ESMFold2FoldingImplementation
+    from modules.folding.package import MODULE_PACKAGE as FOLDING_PACKAGE
+
+    class Adapter:
+        def __init__(self) -> None:
+            self.seeds: list[int] = []
+
+        def fold(self, **kwargs: Any) -> ESMFold2AdapterResult:
+            seed = kwargs["derived_call_seed"]
+            self.seeds.append(seed)
+            return ESMFold2AdapterResult(
+                structure=ProteinStructure(_two_residue_pdb()),
+                confidence=NormalizedConfidence(
+                    per_residue_plddt=(70.0, 80.0),
+                    ptm=0.625,
+                    pae=((0.0, 1.0), (1.0, 0.0)),
+                ),
+                effective_call_seed=seed,
+            )
+
+    catalog = build_frozen_catalog((FOLDING_PACKAGE,))
+    context = operation_context(
+        catalog,
+        "folding.fold.esmfold2_local",
+        object(),
+        binding_version="3.0.0",
+    )
+
+    def observed(candidate_id: str, sequence: str) -> int:
+        adapter = Adapter()
+        operation = ESMFold2FoldingImplementation(
+            adapter=adapter,
+            method=context.method,
+            produced_observations=context.produced_observations,
+        )
+        parent = Candidate(
+            candidate_id,
+            ProteinSequence(sequence),
+            [],
+            {},
+        )
+        operation.execute(
+            operation_call(
+                catalog=catalog,
+                binding_id="folding.fold.esmfold2_local",
+                binding_version="3.0.0",
+                inputs={
+                    "sequence_candidates": CandidateCollection(
+                        "parents",
+                        "protein.sequence",
+                        [parent],
+                    )
+                },
+                node_parameters={"effective_seed": 1603, "num_samples": 1},
+                binding_parameters={},
+            )
+        )
+        return adapter.seeds[0]
+
+    original = observed("candidate-a", "AG")
+    renamed = observed("candidate-renamed", "AG")
+    changed_content = observed("candidate-a", "AA")
+
+    assert original == renamed
+    assert original != changed_content
 
 
 @pytest.mark.parametrize("route", ("remote", "local"))
@@ -586,10 +752,24 @@ def test_selected_binding_folds_without_fallback_and_publishes_exact_lineage(
     )
     pae = _decode_output(catalog, outputs["pae_observations"])
     assert len(structures.items) == 1
-    assert structures.items[0].parent_ids == [
-        parents.items[0].candidate_id
-    ]
-    assert structures.items[0].metadata["route"] == route
+    assert structures.items[0].parent_ids == (
+        parents.items[0].candidate_id,
+    )
+    metadata = structures.items[0].metadata
+    assert {
+        "provider",
+        "model",
+        "route",
+        "runtime_fingerprint",
+        "checkpoint",
+        "seed_control",
+    }.isdisjoint(metadata)
+    if route == "remote":
+        assert "configured_base_seed" not in metadata
+        assert "effective_call_seed" not in metadata
+    else:
+        assert metadata["configured_base_seed"] == 1603
+        assert type(metadata["effective_call_seed"]) is int
     assert structures.items[0].metadata["sample_index"] == 0
     assert structures.items[0].data.pdb_string == _two_residue_pdb()
     values = {
@@ -598,15 +778,15 @@ def test_selected_binding_folds_without_fallback_and_publishes_exact_lineage(
     }
     assert values == {
         "structure.ptm": 0.625,
-        "structure.plddt.per_residue": [70.0, 80.0],
+        "structure.plddt.per_residue": (70.0, 80.0),
         "structure.plddt.mean_residue": 75.0,
     }
     assert len(pae.entries) == 1
     assert pae.entries[0].metric.contract_id == "structure.pae"
-    assert pae.entries[0].value == [
-        [0.0, 31.75],
-        [31.75, 0.0],
-    ]
+    assert pae.entries[0].value == (
+        (0.0, 31.75),
+        (31.75, 0.0),
+    )
     assert {
         observation.candidate_id
         for observation in (*confidence.entries, *pae.entries)
@@ -618,14 +798,36 @@ def test_selected_binding_folds_without_fallback_and_publishes_exact_lineage(
         and event["event"]["binding"]["contract_id"]
         == f"folding.fold.esmfold2_{route}"
     )
+    binding = catalog.require_contract(
+        "binding",
+        f"folding.fold.esmfold2_{route}",
+        "3.0.0",
+    )
+    method = catalog.require_contract(
+        "method",
+        binding.descriptor["method"]["contract_id"],
+        binding.descriptor["method"]["contract_version"],
+    )
+    started = next(
+        event["event"]
+        for event in events
+        if event["event"]["type"] == "engine_invocation_started"
+        and event["event"]["engine_role"] == "fold_parent_0_sample_0"
+    )
     invocation_index = next(
         index
         for index, event in enumerate(events)
-        if event["event"]["type"] == "engine_invocation_started"
-        and event["event"]["engine_identity"].startswith(
-            f"folding.esmfold2_{route}."
-        )
+        if event["event"] == started
     )
+    assert started["engine_identity"] == method.contract_digest
+    randomness = started["invocation_provenance"]["effective_randomness"]
+    assert randomness["control"] == (
+        "provider_uncontrolled" if route == "remote" else "exact_seed"
+    )
+    if route == "local":
+        assert randomness["effective_seed"] == (
+            metadata["effective_call_seed"]
+        )
     assert readiness_index < invocation_index
     if route == "remote":
         assert len(client.calls) == 1
@@ -712,18 +914,17 @@ def test_decode_failure_cannot_publish_a_successful_candidate(
         event["event"]
         for event in events
         if event["event"]["type"] == "engine_invocation_terminal"
-        and any(
-            started["event"]["type"] == "engine_invocation_started"
+            and any(
+                started["event"]["type"] == "engine_invocation_started"
             and started["event"]["invocation_id"]
             == event["event"]["invocation_id"]
-            and started["event"]["engine_identity"].startswith(
-                "folding.esmfold2_remote."
+                and started["event"]["engine_role"]
+                == "fold_parent_0_sample_0"
+                for started in events
             )
-            for started in events
-        )
     ]
     assert len(invocations) == 1
-    assert invocations[0]["status"] == "failed"
+    assert invocations[0]["status"] == "succeeded"
 
 
 def test_remote_and_local_bindings_pass_shared_contract_test_kit(
@@ -900,7 +1101,6 @@ def test_remote_and_local_bindings_pass_shared_contract_test_kit(
                 [
                     ProteinStructure(
                         _two_residue_pdb(),
-                        source="simplefold",
                     )
                 ],
                 [{"per_residue": [70.0, 80.0], "sample_index": 0}],
@@ -947,8 +1147,8 @@ def test_remote_and_local_bindings_pass_shared_contract_test_kit(
     )
     common = {
         "node_type_id": "folding.fold",
-        "node_type_version": "2.1.0",
-        "binding_version": "2.1.0",
+        "node_type_version": "3.0.0",
+        "binding_version": "3.0.0",
         "node_parameters": {
             "effective_seed": 1603,
             "num_samples": 1,
@@ -1035,7 +1235,7 @@ def test_remote_and_local_bindings_pass_shared_contract_test_kit(
             binding_id=(
                 "folding.simplefold_confidence.simplefold_local"
             ),
-            binding_version="2.1.0",
+            binding_version="2.2.0",
             node_parameters={},
             binding_parameters={},
             environment_values=confidence_environment,

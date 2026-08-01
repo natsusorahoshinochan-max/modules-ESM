@@ -5,6 +5,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 from typing import Any
 
+from core.operation import OperationCall
 from core.port_types import CatalogBuildError, canonical_json_bytes
 from datatypes import (
     Candidate,
@@ -23,38 +24,31 @@ _SCORE_PORTS = ("scores_a", "scores_b", "scores_c")
 class CollectionOpsImplementation:
     """Execute one deterministic, identity-preserving collection operation."""
 
-    def __init__(self, operation: str, catalog: Any | None = None) -> None:
+    def __init__(self, operation: str) -> None:
         self._operation = operation
-        self._catalog = catalog
 
-    def execute(
-        self,
-        *,
-        inputs: Mapping[str, Any],
-        node_parameters: Mapping[str, Any],
-        binding_parameters: Mapping[str, Any],
-    ) -> dict[str, Any]:
-        if binding_parameters:
+    def execute(self, call: OperationCall) -> dict[str, Any]:
+        if call.binding_parameters:
             raise ValueError(
                 "collection operations do not accept Binding parameters"
             )
         if self._operation == "concat_candidates":
-            self._require_no_node_parameters(node_parameters)
-            return {"candidates": self._concat_candidates(inputs)}
+            self._require_no_node_parameters(call.node_parameters)
+            return {"candidates": self._concat_candidates(call.inputs)}
         if self._operation == "merge_scores":
-            self._require_no_node_parameters(node_parameters)
-            return {"scores": self._merge_scores(inputs)}
+            self._require_no_node_parameters(call.node_parameters)
+            return {"scores": self._merge_scores(call.inputs)}
         if self._operation == "rebind_candidate_pairing":
-            self._require_no_node_parameters(node_parameters)
-            return {"pairing": self._rebind_candidate_pairing(inputs)}
+            self._require_no_node_parameters(call.node_parameters)
+            return {"pairing": self._rebind_candidate_pairing(call)}
         if self._operation == "pair_siblings_by_parent":
-            self._require_no_node_parameters(node_parameters)
-            return {"pairing": self._pair_siblings_by_parent(inputs)}
+            self._require_no_node_parameters(call.node_parameters)
+            return {"pairing": self._pair_siblings_by_parent(call)}
         if self._operation == "take_candidates":
             return {
                 "candidates": self._take_candidates(
-                    inputs,
-                    node_parameters,
+                    call.inputs,
+                    call.node_parameters,
                 )
             }
         raise RuntimeError("unknown collection operation")
@@ -100,17 +94,22 @@ class CollectionOpsImplementation:
 
     def _candidate_digests(
         self,
+        call: OperationCall,
         value: object,
         *,
         port: str,
     ) -> tuple[CandidateCollection, dict[str, tuple[Candidate, str]]]:
-        if (
-            self._catalog is None
-            or type(value) is not CandidateCollection
-            or not value.items
-        ):
+        if type(value) is not CandidateCollection or not value.items:
             raise ValueError(f"{port} must be a non-empty Candidate Collection")
-        codec = self._catalog.require_port_type(value.item_type, "2.1.0")
+        admitted = call.input_content_digests.get(port)
+        if admitted is None:
+            raise ValueError(f"{port} has no admitted Candidate content identity")
+        admitted_by_id = {
+            entry.candidate_id: entry.content_digest
+            for entry in admitted.candidate_data
+        }
+        if len(admitted_by_id) != len(admitted.candidate_data):
+            raise ValueError(f"{port} has duplicate admitted Candidate identities")
         by_id: dict[str, tuple[Candidate, str]] = {}
         for candidate in value.items:
             if (
@@ -121,16 +120,26 @@ class CollectionOpsImplementation:
                 raise ValueError(
                     f"{port} contains incomplete or duplicate Candidates"
                 )
+            content_digest = admitted_by_id.get(candidate.candidate_id)
+            if content_digest is None:
+                raise ValueError(
+                    f"{port} Candidate content identity was not admitted"
+                )
             by_id[candidate.candidate_id] = (
                 candidate,
-                codec.content_digest(candidate.data),
+                content_digest,
+            )
+        if set(admitted_by_id) != set(by_id):
+            raise ValueError(
+                f"{port} admitted Candidate identities do not match the input"
             )
         return value, by_id
 
     def _rebind_candidate_pairing(
         self,
-        inputs: Mapping[str, Any],
+        call: OperationCall,
     ) -> PairwiseCandidateMapping:
+        inputs = call.inputs
         if set(inputs) != {
             "subjects",
             "parents",
@@ -142,14 +151,17 @@ class CollectionOpsImplementation:
                 "and parent_pairing inputs"
             )
         subjects, subjects_by_id = self._candidate_digests(
+            call,
             inputs["subjects"],
             port="subjects",
         )
         parents, parents_by_id = self._candidate_digests(
+            call,
             inputs["parents"],
             port="parents",
         )
         references, references_by_id = self._candidate_digests(
+            call,
             inputs["references"],
             port="references",
         )
@@ -198,7 +210,7 @@ class CollectionOpsImplementation:
                     "each subject must name exactly one supplied parent"
                 )
             parent_id = matching_parents[0]
-            if subject.parent_ids != [parent_id]:
+            if subject.parent_ids != (parent_id,):
                 raise ValueError(
                     "each subject must have exactly one total parent"
                 )
@@ -223,17 +235,20 @@ class CollectionOpsImplementation:
 
     def _pair_siblings_by_parent(
         self,
-        inputs: Mapping[str, Any],
+        call: OperationCall,
     ) -> PairwiseCandidateMapping:
+        inputs = call.inputs
         if set(inputs) != {"subjects", "references"}:
             raise ValueError(
                 "sibling pairing requires exact subject and reference inputs"
             )
         subjects, subjects_by_id = self._candidate_digests(
+            call,
             inputs["subjects"],
             port="subjects",
         )
         references, references_by_id = self._candidate_digests(
+            call,
             inputs["references"],
             port="references",
         )

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from contextlib import contextmanager
 from pathlib import Path
 import hashlib
 from typing import Any
@@ -23,7 +24,6 @@ def _patch_local_runtime(
     *,
     accepted_generation: str = "fixture-a",
 ) -> None:
-    import modules.esm3.implementation as implementation
     import modules.esm3.local_adapter as local_adapter
     import modules.esm3.package as package
 
@@ -49,7 +49,6 @@ def _patch_local_runtime(
         lambda: True,
     )
     monkeypatch.setattr(local_adapter, "resolve_local_runtime", resolve)
-    monkeypatch.setattr(implementation, "resolve_local_runtime", resolve)
 
 
 def _local_environment(tmp_path: Path) -> dict[str, Any]:
@@ -91,12 +90,12 @@ def test_local_esm3_reuses_generation_nodes_alongside_direct_esmc() -> None:
         local = catalog.require_contract(
             "binding",
             f"esm3.{operation}.local_open",
-            "2.1.0",
+            "3.0.0",
         )
         remote = catalog.require_contract(
             "binding",
             f"esm3.{operation}.biohub_open",
-            "2.1.0",
+            "3.0.0",
         )
 
         assert local.descriptor["node_type"] == remote.descriptor["node_type"]
@@ -133,7 +132,7 @@ def test_local_esm3_reuses_generation_nodes_alongside_direct_esmc() -> None:
         node = catalog.require_contract(
             "node_type",
             f"esm3.{operation}",
-            "2.1.0",
+            "3.0.0",
         )
         forbidden = {
             "model",
@@ -365,6 +364,94 @@ def test_successful_local_load_has_explicit_staging_cleanup(
     assert not staged_root.exists()
 
 
+def test_local_adapter_applies_the_derived_seed_and_returns_canonical_values(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import torch
+
+    from datatypes import (
+        ProteinPrompt,
+        ProteinSequence,
+        ResidueLayout,
+        ResidueTrack,
+    )
+    from modules.esm3.adapter import ESM3CallParameters
+    from modules.esm3.local_adapter import (
+        LOCAL_ESM3_MODEL,
+        LocalESM3Adapter,
+    )
+    from tests.test_esm3_v2 import _ProviderClient, _ProviderResponse
+
+    class SeedRecordingClient(_ProviderClient):
+        def __init__(self) -> None:
+            super().__init__([_ProviderResponse("ACD")])
+            self.seeds: list[int] = []
+
+        def generate(self, protein: Any, config: Any) -> _ProviderResponse:
+            self.seeds.append(torch.initial_seed())
+            return super().generate(protein, config)
+
+    class InvocationResources:
+        def __init__(self) -> None:
+            self.invocations: list[dict[str, object]] = []
+
+        @contextmanager
+        def engine_invocation(self, **kwargs: object):
+            self.invocations.append(dict(kwargs))
+            yield "local-invocation"
+
+    _patch_local_runtime(monkeypatch, tmp_path)
+    client = SeedRecordingClient()
+    resources = InvocationResources()
+    adapter = LocalESM3Adapter(
+        environment={
+            **_local_environment(tmp_path),
+            "provider_client": client,
+        },
+        resources=resources,
+        model_name=LOCAL_ESM3_MODEL,
+    )
+    prompt = ProteinPrompt(
+        target_layout=ResidueLayout("A", 3, ["A:1", "A:2", "A:3"]),
+        sequence_track=ResidueTrack([None, "C", "D"], None),
+    )
+
+    with adapter:
+        result = adapter.generate_sequence(
+            prompt,
+            parameters=ESM3CallParameters(
+                num_steps=4,
+                temperature=1.0,
+                top_p=1.0,
+                schedule="cosine",
+                strategy="random",
+                temperature_annealing=True,
+            ),
+            derived_call_seed=17,
+        )
+
+    assert result.sequence == ProteinSequence(
+        "ACD",
+        ["A:1", "A:2", "A:3"],
+    )
+    assert result.effective_num_steps == 4
+    assert result.effective_call_seed == 17
+    assert client.seeds == [17]
+    assert resources.invocations == [
+        {
+            "engine_role": "sequence_sample",
+            "parent_invocation_id": None,
+            "invocation_provenance": {
+                "effective_randomness": {
+                    "control": "exact_seed",
+                    "effective_seed": 17,
+                }
+            },
+        }
+    ]
+
+
 @pytest.mark.parametrize(
     ("operation", "sequence", "response_kind"),
     (
@@ -430,9 +517,15 @@ def test_local_execution_preserves_remote_scientific_contracts(
     }[operation]
     primary = _decode_output(catalog, outputs[primary_port])
     assert len(primary.items) == 1
-    assert primary.items[0].metadata["provider"] == "local_open"
-    assert primary.items[0].metadata["model"] == "esm3_sm_open_v1"
-    assert primary.items[0].metadata["seed_control"] == "torch_local"
+    forbidden = {
+        "provider",
+        "model",
+        "route",
+        "runtime_fingerprint",
+        "checkpoint",
+        "seed_control",
+    }
+    assert forbidden.isdisjoint(primary.items[0].metadata)
     assert isinstance(primary.items[0].metadata["effective_call_seed"], int)
     assert outputs[primary_port]["result_identity"].startswith("sha256:")
     if operation == "generate_paired":
@@ -441,9 +534,9 @@ def test_local_execution_preserves_remote_scientific_contracts(
             outputs["structure_candidates"],
         )
         pairing = _decode_output(catalog, outputs["counterpart_pairs"])
-        assert structures.items[0].parent_ids == [
-            primary.items[0].candidate_id
-        ]
+        assert structures.items[0].parent_ids == (
+            primary.items[0].candidate_id,
+        )
         assert pairing.entries[0].subject_candidate_id == (
             primary.items[0].candidate_id
         )
@@ -463,16 +556,46 @@ def test_local_execution_preserves_remote_scientific_contracts(
         event["event"]
         for event in events
         if event["event"]["type"] == "engine_invocation_started"
-        and event["event"]["engine_identity"].startswith("esm3.local_open.")
+        and event["event"]["engine_role"]
+        in {
+            "sequence_sample",
+            "structure_sample",
+            "sequence_parent",
+            "structure_child",
+        }
     ]
     assert len(generation_events) == (2 if operation == "generate_paired" else 1)
+    binding = catalog.require_contract(
+        "binding",
+        f"esm3.{operation}.local_open",
+        "3.0.0",
+    )
+    method = catalog.require_contract(
+        "method",
+        binding.descriptor["method"]["contract_id"],
+        binding.descriptor["method"]["contract_version"],
+    )
+    assert {
+        event["engine_identity"] for event in generation_events
+    } == {method.contract_digest}
+    assert all(
+        event["invocation_provenance"]["effective_randomness"]["control"]
+        == "exact_seed"
+        and type(
+            event["invocation_provenance"]["effective_randomness"][
+                "effective_seed"
+            ]
+        )
+        is int
+        for event in generation_events
+    )
 
 
 def test_default_local_client_releases_staged_runtime_after_execution(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    import modules.esm3.implementation as implementation
+    import modules.esm3.local_adapter as local_adapter
 
     from tests.test_esm3_v2 import (
         _ProviderClient,
@@ -484,12 +607,12 @@ def test_default_local_client_releases_staged_runtime_after_execution(
     client = _ProviderClient([_ProviderResponse("ACD")])
     released: list[Any] = []
     monkeypatch.setattr(
-        implementation,
+        local_adapter,
         "load_local_esm3_client",
         lambda environment, *, model_name, runtime: client,
     )
     monkeypatch.setattr(
-        implementation,
+        local_adapter,
         "release_local_esm3_client",
         lambda owned: released.append(owned),
     )
@@ -510,29 +633,81 @@ def test_default_local_client_releases_staged_runtime_after_execution(
 
 
 def test_cleanup_failure_does_not_replace_primary_execution_failure(
+    tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    import modules.esm3.implementation as implementation
+    from datatypes import ProteinPrompt, ResidueLayout, ResidueTrack
+    from modules.esm3.adapter import ESM3CallParameters
+    import modules.esm3.local_adapter as local_adapter
 
-    client = object()
-    adapter = object.__new__(implementation.ESM3GenerationImplementation)
-    adapter._owned_local_client = client
+    class FailingClient:
+        @staticmethod
+        def generate(protein: Any, config: Any) -> object:
+            del protein, config
+            raise RuntimeError("fixture provider failed")
+
+    class InvocationResources:
+        @contextmanager
+        def engine_invocation(self, **kwargs: object):
+            del kwargs
+            yield "local-invocation"
+
+    runtime_directory = tmp_path / "runtime"
+    runtime_directory.mkdir()
+    runtime = local_adapter.LocalESM3Runtime(
+        snapshot_path=tmp_path,
+        runtime_directory=runtime_directory,
+        device="cpu",
+        performance_settings={},
+        safe_fingerprint=f"sha256:{'a' * 64}",
+    )
+    client = FailingClient()
+    monkeypatch.setattr(
+        local_adapter,
+        "resolve_local_runtime",
+        lambda environment: runtime,
+    )
+    monkeypatch.setattr(
+        local_adapter,
+        "load_local_esm3_client",
+        lambda environment, *, model_name, runtime: client,
+    )
 
     def fail_cleanup(owned: object) -> None:
         assert owned is client
         raise OSError("fixture cleanup failed")
 
     monkeypatch.setattr(
-        implementation,
+        local_adapter,
         "release_local_esm3_client",
         fail_cleanup,
     )
-    primary = RuntimeError("fixture provider failed")
+    adapter = local_adapter.LocalESM3Adapter(
+        environment={},
+        resources=InvocationResources(),
+        model_name=local_adapter.LOCAL_ESM3_MODEL,
+    )
+    prompt = ProteinPrompt(
+        target_layout=ResidueLayout("A", 3, ["A:1", "A:2", "A:3"]),
+        sequence_track=ResidueTrack([None, "C", "D"], None),
+    )
 
-    adapter._release_owned_local_client(body_error=primary)
+    with pytest.raises(RuntimeError, match="fixture provider failed") as caught:
+        with adapter:
+            adapter.generate_sequence(
+                prompt,
+                parameters=ESM3CallParameters(
+                    num_steps=4,
+                    temperature=1.0,
+                    top_p=1.0,
+                    schedule="cosine",
+                    strategy="random",
+                    temperature_annealing=True,
+                ),
+                derived_call_seed=17,
+            )
 
-    assert adapter._owned_local_client is None
-    assert primary.__notes__ == [
+    assert caught.value.__notes__ == [
         "Local ESM-3 staged-weight cleanup also failed: OSError"
     ]
 

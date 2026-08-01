@@ -32,9 +32,9 @@ from datatypes import (
     PairwiseCandidateMatch,
     ProteinSequence,
 )
-from modules.collection_ops.implementation import CollectionOpsImplementation
 from modules.collection_ops.package import MODULE_PACKAGE
 from tests.fixtures.public_v2 import wait_for_testclient_run_terminal
+from tests.fixtures.scientific_operation import build_operation, operation_call
 
 
 VERSION = "2.1.0"
@@ -320,15 +320,24 @@ def test_all_collection_nodes_pass_the_shared_contract_test_kit(
 
 
 @pytest.mark.parametrize(
-    ("subject_parent_ids", "include_surplus_reference"),
     (
-        (["parent", "unexpected-parent"], False),
-        (["parent"], True),
+        "subject_parent_ids",
+        "include_surplus_reference",
+        "expected_message",
+    ),
+    (
+        (
+            ["parent", "unexpected-parent"],
+            False,
+            "exactly one total parent",
+        ),
+        (["parent"], True, "not complete for all references"),
     ),
 )
 def test_pairing_rebinding_rejects_nonexact_lineage_and_reference_sets(
     subject_parent_ids: list[str],
     include_surplus_reference: bool,
+    expected_message: str,
 ) -> None:
     catalog = build_discovered_frozen_catalog()
     sequence_codec = catalog.require_port_type("protein.sequence", VERSION)
@@ -377,15 +386,18 @@ def test_pairing_rebinding_rejects_nonexact_lineage_and_reference_sets(
         ]),
     }
 
-    with pytest.raises(ValueError):
-        CollectionOpsImplementation(
-            "rebind_candidate_pairing",
+    with pytest.raises(ValueError, match=expected_message):
+        build_operation(
             catalog,
-        ).execute(
+            "collection_ops.rebind_candidate_pairing.direct",
+            None,
+        ).execute(operation_call(
+            catalog=catalog,
+            binding_id="collection_ops.rebind_candidate_pairing.direct",
             inputs=inputs,
             node_parameters={},
             binding_parameters={},
-        )
+        ))
 
 
 def _run_public_collection_workflow(
@@ -629,14 +641,14 @@ def test_public_candidate_concatenation_preserves_exact_input_candidates(
     right = first_values[("source-b", "candidates")]
     concatenated = first_values[("collection-op", "candidates")]
 
-    assert concatenated.items == [*left.items, *right.items]
+    assert concatenated.items == (*left.items, *right.items)
     assert [item.candidate_id for item in concatenated.items] == [
         *[item.candidate_id for item in left.items],
         *[item.candidate_id for item in right.items],
     ]
-    assert concatenated.items[1].parent_ids == [
-        concatenated.items[0].candidate_id
-    ]
+    assert concatenated.items[1].parent_ids == (
+        concatenated.items[0].candidate_id,
+    )
     assert [
         (
             item.metadata["producer_result_identity"],
@@ -685,7 +697,7 @@ def test_public_score_merge_preserves_observation_identity_and_partitions(
     right = first_values[("source-b", "scores")]
     merged = first_values[("collection-op", "scores")]
 
-    assert merged.entries == [*left.entries, *right.entries]
+    assert merged.entries == (*left.entries, *right.entries)
     assert [
         (
             entry.identity,
@@ -745,7 +757,7 @@ def test_public_optional_score_inputs_distinguish_empty_from_absent(
             catalog,
             empty_first,
         )[("collection-op", "scores")].entries
-        == []
+        == ()
     )
 
     _, absent_first, absent_replay, _ = (

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Iterable, Mapping
 from dataclasses import dataclass, field, fields, is_dataclass
 from datetime import datetime, timezone
 from functools import lru_cache
@@ -42,12 +42,14 @@ from datatypes import (
     ScoreObservation,
     StructureAlignment,
 )
+from datatypes.i_json import FrozenList, freeze_i_json, thaw_i_json
 
 
 CONTRACT_NAMESPACE = "protein-workbench-contract/v2"
 CATALOG_NAMESPACE = "protein-workbench-catalog/v2"
 PORT_VALUE_NAMESPACE = "protein-workbench-port-value/v2"
 PORT_TYPE_VERSION = "2.1.0"
+PROTEIN_STRUCTURE_PORT_TYPE_VERSION = "3.0.0"
 _I_JSON_INTEGER_LIMIT = 9_007_199_254_740_991
 _IDENTIFIER = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.:/+-]*$")
 _SEMANTIC_VERSION = re.compile(
@@ -63,8 +65,67 @@ class UnknownPortTypeError(LookupError):
     """An exact Port Type identity is not present in the FrozenCatalog."""
 
 
+class ContractResolutionError(LookupError):
+    """An exact Contract identity cannot resolve in the active Catalog."""
+
+
+class UnknownContractError(ContractResolutionError):
+    """No active Catalog contract has the requested logical identity."""
+
+    def __init__(
+        self,
+        contract_kind: str,
+        contract_id: str,
+        requested_version: str,
+    ) -> None:
+        self.contract_kind = contract_kind
+        self.contract_id = contract_id
+        self.requested_version = requested_version
+        super().__init__(
+            f"Unknown contract {contract_kind}:"
+            f"{contract_id}@{requested_version}"
+        )
+
+
+class InactiveContractGenerationError(ContractResolutionError):
+    """A logical contract exists, but its requested version is not active."""
+
+    def __init__(
+        self,
+        contract_kind: str,
+        contract_id: str,
+        requested_version: str,
+        active_version: str,
+    ) -> None:
+        self.contract_kind = contract_kind
+        self.contract_id = contract_id
+        self.requested_version = requested_version
+        self.active_version = active_version
+        super().__init__(
+            f"Requested contract version {contract_kind}:"
+            f"{contract_id}@{requested_version} is not active; active version is "
+            f"{active_version}"
+        )
+
+
 class PortValueError(ValueError):
     """A runtime Port value violates its nominal validation or codec contract."""
+
+
+def _require_single_active_contract_version(
+    identities: Iterable[tuple[str, str, str]],
+) -> None:
+    active_versions: dict[tuple[str, str], str] = {}
+    for contract_kind, contract_id, contract_version in identities:
+        logical_identity = (contract_kind, contract_id)
+        active_version = active_versions.get(logical_identity)
+        if active_version is not None and active_version != contract_version:
+            raise CatalogBuildError(
+                "multiple active versions for contract "
+                f"{contract_kind}:{contract_id}: "
+                f"{active_version} and {contract_version}"
+            )
+        active_versions[logical_identity] = contract_version
 
 
 def _validate_identifier(value: str, field_name: str) -> None:
@@ -119,9 +180,10 @@ def _validate_i_json(value: Any, *, path: str = "$") -> None:
 
 def canonical_json_bytes(value: Any) -> bytes:
     """Return RFC 8785 canonical UTF-8 after enforcing Workbench I-JSON."""
-    _validate_i_json(value)
+    projected = thaw_i_json(value)
+    _validate_i_json(projected)
     try:
-        return rfc8785.dumps(value)
+        return rfc8785.dumps(projected)
     except (rfc8785.CanonicalizationError, UnicodeError) as error:
         raise CatalogBuildError("value cannot be canonicalized with RFC 8785") from error
 
@@ -129,24 +191,6 @@ def canonical_json_bytes(value: Any) -> bytes:
 def canonical_sha256(value: Any) -> str:
     """Return the public digest of canonical I-JSON bytes."""
     return f"sha256:{hashlib.sha256(canonical_json_bytes(value)).hexdigest()}"
-
-
-def _freeze_i_json(value: Any) -> Any:
-    if isinstance(value, Mapping):
-        return MappingProxyType(
-            {key: _freeze_i_json(item) for key, item in value.items()}
-        )
-    if isinstance(value, list):
-        return tuple(_freeze_i_json(item) for item in value)
-    return value
-
-
-def _thaw_i_json(value: Any) -> Any:
-    if isinstance(value, Mapping):
-        return {key: _thaw_i_json(item) for key, item in value.items()}
-    if isinstance(value, tuple):
-        return [_thaw_i_json(item) for item in value]
-    return value
 
 
 _DATACLASS_BY_TAG = {
@@ -246,8 +290,8 @@ def _require_runtime_type(
             _require_runtime_type(item, item_type, path=f"{path}[{index}]")
         return
 
-    if origin is dict or expected is dict:
-        if type(value) is not dict:
+    if origin in (dict, Mapping) or expected in (dict, Mapping):
+        if not isinstance(value, Mapping):
             raise PortValueError(f"{path} must be an object mapping")
         key_type, item_type = arguments if arguments else (Any, Any)
         for key, item in value.items():
@@ -255,8 +299,22 @@ def _require_runtime_type(
             _require_runtime_type(item, item_type, path=f"{path}[{key!r}]")
         return
 
-    if origin is tuple:
-        if type(value) is not tuple or len(value) != len(arguments):
+    if origin is tuple or expected is tuple:
+        if not isinstance(value, tuple):
+            raise PortValueError(f"{path} must be a tuple")
+        if not arguments:
+            for index, item in enumerate(value):
+                _value_to_wire(item, path=f"{path}[{index}]")
+            return
+        if len(arguments) == 2 and arguments[1] is Ellipsis:
+            for index, item in enumerate(value):
+                _require_runtime_type(
+                    item,
+                    arguments[0],
+                    path=f"{path}[{index}]",
+                )
+            return
+        if arguments and len(value) != len(arguments):
             raise PortValueError(
                 f"{path} must be a {len(arguments)}-item tuple"
             )
@@ -777,7 +835,7 @@ def _value_to_wire(value: Any, *, path: str = "$.value") -> Any:
         except CatalogBuildError as error:
             raise PortValueError(str(error)) from error
         return value
-    if isinstance(value, list):
+    if isinstance(value, (list, FrozenList)):
         return [
             _value_to_wire(item, path=f"{path}[{index}]")
             for index, item in enumerate(value)
@@ -790,6 +848,10 @@ def _value_to_wire(value: Any, *, path: str = "$.value") -> Any:
             ]
         }
     if isinstance(value, Mapping):
+        if any(type(key) is not str for key in value):
+            raise PortValueError(
+                f"{path} contains a non-string I-JSON object key"
+            )
         entries = [
             [
                 _value_to_wire(key, path=f"{path}.<key>"),
@@ -903,6 +965,10 @@ def _wire_to_value(value: Any, *, path: str = "$.value") -> Any:
         for index, entry in enumerate(value["$map"]):
             key = _wire_to_value(entry[0], path=f"{path}.$map[{index}][0]")
             item = _wire_to_value(entry[1], path=f"{path}.$map[{index}][1]")
+            if type(key) is not str:
+                raise PortValueError(
+                    f"{path}.$map contains a non-string I-JSON object key"
+                )
             try:
                 if key in result:
                     raise PortValueError(
@@ -982,14 +1048,14 @@ class BehaviorReference:
         _validate_version(self.behavior_version, "behavior_version")
         parameters = dict(self.parameters)
         canonical_json_bytes(parameters)
-        object.__setattr__(self, "parameters", _freeze_i_json(parameters))
+        object.__setattr__(self, "parameters", freeze_i_json(parameters))
 
     def descriptor(self) -> dict[str, Any]:
         """Return the closed public declaration without a Python callable."""
         return {
             "behavior_id": self.behavior_id,
             "behavior_version": self.behavior_version,
-            "parameters": _thaw_i_json(self.parameters),
+            "parameters": thaw_i_json(self.parameters),
         }
 
 
@@ -1249,6 +1315,10 @@ class FrozenCatalog:
         init=False,
         repr=False,
     )
+    _active_contract_versions: Mapping[tuple[str, str], str] = field(
+        init=False,
+        repr=False,
+    )
 
     def __post_init__(self) -> None:
         resolved: dict[tuple[str, str], PortTypeDefinition] = {}
@@ -1295,6 +1365,22 @@ class FrozenCatalog:
                     "duplicate contract identity "
                     f"{identity[0]}:{identity[1]}@{identity[2]}"
                 )
+            contracts_by_identity[identity] = contract
+        _require_single_active_contract_version(
+            (
+                "port_type",
+                definition.type_id,
+                definition.version,
+            )
+            for definition in ordered
+        )
+        _require_single_active_contract_version(contracts_by_identity)
+        for contract in ordered_contracts:
+            identity = (
+                contract.contract_kind,
+                contract.contract_id,
+                contract.contract_version,
+            )
             canonical_json_bytes(contract.public_contract())
             if identity[0] in {"node_type", "binding"}:
                 declaration_field = (
@@ -1320,7 +1406,6 @@ class FrozenCatalog:
                     )
                 except ParameterContractDefinitionError as error:
                     raise CatalogBuildError(str(error)) from error
-            contracts_by_identity[identity] = contract
         observation_time = self.availability_observed_at
         if (
             not isinstance(observation_time, datetime)
@@ -1331,17 +1416,34 @@ class FrozenCatalog:
                 "Catalog Availability observation time must be timezone-aware"
             )
         frozen_availability = tuple(
-            _freeze_i_json(_thaw_i_json(snapshot))
+            freeze_i_json(thaw_i_json(snapshot))
             for snapshot in self.availability
         )
         canonical_json_bytes(
-            [_thaw_i_json(snapshot) for snapshot in frozen_availability]
+            [thaw_i_json(snapshot) for snapshot in frozen_availability]
         )
         object.__setattr__(self, "contracts", ordered_contracts)
         object.__setattr__(
             self,
             "_contracts_by_identity",
             MappingProxyType(contracts_by_identity),
+        )
+        active_contract_versions = {
+            ("port_type", definition.type_id): definition.version
+            for definition in ordered
+        }
+        active_contract_versions.update(
+            {
+                (contract_kind, contract_id): contract_version
+                for contract_kind, contract_id, contract_version in (
+                    contracts_by_identity
+                )
+            }
+        )
+        object.__setattr__(
+            self,
+            "_active_contract_versions",
+            MappingProxyType(active_contract_versions),
         )
         object.__setattr__(self, "availability", frozen_availability)
         object.__setattr__(
@@ -1470,9 +1572,20 @@ class FrozenCatalog:
             contract_version,
         )
         if contract is None:
-            raise CatalogBuildError(
-                f"Unknown contract {contract_kind}:"
-                f"{contract_id}@{contract_version}"
+            active_version = self._active_contract_versions.get(
+                (contract_kind, contract_id)
+            )
+            if active_version is None:
+                raise UnknownContractError(
+                    contract_kind,
+                    contract_id,
+                    contract_version,
+                )
+            raise InactiveContractGenerationError(
+                contract_kind,
+                contract_id,
+                contract_version,
+                active_version,
             )
         return contract
 
@@ -1545,7 +1658,7 @@ class FrozenCatalog:
         timestamp = timestamp.astimezone(timezone.utc)
         timestamp_text = timestamp.isoformat().replace("+00:00", "Z")
         availability = [
-            _thaw_i_json(snapshot)
+            thaw_i_json(snapshot)
             for snapshot in self.availability
         ]
         if observed_at is not None:
@@ -1582,14 +1695,19 @@ _BUILTIN_VALUE_KINDS = (
 )
 
 
-def _builtin_port_type(type_id: str, value_kind: str) -> PortTypeDefinition:
+def _builtin_port_type(
+    type_id: str,
+    value_kind: str,
+    *,
+    version: str = PORT_TYPE_VERSION,
+) -> PortTypeDefinition:
     behavior_prefix = f"protein-workbench.port-type/{type_id}"
     return PortTypeDefinition(
         type_id=type_id,
-        version=PORT_TYPE_VERSION,
+        version=version,
         validator=BehaviorReference(
             behavior_id=f"{behavior_prefix}/validate",
-            behavior_version=PORT_TYPE_VERSION,
+            behavior_version=version,
             parameters={
                 "accepted_value_kind": value_kind,
                 "complete_values_only": True,
@@ -1597,7 +1715,7 @@ def _builtin_port_type(type_id: str, value_kind: str) -> PortTypeDefinition:
         ),
         codec=BehaviorReference(
             behavior_id=f"{behavior_prefix}/canonical-json-codec",
-            behavior_version=PORT_TYPE_VERSION,
+            behavior_version=version,
             parameters={
                 "canonicalization": "RFC 8785",
                 "character_encoding": "UTF-8",
@@ -1607,7 +1725,7 @@ def _builtin_port_type(type_id: str, value_kind: str) -> PortTypeDefinition:
         ),
         content_identity=BehaviorReference(
             behavior_id=f"{behavior_prefix}/content-sha256",
-            behavior_version=PORT_TYPE_VERSION,
+            behavior_version=version,
             parameters={
                 "digest_algorithm": "SHA-256",
                 "digest_input": "canonical_codec_bytes",
@@ -1624,7 +1742,15 @@ def builtin_frozen_catalog() -> FrozenCatalog:
     """Build and cache the repository-owned built-in Port Type Catalog."""
     return FrozenCatalog(
         tuple(
-            _builtin_port_type(type_id, value_kind)
+            _builtin_port_type(
+                type_id,
+                value_kind,
+                version=(
+                    PROTEIN_STRUCTURE_PORT_TYPE_VERSION
+                    if type_id == "protein.structure"
+                    else PORT_TYPE_VERSION
+                ),
+            )
             for type_id, value_kind in _BUILTIN_VALUE_KINDS
         )
     )

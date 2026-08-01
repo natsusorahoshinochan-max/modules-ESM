@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping
 from typing import Any
 
 from core import (
@@ -12,11 +11,13 @@ from core import (
     ContractIdentity,
     DefinitionResource,
     ExecutionBindingDefinition,
-    LazyImplementationFactory,
     MethodDefinition,
     ModulePackageRegistration,
+    OperationCall,
+    OperationContext,
     ReadinessDeclaration,
     ReadinessResult,
+    ScientificOperationFactory,
 )
 from datatypes import (
     FunctionAnnotations,
@@ -33,13 +34,10 @@ class _Source:
     def __init__(self, run_resources: Any) -> None:
         self._run_resources = run_resources
 
-    def execute(
-        self,
-        *,
-        inputs: Mapping[str, Any],
-        node_parameters: Mapping[str, Any],
-        binding_parameters: Mapping[str, Any],
-    ) -> dict[str, Any]:
+    def execute(self, call: OperationCall) -> dict[str, Any]:
+        inputs = call.inputs
+        node_parameters = call.node_parameters
+        binding_parameters = call.binding_parameters
         if inputs or set(node_parameters) != {"mode"} or binding_parameters:
             raise ValueError("ESM-3 prompt source accepts only resolved mode")
         mode = node_parameters["mode"]
@@ -69,9 +67,7 @@ class _Source:
                 None,
             )
             visibility_track = ResidueTrack([True, False, False], None)
-        with self._run_resources.engine_invocation(
-            engine_identity="contract_test.esm3_prompt_source.method/2.1.0",
-        ):
+        with self._run_resources.engine_invocation():
             prompt = ProteinPrompt(
                 target_layout=ResidueLayout(
                     chain_id="A",
@@ -88,8 +84,8 @@ class _Source:
         return {"protein_prompt": prompt}
 
 
-def _build(**kwargs: object) -> object:
-    return _Source(kwargs["run_resources"])
+def _build(context: OperationContext) -> object:
+    return _Source(context.resources)
 
 
 MODULE_PACKAGE = ModulePackageRegistration(
@@ -126,7 +122,7 @@ MODULE_PACKAGE = ModulePackageRegistration(
             ),
             binding_parameters={},
             execution_route="direct",
-            factory=LazyImplementationFactory(
+            factory=ScientificOperationFactory(
                 behavior=BehaviorReference(
                     "contract_test.esm3_prompt_source/factory",
                     _VERSION,

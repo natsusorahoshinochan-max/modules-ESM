@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from contextlib import contextmanager
+from dataclasses import FrozenInstanceError, replace
 import math
 from pathlib import Path
 from types import SimpleNamespace
@@ -11,8 +13,10 @@ import pytest
 
 from core import (
     EnvironmentConfiguration,
+    InputContentDigests,
     ModulePackageContractCase,
     ModulePackagePortCase,
+    OperationCall,
     ProjectManager,
     ReadinessCheckInput,
     ResultReplaySource,
@@ -30,10 +34,12 @@ from core import (
 from core.port_types import canonical_json_bytes
 from core.workflow_v2 import WorkflowEdge
 from datatypes import (
+    ExactContractReference,
     FunctionAnnotation,
     FunctionAnnotations,
     ProteinPrompt,
     ProteinSequence,
+    ProteinStructure,
     ResidueLayout,
     ResidueTrack,
 )
@@ -64,9 +70,9 @@ def test_esm_package_owns_generation_and_direct_esmc_representation_nodes() -> N
         and "esm3" in catalog.owners[(kind, contract_id, version)]
     }
     assert owned_nodes == {
-        ("esm3.generate_sequence", "2.1.0"),
-        ("esm3.generate_structure", "2.1.0"),
-        ("esm3.generate_paired", "2.1.0"),
+        ("esm3.generate_sequence", "3.0.0"),
+        ("esm3.generate_structure", "3.0.0"),
+        ("esm3.generate_paired", "3.0.0"),
         ("esm3.represent_sequence", "2.1.0"),
     }
 
@@ -87,7 +93,7 @@ def test_esm_package_owns_generation_and_direct_esmc_representation_nodes() -> N
     binding = catalog.require_contract(
         "binding",
         "esm3.represent_sequence.biohub_esmc_600m_2024_12",
-        "2.1.0",
+        "2.2.0",
     )
     assert binding.descriptor["method"]["contract_id"] == (
         "esm3.represent_sequence.esmc_600m_2024_12"
@@ -146,7 +152,7 @@ def test_esm_package_owns_generation_and_direct_esmc_representation_nodes() -> N
         node = catalog.require_contract(
             "node_type",
             f"esm3.{operation}",
-            "2.1.0",
+            "3.0.0",
         )
         assert "model_name" not in node.descriptor["node_parameters"]
         if operation in {"generate_sequence", "generate_paired"}:
@@ -160,7 +166,7 @@ def test_esm_package_owns_generation_and_direct_esmc_representation_nodes() -> N
             binding = catalog.require_contract(
                 "binding",
                 f"esm3.{operation}.{route}",
-                "2.1.0",
+                "3.0.0",
             )
             assert "model_name" not in (
                 binding.descriptor["binding_parameters"]
@@ -250,9 +256,9 @@ def test_direct_esmc_representation_crosses_public_run_and_engine_seams(
             WorkflowNodeInstance(
                 node_id="import",
                 node_type_id="protein_io.import_sequence",
-                node_type_version="2.1.0",
+                node_type_version="3.0.0",
                 binding_id="protein_io.import_sequence.direct",
-                binding_version="2.1.0",
+                binding_version="3.0.0",
                 node_parameters={"project_input_ref": "sequence.fasta"},
                 binding_parameters={},
             ),
@@ -263,7 +269,7 @@ def test_direct_esmc_representation_crosses_public_run_and_engine_seams(
                 binding_id=(
                     "esm3.represent_sequence.biohub_esmc_600m_2024_12"
                 ),
-                binding_version="2.1.0",
+                binding_version="2.2.0",
                 node_parameters={},
                 binding_parameters={},
             ),
@@ -291,7 +297,7 @@ def test_direct_esmc_representation_crosses_public_run_and_engine_seams(
     environment = EnvironmentConfiguration({
         (
             "esm3.represent_sequence.biohub_esmc_600m_2024_12",
-            "2.1.0",
+            "2.2.0",
         ): {
             "values": {
                 "endpoint_id": "biohub",
@@ -334,13 +340,26 @@ def test_direct_esmc_representation_crosses_public_run_and_engine_seams(
         event["event"]
         for event in events
         if event["event"]["type"] == "engine_invocation_started"
-        and event["event"]["engine_identity"].startswith("esmc.biohub.")
+        and event["event"]["engine_role"]
+        in {"sequence_encode", "sequence_logits"}
     ]
+    method = catalog.require_contract(
+        "method",
+        "esm3.represent_sequence.esmc_600m_2024_12",
+        "2.1.0",
+    )
+    assert {event["engine_identity"] for event in started} == {
+        method.contract_digest
+    }
     assert [event["engine_role"] for event in started] == [
         "sequence_encode",
         "sequence_logits",
     ]
-    assert all("parent_invocation_id" not in event for event in started)
+    encode_started, logits_started = started
+    assert "parent_invocation_id" not in encode_started
+    assert logits_started["parent_invocation_id"] == (
+        encode_started["invocation_id"]
+    )
     terminals = [
         event["event"]
         for event in events
@@ -425,6 +444,74 @@ def test_exact_esmc_rejects_contract_mismatched_feature_dimensions() -> None:
             result(1152, 63),
             model_name="esmc-600m-2024-12",
         )
+
+
+def test_biohub_esmc_adapter_owns_both_sdk_calls_and_result_admission() -> None:
+    import torch
+
+    from modules.esm3.domain import ESMCSequenceRepresentation
+    from modules.esm3.esmc_adapter import (
+        BIOHUB_ESMC_MODEL,
+        BiohubESMCAdapter,
+    )
+
+    class ESMCClient:
+        def __init__(self) -> None:
+            self.calls: list[str] = []
+
+        def encode(self, protein: object) -> object:
+            self.calls.append("encode")
+            return SimpleNamespace(sequence=protein)
+
+        def logits(self, encoded: object, config: object) -> object:
+            del encoded, config
+            self.calls.append("logits")
+            return SimpleNamespace(
+                logits=SimpleNamespace(sequence=torch.zeros((5, 64))),
+                mean_embedding=torch.zeros((1152,)),
+            )
+
+    class InvocationResources:
+        def __init__(self) -> None:
+            self.invocations: list[dict[str, object]] = []
+
+        @contextmanager
+        def engine_invocation(self, **kwargs: object):
+            self.invocations.append(dict(kwargs))
+            yield f"esmc-invocation-{len(self.invocations)}"
+
+    client = ESMCClient()
+    resources = InvocationResources()
+    adapter = BiohubESMCAdapter(
+        environment={
+            "endpoint_id": "biohub",
+            "credential_handle": object(),
+            "provider_client": client,
+        },
+        resources=resources,
+        model_name=BIOHUB_ESMC_MODEL,
+    )
+
+    result = adapter.represent(
+        ProteinSequence("ACD", ["A:1", "A:2", "A:3"])
+    )
+
+    assert result == ESMCSequenceRepresentation(
+        sequence="ACD",
+        residue_ids=("A:1", "A:2", "A:3"),
+        mean_embedding=(0.0,) * 1152,
+        sequence_logits_shape=(5, 64),
+    )
+    assert client.calls == ["encode", "logits"]
+    assert resources.invocations == [
+        {
+            "engine_role": "sequence_encode",
+        },
+        {
+            "engine_role": "sequence_logits",
+            "parent_invocation_id": "esmc-invocation-1",
+        },
+    ]
 
 
 def test_adapter_preserves_every_representable_prompt_track_and_symbol() -> None:
@@ -512,9 +599,298 @@ def test_adapter_preserves_every_representable_prompt_track_and_symbol() -> None
         is provider.function_annotations
     )
 
-    prompt.sequence_track.values[0] = "J"
+    with pytest.raises(TypeError, match="does not support item assignment"):
+        prompt.sequence_track.values[0] = "J"
+    assert prompt.sequence_track.values == (
+        "A",
+        "B",
+        "Z",
+        "U",
+        "O",
+        "X",
+        None,
+        "G",
+    )
+    assert protein_prompt_to_provider(prompt).sequence == provider.sequence
+
+    invalid_prompt = replace(
+        prompt,
+        sequence_track=ResidueTrack(
+            ("J", "B", "Z", "U", "O", "X", None, "G"),
+            None,
+        ),
+    )
     with pytest.raises(ValueError, match="cannot represent sequence symbol 'J'"):
-        protein_prompt_to_provider(prompt)
+        protein_prompt_to_provider(invalid_prompt)
+
+
+def test_biohub_adapter_admits_a_frozen_provider_independent_sequence_result(
+) -> None:
+    from modules.esm3.adapter import (
+        BIOHUB_ESM3_MEDIUM_MODEL,
+        BiohubESM3Adapter,
+        ESM3CallParameters,
+        ESM3SequenceResult,
+    )
+
+    class InvocationResources:
+        def __init__(self) -> None:
+            self.invocations: list[dict[str, object]] = []
+
+        @contextmanager
+        def engine_invocation(self, **kwargs: object):
+            self.invocations.append(dict(kwargs))
+            yield "invocation-1"
+
+    client = _ProviderClient([_ProviderResponse("ACD")])
+    resources = InvocationResources()
+    adapter = BiohubESM3Adapter(
+        environment={
+            "endpoint_id": "biohub",
+            "credential_handle": object(),
+            "provider_client": client,
+        },
+        resources=resources,
+        model_name=BIOHUB_ESM3_MEDIUM_MODEL,
+    )
+    prompt = ProteinPrompt(
+        target_layout=ResidueLayout("A", 3, ["A:1", "A:2", "A:3"]),
+        sequence_track=ResidueTrack([None, "C", "D"], None),
+    )
+
+    with adapter:
+        result = adapter.generate_sequence(
+            prompt,
+            parameters=ESM3CallParameters(
+                num_steps=4,
+                temperature=1.0,
+                top_p=1.0,
+                schedule="cosine",
+                strategy="random",
+                temperature_annealing=True,
+            ),
+            derived_call_seed=17,
+        )
+
+    assert result == ESM3SequenceResult(
+        sequence=ProteinSequence("ACD", ["A:1", "A:2", "A:3"]),
+        reconstruction=None,
+        confidence=None,
+        effective_num_steps=4,
+        effective_call_seed=None,
+    )
+    assert resources.invocations == [
+        {
+            "engine_role": "sequence_sample",
+            "parent_invocation_id": None,
+            "invocation_provenance": {
+                "effective_randomness": {
+                    "control": "provider_uncontrolled",
+                }
+            },
+        }
+    ]
+    assert [call[1].track for call in client.calls] == ["sequence"]
+    with pytest.raises(FrozenInstanceError):
+        result.reconstruction = object()  # type: ignore[misc]
+
+
+def test_biohub_adapter_preserves_paired_engine_causality_and_confidence(
+) -> None:
+    import torch
+
+    from modules.esm3.adapter import (
+        BIOHUB_ESM3_MEDIUM_MODEL,
+        BiohubESM3Adapter,
+        ESM3CallParameters,
+        ESM3Confidence,
+        ESM3PairResult,
+        ESM3SequenceResult,
+        ESM3StructureResult,
+    )
+
+    class InvocationResources:
+        def __init__(self) -> None:
+            self.invocations: list[dict[str, object]] = []
+
+        @contextmanager
+        def engine_invocation(self, **kwargs: object):
+            self.invocations.append(dict(kwargs))
+            yield f"invocation-{len(self.invocations)}"
+
+    sequence_response = _ProviderResponse("ACD")
+    structure_response = _ProviderResponse(
+        "ACD",
+        coordinates=torch.zeros((3, 37, 3)),
+        ptm=torch.tensor(0.75),
+        plddt=torch.tensor([0.7, 0.8, 0.9]),
+        pae=torch.tensor(
+            [
+                [0.0, 1.0, 2.0],
+                [1.0, 0.0, 1.0],
+                [2.0, 1.0, 0.0],
+            ]
+        ),
+        pdb_string=_three_residue_pdb(),
+    )
+    resources = InvocationResources()
+    adapter = BiohubESM3Adapter(
+        environment={
+            "endpoint_id": "biohub",
+            "credential_handle": object(),
+            "provider_client": _ProviderClient(
+                [sequence_response, structure_response]
+            ),
+        },
+        resources=resources,
+        model_name=BIOHUB_ESM3_MEDIUM_MODEL,
+    )
+    prompt = ProteinPrompt(
+        target_layout=ResidueLayout("A", 3, ["A:1", "A:2", "A:3"]),
+        sequence_track=ResidueTrack([None, "C", "D"], None),
+    )
+    parameters = ESM3CallParameters(
+        num_steps=4,
+        temperature=1.0,
+        top_p=1.0,
+        schedule="cosine",
+        strategy="random",
+        temperature_annealing=True,
+    )
+
+    with adapter:
+        result = adapter.generate_pair(
+            prompt,
+            parameters=parameters,
+            sequence_derived_call_seed=17,
+            structure_derived_call_seed=23,
+        )
+
+    assert type(result) is ESM3PairResult
+    assert result.sequence == ESM3SequenceResult(
+        sequence=ProteinSequence("ACD", ["A:1", "A:2", "A:3"]),
+        reconstruction=None,
+        confidence=None,
+        effective_num_steps=4,
+        effective_call_seed=None,
+    )
+    assert type(result.structure) is ESM3StructureResult
+    assert result.structure.structure == ProteinStructure(
+        _three_residue_pdb(),
+    )
+    assert type(result.structure.confidence) is ESM3Confidence
+    confidence = result.structure.confidence
+    assert confidence.ptm == pytest.approx(0.75)
+    assert confidence.plddt_per_residue == pytest.approx((70.0, 80.0, 90.0))
+    assert confidence.pae == (
+        (0.0, 1.0, 2.0),
+        (1.0, 0.0, 1.0),
+        (2.0, 1.0, 0.0),
+    )
+    assert result.structure.effective_num_steps == 4
+    assert result.structure.effective_call_seed is None
+    assert resources.invocations == [
+        {
+            "engine_role": "sequence_parent",
+            "parent_invocation_id": None,
+            "invocation_provenance": {
+                "effective_randomness": {
+                    "control": "provider_uncontrolled",
+                }
+            },
+        },
+        {
+            "engine_role": "structure_child",
+            "parent_invocation_id": "invocation-1",
+            "invocation_provenance": {
+                "effective_randomness": {
+                    "control": "provider_uncontrolled",
+                }
+            },
+        },
+    ]
+
+
+def test_esm3_call_seed_uses_prompt_content_and_stable_sample_track_slot() -> None:
+    from modules.esm3.adapter import ESM3SequenceResult
+    from modules.esm3.implementation import ESM3GenerationOperation
+
+    class RecordingAdapter:
+        def __init__(self) -> None:
+            self.seeds: list[int] = []
+
+        def __enter__(self) -> RecordingAdapter:
+            return self
+
+        def __exit__(self, *args: object) -> None:
+            del args
+
+        def generate_sequence(
+            self,
+            prompt: ProteinPrompt,
+            *,
+            parameters: object,
+            derived_call_seed: int,
+        ) -> ESM3SequenceResult:
+            del prompt, parameters
+            self.seeds.append(derived_call_seed)
+            return ESM3SequenceResult(
+                sequence=ProteinSequence("ACD"),
+                reconstruction=None,
+                confidence=None,
+                effective_num_steps=4,
+                effective_call_seed=derived_call_seed,
+            )
+
+    prompt = ProteinPrompt(
+        target_layout=ResidueLayout("A", 3, ["A:1", "A:2", "A:3"]),
+        sequence_track=ResidueTrack([None, "C", "D"], None),
+    )
+
+    def observed(content_digest: str) -> tuple[int, ...]:
+        adapter = RecordingAdapter()
+        operation = ESM3GenerationOperation(
+            adapter=adapter,
+            operation="generate_sequence",
+            method=ExactContractReference(
+                "method",
+                "esm3.generate_sequence.fixture",
+                "3.0.0",
+                "sha256:" + "3" * 64,
+            ),
+            produced_observations=(),
+        )
+        operation.execute(
+            OperationCall(
+                inputs={"protein_prompt": prompt},
+                node_parameters={
+                    "effective_seed": 1603,
+                    "num_samples": 2,
+                    "num_steps": 4,
+                    "temperature": 1.0,
+                    "top_p": 1.0,
+                    "schedule": "cosine",
+                    "strategy": "random",
+                    "temperature_annealing": True,
+                },
+                binding_parameters={},
+                input_content_digests={
+                    "protein_prompt": InputContentDigests(
+                        port_type_id="protein.prompt",
+                        value_content_digests=(content_digest,),
+                    )
+                },
+            )
+        )
+        return tuple(adapter.seeds)
+
+    first = observed("sha256:" + "a" * 64)
+    repeated = observed("sha256:" + "a" * 64)
+    changed_content = observed("sha256:" + "b" * 64)
+
+    assert first == repeated
+    assert first[0] != first[1]
+    assert first != changed_content
 
 
 class _ProviderResponse:
@@ -637,9 +1013,9 @@ def _run_generation(
                 WorkflowNodeInstance(
                     node_id="import_sequence",
                     node_type_id="protein_io.import_sequence",
-                    node_type_version="2.1.0",
+                    node_type_version="3.0.0",
                     binding_id="protein_io.import_sequence.direct",
-                    binding_version="2.1.0",
+                    binding_version="3.0.0",
                     node_parameters={"project_input_ref": "sequence-input"},
                     binding_parameters={},
                 ),
@@ -708,9 +1084,9 @@ def _run_generation(
         WorkflowNodeInstance(
             node_id="generate",
             node_type_id=f"esm3.{operation}",
-            node_type_version="2.1.0",
+            node_type_version="3.0.0",
             binding_id=f"esm3.{operation}.{binding_route}",
-            binding_version="2.1.0",
+            binding_version="3.0.0",
             node_parameters=resolved_generation_parameters,
             binding_parameters={},
         )
@@ -766,7 +1142,7 @@ def _run_generation(
     environment_values.update(environment_overrides or {})
     environment = EnvironmentConfiguration(
         {
-            (f"esm3.{operation}.{binding_route}", "2.1.0"): {
+            (f"esm3.{operation}.{binding_route}", "3.0.0"): {
                 "values": environment_values,
                 "safe_fingerprint": (
                     safe_environment_fingerprint
@@ -914,16 +1290,44 @@ def test_open_binding_factory_receives_its_exact_model(
         and item["output_port"] == "sequence_candidates"
     )
     candidates = _decode_output(catalog, output)
-    assert candidates.items[0].metadata["model"] == "esm3-open-2024-03"
+    forbidden = {
+        "provider",
+        "model",
+        "route",
+        "runtime_fingerprint",
+        "checkpoint",
+        "seed_control",
+        "effective_seed",
+        "effective_call_seed",
+    }
+    assert forbidden.isdisjoint(candidates.items[0].metadata)
     assert len(created_with) == 1
     assert created_with[0]["model_name"] == "esm3-open-2024-03"
     assert created_with[0]["endpoint_id"] == "biohub"
     assert created_with[0]["credential_handle"] is not None
-    assert any(
-        event["event"].get("engine_identity")
-        == "esm3.biohub.esm3-open-2024-03.generate_sequence"
-        for event in events
+    binding = catalog.require_contract(
+        "binding",
+        "esm3.generate_sequence.biohub_open",
+        "3.0.0",
     )
+    method = catalog.require_contract(
+        "method",
+        binding.descriptor["method"]["contract_id"],
+        binding.descriptor["method"]["contract_version"],
+    )
+    invocations = [
+        event["event"]
+        for event in events
+        if event["event"]["type"] == "engine_invocation_started"
+        and event["event"]["engine_role"] == "sequence_sample"
+    ]
+    assert len(invocations) == 1
+    assert invocations[0]["engine_identity"] == method.contract_digest
+    assert invocations[0]["invocation_provenance"] == {
+        "effective_randomness": {
+            "control": "provider_uncontrolled",
+        }
+    }
 
 
 def _run_generation_from_prompt_fixture(
@@ -970,9 +1374,9 @@ def _run_generation_from_prompt_fixture(
             WorkflowNodeInstance(
                 node_id="generate",
                 node_type_id=f"esm3.{operation}",
-                node_type_version="2.1.0",
+                node_type_version="3.0.0",
                 binding_id=f"esm3.{operation}.{binding_route}",
-                binding_version="2.1.0",
+                binding_version="3.0.0",
                 node_parameters={
                     "effective_seed": 1603,
                     "num_samples": num_samples,
@@ -1006,7 +1410,7 @@ def _run_generation_from_prompt_fixture(
     )
     environment = EnvironmentConfiguration(
         {
-            (f"esm3.{operation}.{binding_route}", "2.1.0"): {
+            (f"esm3.{operation}.{binding_route}", "3.0.0"): {
                 "values": {
                     "endpoint_id": "biohub",
                     "credential_handle": object(),
@@ -1073,9 +1477,9 @@ def test_coordinate_conditioned_sequence_returns_prompt_reconstruction(
         outputs["confidence_observations"],
     )
     assert len(sequences.items) == len(structures.items) == 1
-    assert structures.items[0].parent_ids == [
-        sequences.items[0].candidate_id
-    ]
+    assert structures.items[0].parent_ids == (
+        sequences.items[0].candidate_id,
+    )
     assert structures.items[0].metadata["classification"] == (
         "prompt_reconstruction"
     )
@@ -1125,9 +1529,9 @@ def test_coordinate_conditioned_paired_generation_retains_reconstruction(
     assert len(sequences.items) == 1
     assert len(reconstructions.items) == 1
     assert len(counterparts.items) == 1
-    assert reconstructions.items[0].parent_ids == [
-        sequences.items[0].candidate_id
-    ]
+    assert reconstructions.items[0].parent_ids == (
+        sequences.items[0].candidate_id,
+    )
     assert reconstructions.items[0].metadata["classification"] == (
         "prompt_reconstruction"
     )
@@ -1170,7 +1574,7 @@ def test_sequence_generation_publishes_ordered_complete_candidates(
         0,
         1,
     ]
-    assert all(candidate.parent_ids == [] for candidate in candidates.items)
+    assert all(candidate.parent_ids == () for candidate in candidates.items)
     assert [call[1].track for call in client.calls] == ["sequence", "sequence"]
     generation_events = [
         event["event"]
@@ -1328,7 +1732,6 @@ def test_structure_generation_normalizes_exact_confidence_before_publication(
     structures = _decode_output(catalog, outputs["structure_candidates"])
     assert len(structures.items) == 1
     assert structures.items[0].data.pdb_string == _three_residue_pdb()
-    assert structures.items[0].data.source == "esm3"
     assert structures.items[0].metadata["classification"] == "sampled_structure"
     observations = _decode_output(
         catalog,
@@ -1339,8 +1742,10 @@ def test_structure_generation_normalizes_exact_confidence_before_publication(
         for observation in observations.entries
     }
     assert by_metric["structure.ptm"].value == pytest.approx(0.8)
-    assert by_metric["structure.plddt.per_residue"].value == pytest.approx(
-        [80.0, 90.0, 100.0]
+    per_residue_plddt = by_metric["structure.plddt.per_residue"].value
+    assert isinstance(per_residue_plddt, tuple)
+    assert per_residue_plddt == pytest.approx(
+        (80.0, 90.0, 100.0)
     )
     assert by_metric["structure.plddt.mean_residue"].value == pytest.approx(
         90.0
@@ -1400,7 +1805,11 @@ def test_structure_generation_publishes_exact_provider_pae_matrix(
     )
     observations = _decode_output(catalog, output)
     assert len(observations.entries) == 1
-    assert observations.entries[0].value == pae.tolist()
+    assert observations.entries[0].value == (
+        (0.0, 31.75, 2.0),
+        (3.0, 4.0, 5.0),
+        (6.0, 7.0, 8.0),
+    )
 
 
 def test_invalid_confidence_fails_after_call_without_publication(
@@ -1496,7 +1905,7 @@ def test_paired_generation_publishes_ten_exact_counterparts_and_real_calls(
     assert [
         structure.parent_ids
         for structure in structures.items
-    ] == [[sequence.candidate_id] for sequence in sequences.items]
+    ] == [(sequence.candidate_id,) for sequence in sequences.items]
     assert [
         (
             entry.subject_candidate_id,
@@ -1561,7 +1970,6 @@ def test_esm3_generation_and_direct_esmc_pass_the_shared_ctk(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     import torch
-    import modules.esm3.implementation as esm3_implementation
     import modules.esm3.local_adapter as local_adapter
     import modules.esm3.package as esm3_package
 
@@ -1623,11 +2031,6 @@ def test_esm3_generation_and_direct_esmc_pass_the_shared_ctk(
         "resolve_local_runtime",
         resolve_local_runtime,
     )
-    monkeypatch.setattr(
-        esm3_implementation,
-        "resolve_local_runtime",
-        resolve_local_runtime,
-    )
 
     def local_environment(client: _ProviderClient) -> dict[str, Any]:
         return {
@@ -1655,15 +2058,20 @@ def test_esm3_generation_and_direct_esmc_pass_the_shared_ctk(
         for _ in range(10)
         for response in (_ProviderResponse("ACD"), structure_response())
     ]
-    common = {
-        "node_type_version": "2.1.0",
-        "binding_version": "2.1.0",
+    generation_common = {
+        "node_type_version": "3.0.0",
+        "binding_version": "3.0.0",
         "binding_parameters": {},
         "safe_environment_fingerprint": "esm3-ctk-fixture-v1",
         "invalidation_token": "esm3-ctk-fixture-v1",
         "forbidden_public_fragments": (
             "ctk-secret-must-not-publish",
         ),
+    }
+    esmc_common = {
+        **generation_common,
+        "node_type_version": "2.1.0",
+        "binding_version": "2.2.0",
     }
 
     class ESMCClient:
@@ -1702,7 +2110,7 @@ def test_esm3_generation_and_direct_esmc_pass_the_shared_ctk(
                 ),
             ),
             expected_candidate_counts={"sequence_candidates": 1},
-            **common,
+            **generation_common,
         ),
         ModulePackageContractCase(
             case_id="structure",
@@ -1723,7 +2131,7 @@ def test_esm3_generation_and_direct_esmc_pass_the_shared_ctk(
             ),
             expected_candidate_counts={"structure_candidates": 1},
             expected_observation_counts={"confidence_observations": 3},
-            **common,
+            **generation_common,
         ),
         ModulePackageContractCase(
             case_id="paired",
@@ -1747,7 +2155,7 @@ def test_esm3_generation_and_direct_esmc_pass_the_shared_ctk(
                 "structure_candidates": 10,
             },
             expected_observation_counts={"confidence_observations": 30},
-            **common,
+            **generation_common,
         ),
         ModulePackageContractCase(
             case_id="sequence-open",
@@ -1767,7 +2175,7 @@ def test_esm3_generation_and_direct_esmc_pass_the_shared_ctk(
                 ),
             ),
             expected_candidate_counts={"sequence_candidates": 1},
-            **common,
+            **generation_common,
         ),
         ModulePackageContractCase(
             case_id="structure-open",
@@ -1788,7 +2196,7 @@ def test_esm3_generation_and_direct_esmc_pass_the_shared_ctk(
             ),
             expected_candidate_counts={"structure_candidates": 1},
             expected_observation_counts={"confidence_observations": 3},
-            **common,
+            **generation_common,
         ),
         ModulePackageContractCase(
             case_id="paired-open",
@@ -1814,7 +2222,7 @@ def test_esm3_generation_and_direct_esmc_pass_the_shared_ctk(
                 "structure_candidates": 1,
             },
             expected_observation_counts={"confidence_observations": 3},
-            **common,
+            **generation_common,
         ),
         ModulePackageContractCase(
             case_id="sequence-local",
@@ -1834,7 +2242,7 @@ def test_esm3_generation_and_direct_esmc_pass_the_shared_ctk(
                 ),
             ),
             expected_candidate_counts={"sequence_candidates": 1},
-            **common,
+            **generation_common,
         ),
         ModulePackageContractCase(
             case_id="structure-local",
@@ -1855,7 +2263,7 @@ def test_esm3_generation_and_direct_esmc_pass_the_shared_ctk(
             ),
             expected_candidate_counts={"structure_candidates": 1},
             expected_observation_counts={"confidence_observations": 3},
-            **common,
+            **generation_common,
         ),
         ModulePackageContractCase(
             case_id="paired-local",
@@ -1881,7 +2289,7 @@ def test_esm3_generation_and_direct_esmc_pass_the_shared_ctk(
                 "structure_candidates": 1,
             },
             expected_observation_counts={"confidence_observations": 3},
-            **common,
+            **generation_common,
         ),
         ModulePackageContractCase(
             case_id="direct-esmc",
@@ -1900,9 +2308,9 @@ def test_esm3_generation_and_direct_esmc_pass_the_shared_ctk(
                 WorkflowNodeInstance(
                     node_id="sequence-source",
                     node_type_id="protein_io.import_sequence",
-                    node_type_version="2.1.0",
+                    node_type_version="3.0.0",
                     binding_id="protein_io.import_sequence.direct",
-                    binding_version="2.1.0",
+                    binding_version="3.0.0",
                     node_parameters={
                         "project_input_ref": "sequence-input",
                     },
@@ -1918,7 +2326,7 @@ def test_esm3_generation_and_direct_esmc_pass_the_shared_ctk(
                 ),
             ),
             project_inputs={"sequence-input": b">ctk\nACD\n"},
-            **common,
+            **esmc_common,
         ),
     )
 

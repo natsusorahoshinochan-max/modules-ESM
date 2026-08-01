@@ -15,14 +15,18 @@ from types import FunctionType
 from typing import Any
 import weakref
 
-from core import ReadinessResult, canonical_sha256
+from core import ReadinessResult, RunResources, canonical_sha256
 from modules.provider_contract import (
     LOCAL_ESM3_SNAPSHOT_REVISION,
     LOCAL_ESM3_WEIGHT_SHA256,
     validate_installed_provider_checkout,
 )
 
-from .adapter import ESM_SDK_REVISION, require_provider_protein
+from .adapter import (
+    ESM_SDK_REVISION,
+    _BaseESM3Adapter,
+    require_provider_protein,
+)
 
 
 LOCAL_ESM3_MODEL = "esm3_sm_open_v1"
@@ -479,3 +483,94 @@ def configured_runtime_fingerprint(
         torch_version=torch_version,
         performance_settings=performance_settings or {},
     )
+
+
+class LocalESM3Adapter(_BaseESM3Adapter):
+    """Translate canonical ESM-3 calls to the pinned local-open runtime."""
+
+    def __init__(
+        self,
+        *,
+        environment: Mapping[str, Any],
+        resources: RunResources,
+        model_name: str,
+    ) -> None:
+        if model_name != LOCAL_ESM3_MODEL:
+            raise ValueError("local ESM-3 model identity is not exact")
+        super().__init__(
+            resources=resources,
+            model_name=model_name,
+            exact_seed_control=True,
+        )
+        self._environment = environment
+        self._resolved_client: Any | None = None
+        self._owned_local_client: Any | None = None
+
+    def _client(self) -> Any:
+        if self._resolved_client is not None:
+            return self._resolved_client
+        runtime = resolve_local_runtime(self._environment)
+        client = self._environment.get("provider_client")
+        if callable(getattr(client, "generate", None)):
+            self._resolved_client = client
+            return client
+        client_factory = self._environment.get("client_factory")
+        if callable(client_factory):
+            client = client_factory(
+                model_name=self._model_name,
+                model_snapshot_path=runtime.snapshot_path,
+                device=runtime.device,
+                runtime_directory=runtime.runtime_directory,
+                performance_settings=dict(runtime.performance_settings),
+            )
+            self._resolved_client = client
+            return client
+        client = load_local_esm3_client(
+            self._environment,
+            model_name=self._model_name,
+            runtime=runtime,
+        )
+        self._owned_local_client = client
+        self._resolved_client = client
+        return client
+
+    def _call_provider(
+        self,
+        client: Any,
+        provider_prompt: Any,
+        config: Any,
+        provider_operation: str,
+        *,
+        effective_call_seed: int | None,
+    ) -> Any:
+        if type(effective_call_seed) is not int:
+            raise RuntimeError("local ESM-3 requires one exact call seed")
+        return call_local_provider(
+            client,
+            provider_prompt,
+            config,
+            provider_operation,
+            effective_seed=effective_call_seed,
+        )
+
+    def __exit__(
+        self,
+        exception_type: object,
+        exception: object,
+        traceback: object,
+    ) -> None:
+        del exception_type, traceback
+        client = self._owned_local_client
+        self._owned_local_client = None
+        self._resolved_client = None
+        if client is None:
+            return
+        try:
+            release_local_esm3_client(client)
+        except BaseException as cleanup_error:
+            if not isinstance(exception, BaseException):
+                raise
+            exception.add_note(
+                "Local ESM-3 staged-weight cleanup also failed: "
+                f"{type(cleanup_error).__name__}"
+            )

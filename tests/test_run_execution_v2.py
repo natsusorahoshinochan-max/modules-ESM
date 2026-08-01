@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from contextlib import contextmanager
+from copy import deepcopy
 from datetime import datetime, timedelta, timezone
 import hashlib
 import json
@@ -21,27 +23,41 @@ from core import (
     EffectiveRandomnessResolver,
     ExecutionTermination,
     FrozenCatalog,
-    LazyImplementationFactory,
+    OperationCall,
+    OperationContext,
     PortTypeDefinition,
     PortValueError,
     PreScheduleTermination,
+    ProjectManager,
     ReadinessCheckInput,
     ReadinessResult,
     ReadinessDeclaration,
     ResultReplayHit,
     ResultReplaySource,
     ReusableReadinessProof,
+    RunResources,
+    ScientificOperationFactory,
     builtin_frozen_catalog,
 )
 from modules.protein_io.package import MODULE_PACKAGE as PROTEIN_IO_PACKAGE
 from core.server import create_app
 import core.run_execution_v2 as run_execution_v2
+from core.value_admission import admitted_port_values
+from core.workflow_authoring_v2 import WorkflowAuthoringService
+from core.workflow_v2 import (
+    ExecutionPlanNode,
+    compile_workflow,
+    parse_workflow_document,
+    relock_workflow,
+)
+from datatypes import Candidate, CandidateCollection, ProteinSequence
 from protein_workbench_public import (
     validate_error,
     validate_response,
     validate_schema,
 )
 from tests.fixtures.public_v2 import wait_for_testclient_run_terminal
+from tests.fixtures.result_replay_v2 import admitted_replay_outputs
 
 
 def _contract(
@@ -63,6 +79,179 @@ def _contract(
     )
 
 
+def test_engine_invocation_provenance_is_validated_and_frozen_before_recording(
+    tmp_path,
+) -> None:
+    recorded: list[dict[str, Any]] = []
+
+    class Recorder:
+        @contextmanager
+        def invoke(self, **kwargs: Any):
+            recorded.append(kwargs)
+            yield "invocation-1"
+
+    resources = RunResources(
+        project_id="project-1",
+        run_id="run-1",
+        node_id="node-1",
+        _projects=ProjectManager(tmp_path / "projects"),
+        _invocation_recorder=Recorder(),
+    )
+    projection = {
+        "position_semantics": "one_based_chain_local",
+        "workbench_chain_order": ["A", "B"],
+        "provider_chain_order": ["B", "A"],
+        "entries": [
+            {
+                "residue_id": "A:6",
+                "provider_chain_id": "A",
+                "provider_position": 1,
+            },
+            {
+                "residue_id": "B:20",
+                "provider_chain_id": "B",
+                "provider_position": 1,
+            },
+        ],
+    }
+    provenance = {"provider_residue_projection": projection}
+
+    with resources.engine_invocation(invocation_provenance=provenance):
+        projection["entries"][0]["provider_position"] = 7
+
+    frozen = recorded[0]["invocation_provenance"]
+    frozen_projection = frozen["provider_residue_projection"]
+    assert frozen_projection["entries"][0]["provider_position"] == 1
+    assert frozen_projection["workbench_chain_order"] == ("A", "B")
+    with pytest.raises(TypeError):
+        frozen_projection["entries"][0]["provider_position"] = 9
+
+    malformed_projections = (
+        {**projection, "provider_chain_order": ["A", "C"]},
+        {
+            **projection,
+            "entries": [
+                projection["entries"][0],
+                {
+                    "residue_id": "A:7",
+                    "provider_chain_id": "A",
+                    "provider_position": 7,
+                },
+            ],
+        },
+    )
+    for invalid_projection in malformed_projections:
+        recorded_count = len(recorded)
+        with pytest.raises(ValueError, match="invocation provenance"):
+            with resources.engine_invocation(
+                invocation_provenance={
+                    "provider_residue_projection": invalid_projection,
+                }
+            ):
+                pass
+        assert len(recorded) == recorded_count
+    for invalid_provenance in ({}, {**provenance, "unexpected": True}):
+        with pytest.raises(ValueError, match="invocation provenance"):
+            with resources.engine_invocation(
+                invocation_provenance=invalid_provenance
+            ):
+                pass
+
+
+def test_engine_invocation_randomness_provenance_is_validated_and_frozen(
+    tmp_path,
+) -> None:
+    recorded: list[dict[str, Any]] = []
+
+    class Recorder:
+        @contextmanager
+        def invoke(self, **kwargs: Any):
+            recorded.append(kwargs)
+            yield "invocation-1"
+
+    resources = RunResources(
+        project_id="project-1",
+        run_id="run-1",
+        node_id="node-1",
+        _projects=ProjectManager(tmp_path / "projects"),
+        _invocation_recorder=Recorder(),
+    )
+
+    with resources.engine_invocation(
+        invocation_provenance={
+            "effective_randomness": {
+                "control": "exact_seed",
+                "effective_seed": 17,
+            }
+        }
+    ):
+        pass
+    with resources.engine_invocation(
+        invocation_provenance={
+            "effective_randomness": {
+                "control": "provider_uncontrolled",
+            }
+        }
+    ):
+        pass
+
+    assert dict(recorded[0]["invocation_provenance"]) == {
+        "effective_randomness": {
+            "control": "exact_seed",
+            "effective_seed": 17,
+        }
+    }
+    assert dict(recorded[1]["invocation_provenance"]) == {
+        "effective_randomness": {
+            "control": "provider_uncontrolled",
+        }
+    }
+    for malformed in (
+        {
+            "effective_randomness": {
+                "control": "provider_uncontrolled",
+                "effective_seed": 17,
+            }
+        },
+        {
+            "effective_randomness": {
+                "control": "exact_seed",
+                "effective_seed": 9_007_199_254_740_992,
+            }
+        },
+    ):
+        with pytest.raises(ValueError, match="invocation provenance"):
+            with resources.engine_invocation(
+                invocation_provenance=malformed
+            ):
+                pass
+
+
+def test_operation_cannot_override_plan_owned_engine_identity(tmp_path) -> None:
+    recorded: list[dict[str, Any]] = []
+
+    class Recorder:
+        @contextmanager
+        def invoke(self, **kwargs: Any):
+            recorded.append(kwargs)
+            yield "invocation-1"
+
+    resources = RunResources(
+        project_id="project-1",
+        run_id="run-1",
+        node_id="node-1",
+        _projects=ProjectManager(tmp_path / "projects"),
+        _invocation_recorder=Recorder(),
+    )
+
+    with pytest.raises(TypeError, match="engine_identity"):
+        with resources.engine_invocation(
+            engine_identity="sha256:" + "1" * 64,
+        ):  # type: ignore[call-arg]
+            pass
+    assert recorded == []
+
+
 def _direct_catalog(
     calls: list[str],
     *,
@@ -75,6 +264,7 @@ def _direct_catalog(
     execution_gate: tuple[threading.Event, threading.Event] | None = None,
     execution_action: Any | None = None,
     factory_action: Any | None = None,
+    invalid_factory_result: bool = False,
     execution_output: Any = "READY",
     implementation_variant: str = "default",
     implementation_label: str | None = None,
@@ -203,19 +393,16 @@ def _direct_catalog(
                 self._binding_id = exact_binding_id
                 self._resources = resources
 
-            def execute(
-                self,
-                *,
-                inputs: dict[str, Any],
-                node_parameters: dict[str, Any],
-                binding_parameters: dict[str, Any],
-            ) -> dict[str, Any]:
-                assert inputs == {}
+            def execute(self, call: OperationCall) -> dict[str, Any]:
+                assert call.inputs == {}
+                assert call.input_content_digests == {}
                 if node_parameter_declarations is None:
-                    assert node_parameters == {}
+                    assert call.node_parameters == {}
                 else:
-                    calls.append(f"parameters:{dict(node_parameters)!r}")
-                assert binding_parameters == {}
+                    calls.append(
+                        f"parameters:{dict(call.node_parameters)!r}"
+                    )
+                assert call.binding_parameters == {}
                 if invocation_count == 0:
                     calls.append(f"execute:{self._binding_id}")
                 else:
@@ -264,25 +451,34 @@ def _direct_catalog(
             return readiness
 
         def make_factory(exact_binding_id: str):
-            def factory(**kwargs: Any) -> DirectImplementation:
+            def factory(context: OperationContext) -> DirectImplementation:
                 assert isinstance(
-                    kwargs["environment_configuration"]["credential"],
+                    context.environment["credential"],
                     str,
                 )
-                assert kwargs["execution_plan"].workflow_id
-                assert kwargs["frozen_catalog"] is not None
-                assert kwargs["run_resources"].project_id
+                assert context.method.contract_id == "test.direct.method"
+                assert context.produced_observations == ()
+                assert context.selection_objectives == ()
+                assert context.observation_selectors == ()
+                assert not hasattr(context, "frozen_catalog")
+                assert not hasattr(context, "execution_plan")
+                assert not hasattr(context, "node_type")
+                assert not hasattr(context, "binding")
+                assert not hasattr(context, "content_digest")
+                assert context.resources.project_id
                 calls.append(f"factory:{exact_binding_id}")
                 if factory_action is not None:
-                    factory_action(kwargs["run_resources"])
+                    factory_action(context.resources)
+                if invalid_factory_result:
+                    return None  # type: ignore[return-value]
                 return DirectImplementation(
                     exact_binding_id,
-                    kwargs["run_resources"],
+                    context.resources,
                 )
 
             return factory
 
-        factories[(binding_id, "2.1.0")] = LazyImplementationFactory(
+        factories[(binding_id, "2.1.0")] = ScientificOperationFactory(
             behavior=binding_factory_behavior,
             build=make_factory(binding_id),
         )
@@ -416,10 +612,20 @@ def _pipeline_catalog(
     optional_sink_input: bool = False,
     cacheable: bool = False,
     unresolved_port_identity: bool = False,
+    candidate_digest_probe: bool = False,
     execution_gates: (
         Mapping[str, tuple[threading.Event, threading.Event]] | None
     ) = None,
 ) -> FrozenCatalog:
+    builtin = builtin_frozen_catalog()
+    candidate_collection_type = builtin.require_port_type(
+        "candidate.collection",
+        "2.1.0",
+    )
+    candidate_data_type = builtin.require_port_type(
+        "protein.sequence",
+        "2.1.0",
+    )
     def validate_text(value: Any) -> None:
         calls.append(f"validate:{value!r}")
         if type(value) is not str:
@@ -481,7 +687,20 @@ def _pipeline_catalog(
                     "required": True,
                     "multiplicity": "one",
                     "scientific_meaning": "Canonical source text",
-                }
+                },
+                *(
+                    [
+                        {
+                            "name": "candidates",
+                            "port_type": candidate_collection_type.reference(),
+                            "required": True,
+                            "multiplicity": "one",
+                            "scientific_meaning": "Candidate digest probe",
+                        }
+                    ]
+                    if candidate_digest_probe
+                    else []
+                ),
             ],
             "parameter_groups": [],
             "node_parameters": {},
@@ -501,7 +720,20 @@ def _pipeline_catalog(
                     "required": not optional_sink_input,
                     "multiplicity": "one",
                     "scientific_meaning": "Canonical input text",
-                }
+                },
+                *(
+                    [
+                        {
+                            "name": "candidates",
+                            "port_type": candidate_collection_type.reference(),
+                            "required": True,
+                            "multiplicity": "one",
+                            "scientific_meaning": "Candidate digest probe",
+                        }
+                    ]
+                    if candidate_digest_probe
+                    else []
+                ),
             ],
             "outputs": [
                 {
@@ -526,8 +758,9 @@ def _pipeline_catalog(
             self._node_id = node_id
             self._resources = resources
 
-        def execute(self, **kwargs: Any) -> dict[str, Any]:
-            assert kwargs["inputs"] == {}
+        def execute(self, call: OperationCall) -> dict[str, Any]:
+            assert call.inputs == {}
+            assert call.input_content_digests == {}
             with self._resources.engine_invocation():
                 calls.append(f"execute:{self._node_id}")
                 if (
@@ -549,16 +782,57 @@ def _pipeline_catalog(
                     raise ExecutionTermination(
                         terminating_source_nodes[self._node_id]
                     )
-                return {"text": 17 if invalid_source_output else " READY "}
+                outputs: dict[str, Any] = {
+                    "text": 17 if invalid_source_output else " READY "
+                }
+                if candidate_digest_probe:
+                    outputs["candidates"] = CandidateCollection(
+                        collection_id="digest-probe",
+                        item_type="protein.sequence",
+                        items=[
+                            Candidate(
+                                candidate_id="digest-probe-z",
+                                data=ProteinSequence(sequence="MA"),
+                            ),
+                            Candidate(
+                                candidate_id="digest-probe-a",
+                                data=ProteinSequence(sequence="MG"),
+                            ),
+                        ],
+                    )
+                return outputs
 
     class SinkImplementation:
         def __init__(self, resources) -> None:
             self._resources = resources
 
-        def execute(self, **kwargs: Any) -> dict[str, Any]:
+        def execute(self, call: OperationCall) -> dict[str, Any]:
+            digest = call.input_content_digests.get("text")
+            if "text" in call.inputs:
+                assert digest is not None
+                assert digest.port_type_id == "test.canonical_text"
+                assert len(digest.value_content_digests) == 1
+            if candidate_digest_probe:
+                candidates = call.inputs["candidates"]
+                candidate_digests = call.input_content_digests["candidates"]
+                assert candidate_digests.port_type_id == "candidate.collection"
+                assert len(candidate_digests.value_content_digests) == 1
+                assert [
+                    item.candidate_id for item in candidate_digests.candidate_data
+                ] == [candidate.candidate_id for candidate in candidates.items]
+                assert [
+                    item.data_type_id for item in candidate_digests.candidate_data
+                ] == ["protein.sequence", "protein.sequence"]
+                assert [
+                    item.content_digest for item in candidate_digests.candidate_data
+                ] == [
+                    candidate_data_type.content_digest(candidate.data)
+                    for candidate in candidates.items
+                ]
+                calls.append("candidate-digests:verified")
             with self._resources.engine_invocation():
-                calls.append(f"sink-input:{kwargs['inputs'].get('text')}")
-                return {"text": kwargs["inputs"].get("text", "OPTIONAL")}
+                calls.append(f"sink-input:{call.inputs.get('text')}")
+                return {"text": call.inputs.get("text", "OPTIONAL")}
 
     for binding_id, node_type, implementation in (
         ("test.pipeline.source.direct", source, SourceImplementation),
@@ -606,12 +880,11 @@ def _pipeline_catalog(
         )
         contracts.append(binding)
         def build_implementation(
-            *,
+            context: OperationContext,
             implementation=implementation,
-            **kwargs: Any,
         ) -> Any:
             if implementation is SourceImplementation:
-                node_id = kwargs["run_resources"].node_id
+                node_id = context.resources.node_id
                 if (
                     pre_schedule_source_nodes is not None
                     and node_id in pre_schedule_source_nodes
@@ -619,10 +892,10 @@ def _pipeline_catalog(
                     raise PreScheduleTermination(
                         pre_schedule_source_nodes[node_id]
                     )
-                return implementation(node_id, kwargs["run_resources"])
-            return implementation(kwargs["run_resources"])
+                return implementation(node_id, context.resources)
+            return implementation(context.resources)
 
-        factories[(binding_id, "2.1.0")] = LazyImplementationFactory(
+        factories[(binding_id, "2.1.0")] = ScientificOperationFactory(
             behavior=factory_behavior,
             build=build_implementation,
         )
@@ -639,7 +912,14 @@ def _pipeline_catalog(
             }
         )
     return FrozenCatalog(
-        (canonical_text,),
+        (
+            canonical_text,
+            *(
+                (candidate_collection_type, candidate_data_type)
+                if candidate_digest_probe
+                else ()
+            ),
+        ),
         contracts=tuple(contracts),
         availability=tuple(availability),
         availability_observed_at=datetime(
@@ -653,6 +933,80 @@ def _pipeline_catalog(
         factories=factories,
         readiness_declarations=readiness,
     )
+
+
+def test_runtime_rejects_multiple_admitted_values_for_one_input(
+    tmp_path,
+) -> None:
+    catalog = _pipeline_catalog([])
+    projects = ProjectManager(tmp_path / "projects")
+    authoring = WorkflowAuthoringService(projects, catalog)
+    service = run_execution_v2.V2RunService(
+        projects,
+        catalog,
+        authoring,
+        run_execution_v2.EnvironmentConfiguration({}),
+    )
+    workflow = parse_workflow_document(
+        {
+            "schema_version": "2.1.0",
+            "workflow_id": "workflow-multiplicity-backstop",
+            "nodes": [
+                {
+                    "node_id": "source",
+                    "node_type_id": "test.pipeline.source",
+                    "node_type_version": "2.1.0",
+                    "binding_id": "test.pipeline.source.direct",
+                    "binding_version": "2.1.0",
+                    "node_parameters": {},
+                    "binding_parameters": {},
+                },
+                {
+                    "node_id": "sink",
+                    "node_type_id": "test.pipeline.sink",
+                    "node_type_version": "2.1.0",
+                    "binding_id": "test.pipeline.sink.direct",
+                    "binding_version": "2.1.0",
+                    "node_parameters": {},
+                    "binding_parameters": {},
+                },
+            ],
+            "edges": [
+                {
+                    "source_node_id": "source",
+                    "source_port": "text",
+                    "target_node_id": "sink",
+                    "target_port": "text",
+                }
+            ],
+            "contract_lock": [],
+        }
+    )
+    plan = compile_workflow(
+        relock_workflow(workflow, catalog),
+        workflow_revision=1,
+        catalog=catalog,
+    ).execution_plan
+    target = next(node for node in plan.nodes if node.node_id == "sink")
+    text = catalog.require_port_type("test.canonical_text", "2.1.0")
+    admitted = admitted_port_values(
+        port_type=text,
+        multiplicity="many",
+        values=("FIRST", "SECOND"),
+        candidate_data=lambda _value: (),
+    )
+
+    try:
+        with pytest.raises(
+            RuntimeError,
+            match="one-valued input Port 'text'.*2 admitted values",
+        ):
+            service._inputs_for(  # noqa: SLF001 - corruption backstop seam
+                target,
+                {("source", "text"): admitted},
+            )
+    finally:
+        service.shutdown()
 
 
 def _artifact_catalog(
@@ -749,8 +1103,9 @@ def _artifact_catalog(
         def __init__(self, resources) -> None:
             self._resources = resources
 
-        def execute(self, **kwargs: Any) -> dict[str, Any]:
-            assert kwargs["inputs"] == {}
+        def execute(self, call: OperationCall) -> dict[str, Any]:
+            assert call.inputs == {}
+            assert call.input_content_digests == {}
             with self._resources.engine_invocation():
                 pass
             with self._resources.temporary_directory(
@@ -771,8 +1126,8 @@ def _artifact_catalog(
                 )
             }
 
-    def factory(**kwargs: Any) -> ArtifactImplementation:
-        return ArtifactImplementation(kwargs["run_resources"])
+    def factory(context: OperationContext) -> ArtifactImplementation:
+        return ArtifactImplementation(context.resources)
 
     observed_at = datetime(2026, 7, 29, 8, 0, tzinfo=timezone.utc)
     return FrozenCatalog(
@@ -787,7 +1142,7 @@ def _artifact_catalog(
         ),
         availability_observed_at=observed_at,
         factories={
-            ("test.artifact.direct", "2.1.0"): LazyImplementationFactory(
+            ("test.artifact.direct", "2.1.0"): ScientificOperationFactory(
                 behavior=factory_behavior,
                 build=factory,
             )
@@ -845,7 +1200,11 @@ def _compile_artifact_node(
     return project_id, compiled.json()
 
 
-def _compile_pipeline(client: TestClient) -> tuple[str, dict[str, Any]]:
+def _compile_pipeline(
+    client: TestClient,
+    *,
+    candidate_digest_probe: bool = False,
+) -> tuple[str, dict[str, Any]]:
     project_id = client.post(
         "/api/projects",
         json={"name": "v2 canonical boundary"},
@@ -879,7 +1238,19 @@ def _compile_pipeline(client: TestClient) -> tuple[str, dict[str, Any]]:
                 "source_port": "text",
                 "target_node_id": "sink",
                 "target_port": "text",
-            }
+            },
+            *(
+                [
+                    {
+                        "source_node_id": "source",
+                        "source_port": "candidates",
+                        "target_node_id": "sink",
+                        "target_port": "candidates",
+                    }
+                ]
+                if candidate_digest_probe
+                else []
+            ),
         ],
         "contract_lock": [],
     }
@@ -1266,11 +1637,58 @@ def test_pre_schedule_termination_has_disposition_without_false_attempt(
     )
 
 
+def test_invalid_scientific_operation_factory_has_no_false_operation_attempt(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    monkeypatch.setenv("PROTEIN_WORKBENCH_PROJECT_ROOT", str(tmp_path / "projects"))
+    monkeypatch.setenv("PROTEIN_WORKBENCH_RUN_ROOT", str(tmp_path / "runs"))
+    monkeypatch.setenv("PROTEIN_WORKBENCH_OUTPUT_ROOT", str(tmp_path / "outputs"))
+    app = create_app(
+        frozen_catalog_override=_direct_catalog(
+            [],
+            invalid_factory_result=True,
+        ),
+        v2_environment_configuration={
+            ("test.direct.local", "2.1.0"): {
+                "values": {"credential": "credential-value"},
+            }
+        },
+    )
+
+    with TestClient(app) as client:
+        project_id, compiled = _compile_one_node(client)
+        started = client.post(
+            f"/api/v2/projects/{project_id}/runs",
+            json={
+                "workflow_revision": 2,
+                "compile_id": compiled["compile_id"],
+                "client_request_id": "invalid-operation-factory",
+            },
+        )
+        projection = wait_for_testclient_run_terminal(
+            client,
+            project_id,
+            started.json()["run_id"],
+        )
+        events = app.state.run_execution_v2.public_events(
+            project_id,
+            started.json()["run_id"],
+        )
+
+    assert projection["status"] == "failed"
+    event_types = [item["event"]["type"] for item in events]
+    assert "node_attempt_started" in event_types
+    assert "operation_attempt_started" not in event_types
+    assert "engine_invocation_started" not in event_types
+
+
 def test_cache_replay_closes_only_the_scheduled_node_attempt(
     tmp_path,
     monkeypatch,
 ) -> None:
     calls: list[str] = []
+    catalog = _direct_catalog(calls, cacheable=True)
 
     class FixtureReplaySource(ResultReplaySource):
         def lookup(self, **kwargs: Any) -> ResultReplayHit | None:
@@ -1278,17 +1696,22 @@ def test_cache_replay_closes_only_the_scheduled_node_attempt(
             assert kwargs["node"].node_id == "direct"
             assert kwargs["inputs"] == {}
             calls.append("cache-lookup")
+            outputs = {"text": "CACHED"}
             return ResultReplayHit(
-                {"text": "CACHED"},
-                kwargs["result_identity"],
-                "fixture-producer",
+                result_identity=kwargs["result_identity"],
+                producer_run_id="fixture-producer",
+                admitted_outputs=admitted_replay_outputs(
+                    catalog=catalog,
+                    node=kwargs["node"],
+                    outputs=outputs,
+                ),
             )
 
     monkeypatch.setenv("PROTEIN_WORKBENCH_PROJECT_ROOT", str(tmp_path / "projects"))
     monkeypatch.setenv("PROTEIN_WORKBENCH_RUN_ROOT", str(tmp_path / "runs"))
     monkeypatch.setenv("PROTEIN_WORKBENCH_OUTPUT_ROOT", str(tmp_path / "outputs"))
     app = create_app(
-        frozen_catalog_override=_direct_catalog(calls, cacheable=True),
+        frozen_catalog_override=catalog,
         v2_result_replay_source=FixtureReplaySource(),
         v2_environment_configuration={
             ("test.direct.local", "2.1.0"): {
@@ -1336,16 +1759,35 @@ def test_cache_replay_closes_only_the_scheduled_node_attempt(
     assert "engine_invocation_started" not in event_types
 
 
+def test_result_replay_hit_requires_admitted_output_snapshots() -> None:
+    with pytest.raises(TypeError, match="admitted_outputs"):
+        ResultReplayHit(
+            result_identity="sha256:" + "0" * 64,
+            producer_run_id="fixture-producer",
+        )
+    with pytest.raises(TypeError, match="admitted_outputs"):
+        ResultReplayHit(
+            result_identity="sha256:" + "0" * 64,
+            producer_run_id="fixture-producer",
+            admitted_outputs=None,  # type: ignore[arg-type]
+        )
+
+
 def test_restart_does_not_publish_unclosed_cache_replay_output(
     tmp_path,
     monkeypatch,
 ) -> None:
     class FixtureReplaySource(ResultReplaySource):
         def lookup(self, **kwargs: Any) -> ResultReplayHit | None:
+            outputs = {"text": "UNCOMMITTED_CACHE_REPLAY"}
             return ResultReplayHit(
-                {"text": "UNCOMMITTED_CACHE_REPLAY"},
-                kwargs["result_identity"],
-                "fixture-producer",
+                result_identity=kwargs["result_identity"],
+                producer_run_id="fixture-producer",
+                admitted_outputs=admitted_replay_outputs(
+                    catalog=catalog,
+                    node=kwargs["node"],
+                    outputs=outputs,
+                ),
             )
 
     entered = threading.Event()
@@ -1455,17 +1897,23 @@ def test_cache_boundary_failure_does_not_execute_provider(
             calls.append("cache-lookup")
             if cache_failure == "lookup_error":
                 raise OSError("fixture cache failure")
+            outputs = {"text": 17}
             return ResultReplayHit(
-                {"text": 17},
-                kwargs["result_identity"],
-                "fixture-producer",
+                result_identity=kwargs["result_identity"],
+                producer_run_id="fixture-producer",
+                admitted_outputs=admitted_replay_outputs(
+                    catalog=catalog,
+                    node=kwargs["node"],
+                    outputs=outputs,
+                ),
             )
 
     monkeypatch.setenv("PROTEIN_WORKBENCH_PROJECT_ROOT", str(tmp_path / "projects"))
     monkeypatch.setenv("PROTEIN_WORKBENCH_RUN_ROOT", str(tmp_path / "runs"))
     monkeypatch.setenv("PROTEIN_WORKBENCH_OUTPUT_ROOT", str(tmp_path / "outputs"))
+    catalog = _direct_catalog(calls, cacheable=True)
     app = create_app(
-        frozen_catalog_override=_direct_catalog(calls, cacheable=True),
+        frozen_catalog_override=catalog,
         v2_result_replay_source=FailingReplaySource(),
         v2_environment_configuration={
             ("test.direct.local", "2.1.0"): {
@@ -1724,6 +2172,131 @@ def test_public_start_run_binds_the_exact_compile_before_direct_execution(
         "factory:test.direct.local",
         "execute:test.direct.local",
     ]
+
+
+def test_run_executes_only_the_resolved_plan_after_compilation(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    calls: list[str] = []
+    randomness_calls: list[dict[str, Any]] = []
+
+    def resolve_randomness(**kwargs: Any) -> Mapping[str, Any]:
+        randomness_calls.append(deepcopy(kwargs))
+        return {"seed": 17}
+
+    resolver = EffectiveRandomnessResolver(
+        behavior=BehaviorReference(
+            "test.direct/randomness",
+            "2.1.0",
+            {"resolution": "exact-seed"},
+        ),
+        resolve=resolve_randomness,
+    )
+    monkeypatch.setenv("PROTEIN_WORKBENCH_PROJECT_ROOT", str(tmp_path / "projects"))
+    monkeypatch.setenv("PROTEIN_WORKBENCH_RUN_ROOT", str(tmp_path / "runs"))
+    monkeypatch.setenv("PROTEIN_WORKBENCH_OUTPUT_ROOT", str(tmp_path / "outputs"))
+    catalog = _direct_catalog(
+        calls,
+        node_parameter_declarations={
+            "seed": {
+                "parameter_scope": "scientific",
+                "scientific_meaning": "Exact synthetic random seed",
+                "value_contract": {"type": "integer"},
+                "default": 5,
+            }
+        },
+        effective_randomness_parameters=("seed",),
+        effective_randomness_resolver=resolver,
+    )
+    app = create_app(
+        frozen_catalog_override=catalog,
+        v2_environment_configuration={
+            ("test.direct.local", "2.1.0"): {
+                "values": {"credential": "credential-value"},
+            }
+        },
+    )
+
+    with TestClient(app) as client:
+        project_id, compiled = _compile_one_node(client)
+
+        def forbid_execution_lookup(*_args: Any, **_kwargs: Any) -> Any:
+            raise AssertionError(
+                "Run execution must use only compile-time resolved facts"
+            )
+
+        for method_name in (
+            "get_contract",
+            "get_effective_randomness_resolver",
+            "require_contract",
+            "require_factory",
+            "require_port_type",
+            "require_readiness_declaration",
+            "require_utility_transform",
+        ):
+            monkeypatch.setattr(
+                FrozenCatalog,
+                method_name,
+                forbid_execution_lookup,
+            )
+
+        receipt = app.state.run_execution_v2.start(
+            project_id,
+            workflow_revision=2,
+            compile_id=compiled["compile_id"],
+            client_request_id="resolved-plan-only",
+        )
+        projection = app.state.run_execution_v2.projection(
+            project_id,
+            receipt["run_id"],
+        )
+
+    assert projection["status"] == "succeeded"
+    assert len(randomness_calls) == 1
+    assert randomness_calls[0]["node_parameters"] == {"seed": 5}
+    assert calls == [
+        "readiness:test.direct.local",
+        "factory:test.direct.local",
+        "parameters:{'seed': 17}",
+        "execute:test.direct.local",
+    ]
+
+
+def test_run_rejects_a_resolved_plan_from_another_catalog_generation(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    monkeypatch.setenv("PROTEIN_WORKBENCH_PROJECT_ROOT", str(tmp_path / "projects"))
+    monkeypatch.setenv("PROTEIN_WORKBENCH_RUN_ROOT", str(tmp_path / "runs"))
+    monkeypatch.setenv("PROTEIN_WORKBENCH_OUTPUT_ROOT", str(tmp_path / "outputs"))
+    compiled_catalog = _direct_catalog([])
+    app = create_app(frozen_catalog_override=compiled_catalog)
+
+    with TestClient(app) as client:
+        project_id, compiled = _compile_one_node(client)
+        active_catalog = _direct_catalog(
+            [],
+            node_title="Scientifically distinct active generation",
+        )
+        service = run_execution_v2.V2RunService(
+            app.state.project_manager,
+            active_catalog,
+            app.state.workflow_authoring_v2,
+            run_execution_v2.EnvironmentConfiguration({}),
+        )
+        try:
+            with pytest.raises(run_execution_v2.V2RunError) as captured:
+                service.start(
+                    project_id,
+                    workflow_revision=2,
+                    compile_id=compiled["compile_id"],
+                    client_request_id="inactive-plan",
+                )
+        finally:
+            service.shutdown()
+
+    assert captured.value.code == "contract_digest_mismatch"
 
 
 def test_all_distinct_bindings_are_attested_before_any_factory_and_shared(
@@ -2470,6 +3043,70 @@ def test_connected_ports_publish_and_consume_only_canonical_validated_values(
     ]
     assert "sink-input:ready" in calls
     assert "sink-input: READY " not in calls
+    assert [item for item in calls if item.startswith("validate:")] == [
+        "validate:' READY '",
+        "validate:'ready'",
+        "validate:'ready'",
+        "validate:'ready'",
+    ]
+
+
+def test_operation_call_reuses_admitted_scientific_values_without_copy() -> None:
+    candidate = Candidate(
+        candidate_id="candidate-admitted",
+        data=ProteinSequence("MA"),
+        metadata={"source": "canonical"},
+    )
+
+    call = OperationCall(
+        inputs={"candidate": candidate},
+        node_parameters={},
+        binding_parameters={},
+        input_content_digests={},
+    )
+
+    assert call.inputs["candidate"] is candidate
+    with pytest.raises(TypeError):
+        call.inputs["other"] = candidate
+
+
+def test_operation_call_exposes_ordered_candidate_data_content_digests(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    calls: list[str] = []
+    monkeypatch.setenv("PROTEIN_WORKBENCH_PROJECT_ROOT", str(tmp_path / "projects"))
+    monkeypatch.setenv("PROTEIN_WORKBENCH_RUN_ROOT", str(tmp_path / "runs"))
+    monkeypatch.setenv("PROTEIN_WORKBENCH_OUTPUT_ROOT", str(tmp_path / "outputs"))
+    app = create_app(
+        frozen_catalog_override=_pipeline_catalog(
+            calls,
+            candidate_digest_probe=True,
+        )
+    )
+
+    with TestClient(app) as client:
+        project_id, compiled = _compile_pipeline(
+            client,
+            candidate_digest_probe=True,
+        )
+        started = client.post(
+            f"/api/v2/projects/{project_id}/runs",
+            json={
+                "workflow_revision": 2,
+                "compile_id": compiled["compile_id"],
+                "client_request_id": "candidate-content-digest-interface",
+            },
+        )
+        projection = wait_for_testclient_run_terminal(
+            client,
+            project_id,
+            started.json()["run_id"],
+        )
+
+    assert started.status_code == 202
+    assert projection["status"] == "succeeded"
+    assert calls.count("candidate-digests:verified") == 1
 
 
 def test_invalid_output_never_publishes_success_or_a_public_result(
@@ -3025,6 +3662,264 @@ def test_terminal_run_projection_and_events_rebuild_after_backend_restart(
     }
     assert {event["sequence"] for event in resumed_facts} == expected_sequences
     assert len(resumed_facts) == len(expected_sequences)
+
+
+def test_restart_rejects_an_inactive_catalog_generation_without_rewriting_ledger(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    entered = threading.Event()
+    release = threading.Event()
+    project_root = tmp_path / "projects"
+    run_root = tmp_path / "runs"
+    monkeypatch.setenv("PROTEIN_WORKBENCH_PROJECT_ROOT", str(project_root))
+    monkeypatch.setenv("PROTEIN_WORKBENCH_RUN_ROOT", str(run_root))
+    monkeypatch.setenv(
+        "PROTEIN_WORKBENCH_OUTPUT_ROOT",
+        str(tmp_path / "outputs"),
+    )
+    environment = {
+        ("test.direct.local", "2.1.0"): {
+            "values": {"credential": "credential-value"},
+        }
+    }
+    original_catalog = _direct_catalog(
+        [],
+        execution_gate=(entered, release),
+        node_title="Original Catalog generation",
+    )
+    active_catalog = _direct_catalog(
+        [],
+        node_title="Active Catalog generation",
+    )
+    assert original_catalog.contract_digest != active_catalog.contract_digest
+
+    try:
+        with TestClient(
+            create_app(
+                frozen_catalog_override=original_catalog,
+                v2_environment_configuration=environment,
+                _v2_wait_for_workers_on_shutdown=False,
+            )
+        ) as first:
+            project_id, compiled = _compile_one_node(first)
+            started = first.post(
+                f"/api/v2/projects/{project_id}/runs",
+                json={
+                    "workflow_revision": 2,
+                    "compile_id": compiled["compile_id"],
+                    "client_request_id": "inactive-generation-restart",
+                },
+            )
+            assert started.status_code == 202
+            assert entered.wait(timeout=1)
+            run_id = started.json()["run_id"]
+
+        ledger_dir = run_root / project_id / run_id / "ledger"
+        before = {
+            path.name: path.read_bytes()
+            for path in sorted(ledger_dir.glob("*.json"))
+        }
+
+        with TestClient(
+            create_app(
+                frozen_catalog_override=active_catalog,
+                v2_environment_configuration=environment,
+            )
+        ) as restarted:
+            rejected = restarted.get(
+                f"/api/v2/projects/{project_id}/runs/{run_id}"
+            )
+
+        after = {
+            path.name: path.read_bytes()
+            for path in sorted(ledger_dir.glob("*.json"))
+        }
+    finally:
+        release.set()
+
+    assert rejected.status_code == 409
+    validate_error(rejected.json(), status=409)
+    assert rejected.json()["error"]["code"] == "inactive_generation"
+    assert rejected.json()["error"]["details"] == {
+        "artifact_kind": "run_evidence",
+        "expected_catalog_contract_digest": active_catalog.contract_digest,
+        "received_catalog_contract_digest": original_catalog.contract_digest,
+    }
+    assert before == after
+
+
+def test_restart_isolates_an_active_generation_run_with_a_damaged_lock_digest(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    project_root = tmp_path / "projects"
+    run_root = tmp_path / "runs"
+    monkeypatch.setenv("PROTEIN_WORKBENCH_PROJECT_ROOT", str(project_root))
+    monkeypatch.setenv("PROTEIN_WORKBENCH_RUN_ROOT", str(run_root))
+    monkeypatch.setenv(
+        "PROTEIN_WORKBENCH_OUTPUT_ROOT",
+        str(tmp_path / "outputs"),
+    )
+    catalog = _direct_catalog([])
+    environment = {
+        ("test.direct.local", "2.1.0"): {
+            "values": {"credential": "credential-value"},
+        }
+    }
+
+    with TestClient(
+        create_app(
+            frozen_catalog_override=catalog,
+            v2_environment_configuration=environment,
+        )
+    ) as first:
+        project_id, compiled = _compile_one_node(first)
+        started = first.post(
+            f"/api/v2/projects/{project_id}/runs",
+            json={
+                "workflow_revision": 2,
+                "compile_id": compiled["compile_id"],
+                "client_request_id": "damaged-lock-digest",
+            },
+        )
+        assert started.status_code == 202
+        run_id = started.json()["run_id"]
+        wait_for_testclient_run_terminal(first, project_id, run_id)
+
+    ledger_dir = run_root / project_id / run_id / "ledger"
+    scope_path = ledger_dir / "00000000000000000001.json"
+    scope_fact = json.loads(scope_path.read_bytes())
+    scope_fact["payload"]["contract_lock_digest"] = (
+        "sha256:" + "0" * 64
+    )
+    scope_path.write_bytes(run_execution_v2.canonical_json_bytes(scope_fact))
+    before = {
+        path.name: path.read_bytes()
+        for path in sorted(ledger_dir.glob("*.json"))
+    }
+
+    with TestClient(
+        create_app(
+            frozen_catalog_override=catalog,
+            v2_environment_configuration=environment,
+        )
+    ) as restarted:
+        with pytest.raises(run_execution_v2.V2RunError) as rejected:
+            restarted.app.state.run_execution_v2.projection(
+                project_id,
+                run_id,
+            )
+
+    after = {
+        path.name: path.read_bytes()
+        for path in sorted(ledger_dir.glob("*.json"))
+    }
+    assert rejected.value.code == "evidence_unavailable"
+    assert before == after
+
+
+@pytest.mark.parametrize(
+    "damage_kind",
+    ("changed_digest", "missing_entry", "stale_extra_entry"),
+)
+def test_restart_isolates_active_generation_run_with_damaged_resolved_contracts(
+    tmp_path,
+    monkeypatch,
+    damage_kind: str,
+) -> None:
+    project_root = tmp_path / "projects"
+    run_root = tmp_path / "runs"
+    monkeypatch.setenv("PROTEIN_WORKBENCH_PROJECT_ROOT", str(project_root))
+    monkeypatch.setenv("PROTEIN_WORKBENCH_RUN_ROOT", str(run_root))
+    monkeypatch.setenv(
+        "PROTEIN_WORKBENCH_OUTPUT_ROOT",
+        str(tmp_path / "outputs"),
+    )
+    catalog = _direct_catalog(
+        [],
+        binding_ids=("test.direct.local", "test.direct.unused"),
+    )
+    environment = {
+        ("test.direct.local", "2.1.0"): {
+            "values": {"credential": "credential-value"},
+        }
+    }
+
+    with TestClient(
+        create_app(
+            frozen_catalog_override=catalog,
+            v2_environment_configuration=environment,
+        )
+    ) as first:
+        project_id, compiled = _compile_one_node(first)
+        started = first.post(
+            f"/api/v2/projects/{project_id}/runs",
+            json={
+                "workflow_revision": 2,
+                "compile_id": compiled["compile_id"],
+                "client_request_id": f"damaged-resolved-{damage_kind}",
+            },
+        )
+        assert started.status_code == 202
+        run_id = started.json()["run_id"]
+        wait_for_testclient_run_terminal(first, project_id, run_id)
+
+    ledger_dir = run_root / project_id / run_id / "ledger"
+    scope_path = ledger_dir / "00000000000000000001.json"
+    scope_fact = json.loads(scope_path.read_bytes())
+    scope = scope_fact["payload"]
+    if damage_kind == "changed_digest":
+        scope["resolved_contracts"][0]["contract_digest"] = (
+            "sha256:" + "0" * 64
+        )
+    elif damage_kind == "missing_entry":
+        scope["resolved_contracts"].pop()
+    else:
+        scope["resolved_contracts"].append(
+            catalog.require_contract(
+                "binding",
+                "test.direct.unused",
+                "2.1.0",
+            ).reference()
+        )
+        scope["resolved_contracts"].sort(
+            key=lambda entry: (
+                entry["contract_kind"],
+                entry["contract_id"],
+                entry["contract_version"],
+            )
+        )
+    scope["contract_lock_digest"] = run_execution_v2.canonical_sha256(
+        {
+            "schema_namespace": "protein-workbench-contract-lock/v2",
+            "entries": scope["resolved_contracts"],
+        }
+    )
+    scope_path.write_bytes(run_execution_v2.canonical_json_bytes(scope_fact))
+    before = {
+        path.name: path.read_bytes()
+        for path in sorted(ledger_dir.glob("*.json"))
+    }
+
+    with TestClient(
+        create_app(
+            frozen_catalog_override=catalog,
+            v2_environment_configuration=environment,
+        )
+    ) as restarted:
+        with pytest.raises(run_execution_v2.V2RunError) as rejected:
+            restarted.app.state.run_execution_v2.projection(
+                project_id,
+                run_id,
+            )
+
+    after = {
+        path.name: path.read_bytes()
+        for path in sorted(ledger_dir.glob("*.json"))
+    }
+    assert rejected.value.code == "evidence_unavailable"
+    assert before == after
 
 
 def test_restart_isolates_one_damaged_ledger_without_hiding_healthy_runs(

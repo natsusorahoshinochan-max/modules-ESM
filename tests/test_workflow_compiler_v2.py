@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import FrozenInstanceError, replace
 from datetime import datetime, timezone
+import json
 
 import pytest
 from fastapi.testclient import TestClient
@@ -13,7 +14,10 @@ from core import (
     CatalogBuildError,
     CatalogContract,
     FrozenCatalog,
-    LazyImplementationFactory,
+    OperationContext,
+    ReadinessDeclaration,
+    ReadinessResult,
+    ScientificOperationFactory,
     builtin_frozen_catalog,
 )
 from core.workflow_v2 import (
@@ -25,6 +29,11 @@ from core.workflow_v2 import (
     compile_workflow,
     parse_workflow_document,
     relock_workflow,
+    validate_workflow_parameter_values,
+)
+from core.port_types import (
+    InactiveContractGenerationError,
+    UnknownContractError,
 )
 from core.server import create_app
 from protein_workbench_public import validate_error, validate_response
@@ -55,6 +64,8 @@ def _workflow_catalog(
     include_unreachable: bool = False,
     source_algorithm: str = "source",
     sink_port_type_id: str = "text",
+    source_output_multiplicity: str = "one",
+    sink_input_multiplicity: str = "one",
     factory_calls: list[str] | None = None,
     source_node_parameter_overrides: dict | None = None,
 ) -> FrozenCatalog:
@@ -80,6 +91,8 @@ def _workflow_catalog(
         {
             "value_shape": "scalar",
             "unit": "dimensionless",
+            "canonical_range": {"minimum": 0, "maximum": 1},
+            "validation_contract": {"finite": True},
             "observation_context_schema": {"kind": "intrinsic"},
         },
     )
@@ -114,7 +127,7 @@ def _workflow_catalog(
                     "name": "text",
                     "port_type": text.reference(),
                     "required": True,
-                    "multiplicity": "one",
+                    "multiplicity": source_output_multiplicity,
                 }
             ],
             "node_parameters": {
@@ -148,7 +161,7 @@ def _workflow_catalog(
                     "name": "text",
                     "port_type": sink_port_type.reference(),
                     "required": True,
-                    "multiplicity": "one",
+                    "multiplicity": sink_input_multiplicity,
                 }
             ],
             "outputs": [
@@ -190,7 +203,7 @@ def _workflow_catalog(
                     "source_role": "subject",
                     "subject_direction": "output",
                     "subject_port": "text",
-                    "guaranteed_multiplicity": "one",
+                    "guaranteed_multiplicity": source_output_multiplicity,
                 }
             ],
         },
@@ -226,12 +239,12 @@ def _workflow_catalog(
 
     calls = factory_calls if factory_calls is not None else []
 
-    def _factory() -> object:
+    def _factory(_context: OperationContext) -> object:
         calls.append("factory")
         raise AssertionError("Workflow compilation constructed an implementation")
 
     factories = {
-        ("synthetic.source.direct", "2.1.0"): LazyImplementationFactory(
+        ("synthetic.source.direct", "2.1.0"): ScientificOperationFactory(
             behavior=BehaviorReference(
                 "synthetic.source/factory",
                 "2.1.0",
@@ -239,7 +252,7 @@ def _workflow_catalog(
             ),
             build=_factory,
         ),
-        ("synthetic.sink.direct", "2.1.0"): LazyImplementationFactory(
+        ("synthetic.sink.direct", "2.1.0"): ScientificOperationFactory(
             behavior=BehaviorReference(
                 "synthetic.sink/factory",
                 "2.1.0",
@@ -247,6 +260,21 @@ def _workflow_catalog(
             ),
             build=_factory,
         ),
+    }
+    readiness_declarations = {
+        (binding_id, "2.1.0"): ReadinessDeclaration(
+            behavior=BehaviorReference(
+                f"{binding_id}/readiness",
+                "2.1.0",
+                {},
+            ),
+            prerequisites={},
+            check=lambda _input: ReadinessResult(True),
+        )
+        for binding_id in (
+            "synthetic.source.direct",
+            "synthetic.sink.direct",
+        )
     }
     observed_at = datetime(2026, 7, 29, 4, 0, tzinfo=timezone.utc)
     availability = (
@@ -278,6 +306,7 @@ def _workflow_catalog(
         availability=availability,
         availability_observed_at=observed_at,
         factories=factories,
+        readiness_declarations=readiness_declarations,
     )
 
 
@@ -316,6 +345,313 @@ def _unlocked_workflow() -> WorkflowDocument:
             ],
             "contract_lock": [],
         }
+    )
+
+
+@pytest.mark.parametrize(
+    ("contract_kind", "contract_id"),
+    [
+        ("node_type", "synthetic.source"),
+        ("port_type", "text"),
+    ],
+)
+def test_catalog_resolution_distinguishes_inactive_generation_from_unknown(
+    contract_kind: str,
+    contract_id: str,
+) -> None:
+    catalog = _workflow_catalog()
+
+    with pytest.raises(InactiveContractGenerationError) as inactive:
+        catalog.require_contract(
+            contract_kind,
+            contract_id,
+            "2.0.0",
+        )
+    with pytest.raises(UnknownContractError) as unknown:
+        catalog.require_contract(
+            contract_kind,
+            "synthetic.missing",
+            "2.0.0",
+        )
+
+    assert catalog.get_contract(contract_kind, contract_id, "2.0.0") is None
+    assert inactive.value.requested_version == "2.0.0"
+    assert inactive.value.active_version == "2.1.0"
+    assert unknown.value.contract_id == "synthetic.missing"
+
+
+@pytest.mark.parametrize(
+    "version_field",
+    ["node_type_version", "binding_version"],
+)
+@pytest.mark.parametrize("seam", ["save", "relock", "compile"])
+def test_workflow_exact_resolution_reports_inactive_generation_at_version(
+    version_field: str,
+    seam: str,
+) -> None:
+    catalog = _workflow_catalog()
+    workflow = _unlocked_workflow()
+    stale_node = replace(
+        workflow.nodes[0],
+        **{version_field: "2.0.0"},
+    )
+    stale = replace(
+        workflow,
+        nodes=(stale_node, workflow.nodes[1]),
+    )
+
+    with pytest.raises(WorkflowCompileError) as captured:
+        if seam == "save":
+            validate_workflow_parameter_values(stale, catalog)
+        elif seam == "relock":
+            relock_workflow(stale, catalog)
+        else:
+            compile_workflow(stale, workflow_revision=1, catalog=catalog)
+
+    assert captured.value.code == "inactive_generation"
+    assert captured.value.field_path == ("nodes", 0, version_field)
+
+
+def _workflow_with_reference_generation(
+    catalog: FrozenCatalog,
+    *,
+    collection: str,
+    reference_field: str,
+    contract_version: str,
+) -> WorkflowDocument:
+    metric = catalog.require_contract(
+        "metric",
+        "synthetic.identity",
+        "2.1.0",
+    ).reference()
+    method = catalog.require_contract(
+        "method",
+        "synthetic.source.method",
+        "2.1.0",
+    ).reference()
+    utility = catalog.require_contract(
+        "utility_transform",
+        "synthetic.identity",
+        "2.1.0",
+    ).reference()
+    selected_reference = {
+        "metric": metric,
+        "method": method,
+        "utility_transform": utility,
+    }[reference_field]
+    selected_reference["contract_version"] = contract_version
+    common = {
+        "candidate_input": {
+            "node_id": "source",
+            "output_port": "text",
+        },
+        "score_collection_input": {
+            "node_id": "source",
+            "output_port": "text",
+        },
+        "source_partition": "default",
+        "metric": metric,
+        "method": method,
+        "context_selector": {"kind": "intrinsic"},
+        "match_cardinality": "exactly_one",
+        "missing_policy": "error",
+    }
+    payload = _unlocked_workflow().to_public()
+    if collection == "observation_selectors":
+        payload[collection] = [
+            {
+                "selector_id": "selector-1",
+                **common,
+            }
+        ]
+    else:
+        payload[collection] = [
+            {
+                "objective_id": "objective-1",
+                **common,
+                "utility_transform": utility,
+                "utility_parameters": {},
+                "weight": 1,
+            }
+        ]
+    return parse_workflow_document(payload)
+
+
+@pytest.mark.parametrize(
+    ("collection", "reference_field"),
+    [
+        ("observation_selectors", "metric"),
+        ("observation_selectors", "method"),
+        ("selection_objectives", "metric"),
+        ("selection_objectives", "method"),
+        ("selection_objectives", "utility_transform"),
+    ],
+)
+@pytest.mark.parametrize("seam", ["save", "relock", "compile"])
+def test_workflow_reference_reports_inactive_generation_at_version(
+    collection: str,
+    reference_field: str,
+    seam: str,
+) -> None:
+    catalog = _workflow_catalog()
+    stale = _workflow_with_reference_generation(
+        catalog,
+        collection=collection,
+        reference_field=reference_field,
+        contract_version="2.0.0",
+    )
+
+    with pytest.raises(WorkflowCompileError) as captured:
+        if seam == "save":
+            validate_workflow_parameter_values(stale, catalog)
+        elif seam == "relock":
+            relock_workflow(stale, catalog)
+        else:
+            compile_workflow(stale, workflow_revision=1, catalog=catalog)
+
+    assert captured.value.code == "inactive_generation"
+    assert captured.value.field_path == (
+        collection,
+        0,
+        reference_field,
+        "contract_version",
+    )
+
+
+@pytest.mark.parametrize(
+    ("collection", "reference_field"),
+    [
+        ("observation_selectors", "metric"),
+        ("observation_selectors", "method"),
+        ("selection_objectives", "metric"),
+        ("selection_objectives", "method"),
+        ("selection_objectives", "utility_transform"),
+    ],
+)
+@pytest.mark.parametrize("seam", ["save", "relock", "compile"])
+def test_unknown_workflow_reference_reports_the_contract_id_field(
+    collection: str,
+    reference_field: str,
+    seam: str,
+) -> None:
+    catalog = _workflow_catalog()
+    payload = _workflow_with_reference_generation(
+        catalog,
+        collection=collection,
+        reference_field=reference_field,
+        contract_version="2.1.0",
+    ).to_public()
+    payload[collection][0][reference_field]["contract_id"] = (
+        "synthetic.missing"
+    )
+    unknown = parse_workflow_document(payload)
+
+    with pytest.raises(WorkflowCompileError) as captured:
+        if seam == "save":
+            validate_workflow_parameter_values(unknown, catalog)
+        elif seam == "relock":
+            relock_workflow(unknown, catalog)
+        else:
+            compile_workflow(unknown, workflow_revision=1, catalog=catalog)
+
+    assert captured.value.code == "unknown_contract"
+    assert captured.value.field_path == (
+        collection,
+        0,
+        reference_field,
+        "contract_id",
+    )
+
+
+@pytest.mark.parametrize(
+    ("collection", "reference_field"),
+    [
+        ("observation_selectors", "metric"),
+        ("observation_selectors", "method"),
+        ("selection_objectives", "metric"),
+        ("selection_objectives", "method"),
+        ("selection_objectives", "utility_transform"),
+    ],
+)
+@pytest.mark.parametrize("seam", ["save", "relock", "compile"])
+def test_workflow_reference_rejects_a_mismatched_contract_kind_at_kind_field(
+    collection: str,
+    reference_field: str,
+    seam: str,
+) -> None:
+    catalog = _workflow_catalog()
+    payload = _workflow_with_reference_generation(
+        catalog,
+        collection=collection,
+        reference_field=reference_field,
+        contract_version="2.1.0",
+    ).to_public()
+    payload[collection][0][reference_field]["contract_kind"] = {
+        "metric": "method",
+        "method": "metric",
+        "utility_transform": "method",
+    }[reference_field]
+    mismatched = parse_workflow_document(payload)
+
+    with pytest.raises(WorkflowCompileError) as captured:
+        if seam == "save":
+            validate_workflow_parameter_values(mismatched, catalog)
+        elif seam == "relock":
+            relock_workflow(mismatched, catalog)
+        else:
+            compile_workflow(
+                mismatched,
+                workflow_revision=1,
+                catalog=catalog,
+            )
+
+    assert captured.value.code == "contract_kind_mismatch"
+    assert captured.value.field_path == (
+        collection,
+        0,
+        reference_field,
+        "contract_kind",
+    )
+
+
+@pytest.mark.parametrize(
+    ("collection", "reference_field"),
+    [
+        ("observation_selectors", "metric"),
+        ("observation_selectors", "method"),
+        ("selection_objectives", "metric"),
+        ("selection_objectives", "method"),
+        ("selection_objectives", "utility_transform"),
+    ],
+)
+def test_compile_reports_workflow_reference_digest_drift_at_digest(
+    collection: str,
+    reference_field: str,
+) -> None:
+    catalog = _workflow_catalog()
+    locked = relock_workflow(
+        _workflow_with_reference_generation(
+            catalog,
+            collection=collection,
+            reference_field=reference_field,
+            contract_version="2.1.0",
+        ),
+        catalog,
+    ).to_public()
+    locked[collection][0][reference_field]["contract_digest"] = (
+        "sha256:" + ("f" * 64)
+    )
+    drifted = parse_workflow_document(locked)
+
+    with pytest.raises(WorkflowCompileError) as captured:
+        compile_workflow(drifted, workflow_revision=1, catalog=catalog)
+
+    assert captured.value.code == "contract_digest_mismatch"
+    assert captured.value.field_path == (
+        collection,
+        0,
+        reference_field,
+        "contract_digest",
     )
 
 
@@ -358,6 +694,79 @@ def test_compile_returns_an_immutable_private_plan_and_compact_receipt() -> None
         compiled.receipt["accepted"] = False
 
 
+def test_compile_receipt_and_digest_exclude_runtime_handles() -> None:
+    first_catalog = _workflow_catalog(factory_calls=[])
+    second_catalog = _workflow_catalog(factory_calls=[])
+    first_workflow = relock_workflow(
+        _unlocked_workflow(),
+        first_catalog,
+    )
+    second_workflow = relock_workflow(
+        _unlocked_workflow(),
+        second_catalog,
+    )
+
+    first = compile_workflow(
+        first_workflow,
+        workflow_revision=2,
+        catalog=first_catalog,
+    )
+    second = compile_workflow(
+        second_workflow,
+        workflow_revision=2,
+        catalog=second_catalog,
+    )
+
+    assert first_catalog.factories[
+        ("synthetic.source.direct", "2.1.0")
+    ] is not second_catalog.factories[
+        ("synthetic.source.direct", "2.1.0")
+    ]
+    assert first_catalog.readiness_declarations[
+        ("synthetic.source.direct", "2.1.0")
+    ] is not second_catalog.readiness_declarations[
+        ("synthetic.source.direct", "2.1.0")
+    ]
+    assert first.public_receipt() == second.public_receipt()
+    assert (
+        first.execution_plan.execution_plan_digest
+        == second.execution_plan.execution_plan_digest
+    )
+
+
+def test_execution_plan_copies_all_public_sequences_at_its_boundary() -> None:
+    catalog = _workflow_catalog()
+    compiled = compile_workflow(
+        relock_workflow(_unlocked_workflow(), catalog),
+        workflow_revision=2,
+        catalog=catalog,
+    )
+    plan = compiled.execution_plan
+
+    copied = replace(
+        plan,
+        nodes=list(plan.nodes),  # type: ignore[arg-type]
+        edges=list(plan.edges),  # type: ignore[arg-type]
+        node_order=list(plan.node_order),  # type: ignore[arg-type]
+        resolved_contracts=list(  # type: ignore[arg-type]
+            plan.resolved_contracts
+        ),
+        observation_selectors=list(  # type: ignore[arg-type]
+            plan.observation_selectors
+        ),
+        selection_objectives=list(  # type: ignore[arg-type]
+            plan.selection_objectives
+        ),
+    )
+
+    assert type(copied.nodes) is tuple
+    assert type(copied.edges) is tuple
+    assert type(copied.node_order) is tuple
+    assert type(copied.resolved_contracts) is tuple
+    assert type(copied.observation_selectors) is tuple
+    assert type(copied.selection_objectives) is tuple
+
+
 @pytest.mark.parametrize(
     "mutation",
     ["missing", "duplicate", "stale_extra", "digest_mismatch"],
@@ -398,6 +807,7 @@ def test_contract_lock_mismatch_fails_before_runtime_activity(
         compile_workflow(mismatched, workflow_revision=2, catalog=catalog)
 
     assert captured.value.code == "contract_digest_mismatch"
+    assert captured.value.field_path == ("contract_lock",)
     assert factory_calls == []
 
 
@@ -438,9 +848,11 @@ def test_reachable_contract_change_with_the_same_id_and_version_is_rejected() ->
         ("binding_id", "synthetic.missing.direct"),
     ],
 )
-def test_missing_selected_catalog_contract_is_a_lock_mismatch(
+@pytest.mark.parametrize("seam", ["save", "relock", "compile"])
+def test_unknown_selected_catalog_contract_reports_the_identity_field(
     field_name: str,
     missing_id: str,
+    seam: str,
 ) -> None:
     catalog = _workflow_catalog()
     workflow = _unlocked_workflow()
@@ -451,39 +863,18 @@ def test_missing_selected_catalog_contract_is_a_lock_mismatch(
     unresolved = replace(
         workflow,
         nodes=(missing, workflow.nodes[1]),
-        contract_lock=(
-            ContractLockEntry(
-                "node_type",
-                "synthetic.missing",
-                "2.1.0",
-                "sha256:" + ("a" * 64),
-            ),
-        ),
     )
 
     with pytest.raises(WorkflowCompileError) as captured:
-        compile_workflow(unresolved, workflow_revision=1, catalog=catalog)
+        if seam == "save":
+            validate_workflow_parameter_values(unresolved, catalog)
+        elif seam == "relock":
+            relock_workflow(unresolved, catalog)
+        else:
+            compile_workflow(unresolved, workflow_revision=1, catalog=catalog)
 
-    assert captured.value.code == "contract_digest_mismatch"
-
-
-def test_explicit_relock_rejects_a_missing_catalog_contract() -> None:
-    workflow = _unlocked_workflow()
-    unresolved = replace(
-        workflow,
-        nodes=(
-            replace(
-                workflow.nodes[0],
-                binding_id="synthetic.missing.direct",
-            ),
-            workflow.nodes[1],
-        ),
-    )
-
-    with pytest.raises(WorkflowCompileError) as captured:
-        relock_workflow(unresolved, _workflow_catalog())
-
-    assert captured.value.code == "contract_digest_mismatch"
+    assert captured.value.code == "unknown_contract"
+    assert captured.value.field_path == ("nodes", 0, field_name)
 
 
 @pytest.mark.parametrize(
@@ -681,6 +1072,66 @@ def test_compile_validates_dag_binding_ownership_parameters_ports_and_availabili
         with pytest.raises(WorkflowCompileError) as captured:
             compile_workflow(locked, workflow_revision=2, catalog=catalog)
         assert captured.value.code == expected_code
+
+
+def test_compile_rejects_many_output_connected_to_one_input() -> None:
+    catalog = _workflow_catalog(source_output_multiplicity="many")
+    workflow = relock_workflow(_unlocked_workflow(), catalog)
+
+    with pytest.raises(WorkflowCompileError) as captured:
+        compile_workflow(workflow, workflow_revision=2, catalog=catalog)
+
+    assert captured.value.code == "port_multiplicity_mismatch"
+    assert captured.value.field_path == ("edges", 0)
+
+
+@pytest.mark.parametrize(
+    ("source_multiplicity", "target_multiplicity"),
+    [("one", "many"), ("many", "many")],
+)
+def test_compile_accepts_connections_that_preserve_all_output_values(
+    source_multiplicity: str,
+    target_multiplicity: str,
+) -> None:
+    catalog = _workflow_catalog(
+        source_output_multiplicity=source_multiplicity,
+        sink_input_multiplicity=target_multiplicity,
+    )
+    workflow = relock_workflow(_unlocked_workflow(), catalog)
+
+    compiled = compile_workflow(
+        workflow,
+        workflow_revision=2,
+        catalog=catalog,
+    )
+
+    assert compiled.execution_plan.edges == workflow.edges
+
+
+def test_compile_rejects_multiple_scalar_edges_to_one_input() -> None:
+    catalog = _workflow_catalog()
+    workflow = _unlocked_workflow()
+    source, sink = workflow.nodes
+    second_source = replace(source, node_id="source-2")
+    second_edge = replace(
+        workflow.edges[0],
+        source_node_id=second_source.node_id,
+    )
+    workflow = replace(
+        workflow,
+        nodes=(source, second_source, sink),
+        edges=(*workflow.edges, second_edge),
+    )
+
+    with pytest.raises(WorkflowCompileError) as captured:
+        compile_workflow(
+            relock_workflow(workflow, catalog),
+            workflow_revision=2,
+            catalog=catalog,
+        )
+
+    assert captured.value.code == "duplicate_input_connection"
+    assert captured.value.field_path == ("edges", 1, "target_port")
 
 
 @pytest.mark.parametrize(
@@ -1231,6 +1682,227 @@ def test_public_v2_mutation_failures_use_the_structured_error_vocabulary(
     validate_error(after_credential.json(), status=404)
 
 
+def test_public_save_reports_an_inactive_exact_contract_generation(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path,
+) -> None:
+    for name in ("PROJECT", "CACHE", "OUTPUT", "RUN"):
+        monkeypatch.setenv(
+            f"PROTEIN_WORKBENCH_{name}_ROOT",
+            str(tmp_path / name.lower()),
+        )
+    app = create_app(frozen_catalog_override=_workflow_catalog())
+
+    with TestClient(app) as client:
+        project_id = client.post(
+            "/api/projects",
+            json={"name": "inactive generation"},
+        ).json()["id"]
+        workflow = _unlocked_workflow().to_public()
+        workflow["workflow_id"] = project_id
+        workflow["nodes"][0]["node_type_version"] = "2.0.0"
+
+        response = client.put(
+            f"/api/v2/projects/{project_id}/workflow",
+            json={
+                "expected_workflow_revision": 0,
+                "workflow": workflow,
+            },
+        )
+        persisted = client.get(
+            f"/api/v2/projects/{project_id}/workflow"
+        )
+
+    assert response.status_code == 409
+    validate_error(response.json(), status=409)
+    assert response.json()["error"]["code"] == "inactive_generation"
+    assert response.json()["error"]["details"]["issues"][0][
+        "field_path"
+    ] == ["nodes", 0, "node_type_version"]
+    assert persisted.status_code == 404
+
+
+def test_public_save_rejects_a_stale_exact_reference_in_an_unlocked_workflow(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path,
+) -> None:
+    for name in ("PROJECT", "CACHE", "OUTPUT", "RUN"):
+        monkeypatch.setenv(
+            f"PROTEIN_WORKBENCH_{name}_ROOT",
+            str(tmp_path / name.lower()),
+        )
+    catalog = _workflow_catalog()
+    app = create_app(frozen_catalog_override=catalog)
+
+    with TestClient(app) as client:
+        project_id = client.post(
+            "/api/projects",
+            json={"name": "stale unlocked reference"},
+        ).json()["id"]
+        workflow = _workflow_with_reference_generation(
+            catalog,
+            collection="observation_selectors",
+            reference_field="metric",
+            contract_version="2.1.0",
+        ).to_public()
+        workflow["workflow_id"] = project_id
+        workflow["observation_selectors"][0]["metric"][
+            "contract_digest"
+        ] = "sha256:" + ("f" * 64)
+
+        response = client.put(
+            f"/api/v2/projects/{project_id}/workflow",
+            json={
+                "expected_workflow_revision": 0,
+                "workflow": workflow,
+            },
+        )
+        persisted = client.get(
+            f"/api/v2/projects/{project_id}/workflow"
+        )
+
+    assert response.status_code == 409
+    validate_error(response.json(), status=409)
+    assert response.json()["error"]["code"] == "contract_digest_mismatch"
+    assert response.json()["error"]["details"]["issues"][0][
+        "field_path"
+    ] == [
+        "observation_selectors",
+        0,
+        "metric",
+        "contract_digest",
+    ]
+    assert persisted.status_code == 404
+
+
+@pytest.mark.parametrize(
+    ("version_field", "expected_path"),
+    [
+        ("node_type_version", ["nodes", 0, "node_type_version"]),
+        ("binding_version", ["nodes", 0, "binding_version"]),
+    ],
+)
+def test_public_load_rejects_a_persisted_inactive_exact_generation(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path,
+    version_field: str,
+    expected_path: list[object],
+) -> None:
+    project_root = tmp_path / "project"
+    for name in ("CACHE", "OUTPUT", "RUN"):
+        monkeypatch.setenv(
+            f"PROTEIN_WORKBENCH_{name}_ROOT",
+            str(tmp_path / name.lower()),
+        )
+    monkeypatch.setenv("PROTEIN_WORKBENCH_PROJECT_ROOT", str(project_root))
+    catalog = _workflow_catalog()
+
+    with TestClient(create_app(frozen_catalog_override=catalog)) as client:
+        project_id = client.post(
+            "/api/projects",
+            json={"name": f"inactive persisted {version_field}"},
+        ).json()["id"]
+        workflow = _unlocked_workflow().to_public()
+        workflow["workflow_id"] = project_id
+        saved = client.put(
+            f"/api/v2/projects/{project_id}/workflow",
+            json={
+                "expected_workflow_revision": 0,
+                "workflow": workflow,
+            },
+        )
+        assert saved.status_code == 200
+
+    path = project_root / project_id / "workflow-v2.json"
+    descriptor = json.loads(path.read_text(encoding="utf-8"))
+    descriptor["workflow"]["nodes"][0][version_field] = "2.0.0"
+    path.write_text(
+        json.dumps(descriptor, separators=(",", ":"), sort_keys=True),
+        encoding="utf-8",
+    )
+
+    with TestClient(create_app(frozen_catalog_override=catalog)) as client:
+        response = client.get(f"/api/v2/projects/{project_id}/workflow")
+
+    assert response.status_code == 409
+    validate_error(response.json(), status=409)
+    assert response.json()["error"]["code"] == "inactive_generation"
+    assert response.json()["error"]["details"]["issues"][0][
+        "field_path"
+    ] == expected_path
+
+
+def test_persisted_lock_cannot_be_loaded_relocked_or_cleared_after_generation_change(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path,
+) -> None:
+    for name in ("PROJECT", "CACHE", "OUTPUT", "RUN"):
+        monkeypatch.setenv(
+            f"PROTEIN_WORKBENCH_{name}_ROOT",
+            str(tmp_path / name.lower()),
+        )
+    original_catalog = _workflow_catalog(source_algorithm="generation-a")
+    active_catalog = _workflow_catalog(source_algorithm="generation-b")
+    assert original_catalog.contract_digest != active_catalog.contract_digest
+    project_ids: list[str] = []
+
+    with TestClient(
+        create_app(frozen_catalog_override=original_catalog)
+    ) as client:
+        for transition in ("load", "relock", "clear"):
+            project_id = client.post(
+                "/api/projects",
+                json={"name": f"stale persisted lock {transition}"},
+            ).json()["id"]
+            unlocked = _unlocked_workflow().to_public()
+            unlocked["workflow_id"] = project_id
+            saved = client.put(
+                f"/api/v2/projects/{project_id}/workflow",
+                json={
+                    "expected_workflow_revision": 0,
+                    "workflow": unlocked,
+                },
+            )
+            assert saved.status_code == 200
+            relocked = client.post(
+                f"/api/v2/projects/{project_id}/workflow:relock",
+                json={"workflow_revision": 1},
+            )
+            assert relocked.status_code == 200
+            project_ids.append(project_id)
+
+    with TestClient(
+        create_app(frozen_catalog_override=active_catalog)
+    ) as client:
+        loaded = client.get(
+            f"/api/v2/projects/{project_ids[0]}/workflow"
+        )
+        relocked = client.post(
+            f"/api/v2/projects/{project_ids[1]}/workflow:relock",
+            json={"workflow_revision": 2},
+        )
+        cleared_workflow = _unlocked_workflow().to_public()
+        cleared_workflow["workflow_id"] = project_ids[2]
+        cleared = client.put(
+            f"/api/v2/projects/{project_ids[2]}/workflow",
+            json={
+                "expected_workflow_revision": 2,
+                "workflow": cleared_workflow,
+            },
+        )
+
+    for response in (loaded, relocked, cleared):
+        assert response.status_code == 409
+        validate_error(response.json(), status=409)
+        assert (
+            response.json()["error"]["code"]
+            == "contract_digest_mismatch"
+        )
+        assert response.json()["error"]["details"]["issues"][0][
+            "field_path"
+        ] == ["contract_lock"]
+
+
 def test_public_save_load_relock_compile_journey_is_revisioned_and_exact(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path,
@@ -1300,7 +1972,7 @@ def test_public_save_load_relock_compile_journey_is_revisioned_and_exact(
     assert "nodes" not in receipt
 
 
-def test_public_save_and_compile_never_silently_repair_a_stale_lock(
+def test_public_save_rejects_a_stale_lock_without_repairing_persisted_revision(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path,
 ) -> None:
@@ -1335,32 +2007,29 @@ def test_public_save_and_compile_never_silently_repair_a_stale_lock(
             f"/api/v2/projects/{project_id}/workflow:relock",
             json={"workflow_revision": 1},
         ).json()
-        stale = relocked["workflow"]
+        stale = json.loads(json.dumps(relocked["workflow"]))
         stale["contract_lock"][0]["contract_digest"] = (
             "sha256:" + ("e" * 64)
         )
-        saved = client.put(
+        saved_response = client.put(
             f"/api/v2/projects/{project_id}/workflow",
             json={
                 "expected_workflow_revision": 2,
                 "workflow": stale,
             },
-        ).json()
-        response = client.post(
-            f"/api/v2/projects/{project_id}/workflow:compile",
-            json={
-                "workflow_revision": 3,
-                "workflow": stale,
-            },
         )
-        loaded = client.get(
+        loaded_response = client.get(
             f"/api/v2/projects/{project_id}/workflow"
-        ).json()
+        )
 
-    assert saved["workflow_revision"] == 3
-    assert saved["workflow"] == stale
-    assert loaded == saved
-    assert response.status_code == 409
-    validate_error(response.json(), status=409)
-    assert response.json()["error"]["code"] == "contract_digest_mismatch"
+    assert saved_response.status_code == 409
+    validate_error(saved_response.json(), status=409)
+    assert (
+        saved_response.json()["error"]["code"]
+        == "contract_digest_mismatch"
+    )
+    assert loaded_response.status_code == 200
+    loaded = loaded_response.json()
+    assert loaded["workflow_revision"] == 2
+    assert loaded["workflow"] == relocked["workflow"]
     assert factory_calls == []

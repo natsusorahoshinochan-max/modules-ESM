@@ -2,18 +2,16 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping
-from importlib.metadata import version
 import math
 from typing import Any
 
 import numpy as np
 from tmtools import tm_align
 
+from core import OperationCall, OperationContext, ResolvedProducedObservation
 from datatypes import (
     Candidate,
     CandidateCollection,
-    ExactContractReference,
     PairwiseCandidateMapping,
     PairwiseObservationContext,
     PairwiseParticipant,
@@ -29,83 +27,65 @@ from .alignment import (
 from .domain import (
     AlignmentAtomCorrespondence,
     StructureAlignmentEvidence,
-    StructureAlignmentEvidenceCollection,
     StructureAlignmentNormalization,
     StructureAlignmentTransform,
 )
 
 
-_VERSION = "2.1.0"
-_ALIGNMENT_METHOD = "structure_comparison.ca_sequence_svd.method"
-_RMSD_METHOD = "structure_comparison.rmsd.method"
-_RMSD_METRIC = "structure_comparison.rmsd"
-_NORMALIZATION = "ca-correspondence-mean-square-angstrom"
-_TM_SCORE_METHOD = (
-    "structure_comparison.tm_score.reference_normalized.method"
-)
-_TM_SCORE_METRIC = "structure_comparison.tm_score"
-_TM_SCORE_NORMALIZATION = "standard-reference-residue-count"
-_TMTOOLS_VERSION = version("tmtools")
-
-
 class StructureComparisonImplementation:
-    """Dispatch the package's three Node Types through one implementation."""
+    """Dispatch the package's five Node Types through one implementation."""
 
     def __init__(
         self,
-        run_resources: Any,
-        catalog: Any,
+        context: OperationContext,
         operation: str,
         pairing_mode: str | None = None,
     ) -> None:
-        self._run_resources = run_resources
-        self._catalog = catalog
+        self._run_resources = context.resources
+        self._method = context.method
+        self._produced_observations = context.produced_observations
         self._operation = operation
         self._pairing_mode = pairing_mode
 
-    def execute(
-        self,
-        *,
-        inputs: Mapping[str, Any],
-        node_parameters: Mapping[str, Any],
-        binding_parameters: Mapping[str, Any],
-    ) -> dict[str, Any]:
-        if node_parameters or binding_parameters:
+    def execute(self, call: OperationCall) -> dict[str, Any]:
+        if call.node_parameters or call.binding_parameters:
             raise ValueError(
                 "structure comparison Nodes do not accept parameters"
             )
         if self._operation == "align_single":
-            return self._align_single(inputs)
+            return self._align_single(call)
         if self._operation == "align_pairwise":
             if self._pairing_mode == "fixed_reference":
-                return self._align_fixed_reference(inputs)
-            return self._align_pairwise(inputs)
+                return self._align_fixed_reference(call)
+            return self._align_pairwise(call)
         if self._operation == "rmsd":
-            return self._observe_rmsd(inputs)
+            return self._observe_rmsd(call)
         if self._operation == "tm_score":
-            return self._observe_single_tm_score(inputs)
+            return self._observe_single_tm_score(call)
         if self._operation == "batch_tm_score":
-            return self._observe_batch_tm_score(inputs)
+            return self._observe_batch_tm_score(call)
         raise RuntimeError("unknown structure comparison operation")
 
-    def _reference(
-        self,
-        kind: str,
-        contract_id: str,
-    ) -> ExactContractReference:
-        contract = self._catalog.require_contract(
-            kind,
-            contract_id,
-            _VERSION,
+    def _produced_observation(self) -> ResolvedProducedObservation:
+        matches = tuple(
+            observation
+            for observation in self._produced_observations
+            if observation.output_port == "scores"
         )
-        return ExactContractReference(**contract.reference())
+        if len(matches) != 1:
+            raise RuntimeError(
+                "comparison score Binding must resolve one exact Observation"
+            )
+        return matches[0]
 
     def _candidates(
         self,
-        value: object,
+        call: OperationCall,
         *,
+        port_name: str,
         role: str,
     ) -> tuple[tuple[Candidate, str], ...]:
+        value = call.inputs[port_name]
         if (
             type(value) is not CandidateCollection
             or value.item_type != "protein.structure"
@@ -117,10 +97,12 @@ class StructureComparisonImplementation:
             )
         ids: set[str] = set()
         result: list[tuple[Candidate, str]] = []
-        codec = self._catalog.require_port_type(
-            "protein.structure",
-            _VERSION,
-        )
+        digests = {
+            candidate.candidate_id: candidate.content_digest
+            for candidate in call.input_content_digests[
+                port_name
+            ].candidate_data
+        }
         for candidate in value.items:
             if (
                 type(candidate) is not Candidate
@@ -133,8 +115,16 @@ class StructureComparisonImplementation:
             if candidate.candidate_id in ids:
                 raise ValueError(f"{role} contains duplicate Candidate identities")
             ids.add(candidate.candidate_id)
-            result.append(
-                (candidate, codec.content_digest(candidate.data))
+            try:
+                digest = digests[candidate.candidate_id]
+            except KeyError as error:
+                raise ValueError(
+                    f"{role} lacks exact Candidate content identity"
+                ) from error
+            result.append((candidate, digest))
+        if set(digests) != ids:
+            raise ValueError(
+                f"{role} content identities contradict its Candidates"
             )
         return tuple(result)
 
@@ -225,7 +215,6 @@ class StructureComparisonImplementation:
             )
         )
         return StructureAlignmentEvidence(
-            schema_version=_VERSION,
             subject=PairwiseParticipant(
                 role="subject",
                 candidate_id=subject.candidate_id,
@@ -254,20 +243,26 @@ class StructureComparisonImplementation:
             ),
             rmsd=float(native.rmsd),
             coverage=float(native.coverage),
-            method=self._reference("method", _ALIGNMENT_METHOD),
+            method=self._method,
         )
 
     def _align_single(
         self,
-        inputs: Mapping[str, Any],
+        call: OperationCall,
     ) -> dict[str, Any]:
+        inputs = call.inputs
         if set(inputs) != {"subjects", "references"}:
             raise ValueError(
                 "single alignment requires subjects and references"
             )
-        subjects = self._candidates(inputs["subjects"], role="subjects")
+        subjects = self._candidates(
+            call,
+            port_name="subjects",
+            role="subjects",
+        )
         references = self._candidates(
-            inputs["references"],
+            call,
+            port_name="references",
             role="references",
         )
         if len(subjects) != 1 or len(references) != 1:
@@ -342,15 +337,21 @@ class StructureComparisonImplementation:
 
     def _align_pairwise(
         self,
-        inputs: Mapping[str, Any],
+        call: OperationCall,
     ) -> dict[str, Any]:
+        inputs = call.inputs
         if set(inputs) != {"subjects", "references", "pairing"}:
             raise ValueError(
                 "pairwise alignment requires subjects, references, and pairing"
             )
-        subjects = self._candidates(inputs["subjects"], role="subjects")
+        subjects = self._candidates(
+            call,
+            port_name="subjects",
+            role="subjects",
+        )
         references = self._candidates(
-            inputs["references"],
+            call,
+            port_name="references",
             role="references",
         )
         pairs = self._pairing(
@@ -371,26 +372,25 @@ class StructureComparisonImplementation:
                 (reference, reference_digest),
             ) in enumerate(pairs)
         )
-        return {
-            "alignments": StructureAlignmentEvidenceCollection(
-                schema_version=_VERSION,
-                pairing_source="candidate.pairing@2.1.0",
-                accepted_cardinality="one_to_one_complete",
-                alignments=alignments,
-            )
-        }
+        return {"alignments": alignments}
 
     def _align_fixed_reference(
         self,
-        inputs: Mapping[str, Any],
+        call: OperationCall,
     ) -> dict[str, Any]:
+        inputs = call.inputs
         if set(inputs) != {"subjects", "references"}:
             raise ValueError(
                 "fixed-reference alignment requires subjects and references"
             )
-        subjects = self._candidates(inputs["subjects"], role="subjects")
+        subjects = self._candidates(
+            call,
+            port_name="subjects",
+            role="subjects",
+        )
         references = self._candidates(
-            inputs["references"],
+            call,
+            port_name="references",
             role="references",
         )
         if len(references) != 1:
@@ -415,14 +415,7 @@ class StructureComparisonImplementation:
             )
             for index, (subject, subject_digest) in enumerate(subjects)
         )
-        return {
-            "alignments": StructureAlignmentEvidenceCollection(
-                schema_version=_VERSION,
-                pairing_source="fixed_reference.singleton@2.1.0",
-                accepted_cardinality="many_to_one_complete",
-                alignments=alignments,
-            )
-        }
+        return {"alignments": alignments}
 
     @staticmethod
     def _rmsd(alignment: StructureAlignmentEvidence) -> float:
@@ -433,18 +426,6 @@ class StructureComparisonImplementation:
         if not math.isfinite(value):
             raise ValueError("RMSD must be finite")
         return value
-
-    def _assert_alignment_method(
-        self,
-        alignment: StructureAlignmentEvidence,
-    ) -> None:
-        if alignment.method != self._reference(
-            "method",
-            _ALIGNMENT_METHOD,
-        ):
-            raise ValueError(
-                "alignment evidence names a conflicting Method identity"
-            )
 
     @staticmethod
     def _assert_alignment_identity(
@@ -475,41 +456,46 @@ class StructureComparisonImplementation:
     def _observation(
         self,
         alignment: StructureAlignmentEvidence,
-        *,
-        pairing_mode: str,
     ) -> ScoreObservation:
+        produced = self._produced_observation()
+        profile = produced.context_profile
         with self._run_resources.engine_invocation(
             engine_role="rmsd_observation",
-            engine_identity="structure_comparison.rmsd/2.1.0",
         ):
             value = self._rmsd(alignment)
         return ScoreObservation(
             candidate_id=alignment.subject.candidate_id,
-            metric=self._reference("metric", _RMSD_METRIC),
-            method=self._reference("method", _RMSD_METHOD),
+            metric=produced.metric,
+            method=self._method,
             context=PairwiseObservationContext(
                 subject=alignment.subject,
                 reference=alignment.reference,
-                pairing_mode=pairing_mode,
-                normalization=_NORMALIZATION,
+                pairing_mode=str(profile["pairing_mode"]),
+                normalization=str(profile["normalization"]),
             ),
             value=value,
-            source_partition="structure_comparison.rmsd",
+            source_partition=produced.output_partition,
         )
 
     def _observe_rmsd(
         self,
-        inputs: Mapping[str, Any],
+        call: OperationCall,
     ) -> dict[str, Any]:
+        inputs = call.inputs
         if self._pairing_mode == "fixed_reference":
             if set(inputs) != {"alignment", "subjects", "references"}:
                 raise ValueError(
                     "fixed-reference RMSD requires alignment, subjects, and "
                     "references"
                 )
-            subjects = self._candidates(inputs["subjects"], role="subjects")
+            subjects = self._candidates(
+                call,
+                port_name="subjects",
+                role="subjects",
+            )
             references = self._candidates(
-                inputs["references"],
+                call,
+                port_name="references",
                 role="references",
             )
             alignment = inputs["alignment"]
@@ -526,13 +512,7 @@ class StructureComparisonImplementation:
                 subjects[0],
                 references[0],
             )
-            self._assert_alignment_method(alignment)
-            observations = (
-                self._observation(
-                    alignment,
-                    pairing_mode="fixed_reference",
-                ),
-            )
+            observations = (self._observation(alignment),)
         elif self._pairing_mode == "per_subject_counterpart":
             if set(inputs) != {
                 "alignments",
@@ -544,9 +524,14 @@ class StructureComparisonImplementation:
                     "paired RMSD requires alignments, subjects, references, "
                     "and pairing"
                 )
-            subjects = self._candidates(inputs["subjects"], role="subjects")
+            subjects = self._candidates(
+                call,
+                port_name="subjects",
+                role="subjects",
+            )
             references = self._candidates(
-                inputs["references"],
+                call,
+                port_name="references",
                 role="references",
             )
             pairs = self._pairing(
@@ -554,21 +539,19 @@ class StructureComparisonImplementation:
                 subjects=subjects,
                 references=references,
             )
-            collection = inputs["alignments"]
+            alignments = inputs["alignments"]
             if (
-                type(collection) is not StructureAlignmentEvidenceCollection
-                or len(collection.alignments) != len(pairs)
+                type(alignments) is not tuple
+                or len(alignments) != len(pairs)
+                or any(
+                    type(alignment) is not StructureAlignmentEvidence
+                    for alignment in alignments
+                )
             ):
                 raise ValueError(
                     "paired RMSD requires one alignment for every pairing"
                 )
-            by_pair = {
-                (
-                    alignment.subject.candidate_id,
-                    alignment.reference.candidate_id,
-                ): alignment
-                for alignment in collection.alignments
-            }
+            by_pair = self._alignment_index(alignments)
             observations_list: list[ScoreObservation] = []
             for subject, reference in pairs:
                 key = (
@@ -585,12 +568,8 @@ class StructureComparisonImplementation:
                     subject,
                     reference,
                 )
-                self._assert_alignment_method(alignment)
                 observations_list.append(
-                    self._observation(
-                        alignment,
-                        pairing_mode="per_subject_counterpart",
-                    )
+                    self._observation(alignment)
                 )
             if len(by_pair) != len(pairs):
                 raise ValueError(
@@ -639,7 +618,6 @@ class StructureComparisonImplementation:
         reference: tuple[Candidate, str],
     ) -> None:
         self._assert_alignment_identity(alignment, subject, reference)
-        self._assert_alignment_method(alignment)
         self._validate_tm_score_evidence(alignment)
 
     def _tm_score(self, alignment: StructureAlignmentEvidence) -> float:
@@ -688,7 +666,6 @@ class StructureComparisonImplementation:
         )
         with self._run_resources.engine_invocation(
             engine_role="tm_score_optimization",
-            engine_identity=f"tmtools.tm_align/{_TMTOOLS_VERSION}",
         ):
             optimized = tm_align(
                 reference_coordinates,
@@ -727,28 +704,21 @@ class StructureComparisonImplementation:
     def _tm_observation(
         self,
         alignment: StructureAlignmentEvidence,
-        *,
-        pairing_mode: str,
-        source_partition: str,
+        evidence_content_digest: str,
     ) -> ScoreObservation:
-        self._assert_alignment_method(alignment)
-        alignment_type = self._catalog.require_port_type(
-            "structure_comparison.alignment",
-            _VERSION,
-        )
+        produced = self._produced_observation()
+        profile = produced.context_profile
         value = self._tm_score(alignment)
         return ScoreObservation(
             candidate_id=alignment.subject.candidate_id,
-            metric=self._reference("metric", _TM_SCORE_METRIC),
-            method=self._reference("method", _TM_SCORE_METHOD),
+            metric=produced.metric,
+            method=self._method,
             context=PairwiseObservationContext(
                 subject=alignment.subject,
                 reference=alignment.reference,
-                pairing_mode=pairing_mode,
-                normalization=_TM_SCORE_NORMALIZATION,
-                evidence_content_digest=alignment_type.content_digest(
-                    alignment
-                ),
+                pairing_mode=str(profile["pairing_mode"]),
+                normalization=str(profile["normalization"]),
+                evidence_content_digest=evidence_content_digest,
                 evidence_method=alignment.method,
                 normalization_length=(
                     alignment.normalization.reference_residue_count
@@ -758,20 +728,26 @@ class StructureComparisonImplementation:
                 ),
             ),
             value=value,
-            source_partition=source_partition,
+            source_partition=produced.output_partition,
         )
 
     def _observe_single_tm_score(
         self,
-        inputs: Mapping[str, Any],
+        call: OperationCall,
     ) -> dict[str, Any]:
+        inputs = call.inputs
         if set(inputs) != {"alignment", "subjects", "references"}:
             raise ValueError(
                 "single TM-score requires alignment, subjects, and references"
             )
-        subjects = self._candidates(inputs["subjects"], role="subjects")
+        subjects = self._candidates(
+            call,
+            port_name="subjects",
+            role="subjects",
+        )
         references = self._candidates(
-            inputs["references"],
+            call,
+            port_name="references",
             role="references",
         )
         alignment = inputs["alignment"]
@@ -788,10 +764,19 @@ class StructureComparisonImplementation:
             subjects[0],
             references[0],
         )
+        digest_record = call.input_content_digests.get("alignment")
+        if (
+            digest_record is None
+            or digest_record.port_type_id
+            != "structure_comparison.alignment"
+            or len(digest_record.value_content_digests) != 1
+        ):
+            raise ValueError(
+                "single TM-score lacks exact alignment content identity"
+            )
         observation = self._tm_observation(
             alignment,
-            pairing_mode="fixed_reference",
-            source_partition="structure_comparison.tm_score.single",
+            digest_record.value_content_digests[0],
         )
         return {
             "scores": ScoreCollection(
@@ -802,25 +787,67 @@ class StructureComparisonImplementation:
 
     @staticmethod
     def _alignment_index(
-        collection: StructureAlignmentEvidenceCollection,
+        alignments: tuple[StructureAlignmentEvidence, ...],
     ) -> dict[tuple[str, str], StructureAlignmentEvidence]:
         index: dict[tuple[str, str], StructureAlignmentEvidence] = {}
-        for alignment in collection.alignments:
+        for alignment in alignments:
             key = (
                 alignment.subject.candidate_id,
                 alignment.reference.candidate_id,
             )
             if key in index:
                 raise ValueError(
-                    "alignment collection contains a duplicate exact pair"
+                    "alignment inputs contain a duplicate exact pair"
                 )
             index[key] = alignment
         return index
 
+    @staticmethod
+    def _digested_alignment_index(
+        call: OperationCall,
+    ) -> dict[tuple[str, str], tuple[StructureAlignmentEvidence, str]]:
+        alignments = call.inputs["alignments"]
+        digest_record = call.input_content_digests.get("alignments")
+        if (
+            type(alignments) is not tuple
+            or not alignments
+            or any(
+                type(alignment) is not StructureAlignmentEvidence
+                for alignment in alignments
+            )
+            or digest_record is None
+            or digest_record.port_type_id
+            != "structure_comparison.alignment"
+            or len(digest_record.value_content_digests) != len(alignments)
+        ):
+            raise ValueError(
+                "batch TM-score lacks exact per-alignment content identity"
+            )
+        index: dict[
+            tuple[str, str],
+            tuple[StructureAlignmentEvidence, str],
+        ] = {}
+        for alignment, content_digest in zip(
+            alignments,
+            digest_record.value_content_digests,
+            strict=True,
+        ):
+            key = (
+                alignment.subject.candidate_id,
+                alignment.reference.candidate_id,
+            )
+            if key in index:
+                raise ValueError(
+                    "alignment inputs contain a duplicate exact pair"
+                )
+            index[key] = (alignment, content_digest)
+        return index
+
     def _observe_batch_tm_score(
         self,
-        inputs: Mapping[str, Any],
+        call: OperationCall,
     ) -> dict[str, Any]:
+        inputs = call.inputs
         if self._pairing_mode == "per_subject_counterpart":
             if set(inputs) != {
                 "alignments",
@@ -832,9 +859,14 @@ class StructureComparisonImplementation:
                     "paired batch TM-score requires alignments, subjects, "
                     "references, and pairing"
                 )
-            subjects = self._candidates(inputs["subjects"], role="subjects")
+            subjects = self._candidates(
+                call,
+                port_name="subjects",
+                role="subjects",
+            )
             references = self._candidates(
-                inputs["references"],
+                call,
+                port_name="references",
                 role="references",
             )
             pairs = self._pairing(
@@ -842,18 +874,12 @@ class StructureComparisonImplementation:
                 subjects=subjects,
                 references=references,
             )
-            collection = inputs["alignments"]
-            if (
-                type(collection) is not StructureAlignmentEvidenceCollection
-                or collection.pairing_source != "candidate.pairing@2.1.0"
-                or collection.accepted_cardinality != "one_to_one_complete"
-                or len(collection.alignments) != len(pairs)
-            ):
+            index = self._digested_alignment_index(call)
+            if len(index) != len(pairs):
                 raise ValueError(
                     "paired batch TM-score requires complete one-to-one "
                     "alignment evidence"
                 )
-            index = self._alignment_index(collection)
             expected_keys = {
                 (
                     subject[0].candidate_id,
@@ -863,11 +889,13 @@ class StructureComparisonImplementation:
             }
             if set(index) != expected_keys:
                 raise ValueError(
-                    "alignment collection conflicts with the pairing source"
+                    "alignment inputs conflict with the pairing source"
                 )
-            resolved_alignments: list[StructureAlignmentEvidence] = []
+            resolved_alignments: list[
+                tuple[StructureAlignmentEvidence, str]
+            ] = []
             for subject, reference in pairs:
-                alignment = index[
+                alignment, evidence_digest = index[
                     (
                         subject[0].candidate_id,
                         reference[0].candidate_id,
@@ -878,17 +906,10 @@ class StructureComparisonImplementation:
                     subject,
                     reference,
                 )
-                resolved_alignments.append(alignment)
+                resolved_alignments.append((alignment, evidence_digest))
             observations = [
-                self._tm_observation(
-                    alignment,
-                    pairing_mode="per_subject_counterpart",
-                    source_partition=(
-                        "structure_comparison.tm_score."
-                        "per_subject_counterpart"
-                    ),
-                )
-                for alignment in resolved_alignments
+                self._tm_observation(alignment, evidence_digest)
+                for alignment, evidence_digest in resolved_alignments
             ]
         elif self._pairing_mode == "fixed_reference":
             if set(inputs) != {"alignments", "subjects", "references"}:
@@ -896,27 +917,23 @@ class StructureComparisonImplementation:
                     "fixed-reference batch TM-score requires alignments, "
                     "subjects, and references"
                 )
-            subjects = self._candidates(inputs["subjects"], role="subjects")
+            subjects = self._candidates(
+                call,
+                port_name="subjects",
+                role="subjects",
+            )
             references = self._candidates(
-                inputs["references"],
+                call,
+                port_name="references",
                 role="references",
             )
-            collection = inputs["alignments"]
-            if (
-                type(collection) is not StructureAlignmentEvidenceCollection
-                or collection.pairing_source
-                != "fixed_reference.singleton@2.1.0"
-                or collection.accepted_cardinality
-                != "many_to_one_complete"
-                or len(references) != 1
-                or len(collection.alignments) != len(subjects)
-            ):
+            index = self._digested_alignment_index(call)
+            if len(references) != 1 or len(index) != len(subjects):
                 raise ValueError(
                     "fixed-reference batch TM-score requires complete "
                     "many-to-one alignment evidence"
                 )
             reference = references[0]
-            index = self._alignment_index(collection)
             expected_keys = {
                 (
                     subject[0].candidate_id,
@@ -930,7 +947,7 @@ class StructureComparisonImplementation:
                 )
             resolved_alignments = []
             for subject in subjects:
-                alignment = index[
+                alignment, evidence_digest = index[
                     (
                         subject[0].candidate_id,
                         reference[0].candidate_id,
@@ -941,16 +958,10 @@ class StructureComparisonImplementation:
                     subject,
                     reference,
                 )
-                resolved_alignments.append(alignment)
+                resolved_alignments.append((alignment, evidence_digest))
             observations = [
-                self._tm_observation(
-                    alignment,
-                    pairing_mode="fixed_reference",
-                    source_partition=(
-                        "structure_comparison.tm_score.fixed_reference"
-                    ),
-                )
-                for alignment in resolved_alignments
+                self._tm_observation(alignment, evidence_digest)
+                for alignment, evidence_digest in resolved_alignments
             ]
         else:
             raise RuntimeError(

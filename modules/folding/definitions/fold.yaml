@@ -1,6 +1,6 @@
 schema_version: "2.1.0"
 node_type_id: folding.fold
-version: "2.1.0"
+version: "3.0.0"
 title: Fold protein sequences
 summary: Folds each complete sequence Candidate through one explicitly selected folding Binding and publishes complete structure Candidates with canonical confidence.
 category: folding
@@ -39,7 +39,7 @@ parameter_groups:
 node_parameters:
   effective_seed:
     parameter_scope: scientific
-    scientific_meaning: Fully resolved Workbench sampling identity; the local Binding derives each provider seed while the remote provider exposes no seed control.
+    scientific_meaning: Configured base seed used by Bindings with exact seed control; a controlled call derives its seed from canonical parent-sequence content and stable parent/sample semantics, while a provider-uncontrolled Binding records no effective seed.
     required: true
     value_contract:
       type: integer

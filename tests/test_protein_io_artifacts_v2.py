@@ -5,6 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
+from fastapi.testclient import TestClient
 import pytest
 
 from core import (
@@ -21,6 +22,7 @@ from core import (
     parse_workflow_document,
 )
 from core.port_types import canonical_json_bytes
+from core.server import create_app
 from core.workflow_v2 import WorkflowEdge
 from modules.protein_io.package import MODULE_PACKAGE as PROTEIN_IO_PACKAGE
 from tests.fixtures.protein_io_sources.package import (
@@ -48,9 +50,23 @@ def _run_import_export(
         WorkflowNodeInstance(
             node_id=role,
             node_type_id=f"protein_io.{role}_{value_kind}",
-            node_type_version="2.1.0",
+            node_type_version=(
+                "3.0.0"
+                if (
+                    (role == "import" and value_kind == "sequence")
+                    or value_kind == "structure"
+                )
+                else "2.1.0"
+            ),
             binding_id=f"protein_io.{role}_{value_kind}.direct",
-            binding_version="2.1.0",
+            binding_version=(
+                "3.0.0"
+                if (
+                    (role == "import" and value_kind == "sequence")
+                    or value_kind == "structure"
+                )
+                else "2.1.0"
+            ),
             node_parameters=(
                 {"project_input_ref": f"{value_kind}-input"}
                 if role == "import"
@@ -176,8 +192,9 @@ def test_artifact_retrieval_rejects_tampering_symlinks_and_traversal(
     assert traversed.value.code == "artifact_not_found"
 
 
-def test_artifact_retrieval_uses_durable_binding_after_package_removal(
+def test_artifact_retrieval_rejects_inactive_generation_without_rewriting_evidence(
     tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     service, project_id, projection, _ = _run_import_export(
         tmp_path,
@@ -185,30 +202,90 @@ def test_artifact_retrieval_uses_durable_binding_after_package_removal(
         payload=b">source\nACDEFG\n",
     )
     service.shutdown()
-    catalog = builtin_frozen_catalog()
-    projects = ProjectManager(
-        tmp_path / "projects",
-        cache_root=tmp_path / "cache",
-        output_root=tmp_path / "outputs",
-        run_root=tmp_path / "runs",
-    )
-    restarted = V2RunService(
-        projects,
-        catalog,
-        WorkflowAuthoringService(projects, catalog),
-        EnvironmentConfiguration({}),
-    )
+    original_catalog = build_discovered_frozen_catalog()
+    active_catalog = builtin_frozen_catalog()
+    assert original_catalog.contract_digest != active_catalog.contract_digest
+    assert original_catalog.get_contract(
+        "binding",
+        "protein_io.import_sequence.direct",
+        "3.0.0",
+    ) is not None
+    assert active_catalog.get_contract(
+        "binding",
+        "protein_io.import_sequence.direct",
+        "3.0.0",
+    ) is None
+
     artifact = projection["artifact_index"][0]
-
-    descriptor, body = restarted.artifact(
-        project_id,
-        projection["run_id"],
-        artifact["artifact_reference"],
+    run_id = projection["run_id"]
+    artifact_path = (
+        tmp_path
+        / "outputs"
+        / project_id
+        / run_id
+        / "published"
+        / artifact["artifact_reference"]
     )
-    restarted.shutdown()
+    evidence_root = tmp_path / "runs" / project_id / run_id
+    artifact_before = artifact_path.read_bytes()
+    evidence_before = {
+        path.relative_to(evidence_root).as_posix(): path.read_bytes()
+        for path in sorted(evidence_root.rglob("*"))
+        if path.is_file()
+    }
 
-    assert descriptor["media_type"] == "text/x-fasta"
-    assert body == b">protein-workbench-sequence\nACDEFG\n"
+    monkeypatch.setenv(
+        "PROTEIN_WORKBENCH_PROJECT_ROOT",
+        str(tmp_path / "projects"),
+    )
+    monkeypatch.setenv(
+        "PROTEIN_WORKBENCH_CACHE_ROOT",
+        str(tmp_path / "cache"),
+    )
+    monkeypatch.setenv(
+        "PROTEIN_WORKBENCH_OUTPUT_ROOT",
+        str(tmp_path / "outputs"),
+    )
+    monkeypatch.setenv(
+        "PROTEIN_WORKBENCH_RUN_ROOT",
+        str(tmp_path / "runs"),
+    )
+    with TestClient(
+        create_app(frozen_catalog_override=active_catalog)
+    ) as client:
+        with pytest.raises(V2RunError) as service_rejected:
+            client.app.state.run_execution_v2.artifact(
+                project_id,
+                run_id,
+                artifact["artifact_reference"],
+            )
+        rejected = client.get(
+            f"/api/v2/projects/{project_id}/runs/{run_id}/artifacts/"
+            f"{artifact['artifact_reference']}"
+        )
+
+    evidence_after = {
+        path.relative_to(evidence_root).as_posix(): path.read_bytes()
+        for path in sorted(evidence_root.rglob("*"))
+        if path.is_file()
+    }
+    assert rejected.status_code == 409
+    assert service_rejected.value.code == "inactive_generation"
+    assert service_rejected.value.details == {
+        "artifact_kind": "run_evidence",
+        "expected_catalog_contract_digest": active_catalog.contract_digest,
+        "received_catalog_contract_digest": original_catalog.contract_digest,
+    }
+    error = rejected.json()["error"]
+    assert error["code"] == "inactive_generation"
+    assert error["retryable"] is False
+    assert error["details"] == {
+        "artifact_kind": "run_evidence",
+        "expected_catalog_contract_digest": active_catalog.contract_digest,
+        "received_catalog_contract_digest": original_catalog.contract_digest,
+    }
+    assert artifact_path.read_bytes() == artifact_before
+    assert evidence_after == evidence_before
 
 
 def test_artifact_retrieval_rejects_media_outside_the_exact_output_port(
@@ -293,9 +370,9 @@ def test_fifteen_candidate_pdbs_keep_identity_slots_and_cache_rematerialize(
             WorkflowNodeInstance(
                 node_id="export",
                 node_type_id="protein_io.export_structure",
-                node_type_version="2.1.0",
+                node_type_version="3.0.0",
                 binding_id="protein_io.export_structure.direct",
-                binding_version="2.1.0",
+                binding_version="3.0.0",
                 node_parameters={},
                 binding_parameters={},
             ),

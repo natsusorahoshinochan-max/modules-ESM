@@ -1,6 +1,6 @@
 schema_version: "2.1.0"
 node_type_id: esm3.generate_structure
-version: "2.1.0"
+version: "3.0.0"
 title: Generate structures with remote ESM-3
 summary: Samples the structure track for one sequence-complete ProteinPrompt and publishes complete structures and exact confidence.
 category: generation
@@ -45,7 +45,7 @@ parameter_groups:
 node_parameters:
   effective_seed:
     parameter_scope: scientific
-    scientific_meaning: Fully resolved Workbench sampling identity; the remote provider does not expose seed control.
+    scientific_meaning: Configured base seed used by Bindings with exact seed control; a provider-uncontrolled Binding records no effective seed.
     required: true
     value_contract:
       type: integer

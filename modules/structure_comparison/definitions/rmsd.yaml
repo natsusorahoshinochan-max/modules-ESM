@@ -1,6 +1,6 @@
 schema_version: "2.1.0"
 node_type_id: structure_comparison.rmsd
-version: "2.1.0"
+version: "2.2.0"
 title: Observe alignment RMSD
 summary: Emits declared pairwise RMSD Observations from exact immutable alignment evidence and the exact Candidate sources it names.
 category: structure_comparison
@@ -12,10 +12,10 @@ inputs:
     multiplicity: one
     scientific_meaning: One immutable exact alignment for the fixed-reference Binding.
   - name: alignments
-    port_type_id: structure_comparison.alignment_collection
+    port_type_id: structure_comparison.alignment
     port_type_version: "2.1.0"
     required: false
-    multiplicity: one
+    multiplicity: many
     scientific_meaning: Complete immutable one-to-one alignment evidence for the per-subject-counterpart Binding.
   - name: subjects
     port_type_id: candidate.collection

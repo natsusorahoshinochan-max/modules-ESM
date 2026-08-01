@@ -423,9 +423,9 @@ def test_installed_backend_completes_full_public_v2_journey(
                     {
                         "node_id": "import",
                         "node_type_id": "protein_io.import_structure",
-                        "node_type_version": "2.1.0",
+                        "node_type_version": "3.0.0",
                         "binding_id": "protein_io.import_structure.direct",
-                        "binding_version": "2.1.0",
+                        "binding_version": "3.0.0",
                         "node_parameters": {
                             "project_input_ref": input_reference
                         },
@@ -434,9 +434,9 @@ def test_installed_backend_completes_full_public_v2_journey(
                     {
                         "node_id": "export",
                         "node_type_id": "protein_io.export_structure",
-                        "node_type_version": "2.1.0",
+                        "node_type_version": "3.0.0",
                         "binding_id": "protein_io.export_structure.direct",
-                        "binding_version": "2.1.0",
+                        "binding_version": "3.0.0",
                         "node_parameters": {},
                         "binding_parameters": {},
                     },
@@ -444,11 +444,11 @@ def test_installed_backend_completes_full_public_v2_journey(
                         {
                             "node_id": f"export-{index}",
                             "node_type_id": "protein_io.export_structure",
-                            "node_type_version": "2.1.0",
+                            "node_type_version": "3.0.0",
                             "binding_id": (
                                 "protein_io.export_structure.direct"
                             ),
-                            "binding_version": "2.1.0",
+                            "binding_version": "3.0.0",
                             "node_parameters": {},
                             "binding_parameters": {},
                         }
@@ -805,7 +805,7 @@ for package in (
     protein_workbench_public,
 ):
     assert not Path(package.__file__).resolve().is_relative_to(source)
-binding = ("esm3.represent_sequence.biohub_esmc_600m_2024_12", "2.1.0")
+binding = ("esm3.represent_sequence.biohub_esmc_600m_2024_12", "2.2.0")
 app = create_app(v2_environment_configuration={
     binding: {
         "values": {
@@ -862,7 +862,7 @@ if __name__ == "__main__":
 
 def _assert_installed_esmc_catalog(
     catalog: dict[str, object],
-) -> str:
+) -> tuple[str, str]:
     contracts = {
         (
             item["reference"]["contract_kind"],
@@ -872,7 +872,7 @@ def _assert_installed_esmc_catalog(
         for item in catalog["contracts"]
     }
     binding_id = "esm3.represent_sequence.biohub_esmc_600m_2024_12"
-    binding_key = ("binding", binding_id, "2.1.0")
+    binding_key = ("binding", binding_id, "2.2.0")
     method_key = (
         "method",
         "esm3.represent_sequence.esmc_600m_2024_12",
@@ -884,7 +884,7 @@ def _assert_installed_esmc_catalog(
     assert contracts[method_key]["descriptor"]["model_identity"]["model"] == (
         "esmc-600m-2024-12"
     )
-    return binding_id
+    return binding_id, contracts[method_key]["reference"]["contract_digest"]
 
 
 def _start_installed_esmc_run(
@@ -918,9 +918,9 @@ def _start_installed_esmc_run(
             {
                 "node_id": "import",
                 "node_type_id": "protein_io.import_sequence",
-                "node_type_version": "2.1.0",
+                "node_type_version": "3.0.0",
                 "binding_id": "protein_io.import_sequence.direct",
-                "binding_version": "2.1.0",
+                "binding_version": "3.0.0",
                 "node_parameters": {
                     "project_input_ref": uploaded.json()["project_input_ref"]
                 },
@@ -931,7 +931,7 @@ def _start_installed_esmc_run(
                 "node_type_id": "esm3.represent_sequence",
                 "node_type_version": "2.1.0",
                 "binding_id": binding_id,
-                "binding_version": "2.1.0",
+                "binding_version": "2.2.0",
                 "node_parameters": {},
                 "binding_parameters": {},
             },
@@ -992,7 +992,7 @@ def test_installed_biohub_esmc_gate(
         tmp_path,
     ) as (port, base_url):
         with PublicProtocolAcceptanceClient(base_url) as client:
-            binding_id = _assert_installed_esmc_catalog(
+            binding_id, method_digest = _assert_installed_esmc_catalog(
                 client.request("catalog_snapshot", {})
             )
             project_id, run_id = _start_installed_esmc_run(
@@ -1045,9 +1045,7 @@ def test_installed_biohub_esmc_gate(
         event
         for event in events
         if event["type"] == "engine_invocation_started"
-        and event["engine_identity"].startswith(
-            "esmc.biohub.esmc-600m-2024-12."
-        )
+        and event["engine_identity"] == method_digest
     ]
     assert [event["engine_role"] for event in invocations] == [
         "sequence_encode",

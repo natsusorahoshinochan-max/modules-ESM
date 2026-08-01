@@ -13,11 +13,13 @@ from core import (
     ContractIdentity,
     DefinitionResource,
     ExecutionBindingDefinition,
-    LazyImplementationFactory,
     MethodDefinition,
     ModulePackageRegistration,
+    OperationCall,
+    OperationContext,
     ReadinessDeclaration,
     ReadinessResult,
+    ScientificOperationFactory,
 )
 from datatypes import (
     FunctionAnnotation,
@@ -33,6 +35,7 @@ from modules.prompt_authoring.domain import AlignedResidueTrack
 
 
 _VERSION = "2.1.0"
+_NODE_BINDING_VERSION = "3.0.0"
 _PROJECT_ROOT = Path(__file__).resolve().parents[3]
 
 
@@ -51,24 +54,17 @@ class _Source:
     def __init__(self, run_resources: Any) -> None:
         self._run_resources = run_resources
 
-    def execute(
-        self,
-        *,
-        inputs: Mapping[str, Any],
-        node_parameters: Mapping[str, Any],
-        binding_parameters: Mapping[str, Any],
-    ) -> dict[str, Any]:
+    def execute(self, call: OperationCall) -> dict[str, Any]:
+        inputs = call.inputs
+        node_parameters = call.node_parameters
+        binding_parameters = call.binding_parameters
         if (
             inputs
             or set(node_parameters) != {"fixture"}
             or binding_parameters
         ):
             raise ValueError("prompt-authoring source accepts no values")
-        with self._run_resources.engine_invocation(
-            engine_identity=(
-                "contract_test.prompt_authoring_values.method/2.1.0"
-            ),
-        ):
+        with self._run_resources.engine_invocation():
             fixture = node_parameters["fixture"]
             source = ResidueLayout(
                 chain_id="A,B",
@@ -372,12 +368,10 @@ class _Source:
             if fixture == "2emo":
                 structure = ProteinStructure(
                     (_PROJECT_ROOT / "pdbs" / "2EMO.pdb").read_text(),
-                    source="pdbs/2EMO.pdb",
                 )
             elif fixture == "5g53":
                 structure = ProteinStructure(
                     (_PROJECT_ROOT / "pdbs" / "5G53.pdb").read_text(),
-                    source="pdbs/5G53.pdb",
                 )
         return {
             "source_layout": source,
@@ -462,8 +456,8 @@ class _Source:
         }
 
 
-def _factory(**kwargs: object) -> object:
-    return _Source(kwargs["run_resources"])
+def _factory(context: OperationContext) -> object:
+    return _Source(context.resources)
 
 
 MODULE_PACKAGE = ModulePackageRegistration(
@@ -487,11 +481,11 @@ MODULE_PACKAGE = ModulePackageRegistration(
     bindings=(
         ExecutionBindingDefinition(
             binding_id="contract_test.prompt_authoring_values.direct",
-            version=_VERSION,
+            version=_NODE_BINDING_VERSION,
             node_type=ContractIdentity(
                 "node_type",
                 "contract_test.prompt_authoring_values",
-                _VERSION,
+                _NODE_BINDING_VERSION,
             ),
             method=ContractIdentity(
                 "method",
@@ -500,7 +494,7 @@ MODULE_PACKAGE = ModulePackageRegistration(
             ),
             binding_parameters={},
             execution_route="direct",
-            factory=LazyImplementationFactory(
+            factory=ScientificOperationFactory(
                 behavior=BehaviorReference(
                     "contract_test.prompt_authoring_values/factory",
                     _VERSION,

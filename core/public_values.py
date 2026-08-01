@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 import re
 import math
 from typing import Any
@@ -36,7 +37,7 @@ _OPAQUE_API_TOKEN = re.compile(
 
 def _secret_values(value: Any, *, sensitive: bool = False) -> set[str]:
     values: set[str] = set()
-    if isinstance(value, dict):
+    if isinstance(value, Mapping):
         for key, child in value.items():
             values.update(
                 _secret_values(
@@ -53,7 +54,7 @@ def _secret_values(value: Any, *, sensitive: bool = False) -> set[str]:
 
 
 def _redact(value: Any, secret_values: tuple[str, ...]) -> Any:
-    if isinstance(value, dict):
+    if isinstance(value, Mapping):
         return {
             str(key): (
                 "[REDACTED]"
@@ -93,7 +94,7 @@ def validate_public_scientific_value(
     """Accept only bounded, finite, already-redacted scientific JSON."""
     if depth > 12:
         raise ValueError("Scientific value nesting is too deep")
-    if isinstance(value, dict):
+    if isinstance(value, Mapping):
         if len(value) > 128:
             raise ValueError("Scientific object is too large")
         for key, child in value.items():

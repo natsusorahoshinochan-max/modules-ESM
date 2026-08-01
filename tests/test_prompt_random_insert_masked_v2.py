@@ -78,14 +78,14 @@ def test_masked_insertion_handles_repeated_chain_boundary_choices(
         for annotation in inserted.function_annotations.annotations
     ] == [(2, 3, "A:1", "A:2")]
     residue_map = decoded_output(catalog, outputs["residue_map"])
-    assert residue_map.mappings == [
+    assert residue_map.mappings == (
         (-1, 0, "insert"),
         (0, 1, "match"),
         (1, 2, "match"),
         (-1, 3, "insert"),
         (-1, 4, "insert"),
         (2, 5, "match"),
-    ]
+    )
 
 
 def test_zero_insertion_and_chain_restriction_are_explicit(
@@ -113,11 +113,11 @@ def test_zero_insertion_and_chain_restriction_are_explicit(
         3,
         ["A:1", "A:2", "B:1"],
     )
-    assert zero_map.mappings == [
+    assert zero_map.mappings == (
         (0, 0, "match"),
         (1, 1, "match"),
         (2, 2, "match"),
-    ]
+    )
 
     catalog, chain_projection, _ = run_operation(
         tmp_path / "chain-b",
@@ -143,7 +143,7 @@ def test_zero_insertion_and_chain_restriction_are_explicit(
         - {"A:1", "A:2", "B:1"}
     )
     assert inserted_ids == {"B:masked.73.1", "B:masked.73.2"}
-    assert chain_prompt.target_layout.residue_ids[:2] == ["A:1", "A:2"]
+    assert chain_prompt.target_layout.residue_ids[:2] == ("A:1", "A:2")
 
 
 def test_masked_insertion_rejects_unknown_chain_constraints(

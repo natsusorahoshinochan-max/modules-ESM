@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Any, Mapping
+from typing import Any
 
 from core import (
     AvailabilityDeclaration,
@@ -11,11 +11,13 @@ from core import (
     ContractIdentity,
     DefinitionResource,
     ExecutionBindingDefinition,
-    LazyImplementationFactory,
     MethodDefinition,
     ModulePackageRegistration,
+    OperationCall,
+    OperationContext,
     ReadinessDeclaration,
     ReadinessResult,
+    ScientificOperationFactory,
 )
 from datatypes import Candidate, CandidateCollection, ProteinStructure, ResidueLayout
 from modules.structure_annotation import (
@@ -25,19 +27,17 @@ from modules.structure_annotation import (
 
 
 _VERSION = "2.1.0"
+_NODE_BINDING_VERSION = "3.0.0"
 
 
 class _Source:
     def __init__(self, run_resources: Any) -> None:
         self._run_resources = run_resources
 
-    def execute(
-        self,
-        *,
-        inputs: Mapping[str, Any],
-        node_parameters: Mapping[str, Any],
-        binding_parameters: Mapping[str, Any],
-    ) -> dict[str, Any]:
+    def execute(self, call: OperationCall) -> dict[str, Any]:
+        inputs = call.inputs
+        node_parameters = call.node_parameters
+        binding_parameters = call.binding_parameters
         if inputs or node_parameters or binding_parameters:
             raise ValueError("structure annotation source accepts no values")
         layout = ResidueLayout(
@@ -53,13 +53,8 @@ class _Source:
                 "2.000   3.000   4.000  1.00 20.00           C\n"
                 "TER\nEND\n"
             ),
-            source="contract-test",
         )
-        with self._run_resources.engine_invocation(
-            engine_identity=(
-                "contract_test.structure_annotation_source.method/2.1.0"
-            ),
-        ):
+        with self._run_resources.engine_invocation():
             annotations = DSSPAnnotation(
                 layout=layout,
                 secondary_structure=("H", "C"),
@@ -103,8 +98,8 @@ class _Source:
         }
 
 
-def _build(**kwargs: object) -> object:
-    return _Source(kwargs["run_resources"])
+def _build(context: OperationContext) -> object:
+    return _Source(context.resources)
 
 
 MODULE_PACKAGE = ModulePackageRegistration(
@@ -128,11 +123,11 @@ MODULE_PACKAGE = ModulePackageRegistration(
     bindings=(
         ExecutionBindingDefinition(
             binding_id="contract_test.structure_annotation_source.direct",
-            version=_VERSION,
+            version=_NODE_BINDING_VERSION,
             node_type=ContractIdentity(
                 "node_type",
                 "contract_test.structure_annotation_source",
-                _VERSION,
+                _NODE_BINDING_VERSION,
             ),
             method=ContractIdentity(
                 "method",
@@ -141,7 +136,7 @@ MODULE_PACKAGE = ModulePackageRegistration(
             ),
             binding_parameters={},
             execution_route="direct",
-            factory=LazyImplementationFactory(
+            factory=ScientificOperationFactory(
                 behavior=BehaviorReference(
                     "contract_test.structure_annotation_source/factory",
                     _VERSION,

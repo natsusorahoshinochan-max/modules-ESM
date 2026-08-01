@@ -269,13 +269,13 @@ def test_insertion_deletion_boundaries_and_chain_breaks_remain_explicit(
         source_fixture="boundary-edit",
     )
     residue_map = decoded_output(catalog, _author_output(edit_projection))
-    assert residue_map.mappings == [
+    assert residue_map.mappings == (
         (-1, 0, "insert"),
         (0, 1, "match"),
         (2, 2, "match"),
         (-1, 3, "insert"),
         (1, -1, "delete"),
-    ]
+    )
 
     catalog, map_projection, _ = run_operation(
         tmp_path / "map",

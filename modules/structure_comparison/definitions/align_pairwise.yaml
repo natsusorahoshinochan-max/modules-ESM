@@ -1,6 +1,6 @@
 schema_version: "2.1.0"
 node_type_id: structure_comparison.align_pairwise
-version: "2.1.0"
+version: "2.2.0"
 title: Align explicitly paired structure collections
 summary: Superimposes complete one-to-one subject and reference Candidate collections using only a typed exact Candidate pairing source.
 category: structure_comparison
@@ -25,10 +25,10 @@ inputs:
     scientific_meaning: Complete one-to-one exact Candidate identity and content-digest mapping required by the direct counterpart Binding and omitted by the fixed-reference Binding.
 outputs:
   - name: alignments
-    port_type_id: structure_comparison.alignment_collection
+    port_type_id: structure_comparison.alignment
     port_type_version: "2.1.0"
     required: true
-    multiplicity: one
+    multiplicity: many
     scientific_meaning: Complete one-to-one role-labelled alignment evidence in explicit pairing-source order.
 parameter_groups: []
 node_parameters: {}

@@ -11,6 +11,7 @@ from fastapi.testclient import TestClient
 from core import (
     ModulePackageContractCase,
     ObservationSelector,
+    PortValueError,
     SelectionInput,
     SelectionObjective,
     WorkflowDocument,
@@ -34,6 +35,7 @@ from datatypes import (
 )
 from modules.selection.package import MODULE_PACKAGE
 from tests.fixtures.public_v2 import wait_for_testclient_run_terminal
+from tests.fixtures.scientific_operation import build_operation, operation_call
 
 
 VERSION = "2.1.0"
@@ -340,19 +342,13 @@ def _direct_implementation(operation: str):
         workflow_revision=1,
         catalog=catalog,
     ).execution_plan
-    binding = catalog.require_contract(
-        "binding",
-        f"selection.{operation}.direct",
-        VERSION,
-    )
-    implementation = catalog.require_factory(
-        binding.contract_id,
-        VERSION,
-    ).build(
-        execution_plan=plan,
-        frozen_catalog=catalog,
-        environment_configuration={},
-        run_resources=None,
+    binding_id = f"selection.{operation}.direct"
+    implementation = build_operation(
+        catalog,
+        binding_id,
+        None,
+        selection_objectives=plan.selection_objectives,
+        observation_selectors=plan.observation_selectors,
     )
     return catalog, implementation
 
@@ -412,7 +408,9 @@ def test_filter_preserves_exact_candidate_objects_and_fails_closed() -> None:
     catalog, implementation = _direct_implementation("filter")
     candidates, scores = _runtime_values(catalog)
 
-    output = implementation.execute(
+    call = operation_call(
+        catalog=catalog,
+        binding_id="selection.filter.direct",
         inputs={"candidates": candidates, "scores": scores},
         node_parameters={
             "selector_id": "quality",
@@ -422,13 +420,17 @@ def test_filter_preserves_exact_candidate_objects_and_fails_closed() -> None:
             "tie_policy": "candidate_id_ascending",
         },
         binding_parameters={},
-    )["candidates"]
+    )
+    output = implementation.execute(call)["candidates"]
+    admitted_candidates = call.inputs["candidates"]
 
-    assert output.items == [candidates.items[0]]
-    assert output.items[0] is candidates.items[0]
+    assert output.items == (admitted_candidates.items[0],)
+    assert output.items[0] is admitted_candidates.items[0]
     incomplete = ScoreCollection("missing", list(scores.entries[:-1]))
     with pytest.raises(ValueError, match="missing observation"):
-        implementation.execute(
+        implementation.execute(operation_call(
+            catalog=catalog,
+            binding_id="selection.filter.direct",
             inputs={"candidates": candidates, "scores": incomplete},
             node_parameters={
                 "selector_id": "quality",
@@ -438,7 +440,7 @@ def test_filter_preserves_exact_candidate_objects_and_fails_closed() -> None:
                 "tie_policy": "candidate_id_ascending",
             },
             binding_parameters={},
-        )
+        ))
 
 
 def test_sort_and_top_k_use_utility_and_candidate_identity_ties() -> None:
@@ -450,34 +452,44 @@ def test_sort_and_top_k_use_utility_and_candidate_identity_ties() -> None:
         "tie_policy": "candidate_id_ascending",
     }
 
-    sorted_candidates = sorter.execute(
+    sort_call = operation_call(
+        catalog=catalog,
+        binding_id="selection.sort.direct",
         inputs={"candidates": candidates, "scores": scores},
         node_parameters=common,
         binding_parameters={},
-    )["candidates"]
+    )
+    sorted_candidates = sorter.execute(sort_call)["candidates"]
 
     assert [item.candidate_id for item in sorted_candidates.items] == [
         "candidate-z",
         "candidate-a",
         "candidate-b",
     ]
-    assert sorted_candidates.items[1] is candidates.items[2]
+    assert (
+        sorted_candidates.items[1]
+        is sort_call.inputs["candidates"].items[2]
+    )
     _, top_k = _direct_implementation("top_k")
-    selected = top_k.execute(
+    selected = top_k.execute(operation_call(
+        catalog=catalog,
+        binding_id="selection.top_k.direct",
         inputs={"candidates": candidates, "scores": scores},
         node_parameters={**common, "k": 2},
         binding_parameters={},
-    )["candidates"]
-    assert selected.items == [
-        candidates.items[0],
-        candidates.items[2],
+    ))["candidates"]
+    assert [item.candidate_id for item in selected.items] == [
+        "candidate-z",
+        "candidate-a",
     ]
     with pytest.raises(ValueError, match="cannot exceed"):
-        top_k.execute(
+        top_k.execute(operation_call(
+            catalog=catalog,
+            binding_id="selection.top_k.direct",
             inputs={"candidates": candidates, "scores": scores},
             node_parameters={**common, "k": 4},
             binding_parameters={},
-        )
+        ))
 
 
 def test_duplicate_conflicting_and_out_of_scope_observations_fail_closed() -> None:
@@ -494,21 +506,25 @@ def test_duplicate_conflicting_and_out_of_scope_observations_fail_closed() -> No
         [*scores.entries, scores.entries[0]],
     )
     with pytest.raises(ValueError, match="duplicate observation"):
-        implementation.execute(
+        implementation.execute(operation_call(
+            catalog=catalog,
+            binding_id="selection.sort.direct",
             inputs={"candidates": candidates, "scores": duplicate},
             node_parameters=parameters,
             binding_parameters={},
-        )
+        ))
     conflict = ScoreCollection(
         "conflict",
         [*scores.entries, replace(scores.entries[0], value=0.1)],
     )
-    with pytest.raises(ValueError, match="conflicting observation"):
-        implementation.execute(
+    with pytest.raises(PortValueError, match="conflicting values"):
+        implementation.execute(operation_call(
+            catalog=catalog,
+            binding_id="selection.sort.direct",
             inputs={"candidates": candidates, "scores": conflict},
             node_parameters=parameters,
             binding_parameters={},
-        )
+        ))
     out_of_scope = ScoreCollection(
         "out-of-scope",
         [
@@ -517,28 +533,27 @@ def test_duplicate_conflicting_and_out_of_scope_observations_fail_closed() -> No
         ],
     )
     with pytest.raises(ValueError, match="out-of-scope observation"):
-        implementation.execute(
+        implementation.execute(operation_call(
+            catalog=catalog,
+            binding_id="selection.sort.direct",
             inputs={"candidates": candidates, "scores": out_of_scope},
             node_parameters=parameters,
             binding_parameters={},
-        )
-    ignored_duplicate = ScoreCollection(
-        "ignored-duplicate",
+        ))
+    ignored_out_of_scope = ScoreCollection(
+        "ignored-out-of-scope",
         [
             *scores.entries,
             replace(scores.entries[0], candidate_id="candidate-ghost"),
-            replace(
-                scores.entries[0],
-                candidate_id="candidate-ghost",
-                value=0.1,
-            ),
         ],
     )
-    ignored = implementation.execute(
-        inputs={"candidates": candidates, "scores": ignored_duplicate},
+    ignored = implementation.execute(operation_call(
+        catalog=catalog,
+        binding_id="selection.sort.direct",
+        inputs={"candidates": candidates, "scores": ignored_out_of_scope},
         node_parameters={**parameters, "out_of_scope_policy": "ignore"},
         binding_parameters={},
-    )["candidates"]
+    ))["candidates"]
     assert [candidate.candidate_id for candidate in ignored.items] == [
         "candidate-z",
         "candidate-a",

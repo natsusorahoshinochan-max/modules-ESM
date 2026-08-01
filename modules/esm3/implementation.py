@@ -1,113 +1,82 @@
-"""Shared ESM-3 implementation for explicit remote and local Bindings."""
+"""Canonical ESM-3 Scientific Operations behind route-specific Adapters."""
 
 from __future__ import annotations
 
 from collections.abc import Mapping
+import hashlib
+import math
 from typing import Any
 
+from core import (
+    CandidatePairingIntent,
+    CandidatePairingIntentEntry,
+    OperationCall,
+    ResolvedProducedObservation,
+)
 from datatypes import (
     Candidate,
     CandidateCollection,
-    ProteinPrompt,
-    ProteinSequence,
-    ProteinStructure,
-)
-from datatypes import (
     ExactContractReference,
     IntrinsicObservationContext,
+    ProteinPrompt,
     ScoreCollection,
     ScoreObservation,
-    PairwiseCandidateMapping,
-    PairwiseCandidateMatch,
 )
 
 from .adapter import (
-    call_remote_provider,
-    complete_sequence,
-    complete_structure,
-    derived_call_seed,
-    generation_config,
-    normalized_confidence,
-    protein_prompt_to_provider,
-    reject_silent_sequence_fields,
-    response_has_structure,
-    require_sequence_mask,
-    structure_prompt_for_sequence,
-)
-from .local_adapter import (
-    call_local_provider,
-    load_local_esm3_client,
-    release_local_esm3_client,
-    resolve_local_runtime,
+    ESM3CallParameters,
+    ESM3Confidence,
+    ESM3GenerationAdapter,
 )
 
 
-class ESM3GenerationImplementation:
-    """Dispatch all three public Nodes through one exact Adapter."""
+def _derived_call_seed(
+    effective_seed: int,
+    prompt_content_digest: str,
+    sample_index: int,
+    track: str,
+) -> int:
+    """Derive the stable scientific identity for one sample/track slot."""
+    digest = hashlib.sha256(
+        (
+            "protein-workbench-esm3-call-seed/v2:"
+            f"{effective_seed}:{prompt_content_digest}:{sample_index}:{track}"
+        ).encode("ascii")
+    ).digest()
+    return int.from_bytes(digest[:6], "big")
+
+
+class ESM3GenerationOperation:
+    """Own ESM-3 sampling semantics above one provider Adapter seam."""
 
     def __init__(
         self,
-        run_resources: Any,
-        operation: str,
-        environment: Mapping[str, Any],
-        catalog: Any,
         *,
-        model_name: str,
-        method_id: str,
-        route_name: str = "biohub",
-        seed_control: str = "unsupported_by_provider",
+        adapter: ESM3GenerationAdapter,
+        operation: str,
+        method: ExactContractReference,
+        produced_observations: tuple[ResolvedProducedObservation, ...],
     ) -> None:
-        self._run_resources = run_resources
+        if operation not in {
+            "generate_sequence",
+            "generate_structure",
+            "generate_paired",
+        }:
+            raise ValueError("ESM-3 Operation identity is not declared")
+        self._adapter = adapter
         self._operation = operation
-        self._environment = environment
-        self._catalog = catalog
-        self._model_name = model_name
-        self._method_id = method_id
-        self._route_name = route_name
-        self._seed_control = seed_control
-        self._runtime_fingerprint: str | None = None
-        self._owned_local_client: Any | None = None
-
-    def _client(self) -> Any:
-        if self._route_name == "local_open":
-            runtime = resolve_local_runtime(self._environment)
-            self._runtime_fingerprint = runtime.safe_fingerprint
-            client = self._environment.get("provider_client")
-            if callable(getattr(client, "generate", None)):
-                return client
-            client_factory = self._environment.get("client_factory")
-            if callable(client_factory):
-                return client_factory(
-                    model_name=self._model_name,
-                    model_snapshot_path=runtime.snapshot_path,
-                    device=runtime.device,
-                    runtime_directory=runtime.runtime_directory,
-                    performance_settings=dict(runtime.performance_settings),
-                )
-            client = load_local_esm3_client(
-                self._environment,
-                model_name=self._model_name,
-                runtime=runtime,
+        self._method = method
+        self._produced_observations = {
+            (observation.output_port, observation.metric.contract_id): (
+                observation
             )
-            self._owned_local_client = client
-            return client
-        client = self._environment.get("provider_client")
-        if callable(getattr(client, "generate", None)):
-            return client
-        client_factory = self._environment.get("client_factory")
-        if callable(client_factory):
-            return client_factory(
-                model_name=self._model_name,
-                endpoint_id=self._environment["endpoint_id"],
-                credential_handle=self._environment["credential_handle"],
-            )
-        raise RuntimeError(
-            "remote ESM-3 requires an injected provider client or client "
-            "factory"
-        )
+            for observation in produced_observations
+        }
 
     @staticmethod
-    def _parameters(parameters: Mapping[str, Any]) -> dict[str, Any]:
+    def _parameters(
+        parameters: Mapping[str, Any],
+    ) -> tuple[int, int, ESM3CallParameters]:
         expected = {
             "effective_seed",
             "num_samples",
@@ -122,293 +91,156 @@ class ESM3GenerationImplementation:
             raise ValueError(
                 "ESM-3 generation parameters are not fully resolved"
             )
-        return dict(parameters)
-
-    def _provider_call(
-        self,
-        client: Any,
-        provider_prompt: Any,
-        config: Any,
-        *,
-        role: str,
-        operation: str,
-        parent_invocation_id: str | None = None,
-        effective_call_seed: int,
-    ) -> tuple[Any, str, int]:
-        provider_operation = {
-            "generate_sequence": "generate(track=sequence)",
-            "generate_structure": "generate(track=structure)",
-        }[operation]
-        if (
-            self._route_name == "local_open"
-            and self._runtime_fingerprint is None
-        ):
-            raise RuntimeError(
-                "local ESM-3 runtime was not resolved before invocation"
-            )
-        with self._run_resources.engine_invocation(
-            engine_role=role,
-            engine_identity=(
-                f"esm3.{self._route_name}.{self._model_name}.{operation}"
+        return (
+            parameters["effective_seed"],
+            parameters["num_samples"],
+            ESM3CallParameters(
+                num_steps=parameters["num_steps"],
+                temperature=parameters["temperature"],
+                top_p=parameters["top_p"],
+                schedule=parameters["schedule"],
+                strategy=parameters["strategy"],
+                temperature_annealing=parameters[
+                    "temperature_annealing"
+                ],
             ),
-            parent_invocation_id=parent_invocation_id,
-        ) as invocation_id:
-            if self._route_name == "local_open":
-                result = call_local_provider(
-                    client,
-                    provider_prompt,
-                    config,
-                    provider_operation,
-                    effective_seed=effective_call_seed,
-                )
-            else:
-                result = call_remote_provider(
-                    client,
-                    provider_prompt,
-                    config,
-                    provider_operation,
-                )
-        effective_num_steps = getattr(config, "num_steps", None)
-        if (
-            type(effective_num_steps) is not int
-            or effective_num_steps < 1
-        ):
-            raise RuntimeError(
-                "ESM-3 provider left an invalid effective num_steps"
-            )
-        return result, invocation_id, effective_num_steps
+        )
 
-    def execute(
-        self,
-        *,
-        inputs: Mapping[str, Any],
-        node_parameters: Mapping[str, Any],
-        binding_parameters: Mapping[str, Any],
+    @staticmethod
+    def _requested_parameters(
+        parameters: ESM3CallParameters,
     ) -> dict[str, Any]:
-        if set(inputs) != {"protein_prompt"} or binding_parameters:
-            raise ValueError(
-                "ESM-3 generation requires one ProteinPrompt and no route "
-                "parameters"
-            )
-        prompt = inputs["protein_prompt"]
-        if type(prompt) is not ProteinPrompt:
-            raise ValueError("protein_prompt has the wrong runtime type")
-        parameters = self._parameters(node_parameters)
-        try:
-            if self._operation == "generate_sequence":
-                outputs = self._generate_sequence(prompt, parameters)
-            elif self._operation == "generate_structure":
-                outputs = self._generate_structure(prompt, parameters)
-            elif self._operation == "generate_paired":
-                outputs = self._generate_paired(prompt, parameters)
-            else:
-                raise NotImplementedError(
-                    f"ESM-3 operation {self._operation!r} is not implemented"
-                )
-        except BaseException as body_error:
-            self._release_owned_local_client(body_error=body_error)
-            raise
-        self._release_owned_local_client()
-        return outputs
+        return {
+            "num_steps": parameters.num_steps,
+            "temperature": parameters.temperature,
+            "top_p": parameters.top_p,
+            "schedule": parameters.schedule,
+            "strategy": parameters.strategy,
+            "temperature_annealing": parameters.temperature_annealing,
+        }
 
-    def _release_owned_local_client(
-        self,
-        *,
-        body_error: BaseException | None = None,
-    ) -> None:
-        client = self._owned_local_client
-        self._owned_local_client = None
-        if client is None:
-            return
-        try:
-            release_local_esm3_client(client)
-        except BaseException as cleanup_error:
-            if body_error is None:
-                raise
-            body_error.add_note(
-                "Local ESM-3 staged-weight cleanup also failed: "
-                f"{type(cleanup_error).__name__}"
-            )
-
+    @classmethod
     def _candidate_metadata(
-        self,
+        cls,
         *,
         operation: str,
         sample_index: int,
         classification: str,
-        parameters: Mapping[str, Any],
+        configured_base_seed: int,
+        parameters: ESM3CallParameters,
         call_track: str,
+        effective_call_seed: int | None,
         effective_num_steps: int,
         effective_num_steps_by_track: Mapping[str, int] | None = None,
     ) -> dict[str, Any]:
-        requested = {
-            name: parameters[name]
-            for name in (
-                "num_steps",
-                "temperature",
-                "top_p",
-                "schedule",
-                "strategy",
-                "temperature_annealing",
-            )
-        }
+        requested = cls._requested_parameters(parameters)
         steps_by_track = (
             dict(effective_num_steps_by_track)
             if effective_num_steps_by_track is not None
             else {call_track: effective_num_steps}
         )
-        effective = {
-            track: {
-                **requested,
-                "num_steps": steps,
-            }
-            for track, steps in steps_by_track.items()
-        }
-        return {
-            "provider": self._route_name,
-            "model": self._model_name,
+        metadata = {
             "operation": operation,
             "sample_index": sample_index,
             "classification": classification,
-            "effective_seed": parameters["effective_seed"],
-            "effective_call_seed": derived_call_seed(
-                parameters["effective_seed"],
-                sample_index,
-                call_track,
-            ),
-            "effective_call_seed_scope": "sample_and_track",
-            "seed_control": self._seed_control,
             "requested_generation_parameters": requested,
-            "effective_generation_parameters": effective,
+            "effective_generation_parameters": {
+                track: {
+                    **requested,
+                    "num_steps": steps,
+                }
+                for track, steps in steps_by_track.items()
+            },
         }
-
-    def _generate_sequence(
-        self,
-        prompt: ProteinPrompt,
-        parameters: Mapping[str, Any],
-    ) -> dict[str, Any]:
-        client = self._client()
-        provider_prompt = protein_prompt_to_provider(prompt)
-        require_sequence_mask(provider_prompt)
-        candidates: list[Candidate] = []
-        structure_responses: list[tuple[int, Any, Candidate, int]] = []
-        for sample_index in range(parameters["num_samples"]):
-            config = generation_config("sequence", parameters)
-            result, _, effective_num_steps = self._provider_call(
-                client,
-                provider_prompt,
-                config,
-                role="sequence_sample",
-                operation="generate_sequence",
-                effective_call_seed=derived_call_seed(
-                    parameters["effective_seed"],
-                    sample_index,
-                    "sequence",
-                ),
-            )
-            sequence = complete_sequence(result, prompt)
-            raw_id = f"sequence-{sample_index}"
-            candidate = Candidate(
-                raw_id,
-                sequence,
-                [],
-                self._candidate_metadata(
-                    operation="generate_sequence",
-                    sample_index=sample_index,
-                    classification="sequence",
-                    parameters=parameters,
-                    call_track="sequence",
-                    effective_num_steps=effective_num_steps,
-                ),
-            )
-            candidates.append(candidate)
-            if response_has_structure(result):
-                structure_responses.append(
-                    (
-                        sample_index,
-                        result,
-                        candidate,
-                        effective_num_steps,
-                    )
-                )
-            else:
-                reject_silent_sequence_fields(result)
-        outputs: dict[str, Any] = {
-            "sequence_candidates": CandidateCollection(
-                "esm3-sequence-candidates",
-                "protein.sequence",
-                candidates,
-            )
-        }
-        if structure_responses:
-            if getattr(provider_prompt, "coordinates", None) is None:
-                raise ValueError(
-                    "sequence generation returned structure fields without "
-                    "coordinate-conditioned input"
-                )
-            reconstructed: list[Candidate] = []
-            confidence_sources: list[tuple[Candidate, Any]] = []
-            for (
-                sample_index,
-                response,
-                sequence_candidate,
-                effective_num_steps,
-            ) in structure_responses:
-                structure = complete_structure(
-                    response,
-                    prompt,
-                    expected_sequence=sequence_candidate.data.sequence,
-                )
-                structure_candidate = Candidate(
-                    f"reconstructed-structure-{sample_index}",
-                    structure,
-                    [sequence_candidate.candidate_id],
-                    self._candidate_metadata(
-                        operation="generate_sequence",
-                        sample_index=sample_index,
-                        classification="prompt_reconstruction",
-                        parameters=parameters,
-                        call_track="sequence",
-                        effective_num_steps=effective_num_steps,
+        if effective_call_seed is not None:
+            metadata.update(
+                {
+                    "configured_base_seed": configured_base_seed,
+                    "effective_call_seed": effective_call_seed,
+                    "effective_call_seed_scope": (
+                        "scientific-input-content-and-sample-track-slot"
                     ),
-                )
-                reconstructed.append(structure_candidate)
-                confidence_sources.append((structure_candidate, response))
-            confidence, pae = self._confidence_outputs(confidence_sources)
-            outputs["sequence_reconstruction_candidates"] = CandidateCollection(
-                "esm3-reconstructed-structures",
-                "protein.structure",
-                reconstructed,
+                }
             )
-            outputs["confidence_observations"] = confidence
-            if pae is not None:
-                outputs["pae_observations"] = pae
-        return outputs
+        return metadata
 
-    def _contract_reference(
-        self,
-        kind: str,
-        contract_id: str,
-    ) -> ExactContractReference:
-        contract = self._catalog.require_contract(
-            kind,
-            contract_id,
-            "2.1.0",
+    @staticmethod
+    def _prompt_content_digest(call: OperationCall) -> str:
+        digest_set = call.input_content_digests.get("protein_prompt")
+        if (
+            digest_set is None
+            or digest_set.port_type_id != "protein.prompt"
+            or len(digest_set.value_content_digests) != 1
+            or digest_set.candidate_data
+        ):
+            raise ValueError(
+                "ESM-3 generation requires one admitted ProteinPrompt "
+                "content identity"
+            )
+        return digest_set.value_content_digests[0]
+
+    def execute(self, call: OperationCall) -> dict[str, Any]:
+        if set(call.inputs) != {"protein_prompt"} or call.binding_parameters:
+            raise ValueError(
+                "ESM-3 generation requires one ProteinPrompt and no Binding "
+                "parameters"
+            )
+        prompt = call.inputs["protein_prompt"]
+        if type(prompt) is not ProteinPrompt:
+            raise ValueError("protein_prompt has the wrong runtime type")
+        effective_seed, num_samples, parameters = self._parameters(
+            call.node_parameters
         )
-        return ExactContractReference(**contract.reference())
+        prompt_content_digest = self._prompt_content_digest(call)
+        with self._adapter:
+            if self._operation == "generate_sequence":
+                return self._generate_sequence(
+                    prompt,
+                    effective_seed=effective_seed,
+                    prompt_content_digest=prompt_content_digest,
+                    num_samples=num_samples,
+                    parameters=parameters,
+                )
+            if self._operation == "generate_structure":
+                return self._generate_structure(
+                    prompt,
+                    effective_seed=effective_seed,
+                    prompt_content_digest=prompt_content_digest,
+                    num_samples=num_samples,
+                    parameters=parameters,
+                )
+            return self._generate_paired(
+                prompt,
+                effective_seed=effective_seed,
+                prompt_content_digest=prompt_content_digest,
+                num_samples=num_samples,
+                parameters=parameters,
+            )
+
+    def _produced_observation(
+        self,
+        metric_id: str,
+        *,
+        output_port: str,
+    ) -> ResolvedProducedObservation:
+        return self._produced_observations[(output_port, metric_id)]
 
     def _confidence_outputs(
         self,
-        responses: list[tuple[Candidate, Any]],
+        sources: list[tuple[Candidate, ESM3Confidence]],
         *,
-        output_partition: str = "structure_confidence",
+        confidence_output_port: str = "confidence_observations",
+        pae_output_port: str = "pae_observations",
     ) -> tuple[ScoreCollection, ScoreCollection | None]:
-        method = self._contract_reference(
-            "method",
-            self._method_id,
-        )
-        metric_references = {
-            metric_id: self._contract_reference("metric", metric_id)
+        produced_observations = {
+            metric_id: self._produced_observation(
+                metric_id,
+                output_port=(
+                    pae_output_port
+                    if metric_id == "structure.pae"
+                    else confidence_output_port
+                ),
+            )
             for metric_id in (
                 "structure.ptm",
                 "structure.plddt.per_residue",
@@ -416,42 +248,46 @@ class ESM3GenerationImplementation:
                 "structure.pae",
             )
         }
-        confidence: list[ScoreObservation] = []
+        confidence_observations: list[ScoreObservation] = []
         pae_observations: list[ScoreObservation] = []
-        for candidate, response in responses:
-            sequence = getattr(response, "sequence")
-            ptm, per_residue, mean_residue, pae = normalized_confidence(
-                response,
-                residue_count=len(sequence),
-            )
+        for candidate, confidence in sources:
             for metric_id, value in (
-                ("structure.ptm", ptm),
-                ("structure.plddt.per_residue", per_residue),
-                ("structure.plddt.mean_residue", mean_residue),
+                ("structure.ptm", confidence.ptm),
+                (
+                    "structure.plddt.per_residue",
+                    confidence.plddt_per_residue,
+                ),
+                (
+                    "structure.plddt.mean_residue",
+                    math.fsum(confidence.plddt_per_residue)
+                    / len(confidence.plddt_per_residue),
+                ),
             ):
-                confidence.append(
+                produced = produced_observations[metric_id]
+                confidence_observations.append(
                     ScoreObservation(
                         candidate_id=candidate.candidate_id,
-                        metric=metric_references[metric_id],
-                        method=method,
+                        metric=produced.metric,
+                        method=self._method,
                         context=IntrinsicObservationContext(),
                         value=value,
-                        source_partition=output_partition,
+                        source_partition=produced.output_partition,
                     )
                 )
-            if pae is not None:
+            if confidence.pae is not None:
+                produced = produced_observations["structure.pae"]
                 pae_observations.append(
                     ScoreObservation(
                         candidate_id=candidate.candidate_id,
-                        metric=metric_references["structure.pae"],
-                        method=method,
+                        metric=produced.metric,
+                        method=self._method,
                         context=IntrinsicObservationContext(),
-                        value=pae,
-                        source_partition=output_partition,
+                        value=confidence.pae,
+                        source_partition=produced.output_partition,
                     )
                 )
         return (
-            ScoreCollection("esm3-confidence", confidence),
+            ScoreCollection("esm3-confidence", confidence_observations),
             (
                 ScoreCollection("esm3-pae", pae_observations)
                 if pae_observations
@@ -475,50 +311,134 @@ class ESM3GenerationImplementation:
             )
         return "".join(track.values)
 
+    def _generate_sequence(
+        self,
+        prompt: ProteinPrompt,
+        *,
+        effective_seed: int,
+        prompt_content_digest: str,
+        num_samples: int,
+        parameters: ESM3CallParameters,
+    ) -> dict[str, Any]:
+        candidates: list[Candidate] = []
+        reconstructions: list[Candidate] = []
+        reconstruction_confidence: list[tuple[Candidate, ESM3Confidence]] = []
+        for sample_index in range(num_samples):
+            call_seed = _derived_call_seed(
+                effective_seed,
+                prompt_content_digest,
+                sample_index,
+                "sequence",
+            )
+            result = self._adapter.generate_sequence(
+                prompt,
+                parameters=parameters,
+                derived_call_seed=call_seed,
+            )
+            candidate = Candidate(
+                f"sequence-{sample_index}",
+                result.sequence,
+                [],
+                self._candidate_metadata(
+                    operation="generate_sequence",
+                    sample_index=sample_index,
+                    classification="sequence",
+                    configured_base_seed=effective_seed,
+                    parameters=parameters,
+                    call_track="sequence",
+                    effective_call_seed=result.effective_call_seed,
+                    effective_num_steps=result.effective_num_steps,
+                ),
+            )
+            candidates.append(candidate)
+            if result.reconstruction is not None:
+                if result.confidence is None:
+                    raise RuntimeError(
+                        "ESM-3 reconstruction confidence is incomplete"
+                    )
+                reconstruction = Candidate(
+                    f"reconstructed-structure-{sample_index}",
+                    result.reconstruction,
+                    [candidate.candidate_id],
+                    self._candidate_metadata(
+                        operation="generate_sequence",
+                        sample_index=sample_index,
+                        classification="prompt_reconstruction",
+                        configured_base_seed=effective_seed,
+                        parameters=parameters,
+                        call_track="sequence",
+                        effective_call_seed=result.effective_call_seed,
+                        effective_num_steps=result.effective_num_steps,
+                    ),
+                )
+                reconstructions.append(reconstruction)
+                reconstruction_confidence.append(
+                    (reconstruction, result.confidence)
+                )
+        outputs: dict[str, Any] = {
+            "sequence_candidates": CandidateCollection(
+                "esm3-sequence-candidates",
+                "protein.sequence",
+                candidates,
+            )
+        }
+        if reconstructions:
+            confidence, pae = self._confidence_outputs(
+                reconstruction_confidence
+            )
+            outputs["sequence_reconstruction_candidates"] = (
+                CandidateCollection(
+                    "esm3-reconstructed-structures",
+                    "protein.structure",
+                    reconstructions,
+                )
+            )
+            outputs["confidence_observations"] = confidence
+            if pae is not None:
+                outputs["pae_observations"] = pae
+        return outputs
+
     def _generate_structure(
         self,
         prompt: ProteinPrompt,
-        parameters: Mapping[str, Any],
+        *,
+        effective_seed: int,
+        prompt_content_digest: str,
+        num_samples: int,
+        parameters: ESM3CallParameters,
     ) -> dict[str, Any]:
         expected_sequence = self._assigned_prompt_sequence(prompt)
-        client = self._client()
-        provider_prompt = protein_prompt_to_provider(prompt)
         candidates: list[Candidate] = []
-        confidence_sources: list[tuple[Candidate, Any]] = []
-        for sample_index in range(parameters["num_samples"]):
-            config = generation_config("structure", parameters)
-            result, _, effective_num_steps = self._provider_call(
-                client,
-                provider_prompt,
-                config,
-                role="structure_sample",
-                operation="generate_structure",
-                effective_call_seed=derived_call_seed(
-                    parameters["effective_seed"],
+        confidence_sources: list[tuple[Candidate, ESM3Confidence]] = []
+        for sample_index in range(num_samples):
+            result = self._adapter.generate_structure(
+                prompt,
+                expected_sequence=expected_sequence,
+                parameters=parameters,
+                derived_call_seed=_derived_call_seed(
+                    effective_seed,
+                    prompt_content_digest,
                     sample_index,
                     "structure",
                 ),
             )
-            structure = complete_structure(
-                result,
-                prompt,
-                expected_sequence=expected_sequence,
-            )
             candidate = Candidate(
                 f"structure-{sample_index}",
-                structure,
+                result.structure,
                 [],
                 self._candidate_metadata(
                     operation="generate_structure",
                     sample_index=sample_index,
                     classification="sampled_structure",
+                    configured_base_seed=effective_seed,
                     parameters=parameters,
                     call_track="structure",
-                    effective_num_steps=effective_num_steps,
+                    effective_call_seed=result.effective_call_seed,
+                    effective_num_steps=result.effective_num_steps,
                 ),
             )
             candidates.append(candidate)
-            confidence_sources.append((candidate, result))
+            confidence_sources.append((candidate, result.confidence))
         confidence, pae = self._confidence_outputs(confidence_sources)
         outputs: dict[str, Any] = {
             "structure_candidates": CandidateCollection(
@@ -532,155 +452,116 @@ class ESM3GenerationImplementation:
             outputs["pae_observations"] = pae
         return outputs
 
-    def _content_digest(self, candidate: Candidate) -> str:
-        if type(candidate.data) is ProteinSequence:
-            type_id = "protein.sequence"
-        elif type(candidate.data) is ProteinStructure:
-            type_id = "protein.structure"
-        else:
-            raise TypeError(
-                "ESM-3 paired content must be a sequence or structure"
-            )
-        return self._catalog.require_port_type(
-            type_id,
-            "2.1.0",
-        ).content_digest(candidate.data)
-
     def _generate_paired(
         self,
         prompt: ProteinPrompt,
-        parameters: Mapping[str, Any],
+        *,
+        effective_seed: int,
+        prompt_content_digest: str,
+        num_samples: int,
+        parameters: ESM3CallParameters,
     ) -> dict[str, Any]:
-        client = self._client()
-        provider_prompt = protein_prompt_to_provider(prompt)
-        require_sequence_mask(provider_prompt)
         sequence_candidates: list[Candidate] = []
         structure_candidates: list[Candidate] = []
-        pairing_entries: list[PairwiseCandidateMatch] = []
-        confidence_sources: list[tuple[Candidate, Any]] = []
+        pairing_entries: list[CandidatePairingIntentEntry] = []
+        confidence_sources: list[tuple[Candidate, ESM3Confidence]] = []
         reconstruction_candidates: list[Candidate] = []
-        reconstruction_confidence_sources: list[tuple[Candidate, Any]] = []
-        for sample_index in range(parameters["num_samples"]):
-            sequence_config = generation_config("sequence", parameters)
-            (
-                sequence_result,
-                sequence_invocation_id,
-                sequence_effective_num_steps,
-            ) = self._provider_call(
-                client,
-                provider_prompt,
-                sequence_config,
-                role="sequence_parent",
-                operation="generate_sequence",
-                effective_call_seed=derived_call_seed(
-                    parameters["effective_seed"],
+        reconstruction_confidence: list[tuple[Candidate, ESM3Confidence]] = []
+        for sample_index in range(num_samples):
+            result = self._adapter.generate_pair(
+                prompt,
+                parameters=parameters,
+                sequence_derived_call_seed=_derived_call_seed(
+                    effective_seed,
+                    prompt_content_digest,
                     sample_index,
                     "sequence",
                 ),
+                structure_derived_call_seed=_derived_call_seed(
+                    effective_seed,
+                    prompt_content_digest,
+                    sample_index,
+                    "structure",
+                ),
             )
-            sequence = complete_sequence(sequence_result, prompt)
             sequence_candidate = Candidate(
                 f"sequence-{sample_index}",
-                sequence,
+                result.sequence.sequence,
                 [],
                 self._candidate_metadata(
                     operation="generate_sequence",
                     sample_index=sample_index,
                     classification="sequence",
+                    configured_base_seed=effective_seed,
                     parameters=parameters,
                     call_track="sequence",
-                    effective_num_steps=sequence_effective_num_steps,
+                    effective_call_seed=(
+                        result.sequence.effective_call_seed
+                    ),
+                    effective_num_steps=result.sequence.effective_num_steps,
                 ),
             )
-            if response_has_structure(sequence_result):
-                if getattr(provider_prompt, "coordinates", None) is None:
-                    raise ValueError(
-                        "paired sequence generation returned structure fields "
-                        "without coordinate-conditioned input"
+            if result.sequence.reconstruction is not None:
+                if result.sequence.confidence is None:
+                    raise RuntimeError(
+                        "ESM-3 reconstruction confidence is incomplete"
                     )
-                reconstruction_candidate = Candidate(
+                reconstruction = Candidate(
                     f"reconstructed-structure-{sample_index}",
-                    complete_structure(
-                        sequence_result,
-                        prompt,
-                        expected_sequence=sequence.sequence,
-                    ),
+                    result.sequence.reconstruction,
                     [sequence_candidate.candidate_id],
                     self._candidate_metadata(
                         operation="generate_sequence",
                         sample_index=sample_index,
                         classification="prompt_reconstruction",
+                        configured_base_seed=effective_seed,
                         parameters=parameters,
                         call_track="sequence",
-                        effective_num_steps=sequence_effective_num_steps,
+                        effective_call_seed=(
+                            result.sequence.effective_call_seed
+                        ),
+                        effective_num_steps=(
+                            result.sequence.effective_num_steps
+                        ),
                     ),
                 )
-                reconstruction_candidates.append(reconstruction_candidate)
-                reconstruction_confidence_sources.append(
-                    (reconstruction_candidate, sequence_result)
+                reconstruction_candidates.append(reconstruction)
+                reconstruction_confidence.append(
+                    (reconstruction, result.sequence.confidence)
                 )
-            else:
-                reject_silent_sequence_fields(sequence_result)
-            structure_prompt = structure_prompt_for_sequence(
-                provider_prompt,
-                sequence.sequence,
-            )
-            structure_config = generation_config("structure", parameters)
-            (
-                structure_result,
-                _,
-                structure_effective_num_steps,
-            ) = self._provider_call(
-                client,
-                structure_prompt,
-                structure_config,
-                role="structure_child",
-                operation="generate_structure",
-                parent_invocation_id=sequence_invocation_id,
-                effective_call_seed=derived_call_seed(
-                    parameters["effective_seed"],
-                    sample_index,
-                    "structure",
-                ),
-            )
-            structure = complete_structure(
-                structure_result,
-                prompt,
-                expected_sequence=sequence.sequence,
-            )
             structure_candidate = Candidate(
                 f"structure-{sample_index}",
-                structure,
+                result.structure.structure,
                 [sequence_candidate.candidate_id],
                 self._candidate_metadata(
                     operation="generate_structure",
                     sample_index=sample_index,
                     classification="sampled_structure",
+                    configured_base_seed=effective_seed,
                     parameters=parameters,
                     call_track="structure",
-                    effective_num_steps=structure_effective_num_steps,
+                    effective_call_seed=(
+                        result.structure.effective_call_seed
+                    ),
+                    effective_num_steps=(
+                        result.structure.effective_num_steps
+                    ),
                     effective_num_steps_by_track={
-                        "sequence": sequence_effective_num_steps,
-                        "structure": structure_effective_num_steps,
+                        "sequence": result.sequence.effective_num_steps,
+                        "structure": result.structure.effective_num_steps,
                     },
                 ),
             )
             sequence_candidates.append(sequence_candidate)
             structure_candidates.append(structure_candidate)
             pairing_entries.append(
-                PairwiseCandidateMatch(
+                CandidatePairingIntentEntry(
                     subject_candidate_id=sequence_candidate.candidate_id,
-                    subject_content_digest=self._content_digest(
-                        sequence_candidate
-                    ),
                     reference_candidate_id=structure_candidate.candidate_id,
-                    reference_content_digest=self._content_digest(
-                        structure_candidate
-                    ),
                 )
             )
             confidence_sources.append(
-                (structure_candidate, structure_result)
+                (structure_candidate, result.structure.confidence)
             )
         confidence, pae = self._confidence_outputs(confidence_sources)
         outputs: dict[str, Any] = {
@@ -694,16 +575,21 @@ class ESM3GenerationImplementation:
                 "protein.structure",
                 structure_candidates,
             ),
-            "counterpart_pairs": PairwiseCandidateMapping(pairing_entries),
+            "counterpart_pairs": CandidatePairingIntent(pairing_entries),
             "confidence_observations": confidence,
         }
         if pae is not None:
             outputs["pae_observations"] = pae
         if reconstruction_candidates:
-            reconstruction_confidence, reconstruction_pae = (
+            reconstruction_scores, reconstruction_pae = (
                 self._confidence_outputs(
-                    reconstruction_confidence_sources,
-                    output_partition="sequence_reconstruction_confidence",
+                    reconstruction_confidence,
+                    confidence_output_port=(
+                        "sequence_reconstruction_confidence_observations"
+                    ),
+                    pae_output_port=(
+                        "sequence_reconstruction_pae_observations"
+                    ),
                 )
             )
             outputs["sequence_reconstruction_candidates"] = (
@@ -715,7 +601,7 @@ class ESM3GenerationImplementation:
             )
             outputs[
                 "sequence_reconstruction_confidence_observations"
-            ] = reconstruction_confidence
+            ] = reconstruction_scores
             if reconstruction_pae is not None:
                 outputs[
                     "sequence_reconstruction_pae_observations"

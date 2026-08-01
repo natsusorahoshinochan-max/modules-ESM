@@ -48,9 +48,11 @@ from tests.fixtures.public_v2 import (
 from tests.fixtures.structure_comparison_sources.package import (
     MODULE_PACKAGE as SOURCE_PACKAGE,
 )
+from tests.fixtures.scientific_operation import build_operation, operation_call
 
 
 VERSION = "2.1.0"
+MANY_ALIGNMENT_VERSION = "2.2.0"
 
 
 def test_structure_comparison_declares_single_and_batch_tm_score_nodes() -> None:
@@ -75,7 +77,7 @@ def test_structure_comparison_declares_single_and_batch_tm_score_nodes() -> None
     assert catalog.require_contract(
         "node_type",
         "structure_comparison.batch_tm_score",
-        VERSION,
+        MANY_ALIGNMENT_VERSION,
     )
 
 
@@ -161,17 +163,21 @@ def _decode_output(catalog: object, output: dict[str, object]) -> object:
         reference["contract_version"],
     )
     values = output["values"]
-    assert isinstance(values, list) and len(values) == 1
-    return port_type.decode(
-        canonical_json_bytes(
-            {
-                "schema_namespace": "protein-workbench-port-value/v2",
-                "port_type_id": port_type.type_id,
-                "port_type_version": port_type.version,
-                "value": values[0],
-            }
+    assert isinstance(values, list) and values
+    decoded = tuple(
+        port_type.decode(
+            canonical_json_bytes(
+                {
+                    "schema_namespace": "protein-workbench-port-value/v2",
+                    "port_type_id": port_type.type_id,
+                    "port_type_version": port_type.version,
+                    "value": value,
+                }
+            )
         )
+        for value in values
     )
+    return decoded[0] if len(decoded) == 1 else decoded
 
 
 def _execute_workflow(
@@ -215,7 +221,7 @@ def _execute_workflow(
         authoring,
         EnvironmentConfiguration(
             {
-                (node["binding_id"], VERSION): {
+                (node["binding_id"], node["binding_version"]): {
                     "values": {},
                     "safe_fingerprint": "provider-free",
                     "invalidation_token": "tm-score-v1",
@@ -278,7 +284,15 @@ def test_single_tm_score_emits_exact_reference_normalized_observation(
     assert observation.context.normalization == (
         "standard-reference-residue-count"
     )
-    assert observation.context.evidence_content_digest.startswith("sha256:")
+    raw_alignment = next(
+        output
+        for output in projection["outputs"]
+        if output["node_id"] == "alignment"
+        and output["output_port"] == "alignment"
+    )
+    assert observation.context.evidence_content_digest == (
+        raw_alignment["content_digest"]
+    )
     assert observation.context.evidence_method.contract_id == (
         "structure_comparison.ca_sequence_svd.method"
     )
@@ -304,7 +318,7 @@ def test_single_tm_score_emits_exact_reference_normalized_observation(
         and event["event"]["operation_attempt_id"] == tm_operation
     )
     assert invocation["engine_role"] == "tm_score_optimization"
-    assert invocation["engine_identity"].startswith("tmtools.tm_align/")
+    assert invocation["engine_identity"] == observation.method.contract_digest
 
 
 def test_nonfinite_tm_optimization_fails_before_score_publication(
@@ -363,36 +377,43 @@ def test_reference_normalization_must_match_exact_candidate_content() -> None:
 
     resources = RunResources()
 
-    def implementation(registration: object, binding_id: str) -> object:
-        binding = next(
-            binding
-            for binding in registration.bindings
-            if binding.binding_id == binding_id
+    def implementation(binding_id: str) -> object:
+        binding_version = (
+            MANY_ALIGNMENT_VERSION
+            if binding_id.startswith(
+                (
+                    "structure_comparison.align_pairwise.",
+                    "structure_comparison.batch_tm_score.",
+                )
+            )
+            else VERSION
         )
-        return binding.factory.build(
-            run_resources=resources,
-            frozen_catalog=catalog,
+        return build_operation(
+            catalog,
+            binding_id,
+            resources,
+            binding_version=binding_version,
         )
 
     source = implementation(
-        SOURCE_PACKAGE,
         "contract_test.structure_comparison_source.direct",
-    ).execute(
+    ).execute(operation_call(
         inputs={},
         node_parameters={"scenario": "single"},
         binding_parameters={},
-    )
+    ))
     alignment = implementation(
-        STRUCTURE_COMPARISON_PACKAGE,
         "structure_comparison.align_single.direct",
-    ).execute(
+    ).execute(operation_call(
+        catalog=catalog,
+        binding_id="structure_comparison.align_single.direct",
         inputs={
             "subjects": source["subjects"],
             "references": source["references"],
         },
         node_parameters={},
         binding_parameters={},
-    )["alignment"]
+    ))["alignment"]
     conflicting = replace(
         alignment,
         normalization=replace(
@@ -404,7 +425,6 @@ def test_reference_normalization_must_match_exact_candidate_content() -> None:
         ),
     )
     scorer = implementation(
-        STRUCTURE_COMPARISON_PACKAGE,
         "structure_comparison.tm_score.fixed_reference",
     )
     resources.invocations.clear()
@@ -413,7 +433,9 @@ def test_reference_normalization_must_match_exact_candidate_content() -> None:
         ValueError,
         match="normalization conflicts with exact Candidate content",
     ):
-        scorer.execute(
+        scorer.execute(operation_call(
+            catalog=catalog,
+            binding_id="structure_comparison.tm_score.fixed_reference",
             inputs={
                 "alignment": conflicting,
                 "subjects": source["subjects"],
@@ -421,45 +443,44 @@ def test_reference_normalization_must_match_exact_candidate_content() -> None:
             },
             node_parameters={},
             binding_parameters={},
-        )
+        ))
     assert resources.invocations == []
 
     batch_source = implementation(
-        SOURCE_PACKAGE,
         "contract_test.structure_comparison_source.direct",
-    ).execute(
+    ).execute(operation_call(
         inputs={},
         node_parameters={"scenario": "fixed_batch"},
         binding_parameters={},
-    )
+    ))
     alignments = implementation(
-        STRUCTURE_COMPARISON_PACKAGE,
         "structure_comparison.align_pairwise.fixed_reference",
-    ).execute(
+    ).execute(operation_call(
+        catalog=catalog,
+        binding_id=(
+            "structure_comparison.align_pairwise.fixed_reference"
+        ),
+        binding_version=MANY_ALIGNMENT_VERSION,
         inputs={
             "subjects": batch_source["subjects"],
             "references": batch_source["references"],
         },
         node_parameters={},
         binding_parameters={},
-    )["alignments"]
-    second = alignments.alignments[1]
-    conflicting_batch = replace(
-        alignments,
-        alignments=(
-            alignments.alignments[0],
-            replace(
-                second,
-                normalization=replace(
-                    second.normalization,
-                    reference_residue_count=30,
-                ),
-                coverage=second.normalization.aligned_atom_count / 30,
+    ))["alignments"]
+    second = alignments[1]
+    conflicting_batch = (
+        alignments[0],
+        replace(
+            second,
+            normalization=replace(
+                second.normalization,
+                reference_residue_count=30,
             ),
+            coverage=second.normalization.aligned_atom_count / 30,
         ),
     )
     batch_scorer = implementation(
-        STRUCTURE_COMPARISON_PACKAGE,
         "structure_comparison.batch_tm_score.fixed_reference",
     )
     resources.invocations.clear()
@@ -468,7 +489,12 @@ def test_reference_normalization_must_match_exact_candidate_content() -> None:
         ValueError,
         match="normalization conflicts with exact Candidate content",
     ):
-        batch_scorer.execute(
+        batch_scorer.execute(operation_call(
+            catalog=catalog,
+            binding_id=(
+                "structure_comparison.batch_tm_score.fixed_reference"
+            ),
+            binding_version=MANY_ALIGNMENT_VERSION,
             inputs={
                 "alignments": conflicting_batch,
                 "subjects": batch_source["subjects"],
@@ -476,7 +502,7 @@ def test_reference_normalization_must_match_exact_candidate_content() -> None:
             },
             node_parameters={},
             binding_parameters={},
-        )
+        ))
     assert resources.invocations == []
 
 
@@ -530,7 +556,15 @@ def test_tm_score_contracts_are_exact_and_publish_one_partition_per_binding() ->
         pairing_mode,
         pairing_port,
     ) in expected.items():
-        binding = catalog.require_contract("binding", binding_id, VERSION)
+        binding = catalog.require_contract(
+            "binding",
+            binding_id,
+            (
+                MANY_ALIGNMENT_VERSION
+                if ".batch_tm_score." in binding_id
+                else VERSION
+            ),
+        )
         assert binding.descriptor["binding_parameters"] == {}
         assert len(binding.descriptor["produced_observations"]) == 1
         declaration = binding.descriptor["produced_observations"][0]
@@ -589,21 +623,21 @@ def _paired_batch_tm_workflow(workflow_id: str) -> WorkflowDocument:
             WorkflowNodeInstance(
                 node_id="alignment",
                 node_type_id="structure_comparison.align_pairwise",
-                node_type_version=VERSION,
+                node_type_version=MANY_ALIGNMENT_VERSION,
                 binding_id="structure_comparison.align_pairwise.direct",
-                binding_version=VERSION,
+                binding_version=MANY_ALIGNMENT_VERSION,
                 node_parameters={},
                 binding_parameters={},
             ),
             WorkflowNodeInstance(
                 node_id="tm-score",
                 node_type_id="structure_comparison.batch_tm_score",
-                node_type_version=VERSION,
+                node_type_version=MANY_ALIGNMENT_VERSION,
                 binding_id=(
                     "structure_comparison.batch_tm_score."
                     "per_subject_counterpart"
                 ),
-                binding_version=VERSION,
+                binding_version=MANY_ALIGNMENT_VERSION,
                 node_parameters={},
                 binding_parameters={},
             ),
@@ -638,6 +672,7 @@ def test_batch_tm_score_uses_exact_pairing_not_collection_order(
         for output in projection["outputs"]
     }
     pairing = outputs[("source", "pairing")]
+    alignments = outputs[("alignment", "alignments")]
     scores = outputs[("tm-score", "scores")]
     assert isinstance(scores, ScoreCollection)
     assert len(scores.entries) == 2
@@ -660,10 +695,24 @@ def test_batch_tm_score_uses_exact_pairing_not_collection_order(
     assert {
         observation.context.pairing_mode for observation in scores.entries
     } == {"per_subject_counterpart"}
-    assert all(
-        observation.context.evidence_content_digest.startswith("sha256:")
-        for observation in scores.entries
+    alignment_type = catalog.require_port_type(
+        "structure_comparison.alignment",
+        VERSION,
     )
+    expected_evidence_digests = {
+        (
+            alignment.subject.candidate_id,
+            alignment.reference.candidate_id,
+        ): alignment_type.content_digest(alignment)
+        for alignment in alignments
+    }
+    assert {
+        (
+            observation.context.subject.candidate_id,
+            observation.context.reference.candidate_id,
+        ): observation.context.evidence_content_digest
+        for observation in scores.entries
+    } == expected_evidence_digests
     tm_attempt = next(
         event["event"]["node_attempt_id"]
         for event in events
@@ -700,11 +749,14 @@ def test_batch_tm_score_executes_through_the_public_protocol(
             "contract_test.structure_comparison_source.direct",
             VERSION,
         ),
-        ("structure_comparison.align_pairwise.direct", VERSION),
+        (
+            "structure_comparison.align_pairwise.direct",
+            MANY_ALIGNMENT_VERSION,
+        ),
         (
             "structure_comparison.batch_tm_score."
             "per_subject_counterpart",
-            VERSION,
+            MANY_ALIGNMENT_VERSION,
         ),
     }
     app = create_app(
@@ -858,22 +910,22 @@ def _fixed_batch_tm_workflow(workflow_id: str) -> WorkflowDocument:
             WorkflowNodeInstance(
                 node_id="alignment",
                 node_type_id="structure_comparison.align_pairwise",
-                node_type_version=VERSION,
+                node_type_version=MANY_ALIGNMENT_VERSION,
                 binding_id=(
                     "structure_comparison.align_pairwise.fixed_reference"
                 ),
-                binding_version=VERSION,
+                binding_version=MANY_ALIGNMENT_VERSION,
                 node_parameters={},
                 binding_parameters={},
             ),
             WorkflowNodeInstance(
                 node_id="tm-score",
                 node_type_id="structure_comparison.batch_tm_score",
-                node_type_version=VERSION,
+                node_type_version=MANY_ALIGNMENT_VERSION,
                 binding_id=(
                     "structure_comparison.batch_tm_score.fixed_reference"
                 ),
-                binding_version=VERSION,
+                binding_version=MANY_ALIGNMENT_VERSION,
                 node_parameters={},
                 binding_parameters={},
             ),
@@ -1002,22 +1054,22 @@ def _dual_scope_workflow(catalog: object) -> WorkflowDocument:
             WorkflowNodeInstance(
                 node_id="fixed-alignment",
                 node_type_id="structure_comparison.align_pairwise",
-                node_type_version=VERSION,
+                node_type_version=MANY_ALIGNMENT_VERSION,
                 binding_id=(
                     "structure_comparison.align_pairwise.fixed_reference"
                 ),
-                binding_version=VERSION,
+                binding_version=MANY_ALIGNMENT_VERSION,
                 node_parameters={},
                 binding_parameters={},
             ),
             WorkflowNodeInstance(
                 node_id="fixed-score",
                 node_type_id="structure_comparison.batch_tm_score",
-                node_type_version=VERSION,
+                node_type_version=MANY_ALIGNMENT_VERSION,
                 binding_id=(
                     "structure_comparison.batch_tm_score.fixed_reference"
                 ),
-                binding_version=VERSION,
+                binding_version=MANY_ALIGNMENT_VERSION,
                 node_parameters={},
                 binding_parameters={},
             ),
@@ -1025,21 +1077,21 @@ def _dual_scope_workflow(catalog: object) -> WorkflowDocument:
             WorkflowNodeInstance(
                 node_id="paired-alignment",
                 node_type_id="structure_comparison.align_pairwise",
-                node_type_version=VERSION,
+                node_type_version=MANY_ALIGNMENT_VERSION,
                 binding_id="structure_comparison.align_pairwise.direct",
-                binding_version=VERSION,
+                binding_version=MANY_ALIGNMENT_VERSION,
                 node_parameters={},
                 binding_parameters={},
             ),
             WorkflowNodeInstance(
                 node_id="paired-score",
                 node_type_id="structure_comparison.batch_tm_score",
-                node_type_version=VERSION,
+                node_type_version=MANY_ALIGNMENT_VERSION,
                 binding_id=(
                     "structure_comparison.batch_tm_score."
                     "per_subject_counterpart"
                 ),
-                binding_version=VERSION,
+                binding_version=MANY_ALIGNMENT_VERSION,
                 node_parameters={},
                 binding_parameters={},
             ),
@@ -1192,22 +1244,22 @@ def _mismatched_fixed_sources_workflow(workflow_id: str) -> WorkflowDocument:
             WorkflowNodeInstance(
                 node_id="alignment",
                 node_type_id="structure_comparison.align_pairwise",
-                node_type_version=VERSION,
+                node_type_version=MANY_ALIGNMENT_VERSION,
                 binding_id=(
                     "structure_comparison.align_pairwise.fixed_reference"
                 ),
-                binding_version=VERSION,
+                binding_version=MANY_ALIGNMENT_VERSION,
                 node_parameters={},
                 binding_parameters={},
             ),
             WorkflowNodeInstance(
                 node_id="tm-score",
                 node_type_id="structure_comparison.batch_tm_score",
-                node_type_version=VERSION,
+                node_type_version=MANY_ALIGNMENT_VERSION,
                 binding_id=(
                     "structure_comparison.batch_tm_score.fixed_reference"
                 ),
-                binding_version=VERSION,
+                binding_version=MANY_ALIGNMENT_VERSION,
                 node_parameters={},
                 binding_parameters={},
             ),

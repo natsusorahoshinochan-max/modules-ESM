@@ -6,15 +6,16 @@ from collections.abc import Mapping
 import math
 from typing import Any
 
+from core.operation import OperationCall
 from core.port_types import canonical_sha256
 from core.scoring_v2 import (
-    ObservationSelector,
+    ResolvedMetricFacts,
+    ResolvedObservationSelector,
+    ResolvedSelectionObjective,
     SelectionError,
     rank_candidates_by_weighted_utility,
-    resolve_candidate_utilities,
+    resolve_candidate_utilities_from_facts,
     resolve_objective_observations,
-    resolve_observation_selector,
-    select_candidates,
     weighted_utility_totals,
 )
 from datatypes import (
@@ -31,59 +32,55 @@ class SelectionImplementation:
         self,
         *,
         operation: str,
-        execution_plan: Any,
-        catalog: Any,
+        objectives: tuple[ResolvedSelectionObjective, ...],
+        selectors: tuple[ResolvedObservationSelector, ...],
     ) -> None:
         self._operation = operation
-        self._catalog = catalog
         self._objectives = {
-            objective.objective_id: objective
-            for objective in execution_plan.selection_objectives
+            item.objective.objective_id: item
+            for item in objectives
         }
         self._selectors = {
-            selector.selector_id: selector
-            for selector in execution_plan.observation_selectors
+            item.selector.selector_id: item
+            for item in selectors
         }
 
-    def execute(
-        self,
-        *,
-        inputs: Mapping[str, Any],
-        node_parameters: Mapping[str, Any],
-        binding_parameters: Mapping[str, Any],
-    ) -> dict[str, CandidateCollection]:
-        if binding_parameters:
+    def execute(self, call: OperationCall) -> dict[str, CandidateCollection]:
+        if call.binding_parameters:
             raise ValueError("selection accepts no Binding parameters")
-        candidates = inputs.get("candidates")
-        scores = inputs.get("scores")
+        candidates = call.inputs.get("candidates")
+        scores = call.inputs.get("scores")
         if type(candidates) is not CandidateCollection:
             raise ValueError("selection requires one exact Candidate Collection")
         if type(scores) is not ScoreCollection:
             raise ValueError("selection requires one exact Score Collection")
+        candidate_content_digests = self._candidate_content_digests(call)
         if self._operation in {"weighted_rank", "pareto", "diversity"}:
             return self._execute_multi_objective(
                 candidates=candidates,
                 scores=scores,
-                node_parameters=node_parameters,
+                node_parameters=call.node_parameters,
+                candidate_content_digests=candidate_content_digests,
             )
         if (
-            node_parameters.get("tie_policy")
+            call.node_parameters.get("tie_policy")
             != "candidate_id_ascending"
         ):
             raise ValueError("selection tie policy is unsupported")
-        out_of_scope_policy = node_parameters.get("out_of_scope_policy")
+        out_of_scope_policy = call.node_parameters.get("out_of_scope_policy")
         if out_of_scope_policy not in {"error", "ignore"}:
             raise ValueError("selection out-of-scope policy is unsupported")
 
         if self._operation == "filter":
-            selector = self._selectors.get(
-                node_parameters.get("selector_id")
+            selector_facts = self._selectors.get(
+                call.node_parameters.get("selector_id")
             )
-            if selector is None:
+            if selector_facts is None:
                 raise ValueError(
                     "selection selector_id does not resolve one compiled "
                     "Observation Selector"
                 )
+            selector = selector_facts.selector
             matching = resolve_objective_observations(
                 candidates=candidates,
                 collection=scores,
@@ -94,19 +91,20 @@ class SelectionImplementation:
             selected = self._filter(
                 candidates=candidates,
                 matching=matching,
-                operator=node_parameters.get("operator"),
-                threshold=node_parameters.get("threshold"),
-                selector=selector,
+                operator=call.node_parameters.get("operator"),
+                threshold=call.node_parameters.get("threshold"),
+                metric=selector_facts.metric,
             )
             selection_contract = selector.to_public()
         else:
-            objective_id = node_parameters.get("objective_id")
-            objective = self._objectives.get(objective_id)
-            if objective is None:
+            objective_id = call.node_parameters.get("objective_id")
+            objective_facts = self._objectives.get(objective_id)
+            if objective_facts is None:
                 raise ValueError(
                     "selection objective_id does not resolve one compiled "
                     "objective"
                 )
+            objective = objective_facts.objective
             if objective.match_cardinality != "exactly_one":
                 raise ValueError(
                     "selection requires exactly_one match cardinality"
@@ -126,21 +124,21 @@ class SelectionImplementation:
                 collection_id=f"{scores.collection_id}.selected-scope",
                 entries=list(matching.values()),
             )
-            ranked = select_candidates(
+            profile = resolve_candidate_utilities_from_facts(
                 candidate_inputs={objective.candidate_input: candidates},
                 score_collection_inputs={
                     objective.score_collection_input: scoped_scores
                 },
-                objectives=(objective,),
-                catalog=self._catalog,
-                limit=max(1, len(candidates.items)),
-            ).candidates.items
+                objectives=(objective_facts,),
+                candidate_content_digests=candidate_content_digests,
+            )
+            ranked = rank_candidates_by_weighted_utility(profile)
             selection_contract = objective.to_public()
 
         if self._operation == "sort":
             selected = list(ranked)
         elif self._operation == "top_k":
-            k = node_parameters.get("k")
+            k = call.node_parameters.get("k")
             if type(k) is not int or k < 1:
                 raise ValueError("top-k requires a positive integer k")
             if k > len(candidates.items):
@@ -159,7 +157,7 @@ class SelectionImplementation:
                 "operation": self._operation,
                 "input_collection_id": candidates.collection_id,
                 "selection_contract": selection_contract,
-                "parameters": dict(node_parameters),
+                "parameters": dict(call.node_parameters),
                 "selected_candidate_ids": [
                     candidate.candidate_id for candidate in selected
                 ],
@@ -181,6 +179,7 @@ class SelectionImplementation:
         candidates: CandidateCollection,
         scores: ScoreCollection,
         node_parameters: Mapping[str, Any],
+        candidate_content_digests: Mapping[str, str],
     ) -> dict[str, CandidateCollection]:
         objective_ids = node_parameters.get("objective_ids")
         if (
@@ -203,27 +202,24 @@ class SelectionImplementation:
         if node_parameters.get("tie_policy") != "candidate_id_ascending":
             raise ValueError("selection tie policy is unsupported")
         typed_objectives = tuple(
-            objective
-            for objective in objectives
-            if objective is not None
+            item for item in objectives if item is not None
         )
         candidate_references = {
-            objective.candidate_input for objective in typed_objectives
+            item.objective.candidate_input for item in typed_objectives
         }
         score_references = {
-            objective.score_collection_input
-            for objective in typed_objectives
+            item.objective.score_collection_input for item in typed_objectives
         }
         if len(candidate_references) != 1 or len(score_references) != 1:
             raise SelectionError(
                 "multi-objective selection requires exact shared Candidate "
                 "and Score Collection inputs"
             )
-        profile = resolve_candidate_utilities(
+        profile = resolve_candidate_utilities_from_facts(
             candidate_inputs={next(iter(candidate_references)): candidates},
             score_collection_inputs={next(iter(score_references)): scores},
             objectives=typed_objectives,
-            catalog=self._catalog,
+            candidate_content_digests=candidate_content_digests,
         )
         aggregate = weighted_utility_totals(profile)
         if self._operation == "weighted_rank":
@@ -358,13 +354,9 @@ class SelectionImplementation:
         matching: Mapping[str, ScoreObservation],
         operator: object,
         threshold: object,
-        selector: ObservationSelector,
+        metric: ResolvedMetricFacts,
     ) -> list[Any]:
-        metric, _ = resolve_observation_selector(
-            selector,
-            self._catalog,
-        )
-        if metric.descriptor.get("value_shape") != "scalar":
+        if metric.value_shape != "scalar":
             raise SelectionError(
                 "filter requires a scalar exact Metric Definition"
             )
@@ -389,3 +381,22 @@ class SelectionImplementation:
             for candidate in candidates.items
             if comparison(matching[candidate.candidate_id].value)
         ]
+
+    @staticmethod
+    def _candidate_content_digests(
+        call: OperationCall,
+    ) -> Mapping[str, str]:
+        admitted = call.input_content_digests.get("candidates")
+        if admitted is None:
+            raise ValueError(
+                "selection Candidate content identities were not admitted"
+            )
+        resolved = {
+            item.candidate_id: item.content_digest
+            for item in admitted.candidate_data
+        }
+        if len(resolved) != len(admitted.candidate_data):
+            raise ValueError(
+                "selection has duplicate admitted Candidate identities"
+            )
+        return resolved

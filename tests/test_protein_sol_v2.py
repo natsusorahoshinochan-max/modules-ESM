@@ -1,5 +1,7 @@
 """Public seams for Protein-Sol's calibrated multi-Metric output."""
 
+from contextlib import contextmanager
+from dataclasses import FrozenInstanceError
 from pathlib import Path
 from typing import Any
 
@@ -22,6 +24,113 @@ from core import (
 from core.port_types import canonical_json_bytes
 from core.workflow_v2 import WorkflowEdge
 from tests.fixtures.public_v2 import wait_for_service_run_terminal_events
+
+
+def _prepare_soluprot_fixture(**kwargs: Any) -> tuple[tuple[str, ...], Path]:
+    staging_directory = kwargs["staging_directory"]
+    (staging_directory / "input.fasta").write_text(
+        "".join(
+            f">candidate_{index}\n{sequence}\n"
+            for index, sequence in enumerate(kwargs["sequences"])
+        )
+    )
+    mode_flag = "--tmhmm" if kwargs["mode"] == "full" else "--no_tmhmm"
+    return (
+        ("fixture-soluprot", mode_flag),
+        staging_directory / "output.csv",
+    )
+
+
+def _prepare_protein_sol_fixture(
+    **kwargs: Any,
+) -> tuple[tuple[str, ...], Path]:
+    staging_directory = kwargs["staging_directory"]
+    (staging_directory / "input.fasta").write_text(
+        "".join(
+            f">candidate_{index}\n{sequence}\n"
+            for index, sequence in enumerate(kwargs["sequences"])
+        )
+    )
+    return (
+        ("fixture-protein-sol",),
+        staging_directory / "seq_prediction.txt",
+    )
+
+
+def test_local_protein_sol_adapter_returns_frozen_scientific_predictions(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import modules.solubility.adapter as adapter
+    from datatypes import ProteinSequence
+
+    events: list[str] = []
+
+    class Resources:
+        @contextmanager
+        def temporary_directory(self, *, prefix: str):
+            assert prefix == "protein-sol-"
+            yield tmp_path
+
+        @contextmanager
+        def engine_invocation(
+            self,
+            *,
+            engine_role: str,
+        ):
+            assert engine_role == "protein_sol_sequence_prediction"
+            events.append("engine-started")
+            yield "invocation-1"
+            events.append("engine-succeeded")
+
+    monkeypatch.setattr(
+        adapter,
+        "validate_protein_sol_environment",
+        lambda environment: {
+            "resolved_runtime_fingerprint": f"sha256:{'b' * 64}",
+        },
+    )
+    monkeypatch.setattr(
+        adapter,
+        "_prepare_protein_sol_invocation",
+        _prepare_protein_sol_fixture,
+    )
+
+    def invoke(**kwargs: Any) -> None:
+        events.append("provider-invoked")
+        output_path = kwargs["staging_directory"] / "seq_prediction.txt"
+        output_path.write_bytes(
+            b"HEADERS PREDICTIONS LINE,ID,percent-sol,scaled-sol,"
+            b"population-sol,pI\n"
+            b"SEQUENCE PREDICTIONS,>candidate_0,32.419,0.252,"
+            b"0.446,7.130\n"
+        )
+
+    monkeypatch.setattr(adapter, "invoke_protein_sol", invoke)
+    local = adapter.LocalProteinSolAdapter(
+        environment={},
+        resources=Resources(),
+    )
+
+    predictions = local.predict(
+        (ProteinSequence("ACDEFGHIKLMNPQRSTVWYA"),)
+    )
+
+    assert predictions == (
+        adapter.ProteinSolPrediction(
+            percent_soluble_fraction=32.419,
+            scaled_soluble_fraction=0.252,
+            population_scaled_solubility=0.446,
+            isoelectric_point=7.13,
+        ),
+    )
+    assert events == [
+        "engine-started",
+        "provider-invoked",
+        "engine-succeeded",
+    ]
+    with pytest.raises(FrozenInstanceError):
+        predictions[0].scaled_soluble_fraction = 0.5
 
 
 def test_protein_sol_registers_one_exact_method_and_three_metrics() -> None:
@@ -243,7 +352,7 @@ def test_calibration_context_is_typed_and_round_trips_with_observation() -> None
         score_type.encode(ScoreCollection("protein-sol", [observation]))
     )
 
-    assert decoded.entries == [observation]
+    assert decoded.entries == (observation,)
     assert decoded.entries[0].context.to_public() == {
         "kind": "calibration",
         "calibration_metric": "population_scaled_solubility",
@@ -371,7 +480,7 @@ def _run_protein_sol(
     tuple[tuple[dict[str, Any], ...], ...],
     list[list[str]],
 ]:
-    import modules.solubility.implementation as implementation
+    import modules.solubility.adapter as adapter
     import modules.solubility.package as package
     from modules.solubility.package import MODULE_PACKAGE
     from tests.fixtures.folding_sources.package import (
@@ -388,24 +497,43 @@ def _run_protein_sol(
         ),
     )
     monkeypatch.setattr(
-        implementation,
+        adapter,
         "validate_protein_sol_environment",
         lambda environment: {
             "resolved_runtime_fingerprint": f"sha256:{'c' * 64}",
         },
     )
+    monkeypatch.setattr(
+        adapter,
+        "_prepare_protein_sol_invocation",
+        _prepare_protein_sol_fixture,
+    )
     calls: list[list[str]] = []
 
-    def invoke(**kwargs: Any) -> bytes:
-        calls.append(list(kwargs["sequences"]))
-        return provider_payload or (
-            b"HEADERS PREDICTIONS LINE,ID,percent-sol,scaled-sol,"
-            b"population-sol,pI\n"
-            b"SEQUENCE PREDICTIONS,>candidate_0,32.419, 0.252,"
-            b" 0.446, 7.130\n"
+    def invoke(**kwargs: Any) -> None:
+        calls.append(
+            [
+                line
+                for line in (
+                    kwargs["staging_directory"] / "input.fasta"
+                ).read_text().splitlines()
+                if not line.startswith(">")
+            ]
         )
+        payload = (
+            provider_payload
+            if provider_payload is not None
+            else (
+                b"HEADERS PREDICTIONS LINE,ID,percent-sol,scaled-sol,"
+                b"population-sol,pI\n"
+                b"SEQUENCE PREDICTIONS,>candidate_0,32.419, 0.252,"
+                b" 0.446, 7.130\n"
+            )
+        )
+        output_path = kwargs["staging_directory"] / "seq_prediction.txt"
+        output_path.write_bytes(payload)
 
-    monkeypatch.setattr(implementation, "invoke_protein_sol", invoke)
+    monkeypatch.setattr(adapter, "invoke_protein_sol", invoke)
     source = WorkflowNodeInstance(
         node_id="source",
         node_type_id="contract_test.folding_sequence_source",
@@ -562,12 +690,33 @@ def test_protein_sol_one_method_publishes_three_calibrated_metrics(
         event["event"]
         for event in events
         if event["event"]["type"] == "engine_invocation_started"
-        and event["event"]["engine_identity"].startswith(
-            "protein-sol.sequence-prediction-2017/"
-        )
+        and event["event"]["engine_identity"]
+        == scores.entries[0].method.contract_digest
     ]
     assert len(invocations) == 1
     assert "/must/not/publish" not in str((projection, events))
+
+
+def test_protein_sol_binding_factory_injects_one_exact_local_adapter(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import modules.solubility.adapter as adapter
+    import modules.solubility.package as package
+
+    constructed: list[tuple[Any, Any]] = []
+    exact_adapter = adapter.LocalProteinSolAdapter
+
+    def build_adapter(**kwargs: Any) -> Any:
+        constructed.append((kwargs["environment"], kwargs["resources"]))
+        return exact_adapter(**kwargs)
+
+    monkeypatch.setattr(package, "LocalProteinSolAdapter", build_adapter)
+
+    _, (projection,), _, _ = _run_protein_sol(tmp_path, monkeypatch)
+
+    assert projection["status"] == "succeeded"
+    assert len(constructed) == 1
 
 
 def test_protein_sol_rejects_twenty_residues_before_provider_invocation(
@@ -621,7 +770,7 @@ def test_protein_sol_invalid_output_publishes_nothing_and_does_not_cache(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    _, projections, event_groups, calls = _run_protein_sol(
+    catalog, projections, event_groups, calls = _run_protein_sol(
         tmp_path,
         monkeypatch,
         provider_payload=(
@@ -649,13 +798,16 @@ def test_protein_sol_invalid_output_publishes_nothing_and_does_not_cache(
         for projection in projections
     )
     events = event_groups[0]
+    method_digest = catalog.require_contract(
+        "method",
+        "solubility.protein_sol.sequence_prediction_2017",
+        "2.1.0",
+    ).contract_digest
     invocation_id = next(
         event["event"]["invocation_id"]
         for event in events
         if event["event"]["type"] == "engine_invocation_started"
-        and event["event"]["engine_identity"].startswith(
-            "protein-sol.sequence-prediction-2017/"
-        )
+        and event["event"]["engine_identity"] == method_digest
     )
     terminals = [
         event["event"]
@@ -726,7 +878,7 @@ def test_protein_sol_passes_shared_contract_test_kit(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    import modules.solubility.implementation as implementation
+    import modules.solubility.adapter as adapter
     import modules.solubility.package as package
     from modules.solubility.package import MODULE_PACKAGE
     from tests.fixtures.folding_sources.package import (
@@ -752,24 +904,34 @@ def test_protein_sol_passes_shared_contract_test_kit(
         ),
     )
     monkeypatch.setattr(
-        implementation,
+        adapter,
         "validate_protein_sol_environment",
         lambda environment: {
             "resolved_runtime_fingerprint": f"sha256:{'d' * 64}",
         },
     )
     monkeypatch.setattr(
-        implementation,
-        "invoke_protein_sol",
-        lambda **kwargs: (
+        adapter,
+        "_prepare_protein_sol_invocation",
+        _prepare_protein_sol_fixture,
+    )
+
+    def invoke_protein_sol_fixture(**kwargs: Any) -> None:
+        output_path = kwargs["staging_directory"] / "seq_prediction.txt"
+        output_path.write_bytes(
             b"HEADERS PREDICTIONS LINE,ID,percent-sol,scaled-sol,"
             b"population-sol,pI\n"
             b"SEQUENCE PREDICTIONS,>candidate_0,32.419,0.252,"
             b"0.446,7.130\n"
-        ),
+        )
+
+    monkeypatch.setattr(
+        adapter,
+        "invoke_protein_sol",
+        invoke_protein_sol_fixture,
     )
     monkeypatch.setattr(
-        implementation,
+        adapter,
         "validate_soluprot_environment",
         lambda environment, *, mode: {
             "resolved_runtime_fingerprint": f"sha256:{'e' * 64}",
@@ -777,16 +939,31 @@ def test_protein_sol_passes_shared_contract_test_kit(
         },
     )
     monkeypatch.setattr(
-        implementation,
-        "invoke_soluprot",
-        lambda **kwargs: (
+        adapter,
+        "_prepare_soluprot_invocation",
+        _prepare_soluprot_fixture,
+    )
+
+    def invoke_soluprot_fixture(**kwargs: Any) -> None:
+        output_path = kwargs["staging_directory"] / "output.csv"
+        mode = (
+            "no_tm"
+            if "--no_tmhmm" in kwargs["command"]
+            else "full"
+        )
+        output_path.write_bytes(
             b"runtime_id,fa_id,soluble\n"
             + (
                 b"0,candidate_0,0.331\n"
-                if kwargs["mode"] == "full"
+                if mode == "full"
                 else b"0,candidate_0,0.3465\n"
             )
-        ),
+        )
+
+    monkeypatch.setattr(
+        adapter,
+        "invoke_soluprot",
+        invoke_soluprot_fixture,
     )
     source = WorkflowNodeInstance(
         node_id="source",

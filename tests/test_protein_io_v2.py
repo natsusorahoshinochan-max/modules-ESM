@@ -58,9 +58,9 @@ _SEQUENCE_SOURCE = WorkflowNodeInstance(
 _STRUCTURE_SOURCE = WorkflowNodeInstance(
     node_id="source",
     node_type_id="contract_test.protein_structure",
-    node_type_version="2.1.0",
+    node_type_version="3.0.0",
     binding_id="contract_test.protein_structure.direct",
-    binding_version="2.1.0",
+    binding_version="3.0.0",
     node_parameters={},
     binding_parameters={},
 )
@@ -68,9 +68,9 @@ _CTK_CASES = (
     ModulePackageContractCase(
         case_id="protein-io-import-sequence",
         node_type_id="protein_io.import_sequence",
-        node_type_version="2.1.0",
+        node_type_version="3.0.0",
         binding_id="protein_io.import_sequence.direct",
-        binding_version="2.1.0",
+        binding_version="3.0.0",
         node_parameters={"project_input_ref": "sequence-input"},
         binding_parameters={},
         environment_values={},
@@ -81,9 +81,9 @@ _CTK_CASES = (
     ModulePackageContractCase(
         case_id="protein-io-import-structure",
         node_type_id="protein_io.import_structure",
-        node_type_version="2.1.0",
+        node_type_version="3.0.0",
         binding_id="protein_io.import_structure.direct",
-        binding_version="2.1.0",
+        binding_version="3.0.0",
         node_parameters={"project_input_ref": "structure-input"},
         binding_parameters={},
         environment_values={},
@@ -125,9 +125,9 @@ _CTK_CASES = (
     ModulePackageContractCase(
         case_id="protein-io-export-structure",
         node_type_id="protein_io.export_structure",
-        node_type_version="2.1.0",
+        node_type_version="3.0.0",
         binding_id="protein_io.export_structure.direct",
-        binding_version="2.1.0",
+        binding_version="3.0.0",
         node_parameters={},
         binding_parameters={},
         environment_values={},
@@ -189,11 +189,18 @@ def test_protein_io_is_one_package_with_four_independent_nodes() -> None:
         and "protein_io" in catalog.owners[(kind, contract_id, version)]
     }
     assert owned_nodes == {
-        ("protein_io.import_sequence", "2.1.0"),
-        ("protein_io.import_structure", "2.1.0"),
+        ("protein_io.import_sequence", "3.0.0"),
+        ("protein_io.import_structure", "3.0.0"),
         ("protein_io.export_sequence", "2.1.0"),
-        ("protein_io.export_structure", "2.1.0"),
+        ("protein_io.export_structure", "3.0.0"),
     }
+    for kind, contract_id in (
+        ("node_type", "protein_io.import_sequence"),
+        ("method", "protein_io.import_sequence.method"),
+        ("binding", "protein_io.import_sequence.direct"),
+    ):
+        assert catalog.get_contract(kind, contract_id, "3.0.0") is not None
+        assert catalog.get_contract(kind, contract_id, "2.1.0") is None
 
 
 def test_protein_io_passes_the_shared_contract_test_kit(
@@ -290,9 +297,9 @@ def test_structure_export_xor_is_rejected_during_compilation() -> None:
             WorkflowNodeInstance(
                 node_id="export",
                 node_type_id="protein_io.export_structure",
-                node_type_version="2.1.0",
+                node_type_version="3.0.0",
                 binding_id="protein_io.export_structure.direct",
-                binding_version="2.1.0",
+                binding_version="3.0.0",
                 node_parameters={},
                 binding_parameters={},
             ),
@@ -337,9 +344,25 @@ def _run_single_node(
             WorkflowNodeInstance(
                 node_id="protein-io",
                 node_type_id=f"protein_io.{operation}",
-                node_type_version="2.1.0",
+                node_type_version=(
+                    "3.0.0"
+                    if operation in {
+                        "import_sequence",
+                        "import_structure",
+                        "export_structure",
+                    }
+                    else "2.1.0"
+                ),
                 binding_id=f"protein_io.{operation}.direct",
-                binding_version="2.1.0",
+                binding_version=(
+                    "3.0.0"
+                    if operation in {
+                        "import_sequence",
+                        "import_structure",
+                        "export_structure",
+                    }
+                    else "2.1.0"
+                ),
                 node_parameters=node_parameters,
                 binding_parameters={},
             ),
@@ -434,7 +457,7 @@ def test_sequence_import_reads_only_one_project_scoped_reference(
     assert candidates.item_type == "protein.sequence"
     assert len(candidates.items) == 1
     assert candidates.items[0].data == sequence
-    assert candidates.items[0].parent_ids == []
+    assert candidates.items[0].parent_ids == ()
     assert {
         event["event"]["type"] for event in events
     } >= {
@@ -523,13 +546,13 @@ def test_structure_import_validates_and_canonicalizes_project_pdb(
 
     assert projection["status"] == "succeeded"
     output = projection["outputs"][0]
-    port_type = catalog.require_port_type("protein.structure", "2.1.0")
+    port_type = catalog.require_port_type("protein.structure", "3.0.0")
     structure = port_type.decode(
         canonical_json_bytes(
             {
                 "schema_namespace": "protein-workbench-port-value/v2",
                 "port_type_id": "protein.structure",
-                "port_type_version": "2.1.0",
+                "port_type_version": "3.0.0",
                 "value": output["values"][0],
             }
         )
@@ -540,7 +563,6 @@ def test_structure_import_validates_and_canonicalizes_project_pdb(
             "1.000   2.000   3.000  1.00 20.00           C\n"
             "END\n"
         ),
-        source="project_input",
     )
     assert output["content_digest"] == port_type.content_digest(structure)
 
@@ -584,7 +606,7 @@ def test_import_rejects_private_paths_and_cross_project_references(
 ) -> None:
     with pytest.raises(
         WorkflowAuthoringError,
-        match="parameter values do not match",
+        match="project_input_ref must match",
     ) as rejected:
         _run_single_node(
             tmp_path / "private-path",

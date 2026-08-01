@@ -9,11 +9,13 @@ import pytest
 from core import (
     ModulePackageContractCase,
     ModulePackagePortCase,
+    PortValueError,
     WorkflowCompileError,
     WorkflowDocument,
     WorkflowNodeInstance,
     build_discovered_frozen_catalog,
     build_frozen_catalog,
+    canonical_json_bytes,
     compile_workflow,
     discover_module_packages,
     relock_workflow,
@@ -33,12 +35,13 @@ from tests.fixtures.structure_transform_sources.package import (
 
 
 VERSION = "2.1.0"
+STRUCTURE_VERSION = "3.0.0"
 _SOURCE = WorkflowNodeInstance(
     node_id="source",
     node_type_id="contract_test.structure_transform_source",
-    node_type_version=VERSION,
+    node_type_version=STRUCTURE_VERSION,
     binding_id="contract_test.structure_transform_source.direct",
-    binding_version=VERSION,
+    binding_version=STRUCTURE_VERSION,
     node_parameters={"fixture": "canonical"},
     binding_parameters={},
 )
@@ -60,14 +63,12 @@ _BACKBONE = ProteinStructure(
         "  1.00 20.00           O\n"
         "TER\nEND\n"
     ),
-    source="structure_transform.extract_backbone",
 )
 _MID_RESIDUE_BREAK = ProteinStructure(
     pdb_string=_BACKBONE.pdb_string.replace(
         "\nATOM      2  CA",
         "\nTER\nATOM      2  CA",
     ),
-    source="structure_transform.extract_backbone",
 )
 _MISSING_CHAIN_BREAK = ProteinStructure(
     pdb_string=(
@@ -82,8 +83,28 @@ _MISSING_CHAIN_BREAK = ProteinStructure(
         "  1.00 20.00           O\n"
         "TER\nEND\n"
     ),
-    source="structure_transform.extract_backbone",
 )
+
+
+def test_backbone_wire_is_content_only_and_rejects_source_bearing_shape() -> None:
+    port_type = build_frozen_catalog((MODULE_PACKAGE,)).require_port_type(
+        "structure_transform.backbone_structure",
+        STRUCTURE_VERSION,
+    )
+
+    encoded = port_type.encode(_BACKBONE)
+    assert b'"source"' not in encoded
+    legacy_wire = canonical_json_bytes({
+        "schema_namespace": "protein-workbench-port-value/v2",
+        "port_type_id": "structure_transform.backbone_structure",
+        "port_type_version": STRUCTURE_VERSION,
+        "value": {
+            "pdb_string": _BACKBONE.pdb_string,
+            "source": "structure_transform.extract_backbone",
+        },
+    })
+    with pytest.raises(PortValueError, match="could not decode"):
+        port_type.decode(legacy_wire)
 
 
 def test_structure_transform_publishes_all_exact_transforms_and_bridge() -> None:
@@ -113,13 +134,13 @@ def test_structure_transform_publishes_all_exact_transforms_and_bridge() -> None
         and "structure_transform"
         in catalog.owners[(kind, contract_id, version)]
     } == {
-        ("structure_transform.select_chains", VERSION),
+        ("structure_transform.select_chains", STRUCTURE_VERSION),
         ("structure_transform.select_candidate_chains", VERSION),
-        ("structure_transform.extract_backbone", VERSION),
-        ("structure_transform.extract_sequence", VERSION),
+        ("structure_transform.extract_backbone", STRUCTURE_VERSION),
+        ("structure_transform.extract_sequence", STRUCTURE_VERSION),
         ("structure_transform.extract_sequence_candidates", VERSION),
-        ("structure_transform.normalize_csh_parent_span", VERSION),
-        ("structure_transform.backbone_to_structure", VERSION),
+        ("structure_transform.normalize_csh_parent_span", STRUCTURE_VERSION),
+        ("structure_transform.backbone_to_structure", STRUCTURE_VERSION),
     }
 
 
@@ -128,22 +149,22 @@ def test_transform_ports_are_exact_and_backbone_is_nominal() -> None:
     selection = catalog.require_contract(
         "node_type",
         "structure_transform.select_chains",
-        VERSION,
+        STRUCTURE_VERSION,
     ).descriptor
     backbone = catalog.require_contract(
         "node_type",
         "structure_transform.extract_backbone",
-        VERSION,
+        STRUCTURE_VERSION,
     ).descriptor
     sequence = catalog.require_contract(
         "node_type",
         "structure_transform.extract_sequence",
-        VERSION,
+        STRUCTURE_VERSION,
     ).descriptor
     backbone_bridge = catalog.require_contract(
         "node_type",
         "structure_transform.backbone_to_structure",
-        VERSION,
+        STRUCTURE_VERSION,
     ).descriptor
 
     assert selection["inputs"][0]["port_type"]["contract_id"] == (
@@ -182,9 +203,9 @@ def test_full_atom_structure_cannot_enter_a_backbone_port_implicitly() -> None:
             WorkflowNodeInstance(
                 node_id="sink",
                 node_type_id="contract_test.backbone_sink",
-                node_type_version=VERSION,
+                node_type_version=STRUCTURE_VERSION,
                 binding_id="contract_test.backbone_sink.direct",
-                binding_version=VERSION,
+                binding_version=STRUCTURE_VERSION,
                 node_parameters={},
                 binding_parameters={},
             ),
@@ -212,9 +233,9 @@ def test_all_nodes_pass_the_shared_contract_test_kit(
         ModulePackageContractCase(
             case_id=f"structure-transform-{operation}",
             node_type_id=f"structure_transform.{operation}",
-            node_type_version=VERSION,
+            node_type_version=STRUCTURE_VERSION,
             binding_id=f"structure_transform.{operation}.direct",
-            binding_version=VERSION,
+            binding_version=STRUCTURE_VERSION,
             node_parameters=(
                 {"chain_ids": ["A"]}
                 if operation == "select_chains"
@@ -265,20 +286,20 @@ def test_all_nodes_pass_the_shared_contract_test_kit(
     csh_source = WorkflowNodeInstance(
         node_id="source",
         node_type_id="contract_test.structure_transform_source",
-        node_type_version=VERSION,
+        node_type_version=STRUCTURE_VERSION,
         binding_id="contract_test.structure_transform_source.direct",
-        binding_version=VERSION,
+        binding_version=STRUCTURE_VERSION,
         node_parameters={"fixture": "csh"},
         binding_parameters={},
     )
     normalization_case = ModulePackageContractCase(
         case_id="structure-transform-normalize-csh-parent-span",
         node_type_id="structure_transform.normalize_csh_parent_span",
-        node_type_version=VERSION,
+        node_type_version=STRUCTURE_VERSION,
         binding_id=(
             "structure_transform.normalize_csh_parent_span.direct"
         ),
-        binding_version=VERSION,
+        binding_version=STRUCTURE_VERSION,
         node_parameters={},
         binding_parameters={},
         environment_values={},
@@ -295,18 +316,18 @@ def test_all_nodes_pass_the_shared_contract_test_kit(
     backbone_node = WorkflowNodeInstance(
         node_id="extract-backbone",
         node_type_id="structure_transform.extract_backbone",
-        node_type_version=VERSION,
+        node_type_version=STRUCTURE_VERSION,
         binding_id="structure_transform.extract_backbone.direct",
-        binding_version=VERSION,
+        binding_version=STRUCTURE_VERSION,
         node_parameters={},
         binding_parameters={},
     )
     bridge_case = ModulePackageContractCase(
         case_id="structure-transform-backbone-to-structure",
         node_type_id="structure_transform.backbone_to_structure",
-        node_type_version=VERSION,
+        node_type_version=STRUCTURE_VERSION,
         binding_id="structure_transform.backbone_to_structure.direct",
-        binding_version=VERSION,
+        binding_version=STRUCTURE_VERSION,
         node_parameters={},
         binding_parameters={},
         environment_values={},
@@ -339,7 +360,7 @@ def test_all_nodes_pass_the_shared_contract_test_kit(
         port_cases=(
             ModulePackagePortCase(
                 "structure_transform.backbone_structure",
-                VERSION,
+                STRUCTURE_VERSION,
                 _BACKBONE,
                 (
                     ProteinStructure(
@@ -351,7 +372,6 @@ def test_all_nodes_pass_the_shared_contract_test_kit(
                                 "           C\nTER\n"
                             ),
                         ),
-                        source=_BACKBONE.source,
                     ),
                     ProteinStructure("END\n"),
                     _MID_RESIDUE_BREAK,
@@ -397,6 +417,6 @@ def test_all_nodes_pass_the_shared_contract_test_kit(
         "succeeded"
     ] * 7
     assert report.verified_port_types == (
-        "structure_transform.backbone_structure@2.1.0",
+        "structure_transform.backbone_structure@3.0.0",
         "structure_transform.modified_residue_normalizations@2.1.0",
     )

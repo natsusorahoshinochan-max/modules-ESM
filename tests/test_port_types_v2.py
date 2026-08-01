@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from dataclasses import FrozenInstanceError, fields, replace
 import re
 
 from fastapi.testclient import TestClient
@@ -24,7 +25,11 @@ from datatypes import (
     CandidateCollection,
     ExactContractReference,
     FunctionAnnotations,
+    FunctionAnnotation,
     IntrinsicObservationContext,
+    ModifiedResidueAtomMapping,
+    ModifiedResidueNormalization,
+    ModifiedResidueNormalizationCollection,
     PairwiseCandidateMapping,
     PairwiseCandidateMatch,
     ProteinPrompt,
@@ -57,6 +62,10 @@ EXPECTED_PORT_TYPE_IDS = {
     "structure.alignment",
     "text",
 }
+EXPECTED_PORT_TYPE_VERSIONS = {
+    type_id: "3.0.0" if type_id == "protein.structure" else "2.1.0"
+    for type_id in EXPECTED_PORT_TYPE_IDS
+}
 EXPECTED_PORT_TYPE_DIGESTS = {
     "candidate.collection": (
         "sha256:6425b44763bd03b2987d9c78e3675e11733416af7dafd01714f9ac121568685c"
@@ -74,7 +83,7 @@ EXPECTED_PORT_TYPE_DIGESTS = {
         "sha256:36ce4a625ff63ce0f90cebba84b4d72285054bebc74cc05119d241428ec9e533"
     ),
     "protein.structure": (
-        "sha256:2086d04a0e219966ed5f54d0a965023e79e63dcefa3f650109d40ac1a7197fdc"
+        "sha256:cd09d43e3229ca3dedfb5d57c2b154f65629e3da6038d8459b74282015bb60e0"
     ),
     "residue.layout": (
         "sha256:ff3f084e99dab615dcab848d4dd8af3b36622c53e1cf095cbc4d53b873eefb33"
@@ -177,32 +186,32 @@ def test_catalog_snapshot_publishes_exact_port_type_contracts() -> None:
             ("selection.weighted_rank.direct", "2.1.0", True),
             ("selection.pareto.direct", "2.1.0", True),
             ("selection.diversity.direct", "2.1.0", True),
-            ("esm3.generate_paired.biohub_medium", "2.1.0", True),
-        ("esm3.generate_sequence.biohub_medium", "2.1.0", True),
-        ("esm3.generate_structure.biohub_medium", "2.1.0", True),
-        ("esm3.generate_paired.biohub_open", "2.1.0", True),
-        ("esm3.generate_sequence.biohub_open", "2.1.0", True),
-        ("esm3.generate_structure.biohub_open", "2.1.0", True),
-        ("esm3.generate_paired.local_open", "2.1.0", True),
-        ("esm3.generate_sequence.local_open", "2.1.0", True),
-        ("esm3.generate_structure.local_open", "2.1.0", True),
+            ("esm3.generate_paired.biohub_medium", "3.0.0", True),
+        ("esm3.generate_sequence.biohub_medium", "3.0.0", True),
+        ("esm3.generate_structure.biohub_medium", "3.0.0", True),
+        ("esm3.generate_paired.biohub_open", "3.0.0", True),
+        ("esm3.generate_sequence.biohub_open", "3.0.0", True),
+        ("esm3.generate_structure.biohub_open", "3.0.0", True),
+        ("esm3.generate_paired.local_open", "3.0.0", True),
+        ("esm3.generate_sequence.local_open", "3.0.0", True),
+        ("esm3.generate_structure.local_open", "3.0.0", True),
         (
             "esm3.represent_sequence.biohub_esmc_600m_2024_12",
-            "2.1.0",
+            "2.2.0",
             True,
         ),
-        ("folding.fold.esmfold2_remote", "2.1.0", True),
-            ("folding.fold.esmfold2_local", "2.1.0", True),
-            ("folding.fold.simplefold_local", "2.1.0", True),
+        ("folding.fold.esmfold2_remote", "3.0.0", True),
+            ("folding.fold.esmfold2_local", "3.0.0", True),
+            ("folding.fold.simplefold_local", "3.0.0", True),
             (
                 "folding.simplefold_confidence.simplefold_local",
-                "2.1.0",
+                "2.2.0",
                 True,
             ),
-        ("protein_io.import_sequence.direct", "2.1.0", True),
-        ("protein_io.import_structure.direct", "2.1.0", True),
+        ("protein_io.import_sequence.direct", "3.0.0", True),
+        ("protein_io.import_structure.direct", "3.0.0", True),
         ("protein_io.export_sequence.direct", "2.1.0", True),
-        ("protein_io.export_structure.direct", "2.1.0", True),
+        ("protein_io.export_structure.direct", "3.0.0", True),
         (
             "prompt_authoring.add_function_annotation.direct",
             "2.1.0",
@@ -227,7 +236,7 @@ def test_catalog_snapshot_publishes_exact_port_type_contracts() -> None:
             True,
         ),
         ("prompt_authoring.override_residue_track.direct", "2.1.0", True),
-        ("prompt_authoring.prompt_from_structure.direct", "2.1.0", True),
+        ("prompt_authoring.prompt_from_structure.direct", "3.0.0", True),
         (
             "prompt_authoring.random_insert_masked.direct",
             "2.1.0",
@@ -239,25 +248,25 @@ def test_catalog_snapshot_publishes_exact_port_type_contracts() -> None:
             "2.1.0",
             True,
         ),
-        ("proteinmpnn.constraints.local", "2.1.0", True),
+        ("proteinmpnn.constraints.local", "3.0.0", True),
         (
             "proteinmpnn.random_fixed_positions.local",
-            "2.1.0",
+            "3.0.0",
             True,
         ),
-        ("proteinmpnn.design.local", "2.1.0", True),
+        ("proteinmpnn.design.local", "4.0.0", True),
         ("proteinmpnn.score.local", "2.1.0", True),
             ("solubility.soluprot_full.local", "2.1.0", True),
             ("solubility.soluprot_no_tm.local", "2.1.0", True),
             ("solubility.protein_sol.local", "2.1.0", True),
-            ("structure_transform.select_chains.direct", "2.1.0", True),
+            ("structure_transform.select_chains.direct", "3.0.0", True),
             (
                 "structure_transform.select_candidate_chains.direct",
                 "2.1.0",
                 True,
             ),
-            ("structure_transform.extract_backbone.direct", "2.1.0", True),
-            ("structure_transform.extract_sequence.direct", "2.1.0", True),
+            ("structure_transform.extract_backbone.direct", "3.0.0", True),
+            ("structure_transform.extract_sequence.direct", "3.0.0", True),
             (
                 "structure_transform.extract_sequence_candidates.direct",
                 "2.1.0",
@@ -265,45 +274,45 @@ def test_catalog_snapshot_publishes_exact_port_type_contracts() -> None:
             ),
             (
                 "structure_transform.normalize_csh_parent_span.direct",
-                "2.1.0",
+                "3.0.0",
                 True,
             ),
         (
             "structure_transform.backbone_to_structure.direct",
-            "2.1.0",
+            "3.0.0",
             True,
         ),
         (
-            "structure_annotation.dssp_compute.direct",
-            "2.1.0",
+            "structure_annotation.dssp_compute.mkdssp_local",
+            "3.0.0",
             True,
         ),
         (
             "structure_annotation.secondary_structure_extract.direct",
-            "2.1.0",
+            "2.2.0",
             True,
         ),
-        ("structure_annotation.sasa_compute.direct", "2.1.0", True),
+        ("structure_annotation.sasa_compute.direct", "2.2.0", True),
         (
             "structure_annotation.secondary_structure_agreement.direct",
-            "2.1.0",
+            "2.2.0",
             True,
         ),
         ("structure_comparison.align_single.direct", "2.1.0", True),
-        ("structure_comparison.align_pairwise.direct", "2.1.0", True),
+        ("structure_comparison.align_pairwise.direct", "2.2.0", True),
         (
             "structure_comparison.align_pairwise.fixed_reference",
-            "2.1.0",
+            "2.2.0",
             True,
         ),
         (
             "structure_comparison.rmsd.fixed_reference",
-            "2.1.0",
+            "2.2.0",
             True,
         ),
         (
             "structure_comparison.rmsd.per_subject_counterpart",
-            "2.1.0",
+            "2.2.0",
             True,
         ),
         (
@@ -313,12 +322,12 @@ def test_catalog_snapshot_publishes_exact_port_type_contracts() -> None:
         ),
         (
             "structure_comparison.batch_tm_score.fixed_reference",
-            "2.1.0",
+            "2.2.0",
             True,
         ),
         (
             "structure_comparison.batch_tm_score.per_subject_counterpart",
-            "2.1.0",
+            "2.2.0",
             True,
         ),
     }
@@ -328,7 +337,6 @@ def test_catalog_snapshot_publishes_exact_port_type_contracts() -> None:
         for item in payload["contracts"]
         if item["reference"]["contract_kind"] == "port_type"
         and item["reference"]["contract_id"] in EXPECTED_PORT_TYPE_IDS
-        and item["reference"]["contract_version"] == "2.1.0"
     ]
     assert {item["reference"]["contract_id"] for item in contracts} == (
         EXPECTED_PORT_TYPE_IDS
@@ -349,7 +357,9 @@ def test_catalog_snapshot_publishes_exact_port_type_contracts() -> None:
             "protein-workbench-contract/v2"
         )
         assert descriptor["contract_kind"] == "port_type"
-        assert descriptor["contract_version"] == "2.1.0"
+        assert descriptor["contract_version"] == EXPECTED_PORT_TYPE_VERSIONS[
+            descriptor["contract_id"]
+        ]
         assert set(descriptor) == {
             "schema_namespace",
             "contract_kind",
@@ -370,7 +380,9 @@ def test_catalog_snapshot_publishes_exact_port_type_contracts() -> None:
                 "behavior_version",
                 "parameters",
             }
-            assert behavior["behavior_version"] == "2.1.0"
+            assert behavior["behavior_version"] == (
+                EXPECTED_PORT_TYPE_VERSIONS[descriptor["contract_id"]]
+            )
 
 
 def test_port_type_codec_round_trips_a_complete_valid_value() -> None:
@@ -397,9 +409,182 @@ def test_port_type_codec_round_trips_a_complete_valid_value() -> None:
     )
 
 
+def test_protein_sequence_cuts_caller_aliases_without_changing_wire_bytes() -> None:
+    residue_ids = ["A:1", "A:2"]
+    value = ProteinSequence("MA", residue_ids)
+    residue_ids.append("A:3")
+
+    assert value.residue_ids == ("A:1", "A:2")
+    with pytest.raises(FrozenInstanceError):
+        value.sequence = "AA"
+
+    port_type = builtin_frozen_catalog().require_port_type(
+        "protein.sequence",
+        "2.1.0",
+    )
+    encoded = port_type.encode(value)
+
+    assert b'"$tuple"' not in encoded
+    assert b'"residue_ids":["A:1","A:2"]' in encoded
+    assert port_type.decode(encoded) == value
+
+
+def test_immutable_residue_map_preserves_2_1_list_and_tuple_wire_semantics() -> None:
+    layout = ResidueLayout("A", 1, ["A:1"])
+    value = ResidueMap(layout, layout, [(0, 0, "match")])
+    port_type = builtin_frozen_catalog().require_port_type(
+        "residue.map",
+        "2.1.0",
+    )
+
+    encoded = port_type.encode(value)
+
+    assert b'"mappings":[{"$tuple":[0,0,"match"]}]' in encoded
+    assert port_type.decode(encoded) == value
+
+
+def test_canonical_scientific_values_are_deeply_immutable() -> None:
+    residue_ids = ["A:1", "A:2"]
+    mappings = [(0, 0, "match"), (1, 1, "match")]
+    track_values = [{"atom": [1.0, 2.0, 3.0]}, None]
+    annotations = [
+        FunctionAnnotation(
+            label="site",
+            start=1,
+            end=1,
+            chain_id="A",
+            start_residue_id="A:1",
+            end_residue_id="A:1",
+            overlap_policy="allow",
+        )
+    ]
+    parent_ids = ["parent-1"]
+    metadata_samples = [1]
+    score_values = [0.25, None]
+    alignment_rotation = [
+        [1.0, 0.0, 0.0],
+        [0.0, 1.0, 0.0],
+        [0.0, 0.0, 1.0],
+    ]
+    normalization_entries = [
+        ModifiedResidueNormalization(
+            component_id="CSH",
+            observed_residue_id="A:1",
+            parent_residue_ids=["A:1", "A:2"],
+            parent_sequence="CS",
+            atom_mappings=[
+                ModifiedResidueAtomMapping("CA", "A:1", "CA")
+            ],
+        )
+    ]
+
+    layout = ResidueLayout("A", 2, residue_ids)
+    track = ResidueTrack(track_values, None)
+    function_annotations = FunctionAnnotations(annotations)
+    prompt = ProteinPrompt(
+        target_layout=layout,
+        structure_track=track,
+        function_annotations=function_annotations,
+    )
+    candidate = Candidate(
+        "candidate-1",
+        ProteinSequence("MA", residue_ids),
+        parent_ids,
+        {"samples": metadata_samples},
+    )
+    collection = CandidateCollection(
+        "candidates",
+        "protein.sequence",
+        [candidate],
+    )
+    observation = _typed_observation({"values": score_values})
+    scores = ScoreCollection("scores", [observation])
+    alignment = StructureAlignment(
+        residue_map=[("A:1", "A:1")],
+        chain_map={"A": "A"},
+        rotation=alignment_rotation,
+        translation=[0.0, 0.0, 0.0],
+        reference_sequence="A",
+        mobile_sequence="A",
+        reference_length=1,
+        mobile_length=1,
+        aligned_reference_indices=[0],
+        aligned_mobile_indices=[0],
+        aligned_reference_coordinates=[[0.0, 0.0, 0.0]],
+        aligned_mobile_coordinates=[[0.0, 0.0, 0.0]],
+        aligned_distances=[0.0],
+    )
+    residue_map = ResidueMap(layout, layout, mappings)
+    pairing = PairwiseCandidateMapping([
+        PairwiseCandidateMatch(
+            "candidate-1",
+            "sha256:" + "1" * 64,
+            "candidate-2",
+            "sha256:" + "2" * 64,
+        )
+    ])
+    normalizations = ModifiedResidueNormalizationCollection(
+        normalization_entries
+    )
+
+    residue_ids.append("A:3")
+    mappings.append((2, 2, "match"))
+    track_values[0]["atom"].append(4.0)
+    annotations.clear()
+    parent_ids.append("parent-2")
+    metadata_samples.append(2)
+    score_values.append(0.5)
+    alignment_rotation[0][0] = 0.0
+    normalization_entries.clear()
+
+    assert layout.residue_ids == ("A:1", "A:2")
+    assert residue_map.mappings == (
+        (0, 0, "match"),
+        (1, 1, "match"),
+    )
+    assert track.values[0]["atom"] == (1.0, 2.0, 3.0)
+    assert function_annotations.annotations == (
+        prompt.function_annotations.annotations[0],
+    )
+    assert candidate.parent_ids == ("parent-1",)
+    assert candidate.metadata["samples"] == (1,)
+    assert collection.items == (candidate,)
+    assert observation.value["values"] == (0.25, None)
+    assert scores.entries == (observation,)
+    assert alignment.rotation[0] == (1.0, 0.0, 0.0)
+    assert pairing.entries[0].subject_candidate_id == "candidate-1"
+    assert len(normalizations.entries) == 1
+
+    with pytest.raises(FrozenInstanceError):
+        layout.length = 3
+    with pytest.raises(TypeError):
+        candidate.metadata["samples"] = ()
+
+
+def test_canonical_scientific_values_reject_ambiguous_or_mutable_inputs() -> None:
+    with pytest.raises(TypeError, match="ordered list or tuple"):
+        ProteinSequence("MA", {"A:1", "A:2"})
+    with pytest.raises(TypeError, match="ordered list or tuple"):
+        Candidate(
+            "candidate-1",
+            ProteinSequence("MA"),
+            "parent-1",
+        )
+    with pytest.raises(ValueError, match="I-JSON"):
+        Candidate(
+            "candidate-1",
+            ProteinSequence("MA"),
+            metadata={"payload": bytearray(b"mutable")},
+        )
+    with pytest.raises(ValueError, match="string object key"):
+        _typed_observation({("A:1", "A:2"): 0.5})
+    with pytest.raises(ValueError, match="sentinel must be null"):
+        ResidueTrack([1, []], [])
+
+
 def test_every_builtin_port_type_round_trips_its_runtime_value() -> None:
     sequence = ProteinSequence("MA", ["A:1", "A:2"])
-    structure = ProteinStructure("ATOM\nEND\n", "fixture")
+    structure = ProteinStructure("ATOM\nEND\n")
     layout = ResidueLayout("A", 2, ["A:1", "A:2"])
     track = ResidueTrack(["M", None], None)
     samples = {
@@ -468,9 +653,45 @@ def test_every_builtin_port_type_round_trips_its_runtime_value() -> None:
 
     assert set(samples) == EXPECTED_BUILTIN_PORT_TYPE_IDS
     for type_id, value in samples.items():
-        definition = catalog.require_port_type(type_id, "2.1.0")
+        definition = catalog.require_port_type(
+            type_id,
+            EXPECTED_PORT_TYPE_VERSIONS[type_id],
+        )
         definition.validate(value)
         assert definition.decode(definition.encode(value)) == value
+
+
+def test_protein_structure_scientific_identity_excludes_source_provenance() -> None:
+    port_type = builtin_frozen_catalog().require_port_type(
+        "protein.structure",
+        "3.0.0",
+    )
+    pdb_string = "ATOM\nEND\n"
+    structure = ProteinStructure(pdb_string)
+
+    assert tuple(item.name for item in fields(ProteinStructure)) == (
+        "pdb_string",
+    )
+    with pytest.raises(TypeError, match="source"):
+        ProteinStructure(pdb_string, source="provider")
+    assert b'"source"' not in port_type.encode(structure)
+    assert port_type.content_digest(structure) == (
+        "sha256:d69a23684db136581195d9fe89ff37cdb9ea10701ca873321de7425093fd1700"
+    )
+    legacy_wire = canonical_json_bytes({
+        "schema_namespace": "protein-workbench-port-value/v2",
+        "port_type_id": "protein.structure",
+        "port_type_version": "3.0.0",
+        "value": {
+            "$dataclass": "protein_structure",
+            "fields": {
+                "pdb_string": pdb_string,
+                "source": "provider",
+            },
+        },
+    })
+    with pytest.raises(PortValueError, match="complete protein_structure"):
+        port_type.decode(legacy_wire)
 
 
 def test_codec_rejects_malformed_and_noncanonical_values() -> None:
@@ -546,17 +767,21 @@ def test_runtime_validators_reject_malformed_complete_values(
         definition.encode(malformed)
 
 
-def test_runtime_validators_recheck_mutable_domain_invariants() -> None:
+def test_canonical_constructors_close_domain_invariants_before_encoding() -> None:
     from core import build_discovered_frozen_catalog
 
     catalog = build_discovered_frozen_catalog()
     sequence = ProteinSequence("MA", ["A:1", "A:2"])
-    sequence.residue_ids = ["A:1"]
     layout = ResidueLayout("A", 1, ["A:1"])
-    layout.length = -1
+    with pytest.raises(FrozenInstanceError):
+        sequence.residue_ids = ("A:1",)
+    with pytest.raises(FrozenInstanceError):
+        layout.length = -1
+    with pytest.raises(ValueError, match="residue_ids length"):
+        ProteinSequence("MA", ["A:1"])
+    with pytest.raises(ValueError, match="length must be"):
+        ResidueLayout("A", -1)
     malformed_values = [
-        ("protein.sequence", sequence),
-        ("residue.layout", layout),
         (
             "residue.map",
             ResidueMap(
@@ -626,14 +851,14 @@ def test_proteinmpnn_port_reuses_the_authoritative_constraint_contract(
 
     definition = build_discovered_frozen_catalog().require_port_type(
         "proteinmpnn.constraints",
-        "2.1.0",
+        "3.0.0",
     )
 
     with pytest.raises(PortValueError):
         definition.encode(constraints)
 
 
-def test_proteinmpnn_port_rechecks_constraints_after_mutation() -> None:
+def test_proteinmpnn_constraints_cannot_drift_after_validation() -> None:
     constraints = ProteinMPNNConstraints(
         layout=PROTEINMPNN_TEST_LAYOUT,
         tied_residue_groups=[["A:1", "A:2"]],
@@ -643,25 +868,41 @@ def test_proteinmpnn_port_rechecks_constraints_after_mutation() -> None:
     definition = package.port_types[0]
     definition.validate(constraints)
 
-    constraints.tied_residue_groups[0].pop()
-
-    with pytest.raises(PortValueError, match="at least two residue identities"):
-        definition.encode(constraints)
+    with pytest.raises(AttributeError):
+        constraints.tied_residue_groups[0].pop()
+    definition.encode(constraints)
 
 
 @pytest.mark.parametrize("invalid_value", [-0.0, float("nan"), float("inf")])
-def test_codec_rejects_non_i_json_numbers(invalid_value: float) -> None:
+def test_score_constructor_rejects_non_i_json_numbers(
+    invalid_value: float,
+) -> None:
+    with pytest.raises(ValueError, match="I-JSON"):
+        _typed_observation(invalid_value)
+
+
+def test_i_json_array_admission_normalizes_list_and_tuple_wire_identity() -> None:
     score_type = builtin_frozen_catalog().require_port_type(
         "score.collection",
         "2.1.0",
     )
-    value = ScoreCollection(
-        "scores",
-        [_typed_observation(invalid_value)],
-    )
+    list_observation = _typed_observation({"samples": [1, 2]})
+    tuple_observation = _typed_observation({"samples": (1, 2)})
+    list_scores = ScoreCollection("scores", [list_observation])
+    tuple_scores = ScoreCollection("scores", [tuple_observation])
 
-    with pytest.raises(PortValueError, match="negative zero|NaN|Infinity"):
-        score_type.encode(value)
+    list_encoded = score_type.encode(list_scores)
+    tuple_encoded = score_type.encode(tuple_scores)
+
+    assert list_observation == tuple_observation
+    assert tuple_encoded == list_encoded
+    assert score_type.content_digest(tuple_scores) == (
+        score_type.content_digest(list_scores)
+    )
+    assert score_type.encode(
+        ScoreCollection("scores", [list_observation, tuple_observation])
+    ) == list_encoded
+    assert b'"$tuple"' not in list_encoded
 
 
 def test_behavior_declarations_require_exact_versions_and_i_json() -> None:
@@ -760,7 +1001,7 @@ def test_builtin_port_type_contract_digests_match_golden_vectors() -> None:
         for type_id in EXPECTED_BUILTIN_PORT_TYPE_IDS
     }
     assert catalog.contract_digest == (
-        "sha256:c8074abf0a4f368f53db575215c0281a8c6b10be31e96850ccf76f8631cac813"
+        "sha256:e106d275deae5a31ea9e77b3007b4c86566655104864ae2f77aeee64c667de77"
     )
 
 
@@ -931,3 +1172,15 @@ def test_port_type_catalog_build_is_atomic_on_duplicate_identity() -> None:
         FrozenCatalog((*published.port_types, duplicate))
 
     assert published.contract_digest == original_digest
+
+
+def test_direct_catalog_construction_rejects_multiple_active_port_versions() -> None:
+    published = builtin_frozen_catalog()
+    current = published.require_port_type("text", "2.1.0")
+    incompatible = replace(current, version="3.0.0")
+
+    with pytest.raises(
+        CatalogBuildError,
+        match="multiple active versions for contract port_type:text",
+    ):
+        FrozenCatalog((current, incompatible))

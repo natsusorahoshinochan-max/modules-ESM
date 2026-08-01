@@ -21,6 +21,8 @@ from datatypes import ProteinSequence
 
 
 VERSION = "2.1.0"
+REMOTE_BINDING_VERSION = "3.0.0"
+PROTEINMPNN_BINDING_VERSION = "4.0.0"
 PROVIDER_BINDINGS = frozenset({
     "esm3.generate_paired.biohub_medium",
     "folding.fold.esmfold2_remote",
@@ -300,7 +302,10 @@ def controlled_environment(
 ) -> dict[tuple[str, str], dict[str, object]]:
     """Build trusted run-scoped configuration without Workflow-owned values."""
     return {
-        ("esm3.generate_paired.biohub_medium", VERSION): {
+        (
+            "esm3.generate_paired.biohub_medium",
+            REMOTE_BINDING_VERSION,
+        ): {
             "values": {
                 "endpoint_id": "biohub",
                 "credential_handle": object(),
@@ -309,7 +314,7 @@ def controlled_environment(
             "safe_fingerprint": "controlled-esm3-canonical-v2",
             "invalidation_token": "controlled-esm3-canonical-v2",
         },
-        ("folding.fold.esmfold2_remote", VERSION): {
+        ("folding.fold.esmfold2_remote", REMOTE_BINDING_VERSION): {
             "values": {
                 "endpoint_id": "biohub",
                 "credential_handle": object(),
@@ -318,7 +323,7 @@ def controlled_environment(
             "safe_fingerprint": "controlled-folding-canonical-v2",
             "invalidation_token": "controlled-folding-canonical-v2",
         },
-        ("proteinmpnn.design.local", VERSION): {
+        ("proteinmpnn.design.local", PROTEINMPNN_BINDING_VERSION): {
             "values": {},
             "safe_fingerprint": "controlled-proteinmpnn-canonical-v2",
             "invalidation_token": "controlled-proteinmpnn-canonical-v2",

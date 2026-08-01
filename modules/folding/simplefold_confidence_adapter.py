@@ -12,13 +12,13 @@ import pickle
 import stat
 import sys
 from argparse import Namespace
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import asdict, dataclass
 from functools import partial
 from pathlib import Path
-from typing import Any
+from typing import Any, Protocol
 
-from core import ReadinessResult
+from core import ReadinessResult, RunResources
 from modules.provider_contract import (
     SIMPLEFOLD_ARTIFACT_IDENTITIES,
     SIMPLEFOLD_ARTIFACT_SHA256,
@@ -30,6 +30,7 @@ from modules.provider_contract import (
     validate_installed_provider_checkout,
 )
 from datatypes import ProteinStructure
+from .adapter import normalize_residue_plddt
 
 
 SIMPLEFOLD_CONFIDENCE_ARTIFACTS = (
@@ -47,6 +48,31 @@ SIMPLEFOLD_CONFIDENCE_FEATURIZATION = (
 SIMPLEFOLD_CONFIDENCE_ADAPTER = (
     "protein-workbench-simplefold-confidence-adapter/v1"
 )
+
+
+@dataclass(frozen=True, slots=True)
+class SimpleFoldConfidenceAdapterResult:
+    """Canonical pLDDT values admitted from one provider invocation."""
+
+    per_residue_plddt: tuple[float | None, ...]
+
+    def __post_init__(self) -> None:
+        object.__setattr__(
+            self,
+            "per_residue_plddt",
+            tuple(self.per_residue_plddt),
+        )
+
+
+class SimpleFoldConfidenceAdapter(Protocol):
+    """Canonical existing-structure confidence Operation boundary."""
+
+    def evaluate(
+        self,
+        *,
+        structure: ProteinStructure,
+        engine_role: str,
+    ) -> SimpleFoldConfidenceAdapterResult: ...
 
 
 @dataclass(frozen=True, slots=True)
@@ -311,34 +337,6 @@ def simplefold_confidence_readiness(
             reason_code="simplefold_confidence_runtime_unavailable",
         )
     return ReadinessResult(True, proof_source="direct-observation")
-
-
-def invocation_identity(
-    resolved_provider_identity: Mapping[str, Any],
-) -> str:
-    """Bind every resolved digest into the bounded Invocation identity."""
-    simplefold_digests = resolved_provider_identity.get(
-        "artifact_sha256"
-    )
-    esm2_digests = resolved_provider_identity.get(
-        "esm2_artifact_sha256"
-    )
-    source_tree_digest = resolved_provider_identity.get(
-        "esm2_source_tree_sha256"
-    )
-    if (
-        not isinstance(simplefold_digests, Mapping)
-        or not isinstance(esm2_digests, Mapping)
-        or not isinstance(source_tree_digest, str)
-    ):
-        raise ValueError(
-            "SimpleFold confidence Invocation identity is incomplete"
-        )
-    del simplefold_digests, esm2_digests, source_tree_digest
-    return (
-        "folding.simplefold_confidence.assets."
-        f"{_runtime_fingerprint(resolved_provider_identity)}"
-    )
 
 
 def _copy_regular_file(source: Path, destination: Path) -> None:
@@ -823,42 +821,134 @@ def _native_existing_structure_confidence(
     return run()
 
 
-def evaluate(
+def _normalize_native_confidence(
     *,
-    structure: ProteinStructure,
-    staging_directory: Path,
-    environment: Mapping[str, Any],
-    validated_environment: Mapping[str, Any] | None = None,
-) -> dict[str, Any]:
-    """Cross exactly one existing-structure confidence engine seam."""
-    validated = (
-        dict(validated_environment)
-        if validated_environment is not None
-        else validate_simplefold_confidence_environment(environment)
-    )
-    client = environment.get("provider_client")
-    if client is not None:
-        result = client.evaluate(
-            structure=structure,
-            staging_directory=staging_directory,
-            resolved_provider_identity=validated[
-                "resolved_provider_identity"
-            ],
+    native_plddt: object,
+    valid_protein_residues: object,
+) -> tuple[float | None, ...]:
+    """Apply the fixed direct-head scale after exact validity masking."""
+    if (
+        not isinstance(native_plddt, Sequence)
+        or isinstance(native_plddt, (str, bytes))
+        or not isinstance(valid_protein_residues, Sequence)
+        or isinstance(valid_protein_residues, (str, bytes))
+        or len(native_plddt) != len(valid_protein_residues)
+        or not native_plddt
+    ):
+        raise ValueError("SimpleFold direct-head pLDDT mask is malformed")
+    try:
+        values, _, _ = normalize_residue_plddt(
+            native_plddt=native_plddt,
+            valid_residues=valid_protein_residues,
+            native_maximum=1.0,
+            project_to_valid_residues=False,
         )
-        if not isinstance(result, Mapping):
-            raise ValueError(
-                "SimpleFold confidence provider result is malformed"
+    except ValueError as error:
+        raise ValueError(
+            "SimpleFold direct-head pLDDT is malformed"
+        ) from error
+    return values
+
+
+class LocalSimpleFoldConfidenceAdapter:
+    """Translate one canonical structure through the exact confidence head."""
+
+    def __init__(
+        self,
+        *,
+        environment: Mapping[str, Any],
+        resources: RunResources,
+    ) -> None:
+        self._environment = environment
+        self._resources = resources
+        self._validated_environment: Mapping[str, Any] | None = None
+
+    @staticmethod
+    def normalize_native_confidence(
+        *,
+        native_plddt: object,
+        valid_protein_residues: object,
+    ) -> tuple[float | None, ...]:
+        return _normalize_native_confidence(
+            native_plddt=native_plddt,
+            valid_protein_residues=valid_protein_residues,
+        )
+
+    def _validated(self) -> Mapping[str, Any]:
+        if self._validated_environment is None:
+            self._validated_environment = (
+                validate_simplefold_confidence_environment(
+                    self._environment
+                )
             )
-        native = dict(result)
-    else:
-        native = _native_existing_structure_confidence(
-            structure=structure,
-            staging_directory=staging_directory,
-            validated=validated,
+        return self._validated_environment
+
+    def _provider_call(
+        self,
+        *,
+        structure: ProteinStructure,
+        staging_directory: Path,
+        validated: Mapping[str, Any],
+    ) -> Callable[[], object]:
+        client = self._environment.get("provider_client")
+        if client is not None:
+            def invoke_client() -> object:
+                return client.evaluate(
+                    structure=structure,
+                    staging_directory=staging_directory,
+                    resolved_provider_identity=validated[
+                        "resolved_provider_identity"
+                    ],
+                )
+
+            return invoke_client
+
+        def invoke_local_runtime() -> object:
+            return _native_existing_structure_confidence(
+                structure=structure,
+                staging_directory=staging_directory,
+                validated=validated,
+            )
+
+        return invoke_local_runtime
+
+    def evaluate(
+        self,
+        *,
+        structure: ProteinStructure,
+        engine_role: str,
+    ) -> SimpleFoldConfidenceAdapterResult:
+        """Invoke once, then decode and normalize outside Invocation."""
+        validated = self._validated()
+        resolved_identity = validated["resolved_provider_identity"]
+        with self._resources.temporary_directory(
+            prefix="simplefold-confidence-"
+        ) as staging_directory:
+            provider_call = self._provider_call(
+                structure=structure,
+                staging_directory=staging_directory,
+                validated=validated,
+            )
+            with self._resources.engine_invocation(
+                engine_role=engine_role,
+            ):
+                raw_result = provider_call()
+            if (
+                not isinstance(raw_result, Mapping)
+                or set(raw_result) != {
+                    "native_plddt",
+                    "valid_protein_residues",
+                }
+            ):
+                raise ValueError(
+                    "SimpleFold confidence provider result is not closed"
+                )
+            values = _normalize_native_confidence(
+                native_plddt=raw_result["native_plddt"],
+                valid_protein_residues=raw_result[
+                    "valid_protein_residues"
+                ],
+            )
+        return SimpleFoldConfidenceAdapterResult(
+            per_residue_plddt=values,
         )
-    return {
-        **native,
-        "resolved_provider_identity": dict(
-            validated["resolved_provider_identity"]
-        ),
-    }

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field
 import math
 import struct
@@ -15,6 +15,7 @@ from core.parameter_contract import (
 )
 from core.port_types import (
     CatalogBuildError,
+    ContractResolutionError,
     FrozenCatalog,
     PortValueError,
     canonical_json_bytes,
@@ -31,31 +32,11 @@ from datatypes import (
     ScoreCollection,
     ScoreObservation,
 )
+from datatypes.i_json import freeze_i_json, thaw_i_json
 
 
 class SelectionError(ValueError):
     """A Selection Objective is unsafe or unsatisfied."""
-
-
-def _freeze_json(value: Any) -> Any:
-    if isinstance(value, Mapping):
-        if not all(isinstance(name, str) for name in value):
-            raise CatalogBuildError("JSON object keys must be strings")
-        return MappingProxyType(
-            {name: _freeze_json(item) for name, item in value.items()}
-        )
-    if isinstance(value, (list, tuple)):
-        return tuple(_freeze_json(item) for item in value)
-    canonical_json_bytes(value)
-    return value
-
-
-def _thaw_json(value: Any) -> Any:
-    if isinstance(value, Mapping):
-        return {name: _thaw_json(item) for name, item in value.items()}
-    if isinstance(value, tuple):
-        return [_thaw_json(item) for item in value]
-    return value
 
 
 @dataclass(frozen=True, slots=True)
@@ -301,8 +282,9 @@ class SelectionObjective:
         if not isinstance(self.utility_parameters, Mapping):
             raise SelectionError("Utility parameters must be an object")
         try:
-            frozen_parameters = _freeze_json(self.utility_parameters)
-        except CatalogBuildError as error:
+            frozen_parameters = freeze_i_json(self.utility_parameters)
+            canonical_json_bytes(frozen_parameters)
+        except (CatalogBuildError, ValueError) as error:
             raise SelectionError(
                 "Utility parameters must contain canonical I-JSON values"
             ) from error
@@ -382,11 +364,52 @@ class SelectionObjective:
                 "utility_transform",
                 self.utility_transform,
             ),
-            "utility_parameters": _thaw_json(self.utility_parameters),
+            "utility_parameters": thaw_i_json(self.utility_parameters),
             "weight": self.weight,
             "match_cardinality": self.match_cardinality,
             "missing_policy": self.missing_policy,
         }
+
+
+@dataclass(frozen=True, slots=True)
+class ResolvedMetricFacts:
+    """Scientific validation facts for one exact Metric Definition."""
+
+    reference: ExactContractReference
+    value_shape: str
+    minimum: int | float
+    maximum: int | float
+    allow_null: bool
+    require_finite: bool
+    exact_binary32: bool
+
+
+@dataclass(frozen=True, slots=True)
+class ResolvedSelectionObjective:
+    """One Workflow objective with its Metric and Utility fully resolved."""
+
+    objective: SelectionObjective
+    metric: ResolvedMetricFacts
+    utility_parameters: Mapping[str, Any]
+    utility_transform: Callable[[Any, Mapping[str, Any]], Any] = field(
+        repr=False,
+        compare=False,
+    )
+
+    def __post_init__(self) -> None:
+        object.__setattr__(
+            self,
+            "utility_parameters",
+            freeze_i_json(self.utility_parameters),
+        )
+
+
+@dataclass(frozen=True, slots=True)
+class ResolvedObservationSelector:
+    """One raw Observation selector with its Metric fully resolved."""
+
+    selector: ObservationSelector
+    metric: ResolvedMetricFacts
 
 
 @dataclass(frozen=True, slots=True)
@@ -400,15 +423,16 @@ class SelectionResult:
         if not isinstance(self.provenance, Mapping):
             raise SelectionError("Selection provenance must be an object")
         try:
-            frozen_provenance = _freeze_json(self.provenance)
-        except CatalogBuildError as error:
+            frozen_provenance = freeze_i_json(self.provenance)
+            canonical_json_bytes(frozen_provenance)
+        except (CatalogBuildError, ValueError) as error:
             raise SelectionError(
                 "Selection provenance must contain canonical I-JSON values"
             ) from error
         object.__setattr__(self, "provenance", frozen_provenance)
 
     def public_provenance(self) -> dict[str, Any]:
-        return _thaw_json(self.provenance)
+        return thaw_i_json(self.provenance)
 
 
 @dataclass(frozen=True, slots=True)
@@ -422,7 +446,7 @@ class CandidateUtilityProfile:
     provenance: Mapping[str, Any]
 
     def public_provenance(self) -> dict[str, Any]:
-        return _thaw_json(self.provenance)
+        return thaw_i_json(self.provenance)
 
 
 def _reference_public(
@@ -458,7 +482,7 @@ def _require_exact_contract(
             reference.contract_id,
             reference.contract_version,
         )
-    except CatalogBuildError as error:
+    except ContractResolutionError as error:
         raise SelectionError(
             f"Unknown {contract_kind} {reference.contract_id}@"
             f"{reference.contract_version}"
@@ -486,9 +510,9 @@ def _resolved_utility_parameters(
                 f"Utility parameter declaration {name!r} is malformed"
             )
         if name in supplied:
-            resolved[name] = _thaw_json(supplied[name])
+            resolved[name] = thaw_i_json(supplied[name])
         elif "default" in contract:
-            resolved[name] = _thaw_json(contract["default"])
+            resolved[name] = thaw_i_json(contract["default"])
         elif contract.get("required") is True:
             raise SelectionError(f"Utility parameter {name!r} is required")
         else:
@@ -539,7 +563,7 @@ def resolve_selection_objective(
         parameter_declaration,
         objective.utility_parameters,
     )
-    return metric, method, utility, _freeze_json(parameters)
+    return metric, method, utility, freeze_i_json(parameters)
 
 
 def resolve_observation_selector(
@@ -550,6 +574,93 @@ def resolve_observation_selector(
     metric = _require_exact_contract(catalog, "metric", selector.metric)
     method = _require_exact_contract(catalog, "method", selector.method)
     return metric, method
+
+
+def _resolved_metric_facts(
+    reference: ExactContractReference,
+    metric: Any,
+) -> ResolvedMetricFacts:
+    descriptor = metric.descriptor
+    value_shape = descriptor.get("value_shape")
+    if value_shape not in {
+        "scalar",
+        "per_residue",
+        "residue_vector",
+        "residue_pair_matrix",
+    }:
+        raise SelectionError(
+            f"Selection does not support Metric value shape {value_shape!r}"
+        )
+    canonical_range = descriptor.get("canonical_range")
+    if not isinstance(canonical_range, Mapping):
+        raise SelectionError("Metric canonical range is malformed")
+    minimum = canonical_range.get("minimum")
+    maximum = canonical_range.get("maximum")
+    if (
+        not isinstance(minimum, (int, float))
+        or isinstance(minimum, bool)
+        or not isinstance(maximum, (int, float))
+        or isinstance(maximum, bool)
+    ):
+        raise SelectionError("Metric canonical range is malformed")
+    validation = descriptor.get("validation_contract")
+    if not isinstance(validation, Mapping):
+        raise SelectionError("Metric validation contract is malformed")
+    masking = validation.get("masking")
+    return ResolvedMetricFacts(
+        reference=reference,
+        value_shape=value_shape,
+        minimum=minimum,
+        maximum=maximum,
+        allow_null=(
+            isinstance(masking, Mapping)
+            and masking.get("allow_null") is True
+        ),
+        require_finite=validation.get("finite") is True,
+        exact_binary32=(
+            validation.get("numeric_format") == "binary32"
+            and validation.get("exact_round_trip") is True
+        ),
+    )
+
+
+def resolve_selection_objective_facts(
+    objective: SelectionObjective,
+    catalog: FrozenCatalog,
+) -> ResolvedSelectionObjective:
+    """Resolve Catalog knowledge before entering a Scientific Operation."""
+    metric, _, _, parameters = resolve_selection_objective(objective, catalog)
+    runtime = catalog.require_utility_transform(
+        objective.utility_transform.contract_id,
+        objective.utility_transform.contract_version,
+    )
+    return ResolvedSelectionObjective(
+        objective=objective,
+        metric=_resolved_metric_facts(objective.metric, metric),
+        utility_parameters=parameters,
+        utility_transform=runtime,
+    )
+
+
+def resolve_observation_selector_facts(
+    selector: ObservationSelector,
+    catalog: FrozenCatalog,
+) -> ResolvedObservationSelector:
+    """Resolve Catalog knowledge before entering a Scientific Operation."""
+    metric, _ = resolve_observation_selector(selector, catalog)
+    return ResolvedObservationSelector(
+        selector=selector,
+        metric=_resolved_metric_facts(selector.metric, metric),
+    )
+
+
+def resolve_metric_facts(
+    reference: ExactContractReference,
+    catalog: FrozenCatalog,
+) -> ResolvedMetricFacts:
+    """Resolve one exact Metric into immutable scientific validation facts."""
+    metric = _require_exact_contract(catalog, "metric", reference)
+    return _resolved_metric_facts(reference, metric)
 
 
 def _subject_residue_count(subject: Any) -> int:
@@ -575,13 +686,31 @@ def _validate_metric_value(
     *,
     subject: Any | None = None,
 ) -> None:
-    shape = metric.descriptor.get("value_shape")
-    validation = metric.descriptor.get("validation_contract")
-    if not isinstance(validation, Mapping):
-        raise SelectionError("Metric validation contract is malformed")
-    if shape == "scalar":
+    reference = metric.reference()
+    _validate_resolved_metric_value(
+        _resolved_metric_facts(
+            ExactContractReference(
+                contract_kind=reference["contract_kind"],
+                contract_id=reference["contract_id"],
+                contract_version=reference["contract_version"],
+                contract_digest=reference["contract_digest"],
+            ),
+            metric,
+        ),
+        value,
+        subject=subject,
+    )
+
+
+def _validate_resolved_metric_value(
+    metric: ResolvedMetricFacts,
+    value: object,
+    *,
+    subject: Any | None = None,
+) -> None:
+    if metric.value_shape == "scalar":
         values = (value,)
-    elif shape in {"per_residue", "residue_vector"}:
+    elif metric.value_shape in {"per_residue", "residue_vector"}:
         if not isinstance(value, (list, tuple)):
             raise SelectionError(
                 "Per-residue Metric value must be an ordered array"
@@ -592,7 +721,7 @@ def _validate_metric_value(
                 "Per-residue Metric value does not align with its exact "
                 "subject residue layout"
             )
-    elif shape == "residue_pair_matrix":
+    elif metric.value_shape == "residue_pair_matrix":
         if not isinstance(value, (list, tuple)):
             raise SelectionError(
                 "Residue-pair Metric value must be an ordered matrix"
@@ -619,43 +748,23 @@ def _validate_metric_value(
         values = tuple(item for row in rows for item in row)
     else:
         raise SelectionError(
-            f"Selection does not support Metric value shape {shape!r}"
+            "Selection does not support Metric value shape "
+            f"{metric.value_shape!r}"
         )
-    canonical_range = metric.descriptor.get("canonical_range")
-    if not isinstance(canonical_range, Mapping):
-        raise SelectionError("Metric canonical range is malformed")
-    minimum = canonical_range.get("minimum")
-    maximum = canonical_range.get("maximum")
-    if (
-        not isinstance(minimum, (int, float))
-        or isinstance(minimum, bool)
-        or not isinstance(maximum, (int, float))
-        or isinstance(maximum, bool)
-    ):
-        raise SelectionError("Metric canonical range is malformed")
-    masking = validation.get("masking")
-    allow_null = (
-        isinstance(masking, Mapping)
-        and masking.get("allow_null") is True
-    )
-    exact_binary32 = (
-        validation.get("numeric_format") == "binary32"
-        and validation.get("exact_round_trip") is True
-    )
     for item in values:
-        if item is None and allow_null:
+        if item is None and metric.allow_null:
             continue
         if (
             isinstance(item, bool)
             or not isinstance(item, (int, float))
-            or (validation.get("finite") is True and not math.isfinite(item))
+            or (metric.require_finite and not math.isfinite(item))
         ):
             raise SelectionError(
                 "Metric value does not satisfy its validity/masking contract"
             )
-        if item < minimum or item > maximum:
+        if item < metric.minimum or item > metric.maximum:
             raise SelectionError("Metric value is outside its canonical range")
-        if exact_binary32:
+        if metric.exact_binary32:
             try:
                 round_trip = struct.unpack(
                     "!f",
@@ -845,9 +954,16 @@ def _candidate_content_digest(
         raise SelectionError(
             "Pairwise subject must carry a canonical protein value"
         )
-    return catalog.require_port_type(type_id, "2.1.0").content_digest(
-        candidate.data
+    matches = tuple(
+        port_type
+        for port_type in catalog.port_types
+        if port_type.type_id == type_id
     )
+    if len(matches) != 1:
+        raise SelectionError(
+            f"Active Port Type {type_id!r} does not resolve exactly once"
+        )
+    return matches[0].content_digest(candidate.data)
 
 
 def _candidate_values(value: object) -> tuple[Any, ...]:
@@ -1012,10 +1128,26 @@ def _resolve_objective_contracts(
 ) -> tuple[
     tuple[SelectionObjective, ...],
     float,
-    tuple[tuple[SelectionObjective, Any, Any, Any, Mapping[str, Any]], ...],
+    tuple[ResolvedSelectionObjective, ...],
     tuple[dict[str, Any], ...],
 ]:
-    objective_tuple = tuple(objectives)
+    resolved = tuple(
+        resolve_selection_objective_facts(objective, catalog)
+        for objective in objectives
+    )
+    return _resolved_objective_contracts(resolved)
+
+
+def _resolved_objective_contracts(
+    resolved: Sequence[ResolvedSelectionObjective],
+) -> tuple[
+    tuple[SelectionObjective, ...],
+    float,
+    tuple[ResolvedSelectionObjective, ...],
+    tuple[dict[str, Any], ...],
+]:
+    resolved_tuple = tuple(resolved)
+    objective_tuple = tuple(item.objective for item in resolved_tuple)
     if not objective_tuple:
         raise SelectionError("Selection requires at least one objective")
     objective_ids = [objective.objective_id for objective in objective_tuple]
@@ -1031,17 +1163,10 @@ def _resolve_objective_contracts(
         raise SelectionError(
             "Selection requires a finite positive total objective weight"
         )
-    resolved: list[
-        tuple[SelectionObjective, Any, Any, Any, Mapping[str, Any]]
-    ] = []
     provenance: list[dict[str, Any]] = []
-    for objective in objective_tuple:
-        metric, method, utility, parameters = resolve_selection_objective(
-            objective,
-            catalog,
-        )
+    for item in resolved_tuple:
+        objective = item.objective
         effective_weight = float(objective.weight) / declared_total
-        resolved.append((objective, metric, method, utility, parameters))
         provenance.append(
             {
                 "objective_id": objective.objective_id,
@@ -1050,11 +1175,14 @@ def _resolve_objective_contracts(
                     objective.score_collection_input.to_public()
                 ),
                 "source_partition": objective.source_partition,
-                "metric": metric.reference(),
-                "method": method.reference(),
+                "metric": _reference_public("metric", objective.metric),
+                "method": _reference_public("method", objective.method),
                 "context_selector": objective.context_selector.to_public(),
-                "utility_transform": utility.reference(),
-                "utility_parameters": _thaw_json(parameters),
+                "utility_transform": _reference_public(
+                    "utility_transform",
+                    objective.utility_transform,
+                ),
+                "utility_parameters": thaw_i_json(item.utility_parameters),
                 "declared_weight": objective.weight,
                 "effective_weight": effective_weight,
                 "match_cardinality": objective.match_cardinality,
@@ -1064,7 +1192,7 @@ def _resolve_objective_contracts(
     return (
         objective_tuple,
         declared_total,
-        tuple(resolved),
+        resolved_tuple,
         tuple(provenance),
     )
 
@@ -1074,8 +1202,19 @@ def selection_objective_provenance(
     catalog: FrozenCatalog,
 ) -> dict[str, Any]:
     """Resolve exact objective contracts and normalized effective weights."""
-    _, _, _, provenance = _resolve_objective_contracts(objectives, catalog)
-    return _thaw_json(_freeze_json({"objectives": provenance}))
+    resolved = tuple(
+        resolve_selection_objective_facts(objective, catalog)
+        for objective in objectives
+    )
+    return selection_objective_provenance_from_facts(resolved)
+
+
+def selection_objective_provenance_from_facts(
+    objectives: Sequence[ResolvedSelectionObjective],
+) -> dict[str, Any]:
+    """Project canonical provenance from compile-resolved objectives."""
+    _, _, _, provenance = _resolved_objective_contracts(objectives)
+    return thaw_i_json(freeze_i_json({"objectives": provenance}))
 
 
 def resolve_candidate_utilities(
@@ -1086,12 +1225,61 @@ def resolve_candidate_utilities(
     catalog: FrozenCatalog,
 ) -> CandidateUtilityProfile:
     """Resolve exact dimensionless Utility vectors without scale inference."""
+    resolved = tuple(
+        resolve_selection_objective_facts(objective, catalog)
+        for objective in objectives
+    )
+    candidate_content_digests: dict[str, str] = {}
+    if any(
+        isinstance(
+            item.objective.context_selector,
+            PairwiseContextSelector,
+        )
+        for item in resolved
+    ):
+        candidate_references = {
+            item.objective.candidate_input for item in resolved
+        }
+        if len(candidate_references) != 1:
+            raise SelectionError(
+                "Weighted objectives must use one exact Candidate input"
+            )
+        candidate_reference = next(iter(candidate_references))
+        try:
+            selected_candidates = candidate_inputs[candidate_reference]
+        except KeyError as error:
+            raise SelectionError(
+                "Selection Candidate input is missing"
+            ) from error
+        candidate_content_digests = {
+            candidate.candidate_id: _candidate_content_digest(
+                catalog,
+                candidate,
+            )
+            for candidate in selected_candidates.items
+        }
+    return resolve_candidate_utilities_from_facts(
+        candidate_inputs=candidate_inputs,
+        score_collection_inputs=score_collection_inputs,
+        objectives=resolved,
+        candidate_content_digests=candidate_content_digests,
+    )
+
+
+def resolve_candidate_utilities_from_facts(
+    *,
+    candidate_inputs: Mapping[SelectionInput, CandidateCollection],
+    score_collection_inputs: Mapping[SelectionInput, ScoreCollection],
+    objectives: Sequence[ResolvedSelectionObjective],
+    candidate_content_digests: Mapping[str, str],
+) -> CandidateUtilityProfile:
+    """Compute Utilities from pre-resolved scientific facts only."""
     (
         objective_tuple,
         declared_total,
         resolved,
         provenance,
-    ) = _resolve_objective_contracts(objectives, catalog)
+    ) = _resolved_objective_contracts(objectives)
     candidate_references = {
         objective.candidate_input for objective in objective_tuple
     }
@@ -1114,7 +1302,8 @@ def resolve_candidate_utilities(
     utility_values = {
         candidate_id: [] for candidate_id in candidate_ids
     }
-    for objective, metric, method, _, parameters in resolved:
+    for item in resolved:
+        objective = item.objective
         try:
             collection = score_collection_inputs[
                 objective.score_collection_input
@@ -1133,10 +1322,6 @@ def resolve_candidate_utilities(
             collection=normalized_collection,
             objective=objective,
         )
-        runtime = catalog.require_utility_transform(
-            objective.utility_transform.contract_id,
-            objective.utility_transform.contract_version,
-        )
         for candidate_id in candidate_ids:
             observation = observations[candidate_id]
             if isinstance(
@@ -1152,19 +1337,22 @@ def resolve_candidate_utilities(
                 if (
                     context.subject.candidate_id != candidate_id
                     or context.subject.content_digest
-                    != _candidate_content_digest(catalog, subject)
+                    != candidate_content_digests.get(candidate_id)
                 ):
                     raise SelectionError(
                         "Pairwise Context subject identity or content digest "
                         "does not match the exact Candidate input"
                     )
-            _validate_metric_value(
-                metric,
+            _validate_resolved_metric_value(
+                item.metric,
                 observation.value,
                 subject=candidates_by_id[candidate_id],
             )
             try:
-                output = runtime(observation.value, parameters)
+                output = item.utility_transform(
+                    observation.value,
+                    item.utility_parameters,
+                )
             except Exception as error:
                 raise SelectionError(
                     "Utility Transform failed without publishing a selection"
@@ -1194,7 +1382,7 @@ def resolve_candidate_utilities(
             float(objective.weight) / declared_total
             for objective in objective_tuple
         ),
-        provenance=_freeze_json({"objectives": provenance}),
+        provenance=freeze_i_json({"objectives": provenance}),
     )
 
 
@@ -1250,6 +1438,33 @@ def select_candidates(
         objectives=objectives,
         catalog=catalog,
     )
+    return _selection_result(profile, limit)
+
+
+def select_candidates_from_facts(
+    *,
+    candidate_inputs: Mapping[SelectionInput, CandidateCollection],
+    score_collection_inputs: Mapping[SelectionInput, ScoreCollection],
+    objectives: Sequence[ResolvedSelectionObjective],
+    candidate_content_digests: Mapping[str, str],
+    limit: int,
+) -> SelectionResult:
+    """Rank Candidates using only compile-resolved scientific facts."""
+    if type(limit) is not int or limit < 1:
+        raise SelectionError("Selection limit must be a positive integer")
+    profile = resolve_candidate_utilities_from_facts(
+        candidate_inputs=candidate_inputs,
+        score_collection_inputs=score_collection_inputs,
+        objectives=objectives,
+        candidate_content_digests=candidate_content_digests,
+    )
+    return _selection_result(profile, limit)
+
+
+def _selection_result(
+    profile: CandidateUtilityProfile,
+    limit: int,
+) -> SelectionResult:
     ranked = rank_candidates_by_weighted_utility(profile)
     selected = ranked[: min(limit, len(ranked))]
     return SelectionResult(
@@ -1262,26 +1477,30 @@ def select_candidates(
     )
 
 
-def validate_produced_score_collection(
+def validate_produced_score_collection_from_facts(
     *,
-    catalog: FrozenCatalog,
-    binding: Any,
+    binding_descriptor: Mapping[str, Any],
     output_port: str,
     collection: ScoreCollection,
     inputs: Mapping[str, Any],
     outputs: Mapping[str, Any],
+    metric_facts: Mapping[
+        tuple[str, str, str, str],
+        ResolvedMetricFacts,
+    ],
+    candidate_content_digest: Callable[[Any], str],
 ) -> None:
-    """Validate one scoring Binding output against its closed declaration."""
+    """Validate scoring output using only compile-resolved scientific facts."""
     declarations = [
         declaration
-        for declaration in binding.descriptor.get(
+        for declaration in binding_descriptor.get(
             "produced_observations",
             (),
         )
         if declaration.get("output_port") == output_port
     ]
     if not declarations:
-        propagation = binding.descriptor.get("observation_propagation")
+        propagation = binding_descriptor.get("observation_propagation")
         if isinstance(propagation, Mapping) and (
             _validate_propagated_score_collection(
                 propagation=propagation,
@@ -1300,7 +1519,7 @@ def validate_produced_score_collection(
         observations = _deduplicated_observations(collection)
     except (CatalogBuildError, SelectionError) as error:
         raise PortValueError(str(error)) from error
-    method_reference = binding.descriptor.get("method")
+    method_reference = binding_descriptor.get("method")
     for observation in observations:
         try:
             observed_method = _reference_public(
@@ -1431,17 +1650,20 @@ def validate_produced_score_collection(
                 )
             for observation in matches:
                 try:
-                    metric = _require_exact_contract(
-                        catalog,
-                        "metric",
-                        observation.metric,
-                    )
+                    metric = metric_facts[
+                        (
+                            observation.metric.contract_kind,
+                            observation.metric.contract_id,
+                            observation.metric.contract_version,
+                            observation.metric.contract_digest,
+                        )
+                    ]
                     subject = next(
                         candidate
                         for candidate in subjects
                         if candidate.candidate_id == candidate_id
                     )
-                    _validate_metric_value(
+                    _validate_resolved_metric_value(
                         metric,
                         observation.value,
                         subject=subject,
@@ -1455,7 +1677,7 @@ def validate_produced_score_collection(
                             context.subject.candidate_id
                             != subject.candidate_id
                             or context.subject.content_digest
-                            != _candidate_content_digest(catalog, subject)
+                            != candidate_content_digest(subject)
                         ):
                             raise SelectionError(
                                 "Pairwise Context subject source does not "
@@ -1482,7 +1704,7 @@ def validate_produced_score_collection(
                             for candidate in references
                             if candidate.candidate_id
                             == context.reference.candidate_id
-                            and _candidate_content_digest(catalog, candidate)
+                            and candidate_content_digest(candidate)
                             == context.reference.content_digest
                         ]
                         if len(reference_matches) != 1:
@@ -1537,5 +1759,45 @@ def validate_produced_score_collection(
                                     "Pairwise Context does not match one exact "
                                     "entry in its declared pairing source"
                                 )
-                except SelectionError as error:
+                except (KeyError, SelectionError) as error:
                     raise PortValueError(str(error)) from error
+
+
+def validate_produced_score_collection(
+    *,
+    catalog: FrozenCatalog,
+    binding: Any,
+    output_port: str,
+    collection: ScoreCollection,
+    inputs: Mapping[str, Any],
+    outputs: Mapping[str, Any],
+) -> None:
+    """Resolve one Binding then validate its produced Score Collection."""
+    metric_facts: dict[
+        tuple[str, str, str, str],
+        ResolvedMetricFacts,
+    ] = {}
+    for declaration in binding.descriptor.get(
+        "produced_observations",
+        (),
+    ):
+        reference = ExactContractReference(**declaration["metric"])
+        key = (
+            reference.contract_kind,
+            reference.contract_id,
+            reference.contract_version,
+            reference.contract_digest,
+        )
+        metric_facts[key] = resolve_metric_facts(reference, catalog)
+    validate_produced_score_collection_from_facts(
+        binding_descriptor=binding.descriptor,
+        output_port=output_port,
+        collection=collection,
+        inputs=inputs,
+        outputs=outputs,
+        metric_facts=metric_facts,
+        candidate_content_digest=lambda candidate: _candidate_content_digest(
+            catalog,
+            candidate,
+        ),
+    )

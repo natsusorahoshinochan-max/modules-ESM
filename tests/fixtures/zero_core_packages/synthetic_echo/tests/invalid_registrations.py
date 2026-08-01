@@ -7,9 +7,11 @@ from dataclasses import replace
 from core import (
     ArtifactPayload,
     BehaviorReference,
-    LazyImplementationFactory,
+    OperationCall,
+    OperationContext,
     ReadinessDeclaration,
     ReadinessResult,
+    ScientificOperationFactory,
 )
 from datatypes import (
     Candidate,
@@ -30,18 +32,19 @@ class _IncompleteProvenanceImplementation:
         self._metric = metric
         self._method = method
 
-    def execute(self, *, inputs, node_parameters, binding_parameters):
-        if inputs:
+    def execute(self, call: OperationCall):
+        if call.inputs:
             raise ValueError("invalid fixture does not accept inputs")
-        echoed = node_parameters["message"] * binding_parameters["repeat_count"]
-        with self._run_resources.engine_invocation(
-            engine_identity="contract_test.incomplete_provenance/2.1.0",
-        ):
+        echoed = (
+            call.node_parameters["message"]
+            * call.binding_parameters["repeat_count"]
+        )
+        with self._run_resources.engine_invocation():
             pass
         candidate = Candidate(
             candidate_id="invalid-provenance-candidate",
             data=ProteinSequence(sequence="M"),
-            parent_ids=[self._run_resources.node_id],
+            parent_ids=[],
         )
         return {
             "text": echoed,
@@ -70,23 +73,17 @@ class _IncompleteProvenanceImplementation:
         }
 
 
-def _build_incomplete_provenance(**kwargs):
-    catalog = kwargs["frozen_catalog"]
-    metric = catalog.require_contract(
-        "metric",
-        "contract_test.synthetic_identity",
-        "2.1.0",
-    )
-    method = catalog.require_contract(
-        "method",
-        "contract_test.synthetic_echo.method",
-        "2.1.0",
-    )
-    method_reference = method.reference()
-    method_reference["contract_digest"] = "sha256:" + ("0" * 64)
+def _build_incomplete_provenance(context: OperationContext):
+    metric = context.produced_observations[0].metric
+    method_reference = {
+        "contract_kind": context.method.contract_kind,
+        "contract_id": context.method.contract_id,
+        "contract_version": context.method.contract_version,
+        "contract_digest": "sha256:" + ("0" * 64),
+    }
     return _IncompleteProvenanceImplementation(
-        run_resources=kwargs["run_resources"],
-        metric=ExactContractReference(**metric.reference()),
+        run_resources=context.resources,
+        metric=metric,
         method=ExactContractReference(**method_reference),
     )
 
@@ -117,7 +114,7 @@ INCOMPLETE_PROVENANCE_PACKAGE = replace(
     bindings=(
         replace(
             _BINDING,
-            factory=LazyImplementationFactory(
+            factory=ScientificOperationFactory(
                 behavior=BehaviorReference(
                     "contract_test.incomplete_provenance/factory",
                     "2.1.0",

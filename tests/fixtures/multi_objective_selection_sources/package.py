@@ -10,29 +10,32 @@ from core import (
     AvailabilityDeclaration,
     AvailabilityResult,
     BehaviorReference,
+    CandidatePairingIntent,
+    CandidatePairingIntentEntry,
     ContractIdentity,
     DefinitionResource,
     ExecutionBindingDefinition,
-    LazyImplementationFactory,
     MethodDefinition,
     ModulePackageRegistration,
+    OperationCall,
+    OperationContext,
     ProducedObservationDefinition,
     ReadinessDeclaration,
     ReadinessResult,
+    ScientificOperationFactory,
     UtilityTransformDefinition,
 )
+from core.port_types import PROTEIN_STRUCTURE_PORT_TYPE_VERSION
 from datatypes import (
     Candidate,
     CandidateCollection,
-    ExactContractReference,
-    PairwiseCandidateMapping,
-    PairwiseCandidateMatch,
     PairwiseObservationContext,
     PairwiseParticipant,
     ProteinStructure,
     ScoreCollection,
     ScoreObservation,
 )
+from tests.fixtures.exact_content_identity import exact_content_identity
 
 
 VERSION = "2.1.0"
@@ -60,6 +63,11 @@ VALUES = {
     "bravo": (0.6, 0.9),
     "alpha": (0.123456, 0.654321),
 }
+_STRUCTURE_CONTENT_IDENTITY = exact_content_identity(
+    "protein.structure",
+    "protein_structure",
+    version=PROTEIN_STRUCTURE_PORT_TYPE_VERSION,
+)
 
 
 def _structure(label: str) -> ProteinStructure:
@@ -70,28 +78,29 @@ def _structure(label: str) -> ProteinStructure:
             f"{coordinate:8.3f}{0.0:8.3f}{0.0:8.3f}"
             "  1.00 20.00           C\nTER\nEND\n"
         ),
-        source="contract-test",
     )
 
 
 class _Source:
-    def __init__(self, catalog: Any, run_resources: Any) -> None:
-        self._catalog = catalog
-        self._run_resources = run_resources
-
-    def execute(
+    def __init__(
         self,
+        run_resources: Any,
         *,
-        inputs: Mapping[str, Any],
-        node_parameters: Mapping[str, Any],
-        binding_parameters: Mapping[str, Any],
-    ) -> dict[str, Any]:
+        metric: Any,
+        method: Any,
+    ) -> None:
+        self._run_resources = run_resources
+        self._metric = metric
+        self._method = method
+
+    def execute(self, call: OperationCall) -> dict[str, Any]:
+        inputs = call.inputs
+        node_parameters = call.node_parameters
+        binding_parameters = call.binding_parameters
         if inputs or node_parameters or binding_parameters:
             raise ValueError("canonical selection fixture accepts no inputs")
         invocation = (
-            self._run_resources.engine_invocation(
-                engine_identity="canonical-selection-fixture"
-            )
+            self._run_resources.engine_invocation()
             if self._run_resources is not None
             else nullcontext()
         )
@@ -99,20 +108,6 @@ class _Source:
             return self._values()
 
     def _values(self) -> dict[str, Any]:
-        metric = ExactContractReference(
-            **self._catalog.require_contract(
-                "metric",
-                TM_SCORE.contract_id,
-                VERSION,
-            ).reference()
-        )
-        method = ExactContractReference(
-            **self._catalog.require_contract(
-                "method",
-                METHOD.contract_id,
-                VERSION,
-            ).reference()
-        )
         candidates = CandidateCollection(
             collection_id="canonical-folded-candidates",
             item_type="protein.structure",
@@ -135,30 +130,21 @@ class _Source:
                 ],
             ],
         )
-        candidate_digest = self._catalog.require_port_type(
-            "protein.structure",
-            VERSION,
-        ).content_digest
+        candidate_digest = _STRUCTURE_CONTENT_IDENTITY.content_digest
         candidates_by_id = {
             candidate.candidate_id: candidate for candidate in candidates.items
         }
         references_by_id = {
             candidate.candidate_id: candidate for candidate in references.items
         }
-        pairing = PairwiseCandidateMapping(
-            entries=[
-                PairwiseCandidateMatch(
+        pairing = CandidatePairingIntent(
+            tuple(
+                CandidatePairingIntentEntry(
                     subject_candidate_id=candidate_id,
-                    subject_content_digest=candidate_digest(
-                        candidates_by_id[candidate_id].data
-                    ),
                     reference_candidate_id=f"esm3-{candidate_id}",
-                    reference_content_digest=candidate_digest(
-                        references_by_id[f"esm3-{candidate_id}"].data
-                    ),
                 )
                 for candidate_id in VALUES
-            ]
+            )
         )
 
         def participant(role: str, candidate: Candidate) -> PairwiseParticipant:
@@ -177,8 +163,8 @@ class _Source:
                 (
                     ScoreObservation(
                         candidate_id=candidate_id,
-                        metric=metric,
-                        method=method,
+                        metric=self._metric,
+                        method=self._method,
                         context=PairwiseObservationContext(
                             subject=participant("subject", subject),
                             reference=participant("reference", fixed),
@@ -190,8 +176,8 @@ class _Source:
                     ),
                     ScoreObservation(
                         candidate_id=candidate_id,
-                        metric=metric,
-                        method=method,
+                        metric=self._metric,
+                        method=self._method,
                         context=PairwiseObservationContext(
                             subject=participant("subject", subject),
                             reference=participant("reference", paired),
@@ -214,10 +200,11 @@ class _Source:
         }
 
 
-def _build(**kwargs: object) -> _Source:
+def _build(context: OperationContext) -> _Source:
     return _Source(
-        kwargs["frozen_catalog"],
-        kwargs["run_resources"],
+        context.resources,
+        metric=context.produced_observations[0].metric,
+        method=context.method,
     )
 
 
@@ -283,7 +270,7 @@ MODULE_PACKAGE = ModulePackageRegistration(
             method=METHOD,
             binding_parameters={},
             execution_route="direct",
-            factory=LazyImplementationFactory(
+            factory=ScientificOperationFactory(
                 behavior=BehaviorReference(
                     "contract_test.multi_objective_selection_source/factory",
                     VERSION,

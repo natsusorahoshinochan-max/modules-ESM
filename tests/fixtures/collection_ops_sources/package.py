@@ -12,19 +12,20 @@ from core import (
     ContractIdentity,
     DefinitionResource,
     ExecutionBindingDefinition,
-    LazyImplementationFactory,
     MethodDefinition,
     ModulePackageRegistration,
+    OperationCall,
+    OperationContext,
     ProducedObservationDefinition,
     ReadinessCheckInput,
     ReadinessDeclaration,
     ReadinessResult,
+    ScientificOperationFactory,
     UtilityTransformDefinition,
 )
 from datatypes import (
     Candidate,
     CandidateCollection,
-    ExactContractReference,
     IntrinsicObservationContext,
     ProteinSequence,
     PairwiseCandidateMapping,
@@ -32,6 +33,7 @@ from datatypes import (
     ScoreCollection,
     ScoreObservation,
 )
+from tests.fixtures.exact_content_identity import exact_content_identity
 
 
 VERSION = "2.1.0"
@@ -40,6 +42,10 @@ METRIC = ContractIdentity(
     "contract_test.collection_ops_value",
     VERSION,
 )
+_SEQUENCE_CONTENT_IDENTITY = exact_content_identity(
+    "protein.sequence",
+    "protein_sequence",
+)
 
 
 class _Source:
@@ -47,44 +53,25 @@ class _Source:
         self,
         *,
         resources: Any,
-        catalog: Any,
         partition: str,
+        metric: Any,
+        method: Any,
     ) -> None:
         self._resources = resources
-        self._catalog = catalog
         self._partition = partition
-        self._metric = ExactContractReference(
-            **catalog.require_contract(
-                "metric",
-                METRIC.contract_id,
-                VERSION,
-            ).reference()
-        )
-        self._method = ExactContractReference(
-            **catalog.require_contract(
-                "method",
-                f"contract_test.collection_ops_source.{partition}.method",
-                VERSION,
-            ).reference()
-        )
+        self._metric = metric
+        self._method = method
 
-    def execute(
-        self,
-        *,
-        inputs: Mapping[str, Any],
-        node_parameters: Mapping[str, Any],
-        binding_parameters: Mapping[str, Any],
-    ) -> dict[str, Any]:
+    def execute(self, call: OperationCall) -> dict[str, Any]:
+        inputs = call.inputs
+        node_parameters = call.node_parameters
+        binding_parameters = call.binding_parameters
         if inputs or binding_parameters:
             raise ValueError("collection source accepts no connected inputs")
         count = node_parameters["candidate_count"]
         candidates: list[Candidate] = []
         children: list[Candidate] = []
         observations: list[ScoreObservation] = []
-        codec = self._catalog.require_port_type(
-            "protein.sequence",
-            VERSION,
-        )
         rebind_parents = [
             Candidate(
                 candidate_id=f"rebind-parent-{sample_index}",
@@ -108,11 +95,7 @@ class _Source:
             )
             for sample_index in range(count)
         ]
-        with self._resources.engine_invocation(
-            engine_identity=(
-                f"contract_test.collection_ops_source/{self._partition}"
-            ),
-        ):
+        with self._resources.engine_invocation():
             for sample_index in range(count):
                 candidate_id = (
                     f"{self._partition}-candidate-{sample_index}"
@@ -183,14 +166,20 @@ class _Source:
                     subject_candidate_id=(
                         f"{self._partition}-candidate-{sample_index}"
                     ),
-                    subject_content_digest=codec.content_digest(
-                        ProteinSequence(
-                            "ACD" if self._partition == "a" else "ACE"
+                    subject_content_digest=(
+                        _SEQUENCE_CONTENT_IDENTITY.content_digest(
+                            ProteinSequence(
+                                "ACD"
+                                if self._partition == "a"
+                                else "ACE"
+                            ),
                         )
                     ),
                     reference_candidate_id=f"b-candidate-{sample_index}",
-                    reference_content_digest=codec.content_digest(
-                        ProteinSequence("ACE")
+                    reference_content_digest=(
+                        _SEQUENCE_CONTENT_IDENTITY.content_digest(
+                            ProteinSequence("ACE"),
+                        )
                     ),
                 )
                 for sample_index in range(count)
@@ -213,10 +202,12 @@ class _Source:
             "rebind_pairing": PairwiseCandidateMapping([
                 PairwiseCandidateMatch(
                     subject_candidate_id=parent.candidate_id,
-                    subject_content_digest=codec.content_digest(parent.data),
+                    subject_content_digest=(
+                        _SEQUENCE_CONTENT_IDENTITY.content_digest(parent.data)
+                    ),
                     reference_candidate_id=reference.candidate_id,
-                    reference_content_digest=codec.content_digest(
-                        reference.data
+                    reference_content_digest=(
+                        _SEQUENCE_CONTENT_IDENTITY.content_digest(reference.data)
                     ),
                 )
                 for parent, reference in zip(
@@ -232,34 +223,20 @@ class _Scorer:
     def __init__(
         self,
         *,
-        catalog: Any,
         value: float,
         source_partition: str,
+        metric: Any,
+        method: Any,
     ) -> None:
         self._value = value
         self._source_partition = source_partition
-        self._metric = ExactContractReference(
-            **catalog.require_contract(
-                "metric",
-                METRIC.contract_id,
-                VERSION,
-            ).reference()
-        )
-        self._method = ExactContractReference(
-            **catalog.require_contract(
-                "method",
-                "contract_test.collection_ops_scorer.method",
-                VERSION,
-            ).reference()
-        )
+        self._metric = metric
+        self._method = method
 
-    def execute(
-        self,
-        *,
-        inputs: Mapping[str, Any],
-        node_parameters: Mapping[str, Any],
-        binding_parameters: Mapping[str, Any],
-    ) -> dict[str, Any]:
+    def execute(self, call: OperationCall) -> dict[str, Any]:
+        inputs = call.inputs
+        node_parameters = call.node_parameters
+        binding_parameters = call.binding_parameters
         candidates = inputs.get("candidates")
         if (
             type(candidates) is not CandidateCollection
@@ -286,13 +263,10 @@ class _Scorer:
 
 
 class _LegacyScores:
-    def execute(
-        self,
-        *,
-        inputs: Mapping[str, Any],
-        node_parameters: Mapping[str, Any],
-        binding_parameters: Mapping[str, Any],
-    ) -> dict[str, Any]:
+    def execute(self, call: OperationCall) -> dict[str, Any]:
+        inputs = call.inputs
+        node_parameters = call.node_parameters
+        binding_parameters = call.binding_parameters
         if inputs or node_parameters or binding_parameters:
             raise ValueError("legacy fixture accepts no values")
         return {
@@ -335,11 +309,12 @@ def _binding(partition: str) -> ExecutionBindingDefinition:
         VERSION,
     )
 
-    def build(**kwargs: object) -> _Source:
+    def build(context: OperationContext) -> _Source:
         return _Source(
-            resources=kwargs["run_resources"],
-            catalog=kwargs["frozen_catalog"],
+            resources=context.resources,
             partition=partition,
+            metric=context.produced_observations[0].metric,
+            method=context.method,
         )
 
     return ExecutionBindingDefinition(
@@ -353,7 +328,7 @@ def _binding(partition: str) -> ExecutionBindingDefinition:
         method=method,
         binding_parameters={},
         execution_route="direct",
-        factory=LazyImplementationFactory(
+        factory=ScientificOperationFactory(
             behavior=BehaviorReference(
                 f"contract_test.collection_ops_source/{partition}/factory",
                 VERSION,
@@ -435,11 +410,12 @@ def _scorer_binding(
     value: float,
     source_partition: str,
 ) -> ExecutionBindingDefinition:
-    def build(**kwargs: object) -> _Scorer:
+    def build(context: OperationContext) -> _Scorer:
         return _Scorer(
-            catalog=kwargs["frozen_catalog"],
             value=value,
             source_partition=source_partition,
+            metric=context.produced_observations[0].metric,
+            method=context.method,
         )
 
     return ExecutionBindingDefinition(
@@ -457,7 +433,7 @@ def _scorer_binding(
         ),
         binding_parameters={},
         execution_route="direct",
-        factory=LazyImplementationFactory(
+        factory=ScientificOperationFactory(
             behavior=BehaviorReference(
                 f"contract_test.collection_ops_scorer/{binding_name}",
                 VERSION,
@@ -509,8 +485,8 @@ def _scorer_binding(
 
 
 def _legacy_binding() -> ExecutionBindingDefinition:
-    def build(**kwargs: object) -> _LegacyScores:
-        del kwargs
+    def build(context: OperationContext) -> _LegacyScores:
+        del context
         return _LegacyScores()
 
     return ExecutionBindingDefinition(
@@ -528,7 +504,7 @@ def _legacy_binding() -> ExecutionBindingDefinition:
         ),
         binding_parameters={},
         execution_route="direct",
-        factory=LazyImplementationFactory(
+        factory=ScientificOperationFactory(
             behavior=BehaviorReference(
                 "contract_test.collection_ops_legacy_scores/factory",
                 VERSION,

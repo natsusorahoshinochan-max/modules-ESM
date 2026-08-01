@@ -27,7 +27,7 @@ from datatypes import (
     ScoreCollection,
     ScoreObservation,
 )
-from modules.proteinmpnn.v2_adapter import configured_runtime_fingerprint
+from modules.proteinmpnn.adapter import configured_runtime_fingerprint
 from tests.acceptance.conftest import require_ready
 
 
@@ -45,10 +45,13 @@ def _source_node() -> WorkflowNodeInstance:
     )
 
 
-def _environment(binding_id: str) -> EnvironmentConfiguration:
+def _environment(
+    binding_id: str,
+    binding_version: str,
+) -> EnvironmentConfiguration:
     fingerprint = configured_runtime_fingerprint()
     return EnvironmentConfiguration({
-        (binding_id, "2.1.0"): {
+        (binding_id, binding_version): {
             "values": {
                 "device": "cpu",
                 "resolved_runtime_fingerprint": fingerprint,
@@ -68,6 +71,7 @@ def _run(
     nodes: tuple[WorkflowNodeInstance, ...],
     edges: tuple[WorkflowEdge, ...],
     binding_id: str,
+    binding_version: str,
 ) -> tuple[Any, dict[str, Any], tuple[dict[str, Any], ...]]:
     from modules.proteinmpnn.package import (
         MODULE_PACKAGE as PROTEINMPNN_PACKAGE,
@@ -111,7 +115,7 @@ def _run(
         projects,
         catalog,
         authoring,
-        _environment(binding_id),
+        _environment(binding_id, binding_version),
     )
     receipt = service.start_background(
         project.id,
@@ -139,6 +143,24 @@ def _decode(catalog: Any, output: dict[str, Any]) -> object:
         "port_type_version": codec.version,
         "value": output["values"][0],
     }))
+
+
+def _expected_3gb1_invocation_provenance() -> dict[str, Any]:
+    return {
+        "provider_residue_projection": {
+            "position_semantics": "one_based_chain_local",
+            "workbench_chain_order": ["A"],
+            "provider_chain_order": ["A"],
+            "entries": [
+                {
+                    "residue_id": f"A:{position}",
+                    "provider_chain_id": "A",
+                    "provider_position": position,
+                }
+                for position in range(1, 57)
+            ],
+        }
+    }
 
 
 @pytest.mark.acceptance
@@ -197,6 +219,7 @@ def test_proteinmpnn_v2_scoring_publishes_exact_native_observation(
         nodes=nodes,
         edges=edges,
         binding_id="proteinmpnn.score.local",
+        binding_version="2.1.0",
     )
 
     assert projection["status"] == "succeeded", events
@@ -218,18 +241,21 @@ def test_proteinmpnn_v2_scoring_publishes_exact_native_observation(
     )
     assert observation.context == IntrinsicObservationContext()
     assert observation.value == 1.3648624420166016
+    invocation = next(
+        item["event"]
+        for item in events
+        if item["event"]["type"] == "engine_invocation_started"
+        and item["event"]["engine_identity"]
+        == observation.method.contract_digest
+    )
+    assert invocation["engine_role"] == "score_subject"
+    assert invocation["invocation_provenance"] == (
+        _expected_3gb1_invocation_provenance()
+    )
     assert any(
         item["event"]["type"] == "engine_invocation_terminal"
         and item["event"]["status"] == "succeeded"
-        and any(
-            started["event"]["type"] == "engine_invocation_started"
-            and started["event"]["invocation_id"]
-            == item["event"]["invocation_id"]
-            and started["event"]["engine_identity"].startswith(
-                "proteinmpnn.score.local."
-            )
-            for started in events
-        )
+        and invocation["invocation_id"] == item["event"]["invocation_id"]
         for item in events
     )
 
@@ -247,9 +273,9 @@ def test_proteinmpnn_v2_sibling_design_remains_exact_and_complete(
         WorkflowNodeInstance(
             node_id="design",
             node_type_id="proteinmpnn.design",
-            node_type_version="2.1.0",
+            node_type_version="4.0.0",
             binding_id="proteinmpnn.design.local",
-            binding_version="2.1.0",
+            binding_version="4.0.0",
             node_parameters={
                 "effective_seed": 1603,
                 "num_sequences": 1,
@@ -272,6 +298,7 @@ def test_proteinmpnn_v2_sibling_design_remains_exact_and_complete(
         nodes=nodes,
         edges=edges,
         binding_id="proteinmpnn.design.local",
+        binding_version="4.0.0",
     )
 
     assert projection["status"] == "succeeded", events
@@ -288,7 +315,30 @@ def test_proteinmpnn_v2_sibling_design_remains_exact_and_complete(
     assert hashlib.sha256(
         candidate.data.sequence.encode()
     ).hexdigest() == (
-        "07a4a77fc00fe33be9a39a999bbe779fa0b0e0f55a830389ca8cab0d0bd27ac8"
+        "e8a4ceb6e89880c52f6a39c28f55652d9967c36efef9cdc0497df738337bc2f6"
+    )
+    assert candidate.metadata["effective_call_seed"] == 3183836694577466
+    assert "model" not in candidate.metadata
+    assert "residue_identity_mapping" not in candidate.metadata
+    assert candidate.data.residue_ids == tuple(
+        f"A:{position}" for position in range(1, 57)
+    )
+    invocation = next(
+        item["event"]
+        for item in events
+        if item["event"]["type"] == "engine_invocation_started"
+        and item["event"]["engine_role"] == "design_parent_0"
+    )
+    assert invocation["invocation_provenance"] == (
+        {
+            **_expected_3gb1_invocation_provenance(),
+            "effective_randomness": {
+                "control": "exact_seed",
+                "effective_seed": candidate.metadata[
+                    "effective_call_seed"
+                ],
+            },
+        }
     )
     source_output = next(
         item
@@ -297,6 +347,6 @@ def test_proteinmpnn_v2_sibling_design_remains_exact_and_complete(
     )
     source_candidates = _decode(catalog, source_output)
     assert type(source_candidates) is CandidateCollection
-    assert candidate.parent_ids == [
-        source_candidates.items[0].candidate_id
-    ]
+    assert candidate.parent_ids == (
+        source_candidates.items[0].candidate_id,
+    )

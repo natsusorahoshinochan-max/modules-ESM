@@ -10,12 +10,14 @@ from core import (
     DefinitionResource,
     EffectiveRandomnessResolver,
     ExecutionBindingDefinition,
-    LazyImplementationFactory,
     MethodDefinition,
     ModulePackageRegistration,
+    OperationContext,
     ReadinessCheckInput,
     ReadinessDeclaration,
     ReadinessResult,
+    ScientificOperation,
+    ScientificOperationFactory,
 )
 
 from .implementation import (
@@ -41,6 +43,9 @@ from .track_types import ALIGNED_TRACK_PORT_TYPES
 
 
 _VERSION = "2.1.0"
+_NODE_BINDING_VERSIONS = {
+    "prompt_from_structure": "3.0.0",
+}
 _OPERATIONS = (
     "add_function_annotation",
     "assemble_protein_prompt",
@@ -81,9 +86,9 @@ def _ready(check_input: ReadinessCheckInput) -> ReadinessResult:
 
 
 def _build(operation: str):
-    def factory(**kwargs: object) -> object:
+    def factory(context: OperationContext) -> ScientificOperation:
         implementation = _IMPLEMENTATIONS[operation]
-        return implementation(kwargs["run_resources"], operation)
+        return implementation(context.resources)
 
     return factory
 
@@ -179,6 +184,7 @@ def _method(operation: str) -> MethodDefinition:
 
 
 def _binding(operation: str) -> ExecutionBindingDefinition:
+    binding_version = _NODE_BINDING_VERSIONS.get(operation, _VERSION)
     randomness_parameters = {
         "random_mask": (
             "effective_seed",
@@ -198,11 +204,11 @@ def _binding(operation: str) -> ExecutionBindingDefinition:
     }
     return ExecutionBindingDefinition(
         binding_id=f"prompt_authoring.{operation}.direct",
-        version=_VERSION,
+        version=binding_version,
         node_type=ContractIdentity(
             "node_type",
             f"prompt_authoring.{operation}",
-            _VERSION,
+            binding_version,
         ),
         method=ContractIdentity(
             "method",
@@ -211,10 +217,10 @@ def _binding(operation: str) -> ExecutionBindingDefinition:
         ),
         binding_parameters={},
         execution_route="direct",
-        factory=LazyImplementationFactory(
+        factory=ScientificOperationFactory(
             behavior=BehaviorReference(
                 f"prompt_authoring.{operation}/factory",
-                _VERSION,
+                binding_version,
                 {"execution_route": "direct"},
             ),
             build=_build(operation),
@@ -222,7 +228,7 @@ def _binding(operation: str) -> ExecutionBindingDefinition:
         availability=AvailabilityDeclaration(
             behavior=BehaviorReference(
                 f"prompt_authoring.{operation}/availability",
-                _VERSION,
+                binding_version,
                 {"observation": "startup"},
             ),
             prerequisites={},
@@ -231,7 +237,7 @@ def _binding(operation: str) -> ExecutionBindingDefinition:
         readiness=ReadinessDeclaration(
             behavior=BehaviorReference(
                 f"prompt_authoring.{operation}/readiness",
-                _VERSION,
+                binding_version,
                 {"observation": "per-run"},
             ),
             prerequisites={},

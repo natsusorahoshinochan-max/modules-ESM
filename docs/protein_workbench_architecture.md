@@ -1,855 +1,355 @@
-# 模块化蛋白质设计与评价工作台：项目架构文档
+# 模块化蛋白质设计与评价工作台：当前架构
 
-- **文档版本**：0.2
-- **日期**：2026-07-23
-- **使用场景**：个人本地使用
-- **文档目标**：定义项目的核心模块、节点接入规范、数据接口和首版实现范围
+- **文档版本**：0.3
+- **日期**：2026-08-01
+- **使用场景**：可信、单用户、仅本机使用
+- **规范词汇**：以 [`CONTEXT.md`](../CONTEXT.md) 为准
+- **核心决策**：ADR-0022、ADR-0028、ADR-0030、ADR-0031、ADR-0033、ADR-0034
 
----
+## 1. 目标与优先级
 
-## 1. 项目目标
+Protein Workbench 是用 Node 连线组合蛋白质设计、折叠、评价、转换与选择操作的科学工作台。它首先保证科学对象及其解释正确，其次才考虑实现便利性。
 
-本项目是一个采用节点连线方式构建工作流的蛋白质设计与评价工具。
+优先级依次为：
 
-用户可以在可视化画布中：
+1. Node Type、Method、Metric Definition 的科学含义；
+2. 单位、数值尺度、shape、残基映射、mask 和随机性；
+3. Candidate identity、lineage、provenance 和 Run Evidence；
+4. exact Contract 和持久化结果的可解释性；
+5. 本机运行的可维护性与效率；
+6. 开发期数据的兼容性。
 
-- 导入蛋白质序列或结构；
-- 编辑 ESM-3 所需的多轨 prompt；
-- 使用不同模型生成蛋白质序列或结构；
-- 对生成序列执行独立折叠；
-- 对序列、结构以及结构之间的关系进行评分；
-- 筛选、排序和保留候选；
-- 保存并重新加载完整工作流。
+项目尚未投入使用，不承担历史运行兼容义务。科学含义发生变化时，直接修改当前 producers、consumers、tests、examples 和文档，并使旧开发数据 fail closed；不为旧格式增加 shim、alias、legacy parser、dual path 或 migrator。
 
-系统不限定为固定流程：
+当前必须支持：
 
-```text
-Prompt → Sequence → Folding → Scoring
-```
+- ESM-3、ProteinMPNN、ESMFold2 和 SimpleFold；
+- 序列、结构、ProteinPrompt、残基编辑和映射；
+- 结构比较、DSSP、TM-score、RMSD 与置信度等评价；
+- Candidate 筛选、排序和选择；
+- Workflow 保存、编译、执行、重放和 Artifact 获取；
+- Biohub 等明确的联网 Provider 路线和本地上游程序。
 
-而是允许用户自由连接合法节点，例如：
+当前不建设：
 
-```text
-Structure
-→ ProteinMPNN
-→ Sequence
-→ SimpleFold
-→ Structure
-```
+- 多用户权限、认证、授权或多租户；
+- 插件市场、插件沙箱或公共托管架构；
+- 历史 Contract 的并行运行时；
+- 自动迁移、自动降级、备用 Provider 或猜测式兼容；
+- 假想模型的通用抽象；
+- 隐式科学转换或自动 Binding 选择。
 
-或者：
-
-```text
-ProteinPrompt
-→ ESM-3 Generate Sequence
-→ ESM-3 Generate Structure
-→ ProteinMPNN
-→ ESMFold2 / SimpleFold
-→ Structure Scoring
-→ Selection
-```
-
-项目的核心不是某一个具体模型，而是一个稳定的**模块接入规范**：
-
-> 开发者按照统一规范实现一个模型模块、转换模块或评分模块后，系统能够自动发现该模块，并允许用户将它连接到现有工作流中。
-
----
-
-## 2. 项目范围
-
-### 2.1 当前需要实现
-
-首版围绕以下模型和操作建设：
-
-- ESM-3；
-- ProteinMPNN；
-- ESMFold2；
-- SimpleFold；
-- 蛋白质序列和结构导入、导出；
-- 多轨 ProteinPrompt 编辑；
-- 残基插入、删除、指定替换和掩码替换；
-- 结构 prompt 可见残基选择；
-- 二级结构和 SASA 的计算或手工指定；
-- 功能标记；
-- 结构比较；
-- DSSP 二级结构计算；
-- TM-score、RMSD 等评分；
-- 候选筛选、排序和保留；
-- 工作流保存与加载。
-
-### 2.2 当前不需要实现
-
-以下内容不属于首版规划：
-
-- 假想的未来模型；
-- 假想的未来评分器；
-- 插件市场；
-- 多用户权限；
-- 容器隔离体系；
-- 插件安全审查；
-- 许可证管理；
-- 科学来源归档系统；
-- 复杂的远程任务调度；
-- 面向企业或公共服务的部署架构。
-
-未来模型和评分方法只需要能够按照当前模块规范接入，而不需要现在预先实现。
-
----
-
-## 3. 对“向后兼容和扩展兼容”的定义
-
-本项目中的兼容性主要指：
-
-### 3.1 模块接入兼容
-
-当前定义的模块接口应保持稳定。
-
-未来开发者实现一个新模块时，只需要：
-
-1. 声明模块 ID；
-2. 声明输入端口；
-3. 声明输出端口；
-4. 声明可配置参数；
-5. 实现执行函数；
-6. 将模块注册到系统。
-
-不需要修改：
-
-- 工作流编辑器；
-- 核心执行引擎；
-- 工作流文件格式；
-- 已有模型模块；
-- 已有评分模块。
-
-### 3.2 已有模块兼容
-
-核心系统升级后，按照旧版模块接口实现的模块应继续能够加载。
-
-因此必须固定：
-
-- 模块 API 版本；
-- 节点定义格式；
-- 端口定义格式；
-- 参数定义格式；
-- 执行结果格式。
-
-### 3.3 工作流兼容
-
-保存的工作流至少记录：
-
-- 模块 ID；
-- 模块版本；
-- 输入输出端口；
-- 参数；
-- 节点连接。
-
-重新加载工作流时，系统根据模块 ID 查找对应模块。
-
-如果模块缺失，节点仍显示在画布上，但不能执行；安装模块后即可恢复。
-
-### 3.4 不追求预知未来所有输入输出
-
-系统不建立一个包含所有潜在字段的“万能模型输入”。
-
-未来模型出现新输入或新输出时，模块可以：
-
-- 使用已有公共数据类型；
-- 注册新的端口数据类型；
-- 提供与已有类型之间的转换节点。
-
-核心只需要能够识别类型 ID、传递数据和检查端口是否兼容。
-
----
-
-## 4. 总体架构
+## 2. 总体结构
 
 ```mermaid
 flowchart TB
-    UI[节点式工作流界面] --> WF[工作流模型]
-    WF --> CHECK[端口与参数检查]
-    CHECK --> EXEC[执行引擎]
-
-    REG[模块注册表] --> UI
-    REG --> CHECK
-    REG --> EXEC
-
-    EXEC --> MOD1[模型模块]
-    EXEC --> MOD2[转换模块]
-    EXEC --> MOD3[评分模块]
-    EXEC --> MOD4[筛选模块]
-
-    EXEC --> DATA[项目数据存储]
-    DATA --> UI
+    UI["Workbench UI"] --> AUTHOR["Workflow authoring"]
+    AUTHOR --> COMMIT["Commit: save, relock, compile"]
+    CATALOG["One active FrozenCatalog generation"] --> COMMIT
+    COMMIT --> PLAN["Immutable Execution Plan"]
+    PLAN --> RUN["Run runtime"]
+    RUN --> OP["Canonical scientific operation"]
+    OP --> DIRECT["Direct scientific implementation"]
+    OP --> ADAPTER["Provider Adapter"]
+    ADAPTER --> EXTERNAL["Biohub or pinned local upstream"]
+    RUN --> EVIDENCE["Run Evidence Ledger"]
+    RUN --> CACHE["Project-scoped Result Cache"]
+    RUN --> ARTIFACTS["Project Artifacts"]
 ```
 
-系统由五个核心部分组成：
+这组 Module 形成四个关键 seam：
 
-1. **节点式用户界面**
-2. **工作流模型**
-3. **模块注册表**
-4. **执行引擎**
-5. **项目数据存储**
+1. **公开协议 seam**：UI 和本地调用者只使用当前 `protein_workbench_public` v2 协议。
+2. **Catalog seam**：Module Package Registration 经一次原子构建发布一个 `FrozenCatalog`。
+3. **科学操作 seam**：Run runtime 只向 canonical scientific operation 传入 admitted typed values 和已解析上下文。
+4. **Provider seam**：Adapter 独占 Workbench 表示与真实外部表示之间的翻译。
 
-具体模型和评分算法作为模块接入。
+深度来自这些 seam 的 locality：调用者不需要理解 Catalog 搜索、Provider payload、历史版本、wire codec 或证据拼装。
 
----
+## 3. 单一活动 Catalog generation
 
-## 5. 节点式用户界面
+### 3.1 运行时规则
 
-用户界面参考 ComfyUI 的节点连接方式，但不使用 ComfyUI 内核。
+每个 checkout 只发布一个 startup-frozen `FrozenCatalog` generation。对于每个 logical Contract，Catalog 中只有一个活动 exact version：
 
-### 5.1 节点画布
+- Node Type / Node Definition；
+- Port Type Definition；
+- Method；
+- Execution Binding；
+- Metric Definition；
+- Utility Transform。
 
-支持：
+不兼容变化使用新的 exact semantic version。已经出现过的 exact identity 不得静默绑定到不同 descriptor bytes，但旧 identity 不与新 identity 一起进入当前 Catalog。
 
-- 添加节点；
-- 删除节点；
-- 拖动节点；
-- 连接端口；
-- 断开连接；
-- 节点分组；
-- 节点复制；
-- 节点注释；
-- 运行全部工作流；
-- 从指定节点开始运行；
-- 运行选定分支。
+公共协议 envelope 的 v2 schema version 与具体科学 Contract version 相互独立。修改 Node、Port、Binding 或 Method 不要求机械升级所有无关 Contract，也不要求把公共协议改名为 v3。
 
-### 5.2 节点结构
+### 3.2 历史证据而非历史运行时
 
-每个节点包括：
+历史由以下事实保留：
+
+- Git commit；
+- exact contract descriptor bytes、digest 和 Contract Lock；
+- Provider、model、checkpoint、source 和环境锁；
+- Result Identity；
+- Run Evidence Ledger 和不可变 Artifact digest。
+
+这些事实可以解释历史结果，但当前运行时不注册旧 decoder、factory、Adapter 或 scientific implementation。旧 Workflow、Cache 和 Run record 加载时返回明确的 `unsupported_schema_version`、`unsupported_version` 或 `inactive_generation`，不得猜测、迁移或重解释。
+
+仓库拥有的 Workflow examples、fixtures 和测试随 active generation 原子更新。开发期 Project、Cache 和 Run 数据可以在明确的 cutover 操作中清理重建。
+
+### 3.3 `FrozenCatalog` 的深度
+
+`FrozenCatalog` 是 exact public contracts 的唯一解析 Module，而不是可变 Registry 或运行时插件管理器。它负责：
+
+- 聚合并验证全部 Module Package Registration；
+- 检查 ID/version 唯一性、引用闭包和 contract digest；
+- 解析 Workflow 中固定的 Node Type、Binding、Method 和 Port contracts；
+- 发布 canonical descriptor、contract references 和 startup Availability；
+- 为 compiler 和 Contract Test Kit 提供同一个测试 surface。
+
+Package discovery、descriptor parsing、runtime codecs、implementation factories 和 readiness declarations 可以作为其 Implementation 内的私有索引，但不扩散给 scientific operation。
+
+## 4. Workflow、Execution Plan 与 Run
+
+### 4.1 Workflow
+
+Workflow 是由 Node Instances 和 compatible Ports 组成的有向无环图。每个 Node Instance 显式固定：
+
+- 一个 exact Node Type；
+- 一个 exact Execution Binding；
+- Node 参数；
+- Binding 参数；
+- 输入连接或 Project Input；
+- 必要的 Selection Objective。
+
+Binding 不按当前机器、Provider 可用性或性能自动选择。环境变化只能影响 Availability 和 Readiness，不能改变 Workflow 的科学路线。
+
+### 4.2 Commit
+
+UI 中一次“保存并准备运行”的操作由一个深的 commit interface 完成：
+
+1. 保存 Workflow draft；
+2. 针对当前 `FrozenCatalog` 产生 exact Contract Lock；
+3. 检查 DAG、Port exact nominal compatibility 和参数；
+4. 解析 immutable `Execution Plan`；
+5. 返回一个可运行 revision 或明确错误。
+
+调用者不应自己串接 save、snapshot、relock、validate 和 compile，也不应在 Run 开始后重新解释 Workflow。
+
+### 4.3 Execution Plan
+
+`Execution Plan` 是 admitted Workflow 的唯一执行形式。它已经解析：
+
+- 每个 Node Instance 的 exact contracts；
+- 当前 Binding 和 Method；
+- 输入来源、Port identity、exact codec 和拓扑顺序；
+- normalized parameters；
+- Scientific Operation factory、Readiness declaration 和 randomness resolver；
+- produced Observation、Selection Objective 和 Observation Selector facts；
+- Result Identity 所需的 contract facts；
+- Readiness 所需的 route identity。
+
+Run runtime 消费这些 resolved facts，不再次扫描整个 Catalog、不重新推断边连接，也不让 Implementation 根据版本字符串选择行为。
+实际 admitted inputs、Environment、RunResources、Availability observation 和 effective randomness 仍然是 run-scoped facts，不固化在 Plan 中。
+
+Derived Run 只能复用 source Run record 保留的同一个 in-memory `Execution Plan`。进程重启后若只剩 durable Ledger 而没有该 executable Plan，derive 必须 fail closed；`V2RunService` 不得重新读取并编译 Workflow，再把新的 callable handles 冒充为 source compile identity。
+
+### 4.4 Scientific operation call
+
+在进入 scientific operation seam 前，runtime 将 wire values 接纳为 provider-independent immutable values，并形成内部 operation call。它只包含执行当前科学操作需要的事实，例如：
 
 ```text
-标题
-分类
-输入端口
-输出端口
-参数区域
-运行状态
-结果摘要
+admitted typed inputs
+normalized scientific parameters
+resolved Binding parameters
+configured base seed and canonical input content digests
+cancel and Artifact facilities
+Engine Invocation evidence recorder
 ```
 
-### 5.3 端口连接
+它不包含 `FrozenCatalog`，也不要求 scientific operation 查询 Node、Port、Binding 或 public contract version。Node Instance ID、Run ID 和公共事件投影属于 runtime/evidence context，不得影响科学随机抽样。
 
-只有兼容类型才能连接。
+### 4.5 Run 因果顺序
 
-例如：
+每个 Node Execution Attempt 的顺序为：
+
+1. 为 exact Binding 获取 run-scoped Readiness Attestation；
+2. 计算 Result Identity；
+3. 查询 Project-scoped Result Cache；
+4. Cache miss 或 bypass 时进入一次 Operation Attempt；
+5. 记录零个、一个或多个 Engine Invocations；
+6. 接纳 immutable output values；
+7. 原子发布 Cache、Artifact 和 Ledger facts；
+8. 从 Run Evidence Ledger 投影事件和 manifest。
+
+Readiness 必须早于 Cache lookup。Cache replay 是 Node Execution Attempt，但不是 Operation Attempt 或 Engine Invocation。
+
+## 5. Canonical scientific operation
+
+### 5.1 唯一科学真值
+
+一个科学含义只有一个 canonical operation implementation。公开 Contract 是该科学含义的投影，不是第二套 Implementation。改变 wire shape 或 Contract version 不得复制算法、lineage、mask、单位、seed 或 residue mapping 逻辑。
+
+“一个 canonical implementation”不表示合并科学上不同的方法。ESMFold2、SimpleFold、不同模型变体或会改变解释的 checkpoint 是不同 Method；它们可以拥有不同的 Implementation 和 Binding。
+
+### 5.2 责任
+
+canonical scientific operation 负责：
+
+- 科学变换及其明确的前置与后置条件；
+- Candidate 生成和精确 parent lineage；
+- ResidueIdentity、ResidueLayout、ResidueMap 和 mask 语义；
+- Metric Definition、Method 与 Observation Context 的正确结合；
+- 单位、尺度、shape 和 missing-value 语义；
+- 由配置 seed、canonical scientific input content 及稳定 parent、sample、track
+  slot 决定的随机性；
+- 需要纳入 Result Identity 的 result-affecting facts。
+
+它不负责：
+
+- 查找 public Contract 或解析版本；
+- 选择 Binding 或 Provider；
+- 解析 Workflow graph；
+- 构造 Provider-native payload；
+- 读写公共 wire envelope；
+- 猜测或修复外部 schema。
+
+### 5.3 直接 Implementation 与 Adapter-backed Implementation
+
+纯 Workbench 科学运算直接使用 provider-independent values，例如 Candidate collection 操作、ResidueMap 变换和 selection。
+
+只有真实外部差异存在时才建立 Adapter seam。多个 Provider 或本地/远程 route 如果具有不同真实表示，各自提供 concrete Adapter；不因为可能存在未来 route 就预设通用 Provider 抽象。
+
+## 6. Provider Adapter
+
+Adapter 独占真实外部 seam，并且只做四件事：
+
+1. 将 admitted Workbench values 精确翻译为官方或 pinned upstream 规定的请求表示；
+2. 调用 Execution Binding 已固定的 Provider/model/checkpoint/source；
+3. 将文档规定的响应精确翻译回 canonical values；
+4. 以 exact Method contract digest 记录 Engine Invocation，并记录该次调用特有的
+   provider translation 或 randomness provenance。
+
+Provider、model、checkpoint 与 source 是 exact Method / Execution Binding 的静态
+identity，只在 Catalog descriptor 中声明一次。Candidate metadata 不复制这些静态事实；
+Invocation provenance 也不把静态配置伪装成逐次观察。
+
+Provider-native chain positions、tensor、token、payload、response object、临时 FASTA/PDB/JSONL 和工作目录不得越过 Adapter seam。
+
+Biohub 的官方规范是权威。对符合请求的响应按规范翻译，不猜 schema、不修复响应、不交叉校验 Provider、不尝试备用 endpoint，也不为假想异常增加 catch-and-continue。操作性错误仅按官方结果或本地明确失败事实记录。
+
+科学转换不属于 Adapter。单位换算、ResidueIdentity 设计、Candidate lineage、Metric 选择、mask 解释和随机 seed 规则必须在 canonical scientific value 或 operation 中具有单一 owner。
+
+## 7. Scientific values 与信任模型
+
+### 7.1 Provider-independent immutable values
+
+`datatypes/` 定义 provider-independent scientific values。核心对象包括：
+
+- `ProteinSequence`、`ProteinStructure`、`PDB String`；
+- `ProteinPrompt`；
+- `ResidueIdentity`、`ResidueLayout`、`ResidueMap`、`ResidueTrack`；
+- `Candidate`、`Candidate Collection` 和 pairwise mapping；
+- `Structure Alignment`；
+- `Metric Definition`、`Method`、`Observation Context`；
+- `Score Observation` 和 `Score Collection`。
+
+这些值在 contract-owning seam 接纳后不可变。in-process caller 直接传递 admitted values，不在每条 Port edge 上重复 encode/decode，也不重复验证同一 invariant。
+
+`ProteinStructure` 只表示 canonical PDB 科学内容。当前唯一的
+`protein.structure@3.0.0` wire 只有 `pdb_string`；Provider、模型、checkpoint、
+Project Input、文件或来源标签不是结构内容，不得参与 content digest。拥有这些事实的
+Method、Execution Binding、Candidate lineage 或 Run Evidence 负责记录 provenance。
+
+`structure_transform.backbone_structure@3.0.0` 同样只编码 canonical PDB
+内容。其 nominal 科学含义由允许的 backbone atoms、每个残基的原子完整性与顺序、
+chain break、serial 和 PDB serialization invariants 决定，不由 producer/source
+字符串决定。两个结构 Port Type 都只有当前 closed wire 的单一 decoder；旧的
+source-bearing wire 不进入 active Catalog，也不保留兼容读取路径。
+
+直接声明这两个 Port 的 Node Type 与 Execution Binding 在不兼容切换时原子升版；
+Method 只有在科学定义变化时才升版。Candidate Collection 的 `item_type` 由唯一
+active Catalog 解析，不形成第二个历史 codec registry。
+
+### 7.2 验证位置
+
+只在拥有事实的 seam 验证：
+
+| Seam | 验证内容 |
+| --- | --- |
+| Project Input / public protocol | schema、exact nominal Port identity、用户提供的科学字段 |
+| Scientific value construction | residue identity、layout、shape、unit、mask、lineage 等 canonical invariants |
+| Explicit scientific transformation | 该变换声明的科学前置和后置条件 |
+| Provider Adapter | 按权威规范完成翻译并构造 canonical output 与 provenance |
+| Persistence admission | schema namespace、digest、exact Contract references |
+| Durable write | 路径归属、原子发布、冲突和意外数据损失 |
+
+内部 invariant 失败立即抛出明确错误。不要加入 broad catches、silent coercion、猜测默认值、未记录 retry 或 fallback。
+
+### 7.3 本地可信部署
+
+Workbench 只监听 loopback，项目内部 Module 互相信任。架构不包含 authentication、authorization、RBAC、multi-tenancy、CSRF、plugin sandbox、abuse control 或 hosted-service hardening。
+
+仍保留能够防止非恶意实际失败的约束：科学语义错误、意外覆盖或路径写错、durable write 失败、失控资源消耗和 credential 泄露。它们不是攻击者模型。
+
+## 8. 残基身份、ProteinPrompt 与 Candidate
+
+### 8.1 ResidueIdentity 是位置真值
+
+Workbench 中的残基引用使用 identity-complete `ResidueLayout` 中的稳定身份。Provider position 不是 ResidueIdentity，数组顺序也不是科学对应关系。
+
+显式变换通过 `ResidueMap` 记录 source/target identity。插入、删除、替换、mask、chain selection 和 CSH normalization 都必须保存完整映射并遵守各自 ADR 的前置条件。
+
+### 8.2 ProteinPrompt
+
+`ProteinPrompt` 是 residue-aligned multi-track specification，至少可以包含：
 
 ```text
-ProteinSequence → SimpleFold
-ProteinSequence → ESMFold2
-ProteinStructure → ProteinMPNN
-ProteinStructure + ProteinStructure → Structure Comparison
+target ResidueLayout
+sequence track
+structure coordinate track
+structure visibility mask
+secondary-structure track
+SASA track
+function annotations
+ResidueMap provenance
 ```
 
-不兼容连接应在编辑阶段被拒绝。
+序列是否指定、结构是否可见、二级结构是否指定、SASA 是否指定、功能标记和 ProteinMPNN designability 是独立语义，不得用一个统一 mask 代替。
 
-### 5.4 参数表单
+### 8.3 Candidate identity 与 lineage
 
-参数表单根据模块声明自动生成。
+Candidate identity 对相同科学内容和 lineage 稳定，不依赖 Run ID 或 Node Instance ID。Candidate-producing transformation 为每个 child 记录精确 parent identity；集合顺序不能替代科学对应关系。
 
-支持的基础参数控件包括：
+pairwise comparison 只接受显式 role-labelled mapping。Selection 使用 exact Score Observations 和 Workflow-owned Selection Objectives；不存在按名称猜测 score 或隐式 normalization。
 
-```text
-整数
-浮点数
-布尔值
-字符串
-多行文本
-枚举
-文件路径
-目录路径
-残基范围
-链选择
-结构中的残基选择
-```
+### 8.4 随机性
 
-模块可以在必要时提供自定义参数编辑器，但标准模块应优先使用自动表单。
+call seed 由配置 base seed、canonical scientific input content，以及稳定的 parent、
+sample、track slot 派生。Candidate ID、Result Identity、Run ID、调度顺序和临时文件路径
+不得扰动科学随机抽样。
 
----
+若 Adapter 确实把该 seed 应用于 provider，Engine Invocation 记录
+`invocation_provenance.effective_randomness.control=exact_seed` 与实际
+`effective_seed`。若官方 provider route 不支持 seed control，则 Adapter 不发送 seed，记录
+`control=provider_uncontrolled`，Candidate 与 Invocation 都不得声称存在 effective seed。
+configured base seed 仍是 Node 参数，但不是远程 provider 已执行的 seed。
 
-## 6. 工作流模型
+Invocation provenance 是一个封闭的正交事实对象，而不是互斥的单标签记录。随机性事实位于
+`effective_randomness`，provider residue mapping 位于 `provider_residue_projection`；因此
+ProteinMPNN design 的同一次 Invocation 必须同时记录实际 call seed 和精确残基投影，而
+deterministic scoring 只记录残基投影。
 
-工作流使用有向无环图表示。
+## 9. ProteinMPNN 的唯一形状
 
-```text
-Workflow
-├── Nodes
-├── Edges
-├── Inputs
-├── Outputs
-└── Metadata
-```
+ProteinMPNN 只保留：
 
-### 6.1 Node
+1. 一个 identity-based `ProteinMPNNConstraints` canonical value；
+2. 一个 ProteinMPNN design scientific operation；
+3. 一个 ProteinMPNN score scientific operation；
+4. 每条实际 Provider route 一个 concrete Adapter。
 
-```yaml
-node_id: node-12
-module_id: proteinmpnn.design
-module_version: 1.0.0
-
-parameters:
-  model_name: v_48_020
-  num_sequences: 32
-  temperature: 0.1
-```
-
-### 6.2 Edge
-
-```yaml
-from:
-  node_id: node-10
-  port: structure
-
-to:
-  node_id: node-12
-  port: structure
-```
-
-### 6.3 工作流执行顺序
-
-执行引擎根据节点依赖关系自动确定顺序：
-
-1. 找到没有未完成依赖的节点；
-2. 执行节点；
-3. 保存输出；
-4. 将输出传递给下游节点；
-5. 重复直到工作流完成。
-
-### 6.4 分支
-
-一个输出可以连接到多个下游节点。
-
-例如：
-
-```text
-ProteinMPNN Sequence
-├── ESMFold2
-├── SimpleFold
-└── Sequence Scoring
-```
-
-### 6.5 合并
-
-下游节点可以接受多个输入。
-
-例如：
-
-```text
-ESM-3 Structure
-+
-SimpleFold Structure
-→ TM-score
-```
-
-### 6.6 子图和复合节点
-
-用户可以将一组节点保存为复合节点。
-
-例如：
-
-```text
-ESM3 Sequence + Structure Generation
-```
-
-内部由以下节点组成：
-
-```text
-ESM3 Generate Sequence
-→ Update Prompt Sequence
-→ ESM3 Generate Structure
-```
-
-复合节点只是可复用工作流，不改变底层模块规范。
-
----
-
-## 7. 模块系统
-
-## 7.1 模块分类
-
-首版模块分为：
-
-```text
-Input Module
-Prompt Module
-Model Module
-Conversion Module
-Scoring Module
-Selection Module
-Output Module
-```
-
-分类只用于 UI 组织，不限制模块功能。
-
-## 7.2 模块定义
-
-每个模块提供一份 `ModuleDefinition`。
-
-```yaml
-module_api: 1
-
-module:
-  id: proteinmpnn.design
-  version: 1.0.0
-  title: ProteinMPNN Design
-  category: model
-
-inputs:
-  structure:
-    type: protein.structure
-    required: true
-
-  reference_sequence:
-    type: protein.sequence
-    required: false
-
-  constraints:
-    type: proteinmpnn.constraints
-    required: false
-
-outputs:
-  sequences:
-    type: protein.sequence.candidates
-
-  scores:
-    type: score.collection
-
-parameters:
-  model_name:
-    type: enum
-    values:
-      - v_48_002
-      - v_48_010
-      - v_48_020
-      - v_48_030
-    default: v_48_020
-
-  num_sequences:
-    type: integer
-    default: 1
-    minimum: 1
-
-  temperature:
-    type: float
-    default: 0.1
-```
-
-## 7.3 模块执行接口
-
-推荐 Python 接口：
-
-```python
-class WorkflowModule:
-    definition: ModuleDefinition
-
-    def validate(self, inputs: dict, parameters: dict) -> list[str]:
-        """返回输入或参数错误；无错误时返回空列表。"""
-        ...
-
-    def run(
-        self,
-        inputs: dict,
-        parameters: dict,
-        context: "RunContext",
-    ) -> dict:
-        """返回与输出端口名称对应的结果。"""
-        ...
-```
-
-最小模块只需要实现：
-
-```text
-definition
-run()
-```
-
-复杂模块可以额外实现：
-
-```text
-validate()
-prepare()
-cleanup()
-```
-
-核心不要求模块采用特定模型框架。
-
-模块内部可以自行调用：
-
-- Python 库；
-- 命令行程序；
-- 本地模型；
-- 外部 API。
-
-这些属于模块实现细节，不影响工作流接口。
-
-## 7.4 模块注册
-
-模块通过统一入口注册：
-
-```python
-registry.register_module(ProteinMPNNDesignModule())
-registry.register_module(SimpleFoldModule())
-registry.register_module(TMScoreModule())
-```
-
-也可以使用自动发现机制：
-
-```text
-modules/
-├── esm3/
-├── proteinmpnn/
-├── esmfold2/
-├── simplefold/
-└── scoring/
-```
-
-系统启动时扫描模块目录并注册。
-
-## 7.5 模块唯一标识
-
-模块使用稳定 ID：
-
-```text
-esm3.generate_sequence
-esm3.generate_structure
-proteinmpnn.design
-proteinmpnn.score
-esmfold2.fold
-simplefold.fold
-structure.tm_score
-structure.rmsd
-secondary_structure.dssp
-```
-
-模块显示名称可以修改，但 ID 不应随意改变。
-
----
-
-## 8. 数据类型与端口类型
-
-## 8.1 公共数据类型
-
-首版定义以下公共类型：
-
-```text
-protein.prompt
-protein.sequence
-protein.sequence.candidates
-protein.structure
-protein.structure.candidates
-protein.structure.ensemble
-residue.layout
-residue.map
-residue.track
-residue.track.secondary_structure
-residue.track.sasa
-protein.function_annotations
-structure.alignment
-score.collection
-candidate.collection
-table
-text
-file
-```
-
-## 8.2 类型 ID
-
-类型通过字符串 ID 标识：
-
-```yaml
-type: protein.sequence
-version: 1
-```
-
-未来模块可以注册：
-
-```text
-my_module.custom_input
-my_module.custom_output
-```
-
-核心不需要理解其内部所有字段。
-
-## 8.3 标准类型和模块私有类型
-
-### 标准类型
-
-当数据会被多个模块共同使用时，应采用标准类型，例如：
-
-```text
-protein.sequence
-protein.structure
-protein.prompt
-score.collection
-```
-
-### 模块私有类型
-
-仅在某个模型内部或同一模块包内使用的数据，可以声明私有类型，例如：
-
-```text
-esm3.encoded_protein
-some_model.latent
-```
-
-私有类型可以连接到认识该类型的节点。
-
-## 8.4 类型转换
-
-如果两个节点格式不同，但数据在科学语义上可以转换，应提供转换节点。
-
-例如：
-
-```text
-ProteinStructure
-→ Extract Backbone
-→ BackboneStructure
-```
-
-或者：
-
-```text
-ProteinSequence
-→ Write FASTA
-→ File
-```
-
-模块内部为了调用模型而临时转换 FASTA、PDB、JSONL 或张量，不需要暴露为工作流节点。
-
-只有当转换结果需要被用户复用或会改变科学内容时，才作为可见节点。
-
-## 8.5 端口兼容规则
-
-连接允许条件：
-
-1. 类型 ID 相同；
-2. 输出类型声明为输入类型的子类型；
-3. 存在用户显式添加的转换节点。
-
-系统不自动执行未显示的科学转换。
-
----
-
-## 9. ProteinPrompt
-
-`ProteinPrompt` 是当前项目中最重要的公共数据对象。
-
-它用于保存用户提供给 ESM-3 的多轨输入。
-
-## 9.1 Prompt 组成
-
-```text
-Target Residue Layout
-Sequence Track
-Structure Coordinate Track
-Structure Visibility Mask
-Secondary Structure Track
-SASA Track
-Function Annotations
-Residue Mapping
-```
-
-## 9.2 目标残基布局
-
-所有编辑完成后，首先确定目标蛋白质长度和目标残基位置。
-
-```yaml
-layout_id: layout-target-001
-
-chains:
-  - chain_id: A
-    length: 98
-```
-
-所有 prompt 轨道必须与该布局对齐。
-
-## 9.3 残基映射
-
-模板结构和目标结构之间使用 `ResidueMap` 保存对应关系。
-
-```yaml
-source_layout: layout-template-001
-target_layout: layout-target-001
-
-mapping:
-  - source: A:1
-    target: A:1
-
-  - source: null
-    target: A:20
-    operation: insertion
-
-deleted:
-  - source: A:35
-```
-
-## 9.4 编辑操作
-
-支持：
-
-```text
-Insert
-Delete
-Set Residue
-Mask Residue
-```
-
-语义：
-
-| 操作 | 结果 |
-|---|---|
-| Insert | 创建新的目标位置 |
-| Delete | 删除目标位置 |
-| Set Residue | 设置明确氨基酸 |
-| Mask Residue | 保留位置但交给模型生成 |
-
-## 9.5 轨道相互独立
-
-同一位置的以下状态必须独立保存：
-
-```text
-序列是否已指定
-结构是否可见
-二级结构是否已指定
-SASA 是否已指定
-是否存在功能标记
-ProteinMPNN 是否可重新设计
-```
-
-不能使用一个统一 mask 同时控制所有轨道。
-
-## 9.6 Structure Prompt
-
-结构轨道保存：
-
-```text
-模板坐标
-目标残基映射
-可见残基 mask
-```
-
-第一版按残基控制结构可见性：
-
-```yaml
-visible:
-  - true
-  - true
-  - false
-  - false
-```
-
-不可见位置在 ESM-3 适配器中转换为对应的 masked/NaN 坐标表示。
-
-## 9.7 二级结构和 SASA
-
-二级结构和 SASA 都使用逐残基轨道：
-
-```yaml
-layout_id: layout-target-001
-values: [...]
-specified: [...]
-```
-
-值可以来自：
-
-- 原结构计算；
-- 用户手工输入；
-- 计算结果与手工覆盖的合并。
-
-## 9.8 功能标记
-
-功能标记使用区间表示：
-
-```yaml
-annotations:
-  - label: some_function
-    start: 10
-    end: 20
-```
-
-系统内部统一一种索引规则，并由 ESM-3 模块负责转换为模型要求的索引形式。
-
----
-
-## 10. 当前模型模块
-
-## 10.1 ESM-3
-
-建议拆分为两个主要节点。
-
-### ESM3 Generate Sequence
-
-```text
-Input:
-    ProteinPrompt
-
-Output:
-    ProteinSequenceCandidates
-    ScoreCollection
-```
-
-### ESM3 Generate Structure
-
-```text
-Input:
-    ProteinPrompt
-    或 ProteinSequence
-
-Output:
-    ProteinStructureCandidates
-    ScoreCollection
-```
-
-### Update Prompt Sequence
-
-```text
-Input:
-    ProteinPrompt
-    ProteinSequence
-
-Output:
-    ProteinPrompt
-```
-
-该节点保留结构、二级结构、SASA 和功能轨道，仅替换序列轨道。
-
-### 可选复合节点
-
-```text
-ESM3 Generate Sequence and Structure
-```
-
-由上述节点组合而成。
-
----
-
-## 10.2 ProteinMPNN
-
-### ProteinMPNN Design
-
-```text
-Input:
-    ProteinStructure
-    optional ProteinSequence
-    optional ProteinMPNNConstraints
-
-Output:
-    ProteinSequenceCandidates
-    ScoreCollection
-```
-
-### ProteinMPNN Score
-
-```text
-Input:
-    ProteinStructure
-    ProteinSequence
-
-Output:
-    ScoreCollection
-```
-
-### ProteinMPNNConstraints
+constraints 使用：
 
 ```text
 designable_residue_ids
@@ -861,820 +361,227 @@ bias_by_residue
 tied_residue_groups
 ```
 
-约束应由独立节点产生或由用户编辑，而不是隐藏在 ProteinMPNN 模块内部。残基字段使用
-identity-complete `ResidueLayout` 中的稳定身份；只有 ProteinMPNN Adapter 可以把它们转换为
-provider 的 chain-local one-based positions，并把完整映射写入结果 provenance。
+只有 Adapter 可以把 stable ResidueIdentity 转换为 provider chain-local one-based positions，并在 provider 调用前把完整 identity-to-position mapping 写入 typed Engine Invocation evidence。Candidate 只保留 canonical Workbench residue identities、科学参数和 lineage，不承载 provider-native positions 或 model metadata。旧 positional contract 不进入 active Catalog，不保留第二套 decoder、operation 或 Adapter。
 
----
+ProteinMPNN geometric validity mask 不是 sequence layout mask。缺少完整 backbone 的 fixed residue 从 provider input 恢复到完整 output layout；请求在该位置 design 则 fail closed。
 
-## 10.3 ESMFold2
+## 10. Metrics、selection 与科学解释
 
-```text
-Input:
-    ProteinSequence
-    或 ProteinSequenceCandidates
+每个 `Score Observation` 必须同时固定：
 
-Output:
-    ProteinStructureCandidates
-    ScoreCollection
-```
+- 一个 exact Metric Definition；
+- 一个 exact Method；
+- 一个 typed Observation Context；
+- 一个 Candidate；
+- 合同声明的 value shape、unit、direction、range 和 granularity。
 
-模块负责将模型输出转成统一的 `ProteinStructure`。
+TM-score、RMSD、DSSP、confidence 和 solubility 不能退化为自由字符串 key/value。结构比较共享明确的 `Structure Alignment` 和 role-labelled participants。
 
----
+评分和选择分离。Selection Objective 显式选择 Observation，固定 Utility Transform、weight 和 missing-value policy；改变排序策略不重新执行评分 Method。
 
-## 10.4 SimpleFold
+## 11. Module Package
+
+一个 repository-owned extension 通过唯一生产入口贡献 cohesive capability：
 
 ```text
-Input:
-    ProteinSequence
-    或 ProteinSequenceCandidates
-
-Output:
-    ProteinStructureCandidates
-    ScoreCollection
+modules/<package>/package.py:MODULE_PACKAGE
 ```
 
-SimpleFold 模块内部可以使用 FASTA 和命令行调用，但对外只暴露标准序列和结构类型。
+`ModulePackageRegistration` 原子贡献：
 
----
+- Node Definitions；
+- Execution Bindings；
+- Methods；
+- Metric Definitions；
+- Port Type Definitions；
+- Utility Transforms；
+- Availability 和 Readiness declarations；
+- direct implementations 或 required Adapters。
 
-## 11. 候选数据
+当前 production Catalog 发现 11 个 Module Packages：
 
-模型通常一次产生多个候选。
+- `collection_ops`
+- `esm3`
+- `folding`
+- `prompt_authoring`
+- `protein_io`
+- `proteinmpnn`
+- `selection`
+- `solubility`
+- `structure_annotation`
+- `structure_comparison`
+- `structure_transform`
 
-```yaml
-candidate_id: candidate-001
-data_ref: sequence-001
-parent_ids:
-  - esm-candidate-003
+不使用 import side effect、per-node registration call、recursive plugin discovery 或公共 dict-based `run()`。Module Package 的 public descriptors 和 runtime implementation index 在 Catalog build 时一次绑定；科学 operation 通过 resolved call 使用，不重新查询 package。
 
-metadata:
-  sample_index: 1
-```
+`package_version` 仅能描述 package artifact identity，不能代替 Node Type、Method、Binding 或 Port Type 的科学 Contract version，也不能成为隐藏兼容开关。
 
-## 11.1 CandidateCollection
+## 12. Port Types 与显式转换
 
-```yaml
-collection_id: collection-001
-item_type: protein.sequence
-items:
-  - candidate-001
-  - candidate-002
-```
+每个 Port 精确引用一个 `PortTypeDefinition(type_id, version)`。Direct Port compatibility 仅在 type ID 和 version 都相同时成立。
 
-## 11.2 候选谱系
+结构相似、Python runtime type 相同、字段子集或旧 decoder 都不构成 compatibility。科学上有效但 nominal identity 不同的转换必须是显式 Node Type，并输出完整 provenance。
 
-典型关系：
+Provider 临时格式不成为公共 Port Type。只有当结果具有独立科学含义、需要用户选择、需要被多个 Node Type 复用，或需要保存 provenance 时，才公开转换 Node Type。
+
+## 13. Result Identity、Cache 与 Evidence
+
+### 13.1 Result Identity
+
+Result Identity 由以下 admitted facts 规范化派生：
 
 ```text
-ESM-3 Candidate
-→ ProteinMPNN Candidate
-→ ESMFold2 Fold Candidate
-→ SimpleFold Fold Candidate
+resolved exact contracts
+result-affecting implementation / Method identity
+canonical input identities
+normalized Node and Binding parameters
+declared randomness contract and any actually applied effective seed
+declared external resource identity
 ```
 
-每个候选保存父候选 ID，用于：
+UI 位置、颜色、注释、Run ID、Node Instance ID 和调度时序不进入 Result Identity。
 
-- 合并不同分支评分；
-- 查找候选来源；
-- 对同一个序列的不同折叠结果进行比较；
-- 回到上游候选。
+### 13.2 Cache
 
-不需要建立复杂科研 provenance 系统，只需要保存工作流内部必要的父子关系。
+Cache 是 Project-scoped、可重新生成的优化，不是科学证据源。Cache value 必须引用 active exact contracts、Result Identity、canonical output digest 和 producer provenance。
 
----
+旧 schema、旧 generation、pickle/path legacy entry 或 digest 不一致项不迁移、不猜测、不作为当前 evidence。用户可以清除单个结果或整个 Project Cache。
 
-## 12. 评分模块
+### 13.3 Run Evidence Ledger
 
-评分模块与模型模块使用相同的模块规范。
+Run Evidence Ledger 是 Node Execution Attempt、Operation Attempt、Engine Invocation、Cache replay、Artifact 和 terminal outcome 的唯一有序 durable source。公共 manifest 和 lifecycle event stream 只能由 Ledger 投影，不存在独立 provider-evidence writer。
 
-区别只在于其主要输出是：
+每个开始的 Engine Invocation 恰有一个 terminal fact，其 `engine_identity` 必须是 resolved
+exact Method contract digest，并由 Execution Plan 绑定；Operation 或 Adapter 不能提供或覆盖
+该身份。`effective_randomness` 内部是 closed union：实际应用 seed 时为 `exact_seed`，
+provider 不受控时为 `provider_uncontrolled`。它可以与 residue-projection fact 同时存在。
+Artifact bytes、media contract 和 digest 必须与公开事实一致。
 
-```text
-score.collection
-```
+## 14. Persistence 与公开协议
 
-## 12.1 ScoreCollection
+`protein_workbench_public/resources/v2/bundle.json` 是当前唯一公共 payload contract。运行中的 backend 提供同一 canonical bundle；UI 不维护 v1 route 或 payload fallback。
 
-```yaml
-scores:
-  - score_id: tm_score
-    subjects:
-      - structure-a
-      - structure-b
-    value: 0.82
-    details:
-      aligned_residues: 91
-      normalization: reference
+Project metadata、Workflow、Execution Plan references、Result Cache 和 Run Ledger 使用 closed current schemas。public/persistence seam 接纳 wire value 后立即转换为 immutable canonical value；内部不反复通过 JSON roundtrip。
 
-  - score_id: rmsd
-    subjects:
-      - structure-a
-      - structure-b
-    value: 1.4
-    unit: angstrom
-```
-
-## 12.2 评分节点可以接受任意数量的明确输入
-
-例如：
-
-```text
-Structure A + Structure B
-→ TM-score
-```
-
-```text
-Expected Secondary Structure Track
-+
-Observed Secondary Structure Track
-→ Secondary Structure Agreement
-```
-
-```text
-ProteinSequence
-→ Some Future Score Module
-```
-
-核心不需要预先了解未来评分算法。
-
-未来评分模块只需要：
-
-1. 声明输入端口类型；
-2. 声明输出为 `score.collection`；
-3. 实现 `run()`；
-4. 注册模块。
-
-## 12.3 当前需要的评分节点
-
-首版实现：
-
-```text
-Structure Alignment
-TM-score
-RMSD
-DSSP
-Secondary Structure Agreement
-Confidence Aggregation
-ProteinMPNN Score
-```
-
-## 12.4 TM-score 与 RMSD
-
-建议拆分为：
-
-```text
-Structure A + Structure B
-→ Structure Alignment
-→ TM-score / RMSD
-```
-
-`StructureAlignment` 保存：
-
-```text
-残基对应
-链对应
-比较残基数量
-覆盖率
-使用的原子
-变换矩阵
-```
-
-这样不同评分模块可以复用相同对齐结果。
-
-## 12.5 DSSP 二级结构一致性
-
-```text
-ProteinStructure
-→ DSSP
-→ Observed SecondaryStructureTrack
-```
-
-然后：
-
-```text
-Expected SecondaryStructureTrack
-+
-Observed SecondaryStructureTrack
-→ Secondary Structure Agreement
-```
-
-输出可以包括：
-
-```text
-重合比例
-比较残基数量
-覆盖率
-逐残基是否匹配
-```
-
-## 12.6 自定义评分扩展
-
-首版不需要提供任意脚本评分编辑器。
-
-扩展方式是：
-
-```text
-开发者实现新的 Scoring Module
-→ 声明输入和输出
-→ 注册到系统
-→ 出现在节点菜单
-```
-
-用户也可以通过连接多个已有评分节点，构建自己的评分子图。
-
----
-
-## 13. 筛选和排序
-
-筛选节点读取 `ScoreCollection` 和候选集合。
-
-首版节点：
-
-```text
-Filter
-Sort
-Top-K
-Weighted Rank
-Pareto Selection
-Diversity Selection
-```
-
-## 13.1 Filter
-
-```yaml
-conditions:
-  - score: tm_score
-    operator: ">="
-    value: 0.75
-```
-
-## 13.2 Sort
-
-```yaml
-score: proteinmpnn_score
-order: ascending
-```
-
-## 13.3 多指标排序
-
-```yaml
-metrics:
-  - score: tm_score
-    weight: 0.5
-  - score: ss_overlap
-    weight: 0.3
-  - score: proteinmpnn_score
-    weight: -0.2
-```
-
-评分计算和排序规则必须分离。改变排序方法不应重新运行评分模型。
-
----
-
-## 14. 模块内部格式转换
-
-模型模块自行负责输入输出格式转换。
-
-例如：
-
-```text
-ProteinSequence
-→ SimpleFold 模块内部写入 FASTA
-→ 调用 SimpleFold
-→ 读取 mmCIF
-→ 返回 ProteinStructure
-```
-
-这些临时格式不需要成为工作流公共类型。
-
-只有以下情况才需要独立转换节点：
-
-1. 用户需要直接使用转换结果；
-2. 多个模块会复用该结果；
-3. 转换会改变科学内容；
-4. 用户需要明确选择转换策略。
-
----
-
-## 15. 执行引擎
-
-执行引擎保持简单，面向个人本地运行。
-
-职责：
-
-- 根据依赖顺序运行节点；
-- 向模块提供输入和参数；
-- 接收模块输出；
-- 保存节点状态；
-- 处理候选集合；
-- 缓存已完成节点；
-- 支持取消运行；
-- 展示错误日志。
-
-执行引擎不负责：
-
-- 模型内部设备管理；
-- 模型内部批大小选择；
-- 模型文件格式；
-- 具体评分算法。
-
-这些由模块实现。
-
-## 15.1 RunContext
-
-```python
-class RunContext:
-    project_dir: str
-    node_id: str
-    run_id: str
-    seed: int | None
-    temp_dir: str
-```
-
-## 15.2 节点状态
-
-```text
-idle
-queued
-running
-completed
-failed
-cancelled
-```
-
-## 15.3 错误
-
-模块错误返回：
-
-```yaml
-error_type: ModuleExecutionError
-message: ...
-details: ...
-```
-
-节点失败时，下游依赖节点不执行；不相关分支可以继续。
-
----
-
-## 16. 缓存
-
-个人使用场景下采用简单内容缓存。
-
-缓存键由以下内容组成：
-
-```text
-模块 ID
-模块版本
-输入数据 hash
-参数
-随机 seed
-```
-
-```text
-cache_key = hash(
-    module_id,
-    module_version,
-    input_hashes,
-    normalized_parameters,
-    seed
-)
-```
-
-节点位置、颜色和注释不进入缓存键。
-
-用户可以：
-
-- 清除单节点缓存；
-- 清除整个项目缓存；
-- 强制重新运行节点。
-
----
-
-## 17. 项目文件
-
-建议每个项目使用一个目录：
+推荐 Project 组织：
 
 ```text
 project/
-├── workflow.json
-├── ui.json
-├── project.json
+├── workflow documents and revisions
 ├── inputs/
 ├── outputs/
 ├── cache/
-└── logs/
+└── run-ledger/
 ```
 
-### workflow.json
+UI layout 是非科学 Project state，与 Workflow scientific document 分开保存。开发期持久化 state 不因架构升级获得迁移承诺。
 
-保存：
+## 15. UI
 
-- 节点；
-- 模块 ID 和版本；
-- 参数；
-- 连接；
-- 工作流输入输出。
+UI 是当前 v2 public protocol 的 Catalog-driven Workbench interface。它从 active Catalog 获得 Node Definitions、Ports、parameters、Binding choices、Availability 和 user-visible meaning，不维护第二份 Node/Port schema。
 
-### ui.json
+UI 负责：
 
-保存：
+- Node canvas、连接和布局；
+- exact compatible Port 的 authoring feedback；
+- Node 与 Binding parameters 的表单；
+- Workflow commit 和明确 compile errors；
+- Run、replay、cancel、Artifact 和 evidence projection；
+- Candidate、Score Observation 和 lineage 的科学可视化。
 
-- 节点位置；
-- 节点尺寸；
-- 分组；
-- 颜色；
-- 注释；
-- 画布缩放。
+UI 不推断 science、不选择隐式 Binding、不转换单位、不修复 missing module，也不保留 v1 route。无法由 active Catalog 解析的旧 Node Instance 以 unsupported 状态 fail closed。
 
-### project.json
-
-保存：
-
-- 项目名称；
-- 创建时间；
-- 修改时间；
-- 当前工作流版本；
-- 模块依赖列表。
-
-### inputs 和 outputs
-
-保存用户导入文件和用户选择保留的结果。
-
-### cache
-
-保存可重新生成的中间结果。
-
-### logs
-
-保存节点运行日志。
-
----
-
-## 18. 模块版本
-
-## 18.1 Module API Version
-
-```yaml
-module_api: 1
-```
-
-核心通过该字段判断模块是否兼容。
-
-## 18.2 Module Version
-
-```yaml
-module:
-  id: simplefold.fold
-  version: 1.2.0
-```
-
-建议使用语义版本：
+## 16. 代码所有权
 
 ```text
-Major：端口或含义不兼容
-Minor：新增兼容参数或功能
-Patch：实现修正
+core/
+  Catalog build and exact contract resolution
+  Workflow admission and Execution Plan compilation
+  Run runtime, Result Identity, Cache and Evidence Ledger
+
+datatypes/
+  provider-independent immutable scientific values
+
+modules/<package>/
+  cohesive Node Types, Methods and canonical scientific operations
+  Provider translation only in concrete Adapters
+
+protein_workbench_public/
+  current versioned protocol bundle and wire validation
+
+frontend/src/
+  Catalog-driven current Workbench interface
+
+tests/
+  tests through public or Module Package contract seams
+
+examples/v2/
+  maintained active-generation Workflows
 ```
 
-## 18.3 旧工作流加载
+所有 owner 都遵守 locality：ResidueLayout invariant 不在多个 caller 复制，Provider payload 不进入 core，public versions 不进入 scientific operation，Run Evidence 不在 Adapter 旁路写入。
 
-加载工作流时：
+## 17. Verification contract
 
-1. 根据模块 ID 查找模块；
-2. 检查模块 API 版本；
-3. 检查保存版本与当前版本；
-4. 兼容时直接加载；
-5. 参数变化时由模块提供简单迁移；
-6. 模块缺失时显示缺失节点。
+验证以 Interface 为测试 surface，而不是穿透 Implementation：
 
-模块自己的参数迁移可以写为：
+1. Catalog tests 证明每个 logical Contract 只有一个 active exact version、引用闭包完整、descriptor digest 稳定。
+2. Port Type tests 证明 canonical wire roundtrip、content identity 和 golden bytes，防止 codec 在 descriptor 不变时漂移。
+3. Contract Test Kit 从一个 production `ModulePackageRegistration` 构建 Catalog、commit Workflow、执行 normal interface、解码 typed outputs，并检查 Result Identity、lineage、provenance、evidence 和 Artifact。
+4. Scientific operation tests 直接使用 admitted canonical values，验证 units、shape、residue mapping、mask、seed 和 Method semantics。
+5. Adapter tests 只验证官方/pinned upstream 翻译、exact provider identity 和 Engine Invocation facts。
+6. deterministic acceptance 使用当前 canonical 3GB1 Workflow，通过真实 compiler、runtime、Cache、Ledger 和 public routes。
+7. real-provider acceptance 不能由 mock、readiness-only、historical manifest、skip 或 Cache replay 代替。
+8. installed-package parity 证明 source 与 installed artifact 的 current protocol bundle 和 active Catalog identity 完全一致。
+9. unsupported-generation tests 证明旧 Workflow、Cache 和 Run fail closed，且 runtime 不包含 migrator 或 legacy execution path。
 
-```python
-def migrate_parameters(old_version: str, parameters: dict) -> dict:
-    ...
-```
+完整命令和 tier 定义见 [`backend-verification.md`](backend-verification.md)。
 
-不建立独立的复杂迁移框架。
-
----
-
-## 19. 推荐代码结构
-
-```text
-protein-workbench/
-├── core/
-│   ├── workflow.py
-│   ├── graph.py
-│   ├── module_api.py
-│   ├── module_registry.py
-│   ├── type_registry.py
-│   ├── executor.py
-│   ├── cache.py
-│   ├── project.py
-│   └── candidates.py
-│
-├── ui/
-│   ├── node_editor/
-│   ├── parameter_editor/
-│   ├── prompt_editor/
-│   ├── structure_viewer/
-│   ├── sequence_viewer/
-│   ├── candidate_viewer/
-│   └── score_viewer/
-│
-├── modules/
-│   ├── io/
-│   ├── prompt/
-│   ├── esm3/
-│   ├── proteinmpnn/
-│   ├── esmfold2/
-│   ├── simplefold/
-│   ├── structure_scoring/
-│   ├── secondary_structure/
-│   └── selection/
-│
-├── types/
-│   ├── protein_prompt.py
-│   ├── sequence.py
-│   ├── structure.py
-│   ├── residue_layout.py
-│   ├── residue_track.py
-│   ├── candidate.py
-│   └── score.py
-│
-├── tests/
-│   ├── core/
-│   ├── modules/
-│   └── extension/
-│
-└── app.py
-```
-
----
-
-## 20. 首版模块清单
-
-### 输入输出
-
-```text
-Import Sequence
-Import Structure
-Export Sequence
-Export Structure
-```
-
-### Prompt 编辑
-
-```text
-Build Residue Layout
-Apply Residue Edits
-Select Structure Visibility
-Compute Secondary Structure
-Compute SASA
-Override Residue Track
-Add Function Annotation
-Assemble ProteinPrompt
-Protein Prompt Editor
-```
-
-### 模型
-
-```text
-ESM3 Generate Sequence
-ESM3 Generate Structure
-Update Prompt Sequence
-ProteinMPNN Design
-ProteinMPNN Score
-ESMFold2 Fold
-SimpleFold Fold
-```
-
-### 转换
-
-```text
-Extract Sequence from Structure
-Extract Backbone
-Select Chains
-Map Residue Track
-```
-
-### 评分
-
-```text
-Align Structures
-TM-score
-RMSD
-DSSP
-Secondary Structure Agreement
-Aggregate Confidence
-Merge Scores
-```
-
-### 候选和筛选
-
-```text
-Filter Candidates
-Sort Candidates
-Top-K
-Weighted Rank
-Pareto Select
-Diversity Select
-```
-
----
-
-## 21. 当前核心工作流示例
+## 18. 当前核心 Workflow
 
 ```mermaid
 flowchart LR
-    INPUT[Import Template Structure] --> EDIT[Protein Prompt Editor]
-    EDIT --> ESMSEQ[ESM3 Generate Sequence]
-    ESMSEQ --> UPDATE[Update Prompt Sequence]
-    EDIT --> UPDATE
-    UPDATE --> ESMSTRUCT[ESM3 Generate Structure]
-
-    ESMSTRUCT --> MPNN[ProteinMPNN Design]
-    MPNN --> SF[SimpleFold]
-    MPNN --> EF[ESMFold2]
-
-    ESMSTRUCT --> CMP1[Compare to ESM3 Structure]
-    SF --> CMP1
-
-    ESMSTRUCT --> CMP2[Compare to ESM3 Structure]
-    EF --> CMP2
-
-    SF --> DSSP1[DSSP]
-    EF --> DSSP2[DSSP]
-    EDIT --> SSCORE[Secondary Structure Agreement]
-    DSSP1 --> SSCORE
-    DSSP2 --> SSCORE
-
-    CMP1 --> MERGE[Merge Scores]
-    CMP2 --> MERGE
-    SSCORE --> MERGE
-    MPNN --> MERGE
-
-    MERGE --> SELECT[Filter / Rank / Select]
+    INPUT["Import Structure"] --> PROMPT["Author ProteinPrompt"]
+    PROMPT --> ESMSEQ["ESM-3 Sequence"]
+    ESMSEQ --> UPDATE["Update Prompt Sequence"]
+    PROMPT --> UPDATE
+    UPDATE --> ESMSTRUCT["ESM-3 Structure"]
+    ESMSTRUCT --> MPNN["ProteinMPNN Design"]
+    MPNN --> SF["SimpleFold"]
+    MPNN --> EF["ESMFold2"]
+    SF --> CMP["Structure Metrics"]
+    EF --> CMP
+    ESMSTRUCT --> CMP
+    CMP --> SELECT["Explicit Selection Objectives"]
 ```
 
----
+每条 edge 传递 exact nominal typed values；每个 Candidate 保留 parent lineage；每个 observation 固定 Metric Definition、Method 和 Observation Context；每个 Provider invocation 进入同一 Run Evidence Ledger。
 
-## 22. 扩展模块示例
+## 19. 明确拒绝的设计
 
-以下示例只说明接入方式，不属于首版功能。
+本项目拒绝：
 
-假设未来存在一个新评分模块：
+- 为 ProteinMPNN 或任何其他 Node Type 同时维护 positional 与 identity-based Implementation；
+- 在 scientific operation 中硬编码 public contract version 或查询 `FrozenCatalog`；
+- multi-generation Catalog、version switch、legacy decoder 和参数 migrator；
+- mutable Registry、recursive plugin manager 和 import-time registration；
+- dict-based universal model runner 或万能输入对象；
+- 根据环境自动选择 Binding、fallback Provider 或隐式 retry；
+- 在每条内部 edge 重复 encode/decode/validate；
+- free-form score、隐式 unit conversion 或集合顺序对应；
+- 与本地可信使用无关的认证、权限、沙箱和公共服务 hardening。
 
-```yaml
-module_api: 1
+## 20. 架构结论
 
-module:
-  id: example.new_score
-  version: 1.0.0
-  title: New Score
-
-inputs:
-  sequence:
-    type: protein.sequence
-    required: true
-
-outputs:
-  scores:
-    type: score.collection
-
-parameters: {}
-```
-
-实现：
-
-```python
-class NewScoreModule(WorkflowModule):
-    definition = load_definition("new_score.yaml")
-
-    def run(self, inputs, parameters, context):
-        sequence = inputs["sequence"]
-        value = calculate_score(sequence)
-
-        return {
-            "scores": ScoreCollection([
-                Score(
-                    score_id="example.new_score",
-                    value=value,
-                    subjects=[sequence.id],
-                )
-            ])
-        }
-```
-
-注册后，系统自动：
-
-- 在节点菜单中显示该节点；
-- 根据定义创建输入输出端口；
-- 允许连接 `ProteinSequence`；
-- 将评分结果传递给筛选和排序节点。
-
-这就是项目要求的扩展兼容性。
-
----
-
-## 23. 首版验收标准
-
-### 工作流
-
-- 用户可以在画布中添加和连接节点；
-- 不兼容端口不能连接；
-- 工作流可以保存和重新加载；
-- 分支和多输入合并可以执行；
-- 模块缺失时工作流仍可打开。
-
-### 模块扩展
-
-- 新模块可以在不修改核心代码的情况下注册；
-- 参数表单能够根据模块定义自动生成；
-- 新评分模块输出可以进入通用筛选节点；
-- 新模型模块可以声明自己的输入输出类型；
-- 已有模块不因新增模块而改变。
-
-### ProteinPrompt
-
-- 支持残基增、删、指定改和 masked 改；
-- 所有轨道与目标残基布局一致；
-- 序列指定和结构可见状态相互独立；
-- 二级结构和 SASA 可以计算或手工覆盖；
-- 功能标记可以编辑。
-
-### 模型流程
-
-- ESM-3 可以生成序列和结构；
-- ESM-3 结构可以进入 ProteinMPNN；
-- ProteinMPNN 序列可以进入 ESMFold2 和 SimpleFold；
-- 同一个候选的不同折叠结果可以正确关联；
-- 结果可以进入结构和二级结构评分。
-
-### 评分与选择
-
-- TM-score 和 RMSD 可以比较两份结构；
-- DSSP 结果可以与目标二级结构比较；
-- 多个评分可以合并；
-- 用户可以按评分过滤、排序和选取 Top-K。
-
-### 兼容性
-
-- 按 `module_api: 1` 实现的测试模块可以被系统自动加载；
-- 核心升级后测试模块仍可运行；
-- 旧工作流能够根据模块 ID 恢复节点；
-- 缺失模块安装后，节点能够恢复执行。
-
----
-
-## 24. 明确不采用的设计
-
-本项目不采用：
+Protein Workbench 的核心形状是：
 
 ```text
-ComfyUI 内核
-一个包含所有未来字段的万能输入对象
-一个可以运行所有模型的万能节点
-在核心代码中按模型名称编写 if/else
-为了未来兼容预先实现假想模型
-复杂的权限和安全隔离系统
-容器化插件规范
-许可证管理系统
-科研来源归档系统
-企业级任务调度
+one active FrozenCatalog generation
+→ immutable resolved Execution Plan
+→ one canonical scientific operation per scientific meaning
+→ direct implementation or one concrete Provider Adapter per real route
+→ admitted immutable outputs
+→ Result Identity, Cache, Artifacts and one Run Evidence Ledger
 ```
 
----
-
-## 25. 架构结论
-
-本项目是一个个人本地使用的、节点式、模块化蛋白质设计工作台。
-
-系统核心负责：
-
-```text
-节点连接
-端口类型检查
-模块发现
-工作流执行
-候选关联
-评分传递
-筛选排序
-项目保存
-```
-
-模型和算法模块负责：
-
-```text
-声明输入输出
-声明参数
-处理模型原生格式
-执行计算
-返回标准结果
-```
-
-未来新增模型、转换方法或评分方法时，开发者按照当前 `ModuleDefinition + WorkflowModule` 规范实现和注册模块，即可将其接入已有工作流。
-
-项目的扩展性来自稳定、简单的模块接口，而不是来自额外的部署、安全、许可证或科研管理规划。
+扩展能力来自深 Module 和准确 seam：public Contract 负责描述，canonical scientific operation 负责 science，Provider Adapter 负责外部翻译，runtime 负责执行与证据。历史开发格式、攻击者模型和假想未来抽象不进入这个结构。

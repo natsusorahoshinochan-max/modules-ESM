@@ -242,9 +242,8 @@ def test_model_backed_soluprot_golden_methods(
         )
         for event in events
         if event["event"]["type"] == "engine_invocation_started"
-        and event["event"]["engine_identity"].startswith(
-            f"soluprot.{mode}.v1_1_0/"
-        )
+        and event["event"]["engine_identity"]
+        == observation.method.contract_digest
     }
     terminals = [
         event["event"]
@@ -254,9 +253,14 @@ def test_model_backed_soluprot_golden_methods(
         in {invocation_id for invocation_id, _ in started}
     ]
     assert len(started) == 1
-    assert next(iter(started))[1].endswith(
-        configured_runtime_fingerprint(mode)
+    binding = catalog.require_contract(
+        "binding",
+        binding_id,
+        "2.1.0",
     )
+    assert binding.descriptor["implementation_identity"][
+        "resolved_runtime_fingerprint"
+    ] == configured_runtime_fingerprint(mode)
     assert [event["status"] for event in terminals] == ["succeeded"]
     readiness_index = next(
         index

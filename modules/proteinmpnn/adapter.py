@@ -1,8 +1,8 @@
-"""Exact local ProteinMPNN v2 Adapter contract."""
+"""Concrete local Adapter for the pinned ProteinMPNN provider."""
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from dataclasses import replace
 import hashlib
 import importlib.metadata
@@ -12,7 +12,7 @@ from pathlib import Path
 import struct
 from typing import Any
 
-from core import ReadinessResult
+from core import ReadinessResult, RunResources
 from modules.provider_contract import proteinmpnn_provider_identity
 from datatypes import (
     ProteinMPNNConstraints,
@@ -113,9 +113,8 @@ def configured_runtime_fingerprint() -> str:
     return "sha256:" + hashlib.sha256(payload.encode()).hexdigest()
 
 
-def provider_for_environment(
+def _provider_for_environment(
     environment: Mapping[str, Any],
-    *,
     staging_directory: Path,
 ) -> ProteinMPNNProvider:
     """Resolve the declared provider seam without accepting Workflow paths."""
@@ -149,7 +148,7 @@ def provider_for_environment(
     )
 
 
-def prepare_design_request(
+def _prepare_local_design_request(
     *,
     provider: ProteinMPNNProvider,
     structure: ProteinStructure,
@@ -208,8 +207,31 @@ def prepare_design_request(
 
 def _target_residue_ids(
     request: ProteinMPNNDesignRequest,
-) -> list[str]:
-    return list(request.target_layout.residue_ids or ())
+) -> tuple[str, ...]:
+    return tuple(request.target_layout.residue_ids or ())
+
+
+def _provider_residue_projection(
+    request: ProteinMPNNDesignRequest,
+) -> dict[str, Any]:
+    """Project the exact Workbench layout used by one provider invocation."""
+    return {
+        "position_semantics": "one_based_chain_local",
+        "workbench_chain_order": list(request.structure_chain_order),
+        "provider_chain_order": list(request.provider_chain_order),
+        "entries": [
+            {
+                "residue_id": residue_id,
+                "provider_chain_id": provider_chain_id,
+                "provider_position": provider_position,
+            }
+            for (
+                residue_id,
+                provider_chain_id,
+                provider_position,
+            ) in request.residue_identity_mapping
+        ],
+    }
 
 
 def _restore_structure_chain_order(
@@ -244,7 +266,7 @@ def _restore_structure_chain_order(
     return "".join(by_chain[chain] for chain in request.structure_chain_order)
 
 
-def validate_design_result(
+def _admit_design_result(
     raw_result: object,
     *,
     request: ProteinMPNNDesignRequest,
@@ -294,7 +316,7 @@ def validate_design_result(
             request=request,
         )
         sequences.append(
-            ProteinSequence(restored_sequence, list(residue_ids))
+            ProteinSequence(restored_sequence, residue_ids)
         )
     if raw_scores is None:
         return sequences, None
@@ -316,7 +338,7 @@ def validate_design_result(
     return sequences, scores
 
 
-def prepare_scoring_request(
+def _prepare_local_scoring_request(
     *,
     provider: ProteinMPNNProvider,
     structure: ProteinStructure,
@@ -369,7 +391,7 @@ def prepare_scoring_request(
     return request
 
 
-def validate_scoring_result(raw_result: object) -> float:
+def _admit_scoring_result(raw_result: object) -> float:
     """Validate the provider-native binary32 score without transforming it."""
     binary32_round_trip: float | None = None
     if type(raw_result) is float and math.isfinite(raw_result):
@@ -398,3 +420,100 @@ def validate_scoring_result(raw_result: object) -> float:
             "binary32 non-negative range"
         )
     return raw_result
+
+
+class LocalProteinMPNNAdapter:
+    """Translate canonical scientific values to one pinned local provider."""
+
+    def __init__(
+        self,
+        *,
+        environment: Mapping[str, Any],
+        resources: RunResources,
+        provider_factory: Callable[
+            [Mapping[str, Any], Path],
+            ProteinMPNNProvider,
+        ] = _provider_for_environment,
+    ) -> None:
+        self._environment = environment
+        self._resources = resources
+        self._provider_factory = provider_factory
+
+    def design(
+        self,
+        *,
+        structure: ProteinStructure,
+        num_sequences: int,
+        temperature: float,
+        backbone_noise: float,
+        seed: int,
+        constraints: ProteinMPNNConstraints | None,
+        reference_sequence: ProteinSequence | None,
+        engine_role: str,
+    ) -> tuple[ProteinSequence, ...]:
+        """Run one design call and admit its provider-native result."""
+        with self._resources.temporary_directory(
+            prefix="proteinmpnn-design-"
+        ) as staging_directory:
+            provider = self._provider_factory(
+                self._environment,
+                staging_directory,
+            )
+            request = _prepare_local_design_request(
+                provider=provider,
+                structure=structure,
+                num_sequences=num_sequences,
+                temperature=temperature,
+                backbone_noise=backbone_noise,
+                seed=seed,
+                constraints=constraints,
+                reference_sequence=reference_sequence,
+            )
+            with self._resources.engine_invocation(
+                engine_role=engine_role,
+                invocation_provenance={
+                    "effective_randomness": {
+                        "control": "exact_seed",
+                        "effective_seed": seed,
+                    },
+                    "provider_residue_projection": (
+                        _provider_residue_projection(request)
+                    ),
+                },
+            ):
+                raw_result = provider.design(request)
+            sequences, _ = _admit_design_result(
+                raw_result,
+                request=request,
+            )
+        return tuple(sequences)
+
+    def score(
+        self,
+        *,
+        structure: ProteinStructure,
+        sequence: ProteinSequence,
+    ) -> float:
+        """Run one exact sequence scoring call and admit its native scale."""
+        with self._resources.temporary_directory(
+            prefix="proteinmpnn-score-"
+        ) as staging_directory:
+            provider = self._provider_factory(
+                self._environment,
+                staging_directory,
+            )
+            request = _prepare_local_scoring_request(
+                provider=provider,
+                structure=structure,
+                sequence=sequence,
+            )
+            with self._resources.engine_invocation(
+                engine_role="score_subject",
+                invocation_provenance={
+                    "provider_residue_projection": (
+                        _provider_residue_projection(request)
+                    )
+                },
+            ):
+                raw_score = provider.score(request, sequence)
+            return _admit_scoring_result(raw_score)

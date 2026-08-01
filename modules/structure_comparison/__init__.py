@@ -3,7 +3,6 @@
 from .domain import (
     AlignmentAtomCorrespondence,
     StructureAlignmentEvidence,
-    StructureAlignmentEvidenceCollection,
     StructureAlignmentNormalization,
     StructureAlignmentTransform,
 )
@@ -13,7 +12,6 @@ __all__ = [
     "AlignmentAtomCorrespondence",
     "MODULE_PACKAGE",
     "StructureAlignmentEvidence",
-    "StructureAlignmentEvidenceCollection",
     "StructureAlignmentNormalization",
     "StructureAlignmentTransform",
 ]

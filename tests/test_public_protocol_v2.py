@@ -186,6 +186,7 @@ def test_bundle_freezes_event_replay_close_and_error_vocabulary() -> None:
         "contract_digest_mismatch",
         "cross_scope_access_denied",
         "evidence_unavailable",
+        "inactive_generation",
         "internal_error",
         "invalid_cursor",
         "malformed_request",
@@ -211,6 +212,166 @@ def test_bundle_freezes_event_replay_close_and_error_vocabulary() -> None:
         }
         assert isinstance(definition["retryable"], bool)
         assert definition["details_schema"].startswith("#/$defs/")
+
+
+def test_engine_invocation_provenance_is_closed_and_residue_typed() -> None:
+    event = {
+        "type": "engine_invocation_started",
+        "invocation_id": "invocation-1",
+        "operation_attempt_id": "operation-1",
+        "engine_role": "design_parent_0",
+        "engine_identity": "sha256:" + "1" * 64,
+    }
+    projection = {
+        "position_semantics": "one_based_chain_local",
+        "workbench_chain_order": ["A", "B"],
+        "provider_chain_order": ["B", "A"],
+        "entries": [
+            {
+                "residue_id": "A:6",
+                "provider_chain_id": "A",
+                "provider_position": 1,
+            },
+            {
+                "residue_id": "B:20",
+                "provider_chain_id": "B",
+                "provider_position": 1,
+            },
+        ],
+    }
+    provenance = {"provider_residue_projection": projection}
+
+    validate_schema("#/$defs/EngineInvocationStartedEvent", event)
+    validate_schema(
+        "#/$defs/EngineInvocationStartedEvent",
+        {**event, "invocation_provenance": provenance},
+    )
+
+    validate_schema(
+        "#/$defs/EngineInvocationStartedEvent",
+        {
+            **event,
+            "invocation_provenance": {
+                **provenance,
+                "effective_randomness": {
+                    "control": "exact_seed",
+                    "effective_seed": 17,
+                },
+            },
+        },
+    )
+
+    malformed_projections = (
+        {**projection, "unexpected": True},
+        {**projection, "position_semantics": "zero_based"},
+        {**projection, "provider_chain_order": []},
+        {**projection, "entries": []},
+        {
+            **projection,
+            "entries": [
+                {
+                    "residue_id": "A:6",
+                    "provider_chain_id": "A",
+                    "provider_position": 0,
+                }
+            ],
+        },
+        {
+            **projection,
+            "entries": [
+                {
+                    "residue_id": "A:6",
+                    "provider_chain_id": "A",
+                    "provider_position": 1,
+                    "unexpected": True,
+                }
+            ],
+        },
+    )
+    for invalid_projection in malformed_projections:
+        with pytest.raises(ProtocolValidationError):
+            validate_schema(
+                "#/$defs/EngineInvocationStartedEvent",
+                {
+                    **event,
+                    "invocation_provenance": {
+                        "provider_residue_projection": invalid_projection,
+                    },
+                },
+            )
+    for invalid_provenance in ({}, {**provenance, "unexpected": True}):
+        with pytest.raises(ProtocolValidationError):
+            validate_schema(
+                "#/$defs/EngineInvocationStartedEvent",
+                {**event, "invocation_provenance": invalid_provenance},
+            )
+    with pytest.raises(ProtocolValidationError):
+        validate_schema(
+            "#/$defs/EngineInvocationStartedEvent",
+            {**event, "engine_identity": "method-digest-1"},
+        )
+
+
+def test_engine_invocation_randomness_provenance_is_a_closed_union() -> None:
+    event = {
+        "type": "engine_invocation_started",
+        "invocation_id": "invocation-1",
+        "operation_attempt_id": "operation-1",
+        "engine_role": "sample-0",
+        "engine_identity": "sha256:" + "1" * 64,
+    }
+    exact_seed = {
+        "effective_randomness": {
+            "control": "exact_seed",
+            "effective_seed": 17,
+        }
+    }
+    provider_uncontrolled = {
+        "effective_randomness": {
+            "control": "provider_uncontrolled",
+        }
+    }
+
+    for provenance in (exact_seed, provider_uncontrolled):
+        validate_schema(
+            "#/$defs/EngineInvocationStartedEvent",
+            {**event, "invocation_provenance": provenance},
+        )
+
+    malformed = (
+        {"effective_randomness": {"control": "exact_seed", "effective_seed": -1}},
+        {
+            "effective_randomness": {
+                "control": "exact_seed",
+                "effective_seed": 9_007_199_254_740_992,
+            }
+        },
+        {
+            "effective_randomness": {
+                "control": "exact_seed",
+                "effective_seed": True,
+            }
+        },
+        {**exact_seed, "unexpected": True},
+        {
+            "effective_randomness": {
+                "control": "provider_uncontrolled",
+                "effective_seed": 17,
+            }
+        },
+        {
+            "effective_randomness": {
+                "control": "unsupported_by_provider",
+            }
+        },
+        {"effective_randomness": {"control": "exact_seed"}},
+    )
+    for provenance in malformed:
+        with pytest.raises(ProtocolValidationError):
+            validate_schema(
+                "#/$defs/EngineInvocationStartedEvent",
+                {**event, "invocation_provenance": provenance},
+            )
 
 
 def test_availability_and_schema_version_fail_closed() -> None:
@@ -276,6 +437,54 @@ def test_availability_and_schema_version_fail_closed() -> None:
             },
         },
         status=422,
+    )
+    validate_error(
+        {
+            "schema_namespace": "protein-workbench-public/v2",
+            "error": {
+                "code": "inactive_generation",
+                "message": "Workflow uses an inactive exact contract",
+                "retryable": False,
+                "correlation_id": "incident-workflow-generation",
+                "details": {
+                    "issues": [
+                        {
+                            "code": "inactive_generation",
+                            "severity": "error",
+                            "message": "Requested 2.0.0; active is 2.1.0",
+                            "field_path": [
+                                "nodes",
+                                0,
+                                "node_type_version",
+                            ],
+                            "node_id": "source",
+                        }
+                    ]
+                },
+            },
+        },
+        status=409,
+    )
+    validate_error(
+        {
+            "schema_namespace": "protein-workbench-public/v2",
+            "error": {
+                "code": "inactive_generation",
+                "message": "Run evidence belongs to an inactive Catalog",
+                "retryable": False,
+                "correlation_id": "incident-run-generation",
+                "details": {
+                    "artifact_kind": "run_evidence",
+                    "expected_catalog_contract_digest": (
+                        "sha256:" + "1" * 64
+                    ),
+                    "received_catalog_contract_digest": (
+                        "sha256:" + "2" * 64
+                    ),
+                },
+            },
+        },
+        status=409,
     )
 
 

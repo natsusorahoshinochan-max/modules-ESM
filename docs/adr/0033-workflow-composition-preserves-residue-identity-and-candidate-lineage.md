@@ -20,12 +20,15 @@ ProteinMPNN constraints use stable identities from an identity-complete
 `ResidueLayout` for fixed, designable, tied, and biased residues. The Adapter is
 the only seam that converts those identities to upstream one-based positions.
 It validates parsed chain order and cardinality, labels returned sequences with
-the Workbench layout, and persists the complete identity-to-provider-position
-mapping in Candidate provenance. Positional integers are not accepted as a
-compatibility form. ProteinMPNN's geometric validity mask is not a sequence
-layout mask: a fixed residue without a complete backbone is restored from the
-provider input in the complete output layout, while requesting design at such
-a residue fails closed.
+the Workbench layout, and records the complete identity-to-provider-position
+mapping as typed Engine Invocation evidence before calling the provider. The
+Candidate keeps only canonical Workbench residue identities and scientific
+lineage; provider-native positions and model metadata do not cross the Adapter
+seam. Positional integers are not accepted as a compatibility form.
+ProteinMPNN's geometric validity mask is not a sequence layout mask: a fixed
+residue without a complete backbone is restored from the provider input in the
+complete output layout, while requesting design at such a residue fails
+closed.
 
 The repository-owned CSH normalization is an explicit scientific
 transformation. It accepts only the locked, unambiguous 19-atom CSH inventory,

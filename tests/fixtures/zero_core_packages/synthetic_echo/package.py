@@ -13,17 +13,17 @@ from core import (
     ContractIdentity,
     DefinitionResource,
     ExecutionBindingDefinition,
-    LazyImplementationFactory,
     MethodDefinition,
     ModulePackageRegistration,
+    OperationContext,
     PortTypeDefinition,
     ProducedObservationDefinition,
     ReadinessCheckInput,
     ReadinessDeclaration,
     ReadinessResult,
+    ScientificOperationFactory,
     UtilityTransformDefinition,
 )
-from datatypes import ExactContractReference
 
 from .implementation import SyntheticEchoImplementation
 
@@ -97,23 +97,13 @@ def _ready(check_input: ReadinessCheckInput) -> ReadinessResult:
     )
 
 
-def _build(**kwargs: object) -> SyntheticEchoImplementation:
-    catalog = kwargs["frozen_catalog"]
-    method = catalog.require_contract(
-        "method",
-        "contract_test.synthetic_echo.method",
-        "2.1.0",
-    )
-    metric = catalog.require_contract(
-        "metric",
-        "contract_test.synthetic_identity",
-        "2.1.0",
-    )
+def _build(context: OperationContext) -> SyntheticEchoImplementation:
+    observation = context.produced_observations[0]
     return SyntheticEchoImplementation(
-        run_resources=kwargs["run_resources"],
-        environment=kwargs["environment_configuration"],
-        metric=ExactContractReference(**metric.reference()),
-        method=ExactContractReference(**method.reference()),
+        run_resources=context.resources,
+        environment=context.environment,
+        metric=observation.metric,
+        method=context.method,
     )
 
 
@@ -163,7 +153,7 @@ MODULE_PACKAGE = ModulePackageRegistration(
                 }
             },
             execution_route="direct",
-            factory=LazyImplementationFactory(
+            factory=ScientificOperationFactory(
                 behavior=BehaviorReference(
                     "contract_test.synthetic_echo/factory",
                     "2.1.0",

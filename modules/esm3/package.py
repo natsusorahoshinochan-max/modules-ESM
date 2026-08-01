@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 import importlib.util
 from typing import Any
 
@@ -14,29 +14,33 @@ from core import (
     DefinitionResource,
     EffectiveRandomnessResolver,
     ExecutionBindingDefinition,
-    LazyImplementationFactory,
     MethodDefinition,
     ModulePackageRegistration,
+    OperationContext,
     PortTypeDefinition,
     ProducedObservationDefinition,
     ReadinessCheckInput,
     ReadinessDeclaration,
     ReadinessResult,
+    ScientificOperation,
+    ScientificOperationFactory,
 )
 from modules.provider_contract import validate_installed_provider_checkout
 
 from .adapter import (
     BIOHUB_ESM3_MEDIUM_MODEL,
     BIOHUB_ESM3_OPEN_MODEL,
+    BiohubESM3Adapter,
     ESM_SDK_REVISION,
 )
-from .implementation import ESM3GenerationImplementation
-from .esmc_implementation import ESMCRepresentationImplementation
+from .implementation import ESM3GenerationOperation
+from .esmc_implementation import ESMCRepresentationOperation
 from .domain import ESMCSequenceRepresentation
 from .esmc_adapter import (
     BIOHUB_ESMC_EMBEDDING_DIMENSION,
     BIOHUB_ESMC_LOGITS_DIMENSION,
     BIOHUB_ESMC_MODEL,
+    BiohubESMCAdapter,
     environment_ready as esmc_environment_ready,
 )
 from .local_adapter import (
@@ -47,12 +51,17 @@ from .local_adapter import (
     LOCAL_ESM3_SNAPSHOT_SOURCE,
     LOCAL_ESM3_TORCH_VERSION,
     LOCAL_ESM3_WEIGHT_SHA256,
+    LocalESM3Adapter,
     local_readiness,
     local_runtime_structurally_available,
 )
 
 
-_VERSION = "2.1.0"
+_PACKAGE_VERSION = "3.0.0"
+_GENERATION_VERSION = "3.0.0"
+_ESMC_VERSION = "2.1.0"
+_ESMC_BINDING_VERSION = "2.2.0"
+_METRIC_VERSION = "2.1.0"
 _OPERATIONS = (
     "generate_sequence",
     "generate_structure",
@@ -105,17 +114,20 @@ def _esmc_ready(check_input: ReadinessCheckInput) -> ReadinessResult:
     )
 
 
-def _build_esmc(**kwargs: object) -> object:
-    return ESMCRepresentationImplementation(
-        kwargs["run_resources"],
-        kwargs["environment_configuration"],
+def _build_esmc(context: OperationContext) -> ESMCRepresentationOperation:
+    return ESMCRepresentationOperation(
+        BiohubESMCAdapter(
+            environment=context.environment,
+            resources=context.resources,
+            model_name=BIOHUB_ESMC_MODEL,
+        )
     )
 
 
 def _esmc_method() -> MethodDefinition:
     return MethodDefinition(
         method_id="esm3.represent_sequence.esmc_600m_2024_12",
-        version=_VERSION,
+        version=_ESMC_VERSION,
         algorithm_identity={
             "name": "ESMC masked-language-model sequence representation",
             "provider_operations": ("encode", "logits"),
@@ -166,42 +178,44 @@ def _esmc_binding() -> ExecutionBindingDefinition:
         binding_id=(
             "esm3.represent_sequence.biohub_esmc_600m_2024_12"
         ),
-        version=_VERSION,
+        version=_ESMC_BINDING_VERSION,
         node_type=ContractIdentity(
             "node_type",
             "esm3.represent_sequence",
-            _VERSION,
+            _ESMC_VERSION,
         ),
         method=ContractIdentity(
             "method",
             "esm3.represent_sequence.esmc_600m_2024_12",
-            _VERSION,
+            _ESMC_VERSION,
         ),
         binding_parameters={},
         execution_route="adapter",
-        factory=LazyImplementationFactory(
+        factory=ScientificOperationFactory(
             behavior=BehaviorReference(
                 "esm3.represent_sequence/factory",
-                _VERSION,
+                _ESMC_BINDING_VERSION,
                 {
                     "route": "biohub",
                     "model": BIOHUB_ESMC_MODEL,
+                    "engine_identity": "exact_method_contract_digest",
                 },
             ),
             build=_build_esmc,
         ),
         adapter_behavior=BehaviorReference(
             "esm3.biohub_esmc/adapter",
-            _VERSION,
+            _ESMC_BINDING_VERSION,
             {
                 "provider_contract": "esm-sdk-encode+logits@917af90b",
                 "output_contract": "mean-embedding+logits-shape",
+                "engine_identity": "exact_method_contract_digest",
             },
         ),
         availability=AvailabilityDeclaration(
             behavior=BehaviorReference(
                 "esm3.biohub_esmc/availability",
-                _VERSION,
+                _ESMC_VERSION,
                 {"observation": "startup"},
             ),
             prerequisites={
@@ -215,7 +229,7 @@ def _esmc_binding() -> ExecutionBindingDefinition:
         readiness=ReadinessDeclaration(
             behavior=BehaviorReference(
                 "esm3.biohub_esmc/readiness",
-                _VERSION,
+                _ESMC_VERSION,
                 {
                     "observation": "per-run",
                     "cache_order": "before-cache-lookup",
@@ -301,10 +315,10 @@ def _esmc_port_type() -> PortTypeDefinition:
     type_id = "esm3.esmc_sequence_representation"
     return PortTypeDefinition(
         type_id=type_id,
-        version=_VERSION,
+        version=_ESMC_VERSION,
         validator=BehaviorReference(
             f"{type_id}/validate",
-            _VERSION,
+            _ESMC_VERSION,
             {
                 "accepted_value_kind": "esmc_sequence_representation",
                 "finite_binary32_embedding": True,
@@ -313,7 +327,7 @@ def _esmc_port_type() -> PortTypeDefinition:
         ),
         codec=BehaviorReference(
             f"{type_id}/codec",
-            _VERSION,
+            _ESMC_VERSION,
             {
                 "canonicalization": "RFC 8785",
                 "character_encoding": "UTF-8",
@@ -321,7 +335,7 @@ def _esmc_port_type() -> PortTypeDefinition:
         ),
         content_identity=BehaviorReference(
             f"{type_id}/content",
-            _VERSION,
+            _ESMC_VERSION,
             {"digest": "SHA-256"},
         ),
         runtime_validator=_validate_esmc_representation,
@@ -397,16 +411,18 @@ def _build(
     operation: str,
     *,
     model_name: str,
-    method_id: str,
-):
-    def factory(**kwargs: object) -> object:
-        return ESM3GenerationImplementation(
-            kwargs["run_resources"],
-            operation,
-            kwargs["environment_configuration"],
-            kwargs["frozen_catalog"],
+) -> Callable[[OperationContext], ScientificOperation]:
+    def factory(context: OperationContext) -> ESM3GenerationOperation:
+        adapter = BiohubESM3Adapter(
+            environment=context.environment,
+            resources=context.resources,
             model_name=model_name,
-            method_id=method_id,
+        )
+        return ESM3GenerationOperation(
+            adapter=adapter,
+            operation=operation,
+            method=context.method,
+            produced_observations=context.produced_observations,
         )
 
     return factory
@@ -416,18 +432,18 @@ def _build_local(
     operation: str,
     *,
     model_name: str,
-    method_id: str,
-):
-    def factory(**kwargs: object) -> object:
-        return ESM3GenerationImplementation(
-            kwargs["run_resources"],
-            operation,
-            kwargs["environment_configuration"],
-            kwargs["frozen_catalog"],
+) -> Callable[[OperationContext], ScientificOperation]:
+    def factory(context: OperationContext) -> ESM3GenerationOperation:
+        adapter = LocalESM3Adapter(
+            environment=context.environment,
+            resources=context.resources,
             model_name=model_name,
-            method_id=method_id,
-            route_name="local_open",
-            seed_control="torch_local",
+        )
+        return ESM3GenerationOperation(
+            adapter=adapter,
+            operation=operation,
+            method=context.method,
+            produced_observations=context.produced_observations,
         )
 
     return factory
@@ -447,7 +463,7 @@ def _method(
     method_id = f"esm3.{operation}.esm3_{model['suffix']}"
     return MethodDefinition(
         method_id=method_id,
-        version=_VERSION,
+        version=_GENERATION_VERSION,
         algorithm_identity={
             "name": "ESM-3 iterative masked-track generation",
             "operation": provider_operation,
@@ -456,6 +472,11 @@ def _method(
                 "one terminal sequence to one structure counterpart"
                 if operation == "generate_paired"
                 else "not_applicable"
+            ),
+            "randomness_contract": (
+                "Biohub exposes no seed control; every Engine Invocation is "
+                "recorded as provider-uncontrolled and no effective seed is "
+                "published"
             ),
         },
         model_identity={
@@ -499,7 +520,7 @@ def _produced_observations(
     observations = [
         ProducedObservationDefinition(
             output_port="confidence_observations",
-            metric=ContractIdentity("metric", metric, _VERSION),
+            metric=ContractIdentity("metric", metric, _METRIC_VERSION),
             context_profile={"kind": "intrinsic"},
             subject_grain="candidate",
             source_role="subject",
@@ -513,7 +534,11 @@ def _produced_observations(
     observations.append(
         ProducedObservationDefinition(
             output_port="pae_observations",
-            metric=ContractIdentity("metric", "structure.pae", _VERSION),
+            metric=ContractIdentity(
+                "metric",
+                "structure.pae",
+                _METRIC_VERSION,
+            ),
             context_profile={"kind": "intrinsic"},
             subject_grain="candidate",
             source_role="subject",
@@ -527,7 +552,11 @@ def _produced_observations(
         observations.extend(
             ProducedObservationDefinition(
                 output_port="sequence_reconstruction_confidence_observations",
-                metric=ContractIdentity("metric", metric, _VERSION),
+                metric=ContractIdentity(
+                    "metric",
+                    metric,
+                    _METRIC_VERSION,
+                ),
                 context_profile={"kind": "intrinsic"},
                 subject_grain="candidate",
                 source_role="subject",
@@ -544,7 +573,7 @@ def _produced_observations(
                 metric=ContractIdentity(
                     "metric",
                     "structure.pae",
-                    _VERSION,
+                    _METRIC_VERSION,
                 ),
                 context_profile={"kind": "intrinsic"},
                 subject_grain="candidate",
@@ -570,7 +599,7 @@ def _local_method(
     }[operation]
     return MethodDefinition(
         method_id=f"esm3.{operation}.esm3_sm_open_v1_local",
-        version=_VERSION,
+        version=_GENERATION_VERSION,
         algorithm_identity={
             "name": "ESM-3 iterative masked-track generation",
             "operation": provider_operation,
@@ -581,8 +610,10 @@ def _local_method(
                 else "not_applicable"
             ),
             "determinism_contract": (
-                "derived Torch seed per sample and track; exact outputs are "
-                "runtime-device-specific and are not cacheable"
+                "exact Torch seed derived from configured base seed, canonical "
+                "ProteinPrompt content digest, and zero-based sample-track "
+                "slot; exact outputs are runtime-device-specific and are not "
+                "cacheable"
             ),
         },
         model_identity={
@@ -625,23 +656,23 @@ def _binding(
     method_id = f"esm3.{operation}.esm3_{model['suffix']}"
     return ExecutionBindingDefinition(
         binding_id=f"esm3.{operation}.{model['route']}",
-        version=_VERSION,
+        version=_GENERATION_VERSION,
         node_type=ContractIdentity(
             "node_type",
             f"esm3.{operation}",
-            _VERSION,
+            _GENERATION_VERSION,
         ),
         method=ContractIdentity(
             "method",
             method_id,
-            _VERSION,
+            _GENERATION_VERSION,
         ),
         binding_parameters={},
         execution_route="adapter",
-        factory=LazyImplementationFactory(
+        factory=ScientificOperationFactory(
             behavior=BehaviorReference(
                 f"esm3.{operation}/factory",
-                _VERSION,
+                _GENERATION_VERSION,
                 {
                     "route": "biohub",
                     "model": model["model"],
@@ -650,21 +681,22 @@ def _binding(
             build=_build(
                 operation,
                 model_name=model["model"],
-                method_id=method_id,
             ),
         ),
         adapter_behavior=BehaviorReference(
             "esm3.biohub/adapter",
-            _VERSION,
+            _GENERATION_VERSION,
             {
                 "provider_contract": "esm-sdk-generate@917af90b",
                 "track_fidelity": "fail-closed-no-silent-field-discard",
+                "engine_identity": "exact_method_contract_digest",
+                "randomness_evidence": "provider_uncontrolled",
             },
         ),
         availability=AvailabilityDeclaration(
             behavior=BehaviorReference(
                 "esm3.biohub/availability",
-                _VERSION,
+                _GENERATION_VERSION,
                 {"observation": "startup"},
             ),
             prerequisites={
@@ -678,7 +710,7 @@ def _binding(
         readiness=ReadinessDeclaration(
             behavior=BehaviorReference(
                 "esm3.biohub/readiness",
-                _VERSION,
+                _GENERATION_VERSION,
                 {
                     "observation": "per-run",
                     "secret_retention": "none",
@@ -713,9 +745,10 @@ def _binding(
         effective_randomness_resolver=EffectiveRandomnessResolver(
             behavior=BehaviorReference(
                 "esm3.remote/effective-randomness",
-                _VERSION,
+                _GENERATION_VERSION,
                 {
                     "provider_seed_control": "unsupported_by_provider",
+                    "effective_seed_publication": "forbidden",
                     "sample_order": "zero-based",
                 },
             ),
@@ -728,19 +761,23 @@ def _local_binding(operation: str) -> ExecutionBindingDefinition:
     method_id = f"esm3.{operation}.esm3_sm_open_v1_local"
     return ExecutionBindingDefinition(
         binding_id=f"esm3.{operation}.local_open",
-        version=_VERSION,
+        version=_GENERATION_VERSION,
         node_type=ContractIdentity(
             "node_type",
             f"esm3.{operation}",
-            _VERSION,
+            _GENERATION_VERSION,
         ),
-        method=ContractIdentity("method", method_id, _VERSION),
+        method=ContractIdentity(
+            "method",
+            method_id,
+            _GENERATION_VERSION,
+        ),
         binding_parameters={},
         execution_route="adapter",
-        factory=LazyImplementationFactory(
+        factory=ScientificOperationFactory(
             behavior=BehaviorReference(
                 f"esm3.{operation}/factory",
-                _VERSION,
+                _GENERATION_VERSION,
                 {
                     "route": "local_open",
                     "model": LOCAL_ESM3_MODEL,
@@ -750,24 +787,27 @@ def _local_binding(operation: str) -> ExecutionBindingDefinition:
             build=_build_local(
                 operation,
                 model_name=LOCAL_ESM3_MODEL,
-                method_id=method_id,
             ),
         ),
         adapter_behavior=BehaviorReference(
             "esm3.local_open/adapter",
-            _VERSION,
+            _GENERATION_VERSION,
             {
                 "provider_contract": (
                     "esm-sdk-local-generate@917af90b"
                 ),
                 "track_fidelity": "fail-closed-no-silent-field-discard",
-                "seed_control": "derived-torch-seed-per-sample-track",
+                "engine_identity": "exact_method_contract_digest",
+                "seed_control": (
+                    "exact-torch-seed-from-input-content-and-sample-track-slot"
+                ),
+                "randomness_evidence": "exact_seed",
             },
         ),
         availability=AvailabilityDeclaration(
             behavior=BehaviorReference(
                 "esm3.local_open/availability",
-                _VERSION,
+                _GENERATION_VERSION,
                 {
                     "observation": "startup",
                     "model_load": "forbidden",
@@ -788,7 +828,7 @@ def _local_binding(operation: str) -> ExecutionBindingDefinition:
         readiness=ReadinessDeclaration(
             behavior=BehaviorReference(
                 "esm3.local_open/readiness",
-                _VERSION,
+                _GENERATION_VERSION,
                 {
                     "observation": "per-run",
                     "secret_retention": "none",
@@ -842,8 +882,9 @@ def _local_binding(operation: str) -> ExecutionBindingDefinition:
             ),
             "seed_control": "torch_local",
             "determinism_contract": (
-                "derived Torch seed per sample and track; no cross-device "
-                "bitwise guarantee"
+                "exact Torch seed derived from configured base seed, canonical "
+                "ProteinPrompt content digest, and zero-based sample-track "
+                "slot; no cross-device bitwise guarantee"
             ),
             "cache_policy": "runtime-device-specific_generation_not_cacheable",
         },
@@ -852,11 +893,13 @@ def _local_binding(operation: str) -> ExecutionBindingDefinition:
         effective_randomness_resolver=EffectiveRandomnessResolver(
             behavior=BehaviorReference(
                 "esm3.local/effective-randomness",
-                _VERSION,
+                _GENERATION_VERSION,
                 {
                     "provider_seed_control": "torch_local",
                     "sample_order": "zero-based",
-                    "track_scope": "sample-and-track",
+                    "seed_scope": (
+                        "scientific-input-content-and-sample-track-slot"
+                    ),
                 },
             ),
             resolve=_resolve_effective_randomness,
@@ -867,7 +910,7 @@ def _local_binding(operation: str) -> ExecutionBindingDefinition:
 MODULE_PACKAGE = ModulePackageRegistration(
     schema_version="2.1.0",
     package_id="esm3",
-    package_version=_VERSION,
+    package_version=_PACKAGE_VERSION,
     package_module=__package__,
     node_definitions=(
         DefinitionResource("definitions/generate_sequence.yaml"),

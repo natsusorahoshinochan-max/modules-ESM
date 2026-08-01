@@ -4,11 +4,11 @@ from __future__ import annotations
 
 import re
 from io import StringIO
-from typing import Any, Mapping
+from typing import Any
 
 from Bio.PDB import PDBParser
 
-from core import ArtifactPayload
+from core import ArtifactPayload, OperationCall, RunResources
 from datatypes import (
     Candidate,
     CandidateCollection,
@@ -37,23 +37,18 @@ def _native_pdb_bytes(structure: ProteinStructure, *, subject: str) -> bytes:
 class SequenceImportImplementation:
     """Parse one immutable Project-scoped FASTA value."""
 
-    def __init__(self, run_resources: Any) -> None:
+    def __init__(self, run_resources: RunResources) -> None:
         self._run_resources = run_resources
 
-    def execute(
-        self,
-        *,
-        inputs: Mapping[str, Any],
-        node_parameters: Mapping[str, Any],
-        binding_parameters: Mapping[str, Any],
-    ) -> dict[str, Any]:
+    def execute(self, call: OperationCall) -> dict[str, Any]:
+        inputs = call.inputs
+        node_parameters = call.node_parameters
+        binding_parameters = call.binding_parameters
         if inputs or binding_parameters:
             raise ValueError("sequence import accepts no connected inputs")
         reference = node_parameters["project_input_ref"]
         _, payload = self._run_resources.read_project_input(reference)
-        with self._run_resources.engine_invocation(
-            engine_identity="protein_io.import_sequence.method/2.1.0",
-        ):
+        with self._run_resources.engine_invocation():
             try:
                 text = payload.decode("utf-8")
             except UnicodeDecodeError as error:
@@ -89,23 +84,18 @@ class SequenceImportImplementation:
 class StructureImportImplementation:
     """Parse one immutable Project-scoped PDB value."""
 
-    def __init__(self, run_resources: Any) -> None:
+    def __init__(self, run_resources: RunResources) -> None:
         self._run_resources = run_resources
 
-    def execute(
-        self,
-        *,
-        inputs: Mapping[str, Any],
-        node_parameters: Mapping[str, Any],
-        binding_parameters: Mapping[str, Any],
-    ) -> dict[str, Any]:
+    def execute(self, call: OperationCall) -> dict[str, Any]:
+        inputs = call.inputs
+        node_parameters = call.node_parameters
+        binding_parameters = call.binding_parameters
         if inputs or binding_parameters:
             raise ValueError("structure import accepts no connected inputs")
         reference = node_parameters["project_input_ref"]
         _, payload = self._run_resources.read_project_input(reference)
-        with self._run_resources.engine_invocation(
-            engine_identity="protein_io.import_structure.method/2.1.0",
-        ):
+        with self._run_resources.engine_invocation():
             try:
                 text = payload.decode("utf-8")
             except UnicodeDecodeError as error:
@@ -129,10 +119,7 @@ class StructureImportImplementation:
                 raise ValueError("Structure input is malformed PDB text") from error
             if next(parsed.get_atoms(), None) is None:
                 raise ValueError("Structure input contains no parseable PDB atoms")
-        structure = ProteinStructure(
-            pdb_string=canonical,
-            source="project_input",
-        )
+        structure = ProteinStructure(pdb_string=canonical)
         return {
             "structure": structure,
             "structure_candidates": CandidateCollection(
@@ -153,24 +140,19 @@ class StructureImportImplementation:
 class SequenceExportImplementation:
     """Serialize one validated ProteinSequence without exposing a path."""
 
-    def __init__(self, run_resources: Any) -> None:
+    def __init__(self, run_resources: RunResources) -> None:
         self._run_resources = run_resources
 
-    def execute(
-        self,
-        *,
-        inputs: Mapping[str, Any],
-        node_parameters: Mapping[str, Any],
-        binding_parameters: Mapping[str, Any],
-    ) -> dict[str, Any]:
+    def execute(self, call: OperationCall) -> dict[str, Any]:
+        inputs = call.inputs
+        node_parameters = call.node_parameters
+        binding_parameters = call.binding_parameters
         if node_parameters or binding_parameters:
             raise ValueError("sequence export takes no parameters")
         sequence = inputs.get("sequence")
         if type(sequence) is not ProteinSequence or len(inputs) != 1:
             raise ValueError("sequence export requires one ProteinSequence")
-        with self._run_resources.engine_invocation(
-            engine_identity="protein_io.export_sequence.method/2.1.0",
-        ):
+        with self._run_resources.engine_invocation():
             chars = sequence.sequence
             if not chars.isascii():
                 raise ValueError(
@@ -197,16 +179,13 @@ class SequenceExportImplementation:
 class StructureExportImplementation:
     """Serialize one ProteinStructure without changing its PDB text."""
 
-    def __init__(self, run_resources: Any) -> None:
+    def __init__(self, run_resources: RunResources) -> None:
         self._run_resources = run_resources
 
-    def execute(
-        self,
-        *,
-        inputs: Mapping[str, Any],
-        node_parameters: Mapping[str, Any],
-        binding_parameters: Mapping[str, Any],
-    ) -> dict[str, Any]:
+    def execute(self, call: OperationCall) -> dict[str, Any]:
+        inputs = call.inputs
+        node_parameters = call.node_parameters
+        binding_parameters = call.binding_parameters
         if node_parameters or binding_parameters:
             raise ValueError("structure export takes no parameters")
         structure = inputs.get("structure")
@@ -226,9 +205,7 @@ class StructureExportImplementation:
                 )
             if len(structures.items) > 2_048:
                 raise ValueError("structures exceed the artifact count bound")
-            with self._run_resources.engine_invocation(
-                engine_identity="protein_io.export_structure.method/2.1.0",
-            ):
+            with self._run_resources.engine_invocation():
                 artifacts = []
                 for index, candidate in enumerate(structures.items):
                     body = _native_pdb_bytes(
@@ -244,9 +221,7 @@ class StructureExportImplementation:
                         )
                     )
             return {"candidate_artifacts": artifacts}
-        with self._run_resources.engine_invocation(
-            engine_identity="protein_io.export_structure.method/2.1.0",
-        ):
+        with self._run_resources.engine_invocation():
             body = _native_pdb_bytes(
                 structure,
                 subject="structure input",

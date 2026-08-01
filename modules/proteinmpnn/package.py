@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 import importlib.metadata
 import importlib.util
 import math
@@ -16,33 +16,53 @@ from core import (
     DefinitionResource,
     EffectiveRandomnessResolver,
     ExecutionBindingDefinition,
-    LazyImplementationFactory,
     MethodDefinition,
     ModulePackageRegistration,
+    OperationContext,
     PortTypeDefinition,
     ProducedObservationDefinition,
     ReadinessCheckInput,
     ReadinessDeclaration,
     ReadinessResult,
+    ScientificOperation,
+    ScientificOperationFactory,
 )
+from datatypes import ProteinMPNNConstraints
+from datatypes.i_json import thaw_i_json
 from modules.provider_contract import (
     PROTEINMPNN_REVISION,
     PROTEINMPNN_V_48_020_SHA256,
 )
 
-from .v2_adapter import (
+from .adapter import (
+    LocalProteinMPNNAdapter,
     PROTEINMPNN_CHECKPOINT,
     PROTEINMPNN_DEVICE,
     PROTEINMPNN_MODEL,
     PROTEINMPNN_TORCH_VERSION,
     proteinmpnn_readiness,
 )
-from .domain import normalize_design_parameters, validate_constraints_against_layout
-from datatypes import ProteinMPNNConstraints
+from .domain import (
+    normalize_design_parameters,
+    validate_constraints_against_layout,
+)
 
 
-_VERSION = "2.1.0"
+_PACKAGE_VERSION = "2.1.0"
+_CONSTRAINTS_VERSION = "3.0.0"
 _OPERATIONS = ("constraints", "random_fixed_positions", "design", "score")
+_NODE_BINDING_VERSIONS = {
+    "constraints": "3.0.0",
+    "random_fixed_positions": "3.0.0",
+    "design": "4.0.0",
+    "score": "2.1.0",
+}
+_METHOD_VERSIONS = {
+    "constraints": "3.0.0",
+    "random_fixed_positions": "3.0.0",
+    "design": "3.0.0",
+    "score": "2.1.0",
+}
 
 
 def _validate_constraints(value: object) -> None:
@@ -54,7 +74,7 @@ def _validate_constraints(value: object) -> None:
 def _constraints_to_wire(value: object) -> dict[str, object]:
     _validate_constraints(value)
     assert type(value) is ProteinMPNNConstraints
-    return {
+    return thaw_i_json({
         "layout": {
             "chain_id": value.layout.chain_id,
             "length": value.layout.length,
@@ -76,7 +96,7 @@ def _constraints_to_wire(value: object) -> dict[str, object]:
                 )
             ]
         ),
-    }
+    })
 
 
 def _constraints_from_wire(value: object) -> ProteinMPNNConstraints:
@@ -152,10 +172,10 @@ def _constraints_port_type() -> PortTypeDefinition:
     )
     return PortTypeDefinition(
         type_id="proteinmpnn.constraints",
-        version=_VERSION,
+        version=_CONSTRAINTS_VERSION,
         validator=BehaviorReference(
             behavior_id=f"{behavior_prefix}/validate",
-            behavior_version=_VERSION,
+            behavior_version=_CONSTRAINTS_VERSION,
             parameters={
                 "accepted_value_kind": "proteinmpnn_constraints",
                 "complete_values_only": True,
@@ -163,7 +183,7 @@ def _constraints_port_type() -> PortTypeDefinition:
         ),
         codec=BehaviorReference(
             behavior_id=f"{behavior_prefix}/canonical-json-codec",
-            behavior_version=_VERSION,
+            behavior_version=_CONSTRAINTS_VERSION,
             parameters={
                 "canonicalization": "RFC 8785",
                 "character_encoding": "UTF-8",
@@ -173,7 +193,7 @@ def _constraints_port_type() -> PortTypeDefinition:
         ),
         content_identity=BehaviorReference(
             behavior_id=f"{behavior_prefix}/content-sha256",
-            behavior_version=_VERSION,
+            behavior_version=_CONSTRAINTS_VERSION,
             parameters={
                 "digest_algorithm": "SHA-256",
                 "digest_input": "canonical_codec_bytes",
@@ -218,8 +238,10 @@ def _model_ready(check_input: ReadinessCheckInput) -> ReadinessResult:
     return proteinmpnn_readiness(check_input.values)
 
 
-def _build(operation: str):
-    def factory(**kwargs: object) -> object:
+def _build(
+    operation: str,
+) -> Callable[[OperationContext], ScientificOperation]:
+    def factory(context: OperationContext) -> ScientificOperation:
         from .implementation import (
             ProteinMPNNConstraintsImplementation,
             ProteinMPNNDesignImplementation,
@@ -227,28 +249,41 @@ def _build(operation: str):
             ProteinMPNNScoreImplementation,
         )
 
-        implementation = {
-            "constraints": ProteinMPNNConstraintsImplementation,
-            "random_fixed_positions": (
-                ProteinMPNNRandomFixedPositionsImplementation
-            ),
-            "design": ProteinMPNNDesignImplementation,
-            "score": ProteinMPNNScoreImplementation,
-        }[operation]
-        return implementation(
-            kwargs["run_resources"],
-            kwargs["environment_configuration"],
-            kwargs["frozen_catalog"],
+        if operation == "constraints":
+            return ProteinMPNNConstraintsImplementation(context.resources)
+        if operation == "random_fixed_positions":
+            return ProteinMPNNRandomFixedPositionsImplementation(
+                context.resources
+            )
+        adapter = LocalProteinMPNNAdapter(
+            environment=context.environment,
+            resources=context.resources,
+        )
+        if operation == "design":
+            return ProteinMPNNDesignImplementation(
+                resources=context.resources,
+                adapter=adapter,
+            )
+        if len(context.produced_observations) != 1:
+            raise RuntimeError(
+                "ProteinMPNN score Binding must resolve one Observation"
+            )
+        observation = context.produced_observations[0]
+        return ProteinMPNNScoreImplementation(
+            adapter=adapter,
+            method=context.method,
+            metric=observation.metric,
         )
 
     return factory
 
 
 def _method(operation: str) -> MethodDefinition:
+    version = _METHOD_VERSIONS[operation]
     if operation == "score":
         return MethodDefinition(
             method_id="proteinmpnn.score.v_48_020_8907e667",
-            version=_VERSION,
+            version=version,
             algorithm_identity={
                 "name": "ProteinMPNN conditional sequence scoring",
                 "provider_operation": "score_sequence",
@@ -291,7 +326,7 @@ def _method(operation: str) -> MethodDefinition:
     if operation == "design":
         return MethodDefinition(
             method_id="proteinmpnn.design.v_48_020_8907e667",
-            version=_VERSION,
+            version=version,
             algorithm_identity={
                 "name": "ProteinMPNN conditional sequence design",
                 "sampling": "autoregressive decoding",
@@ -334,7 +369,7 @@ def _method(operation: str) -> MethodDefinition:
         )
     return MethodDefinition(
         method_id=f"proteinmpnn.{operation}.repository_owned",
-        version=_VERSION,
+        version=version,
         algorithm_identity={
             "name": (
                 "validated-constraint-authoring"
@@ -400,6 +435,7 @@ def _resolve_design_randomness(
 
 
 def _binding(operation: str) -> ExecutionBindingDefinition:
+    version = _NODE_BINDING_VERSIONS[operation]
     is_design = operation == "design"
     is_model = operation in {"design", "score"}
     randomness_parameters = (
@@ -427,7 +463,7 @@ def _binding(operation: str) -> ExecutionBindingDefinition:
                 metric=ContractIdentity(
                     "metric",
                     "proteinmpnn.native_sequence_nll",
-                    _VERSION,
+                    version,
                 ),
                 context_profile={"kind": "intrinsic"},
                 subject_grain="candidate",
@@ -442,19 +478,23 @@ def _binding(operation: str) -> ExecutionBindingDefinition:
     )
     return ExecutionBindingDefinition(
         binding_id=f"proteinmpnn.{operation}.local",
-        version=_VERSION,
+        version=version,
         node_type=ContractIdentity(
             "node_type",
             f"proteinmpnn.{operation}",
-            _VERSION,
+            version,
         ),
-        method=ContractIdentity("method", method_id, _VERSION),
+        method=ContractIdentity(
+            "method",
+            method_id,
+            _METHOD_VERSIONS[operation],
+        ),
         binding_parameters={},
         execution_route="adapter" if is_model else "direct",
-        factory=LazyImplementationFactory(
+        factory=ScientificOperationFactory(
             behavior=BehaviorReference(
                 f"proteinmpnn.{operation}/factory",
-                _VERSION,
+                version,
                 {
                     "route": "local" if is_model else "repository-owned",
                     "model": PROTEINMPNN_MODEL if is_model else "none",
@@ -465,7 +505,7 @@ def _binding(operation: str) -> ExecutionBindingDefinition:
         adapter_behavior=(
             BehaviorReference(
                 "proteinmpnn.local/adapter",
-                _VERSION,
+                version,
                 {
                     "provider_contract": (
                         f"dauparas/ProteinMPNN@{PROTEINMPNN_REVISION}"
@@ -481,7 +521,7 @@ def _binding(operation: str) -> ExecutionBindingDefinition:
         availability=AvailabilityDeclaration(
             behavior=BehaviorReference(
                 f"proteinmpnn.{operation}/availability",
-                _VERSION,
+                version,
                 {
                     "observation": "startup",
                     "model_load": "forbidden",
@@ -506,7 +546,7 @@ def _binding(operation: str) -> ExecutionBindingDefinition:
         readiness=ReadinessDeclaration(
             behavior=BehaviorReference(
                 f"proteinmpnn.{operation}/readiness",
-                _VERSION,
+                version,
                 {
                     "observation": "per-run",
                     "cache_order": "before-cache-lookup",
@@ -578,7 +618,7 @@ def _binding(operation: str) -> ExecutionBindingDefinition:
             EffectiveRandomnessResolver(
                 behavior=BehaviorReference(
                     f"proteinmpnn.{operation}/effective-randomness",
-                    _VERSION,
+                    version,
                     {
                         "normalization": (
                             "resolved-values-and-explicit-layout-v1"
@@ -601,7 +641,7 @@ def _binding(operation: str) -> ExecutionBindingDefinition:
 MODULE_PACKAGE = ModulePackageRegistration(
     schema_version="2.1.0",
     package_id="proteinmpnn",
-    package_version=_VERSION,
+    package_version=_PACKAGE_VERSION,
     package_module=__package__,
     port_types=(_constraints_port_type(),),
     node_definitions=(

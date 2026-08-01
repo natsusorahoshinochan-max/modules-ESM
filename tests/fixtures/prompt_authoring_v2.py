@@ -28,6 +28,7 @@ from tests.fixtures.prompt_authoring_sources.package import (
 
 
 VERSION = "2.1.0"
+SOURCE_VERSION = "3.0.0"
 SOURCE_LAYOUT = ResidueLayout(
     chain_id="A,B",
     length=3,
@@ -125,13 +126,14 @@ def prepare_operation(
     source = WorkflowNodeInstance(
         node_id="source",
         node_type_id="contract_test.prompt_authoring_values",
-        node_type_version=VERSION,
+        node_type_version=SOURCE_VERSION,
         binding_id="contract_test.prompt_authoring_values.direct",
-        binding_version=VERSION,
+        binding_version=SOURCE_VERSION,
         node_parameters={"fixture": source_fixture},
         binding_parameters={},
     )
     binding_id = f"prompt_authoring.{operation}.direct"
+    operation_version = "3.0.0" if operation == "prompt_from_structure" else VERSION
     workflow = WorkflowDocument(
         schema_version=VERSION,
         workflow_id=project.id,
@@ -140,9 +142,9 @@ def prepare_operation(
             WorkflowNodeInstance(
                 node_id="author",
                 node_type_id=f"prompt_authoring.{operation}",
-                node_type_version=VERSION,
+                node_type_version=operation_version,
                 binding_id=binding_id,
-                binding_version=VERSION,
+                binding_version=operation_version,
                 node_parameters=node_parameters,
                 binding_parameters={},
             ),
@@ -171,7 +173,7 @@ def prepare_operation(
         authoring,
         EnvironmentConfiguration(
             {
-                (binding_id, VERSION): {
+                (binding_id, operation_version): {
                     "values": {
                         "credential": (
                             f"not-result-affecting-{environment_label}"

@@ -497,7 +497,6 @@ def fold_sequence(
     num_steps: int,
     num_samples: int,
     project_dir: str,
-    call_details: dict[str, Any],
     effective_seed: int,
     model_root: Path,
     esm2_source_root: Path,
@@ -658,7 +657,7 @@ def fold_sequence(
 
             # Get PDB string
             pdb_string = sf_to_pdb(structure_save, plddts=plddt_i)
-            ps = ProteinStructure(pdb_string=pdb_string, source="simplefold")
+            ps = ProteinStructure(pdb_string=pdb_string)
             structures.append(ps)
 
             # Collect pLDDT scores

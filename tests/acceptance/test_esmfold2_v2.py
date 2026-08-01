@@ -80,8 +80,16 @@ def test_remote_esmfold2_v2_folds_3gb1_through_exact_binding(
     structures, confidence, pae = _fold_outputs(catalog, projection)
     assert len(structures.items) == 1
     candidate = structures.items[0]
-    assert candidate.metadata["route"] == "remote"
-    assert candidate.metadata["model"] == REMOTE_ESMFOLD2_MODEL
+    assert {
+        "provider",
+        "model",
+        "route",
+        "runtime_fingerprint",
+        "checkpoint",
+        "seed_control",
+        "configured_base_seed",
+        "effective_call_seed",
+    }.isdisjoint(candidate.metadata)
     assert candidate.parent_ids
     assert len(candidate.data.pdb_string) > 0
     values = {
@@ -109,21 +117,32 @@ def test_remote_esmfold2_v2_folds_3gb1_through_exact_binding(
         and all(value >= 0.0 for value in row)
         for row in pae.entries[0].value
     )
+    binding = catalog.require_contract(
+        "binding",
+        "folding.fold.esmfold2_remote",
+        "3.0.0",
+    )
+    method_ref = binding.descriptor["method"]
+    method = catalog.require_contract(
+        "method",
+        method_ref["contract_id"],
+        method_ref["contract_version"],
+    )
     selected_invocations = [
         event["event"]
         for event in events
         if event["event"]["type"] == "engine_invocation_started"
-        and event["event"]["engine_identity"].startswith(
-            "folding.esmfold2_remote."
-        )
+        and event["event"]["engine_role"] == "fold_parent_0_sample_0"
     ]
     assert len(selected_invocations) == 1
-    assert not any(
-        event["event"].get("engine_identity", "").startswith(
-            "folding.esmfold2_local."
-        )
-        for event in events
+    assert selected_invocations[0]["engine_identity"] == (
+        method.contract_digest
     )
+    assert selected_invocations[0]["invocation_provenance"] == {
+        "effective_randomness": {
+            "control": "provider_uncontrolled",
+        }
+    }
 
 
 @pytest.mark.acceptance
@@ -200,7 +219,17 @@ def test_local_esmfold2_v2_source_contract_and_native_result(
     structures, confidence, pae = _fold_outputs(catalog, projection)
     assert len(client.calls) == 1
     assert client.calls[0][0] == "AG"
-    assert structures.items[0].metadata["route"] == "local"
+    metadata = structures.items[0].metadata
+    assert {
+        "provider",
+        "model",
+        "route",
+        "runtime_fingerprint",
+        "checkpoint",
+        "seed_control",
+    }.isdisjoint(metadata)
+    assert metadata["configured_base_seed"] == 1603
+    assert metadata["effective_call_seed"] == client.calls[0][1]
     values = {
         observation.metric.contract_id: observation.value
         for observation in confidence.entries
@@ -210,23 +239,32 @@ def test_local_esmfold2_v2_source_contract_and_native_result(
     )
     assert values["structure.plddt.mean_residue"] == pytest.approx(75.0)
     assert values["structure.ptm"] == 0.625
-    assert pae.entries[0].value == [[0.0, 1.0], [1.0, 0.0]]
+    assert pae.entries[0].value == ((0.0, 1.0), (1.0, 0.0))
     readiness_index = next(
         index
         for index, event in enumerate(events)
         if event["event"]["type"] == "readiness_attested"
         and event["event"]["binding"]["contract_id"]
         == "folding.fold.esmfold2_local"
-        and event["event"]["binding"]["contract_version"] == "2.1.0"
+        and event["event"]["binding"]["contract_version"] == "3.0.0"
         and event["event"]["conclusion"] == "passing"
+    )
+    binding = catalog.require_contract(
+        "binding",
+        "folding.fold.esmfold2_local",
+        "3.0.0",
+    )
+    method_ref = binding.descriptor["method"]
+    method = catalog.require_contract(
+        "method",
+        method_ref["contract_id"],
+        method_ref["contract_version"],
     )
     started = [
         event["event"]
         for event in events
         if event["event"]["type"] == "engine_invocation_started"
-        and event["event"]["engine_identity"].startswith(
-            "folding.esmfold2_local."
-        )
+        and event["event"]["engine_role"] == "fold_parent_0_sample_0"
     ]
     terminals = [
         event["event"]
@@ -237,6 +275,13 @@ def test_local_esmfold2_v2_source_contract_and_native_result(
     ]
     assert len(started) == len(terminals) == 1
     assert terminals[0]["status"] == "succeeded"
+    assert started[0]["engine_identity"] == method.contract_digest
+    assert started[0]["invocation_provenance"] == {
+        "effective_randomness": {
+            "control": "exact_seed",
+            "effective_seed": metadata["effective_call_seed"],
+        }
+    }
     invocation_index = next(
         index
         for index, event in enumerate(events)
@@ -252,12 +297,6 @@ def test_local_esmfold2_v2_source_contract_and_native_result(
         for event in events
         if event["event"]["type"] == "run_terminal"
     ] == ["succeeded"]
-    assert not any(
-        event["event"].get("engine_identity", "").startswith(
-            "folding.esmfold2_remote."
-        )
-        for event in events
-    )
 
 
 @pytest.mark.acceptance
@@ -313,7 +352,17 @@ def test_local_esmfold2_v2_invokes_exact_source_bound_assets(
     assert projection["status"] == "succeeded", projection
     structures, confidence, pae = _fold_outputs(catalog, projection)
     assert len(structures.items) == 1
-    assert structures.items[0].metadata["route"] == "local"
+    metadata = structures.items[0].metadata
+    assert {
+        "provider",
+        "model",
+        "route",
+        "runtime_fingerprint",
+        "checkpoint",
+        "seed_control",
+    }.isdisjoint(metadata)
+    assert metadata["configured_base_seed"] == 1603
+    assert type(metadata["effective_call_seed"]) is int
     assert structures.items[0].data.pdb_string
     assert {
         observation.method.contract_id
@@ -325,15 +374,25 @@ def test_local_esmfold2_v2_invokes_exact_source_bound_assets(
         if event["event"]["type"] == "readiness_attested"
         and event["event"]["binding"]["contract_id"]
         == "folding.fold.esmfold2_local"
+        and event["event"]["binding"]["contract_version"] == "3.0.0"
         and event["event"]["conclusion"] == "passing"
+    )
+    binding = catalog.require_contract(
+        "binding",
+        "folding.fold.esmfold2_local",
+        "3.0.0",
+    )
+    method_ref = binding.descriptor["method"]
+    method = catalog.require_contract(
+        "method",
+        method_ref["contract_id"],
+        method_ref["contract_version"],
     )
     started = [
         event["event"]
         for event in events
         if event["event"]["type"] == "engine_invocation_started"
-        and event["event"]["engine_identity"].startswith(
-            "folding.esmfold2_local."
-        )
+        and event["event"]["engine_role"] == "fold_parent_0_sample_0"
     ]
     terminal = [
         event["event"]
@@ -343,6 +402,13 @@ def test_local_esmfold2_v2_invokes_exact_source_bound_assets(
     ]
     assert len(started) == 1
     assert [event["status"] for event in terminal] == ["succeeded"]
+    assert started[0]["engine_identity"] == method.contract_digest
+    assert started[0]["invocation_provenance"] == {
+        "effective_randomness": {
+            "control": "exact_seed",
+            "effective_seed": metadata["effective_call_seed"],
+        }
+    }
     invocation_index = next(
         index
         for index, event in enumerate(events)
@@ -354,9 +420,3 @@ def test_local_esmfold2_v2_invokes_exact_source_bound_assets(
         for event in events
         if event["event"]["type"] == "run_terminal"
     ] == ["succeeded"]
-    assert not any(
-        event["event"].get("engine_identity", "").startswith(
-            "folding.esmfold2_remote."
-        )
-        for event in events
-    )

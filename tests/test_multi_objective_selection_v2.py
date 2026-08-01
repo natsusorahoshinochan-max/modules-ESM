@@ -13,9 +13,12 @@ from fastapi.testclient import TestClient
 
 import core.run_execution_v2 as run_execution_v2
 from core import (
+    CatalogContract,
+    FrozenCatalog,
     ModulePackageContractCase,
     ObservationSelector,
     PairwiseContextSelector,
+    PortValueError,
     SelectionInput,
     SelectionObjective,
     WorkflowDocument,
@@ -42,6 +45,7 @@ from tests.fixtures.multi_objective_selection_sources.package import (
     MODULE_PACKAGE as SOURCE_PACKAGE,
 )
 from tests.fixtures.public_v2 import wait_for_testclient_run_terminal
+from tests.fixtures.scientific_operation import build_operation, operation_call
 
 
 VERSION = "2.1.0"
@@ -55,6 +59,80 @@ def _catalog():
             STRUCTURE_COMPARISON_PACKAGE,
             SOURCE_PACKAGE,
         )
+    )
+
+
+def _catalog_with_default_selection_parameter(
+    operation: str,
+    parameter_name: str,
+    default: object,
+) -> FrozenCatalog:
+    base = _catalog()
+    node_id = f"selection.{operation}"
+    binding_id = f"selection.{operation}.direct"
+    original_node = base.require_contract("node_type", node_id, VERSION)
+    node_descriptor = json.loads(canonical_json_bytes(original_node.descriptor))
+    parameter = node_descriptor["node_parameters"][parameter_name]
+    parameter.pop("required", None)
+    parameter["default"] = default
+    node = CatalogContract(
+        contract_kind="node_type",
+        contract_id=node_id,
+        contract_version=VERSION,
+        descriptor=node_descriptor,
+    )
+    original_binding = base.require_contract(
+        "binding",
+        binding_id,
+        VERSION,
+    )
+    binding_descriptor = json.loads(
+        canonical_json_bytes(original_binding.descriptor)
+    )
+    binding_descriptor["node_type"] = node.reference()
+    binding = CatalogContract(
+        contract_kind="binding",
+        contract_id=binding_id,
+        contract_version=VERSION,
+        descriptor=binding_descriptor,
+    )
+    contracts = tuple(
+        node
+        if (
+            contract.contract_kind,
+            contract.contract_id,
+        )
+        == ("node_type", node_id)
+        else binding
+        if (
+            contract.contract_kind,
+            contract.contract_id,
+        )
+        == ("binding", binding_id)
+        else contract
+        for contract in base.contracts
+    )
+    availability = tuple(
+        {
+            **json.loads(canonical_json_bytes(snapshot)),
+            "binding": (
+                binding.reference()
+                if snapshot["binding"]["contract_id"] == binding_id
+                else json.loads(canonical_json_bytes(snapshot["binding"]))
+            ),
+        }
+        for snapshot in base.availability
+    )
+    return FrozenCatalog(
+        base.port_types,
+        contracts=contracts,
+        availability=availability,
+        availability_observed_at=base.availability_observed_at,
+        factories=base.factories,
+        readiness_declarations=base.readiness_declarations,
+        effective_randomness_resolvers=base.effective_randomness_resolvers,
+        utility_transforms=base.utility_transforms,
+        owners=base.owners,
     )
 
 
@@ -265,6 +343,100 @@ def test_compiler_binds_every_explicit_objective_to_exact_node_inputs(
         )
 
 
+@pytest.mark.parametrize(
+    ("operation", "parameter_name", "default"),
+    (
+        ("sort", "objective_id", "fixed-3gb1"),
+        (
+            "weighted_rank",
+            "objective_ids",
+            ["fixed-3gb1", "paired-esm3"],
+        ),
+        ("filter", "selector_id", "fixed-3gb1-raw"),
+    ),
+)
+def test_compiler_resolves_selection_consumers_from_normalized_defaults(
+    operation: str,
+    parameter_name: str,
+    default: object,
+) -> None:
+    catalog = _catalog_with_default_selection_parameter(
+        operation,
+        parameter_name,
+        default,
+    )
+    node_parameters: dict[str, object]
+    if operation == "filter":
+        node_parameters = {
+            "operator": ">=",
+            "threshold": 0.5,
+        }
+    else:
+        node_parameters = {}
+    selection_node = WorkflowNodeInstance(
+        node_id="select",
+        node_type_id=f"selection.{operation}",
+        node_type_version=VERSION,
+        binding_id=f"selection.{operation}.direct",
+        binding_version=VERSION,
+        node_parameters=node_parameters,
+        binding_parameters={},
+    )
+    workflow = WorkflowDocument(
+        schema_version=VERSION,
+        workflow_id=f"defaulted-{operation}",
+        nodes=(_source(), selection_node),
+        edges=(
+            WorkflowEdge(
+                "canonical-source",
+                "candidates",
+                "select",
+                "candidates",
+            ),
+            WorkflowEdge(
+                "canonical-source",
+                "scores",
+                "select",
+                "scores",
+            ),
+        ),
+        contract_lock=(),
+        observation_selectors=(
+            _selectors(catalog) if operation == "filter" else ()
+        ),
+        selection_objectives=(
+            () if operation == "filter" else _objectives(catalog)
+        ),
+    )
+
+    compiled = compile_workflow(
+        relock_workflow(workflow, catalog),
+        workflow_revision=1,
+        catalog=catalog,
+    )
+
+    plan_node = next(
+        node
+        for node in compiled.execution_plan.nodes
+        if node.node_id == "select"
+    )
+    expected = tuple(default) if isinstance(default, list) else default
+    assert plan_node.node_parameters[parameter_name] == expected
+    if operation == "filter":
+        assert [
+            item.selector.selector_id
+            for item in plan_node._runtime.observation_selectors
+        ] == ["fixed-3gb1-raw"]
+    else:
+        expected_objective_ids = (
+            tuple(default) if isinstance(default, list) else (default,)
+        )
+        assert tuple(
+            item.objective.objective_id
+            for item in plan_node._runtime.selection_objectives
+        ) == expected_objective_ids
+
+
 def test_canonical_scopes_yield_accepted_weighted_top_three() -> None:
     catalog = _catalog()
     workflow = _workflow(catalog, "weighted_rank")
@@ -273,45 +445,40 @@ def test_canonical_scopes_yield_accepted_weighted_top_three() -> None:
         workflow_revision=1,
         catalog=catalog,
     ).execution_plan
-    source = catalog.require_factory(
+    source = build_operation(
+        catalog,
         "contract_test.multi_objective_selection_source.direct",
-        VERSION,
-    ).build(
-        execution_plan=plan,
-        frozen_catalog=catalog,
-        environment_configuration={},
-        run_resources=None,
+        None,
+        selection_objectives=plan.selection_objectives,
+        observation_selectors=plan.observation_selectors,
     )
-    values = source.execute(
-        inputs={},
-        node_parameters={},
-        binding_parameters={},
-    )
-    implementation = catalog.require_factory(
+    values = source.execute(operation_call())
+    implementation = build_operation(
+        catalog,
         "selection.weighted_rank.direct",
-        VERSION,
-    ).build(
-        execution_plan=plan,
-        frozen_catalog=catalog,
-        environment_configuration={},
-        run_resources=None,
+        None,
+        selection_objectives=plan.selection_objectives,
+        observation_selectors=plan.observation_selectors,
     )
 
-    selected = implementation.execute(
+    call = operation_call(
+        catalog=catalog,
+        binding_id="selection.weighted_rank.direct",
         inputs={
             "candidates": values["candidates"],
             "scores": values["scores"],
         },
         node_parameters=_selection("weighted_rank").node_parameters,
         binding_parameters={},
-    )["candidates"]
+    )
+    selected = implementation.execute(call)["candidates"]
 
     assert [candidate.candidate_id for candidate in selected.items[:3]] == [
         "bravo",
         "charlie",
         "delta",
     ]
-    assert selected.items[0] is values["candidates"].items[2]
+    assert selected.items[0] is call.inputs["candidates"].items[2]
 
 
 def test_pareto_and_exact_diversity_method_are_deterministic() -> None:
@@ -321,20 +488,14 @@ def test_pareto_and_exact_diversity_method_are_deterministic() -> None:
         workflow_revision=1,
         catalog=catalog,
     ).execution_plan
-    source = catalog.require_factory(
+    source = build_operation(
+        catalog,
         "contract_test.multi_objective_selection_source.direct",
-        VERSION,
-    ).build(
-        execution_plan=source_plan,
-        frozen_catalog=catalog,
-        environment_configuration={},
-        run_resources=None,
+        None,
+        selection_objectives=source_plan.selection_objectives,
+        observation_selectors=source_plan.observation_selectors,
     )
-    values = source.execute(
-        inputs={},
-        node_parameters={},
-        binding_parameters={},
-    )
+    values = source.execute(operation_call())
 
     def execute(operation: str):
         plan = compile_workflow(
@@ -342,23 +503,23 @@ def test_pareto_and_exact_diversity_method_are_deterministic() -> None:
             workflow_revision=1,
             catalog=catalog,
         ).execution_plan
-        implementation = catalog.require_factory(
+        implementation = build_operation(
+            catalog,
             f"selection.{operation}.direct",
-            VERSION,
-        ).build(
-            execution_plan=plan,
-            frozen_catalog=catalog,
-            environment_configuration={},
-            run_resources=None,
+            None,
+            selection_objectives=plan.selection_objectives,
+            observation_selectors=plan.observation_selectors,
         )
-        return implementation.execute(
+        return implementation.execute(operation_call(
+            catalog=catalog,
+            binding_id=f"selection.{operation}.direct",
             inputs={
                 "candidates": values["candidates"],
                 "scores": values["scores"],
             },
             node_parameters=_selection(operation).node_parameters,
             binding_parameters={},
-        )["candidates"]
+        ))["candidates"]
 
     pareto = execute("pareto")
     diverse_first = execute("diversity")
@@ -433,28 +594,20 @@ def test_missing_conflicting_and_cross_scope_observations_fail_closed() -> None:
         workflow_revision=1,
         catalog=catalog,
     ).execution_plan
-    source = catalog.require_factory(
+    source = build_operation(
+        catalog,
         "contract_test.multi_objective_selection_source.direct",
-        VERSION,
-    ).build(
-        execution_plan=plan,
-        frozen_catalog=catalog,
-        environment_configuration={},
-        run_resources=None,
+        None,
+        selection_objectives=plan.selection_objectives,
+        observation_selectors=plan.observation_selectors,
     )
-    values = source.execute(
-        inputs={},
-        node_parameters={},
-        binding_parameters={},
-    )
-    implementation = catalog.require_factory(
+    values = source.execute(operation_call())
+    implementation = build_operation(
+        catalog,
         "selection.weighted_rank.direct",
-        VERSION,
-    ).build(
-        execution_plan=plan,
-        frozen_catalog=catalog,
-        environment_configuration={},
-        run_resources=None,
+        None,
+        selection_objectives=plan.selection_objectives,
+        observation_selectors=plan.observation_selectors,
     )
     common = {
         "candidates": values["candidates"],
@@ -466,11 +619,13 @@ def test_missing_conflicting_and_cross_scope_observations_fail_closed() -> None:
         list(values["scores"].entries[1:]),
     )
     with pytest.raises(SelectionError, match="missing observation"):
-        implementation.execute(
+        implementation.execute(operation_call(
+            catalog=catalog,
+            binding_id="selection.weighted_rank.direct",
             inputs={**common, "scores": missing},
             node_parameters=_selection("weighted_rank").node_parameters,
             binding_parameters={},
-        )
+        ))
 
     conflicting = ScoreCollection(
         "conflicting-fixed-observation",
@@ -479,12 +634,14 @@ def test_missing_conflicting_and_cross_scope_observations_fail_closed() -> None:
             replace(values["scores"].entries[0], value=0.99),
         ],
     )
-    with pytest.raises(SelectionError, match="conflicting values"):
-        implementation.execute(
+    with pytest.raises(PortValueError, match="conflicting values"):
+        implementation.execute(operation_call(
+            catalog=catalog,
+            binding_id="selection.weighted_rank.direct",
             inputs={**common, "scores": conflicting},
             node_parameters=_selection("weighted_rank").node_parameters,
             binding_parameters={},
-        )
+        ))
 
     cross_scope = ScoreCollection(
         "cross-scope-observation",
@@ -498,11 +655,13 @@ def test_missing_conflicting_and_cross_scope_observations_fail_closed() -> None:
         ],
     )
     with pytest.raises(SelectionError, match="missing observation"):
-        implementation.execute(
+        implementation.execute(operation_call(
+            catalog=catalog,
+            binding_id="selection.weighted_rank.direct",
             inputs={**common, "scores": cross_scope},
             node_parameters=_selection("weighted_rank").node_parameters,
             binding_parameters={},
-        )
+        ))
 
 
 def test_all_three_nodes_pass_contract_test_kit(tmp_path: Path) -> None:
@@ -623,6 +782,105 @@ def _save_and_compile_public_workflow(
     )
     assert compiled.status_code == 200
     return revision, compiled.json()["compile_id"]
+
+
+def test_resolved_plan_executes_observations_objectives_and_selectors_without_catalog_lookup(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    catalog = _catalog()
+    for name in ("PROJECT", "CACHE", "OUTPUT", "RUN"):
+        root = tmp_path / name.lower()
+        root.mkdir()
+        monkeypatch.setenv(f"PROTEIN_WORKBENCH_{name}_ROOT", str(root))
+    project_id = ProjectManager(tmp_path / "project").create(
+        "compile-resolved selection facts"
+    ).id
+    filter_node = WorkflowNodeInstance(
+        node_id="filter",
+        node_type_id="selection.filter",
+        node_type_version=VERSION,
+        binding_id="selection.filter.direct",
+        binding_version=VERSION,
+        node_parameters={
+            "selector_id": "fixed-3gb1-raw",
+            "operator": ">=",
+            "threshold": 0.5,
+            "out_of_scope_policy": "ignore",
+            "tie_policy": "candidate_id_ascending",
+        },
+        binding_parameters={},
+    )
+    weighted = _selection("weighted_rank")
+    workflow = WorkflowDocument(
+        schema_version=VERSION,
+        workflow_id=project_id,
+        nodes=(_source(), filter_node, weighted),
+        edges=tuple(
+            WorkflowEdge(
+                "canonical-source",
+                source_port,
+                target_node,
+                target_port,
+            )
+            for target_node in ("filter", "select")
+            for source_port, target_port in (
+                ("candidates", "candidates"),
+                ("scores", "scores"),
+            )
+        ),
+        contract_lock=(),
+        observation_selectors=_selectors(catalog),
+        selection_objectives=_objectives(catalog),
+    )
+
+    with TestClient(create_app(frozen_catalog_override=catalog)) as client:
+        revision, compile_id = _save_and_compile_public_workflow(
+            client,
+            project_id,
+            workflow,
+        )
+
+        def forbid_execution_lookup(*_args: Any, **_kwargs: Any) -> Any:
+            raise AssertionError(
+                "Run execution must use compile-time resolved plan facts"
+            )
+
+        for method_name in (
+            "get_contract",
+            "get_effective_randomness_resolver",
+            "require_contract",
+            "require_factory",
+            "require_port_type",
+            "require_readiness_declaration",
+            "require_utility_transform",
+        ):
+            monkeypatch.setattr(
+                FrozenCatalog,
+                method_name,
+                forbid_execution_lookup,
+            )
+
+        started = client.post(
+            f"/api/v2/projects/{project_id}/runs",
+            json={
+                "workflow_revision": revision,
+                "compile_id": compile_id,
+                "client_request_id": "resolved-selection-plan",
+            },
+        )
+        assert started.status_code == 202
+        projection = wait_for_testclient_run_terminal(
+            client,
+            project_id,
+            started.json()["run_id"],
+        )
+
+    assert projection["status"] == "succeeded"
+    assert {
+        result["selection_node_id"]
+        for result in projection["selection_results"]
+    } == {"filter", "select"}
 
 
 @pytest.mark.parametrize(

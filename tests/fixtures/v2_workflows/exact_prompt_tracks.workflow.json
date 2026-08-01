@@ -5,9 +5,9 @@
     {
       "node_id": "prompt-values",
       "node_type_id": "contract_test.prompt_authoring_values",
-      "node_type_version": "2.1.0",
+      "node_type_version": "3.0.0",
       "binding_id": "contract_test.prompt_authoring_values.direct",
-      "binding_version": "2.1.0",
+      "binding_version": "3.0.0",
       "node_parameters": {
         "fixture": "canonical"
       },
@@ -72,8 +72,8 @@
     {
       "contract_kind": "binding",
       "contract_id": "contract_test.prompt_authoring_values.direct",
-      "contract_version": "2.1.0",
-      "contract_digest": "sha256:33f912cb9bcd6964ef29e0021d0af1fea314170b0ca85cabbb56890781acd689"
+      "contract_version": "3.0.0",
+      "contract_digest": "sha256:4a289d754ac735a76fdba3aa948478dbff5843e6559d35c11674e2a421780aec"
     },
     {
       "contract_kind": "binding",
@@ -108,8 +108,8 @@
     {
       "contract_kind": "node_type",
       "contract_id": "contract_test.prompt_authoring_values",
-      "contract_version": "2.1.0",
-      "contract_digest": "sha256:8c82956e60b1beb89d3b99920a4b3b69f4ae008c2195b15a83fba11e38958f68"
+      "contract_version": "3.0.0",
+      "contract_digest": "sha256:b4f335e97bebfa2002da6fc2488b4655660d76b37780d241c1936dbdddb54096"
     },
     {
       "contract_kind": "node_type",
@@ -174,8 +174,8 @@
     {
       "contract_kind": "port_type",
       "contract_id": "protein.structure",
-      "contract_version": "2.1.0",
-      "contract_digest": "sha256:2086d04a0e219966ed5f54d0a965023e79e63dcefa3f650109d40ac1a7197fdc"
+      "contract_version": "3.0.0",
+      "contract_digest": "sha256:cd09d43e3229ca3dedfb5d57c2b154f65629e3da6038d8459b74282015bb60e0"
     },
     {
       "contract_kind": "port_type",

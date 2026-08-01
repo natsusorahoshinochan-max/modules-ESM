@@ -1,11 +1,13 @@
 """Public seams for the cohesive SoluProt solubility package.
 
-The pre-agreed seams are production package registration, exact catalog
-contracts, Binding readiness, and V2 Run execution through typed Ports.
+The pre-agreed seams are concrete local Adapters, production package
+registration, exact catalog contracts, Binding readiness, and V2 Run
+execution through typed Ports.
 """
 
 from collections.abc import Mapping
 from contextlib import contextmanager
+from dataclasses import FrozenInstanceError
 from pathlib import Path
 from typing import Any
 
@@ -27,6 +29,106 @@ from core import (
 )
 from core.port_types import canonical_json_bytes
 from core.workflow_v2 import WorkflowEdge
+
+
+def _prepare_soluprot_fixture(**kwargs: Any) -> tuple[tuple[str, ...], Path]:
+    staging_directory = kwargs["staging_directory"]
+    (staging_directory / "input.fasta").write_text(
+        "".join(
+            f">candidate_{index}\n{sequence}\n"
+            for index, sequence in enumerate(kwargs["sequences"])
+        )
+    )
+    mode_flag = "--tmhmm" if kwargs["mode"] == "full" else "--no_tmhmm"
+    return (
+        ("fixture-soluprot", mode_flag),
+        staging_directory / "output.csv",
+    )
+
+
+def _prepare_protein_sol_fixture(
+    **kwargs: Any,
+) -> tuple[tuple[str, ...], Path]:
+    staging_directory = kwargs["staging_directory"]
+    (staging_directory / "input.fasta").write_text(
+        "".join(
+            f">candidate_{index}\n{sequence}\n"
+            for index, sequence in enumerate(kwargs["sequences"])
+        )
+    )
+    return (
+        ("fixture-protein-sol",),
+        staging_directory / "seq_prediction.txt",
+    )
+
+
+def test_local_soluprot_adapter_fixes_mode_and_returns_canonical_predictions(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import modules.solubility.adapter as adapter
+    from datatypes import ProteinSequence
+
+    events: list[str] = []
+
+    class Resources:
+        @contextmanager
+        def temporary_directory(self, *, prefix: str):
+            assert prefix == "soluprot-full-"
+            yield tmp_path
+
+        @contextmanager
+        def engine_invocation(
+            self,
+            *,
+            engine_role: str,
+        ):
+            assert engine_role == "soluprot_full"
+            events.append("engine-started")
+            yield "invocation-1"
+            events.append("engine-succeeded")
+
+    monkeypatch.setattr(
+        adapter,
+        "validate_soluprot_environment",
+        lambda environment, *, mode: {
+            "resolved_runtime_fingerprint": f"sha256:{'a' * 64}",
+        },
+    )
+    monkeypatch.setattr(
+        adapter,
+        "_prepare_soluprot_invocation",
+        _prepare_soluprot_fixture,
+    )
+
+    def invoke(**kwargs: Any) -> None:
+        assert "--tmhmm" in kwargs["command"]
+        events.append("provider-invoked")
+        output_path = kwargs["staging_directory"] / "output.csv"
+        output_path.write_bytes(
+            b"runtime_id,fa_id,soluble\n"
+            b"0,candidate_0,0.331\n"
+        )
+
+    monkeypatch.setattr(adapter, "invoke_soluprot", invoke)
+    local = adapter.LocalSoluProtAdapter(
+        mode="full",
+        environment={},
+        resources=Resources(),
+    )
+
+    predictions = local.predict(
+        (ProteinSequence("ACDEFGHIKLMNPQRSTVWY"),)
+    )
+
+    assert predictions == (0.331,)
+    assert events == [
+        "engine-started",
+        "provider-invoked",
+        "engine-succeeded",
+    ]
+    with pytest.raises(FrozenInstanceError):
+        local.mode = "no_tm"
 
 
 def test_soluprot_full_and_no_tm_are_exact_sibling_bindings() -> None:
@@ -259,17 +361,6 @@ def test_soluprot_provider_failure_does_not_retain_stderr_or_paths(
             yield
 
     monkeypatch.setattr(
-        adapter,
-        "validate_soluprot_environment",
-        lambda environment, *, mode: {
-            "python_executable": Path("/private/python"),
-            "model_json": Path("/private/model.json"),
-            "usearch_executable": Path("/private/usearch"),
-            "reference_database": Path("/private/database.fa"),
-            "tmhmm_executable": None,
-        },
-    )
-    monkeypatch.setattr(
         adapter.subprocess,
         "Popen",
         lambda *args, **kwargs: FailedProcess(),
@@ -280,10 +371,8 @@ def test_soluprot_provider_failure_does_not_retain_stderr_or_paths(
         match="failed safely",
     ) as rejected:
         adapter.invoke_soluprot(
-            sequences=["ACDEFGHIKLMNPQRSTVWY"],
-            mode="no_tm",
+            command=("/private/python", "--no_tmhmm"),
             staging_directory=tmp_path,
-            environment={},
             run_resources=Resources(),
         )
 
@@ -403,7 +492,7 @@ def _run_soluprot(
     provider_payload: bytes | None = None,
     provider_error: BaseException | None = None,
 ) -> tuple[Any, dict[str, Any], tuple[dict[str, Any], ...]]:
-    import modules.solubility.implementation as implementation
+    import modules.solubility.adapter as adapter
     import modules.solubility.package as package
     from modules.solubility.package import MODULE_PACKAGE
     from tests.fixtures.folding_sources.package import (
@@ -420,31 +509,52 @@ def _run_soluprot(
         ),
     )
     monkeypatch.setattr(
-        implementation,
+        adapter,
         "validate_soluprot_environment",
         lambda environment, *, mode: {
             "resolved_runtime_fingerprint": f"sha256:{'a' * 64}",
             "mode": mode,
         },
     )
+    monkeypatch.setattr(
+        adapter,
+        "_prepare_soluprot_invocation",
+        _prepare_soluprot_fixture,
+    )
     calls: list[tuple[list[str], str]] = []
 
-    def invoke(**kwargs: Any) -> bytes:
-        calls.append((list(kwargs["sequences"]), kwargs["mode"]))
+    def invoke(**kwargs: Any) -> None:
+        sequences = [
+            line
+            for line in (
+                kwargs["staging_directory"] / "input.fasta"
+            ).read_text().splitlines()
+            if not line.startswith(">")
+        ]
+        mode = (
+            "no_tm"
+            if "--no_tmhmm" in kwargs["command"]
+            else "full"
+        )
+        calls.append((sequences, mode))
         if provider_error is not None:
             raise provider_error
-        if provider_payload is not None:
-            return provider_payload
-        return (
-            b"runtime_id,fa_id,soluble\n"
-            + (
-                b"0,candidate_0,0.331\n"
-                if kwargs["mode"] == "full"
-                else b"0,candidate_0,0.3465\n"
+        payload = (
+            provider_payload
+            if provider_payload is not None
+            else (
+                b"runtime_id,fa_id,soluble\n"
+                + (
+                    b"0,candidate_0,0.331\n"
+                    if mode == "full"
+                    else b"0,candidate_0,0.3465\n"
+                )
             )
         )
+        output_path = kwargs["staging_directory"] / "output.csv"
+        output_path.write_bytes(payload)
 
-    monkeypatch.setattr(implementation, "invoke_soluprot", invoke)
+    monkeypatch.setattr(adapter, "invoke_soluprot", invoke)
     source = WorkflowNodeInstance(
         node_id="source",
         node_type_id="contract_test.folding_sequence_source",
@@ -579,12 +689,39 @@ def test_each_soluprot_binding_runs_exact_method_and_formal_observation(
         event["event"]
         for event in events
         if event["event"]["type"] == "engine_invocation_started"
-        and event["event"]["engine_identity"].startswith(
-            f"soluprot.{mode}.v1_1_0/"
-        )
+        and event["event"]["engine_identity"]
+        == observation.method.contract_digest
     ]
     assert len(score_events) == 1
     assert "/must/not/publish" not in str((projection, events))
+
+
+@pytest.mark.parametrize("mode", ("full", "no_tm"))
+def test_soluprot_binding_factory_injects_one_immutable_mode_adapter(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    mode: str,
+) -> None:
+    import modules.solubility.adapter as adapter
+    import modules.solubility.package as package
+
+    constructed_modes: list[str] = []
+    exact_adapter = adapter.LocalSoluProtAdapter
+
+    def build_adapter(**kwargs: Any) -> Any:
+        constructed_modes.append(kwargs["mode"])
+        return exact_adapter(**kwargs)
+
+    monkeypatch.setattr(package, "LocalSoluProtAdapter", build_adapter)
+
+    _, projection, _ = _run_soluprot(
+        tmp_path,
+        monkeypatch,
+        mode=mode,
+    )
+
+    assert projection["status"] == "succeeded"
+    assert constructed_modes == [mode]
 
 
 def test_soluprot_method_and_asset_contracts_separate_result_identity(
@@ -619,7 +756,7 @@ def test_invalid_sequence_fails_before_soluprot_engine_invocation(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    _, projection, events = _run_soluprot(
+    catalog, projection, events = _run_soluprot(
         tmp_path,
         monkeypatch,
         mode="no_tm",
@@ -627,11 +764,14 @@ def test_invalid_sequence_fails_before_soluprot_engine_invocation(
     )
     assert projection["status"] == "failed"
     assert projection["_fixture_calls"] == []
+    method_digest = catalog.require_contract(
+        "method",
+        "solubility.soluprot_no_tm.v1_1_0",
+        "2.1.0",
+    ).contract_digest
     assert not any(
         event["event"]["type"] == "engine_invocation_started"
-        and event["event"]["engine_identity"].startswith(
-            "soluprot."
-        )
+        and event["event"]["engine_identity"] == method_digest
         for event in events
     )
 
@@ -640,7 +780,7 @@ def test_invalid_provider_output_fails_after_successful_engine_without_publicati
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    _, projection, events = _run_soluprot(
+    catalog, projection, events = _run_soluprot(
         tmp_path,
         monkeypatch,
         mode="full",
@@ -655,13 +795,16 @@ def test_invalid_provider_output_fails_after_successful_engine_without_publicati
         output["node_id"] == "score"
         for output in projection["outputs"]
     )
+    method_digest = catalog.require_contract(
+        "method",
+        "solubility.soluprot_full.v1_1_0",
+        "2.1.0",
+    ).contract_digest
     started = {
         event["event"]["invocation_id"]
         for event in events
         if event["event"]["type"] == "engine_invocation_started"
-        and event["event"]["engine_identity"].startswith(
-            "soluprot.full.v1_1_0/"
-        )
+        and event["event"]["engine_identity"] == method_digest
     }
     terminal = [
         event["event"]
@@ -679,7 +822,7 @@ def test_provider_failure_retains_a_closed_safe_reason_code(
 ) -> None:
     from modules.solubility.adapter import SoluProtProviderNonzeroExit
 
-    _, projection, events = _run_soluprot(
+    catalog, projection, events = _run_soluprot(
         tmp_path,
         monkeypatch,
         mode="full",
@@ -689,13 +832,16 @@ def test_provider_failure_retains_a_closed_safe_reason_code(
     )
 
     assert projection["status"] == "failed"
+    method_digest = catalog.require_contract(
+        "method",
+        "solubility.soluprot_full.v1_1_0",
+        "2.1.0",
+    ).contract_digest
     invocation_id = next(
         event["event"]["invocation_id"]
         for event in events
         if event["event"]["type"] == "engine_invocation_started"
-        and event["event"]["engine_identity"].startswith(
-            "soluprot.full.v1_1_0/"
-        )
+        and event["event"]["engine_identity"] == method_digest
     )
     terminal = next(
         event["event"]
@@ -714,7 +860,7 @@ def test_all_solubility_methods_pass_the_shared_contract_test_kit(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    import modules.solubility.implementation as implementation
+    import modules.solubility.adapter as adapter
     import modules.solubility.package as package
     from modules.solubility.package import MODULE_PACKAGE
     from tests.fixtures.folding_sources.package import (
@@ -740,7 +886,7 @@ def test_all_solubility_methods_pass_the_shared_contract_test_kit(
         ),
     )
     monkeypatch.setattr(
-        implementation,
+        adapter,
         "validate_soluprot_environment",
         lambda environment, *, mode: {
             "resolved_runtime_fingerprint": f"sha256:{'b' * 64}",
@@ -748,33 +894,58 @@ def test_all_solubility_methods_pass_the_shared_contract_test_kit(
         },
     )
     monkeypatch.setattr(
-        implementation,
-        "invoke_soluprot",
-        lambda **kwargs: (
+        adapter,
+        "_prepare_soluprot_invocation",
+        _prepare_soluprot_fixture,
+    )
+
+    def invoke_soluprot_fixture(**kwargs: Any) -> None:
+        output_path = kwargs["staging_directory"] / "output.csv"
+        mode = (
+            "no_tm"
+            if "--no_tmhmm" in kwargs["command"]
+            else "full"
+        )
+        output_path.write_bytes(
             b"runtime_id,fa_id,soluble\n"
             + (
                 b"0,candidate_0,0.331\n"
-                if kwargs["mode"] == "full"
+                if mode == "full"
                 else b"0,candidate_0,0.3465\n"
             )
-        ),
+        )
+
+    monkeypatch.setattr(
+        adapter,
+        "invoke_soluprot",
+        invoke_soluprot_fixture,
     )
     monkeypatch.setattr(
-        implementation,
+        adapter,
         "validate_protein_sol_environment",
         lambda environment: {
             "resolved_runtime_fingerprint": f"sha256:{'c' * 64}",
         },
     )
     monkeypatch.setattr(
-        implementation,
-        "invoke_protein_sol",
-        lambda **kwargs: (
+        adapter,
+        "_prepare_protein_sol_invocation",
+        _prepare_protein_sol_fixture,
+    )
+
+    def invoke_protein_sol_fixture(**kwargs: Any) -> None:
+        output_path = kwargs["staging_directory"] / "seq_prediction.txt"
+        output_path.write_bytes(
             b"HEADERS PREDICTIONS LINE,ID,percent-sol,scaled-sol,"
             b"population-sol,pI\n"
             b"SEQUENCE PREDICTIONS,>candidate_0,32.419,0.252,"
             b"0.446,7.130\n"
-        ),
+        )
+
+    monkeypatch.setattr(
+        adapter,
+        "invoke_protein_sol",
+        invoke_protein_sol_fixture,
     )
     source = WorkflowNodeInstance(
         node_id="source",

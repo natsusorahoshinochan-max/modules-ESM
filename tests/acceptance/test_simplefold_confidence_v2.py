@@ -63,7 +63,7 @@ def test_simplefold_confidence_v2_evaluates_3gb1_exact_assets_without_refold(
         node_type_id="folding.simplefold_confidence",
         node_type_version="2.1.0",
         binding_id="folding.simplefold_confidence.simplefold_local",
-        binding_version="2.1.0",
+        binding_version="2.2.0",
         node_parameters={},
         binding_parameters={},
     )
@@ -208,7 +208,7 @@ def test_simplefold_confidence_v2_evaluates_3gb1_exact_assets_without_refold(
     monkeypatch.setattr(os, "access", guarded_os_access)
     fingerprint = configured_runtime_fingerprint()
     environment = EnvironmentConfiguration({
-        ("folding.simplefold_confidence.simplefold_local", "2.1.0"): {
+        ("folding.simplefold_confidence.simplefold_local", "2.2.0"): {
             "values": {
                 "model_root": model_root,
                 "esm2_source_root": Path(
@@ -267,7 +267,7 @@ def test_simplefold_confidence_v2_evaluates_3gb1_exact_assets_without_refold(
     }
     per_residue = by_metric["structure.plddt.per_residue"]
     mean_residue = by_metric["structure.plddt.mean_residue"]
-    assert isinstance(per_residue, list) and len(per_residue) == 56
+    assert isinstance(per_residue, tuple) and len(per_residue) == 56
     assert all(
         isinstance(value, float) and 0.0 <= value <= 100.0
         for value in per_residue
@@ -281,9 +281,7 @@ def test_simplefold_confidence_v2_evaluates_3gb1_exact_assets_without_refold(
         event["event"]
         for event in events
         if event["event"]["type"] == "engine_invocation_started"
-        and event["event"]["engine_identity"].startswith(
-            "folding.simplefold_confidence.assets."
-        )
+        and event["event"]["engine_role"] == "confidence_subject_0"
     ]
     terminal = [
         event["event"]
@@ -294,14 +292,25 @@ def test_simplefold_confidence_v2_evaluates_3gb1_exact_assets_without_refold(
     ]
     assert len(started) == len(terminal) == 1
     assert terminal[0]["status"] == "succeeded"
-    assert started[0]["engine_identity"].endswith(fingerprint)
+    binding = catalog.require_contract(
+        "binding",
+        "folding.simplefold_confidence.simplefold_local",
+        "2.2.0",
+    )
+    method_ref = binding.descriptor["method"]
+    method = catalog.require_contract(
+        "method",
+        method_ref["contract_id"],
+        method_ref["contract_version"],
+    )
+    assert started[0]["engine_identity"] == method.contract_digest
     readiness_index = next(
         index
         for index, event in enumerate(events)
         if event["event"]["type"] == "readiness_attested"
         and event["event"]["binding"]["contract_id"]
         == "folding.simplefold_confidence.simplefold_local"
-        and event["event"]["binding"]["contract_version"] == "2.1.0"
+        and event["event"]["binding"]["contract_version"] == "2.2.0"
         and event["event"]["conclusion"] == "passing"
     )
     invocation_index = next(

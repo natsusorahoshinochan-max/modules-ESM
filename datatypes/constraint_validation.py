@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from math import isfinite
 import re
 from typing import Any
@@ -15,11 +16,11 @@ _RESIDUE_ID = re.compile(
 )
 
 
-def _residue_ids(value: Any, name: str) -> list[str]:
+def _residue_ids(value: Any, name: str) -> tuple[str, ...]:
     if value is None:
-        return []
-    if not isinstance(value, list):
-        raise ValueError(f"{name} must be a list")
+        return ()
+    if not isinstance(value, tuple):
+        raise ValueError(f"{name} must be an immutable residue sequence")
     if any(
         not isinstance(residue_id, str)
         or _RESIDUE_ID.fullmatch(residue_id) is None
@@ -31,11 +32,11 @@ def _residue_ids(value: Any, name: str) -> list[str]:
     return value
 
 
-def _strings(value: Any, name: str) -> list[str]:
+def _strings(value: Any, name: str) -> tuple[str, ...]:
     if value is None:
-        return []
-    if not isinstance(value, list):
-        raise ValueError(f"{name} must be a list")
+        return ()
+    if not isinstance(value, tuple):
+        raise ValueError(f"{name} must be an immutable string sequence")
     if any(not isinstance(item, str) or not item for item in value):
         raise ValueError(f"{name} entries must be non-empty strings")
     if len(set(value)) != len(value):
@@ -43,14 +44,14 @@ def _strings(value: Any, name: str) -> list[str]:
     return value
 
 
-def _tied_residue_groups(value: Any) -> list[list[str]]:
+def _tied_residue_groups(value: Any) -> tuple[tuple[str, ...], ...]:
     if value is None:
-        return []
-    if not isinstance(value, list):
+        return ()
+    if not isinstance(value, tuple):
         raise ValueError(
-            "tied_residue_groups must be a list of residue identity groups"
+            "tied_residue_groups must be immutable residue identity groups"
         )
-    tied_groups: list[list[str]] = []
+    tied_groups: list[tuple[str, ...]] = []
     seen: set[str] = set()
     for group_index, group_value in enumerate(value):
         group = _residue_ids(
@@ -70,13 +71,13 @@ def _tied_residue_groups(value: Any) -> list[list[str]]:
             )
         seen.update(group)
         tied_groups.append(group)
-    return tied_groups
+    return tuple(tied_groups)
 
 
-def _biases(value: Any) -> dict[str, dict[str, float]]:
+def _biases(value: Any) -> Mapping[str, Mapping[str, float]]:
     if value is None:
         return {}
-    if not isinstance(value, dict):
+    if not isinstance(value, Mapping):
         raise ValueError(
             "bias_by_residue must map residue identities to amino-acid biases"
         )
@@ -88,7 +89,7 @@ def _biases(value: Any) -> dict[str, dict[str, float]]:
             raise ValueError(
                 "bias_by_residue keys must be stable residue identities"
             )
-        if not isinstance(amino_acid_biases, dict) or not amino_acid_biases:
+        if not isinstance(amino_acid_biases, Mapping) or not amino_acid_biases:
             raise ValueError(
                 f"bias_by_residue {residue_id} must map amino acids to biases"
             )

@@ -34,6 +34,11 @@ from datatypes import (
     ProteinSequence,
     ProteinStructure,
 )
+from tests.fixtures.result_replay_v2 import admitted_replay_outputs
+from tests.fixtures.scientific_operation import (
+    operation_call,
+    operation_context,
+)
 
 
 def test_simplefold_is_one_explicit_binding_of_the_shared_folding_node() -> None:
@@ -53,12 +58,12 @@ def test_simplefold_is_one_explicit_binding_of_the_shared_folding_node() -> None
     simplefold = catalog.require_contract(
         "binding",
         "folding.fold.simplefold_local",
-        "2.1.0",
+        "3.0.0",
     )
     esmfold2 = catalog.require_contract(
         "binding",
         "folding.fold.esmfold2_local",
-        "2.1.0",
+        "3.0.0",
     )
     assert simplefold.descriptor["node_type"] == esmfold2.descriptor["node_type"]
     assert simplefold.descriptor["execution_route"] == "adapter"
@@ -163,12 +168,12 @@ def test_simplefold_readiness_validates_assets_without_hiding_siblings(
     assert catalog.require_contract(
         "binding",
         "folding.fold.esmfold2_remote",
-        "2.1.0",
+        "3.0.0",
     )
     assert catalog.require_contract(
         "binding",
         "folding.fold.esmfold2_local",
-        "2.1.0",
+        "3.0.0",
     )
     snapshots = {
         item["binding"]["contract_id"]: item
@@ -322,9 +327,9 @@ def _run_simplefold(
     fold = WorkflowNodeInstance(
         node_id="fold",
         node_type_id="folding.fold",
-        node_type_version="2.1.0",
+        node_type_version="3.0.0",
         binding_id="folding.fold.simplefold_local",
-        binding_version="2.1.0",
+        binding_version="3.0.0",
         node_parameters={
             "effective_seed": 1603,
             "num_samples": num_samples,
@@ -375,7 +380,7 @@ def _run_simplefold(
             client,
         )
     environment = EnvironmentConfiguration({
-        ("folding.fold.simplefold_local", "2.1.0"): {
+        ("folding.fold.simplefold_local", "3.0.0"): {
             "values": environment_values,
             "safe_fingerprint": environment_values[
                 "resolved_runtime_fingerprint"
@@ -419,8 +424,8 @@ def test_simplefold_preserves_high_level_plddt_and_exact_multi_sample_lineage(
             self.calls.append(kwargs)
             return (
                 [
-                    ProteinStructure(_two_residue_pdb(), source="simplefold"),
-                    ProteinStructure(_two_residue_pdb(), source="simplefold"),
+                    ProteinStructure(_two_residue_pdb()),
+                    ProteinStructure(_two_residue_pdb()),
                 ],
                 [
                     {
@@ -473,7 +478,7 @@ def test_simplefold_preserves_high_level_plddt_and_exact_multi_sample_lineage(
     assert {entry.candidate_id for entry in confidence.entries} == {
         item.candidate_id for item in structures.items
     }
-    assert pae.entries == []
+    assert pae.entries == ()
     assert len(client.calls) == 1
     assert client.calls[0]["num_steps"] == 10
     assert client.calls[0]["num_samples"] == 2
@@ -485,13 +490,21 @@ def test_simplefold_preserves_high_level_plddt_and_exact_multi_sample_lineage(
         and event["event"]["binding"]["contract_id"]
         == "folding.fold.simplefold_local"
     )
+    binding = catalog.require_contract(
+        "binding",
+        "folding.fold.simplefold_local",
+        "3.0.0",
+    )
+    method = catalog.require_contract(
+        "method",
+        binding.descriptor["method"]["contract_id"],
+        binding.descriptor["method"]["contract_version"],
+    )
     started = [
         event["event"]
         for event in events
         if event["event"]["type"] == "engine_invocation_started"
-        and event["event"]["engine_identity"].startswith(
-            "folding.simplefold_local."
-        )
+        and event["event"]["engine_role"] == "fold_parent_0"
     ]
     invocation_index = next(
         index
@@ -508,12 +521,196 @@ def test_simplefold_preserves_high_level_plddt_and_exact_multi_sample_lineage(
     ]
     assert len(started) == len(terminal) == 1
     assert terminal[0]["status"] == "succeeded"
+    assert started[0]["engine_identity"] == method.contract_digest
+    assert started[0]["invocation_provenance"] == {
+        "effective_randomness": {
+            "control": "exact_seed",
+            "effective_seed": structures.items[0].metadata[
+                "effective_call_seed"
+            ],
+        }
+    }
+    assert {
+        "provider",
+        "model",
+        "route",
+        "runtime_fingerprint",
+        "checkpoint",
+        "seed_control",
+    }.isdisjoint(structures.items[0].metadata)
+
+
+def test_canonical_simplefold_operation_consumes_normalized_adapter_dto() -> None:
+    from modules.folding.implementation import (
+        SimpleFoldFoldingImplementation,
+    )
+    from modules.folding.package import MODULE_PACKAGE as FOLDING_PACKAGE
+    from modules.folding.simplefold_adapter import (
+        SimpleFoldAdapterResult,
+        SimpleFoldSampleResult,
+    )
+
+    class Adapter:
+        def __init__(self) -> None:
+            self.calls: list[dict[str, Any]] = []
+
+        def fold(self, **kwargs: Any) -> SimpleFoldAdapterResult:
+            self.calls.append(kwargs)
+            return SimpleFoldAdapterResult(
+                samples=(
+                    SimpleFoldSampleResult(
+                        structure=ProteinStructure(
+                            _two_residue_pdb(),
+                        ),
+                        per_residue_plddt=(71.0, 83.0),
+                    ),
+                ),
+                effective_call_seed=kwargs["derived_call_seed"],
+            )
+
+    catalog = build_frozen_catalog((FOLDING_PACKAGE,))
+    context = operation_context(
+        catalog,
+        "folding.fold.simplefold_local",
+        object(),
+        binding_version="3.0.0",
+        environment={"native_scores": object()},
+    )
+    adapter = Adapter()
+    operation = SimpleFoldFoldingImplementation(
+        adapter=adapter,
+        method=context.method,
+        produced_observations=context.produced_observations,
+    )
+    parent = Candidate(
+        "parent",
+        ProteinSequence("AG", ["A:1", "A:2"]),
+        [],
+        {},
+    )
+
+    outputs = operation.execute(
+        operation_call(
+            catalog=catalog,
+            binding_id="folding.fold.simplefold_local",
+            binding_version="3.0.0",
+            inputs={
+                "sequence_candidates": CandidateCollection(
+                    "parents",
+                    "protein.sequence",
+                    [parent],
+                )
+            },
+            node_parameters={"effective_seed": 1603, "num_samples": 1},
+            binding_parameters={"num_steps": 10},
+        )
+    )
+
+    structures = outputs["structure_candidates"]
+    confidence = outputs["confidence_observations"]
+    assert type(structures) is CandidateCollection
+    assert {
+        "provider",
+        "model",
+        "route",
+        "runtime_fingerprint",
+        "checkpoint",
+        "seed_control",
+    }.isdisjoint(structures.items[0].metadata)
+    assert [entry.value for entry in confidence.entries] == [
+        (71.0, 83.0),
+        77.0,
+    ]
+    assert adapter.calls == [
+        {
+            "sequence": parent.data,
+            "num_steps": 10,
+            "num_samples": 1,
+            "derived_call_seed": structures.items[0].metadata[
+                "effective_call_seed"
+            ],
+            "engine_role": "fold_parent_0",
+        }
+    ]
+
+
+def test_simplefold_call_seed_uses_candidate_content_not_candidate_identity(
+) -> None:
+    from modules.folding.implementation import SimpleFoldFoldingImplementation
+    from modules.folding.package import MODULE_PACKAGE as FOLDING_PACKAGE
+    from modules.folding.simplefold_adapter import (
+        SimpleFoldAdapterResult,
+        SimpleFoldSampleResult,
+    )
+
+    class Adapter:
+        def __init__(self) -> None:
+            self.seeds: list[int] = []
+
+        def fold(self, **kwargs: Any) -> SimpleFoldAdapterResult:
+            seed = kwargs["derived_call_seed"]
+            self.seeds.append(seed)
+            return SimpleFoldAdapterResult(
+                samples=(
+                    SimpleFoldSampleResult(
+                        structure=ProteinStructure(_two_residue_pdb()),
+                        per_residue_plddt=(71.0, 83.0),
+                    ),
+                ),
+                effective_call_seed=seed,
+            )
+
+    catalog = build_frozen_catalog((FOLDING_PACKAGE,))
+    context = operation_context(
+        catalog,
+        "folding.fold.simplefold_local",
+        object(),
+        binding_version="3.0.0",
+    )
+
+    def observed(candidate_id: str, sequence: str) -> int:
+        adapter = Adapter()
+        operation = SimpleFoldFoldingImplementation(
+            adapter=adapter,
+            method=context.method,
+            produced_observations=context.produced_observations,
+        )
+        parent = Candidate(candidate_id, ProteinSequence(sequence), [], {})
+        operation.execute(
+            operation_call(
+                catalog=catalog,
+                binding_id="folding.fold.simplefold_local",
+                binding_version="3.0.0",
+                inputs={
+                    "sequence_candidates": CandidateCollection(
+                        "parents",
+                        "protein.sequence",
+                        [parent],
+                    )
+                },
+                node_parameters={"effective_seed": 1603, "num_samples": 1},
+                binding_parameters={"num_steps": 10},
+            )
+        )
+        return adapter.seeds[0]
+
+    original = observed("candidate-a", "AG")
+    renamed = observed("candidate-renamed", "AG")
+    changed_content = observed("candidate-a", "AA")
+
+    assert original == renamed
+    assert original != changed_content
 
 
 def test_source_cache_replay_preserves_noncacheable_simplefold_execution(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    from modules.folding.package import MODULE_PACKAGE as FOLDING_PACKAGE
+    from tests.fixtures.folding_sources.package import (
+        MODULE_PACKAGE as SOURCE_PACKAGE,
+    )
+
     class Client:
         def __init__(self) -> None:
             self.staging: list[Path] = []
@@ -524,7 +721,7 @@ def test_source_cache_replay_preserves_noncacheable_simplefold_execution(
             (staging / "fixed-provider-name").write_text("owned")
             self.staging.append(staging)
             return (
-                [ProteinStructure(_two_residue_pdb(), source="simplefold")],
+                [ProteinStructure(_two_residue_pdb())],
                 [{"per_residue": [71.0, 83.0], "sample_index": 0}],
             )
 
@@ -540,6 +737,7 @@ def test_source_cache_replay_preserves_noncacheable_simplefold_execution(
             )
         ],
     )
+    replay_catalog = build_frozen_catalog((FOLDING_PACKAGE, SOURCE_PACKAGE))
 
     class SourceReplay(ResultReplaySource):
         def __init__(self) -> None:
@@ -551,10 +749,15 @@ def test_source_cache_replay_preserves_noncacheable_simplefold_execution(
             assert node_id == "source", (
                 "the noncacheable SimpleFold Binding must bypass lookup"
             )
+            outputs = {"sequence_candidates": cached_source}
             return ResultReplayHit(
-                {"sequence_candidates": cached_source},
-                kwargs["result_identity"],
-                "cached-source-run",
+                result_identity=kwargs["result_identity"],
+                producer_run_id="cached-source-run",
+                admitted_outputs=admitted_replay_outputs(
+                    catalog=replay_catalog,
+                    node=kwargs["node"],
+                    outputs=outputs,
+                ),
             )
 
     client = Client()
@@ -613,7 +816,7 @@ def test_concurrent_runs_use_disjoint_live_staging_and_stable_identity(
             barrier.wait(timeout=5)
             assert owned.read_text() == "owned"
             return (
-                [ProteinStructure(_two_residue_pdb(), source="simplefold")],
+                [ProteinStructure(_two_residue_pdb())],
                 [{"per_residue": [71.0, 83.0], "sample_index": 0}],
             )
 
@@ -665,11 +868,11 @@ def test_concurrent_runs_use_disjoint_live_staging_and_stable_identity(
     "native_result",
     (
         (
-            [ProteinStructure("END\n", source="simplefold")],
+            [ProteinStructure("END\n")],
             [{"per_residue": [71.0, 83.0], "sample_index": 0}],
         ),
         (
-            [ProteinStructure(_two_residue_pdb(), source="simplefold")],
+            [ProteinStructure(_two_residue_pdb())],
             [{"per_residue": [0.71, 101.0], "sample_index": 0}],
         ),
     ),
@@ -704,10 +907,8 @@ def test_malformed_simplefold_output_cannot_publish_a_candidate(
             started["event"]["type"] == "engine_invocation_started"
             and started["event"]["invocation_id"]
             == event["event"]["invocation_id"]
-            and started["event"]["engine_identity"].startswith(
-                "folding.simplefold_local."
-            )
-            for started in events
+                and started["event"]["engine_role"] == "fold_parent_0"
+                for started in events
         )
     ]
     assert len(simplefold_terminal) == 1
@@ -748,7 +949,7 @@ def test_simplefold_cleanup_failure_is_visible_without_masking_provider_failure(
             if provider_fails:
                 raise RuntimeError("fixture provider failure")
             return (
-                [ProteinStructure(_two_residue_pdb(), source="simplefold")],
+                [ProteinStructure(_two_residue_pdb())],
                 [{"per_residue": [71.0, 83.0], "sample_index": 0}],
             )
 

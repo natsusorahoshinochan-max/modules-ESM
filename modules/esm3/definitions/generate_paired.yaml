@@ -1,6 +1,6 @@
 schema_version: "2.1.0"
 node_type_id: esm3.generate_paired
-version: "2.1.0"
+version: "3.0.0"
 title: Generate paired sequences and structures with remote ESM-3
 summary: Generates each sequence from a Prompt with at least one masked sequence residue, then samples exactly one structure-track counterpart from that terminal sequence.
 category: generation
@@ -75,7 +75,7 @@ parameter_groups:
 node_parameters:
   effective_seed:
     parameter_scope: scientific
-    scientific_meaning: Fully resolved Workbench sampling identity; each sample and track receives a stable derived identity while the remote provider exposes no seed control.
+    scientific_meaning: Configured base seed used by Bindings with exact seed control; each controlled call derives its exact seed from canonical Prompt content and sample-track slot, while a provider-uncontrolled Binding records no effective seed.
     required: true
     value_contract:
       type: integer

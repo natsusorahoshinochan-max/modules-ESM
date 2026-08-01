@@ -18,6 +18,9 @@ from tests.fixtures.prompt_authoring_sources.package import (
 from tests.fixtures.prompt_authoring_v2 import VERSION
 
 
+STRUCTURE_SOURCE_VERSION = "3.0.0"
+
+
 def test_stochastic_prompt_authoring_executes_through_public_rest(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -40,11 +43,11 @@ def test_stochastic_prompt_authoring_executes_through_public_rest(
                 {
                     "node_id": "source",
                     "node_type_id": "contract_test.prompt_authoring_values",
-                    "node_type_version": VERSION,
+                    "node_type_version": STRUCTURE_SOURCE_VERSION,
                     "binding_id": (
                         "contract_test.prompt_authoring_values.direct"
                     ),
-                    "binding_version": VERSION,
+                    "binding_version": STRUCTURE_SOURCE_VERSION,
                     "node_parameters": {"fixture": "canonical"},
                     "binding_parameters": {},
                 },

@@ -9,14 +9,18 @@ from core import (
     ContractIdentity,
     DefinitionResource,
     ExecutionBindingDefinition,
-    LazyImplementationFactory,
     MethodDefinition,
     ModulePackageRegistration,
+    OperationContext,
     ProducedObservationDefinition,
     ReadinessDeclaration,
+    ScientificOperation,
+    ScientificOperationFactory,
 )
 
 from .adapter import (
+    LocalProteinSolAdapter,
+    LocalSoluProtAdapter,
     PROTEIN_SOL_BASH_SHA256,
     PROTEIN_SOL_BASH_VERSION,
     PROTEIN_SOL_CALIBRATION_CONTEXT,
@@ -37,6 +41,7 @@ from .adapter import (
     SOLUPROT_TMHMM_SHA256,
     SOLUPROT_USEARCH_SHA256,
     SOLUPROT_VERSION,
+    SoluProtMode,
     configured_protein_sol_runtime_fingerprint,
     configured_runtime_fingerprint,
     protein_sol_readiness,
@@ -45,7 +50,7 @@ from .adapter import (
 
 
 _VERSION = "2.1.0"
-_MODES = ("full", "no_tm")
+_MODES: tuple[SoluProtMode, ...] = ("full", "no_tm")
 
 
 def _available() -> AvailabilityResult:
@@ -53,31 +58,49 @@ def _available() -> AvailabilityResult:
     return AvailabilityResult.available()
 
 
-def _build(mode: str):
-    def factory(**kwargs: object) -> object:
+def _build(mode: SoluProtMode):
+    def factory(context: OperationContext) -> ScientificOperation:
         from .implementation import SoluProtImplementation
 
+        matches = tuple(
+            observation
+            for observation in context.produced_observations
+            if observation.output_port == "scores"
+            and observation.output_partition == f"soluprot_{mode}"
+        )
+        if len(matches) != 1:
+            raise RuntimeError(
+                "SoluProt Binding must resolve one exact Observation"
+            )
         return SoluProtImplementation(
-            kwargs["run_resources"],
-            kwargs["environment_configuration"],
-            kwargs["frozen_catalog"],
-            mode=mode,
+            adapter=LocalSoluProtAdapter(
+                mode=mode,
+                environment=context.environment,
+                resources=context.resources,
+            ),
+            method=context.method,
+            produced_observation=matches[0],
         )
 
     return factory
 
 
-def _build_protein_sol(**kwargs: object) -> object:
+def _build_protein_sol(
+    context: OperationContext,
+) -> ScientificOperation:
     from .implementation import ProteinSolImplementation
 
     return ProteinSolImplementation(
-        kwargs["run_resources"],
-        kwargs["environment_configuration"],
-        kwargs["frozen_catalog"],
+        adapter=LocalProteinSolAdapter(
+            environment=context.environment,
+            resources=context.resources,
+        ),
+        method=context.method,
+        produced_observations=context.produced_observations,
     )
 
 
-def _method(mode: str) -> MethodDefinition:
+def _method(mode: SoluProtMode) -> MethodDefinition:
     tm_feature = mode == "full"
     model_variant = "grad_clf_v1_tc" if tm_feature else "grad_clf_v1_tc_notmhmm"
     return MethodDefinition(
@@ -132,7 +155,7 @@ def _method(mode: str) -> MethodDefinition:
     )
 
 
-def _binding(mode: str) -> ExecutionBindingDefinition:
+def _binding(mode: SoluProtMode) -> ExecutionBindingDefinition:
     method_id = f"solubility.soluprot_{mode}.v1_1_0"
     tm_feature = mode == "full"
     return ExecutionBindingDefinition(
@@ -146,7 +169,7 @@ def _binding(mode: str) -> ExecutionBindingDefinition:
         method=ContractIdentity("method", method_id, _VERSION),
         binding_parameters={},
         execution_route="adapter",
-        factory=LazyImplementationFactory(
+        factory=ScientificOperationFactory(
             behavior=BehaviorReference(
                 f"solubility.soluprot_{mode}/factory",
                 _VERSION,
@@ -388,7 +411,7 @@ def _protein_sol_binding() -> ExecutionBindingDefinition:
         ),
         binding_parameters={},
         execution_route="adapter",
-        factory=LazyImplementationFactory(
+        factory=ScientificOperationFactory(
             behavior=BehaviorReference(
                 "solubility.protein_sol/factory",
                 _VERSION,

@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+from contextlib import nullcontext
 from dataclasses import replace
+import hashlib
 from pathlib import Path
 from typing import Any
 
@@ -46,6 +48,10 @@ from datatypes import (
     ScoreCollection,
     ScoreObservation,
 )
+from modules.proteinmpnn.adapter import (
+    LocalProteinMPNNAdapter,
+)
+from tests.fixtures.result_replay_v2 import admitted_replay_outputs
 
 
 TARGET_LAYOUT = ResidueLayout(
@@ -80,11 +86,33 @@ def test_proteinmpnn_is_one_package_with_four_independent_nodes() -> None:
         and "proteinmpnn" in catalog.owners[(kind, contract_id, version)]
     }
     assert owned_nodes == {
-        ("proteinmpnn.constraints", "2.1.0"),
-        ("proteinmpnn.random_fixed_positions", "2.1.0"),
-        ("proteinmpnn.design", "2.1.0"),
+        ("proteinmpnn.constraints", "3.0.0"),
+        ("proteinmpnn.random_fixed_positions", "3.0.0"),
+        ("proteinmpnn.design", "4.0.0"),
         ("proteinmpnn.score", "2.1.0"),
     }
+    active_v3_contracts = {
+        ("port_type", "proteinmpnn.constraints"),
+        ("node_type", "proteinmpnn.constraints"),
+        ("node_type", "proteinmpnn.random_fixed_positions"),
+        ("method", "proteinmpnn.constraints.repository_owned"),
+        (
+            "method",
+            "proteinmpnn.random_fixed_positions.repository_owned",
+        ),
+        ("method", "proteinmpnn.design.v_48_020_8907e667"),
+        ("binding", "proteinmpnn.constraints.local"),
+        ("binding", "proteinmpnn.random_fixed_positions.local"),
+    }
+    for kind, contract_id in active_v3_contracts:
+        assert catalog.get_contract(kind, contract_id, "3.0.0") is not None
+        assert catalog.get_contract(kind, contract_id, "2.1.0") is None
+    for kind, contract_id in (
+        ("node_type", "proteinmpnn.design"),
+        ("binding", "proteinmpnn.design.local"),
+    ):
+        assert catalog.get_contract(kind, contract_id, "4.0.0") is not None
+        assert catalog.get_contract(kind, contract_id, "3.0.0") is None
 
 
 def test_scoring_binding_fixes_exact_method_metric_and_observation_scope() -> None:
@@ -260,7 +288,7 @@ def test_scoring_method_mismatch_fails_compilation_before_provider(
         MODULE_PACKAGE as SOURCE_PACKAGE,
     )
 
-    provider = _CapturingProteinMPNN()
+    provider = _ControlledProteinMPNNProvider()
     _install_test_provider(monkeypatch, provider)
     nodes, edges = _score_workflow()
     score = nodes[-1]
@@ -271,7 +299,7 @@ def test_scoring_method_mismatch_fails_compilation_before_provider(
             node_type_id=score.node_type_id,
             node_type_version=score.node_type_version,
             binding_id="proteinmpnn.design.local",
-            binding_version="2.1.0",
+            binding_version="4.0.0",
             node_parameters={},
             binding_parameters={},
         ),
@@ -410,9 +438,9 @@ def test_constraint_authoring_validates_and_publishes_the_complete_contract(
     constraints = WorkflowNodeInstance(
         node_id="constraints",
         node_type_id="proteinmpnn.constraints",
-        node_type_version="2.1.0",
+        node_type_version="3.0.0",
         binding_id="proteinmpnn.constraints.local",
-        binding_version="2.1.0",
+        binding_version="3.0.0",
         node_parameters={
             "designable_residue_ids": ["A:1", "B:1", "B:3"],
             "fixed_residue_ids": ["A:2", "B:2"],
@@ -458,6 +486,81 @@ def test_constraint_authoring_validates_and_publishes_the_complete_contract(
         and item["event"]["status"] == "succeeded"
         for item in events
     )
+
+
+def test_constraints_v3_canonical_value_and_contract_identity_golden() -> None:
+    from modules.proteinmpnn.package import (
+        MODULE_PACKAGE as PROTEINMPNN_PACKAGE,
+    )
+
+    constraints = ProteinMPNNConstraints(
+        layout=ResidueLayout(
+            "A,B",
+            6,
+            ["A:1", "A:2", "A:3", "A:4", "B:1", "B:2"],
+        ),
+        designable_residue_ids=["A:1", "A:2", "A:3"],
+        fixed_residue_ids=["A:4"],
+        designed_chains=["A"],
+        fixed_chains=["B"],
+        omit_amino_acids=["C", "M"],
+        tied_residue_groups=[["A:1", "A:2"]],
+        bias_by_residue={"A:3": {"Y": -0.25, "G": 1.5}},
+    )
+    port_type = build_frozen_catalog(
+        (PROTEINMPNN_PACKAGE,)
+    ).require_port_type("proteinmpnn.constraints", "3.0.0")
+
+    assert port_type.encode(constraints) == (
+        b'{"port_type_id":"proteinmpnn.constraints","port_type_version"'
+        b':"3.0.0","schema_namespace":"protein-workbench-port-value/v2",'
+        b'"value":{"bias_by_residue":[["A:3",{"G":1.5,"Y":-0.25}]],'
+        b'"designable_residue_ids":["A:1","A:2","A:3"],'
+        b'"designed_chains":["A"],"fixed_chains":["B"],'
+        b'"fixed_residue_ids":["A:4"],"layout":{"chain_id":"A,B",'
+        b'"length":6,"residue_ids":["A:1","A:2","A:3","A:4","B:1",'
+        b'"B:2"]},"omit_amino_acids":["C","M"],'
+        b'"tied_residue_groups":[["A:1","A:2"]]}}'
+    )
+    assert port_type.content_digest(constraints) == (
+        "sha256:4438b64b117bd01a800ec1d110031f0332d8c20f99d314d1561772f4dab7c0d4"
+    )
+    assert port_type.contract_digest == (
+        "sha256:9051751355cc411a1395f320852c96979053e004226cb219516fd82acb33980e"
+    )
+
+
+def test_constraints_cut_nested_aliases_and_keep_json_array_wire_projection() -> None:
+    from modules.proteinmpnn.package import (
+        MODULE_PACKAGE as PROTEINMPNN_PACKAGE,
+    )
+
+    fixed = ["A:2"]
+    tied = [["A:1", "B:1"]]
+    bias = {"B:3": {"A": 1.5}}
+    constraints = ProteinMPNNConstraints(
+        layout=TARGET_LAYOUT,
+        fixed_residue_ids=fixed,
+        tied_residue_groups=tied,
+        bias_by_residue=bias,
+    )
+    fixed.append("B:2")
+    tied[0].append("B:3")
+    bias["B:3"]["G"] = -0.25
+
+    assert constraints.fixed_residue_ids == ("A:2",)
+    assert constraints.tied_residue_groups == (("A:1", "B:1"),)
+    assert dict(constraints.bias_by_residue["B:3"]) == {"A": 1.5}
+
+    port_type = build_frozen_catalog(
+        (PROTEINMPNN_PACKAGE,)
+    ).require_port_type("proteinmpnn.constraints", "3.0.0")
+    encoded = port_type.encode(constraints)
+
+    assert b'"$tuple"' not in encoded
+    assert b'"fixed_residue_ids":["A:2"]' in encoded
+    assert b'"tied_residue_groups":[["A:1","B:1"]]' in encoded
+    assert port_type.decode(encoded) == constraints
 
 
 @pytest.mark.parametrize(
@@ -513,15 +616,15 @@ def test_constraint_authoring_fails_closed_on_layout_or_chain_contradictions(
         WorkflowNodeInstance(
             node_id="constraints",
             node_type_id="proteinmpnn.constraints",
-            node_type_version="2.1.0",
+            node_type_version="3.0.0",
             binding_id="proteinmpnn.constraints.local",
-            binding_version="2.1.0",
+            binding_version="3.0.0",
             node_parameters=parameters,
             binding_parameters={},
         ),
     )
 
-    _, projection, events = _run(
+    catalog, projection, events = _run(
         tmp_path,
         nodes=nodes,
         edges=(WorkflowEdge("layout", "layout", "constraints", "layout"),),
@@ -578,7 +681,7 @@ def test_random_fixed_positions_replays_and_randomness_changes_identity(
     binding = catalog.require_contract(
         "binding",
         "proteinmpnn.random_fixed_positions.local",
-        "2.1.0",
+        "3.0.0",
     )
     assert binding.descriptor["effective_randomness_parameters"] == (
         "effective_seed",
@@ -604,9 +707,9 @@ def test_random_fixed_positions_replays_and_randomness_changes_identity(
             WorkflowNodeInstance(
                 node_id="random-fixed",
                 node_type_id="proteinmpnn.random_fixed_positions",
-                node_type_version="2.1.0",
+                node_type_version="3.0.0",
                 binding_id="proteinmpnn.random_fixed_positions.local",
-                binding_version="2.1.0",
+                binding_version="3.0.0",
                 node_parameters={
                     "effective_seed": seed,
                     "fraction": 0.3,
@@ -653,8 +756,22 @@ def test_random_fixed_positions_replays_and_randomness_changes_identity(
     assert changed.fixed_residue_ids != first.fixed_residue_ids
 
 
-class _CapturingProteinMPNN:
-    provider_identity = "fixture-proteinmpnn-v_48_020"
+class _AdapterResources:
+    def __init__(self) -> None:
+        self.invocations: list[dict[str, Any]] = []
+
+    @staticmethod
+    def temporary_directory(*, prefix: str):
+        del prefix
+        return nullcontext(Path.cwd())
+
+    def engine_invocation(self, **kwargs: Any):
+        self.invocations.append(kwargs)
+        return nullcontext()
+
+
+class _ControlledProteinMPNNProvider:
+    """Controlled provider injected through LocalProteinMPNNAdapter."""
 
     def __init__(self) -> None:
         self.parsed: list[str] = []
@@ -671,41 +788,50 @@ class _CapturingProteinMPNN:
             }
         ]
 
-    def design(
-        self,
-        request: Any,
-    ) -> tuple[list[ProteinSequence], list[float]]:
+    def design(self, request: Any) -> tuple[list[ProteinSequence], list[float]]:
         self.requests.append(request)
         alphabet = "ACDEFGHIKLMNPQRSTVWY"
         return (
             [
                 ProteinSequence(
-                    "AGST" + alphabet[(request.seed + index) % len(alphabet)],
+                    "AGST" + alphabet[(request.seed + index) % len(alphabet)]
                 )
                 for index in range(request.num_sequences)
             ],
-            [
-                -float(index + 1)
-                for index in range(request.num_sequences)
-            ],
+            [-float(index + 1) for index in range(request.num_sequences)],
         )
 
-    def score(
-        self,
-        request: Any,
-        sequence: ProteinSequence,
-    ) -> float:
+    def score(self, request: Any, sequence: ProteinSequence) -> float:
         self.requests.append((request, sequence))
         return 2.75
+
+
+def _controlled_adapter(
+    provider: _ControlledProteinMPNNProvider,
+    *,
+    resources: _AdapterResources | None = None,
+) -> LocalProteinMPNNAdapter:
+    return LocalProteinMPNNAdapter(
+        environment={},
+        resources=resources or _AdapterResources(),
+        provider_factory=lambda _environment, _directory: provider,
+    )
 
 
 def _install_test_provider(
     monkeypatch: pytest.MonkeyPatch,
     provider: Any,
 ) -> None:
+    def build(**kwargs: Any) -> Any:
+        return LocalProteinMPNNAdapter(
+            environment=kwargs["environment"],
+            resources=kwargs["resources"],
+            provider_factory=lambda _environment, _directory: provider,
+        )
+
     monkeypatch.setattr(
-        "modules.proteinmpnn.implementation.provider_for_environment",
-        lambda environment, *, staging_directory: provider,
+        "modules.proteinmpnn.package.LocalProteinMPNNAdapter",
+        build,
     )
 
 
@@ -719,14 +845,14 @@ def _proteinmpnn_provider_root() -> Path:
 
 def _proteinmpnn_environment(
 ) -> EnvironmentConfiguration:
-    from modules.proteinmpnn.v2_adapter import (
+    from modules.proteinmpnn.adapter import (
         configured_runtime_fingerprint,
     )
 
     fingerprint = configured_runtime_fingerprint()
     return EnvironmentConfiguration(
         {
-            (binding_id, "2.1.0"): {
+            (binding_id, version): {
                 "values": {
                     "device": "cpu",
                     "resolved_runtime_fingerprint": fingerprint,
@@ -736,9 +862,9 @@ def _proteinmpnn_environment(
                 "safe_fingerprint": "proteinmpnn-fixture-v1",
                 "invalidation_token": "proteinmpnn-fixture-v1",
             }
-            for binding_id in (
-                "proteinmpnn.design.local",
-                "proteinmpnn.score.local",
+            for binding_id, version in (
+                ("proteinmpnn.design.local", "4.0.0"),
+                ("proteinmpnn.score.local", "2.1.0"),
             )
         }
     )
@@ -814,7 +940,7 @@ def test_scoring_emits_one_exact_intrinsic_observation_with_real_attempts(
         MODULE_PACKAGE as SOURCE_PACKAGE,
     )
 
-    provider = _CapturingProteinMPNN()
+    provider = _ControlledProteinMPNNProvider()
     _install_test_provider(monkeypatch, provider)
     nodes, edges = _score_workflow()
     catalog, projection, events = _run(
@@ -858,15 +984,21 @@ def test_scoring_emits_one_exact_intrinsic_observation_with_real_attempts(
     assert request.seed == 42
     assert request.backbone_noise == 0
     assert sequence.sequence == "AGSTW"
+    assert sequence.residue_ids == (
+        "A:1",
+        "A:2",
+        "B:1",
+        "B:2",
+        "B:3",
+    )
     public_events = [item["event"] for item in events]
     invocation = next(
         event
         for event in public_events
         if event["type"] == "engine_invocation_started"
-        and event["engine_identity"].startswith(
-            "proteinmpnn.score.local."
-        )
+        and event["engine_identity"] == observation.method.contract_digest
     )
+    assert invocation["engine_role"] == "score_subject"
     assert any(
         event["type"] == "operation_attempt_started"
         and event["operation_attempt_id"]
@@ -911,7 +1043,7 @@ def test_scoring_rejects_non_native_values_after_engine_without_publication(
         MODULE_PACKAGE as SOURCE_PACKAGE,
     )
 
-    class Provider(_CapturingProteinMPNN):
+    class Provider(_ControlledProteinMPNNProvider):
         def score(
             self,
             request: Any,
@@ -931,7 +1063,7 @@ def test_scoring_rejects_non_native_values_after_engine_without_publication(
     replay = Replay()
     _install_test_provider(monkeypatch, provider)
     nodes, edges = _score_workflow()
-    _, projection, events = _run(
+    catalog, projection, events = _run(
         tmp_path,
         nodes=nodes,
         edges=edges,
@@ -947,13 +1079,16 @@ def test_scoring_rejects_non_native_values_after_engine_without_publication(
     )
     assert "score" not in replay.published
     public_events = [item["event"] for item in events]
+    method_digest = catalog.require_contract(
+        "method",
+        "proteinmpnn.score.v_48_020_8907e667",
+        "2.1.0",
+    ).contract_digest
     invocation = next(
         event
         for event in public_events
         if event["type"] == "engine_invocation_started"
-        and event["engine_identity"].startswith(
-            "proteinmpnn.score.local."
-        )
+        and event["engine_identity"] == method_digest
     )
     assert any(
         event["type"] == "engine_invocation_terminal"
@@ -970,7 +1105,7 @@ def test_scoring_rejects_non_native_values_after_engine_without_publication(
     )
 
 
-def test_scoring_replay_rejects_non_binary32_observation(
+def test_scoring_replay_preserves_the_canonical_binary32_snapshot(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -1007,35 +1142,37 @@ def test_scoring_replay_rejects_non_binary32_observation(
                 return None
             subjects = kwargs["inputs"]["sequence_candidates"]
             assert type(subjects) is CandidateCollection
+            outputs = {
+                "scores": ScoreCollection(
+                    "canonical-binary32-replay",
+                    [
+                        ScoreObservation(
+                            candidate_id=subjects.items[0].candidate_id,
+                            metric=reference(
+                                "metric",
+                                "proteinmpnn.native_sequence_nll",
+                            ),
+                            method=reference(
+                                "method",
+                                "proteinmpnn.score.v_48_020_8907e667",
+                            ),
+                            context=IntrinsicObservationContext(),
+                            value=1.0,
+                        )
+                    ],
+                )
+            }
             return ResultReplayHit(
-                outputs={
-                    "scores": ScoreCollection(
-                        "malformed-binary32-replay",
-                        [
-                            ScoreObservation(
-                                candidate_id=subjects.items[0].candidate_id,
-                                metric=reference(
-                                    "metric",
-                                    "proteinmpnn.native_sequence_nll",
-                                ),
-                                method=reference(
-                                    "method",
-                                    (
-                                        "proteinmpnn.score."
-                                        "v_48_020_8907e667"
-                                    ),
-                                ),
-                                context=IntrinsicObservationContext(),
-                                value=1.0000000000000002,
-                            )
-                        ],
-                    )
-                },
                 result_identity=kwargs["result_identity"],
-                producer_run_id="malformed-replay-provider",
+                producer_run_id="canonical-replay-provider",
+                admitted_outputs=admitted_replay_outputs(
+                    catalog=catalog,
+                    node=kwargs["node"],
+                    outputs=outputs,
+                ),
             )
 
-    provider = _CapturingProteinMPNN()
+    provider = _ControlledProteinMPNNProvider()
     _install_test_provider(monkeypatch, provider)
     nodes, edges = _score_workflow()
     run_catalog, projection, events = _run(
@@ -1047,19 +1184,24 @@ def test_scoring_replay_rejects_non_binary32_observation(
         result_replay_source=Replay(),
     )
 
-    assert projection["status"] == "failed", events
+    assert projection["status"] == "succeeded", events
     assert provider.parsed == []
     assert provider.requests == []
-    assert all(
-        output["node_id"] != "score"
+    score_output = next(
+        output
         for output in projection["outputs"]
+        if output["node_id"] == "score"
     )
+    scores = _decode_output(run_catalog, score_output)
+    assert type(scores) is ScoreCollection
+    assert scores.entries[0].value == 1.0
     score_disposition = next(
         disposition
         for disposition in projection["node_dispositions"]
         if disposition["node_id"] == "score"
     )
-    assert score_disposition["outcome"] == "failed"
+    assert score_disposition["outcome"] == "succeeded"
+    assert score_disposition["resolution"] == "cache_replayed"
 
 
 def test_scoring_rejects_ambiguous_subjects_before_provider_execution(
@@ -1073,7 +1215,7 @@ def test_scoring_rejects_ambiguous_subjects_before_provider_execution(
         MODULE_PACKAGE as SOURCE_PACKAGE,
     )
 
-    provider = _CapturingProteinMPNN()
+    provider = _ControlledProteinMPNNProvider()
     _install_test_provider(monkeypatch, provider)
     nodes, edges = _score_workflow()
     source = nodes[0]
@@ -1089,7 +1231,7 @@ def test_scoring_rejects_ambiguous_subjects_before_provider_execution(
         ),
         *nodes[1:],
     )
-    _, projection, events = _run(
+    catalog, projection, events = _run(
         tmp_path,
         nodes=nodes,
         edges=edges,
@@ -1100,25 +1242,25 @@ def test_scoring_rejects_ambiguous_subjects_before_provider_execution(
     assert projection["status"] == "failed"
     assert provider.parsed == []
     assert provider.requests == []
+    score_method_digest = catalog.require_contract(
+        "method",
+        "proteinmpnn.score.v_48_020_8907e667",
+        "2.1.0",
+    ).contract_digest
     assert all(
-        event["event"].get("engine_identity", "").startswith(
-            "proteinmpnn.score.local."
-        )
-        is False
+        event["event"]["type"] != "engine_invocation_started"
+        or event["event"]["engine_identity"] != score_method_digest
         for event in events
     )
 
 
 def test_scoring_rejects_sequence_residue_layout_drift_before_model_call() -> None:
-    from modules.proteinmpnn.v2_adapter import prepare_scoring_request
-
-    provider = _CapturingProteinMPNN()
+    provider = _ControlledProteinMPNNProvider()
     with pytest.raises(
         ValueError,
         match="residue layout does not match",
     ):
-        prepare_scoring_request(
-            provider=provider,
+        _controlled_adapter(provider).score(
             structure=ProteinStructure("MODEL\nEND\n"),
             sequence=ProteinSequence(
                 "AGSTW",
@@ -1129,30 +1271,250 @@ def test_scoring_rejects_sequence_residue_layout_drift_before_model_call() -> No
 
 
 def test_scoring_uses_identity_complete_sequence_layout_for_provider_mapping() -> None:
-    from modules.proteinmpnn.v2_adapter import prepare_scoring_request
-
-    request = prepare_scoring_request(
-        provider=_CapturingProteinMPNN(),
+    provider = _ControlledProteinMPNNProvider()
+    resources = _AdapterResources()
+    score = _controlled_adapter(provider, resources=resources).score(
         structure=ProteinStructure("MODEL\nEND\n"),
         sequence=ProteinSequence(
             "AGSTW",
             ["A:6", "A:7", "B:20", "B:21", "B:22"],
         ),
     )
+    request, sequence = provider.requests[0]
 
-    assert request.target_layout.residue_ids == [
+    assert score == 2.75
+    assert sequence.residue_ids == request.target_layout.residue_ids
+    assert request.target_layout.residue_ids == (
         "A:6",
         "A:7",
         "B:20",
         "B:21",
         "B:22",
-    ]
+    )
     assert request.residue_identity_mapping == (
         ("A:6", "A", 1),
         ("A:7", "A", 2),
         ("B:20", "B", 1),
         ("B:21", "B", 2),
         ("B:22", "B", 3),
+    )
+    assert resources.invocations == [
+        {
+            "engine_role": "score_subject",
+            "invocation_provenance": {
+                "provider_residue_projection": {
+                    "position_semantics": "one_based_chain_local",
+                    "workbench_chain_order": ["A", "B"],
+                    "provider_chain_order": ["A", "B"],
+                    "entries": [
+                        {
+                            "residue_id": "A:6",
+                            "provider_chain_id": "A",
+                            "provider_position": 1,
+                        },
+                        {
+                            "residue_id": "A:7",
+                            "provider_chain_id": "A",
+                            "provider_position": 2,
+                        },
+                        {
+                            "residue_id": "B:20",
+                            "provider_chain_id": "B",
+                            "provider_position": 1,
+                        },
+                        {
+                            "residue_id": "B:21",
+                            "provider_chain_id": "B",
+                            "provider_position": 2,
+                        },
+                        {
+                            "residue_id": "B:22",
+                            "provider_chain_id": "B",
+                            "provider_position": 3,
+                        },
+                    ],
+                }
+            },
+        }
+    ]
+
+
+@pytest.mark.parametrize("operation", ("design", "score"))
+def test_provider_residue_projection_starts_before_provider_failure(
+    operation: str,
+) -> None:
+    resources = _AdapterResources()
+    expected_projection = {
+        "position_semantics": "one_based_chain_local",
+        "workbench_chain_order": ["A", "B"],
+        "provider_chain_order": ["A", "B"],
+        "entries": [
+            {
+                "residue_id": "A:1",
+                "provider_chain_id": "A",
+                "provider_position": 1,
+            },
+            {
+                "residue_id": "A:2",
+                "provider_chain_id": "A",
+                "provider_position": 2,
+            },
+            {
+                "residue_id": "B:1",
+                "provider_chain_id": "B",
+                "provider_position": 1,
+            },
+            {
+                "residue_id": "B:2",
+                "provider_chain_id": "B",
+                "provider_position": 2,
+            },
+            {
+                "residue_id": "B:3",
+                "provider_chain_id": "B",
+                "provider_position": 3,
+            },
+        ],
+    }
+    expected_provenance = {
+        "provider_residue_projection": expected_projection,
+    }
+    if operation == "design":
+        expected_provenance["effective_randomness"] = {
+            "control": "exact_seed",
+            "effective_seed": 1603,
+        }
+
+    class FailingProvider(_ControlledProteinMPNNProvider):
+        def _fail(self) -> None:
+            assert resources.invocations == [
+                {
+                    "engine_role": (
+                        "design_parent_0"
+                        if operation == "design"
+                        else "score_subject"
+                    ),
+                    "invocation_provenance": expected_provenance,
+                }
+            ]
+            raise RuntimeError("controlled provider failure")
+
+        def design(self, request: Any) -> Any:
+            self.requests.append(request)
+            self._fail()
+
+        def score(self, request: Any, sequence: ProteinSequence) -> Any:
+            self.requests.append((request, sequence))
+            self._fail()
+
+    adapter = _controlled_adapter(
+        FailingProvider(),
+        resources=resources,
+    )
+    with pytest.raises(RuntimeError, match="controlled provider failure"):
+        if operation == "design":
+            adapter.design(
+                structure=ProteinStructure("MODEL\nEND\n"),
+                num_sequences=1,
+                temperature=0.1,
+                backbone_noise=0,
+                seed=1603,
+                constraints=None,
+                reference_sequence=None,
+                engine_role="design_parent_0",
+            )
+        else:
+            adapter.score(
+                structure=ProteinStructure("MODEL\nEND\n"),
+                sequence=ProteinSequence(
+                    "AGSTW",
+                    ["A:1", "A:2", "B:1", "B:2", "B:3"],
+                ),
+            )
+
+
+def test_provider_failure_keeps_durable_residue_projection_started_event(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from modules.prompt_authoring.package import (
+        MODULE_PACKAGE as PROMPT_AUTHORING_PACKAGE,
+    )
+    from modules.proteinmpnn.package import (
+        MODULE_PACKAGE as PROTEINMPNN_PACKAGE,
+    )
+    from tests.fixtures.proteinmpnn_sources.package import (
+        MODULE_PACKAGE as SOURCE_PACKAGE,
+    )
+
+    class Provider(_ControlledProteinMPNNProvider):
+        def design(self, request: Any) -> Any:
+            self.requests.append(request)
+            raise RuntimeError("controlled provider failure")
+
+    provider = Provider()
+    _install_test_provider(monkeypatch, provider)
+    nodes, edges = _design_workflow()
+    _, projection, events = _run(
+        tmp_path,
+        nodes=nodes,
+        edges=edges,
+        registrations=(
+            PROMPT_AUTHORING_PACKAGE,
+            PROTEINMPNN_PACKAGE,
+            SOURCE_PACKAGE,
+        ),
+        environment=_proteinmpnn_environment(),
+    )
+
+    assert projection["status"] == "failed"
+    invocation = next(
+        item["event"]
+        for item in events
+        if item["event"]["type"] == "engine_invocation_started"
+        and item["event"]["engine_role"] == "design_parent_0"
+    )
+    provenance = invocation["invocation_provenance"]
+    assert provenance["provider_residue_projection"] == {
+        "position_semantics": "one_based_chain_local",
+        "workbench_chain_order": ["A", "B"],
+        "provider_chain_order": ["A", "B"],
+        "entries": [
+            {
+                "residue_id": "A:1",
+                "provider_chain_id": "A",
+                "provider_position": 1,
+            },
+            {
+                "residue_id": "A:2",
+                "provider_chain_id": "A",
+                "provider_position": 2,
+            },
+            {
+                "residue_id": "B:1",
+                "provider_chain_id": "B",
+                "provider_position": 1,
+            },
+            {
+                "residue_id": "B:2",
+                "provider_chain_id": "B",
+                "provider_position": 2,
+            },
+            {
+                "residue_id": "B:3",
+                "provider_chain_id": "B",
+                "provider_position": 3,
+            },
+        ],
+    }
+    randomness = provenance["effective_randomness"]
+    assert randomness["control"] == "exact_seed"
+    assert type(randomness["effective_seed"]) is int
+    assert any(
+        item["event"]["type"] == "engine_invocation_terminal"
+        and item["event"]["invocation_id"] == invocation["invocation_id"]
+        and item["event"]["status"] == "failed"
+        for item in events
     )
 
 
@@ -1200,7 +1562,7 @@ def test_scoring_replay_preserves_candidate_and_observation_identity_only(
         workflow=parse_workflow_document(relocked["workflow"]),
     )
 
-    def run(provider: _CapturingProteinMPNN) -> tuple[
+    def run(provider: _ControlledProteinMPNNProvider) -> tuple[
         dict[str, Any],
         tuple[dict[str, Any], ...],
         ScoreCollection,
@@ -1240,11 +1602,11 @@ def test_scoring_replay_preserves_candidate_and_observation_identity_only(
             _decode_output(catalog, subject_output),
         )
 
-    first_provider = _CapturingProteinMPNN()
+    first_provider = _ControlledProteinMPNNProvider()
     first_output, first_events, first_scores, first_subjects = run(
         first_provider
     )
-    replay_provider = _CapturingProteinMPNN()
+    replay_provider = _ControlledProteinMPNNProvider()
     replay_output, replay_events, replay_scores, replay_subjects = run(
         replay_provider
     )
@@ -1278,13 +1640,14 @@ def test_scoring_replay_preserves_candidate_and_observation_identity_only(
 
     assert len(score_readiness(first_events)) == 1
     assert len(score_readiness(replay_events)) == 1
+    score_method_digest = catalog.require_contract(
+        "method",
+        "proteinmpnn.score.v_48_020_8907e667",
+        "2.1.0",
+    ).contract_digest
     assert all(
-        not (
-            item["event"]["type"] == "engine_invocation_started"
-            and item["event"]["engine_identity"].startswith(
-                "proteinmpnn.score.local."
-            )
-        )
+        item["event"]["type"] != "engine_invocation_started"
+        or item["event"]["engine_identity"] != score_method_digest
         for item in replay_events
     )
 
@@ -1320,9 +1683,9 @@ def _design_workflow() -> tuple[
         WorkflowNodeInstance(
             node_id="constraints",
             node_type_id="proteinmpnn.constraints",
-            node_type_version="2.1.0",
+            node_type_version="3.0.0",
             binding_id="proteinmpnn.constraints.local",
-            binding_version="2.1.0",
+            binding_version="3.0.0",
             node_parameters={
                 "designable_residue_ids": ["A:1", "B:1", "B:3"],
                 "fixed_residue_ids": ["A:2", "B:2"],
@@ -1343,9 +1706,9 @@ def _design_workflow() -> tuple[
         WorkflowNodeInstance(
             node_id="design",
             node_type_id="proteinmpnn.design",
-            node_type_version="2.1.0",
+            node_type_version="4.0.0",
             binding_id="proteinmpnn.design.local",
-            binding_version="2.1.0",
+            binding_version="4.0.0",
             node_parameters={
                 "effective_seed": 1603,
                 "num_sequences": 5,
@@ -1451,7 +1814,7 @@ def test_design_produces_canonical_three_parent_by_five_child_lineage(
         MODULE_PACKAGE as SOURCE_PACKAGE,
     )
 
-    provider = _CapturingProteinMPNN()
+    provider = _ControlledProteinMPNNProvider()
     _install_test_provider(monkeypatch, provider)
     nodes, edges = _design_workflow()
     catalog, projection, events = _run(
@@ -1481,7 +1844,8 @@ def test_design_produces_canonical_three_parent_by_five_child_lineage(
         assert len(candidate.parent_ids) == 1
         parent_groups.setdefault(candidate.parent_ids[0], []).append(candidate)
         assert candidate.metadata["effective_seed"] == 1603
-        assert candidate.metadata["model"] == "v_48_020"
+        assert "model" not in candidate.metadata
+        assert "residue_identity_mapping" not in candidate.metadata
         assert candidate.metadata["constraint_digest"].startswith("sha256:")
         assert candidate.metadata["content_digest"].startswith("sha256:")
     assert len(parent_groups) == 3
@@ -1510,13 +1874,16 @@ def test_design_produces_canonical_three_parent_by_five_child_lineage(
         == 1.5
         for request in provider.requests
     )
+    design_method_digest = catalog.require_contract(
+        "method",
+        "proteinmpnn.design.v_48_020_8907e667",
+        "3.0.0",
+    ).contract_digest
     design_started = [
         event["event"]
         for event in events
         if event["event"]["type"] == "engine_invocation_started"
-        and event["event"]["engine_identity"].startswith(
-            "proteinmpnn.design.local."
-        )
+        and event["event"]["engine_identity"] == design_method_digest
     ]
     design_terminal = [
         event["event"]
@@ -1526,6 +1893,11 @@ def test_design_produces_canonical_three_parent_by_five_child_lineage(
         in {item["invocation_id"] for item in design_started}
     ]
     assert len(design_started) == len(design_terminal) == 3
+    assert {item["engine_role"] for item in design_started} == {
+        "design_parent_0",
+        "design_parent_1",
+        "design_parent_2",
+    }
     assert {item["status"] for item in design_terminal} == {"succeeded"}
     public_evidence = str({"projection": projection, "events": events})
     assert "proteinmpnn-secret-must-not-publish" not in public_evidence
@@ -1545,8 +1917,8 @@ def test_design_seed_depends_on_structure_content_and_parent_slot_not_result_ide
         MODULE_PACKAGE as SOURCE_PACKAGE,
     )
 
-    def run(transform_depth: int) -> tuple[int, str, str]:
-        provider = _CapturingProteinMPNN()
+    def run(transform_depth: int) -> tuple[int, str, str, str]:
+        provider = _ControlledProteinMPNNProvider()
         _install_test_provider(monkeypatch, provider)
         source_node_id = "source"
         transform_nodes = tuple(
@@ -1577,9 +1949,9 @@ def test_design_seed_depends_on_structure_content_and_parent_slot_not_result_ide
             WorkflowNodeInstance(
                 node_id="design",
                 node_type_id="proteinmpnn.design",
-                node_type_version="2.1.0",
+                node_type_version="4.0.0",
                 binding_id="proteinmpnn.design.local",
-                binding_version="2.1.0",
+                binding_version="4.0.0",
                 node_parameters={
                     "effective_seed": 1603,
                     "num_sequences": 1,
@@ -1631,17 +2003,34 @@ def test_design_seed_depends_on_structure_content_and_parent_slot_not_result_ide
             provider.requests[0].seed,
             parents.items[0].candidate_id,
             parents.items[0].data.pdb_string,
+            catalog.require_port_type(
+                "protein.structure",
+                "3.0.0",
+            ).content_digest(parents.items[0].data),
         )
 
-    first_seed, first_parent_id, first_pdb = run(1)
-    second_seed, second_parent_id, second_pdb = run(2)
+    first_seed, first_parent_id, first_pdb, first_content_digest = run(1)
+    second_seed, second_parent_id, second_pdb, second_content_digest = run(2)
+
+    expected_seed = int.from_bytes(
+        hashlib.sha256(
+            (
+                "protein-workbench-proteinmpnn-parent-seed/v2\0"
+                "1603\0"
+                "0\0"
+                f"{first_content_digest}"
+            ).encode()
+        ).digest()[:7],
+        "big",
+    ) % 9_007_199_254_740_992
 
     assert first_parent_id != second_parent_id
     assert first_pdb == second_pdb
-    assert first_seed == second_seed
+    assert first_content_digest == second_content_digest
+    assert first_seed == second_seed == expected_seed
 
 
-def test_2emo_identity_layout_maps_to_provider_positions_and_result_provenance(
+def test_2emo_identity_layout_maps_to_provider_invocation_provenance(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -1658,7 +2047,7 @@ def test_2emo_identity_layout_maps_to_provider_positions_and_result_provenance(
         MODULE_PACKAGE as PROMPT_SOURCE_PACKAGE,
     )
 
-    class IdentityLayoutProvider(_CapturingProteinMPNN):
+    class IdentityLayoutProvider(_ControlledProteinMPNNProvider):
         def parse_structure(self, pdb_string: str) -> list[dict[str, Any]]:
             self.parsed.append(pdb_string)
             return [{"name": "target", "seq_chain_A": "A" * 224}]
@@ -1682,38 +2071,38 @@ def test_2emo_identity_layout_maps_to_provider_positions_and_result_provenance(
         WorkflowNodeInstance(
             node_id="source",
             node_type_id="contract_test.prompt_authoring_values",
-            node_type_version="2.1.0",
+            node_type_version="3.0.0",
             binding_id="contract_test.prompt_authoring_values.direct",
-            binding_version="2.1.0",
+            binding_version="3.0.0",
             node_parameters={"fixture": "2emo"},
             binding_parameters={},
         ),
         WorkflowNodeInstance(
             node_id="normalize",
             node_type_id="structure_transform.normalize_csh_parent_span",
-            node_type_version="2.1.0",
+            node_type_version="3.0.0",
             binding_id=(
                 "structure_transform.normalize_csh_parent_span.direct"
             ),
-            binding_version="2.1.0",
+            binding_version="3.0.0",
             node_parameters={},
             binding_parameters={},
         ),
         WorkflowNodeInstance(
             node_id="prompt",
             node_type_id="prompt_authoring.prompt_from_structure",
-            node_type_version="2.1.0",
+            node_type_version="3.0.0",
             binding_id="prompt_authoring.prompt_from_structure.direct",
-            binding_version="2.1.0",
+            binding_version="3.0.0",
             node_parameters={},
             binding_parameters={},
         ),
         WorkflowNodeInstance(
             node_id="constraints",
             node_type_id="proteinmpnn.constraints",
-            node_type_version="2.1.0",
+            node_type_version="3.0.0",
             binding_id="proteinmpnn.constraints.local",
-            binding_version="2.1.0",
+            binding_version="3.0.0",
             node_parameters={
                 "designable_residue_ids": [],
                 "fixed_residue_ids": ["A:42", "A:65", "A:66", "A:67"],
@@ -1728,9 +2117,9 @@ def test_2emo_identity_layout_maps_to_provider_positions_and_result_provenance(
         WorkflowNodeInstance(
             node_id="design",
             node_type_id="proteinmpnn.design",
-            node_type_version="2.1.0",
+            node_type_version="4.0.0",
             binding_id="proteinmpnn.design.local",
-            binding_version="2.1.0",
+            binding_version="4.0.0",
             node_parameters={
                 "effective_seed": 1603,
                 "num_sequences": 1,
@@ -1768,7 +2157,7 @@ def test_2emo_identity_layout_maps_to_provider_positions_and_result_provenance(
     assert len(provider.requests) == 1
     request = provider.requests[0]
     assert request.target_layout.length == 224
-    assert request.target_layout.residue_ids[:2] == ["A:6", "A:7"]
+    assert request.target_layout.residue_ids[:2] == ("A:6", "A:7")
     assert request.target_layout.residue_ids[-1] == "A:229"
     assert request.fixed_position_dict == {
         "target": {"A": [37, 60, 61, 62]}
@@ -1784,10 +2173,34 @@ def test_2emo_identity_layout_maps_to_provider_positions_and_result_provenance(
     candidates = _decode_output(catalog, output)
     candidate = candidates.items[0]
     assert candidate.data.residue_ids == request.target_layout.residue_ids
-    assert candidate.metadata["residue_identity_mapping"][0] == {
+    assert "residue_identity_mapping" not in candidate.metadata
+    assert "model" not in candidate.metadata
+    invocation = next(
+        item["event"]
+        for item in events
+        if item["event"]["type"] == "engine_invocation_started"
+        and item["event"]["engine_role"] == "design_parent_0"
+    )
+    provenance = invocation["invocation_provenance"]
+    projection_provenance = provenance["provider_residue_projection"]
+    assert projection_provenance["position_semantics"] == (
+        "one_based_chain_local"
+    )
+    assert projection_provenance["workbench_chain_order"] == ["A"]
+    assert projection_provenance["provider_chain_order"] == ["A"]
+    assert projection_provenance["entries"][0] == {
         "residue_id": "A:6",
         "provider_chain_id": "A",
         "provider_position": 1,
+    }
+    assert projection_provenance["entries"][-1] == {
+        "residue_id": "A:229",
+        "provider_chain_id": "A",
+        "provider_position": 224,
+    }
+    assert provenance["effective_randomness"] == {
+        "control": "exact_seed",
+        "effective_seed": candidate.metadata["effective_call_seed"],
     }
 
 
@@ -1808,12 +2221,12 @@ def test_design_binding_fixes_model_source_checkpoint_and_runtime_identity(
     binding = catalog.require_contract(
         "binding",
         "proteinmpnn.design.local",
-        "2.1.0",
+        "4.0.0",
     )
     node = catalog.require_contract(
         "node_type",
         "proteinmpnn.design",
-        "2.1.0",
+        "4.0.0",
     )
     method_reference = binding.descriptor["method"]
     method = catalog.require_contract(
@@ -1866,7 +2279,7 @@ def test_design_binding_fixes_model_source_checkpoint_and_runtime_identity(
 def test_readiness_validates_the_exact_checkout_checkpoint_and_runtime(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    from modules.proteinmpnn.v2_adapter import (
+    from modules.proteinmpnn.adapter import (
         configured_runtime_fingerprint,
         proteinmpnn_readiness,
     )
@@ -1899,7 +2312,7 @@ def test_readiness_validates_the_exact_checkout_checkpoint_and_runtime(
         }
     ).passing is False
 
-    provider = _CapturingProteinMPNN()
+    provider = _ControlledProteinMPNNProvider()
     provider.provider_contract_identity = "sha256:" + "0" * 64
     assert proteinmpnn_readiness(
         {
@@ -1913,14 +2326,12 @@ def test_readiness_validates_the_exact_checkout_checkpoint_and_runtime(
 
 
 def test_design_rejects_noncanonical_sampling_and_reference_layout_drift() -> None:
-    from modules.proteinmpnn.v2_adapter import prepare_design_request
-
-    provider = _CapturingProteinMPNN()
+    provider = _ControlledProteinMPNNProvider()
+    adapter = _controlled_adapter(provider)
     structure = ProteinStructure("REMARK exact-layout\nEND\n")
 
     with pytest.raises(ValueError, match="canonical amino acid"):
-        prepare_design_request(
-            provider=provider,
+        adapter.design(
             structure=structure,
             num_sequences=1,
             temperature=0.1,
@@ -1931,11 +2342,11 @@ def test_design_rejects_noncanonical_sampling_and_reference_layout_drift() -> No
                 omit_amino_acids=list("ACDEFGHIKLMNPQRSTVWY"),
             ),
             reference_sequence=None,
+            engine_role="design_parent_0",
         )
 
     with pytest.raises(ValueError, match="residue layout"):
-        prepare_design_request(
-            provider=provider,
+        adapter.design(
             structure=structure,
             num_sequences=1,
             temperature=0.1,
@@ -1946,10 +2357,10 @@ def test_design_rejects_noncanonical_sampling_and_reference_layout_drift() -> No
                 "AGSTW",
                 ["B:3", "B:2", "B:1", "A:2", "A:1"],
             ),
+            engine_role="design_parent_0",
         )
 
-    request = prepare_design_request(
-        provider=provider,
+    adapter.design(
         structure=structure,
         num_sequences=1,
         temperature=0.1,
@@ -1957,7 +2368,9 @@ def test_design_rejects_noncanonical_sampling_and_reference_layout_drift() -> No
         seed=1603,
         constraints=None,
         reference_sequence=ProteinSequence("AGSTW"),
+        engine_role="design_parent_0",
     )
+    request = provider.requests[-1]
     assert request.reference_sequences == {"A": "AG", "B": "STW"}
 
     changed_boundary_layout = ResidueLayout(
@@ -1966,8 +2379,7 @@ def test_design_rejects_noncanonical_sampling_and_reference_layout_drift() -> No
         ["A:1", "A:2", "A:3", "B:1", "B:2"],
     )
     with pytest.raises(ValueError, match="constraint residue identity"):
-        prepare_design_request(
-            provider=provider,
+        adapter.design(
             structure=structure,
             num_sequences=1,
             temperature=0.1,
@@ -1978,17 +2390,44 @@ def test_design_rejects_noncanonical_sampling_and_reference_layout_drift() -> No
                 designed_chains=["B"],
             ),
             reference_sequence=None,
+            engine_role="design_parent_0",
         )
 
 
-def test_design_restores_provider_designed_first_chain_order() -> None:
-    from modules.proteinmpnn.v2_adapter import (
-        prepare_design_request,
-        validate_design_result,
+def test_design_accepts_exact_immutable_reference_residue_layout() -> None:
+    provider = _ControlledProteinMPNNProvider()
+    result = _controlled_adapter(provider).design(
+        structure=ProteinStructure("REMARK exact-layout\nEND\n"),
+        num_sequences=1,
+        temperature=0.1,
+        backbone_noise=0.0,
+        seed=1603,
+        constraints=None,
+        reference_sequence=ProteinSequence(
+            "AGSTW",
+            ["A:1", "A:2", "B:1", "B:2", "B:3"],
+        ),
+        engine_role="design_parent_0",
     )
 
-    request = prepare_design_request(
-        provider=_CapturingProteinMPNN(),
+    assert len(result) == 1
+    assert result[0].residue_ids == (
+        "A:1",
+        "A:2",
+        "B:1",
+        "B:2",
+        "B:3",
+    )
+
+
+def test_design_restores_provider_designed_first_chain_order() -> None:
+    class DesignedFirstProvider(_ControlledProteinMPNNProvider):
+        def design(self, request: Any):
+            self.requests.append(request)
+            return [ProteinSequence("VVVAG")], [1.0]
+
+    provider = DesignedFirstProvider()
+    result = _controlled_adapter(provider).design(
         structure=ProteinStructure("REMARK exact-layout\nEND\n"),
         num_sequences=1,
         temperature=0.1,
@@ -2000,29 +2439,23 @@ def test_design_restores_provider_designed_first_chain_order() -> None:
             fixed_chains=["A"],
         ),
         reference_sequence=None,
+        engine_role="design_parent_0",
     )
-
-    sequences, scores = validate_design_result(
-        ([ProteinSequence("VVVAG")], [1.0]),
-        request=request,
-    )
+    request = provider.requests[0]
 
     assert request.structure_chain_order == ("A", "B")
     assert request.provider_chain_order == ("B", "A")
-    assert sequences == [
+    assert result == (
         ProteinSequence(
             "AGVVV",
             ["A:1", "A:2", "B:1", "B:2", "B:3"],
-        )
-    ]
-    assert scores == [1.0]
+        ),
+    )
 
 
 def test_design_canonicalizes_constraint_chain_sets_to_provider_order() -> None:
-    from modules.proteinmpnn.v2_adapter import prepare_design_request
-
-    request = prepare_design_request(
-        provider=_CapturingProteinMPNN(),
+    provider = _ControlledProteinMPNNProvider()
+    _controlled_adapter(provider).design(
         structure=ProteinStructure("REMARK exact-layout\nEND\n"),
         num_sequences=1,
         temperature=0.1,
@@ -2033,7 +2466,9 @@ def test_design_canonicalizes_constraint_chain_sets_to_provider_order() -> None:
             designed_chains=["B", "A"],
         ),
         reference_sequence=None,
+        engine_role="design_parent_0",
     )
+    request = provider.requests[0]
 
     assert request.chain_dict == {"target": (["A", "B"], [])}
     assert request.provider_chain_order == ("A", "B")
@@ -2050,24 +2485,24 @@ def test_design_normalizes_one_standalone_structure_without_inventing_a_parent(
         MODULE_PACKAGE as SOURCE_PACKAGE,
     )
 
-    provider = _CapturingProteinMPNN()
+    provider = _ControlledProteinMPNNProvider()
     _install_test_provider(monkeypatch, provider)
     nodes = (
         WorkflowNodeInstance(
             node_id="source",
             node_type_id="contract_test.protein_structure",
-            node_type_version="2.1.0",
+            node_type_version="3.0.0",
             binding_id="contract_test.protein_structure.direct",
-            binding_version="2.1.0",
+            binding_version="3.0.0",
             node_parameters={},
             binding_parameters={},
         ),
         WorkflowNodeInstance(
             node_id="design",
             node_type_id="proteinmpnn.design",
-            node_type_version="2.1.0",
+            node_type_version="4.0.0",
             binding_id="proteinmpnn.design.local",
-            binding_version="2.1.0",
+            binding_version="4.0.0",
             node_parameters={
                 "effective_seed": 1603,
                 "num_sequences": 1,
@@ -2093,7 +2528,7 @@ def test_design_normalizes_one_standalone_structure_without_inventing_a_parent(
     )
     candidates = _decode_output(catalog, output)
     assert len(candidates.items) == 1
-    assert candidates.items[0].parent_ids == []
+    assert candidates.items[0].parent_ids == ()
     assert len(provider.requests) == 1
 
 
@@ -2108,25 +2543,27 @@ def test_standalone_design_seed_and_result_ignore_node_instance_rename(
         MODULE_PACKAGE as SOURCE_PACKAGE,
     )
 
-    def run(design_node_id: str) -> tuple[str, CandidateCollection, int]:
-        provider = _CapturingProteinMPNN()
+    def run(
+        design_node_id: str,
+    ) -> tuple[str, CandidateCollection, int, str]:
+        provider = _ControlledProteinMPNNProvider()
         _install_test_provider(monkeypatch, provider)
         nodes = (
             WorkflowNodeInstance(
                 node_id="source",
                 node_type_id="contract_test.protein_structure",
-                node_type_version="2.1.0",
+                node_type_version="3.0.0",
                 binding_id="contract_test.protein_structure.direct",
-                binding_version="2.1.0",
+                binding_version="3.0.0",
                 node_parameters={},
                 binding_parameters={},
             ),
             WorkflowNodeInstance(
                 node_id=design_node_id,
                 node_type_id="proteinmpnn.design",
-                node_type_version="2.1.0",
+                node_type_version="4.0.0",
                 binding_id="proteinmpnn.design.local",
-                binding_version="2.1.0",
+                binding_version="4.0.0",
                 node_parameters={
                     "effective_seed": 1603,
                     "num_sequences": 1,
@@ -2156,16 +2593,38 @@ def test_standalone_design_seed_and_result_ignore_node_instance_rename(
             for item in projection["outputs"]
             if item["node_id"] == design_node_id
         )
+        structure_output = next(
+            item
+            for item in projection["outputs"]
+            if item["node_id"] == "source"
+            and item["output_port"] == "structure"
+        )
+        structure = _decode_output(catalog, structure_output)
         return (
             output["result_identity"],
             _decode_output(catalog, output),
             provider.requests[0].seed,
+            catalog.require_port_type(
+                "protein.structure",
+                "3.0.0",
+            ).content_digest(structure),
         )
 
     original = run("design-original")
     renamed = run("design-renamed")
 
     assert original == renamed
+    assert original[2] == int.from_bytes(
+        hashlib.sha256(
+            (
+                "protein-workbench-proteinmpnn-parent-seed/v2\0"
+                "1603\0"
+                "0\0"
+                f"{original[3]}"
+            ).encode()
+        ).digest()[:7],
+        "big",
+    ) % 9_007_199_254_740_992
 
 
 def test_design_replay_is_stable_and_changed_seed_changes_result_identity(
@@ -2183,7 +2642,7 @@ def test_design_replay_is_stable_and_changed_seed_changes_result_identity(
     )
 
     def run(seed: int) -> tuple[str, CandidateCollection]:
-        provider = _CapturingProteinMPNN()
+        provider = _ControlledProteinMPNNProvider()
         _install_test_provider(monkeypatch, provider)
         nodes, edges = _design_workflow()
         design = nodes[-1]
@@ -2274,7 +2733,7 @@ def test_partial_or_malformed_provider_results_fail_without_publication(
         MODULE_PACKAGE as SOURCE_PACKAGE,
     )
 
-    class Provider(_CapturingProteinMPNN):
+    class Provider(_ControlledProteinMPNNProvider):
         def design(
             self,
             request: Any,
@@ -2293,7 +2752,7 @@ def test_partial_or_malformed_provider_results_fail_without_publication(
     _install_test_provider(monkeypatch, provider)
     replay = Replay()
     nodes, edges = _design_workflow()
-    _, projection, events = _run(
+    catalog, projection, events = _run(
         tmp_path,
         nodes=nodes,
         edges=edges,
@@ -2312,6 +2771,11 @@ def test_partial_or_malformed_provider_results_fail_without_publication(
         for output in projection["outputs"]
     )
     assert "design" not in replay.published
+    design_method_digest = catalog.require_contract(
+        "method",
+        "proteinmpnn.design.v_48_020_8907e667",
+        "3.0.0",
+    ).contract_digest
     design_terminal = [
         event["event"]
         for event in events
@@ -2320,9 +2784,8 @@ def test_partial_or_malformed_provider_results_fail_without_publication(
             started["event"]["type"] == "engine_invocation_started"
             and started["event"]["invocation_id"]
             == event["event"]["invocation_id"]
-            and started["event"]["engine_identity"].startswith(
-                "proteinmpnn.design.local."
-            )
+            and started["event"]["engine_identity"]
+            == design_method_digest
             for started in events
         )
     ]
@@ -2340,7 +2803,7 @@ def test_proteinmpnn_passes_the_shared_contract_test_kit(
     from modules.proteinmpnn.package import (
         MODULE_PACKAGE as PROTEINMPNN_PACKAGE,
     )
-    from modules.proteinmpnn.v2_adapter import (
+    from modules.proteinmpnn.adapter import (
         configured_runtime_fingerprint,
     )
     from tests.fixtures.proteinmpnn_sources.package import (
@@ -2390,15 +2853,15 @@ def test_proteinmpnn_passes_the_shared_contract_test_kit(
         node_parameters={"parent_count": 1},
         binding_parameters={},
     )
-    design_provider = _CapturingProteinMPNN()
+    design_provider = _ControlledProteinMPNNProvider()
     _install_test_provider(monkeypatch, design_provider)
     cases = (
         ModulePackageContractCase(
             case_id="constraints",
             node_type_id="proteinmpnn.constraints",
-            node_type_version="2.1.0",
+            node_type_version="3.0.0",
             binding_id="proteinmpnn.constraints.local",
-            binding_version="2.1.0",
+            binding_version="3.0.0",
             node_parameters={
                 "designable_residue_ids": ["A:1", "B:1", "B:3"],
                 "fixed_residue_ids": ["A:2", "B:2"],
@@ -2431,9 +2894,9 @@ def test_proteinmpnn_passes_the_shared_contract_test_kit(
         ModulePackageContractCase(
             case_id="random-fixed",
             node_type_id="proteinmpnn.random_fixed_positions",
-            node_type_version="2.1.0",
+            node_type_version="3.0.0",
             binding_id="proteinmpnn.random_fixed_positions.local",
-            binding_version="2.1.0",
+            binding_version="3.0.0",
             node_parameters={"effective_seed": 1603, "fraction": 0.4},
             binding_parameters={},
             environment_values={},
@@ -2452,9 +2915,9 @@ def test_proteinmpnn_passes_the_shared_contract_test_kit(
         ModulePackageContractCase(
             case_id="design",
             node_type_id="proteinmpnn.design",
-            node_type_version="2.1.0",
+            node_type_version="4.0.0",
             binding_id="proteinmpnn.design.local",
-            binding_version="2.1.0",
+            binding_version="4.0.0",
             node_parameters={
                 "effective_seed": 1603,
                 "num_sequences": 5,
@@ -2540,7 +3003,7 @@ def test_proteinmpnn_passes_the_shared_contract_test_kit(
         port_cases=(
             ModulePackagePortCase(
                 type_id="proteinmpnn.constraints",
-                version="2.1.0",
+                version="3.0.0",
                 valid_value=ProteinMPNNConstraints(
                     layout=ResidueLayout("A", 1, ["A:1"]),
                     fixed_residue_ids=["A:1"],

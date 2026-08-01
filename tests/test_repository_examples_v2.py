@@ -79,6 +79,37 @@ EXPECTED_PACKAGES = {
     "structure_comparison",
     "structure_transform",
 }
+ACTIVE_V3_NODE_TYPES = {
+    "esm3.generate_paired",
+    "esm3.generate_sequence",
+    "esm3.generate_structure",
+    "folding.fold",
+    "protein_io.import_sequence",
+    "protein_io.import_structure",
+    "protein_io.export_structure",
+    "prompt_authoring.prompt_from_structure",
+    "proteinmpnn.constraints",
+    "proteinmpnn.random_fixed_positions",
+    "structure_annotation.dssp_compute",
+    "structure_transform.backbone_to_structure",
+    "structure_transform.extract_backbone",
+    "structure_transform.extract_sequence",
+    "structure_transform.normalize_csh_parent_span",
+    "structure_transform.select_chains",
+}
+ACTIVE_V4_NODE_TYPES = {"proteinmpnn.design"}
+ACTIVE_V2_2_NODE_TYPES = {
+    "structure_comparison.align_pairwise",
+    "structure_comparison.batch_tm_score",
+    "structure_comparison.rmsd",
+}
+ACTIVE_V2_2_BINDINGS = {
+    "esm3.represent_sequence.biohub_esmc_600m_2024_12",
+    "folding.simplefold_confidence.simplefold_local",
+    "structure_annotation.sasa_compute.direct",
+    "structure_annotation.secondary_structure_agreement.direct",
+    "structure_annotation.secondary_structure_extract.direct",
+}
 
 
 def _load(path: Path) -> dict:
@@ -122,8 +153,20 @@ def test_repository_examples_are_exact_locked_compilable_v2_workflows() -> None:
             catalog=catalog,
         ).receipt["accepted"] is True
         for node in workflow.nodes:
-            assert node.node_type_version == "2.1.0"
-            assert node.binding_version == "2.1.0"
+            if node.node_type_id in ACTIVE_V4_NODE_TYPES:
+                expected_version = "4.0.0"
+            elif node.node_type_id in ACTIVE_V3_NODE_TYPES:
+                expected_version = "3.0.0"
+            elif node.node_type_id in ACTIVE_V2_2_NODE_TYPES:
+                expected_version = "2.2.0"
+            else:
+                expected_version = "2.1.0"
+            assert node.node_type_version == expected_version
+            assert node.binding_version == (
+                "2.2.0"
+                if node.binding_id in ACTIVE_V2_2_BINDINGS
+                else expected_version
+            )
 
 
 def test_examples_never_select_methods_or_environment_implicitly() -> None:

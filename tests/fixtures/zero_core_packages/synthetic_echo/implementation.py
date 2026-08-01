@@ -6,7 +6,7 @@ from pathlib import Path
 import time
 from typing import Any, Mapping
 
-from core import ArtifactPayload
+from core import ArtifactPayload, OperationCall
 from datatypes import (
     Candidate,
     CandidateCollection,
@@ -34,21 +34,13 @@ class SyntheticEchoImplementation:
         self._metric = metric
         self._method = method
 
-    def execute(
-        self,
-        *,
-        inputs: Mapping[str, Any],
-        node_parameters: Mapping[str, Any],
-        binding_parameters: Mapping[str, Any],
-    ) -> dict[str, Any]:
-        if inputs:
+    def execute(self, call: OperationCall) -> dict[str, Any]:
+        if call.inputs:
             raise ValueError("synthetic echo does not accept inputs")
-        message = node_parameters["message"]
-        repeat_count = binding_parameters["repeat_count"]
+        message = call.node_parameters["message"]
+        repeat_count = call.binding_parameters["repeat_count"]
         echoed = message * repeat_count
-        with self._run_resources.engine_invocation(
-            engine_identity="contract_test.synthetic_echo.method/2.1.0",
-        ):
+        with self._run_resources.engine_invocation():
             marker_value = self._environment.get("block_marker")
             if isinstance(marker_value, str):
                 marker = Path(marker_value)
@@ -62,7 +54,7 @@ class SyntheticEchoImplementation:
         candidate = Candidate(
             candidate_id="synthetic-candidate",
             data=ProteinSequence(sequence="M"),
-            parent_ids=[self._run_resources.node_id],
+            parent_ids=[],
             metadata={"fixture": "zero-core-extension"},
         )
         candidates = CandidateCollection(

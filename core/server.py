@@ -424,8 +424,16 @@ def create_app(
         except WorkflowAuthoringError as error:
             return authoring_error_response(error)
         except WorkflowCompileError as error:
+            code = (
+                error.code
+                if error.code in {
+                    "contract_digest_mismatch",
+                    "inactive_generation",
+                }
+                else "compile_rejected"
+            )
             return public_error_response(
-                "contract_digest_mismatch",
+                code,
                 str(error),
                 {"issues": [error.issue()]},
             )
@@ -467,8 +475,11 @@ def create_app(
             return authoring_error_response(error)
         except WorkflowCompileError as error:
             code = (
-                "contract_digest_mismatch"
-                if error.code == "contract_digest_mismatch"
+                error.code
+                if error.code in {
+                    "contract_digest_mismatch",
+                    "inactive_generation",
+                }
                 else "compile_rejected"
             )
             return public_error_response(

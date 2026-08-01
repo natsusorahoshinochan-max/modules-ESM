@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Any, Mapping
+from typing import Any
 
 from core import (
     AvailabilityDeclaration,
@@ -11,11 +11,13 @@ from core import (
     ContractIdentity,
     DefinitionResource,
     ExecutionBindingDefinition,
-    LazyImplementationFactory,
     MethodDefinition,
     ModulePackageRegistration,
+    OperationCall,
+    OperationContext,
     ReadinessDeclaration,
     ReadinessResult,
+    ScientificOperationFactory,
 )
 from datatypes import (
     Candidate,
@@ -29,18 +31,13 @@ class _StructureSource:
     def __init__(self, resources: Any) -> None:
         self._resources = resources
 
-    def execute(
-        self,
-        *,
-        inputs: Mapping[str, Any],
-        node_parameters: Mapping[str, Any],
-        binding_parameters: Mapping[str, Any],
-    ) -> dict[str, Any]:
+    def execute(self, call: OperationCall) -> dict[str, Any]:
+        inputs = call.inputs
+        node_parameters = call.node_parameters
+        binding_parameters = call.binding_parameters
         if inputs or node_parameters or binding_parameters:
             raise ValueError("structure source accepts no values")
-        with self._resources.engine_invocation(
-            engine_identity="contract_test.structure_candidates.method/2.1.0",
-        ):
+        with self._resources.engine_invocation():
             candidates = [
                 Candidate(
                     candidate_id=f"fixture-structure-{index:02d}",
@@ -53,7 +50,6 @@ class _StructureSource:
                             "1.00 20.00           C\n"
                             "ENDMDL\nEND\n"
                         ),
-                        source=f"provider-{index:02d}",
                     ),
                     parent_ids=[],
                     metadata={"sample_slot": index},
@@ -74,18 +70,13 @@ class _ScalarSource:
         self._resources = resources
         self._kind = kind
 
-    def execute(
-        self,
-        *,
-        inputs: Mapping[str, Any],
-        node_parameters: Mapping[str, Any],
-        binding_parameters: Mapping[str, Any],
-    ) -> dict[str, Any]:
+    def execute(self, call: OperationCall) -> dict[str, Any]:
+        inputs = call.inputs
+        node_parameters = call.node_parameters
+        binding_parameters = call.binding_parameters
         if inputs or node_parameters or binding_parameters:
             raise ValueError("scalar source accepts no values")
-        with self._resources.engine_invocation(
-            engine_identity=f"contract_test.{self._kind}.method/2.1.0",
-        ):
+        with self._resources.engine_invocation():
             if self._kind == "protein_sequence":
                 return {"sequence": ProteinSequence(sequence="ACDEFG")}
             return {
@@ -96,16 +87,15 @@ class _ScalarSource:
                         "1.000   2.000   3.000  1.00 20.00           C\n"
                         "END\n"
                     ),
-                    source="contract-test-provider",
                 )
             }
 
 
 def _build(kind: str):
-    def factory(**kwargs: object) -> object:
+    def factory(context: OperationContext) -> object:
         if kind == "structure_candidates":
-            return _StructureSource(kwargs["run_resources"])
-        return _ScalarSource(kwargs["run_resources"], kind)
+            return _StructureSource(context.resources)
+        return _ScalarSource(context.resources, kind)
 
     return factory
 
@@ -124,13 +114,14 @@ def _method(kind: str) -> MethodDefinition:
 
 
 def _binding(kind: str) -> ExecutionBindingDefinition:
+    binding_version = "3.0.0" if kind == "protein_structure" else "2.1.0"
     return ExecutionBindingDefinition(
         binding_id=f"contract_test.{kind}.direct",
-        version="2.1.0",
+        version=binding_version,
         node_type=ContractIdentity(
             "node_type",
             f"contract_test.{kind}",
-            "2.1.0",
+            binding_version,
         ),
         method=ContractIdentity(
             "method",
@@ -139,7 +130,7 @@ def _binding(kind: str) -> ExecutionBindingDefinition:
         ),
         binding_parameters={},
         execution_route="direct",
-        factory=LazyImplementationFactory(
+        factory=ScientificOperationFactory(
             behavior=BehaviorReference(
                 f"contract_test.{kind}/factory",
                 "2.1.0",

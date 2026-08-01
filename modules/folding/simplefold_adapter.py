@@ -5,13 +5,15 @@ from __future__ import annotations
 import hashlib
 import importlib.util
 import json
+import math
 import os
 import stat
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping, Sequence
+from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, Protocol
 
-from core import ReadinessResult
+from core import ReadinessResult, RunResources
 from modules.provider_contract import (
     SIMPLEFOLD_ARTIFACT_IDENTITIES,
     SIMPLEFOLD_ARTIFACT_SHA256,
@@ -29,6 +31,46 @@ from .simplefold_contract import SIMPLEFOLD_FOLDING_ARTIFACTS
 
 SIMPLEFOLD_MODEL = "simplefold_100M"
 SIMPLEFOLD_DEVICE = "cpu"
+
+
+@dataclass(frozen=True, slots=True)
+class SimpleFoldSampleResult:
+    """One provider-independent folded structure and canonical pLDDT."""
+
+    structure: ProteinStructure
+    per_residue_plddt: tuple[float, ...]
+
+    def __post_init__(self) -> None:
+        object.__setattr__(
+            self,
+            "per_residue_plddt",
+            tuple(self.per_residue_plddt),
+        )
+
+
+@dataclass(frozen=True, slots=True)
+class SimpleFoldAdapterResult:
+    """Complete canonical samples and actual effective call randomness."""
+
+    samples: tuple[SimpleFoldSampleResult, ...]
+    effective_call_seed: int
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "samples", tuple(self.samples))
+
+
+class SimpleFoldAdapter(Protocol):
+    """Canonical folding Operation boundary for local SimpleFold."""
+
+    def fold(
+        self,
+        *,
+        sequence: ProteinSequence,
+        num_steps: int,
+        num_samples: int,
+        derived_call_seed: int,
+        engine_role: str,
+    ) -> SimpleFoldAdapterResult: ...
 
 
 def simplefold_folding_artifact_sha256() -> dict[str, str]:
@@ -199,41 +241,167 @@ def provider_identity() -> dict[str, Any]:
     return simplefold_folding_provider_identity()
 
 
-def fold(
+def _decode_fold_result(
     *,
+    raw_result: object,
     sequence: ProteinSequence,
-    num_steps: int,
-    num_samples: int,
-    effective_seed: int,
-    staging_directory: Path,
-    environment: Mapping[str, Any],
-    call_details: dict[str, Any],
-) -> tuple[list[ProteinStructure], Any]:
-    """Cross the provider folding seam inside one private staging directory."""
-    client = environment.get("provider_client")
-    if client is not None:
-        return client.fold(
-            sequence=sequence,
-            num_steps=num_steps,
-            num_samples=num_samples,
-            effective_seed=effective_seed,
-            staging_directory=staging_directory,
-            call_details=call_details,
-        )
-    validated = validate_simplefold_folding_environment(environment)
-    from .simplefold_runtime import fold_sequence
+    sample_count: int,
+) -> tuple[SimpleFoldSampleResult, ...]:
+    """Admit provider-native structures and high-level `[0,100]` scores."""
+    from .adapter import _pdb_sequence
 
-    return fold_sequence(
-        sequence=sequence,
-        model_name=SIMPLEFOLD_MODEL,
-        num_steps=num_steps,
-        num_samples=num_samples,
-        project_dir=str(staging_directory),
-        call_details=call_details,
-        effective_seed=effective_seed,
-        model_root=validated["model_root"],
-        esm2_source_root=validated["esm2_source_root"],
-        esm2_model_root=validated["esm2_model_root"],
-        required_device=SIMPLEFOLD_DEVICE,
-        record_evidence=False,
+    if (
+        not isinstance(raw_result, tuple)
+        or len(raw_result) != 2
+    ):
+        raise ValueError("SimpleFold result is incomplete")
+    structures, scores = raw_result
+    if (
+        not isinstance(structures, list)
+        or len(structures) != sample_count
+        or any(
+            type(structure) is not ProteinStructure
+            for structure in structures
+        )
+        or not isinstance(scores, Sequence)
+    ):
+        raise ValueError("SimpleFold result is incomplete")
+    for structure in structures:
+        if _pdb_sequence(structure.pdb_string) != sequence.sequence:
+            raise ValueError("SimpleFold structure is malformed")
+    by_sample: dict[int, tuple[float, ...]] = {}
+    for entry in scores:
+        if not isinstance(entry, Mapping) or set(entry) != {
+            "sample_index",
+            "per_residue",
+        }:
+            raise ValueError("SimpleFold confidence result is malformed")
+        sample_index = entry.get("sample_index")
+        values = entry.get("per_residue")
+        if (
+            type(sample_index) is not int
+            or sample_index in by_sample
+            or not isinstance(values, list)
+            or len(values) != len(sequence.sequence)
+        ):
+            raise ValueError("SimpleFold confidence result is incomplete")
+        normalized: list[float] = []
+        for value in values:
+            if (
+                isinstance(value, bool)
+                or not isinstance(value, (int, float))
+                or not math.isfinite(float(value))
+                or not 0.0 <= float(value) <= 100.0
+            ):
+                raise ValueError(
+                    "SimpleFold high-level pLDDT is outside [0,100]"
+                )
+            normalized.append(float(value))
+        if not 0 <= sample_index < sample_count:
+            raise ValueError("SimpleFold sample index is invalid")
+        by_sample[sample_index] = tuple(normalized)
+    if set(by_sample) != set(range(sample_count)):
+        raise ValueError("SimpleFold confidence samples are incomplete")
+    return tuple(
+        SimpleFoldSampleResult(
+            structure=structures[sample_index],
+            per_residue_plddt=by_sample[sample_index],
+        )
+        for sample_index in range(sample_count)
     )
+
+
+class LocalSimpleFoldAdapter:
+    """Translate canonical folding values through exact local SimpleFold."""
+
+    def __init__(
+        self,
+        *,
+        environment: Mapping[str, Any],
+        resources: RunResources,
+    ) -> None:
+        self._environment = environment
+        self._resources = resources
+
+    def _provider_call(
+        self,
+        *,
+        sequence: ProteinSequence,
+        num_steps: int,
+        num_samples: int,
+        effective_seed: int,
+        staging_directory: Path,
+    ) -> Callable[[], object]:
+        client = self._environment.get("provider_client")
+        if client is not None:
+            def invoke_client() -> object:
+                return client.fold(
+                    sequence=sequence,
+                    num_steps=num_steps,
+                    num_samples=num_samples,
+                    effective_seed=effective_seed,
+                    staging_directory=staging_directory,
+                )
+
+            return invoke_client
+        validated = validate_simplefold_folding_environment(
+            self._environment
+        )
+        from .simplefold_runtime import fold_sequence
+
+        def invoke_local_runtime() -> object:
+            return fold_sequence(
+                sequence=sequence,
+                model_name=SIMPLEFOLD_MODEL,
+                num_steps=num_steps,
+                num_samples=num_samples,
+                project_dir=str(staging_directory),
+                effective_seed=effective_seed,
+                model_root=validated["model_root"],
+                esm2_source_root=validated["esm2_source_root"],
+                esm2_model_root=validated["esm2_model_root"],
+                required_device=SIMPLEFOLD_DEVICE,
+                record_evidence=False,
+            )
+
+        return invoke_local_runtime
+
+    def fold(
+        self,
+        *,
+        sequence: ProteinSequence,
+        num_steps: int,
+        num_samples: int,
+        derived_call_seed: int,
+        engine_role: str,
+    ) -> SimpleFoldAdapterResult:
+        """Invoke once, decode outside Invocation, and clean private work."""
+        with self._resources.temporary_directory(
+            prefix="simplefold-fold-"
+        ) as staging_directory:
+            provider_call = self._provider_call(
+                sequence=sequence,
+                num_steps=num_steps,
+                num_samples=num_samples,
+                effective_seed=derived_call_seed,
+                staging_directory=staging_directory,
+            )
+            with self._resources.engine_invocation(
+                engine_role=engine_role,
+                invocation_provenance={
+                    "effective_randomness": {
+                        "control": "exact_seed",
+                        "effective_seed": derived_call_seed,
+                    }
+                },
+            ):
+                raw_result = provider_call()
+            samples = _decode_fold_result(
+                raw_result=raw_result,
+                sequence=sequence,
+                sample_count=num_samples,
+            )
+        return SimpleFoldAdapterResult(
+            samples=samples,
+            effective_call_seed=derived_call_seed,
+        )

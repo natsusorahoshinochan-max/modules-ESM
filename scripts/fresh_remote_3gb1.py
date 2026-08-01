@@ -17,6 +17,11 @@ from typing import Any
 SCHEMA_NAMESPACE = "protein-workbench-fresh-remote-3gb1/v2"
 PROJECT_ID = "canonical-3gb1"
 VERSION = "2.1.0"
+REMOTE_CONTRACT_VERSION = "3.0.0"
+PROTEINMPNN_BINDING_VERSION = "4.0.0"
+PROTEINMPNN_METHOD_VERSION = "3.0.0"
+PROTEINMPNN_BINDING_ID = "proteinmpnn.design.local"
+PROTEINMPNN_METHOD_ID = "proteinmpnn.design.v_48_020_8907e667"
 CANONICAL_PROVIDER_PROMPT_CONTENT_DIGEST = (
     "sha256:4a00fdcb5cbf3d0175dd33b37f744b881f859765ca6d551a667e12910411f19f"
 )
@@ -56,6 +61,11 @@ REQUIRED_FILES = {
     "verification.json",
 }
 _DIGEST_PATTERN = re.compile(r"^sha256:[0-9a-f]{64}$")
+_PROVIDER_UNCONTROLLED = {
+    "effective_randomness": {
+        "control": "provider_uncontrolled",
+    }
+}
 
 
 def _sha256(payload: bytes) -> str:
@@ -91,17 +101,77 @@ def _contract(
     catalog: dict[str, Any],
     kind: str,
     contract_id: str,
+    contract_version: str,
 ) -> dict[str, Any]:
     matches = [
         item
         for item in catalog["contracts"]
         if item["reference"]["contract_kind"] == kind
         and item["reference"]["contract_id"] == contract_id
-        and item["reference"]["contract_version"] == VERSION
+        and item["reference"]["contract_version"] == contract_version
     ]
     if len(matches) != 1:
-        raise ValueError(f"missing exact {kind} contract: {contract_id}")
+        raise ValueError(
+            f"missing exact {kind} contract: {contract_id}@{contract_version}"
+        )
     return matches[0]
+
+
+def _require_catalog_snapshot_matches_current(
+    catalog: dict[str, Any],
+    *,
+    expected_catalog: Any,
+    protocol_digest: str,
+) -> None:
+    """Bind a retained Catalog snapshot to the active public generation."""
+    from protein_workbench_public import PUBLIC_PROTOCOL_NAMESPACE
+
+    if (
+        catalog.get("schema_namespace") != PUBLIC_PROTOCOL_NAMESPACE
+        or catalog.get("protocol_digest") != protocol_digest
+    ):
+        raise ValueError(
+            "installed Catalog snapshot uses the wrong protocol generation"
+        )
+    if catalog.get("catalog_contract_digest") != expected_catalog.contract_digest:
+        raise ValueError("installed FrozenCatalog does not match clean source")
+    if (
+        catalog.get("contracts")
+        != expected_catalog.catalog_descriptor()["contracts"]
+    ):
+        raise ValueError(
+            "installed Catalog snapshot stable contracts do not match clean source"
+        )
+
+
+def _require_run_matches_compile(
+    run: dict[str, Any],
+    workflow_snapshot: dict[str, Any],
+    compile_receipt: dict[str, Any],
+) -> None:
+    """Bind one retained Run projection to one exact Workflow compilation."""
+    expected = (
+        workflow_snapshot.get("workflow_revision"),
+        workflow_snapshot.get("workflow_digest"),
+        compile_receipt.get("compile_id"),
+    )
+    if (
+        expected
+        != (
+            compile_receipt.get("workflow_revision"),
+            compile_receipt.get("workflow_digest"),
+            compile_receipt.get("compile_id"),
+        )
+        or expected
+        != (
+            run.get("workflow_revision"),
+            run.get("workflow_digest"),
+            run.get("compile_id"),
+        )
+    ):
+        raise ValueError(
+            "Run projection crossed Workflow/compile identity"
+        )
 
 
 def require_remote_engine_contracts(
@@ -113,12 +183,19 @@ def require_remote_engine_contracts(
     nodes = {node["node_id"]: node for node in workflow["nodes"]}
     if nodes["generate-paired"]["binding_id"] != (
         "esm3.generate_paired.biohub_medium"
+    ) or nodes["generate-paired"]["binding_version"] != (
+        REMOTE_CONTRACT_VERSION
     ):
         raise ValueError("canonical proof does not select remote ESM-3")
     if {
-        nodes["fold-sequences"]["binding_id"],
-        nodes["fold-final"]["binding_id"],
-    } != {"folding.fold.esmfold2_remote"}:
+        (
+            nodes[node_id]["binding_id"],
+            nodes[node_id]["binding_version"],
+        )
+        for node_id in ("fold-sequences", "fold-final")
+    } != {
+        ("folding.fold.esmfold2_remote", REMOTE_CONTRACT_VERSION)
+    }:
         raise ValueError("canonical proof does not select remote ESMFold2")
 
     proof_by_binding = {
@@ -128,11 +205,22 @@ def require_remote_engine_contracts(
     if set(proof_by_binding) != set(REMOTE_BINDINGS):
         raise ValueError("required remote invocation proof is incomplete")
     for binding_id, expected in REMOTE_BINDINGS.items():
-        binding = _contract(catalog, "binding", binding_id)
-        method = _contract(catalog, "method", expected["method"])
+        binding = _contract(
+            catalog,
+            "binding",
+            binding_id,
+            REMOTE_CONTRACT_VERSION,
+        )
+        method = _contract(
+            catalog,
+            "method",
+            expected["method"],
+            REMOTE_CONTRACT_VERSION,
+        )
         descriptor = binding["descriptor"]
         implementation = descriptor["implementation_identity"]
         method_descriptor = method["descriptor"]
+        method_digest = method["reference"]["contract_digest"]
         proof = proof_by_binding[binding_id]
         if set(proof["request_roles"]) != {
             item["engine_role"] for item in proof["invocations"]
@@ -141,7 +229,7 @@ def require_remote_engine_contracts(
                 f"request-role inventory is incomplete for {binding_id}"
             )
         if (
-            descriptor["method"]["contract_id"] != expected["method"]
+            descriptor["method"] != method["reference"]
             or descriptor["route_behavior"]["behavior_id"]
             != expected["adapter"]
             or implementation.get("model") != expected["model"]
@@ -150,16 +238,33 @@ def require_remote_engine_contracts(
             or method_descriptor["source_identity"]["service"]
             != expected["source"]
             or proof["method_id"] != expected["method"]
+            or proof["method_version"] != REMOTE_CONTRACT_VERSION
+            or proof["binding_version"] != REMOTE_CONTRACT_VERSION
             or proof["adapter_id"] != expected["adapter"]
+            or proof["adapter_version"] != REMOTE_CONTRACT_VERSION
             or proof["model"] != expected["model"]
             or proof["source"] != expected["source"]
             or not proof["invocations"]
         ):
             raise ValueError(f"wrong remote engine proof for {binding_id}")
+        if any(
+            invocation.get("engine_identity") != method_digest
+            for invocation in proof["invocations"]
+        ):
+            raise ValueError(
+                f"wrong exact Method Engine proof for {binding_id}"
+            )
+        if any(
+            invocation.get("invocation_provenance")
+            != _PROVIDER_UNCONTROLLED
+            for invocation in proof["invocations"]
+        ):
+            raise ValueError(
+                f"remote provider randomness proof is incomplete for {binding_id}"
+            )
         forbidden = json.dumps(proof, sort_keys=True).lower()
         if (
             "esmc-600m" in forbidden
-            or "controlled" in forbidden
             or "fixture" in forbidden
             or "mock" in forbidden
         ):
@@ -172,16 +277,12 @@ def require_remote_engine_contracts(
         item["invocation_id"]
         for item in esm3_invocations
         if item["engine_role"] == "sequence_parent"
-        and item["engine_identity"]
-        == "esm3.biohub.esm3-medium-2024-08.generate_sequence"
         and item["terminal"]["status"] == "succeeded"
     }
     structure_children = [
         item
         for item in esm3_invocations
         if item["engine_role"] == "structure_child"
-        and item["engine_identity"]
-        == "esm3.biohub.esm3-medium-2024-08.generate_structure"
         and item["terminal"]["status"] == "succeeded"
         and item.get("parent_invocation_id") in sequence_parents
     ]
@@ -193,7 +294,9 @@ def require_remote_engine_contracts(
         )
         != Counter({invocation_id: 1 for invocation_id in sequence_parents})
     ):
-        raise ValueError("ESM-3 paired request-role or parent-child proof is incomplete")
+        raise ValueError(
+            "ESM-3 paired request-role or parent-child proof is incomplete"
+        )
 
     folds = proof_by_binding[
         "folding.fold.esmfold2_remote"
@@ -216,24 +319,67 @@ def require_remote_engine_contracts(
         )
         != expected_fold_roles
         or any(
-            item["engine_identity"]
-            != (
-                "folding.esmfold2_remote."
-                "folding.fold.esmfold2_fast_biohub_2026_05"
-            )
-            or item["terminal"]["status"] != "succeeded"
+            item["terminal"]["status"] != "succeeded"
             or item.get("parent_invocation_id") is not None
             for item in folds
         )
     ):
         raise ValueError("ESMFold2 request-role or exact Engine proof is incomplete")
 
+    proteinmpnn_node = nodes["design-children"]
+    if (
+        proteinmpnn_node["binding_id"] != PROTEINMPNN_BINDING_ID
+        or proteinmpnn_node["binding_version"]
+        != PROTEINMPNN_BINDING_VERSION
+    ):
+        raise ValueError("canonical proof does not select exact ProteinMPNN")
+    proteinmpnn_binding = _contract(
+        catalog,
+        "binding",
+        PROTEINMPNN_BINDING_ID,
+        PROTEINMPNN_BINDING_VERSION,
+    )
+    proteinmpnn_method = _contract(
+        catalog,
+        "method",
+        PROTEINMPNN_METHOD_ID,
+        PROTEINMPNN_METHOD_VERSION,
+    )
+    proteinmpnn_descriptor = proteinmpnn_binding["descriptor"]
+    proteinmpnn_method_descriptor = proteinmpnn_method["descriptor"]
+    proteinmpnn_method_digest = proteinmpnn_method["reference"][
+        "contract_digest"
+    ]
     proteinmpnn = invocation_proof.get("proteinmpnn", {})
     proteinmpnn_invocations = proteinmpnn.get("invocations", [])
+
+    def exact_proteinmpnn_invocation(item: dict[str, Any]) -> bool:
+        provenance = item.get("invocation_provenance", {})
+        randomness = provenance.get("effective_randomness", {})
+        return (
+            item.get("engine_identity") == proteinmpnn_method_digest
+            and randomness.get("control") == "exact_seed"
+            and type(randomness.get("effective_seed")) is int
+            and "provider_residue_projection" in provenance
+            and item["terminal"]["status"] == "succeeded"
+            and item.get("parent_invocation_id") is None
+        )
+
     if (
-        proteinmpnn.get("binding_id") != "proteinmpnn.design.local"
-        or proteinmpnn.get("method_id")
-        != "proteinmpnn.design.v_48_020_8907e667"
+        proteinmpnn_descriptor["method"]
+        != proteinmpnn_method["reference"]
+        or proteinmpnn.get("binding_id") != PROTEINMPNN_BINDING_ID
+        or proteinmpnn.get("binding_version")
+        != PROTEINMPNN_BINDING_VERSION
+        or proteinmpnn.get("method_id") != PROTEINMPNN_METHOD_ID
+        or proteinmpnn.get("method_version")
+        != PROTEINMPNN_METHOD_VERSION
+        or proteinmpnn.get("adapter_id")
+        != proteinmpnn_descriptor["route_behavior"]["behavior_id"]
+        or proteinmpnn.get("adapter_version")
+        != proteinmpnn_descriptor["route_behavior"]["behavior_version"]
+        or proteinmpnn.get("source")
+        != proteinmpnn_method_descriptor["model_identity"]["source"]
         or Counter(
             item["engine_role"] for item in proteinmpnn_invocations
         )
@@ -243,14 +389,23 @@ def require_remote_engine_contracts(
             "design_parent_2": 1,
         }
         or any(
-            item["terminal"]["status"] != "succeeded"
+            not exact_proteinmpnn_invocation(item)
             for item in proteinmpnn_invocations
         )
     ):
         raise ValueError("ProteinMPNN 3 x 5 Engine proof is incomplete")
 
 
-def _event_payloads(messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
+def _event_payloads(
+    run: dict[str, Any],
+    messages: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    if not messages or any(
+        message.get("project_id") != run.get("project_id")
+        or message.get("run_id") != run.get("run_id")
+        for message in messages
+    ):
+        raise ValueError("Run event envelope crossed Project/Run scope")
     return [
         message["event"]
         for message in messages
@@ -259,11 +414,108 @@ def _event_payloads(messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
     ]
 
 
-def _validate_run_closure(
+def _validate_replay_boundary(
     run: dict[str, Any],
     messages: list[dict[str, Any]],
 ) -> None:
-    events = _event_payloads(messages)
+    """Require one full, terminal, scope-bound replay and exact final cursor."""
+    _event_payloads(run, messages)
+    if (
+        len(messages) < 3
+        or messages[0]["event"]["type"] != "replay_started"
+        or messages[-1]["event"]["type"] != "replay_complete"
+        or any(
+            message["event"]["type"]
+            in {"replay_started", "replay_complete"}
+            for message in messages[1:-1]
+        )
+        or messages[0]["sequence"] != 0
+        or "after_sequence" in messages[0]["event"]
+    ):
+        raise ValueError("Run evidence is not one complete replay")
+
+    terminal_message = messages[-2]
+    terminal_cursor = terminal_message["cursor"]
+    terminal_sequence = terminal_message["sequence"]
+    if (
+        messages[0]["event"]["replay_through_cursor"]
+        != terminal_cursor
+        or messages[-1]["event"]["live_from_cursor"]
+        != terminal_cursor
+        or messages[-1]["cursor"] != terminal_cursor
+        or messages[-1]["sequence"] != terminal_sequence
+        or run.get("ledger_cursor") != terminal_cursor
+        or run.get("terminal_sequence") != terminal_sequence
+    ):
+        raise ValueError("Run replay cursor does not close at the projection")
+
+
+def _validate_run_admission(
+    run: dict[str, Any],
+    messages: list[dict[str, Any]],
+    compile_receipt: dict[str, Any],
+) -> None:
+    """Bind the public Ledger admission to the retained exact compile."""
+    _event_payloads(run, messages)
+    events = tuple(
+        (message["sequence"], message["event"])
+        for message in messages
+        if message["event"]["type"]
+        not in {"replay_started", "replay_complete"}
+    )
+    admissions = tuple(
+        (sequence, event)
+        for sequence, event in events
+        if event["type"] == "run_admitted"
+    )
+    starts = tuple(
+        (sequence, event)
+        for sequence, event in events
+        if event["type"] == "run_started"
+    )
+    attempts = tuple(
+        sequence
+        for sequence, event in events
+        if event["type"]
+        in {
+            "node_attempt_started",
+            "operation_attempt_started",
+            "engine_invocation_started",
+        }
+    )
+    expected_identity = (
+        run.get("workflow_revision"),
+        run.get("compile_id"),
+    )
+    if (
+        len(admissions) != 1
+        or len(starts) != 1
+        or (
+            admissions[0][1].get("workflow_revision"),
+            admissions[0][1].get("compile_id"),
+        )
+        != expected_identity
+        or (
+            compile_receipt.get("workflow_revision"),
+            compile_receipt.get("compile_id"),
+        )
+        != expected_identity
+        or admissions[0][0] >= starts[0][0]
+        or any(sequence <= starts[0][0] for sequence in attempts)
+    ):
+        raise ValueError(
+            "Run admission does not match the retained compile or event order"
+        )
+
+
+def _validate_run_closure(
+    run: dict[str, Any],
+    messages: list[dict[str, Any]],
+    compile_receipt: dict[str, Any],
+) -> None:
+    _validate_replay_boundary(run, messages)
+    _validate_run_admission(run, messages, compile_receipt)
+    events = _event_payloads(run, messages)
     if not events or events[-1] != {
         "type": "run_terminal",
         "status": run["status"],
@@ -415,6 +667,7 @@ def validate_evidence_bundle(root: Path) -> dict[str, Any]:
 
     from core import (
         build_discovered_frozen_catalog,
+        compile_workflow,
         parse_workflow_document,
     )
     from protein_workbench_public import (
@@ -428,10 +681,12 @@ def validate_evidence_bundle(root: Path) -> dict[str, Any]:
         raise ValueError("installed public protocol does not match clean source")
     catalog = _load_json(root / "catalog-snapshot.json")
     expected_catalog = build_discovered_frozen_catalog()
-    if (
-        catalog["catalog_contract_digest"] != expected_catalog.contract_digest
-        or source["catalog_contract_digest"] != expected_catalog.contract_digest
-    ):
+    _require_catalog_snapshot_matches_current(
+        catalog,
+        expected_catalog=expected_catalog,
+        protocol_digest=bundle_digest(),
+    )
+    if source["catalog_contract_digest"] != expected_catalog.contract_digest:
         raise ValueError("installed FrozenCatalog does not match clean source")
 
     snapshot = _load_json(root / "workflow-snapshot.json")
@@ -444,6 +699,14 @@ def validate_evidence_bundle(root: Path) -> dict[str, Any]:
     )
     expected_workflow = json.loads(expected_workflow_path.read_bytes())
     compile_receipt = _load_json(root / "compile-receipt.json")
+    parsed_workflow = parse_workflow_document(workflow)
+    expected_compile_receipt = dict(
+        compile_workflow(
+            parsed_workflow,
+            workflow_revision=snapshot["workflow_revision"],
+            catalog=expected_catalog,
+        ).receipt
+    )
     if (
         workflow["schema_version"] != VERSION
         or workflow["workflow_id"] != PROJECT_ID
@@ -451,15 +714,8 @@ def validate_evidence_bundle(root: Path) -> dict[str, Any]:
         or source["workflow_content_digest"]
         != _sha256(expected_workflow_path.read_bytes())
         or not workflow["contract_lock"]
-        or compile_receipt["accepted"] is not True
-        or compile_receipt["issues"]
-        or compile_receipt["workflow_revision"]
-        != snapshot["workflow_revision"]
-        or compile_receipt["workflow_digest"] != snapshot["workflow_digest"]
-        or compile_receipt["catalog_contract_digest"]
-        != catalog["catalog_contract_digest"]
-        or compile_receipt["contract_lock_digest"]
-        != parse_workflow_document(workflow).contract_lock_digest
+        or snapshot["workflow_digest"] != parsed_workflow.digest
+        or compile_receipt != expected_compile_receipt
     ):
         raise ValueError("Workflow or compile receipt is not exact and accepted")
 
@@ -480,12 +736,13 @@ def validate_evidence_bundle(root: Path) -> dict[str, Any]:
             validate_event(message)
         if run["run_id"] != run_id or run["project_id"] != PROJECT_ID:
             raise ValueError("Run projection crossed Project/Run scope")
+        _require_run_matches_compile(run, snapshot, compile_receipt)
         if index == 0:
             if "derived_from_run_id" in run:
                 raise ValueError("fresh Run cannot claim a historical parent")
         elif run.get("derived_from_run_id") != run_ids[index - 1]:
             raise ValueError("provider retry is not a newly derived Run")
-        _validate_run_closure(run, messages)
+        _validate_run_closure(run, messages, compile_receipt)
         runs.append(run)
         event_sets.append(messages)
     if runs[-1]["status"] != "succeeded":
@@ -505,7 +762,7 @@ def validate_evidence_bundle(root: Path) -> dict[str, Any]:
         )
     ):
         raise ValueError("not every canonical Plan Node has a success disposition")
-    final_events = _event_payloads(event_sets[-1])
+    final_events = _event_payloads(final, event_sets[-1])
     passing = {
         event["binding"]["contract_id"]
         for event in final_events
@@ -516,6 +773,12 @@ def validate_evidence_bundle(root: Path) -> dict[str, Any]:
         raise ValueError("current remote Binding readiness is not passing")
 
     proof = _load_json(root / "invocation-proof.json")
+    require_invocation_proof_matches_ledger(
+        proof,
+        catalog,
+        workflow,
+        list(zip(runs, event_sets, strict=True)),
+    )
     require_remote_engine_contracts(catalog, workflow, proof)
     lineage = _load_json(root / "candidate-lineage.json")
     if (
@@ -716,8 +979,8 @@ def _invocation_proof(
         dispositions = {
             item["node_id"]: item for item in projection["node_dispositions"]
         }
-        events = _event_payloads(messages)
-        for node_id in required_live_nodes - set(selected_events):
+        events = _event_payloads(projection, messages)
+        for node_id in sorted(required_live_nodes - set(selected_events)):
             disposition = dispositions.get(node_id)
             if (
                 disposition is not None
@@ -729,7 +992,8 @@ def _invocation_proof(
         raise ValueError("Cache replay cannot replace required live Engine proof")
 
     invocation_records: list[dict[str, Any]] = []
-    for selected_node, (run_id, events) in selected_events.items():
+    for selected_node in sorted(selected_events):
+        run_id, events = selected_events[selected_node]
         node_by_attempt = {
             event["node_attempt_id"]: event["node_id"]
             for event in events
@@ -774,8 +1038,11 @@ def _invocation_proof(
         ]
         result.append({
             "binding_id": binding_id,
+            "binding_version": REMOTE_CONTRACT_VERSION,
             "method_id": expected["method"],
+            "method_version": REMOTE_CONTRACT_VERSION,
             "adapter_id": expected["adapter"],
+            "adapter_version": REMOTE_CONTRACT_VERSION,
             "model": expected["model"],
             "source": expected["source"],
             "request_roles": sorted({
@@ -788,6 +1055,18 @@ def _invocation_proof(
         for event in invocation_records
         if event["node_id"] == "design-children"
     ]
+    proteinmpnn_binding = _contract(
+        catalog_snapshot,
+        "binding",
+        PROTEINMPNN_BINDING_ID,
+        PROTEINMPNN_BINDING_VERSION,
+    )
+    proteinmpnn_method = _contract(
+        catalog_snapshot,
+        "method",
+        PROTEINMPNN_METHOD_ID,
+        PROTEINMPNN_METHOD_VERSION,
+    )
     return {
         "schema_namespace": SCHEMA_NAMESPACE,
         "catalog_contract_digest": catalog_snapshot[
@@ -795,13 +1074,37 @@ def _invocation_proof(
         ],
         "remote_bindings": result,
         "proteinmpnn": {
-            "binding_id": "proteinmpnn.design.local",
-            "method_id": "proteinmpnn.design.v_48_020_8907e667",
-            "adapter_id": "proteinmpnn.v2/adapter",
-            "source": "ProteinMPNN",
+            "binding_id": PROTEINMPNN_BINDING_ID,
+            "binding_version": PROTEINMPNN_BINDING_VERSION,
+            "method_id": PROTEINMPNN_METHOD_ID,
+            "method_version": PROTEINMPNN_METHOD_VERSION,
+            "adapter_id": proteinmpnn_binding["descriptor"][
+                "route_behavior"
+            ]["behavior_id"],
+            "adapter_version": proteinmpnn_binding["descriptor"][
+                "route_behavior"
+            ]["behavior_version"],
+            "source": proteinmpnn_method["descriptor"]["model_identity"][
+                "source"
+            ],
             "invocations": proteinmpnn_invocations,
         },
     }
+
+
+def require_invocation_proof_matches_ledger(
+    proof: dict[str, Any],
+    catalog_snapshot: dict[str, Any],
+    workflow: dict[str, Any],
+    run_records: list[tuple[dict[str, Any], list[dict[str, Any]]]],
+) -> None:
+    reconstructed = _invocation_proof(
+        catalog_snapshot,
+        workflow,
+        run_records,
+    )
+    if proof != reconstructed:
+        raise ValueError("Invocation proof does not match retained Run Ledger")
 
 
 def _candidate_lineage(catalog: Any, projection: dict[str, Any]) -> dict[str, Any]:
@@ -1080,7 +1383,7 @@ def installed_main() -> int:
     )
     from modules.folding.adapter import REMOTE_ESMFOLD2_MODEL
     from modules.provider_contract import read_biohub_token
-    from modules.proteinmpnn.v2_adapter import (
+    from modules.proteinmpnn.adapter import (
         configured_runtime_fingerprint,
     )
     from protein_workbench_public import bundle_bytes, bundle_digest
@@ -1140,7 +1443,10 @@ def installed_main() -> int:
     ).resolve()
     proteinmpnn_fingerprint = configured_runtime_fingerprint()
     environment = {
-        ("esm3.generate_paired.biohub_medium", VERSION): {
+        (
+            "esm3.generate_paired.biohub_medium",
+            REMOTE_CONTRACT_VERSION,
+        ): {
             "values": {
                 "endpoint_id": "biohub",
                 "credential_handle": token,
@@ -1149,7 +1455,7 @@ def installed_main() -> int:
             "safe_fingerprint": "biohub-esm3-medium-2024-08",
             "invalidation_token": "biohub-esm3-medium-2024-08",
         },
-        ("folding.fold.esmfold2_remote", VERSION): {
+        ("folding.fold.esmfold2_remote", REMOTE_CONTRACT_VERSION): {
             "values": {
                 "endpoint_id": "biohub",
                 "credential_handle": token,
@@ -1158,7 +1464,7 @@ def installed_main() -> int:
             "safe_fingerprint": "biohub-esmfold2-fast-2026-05",
             "invalidation_token": "biohub-esmfold2-fast-2026-05",
         },
-        ("proteinmpnn.design.local", VERSION): {
+        ("proteinmpnn.design.local", PROTEINMPNN_BINDING_VERSION): {
             "values": {
                 "device": "cpu",
                 "provider_root": proteinmpnn_root,

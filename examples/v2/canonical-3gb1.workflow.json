@@ -5,9 +5,9 @@
     {
       "node_id": "import-3gb1",
       "node_type_id": "protein_io.import_structure",
-      "node_type_version": "2.1.0",
+      "node_type_version": "3.0.0",
       "binding_id": "protein_io.import_structure.direct",
-      "binding_version": "2.1.0",
+      "binding_version": "3.0.0",
       "node_parameters": {
         "project_input_ref": "3GB1.pdb"
       },
@@ -16,9 +16,9 @@
     {
       "node_id": "build-prompt",
       "node_type_id": "prompt_authoring.prompt_from_structure",
-      "node_type_version": "2.1.0",
+      "node_type_version": "3.0.0",
       "binding_id": "prompt_authoring.prompt_from_structure.direct",
-      "binding_version": "2.1.0",
+      "binding_version": "3.0.0",
       "node_parameters": {},
       "binding_parameters": {}
     },
@@ -326,9 +326,9 @@
     {
       "node_id": "generate-paired",
       "node_type_id": "esm3.generate_paired",
-      "node_type_version": "2.1.0",
+      "node_type_version": "3.0.0",
       "binding_id": "esm3.generate_paired.biohub_medium",
-      "binding_version": "2.1.0",
+      "binding_version": "3.0.0",
       "node_parameters": {
         "effective_seed": 1603,
         "num_samples": 10
@@ -338,9 +338,9 @@
     {
       "node_id": "fold-sequences",
       "node_type_id": "folding.fold",
-      "node_type_version": "2.1.0",
+      "node_type_version": "3.0.0",
       "binding_id": "folding.fold.esmfold2_remote",
-      "binding_version": "2.1.0",
+      "binding_version": "3.0.0",
       "node_parameters": {
         "effective_seed": 1603,
         "num_samples": 1
@@ -359,36 +359,36 @@
     {
       "node_id": "align-fixed",
       "node_type_id": "structure_comparison.align_pairwise",
-      "node_type_version": "2.1.0",
+      "node_type_version": "2.2.0",
       "binding_id": "structure_comparison.align_pairwise.fixed_reference",
-      "binding_version": "2.1.0",
+      "binding_version": "2.2.0",
       "node_parameters": {},
       "binding_parameters": {}
     },
     {
       "node_id": "score-fixed",
       "node_type_id": "structure_comparison.batch_tm_score",
-      "node_type_version": "2.1.0",
+      "node_type_version": "2.2.0",
       "binding_id": "structure_comparison.batch_tm_score.fixed_reference",
-      "binding_version": "2.1.0",
+      "binding_version": "2.2.0",
       "node_parameters": {},
       "binding_parameters": {}
     },
     {
       "node_id": "align-paired",
       "node_type_id": "structure_comparison.align_pairwise",
-      "node_type_version": "2.1.0",
+      "node_type_version": "2.2.0",
       "binding_id": "structure_comparison.align_pairwise.direct",
-      "binding_version": "2.1.0",
+      "binding_version": "2.2.0",
       "node_parameters": {},
       "binding_parameters": {}
     },
     {
       "node_id": "score-paired",
       "node_type_id": "structure_comparison.batch_tm_score",
-      "node_type_version": "2.1.0",
+      "node_type_version": "2.2.0",
       "binding_id": "structure_comparison.batch_tm_score.per_subject_counterpart",
-      "binding_version": "2.1.0",
+      "binding_version": "2.2.0",
       "node_parameters": {},
       "binding_parameters": {}
     },
@@ -446,9 +446,9 @@
     {
       "node_id": "fixed-positions",
       "node_type_id": "proteinmpnn.random_fixed_positions",
-      "node_type_version": "2.1.0",
+      "node_type_version": "3.0.0",
       "binding_id": "proteinmpnn.random_fixed_positions.local",
-      "binding_version": "2.1.0",
+      "binding_version": "3.0.0",
       "node_parameters": {
         "effective_seed": 1603,
         "fraction": 0.5
@@ -458,9 +458,9 @@
     {
       "node_id": "design-children",
       "node_type_id": "proteinmpnn.design",
-      "node_type_version": "2.1.0",
+      "node_type_version": "4.0.0",
       "binding_id": "proteinmpnn.design.local",
-      "binding_version": "2.1.0",
+      "binding_version": "4.0.0",
       "node_parameters": {
         "effective_seed": 1603,
         "num_sequences": 5,
@@ -472,9 +472,9 @@
     {
       "node_id": "fold-final",
       "node_type_id": "folding.fold",
-      "node_type_version": "2.1.0",
+      "node_type_version": "3.0.0",
       "binding_id": "folding.fold.esmfold2_remote",
-      "binding_version": "2.1.0",
+      "binding_version": "3.0.0",
       "node_parameters": {
         "effective_seed": 1603,
         "num_samples": 1
@@ -484,9 +484,9 @@
     {
       "node_id": "export-final",
       "node_type_id": "protein_io.export_structure",
-      "node_type_version": "2.1.0",
+      "node_type_version": "3.0.0",
       "binding_id": "protein_io.export_structure.direct",
-      "binding_version": "2.1.0",
+      "binding_version": "3.0.0",
       "node_parameters": {},
       "binding_parameters": {}
     }
@@ -798,14 +798,14 @@
     {
       "contract_kind": "binding",
       "contract_id": "esm3.generate_paired.biohub_medium",
-      "contract_version": "2.1.0",
-      "contract_digest": "sha256:c4edd68b070bea875bc944f06cc808d3fc26bdf6828207ccf2ea956690008cf3"
+      "contract_version": "3.0.0",
+      "contract_digest": "sha256:88f02ffd26f786100f1bd5f5a2c71cc2d5403abbc8c039e94b662f032698a005"
     },
     {
       "contract_kind": "binding",
       "contract_id": "folding.fold.esmfold2_remote",
-      "contract_version": "2.1.0",
-      "contract_digest": "sha256:6fdac484da9447ebd5638a8254fec7ac3e62e7c68f098d905773e6524b286610"
+      "contract_version": "3.0.0",
+      "contract_digest": "sha256:a62b98ebb42a33e906c20fecb5cdcd5ea338b713658bb90b735aff639a07acc3"
     },
     {
       "contract_kind": "binding",
@@ -822,8 +822,8 @@
     {
       "contract_kind": "binding",
       "contract_id": "prompt_authoring.prompt_from_structure.direct",
-      "contract_version": "2.1.0",
-      "contract_digest": "sha256:3998d2ef1aed3967d79964aebbf71e8868de9aed5f995eea63c375b76a178cd1"
+      "contract_version": "3.0.0",
+      "contract_digest": "sha256:a443731238ae7aa8a786cd9ad4fbd205f5c44d58e946d5b5b123bc6551c271a4"
     },
     {
       "contract_kind": "binding",
@@ -840,26 +840,26 @@
     {
       "contract_kind": "binding",
       "contract_id": "protein_io.export_structure.direct",
-      "contract_version": "2.1.0",
-      "contract_digest": "sha256:7f55ae1263c7c9b644ee76d789d2c8eb49b84b944b9f0d4713fc0940f5204b27"
+      "contract_version": "3.0.0",
+      "contract_digest": "sha256:722a26ec630661f5849869fe31493e3ab268e4c910db5ceb8a798d174936696d"
     },
     {
       "contract_kind": "binding",
       "contract_id": "protein_io.import_structure.direct",
-      "contract_version": "2.1.0",
-      "contract_digest": "sha256:3f7378dfaf25632e3ecb6af9cd80c5b688886e8928f551c45b3e1de0eedad586"
+      "contract_version": "3.0.0",
+      "contract_digest": "sha256:5a5bbe5ddb176da0d75bce6cabdb313c663e0e917df633a6f8f0d6107cd15b8f"
     },
     {
       "contract_kind": "binding",
       "contract_id": "proteinmpnn.design.local",
-      "contract_version": "2.1.0",
-      "contract_digest": "sha256:aaad73e2c5a7614694726122f8917e044fdb92ffe6390b74c2c5fd41fec2733d"
+      "contract_version": "4.0.0",
+      "contract_digest": "sha256:0f3af7384f5fae8474731a7702b2e7bdcf1a70383a8f24b6ec9eb58b8fc7d6bb"
     },
     {
       "contract_kind": "binding",
       "contract_id": "proteinmpnn.random_fixed_positions.local",
-      "contract_version": "2.1.0",
-      "contract_digest": "sha256:0125c95f8f8dc27376a106b099ff6018da45bf4ff779b9c18bd77689377b8032"
+      "contract_version": "3.0.0",
+      "contract_digest": "sha256:97df5c52e5470a954ce7728440f1ce08b659493e833f6fb37b2d4de1e0cfc65c"
     },
     {
       "contract_kind": "binding",
@@ -870,26 +870,26 @@
     {
       "contract_kind": "binding",
       "contract_id": "structure_comparison.align_pairwise.direct",
-      "contract_version": "2.1.0",
-      "contract_digest": "sha256:8ad52badc797dbd3cda73ca7084853493ff6d0d7a3340e21dd31e245eda6beed"
+      "contract_version": "2.2.0",
+      "contract_digest": "sha256:65cc1fc2bd8de20e2e878a7d511a61f4f9ba9014a8f7ebc96e85812f8cb80684"
     },
     {
       "contract_kind": "binding",
       "contract_id": "structure_comparison.align_pairwise.fixed_reference",
-      "contract_version": "2.1.0",
-      "contract_digest": "sha256:568d4490e9752ce878499be3a8bd1eda006c88453111cfc20e229a7cf8708f48"
+      "contract_version": "2.2.0",
+      "contract_digest": "sha256:9230351a4f897da81fbe28c9410904b9956454110a8abdc60c595383d20cde62"
     },
     {
       "contract_kind": "binding",
       "contract_id": "structure_comparison.batch_tm_score.fixed_reference",
-      "contract_version": "2.1.0",
-      "contract_digest": "sha256:4e7a593c3b37729d7f1922c2bde237678574f7236b25c2f229acd70b6c09a4b9"
+      "contract_version": "2.2.0",
+      "contract_digest": "sha256:8052322638cc9f1901dffaa25588984bf3c920a35a3bdbb736defbab98e74935"
     },
     {
       "contract_kind": "binding",
       "contract_id": "structure_comparison.batch_tm_score.per_subject_counterpart",
-      "contract_version": "2.1.0",
-      "contract_digest": "sha256:68f2585a8f2b313a30d334a209061b7a9ddb9410fbbf0b9d99f0cd8b0f7af426"
+      "contract_version": "2.2.0",
+      "contract_digest": "sha256:3fdf6c4bbf78b900d8600bb838d0e779aded0e25d09dd9dfbec9e4c94244a39a"
     },
     {
       "contract_kind": "method",
@@ -912,14 +912,14 @@
     {
       "contract_kind": "method",
       "contract_id": "esm3.generate_paired.esm3_medium_2024_08",
-      "contract_version": "2.1.0",
-      "contract_digest": "sha256:653b60ed987475e22055e8e4f51e4e06419c37b780db79952e439d07373970b4"
+      "contract_version": "3.0.0",
+      "contract_digest": "sha256:c74650d2ea49f45666813b6ec23e24c4a21dde874d1518e628445a4a117fbcbd"
     },
     {
       "contract_kind": "method",
       "contract_id": "folding.fold.esmfold2_fast_biohub_2026_05",
-      "contract_version": "2.1.0",
-      "contract_digest": "sha256:a065b316fef478cc5b176b7f85e9e79f69c9358ec4268e48f020083c11594eb6"
+      "contract_version": "3.0.0",
+      "contract_digest": "sha256:376137c4350004a288962a3d09cae4071a5b833c4ef9159770fd64aabb0f7965"
     },
     {
       "contract_kind": "method",
@@ -966,14 +966,14 @@
     {
       "contract_kind": "method",
       "contract_id": "proteinmpnn.design.v_48_020_8907e667",
-      "contract_version": "2.1.0",
-      "contract_digest": "sha256:e210ac8e470a111332df8b6052743d1a02fa5d0e734358c9ca8fdb2338c51d85"
+      "contract_version": "3.0.0",
+      "contract_digest": "sha256:997fd2bb1f9d9079260dd0d0343cfab0166819975dd496fed394ff2993e0bc40"
     },
     {
       "contract_kind": "method",
       "contract_id": "proteinmpnn.random_fixed_positions.repository_owned",
-      "contract_version": "2.1.0",
-      "contract_digest": "sha256:9b8e1d8a6f6deefd296a04000c641daed826cee5395723c33cc3a76fc5eddbc7"
+      "contract_version": "3.0.0",
+      "contract_digest": "sha256:93b96adbd39fa216666ad30bc4f50800a508b4e7c2b2ad4ca5cc952d9820e7cd"
     },
     {
       "contract_kind": "method",
@@ -1044,14 +1044,14 @@
     {
       "contract_kind": "node_type",
       "contract_id": "esm3.generate_paired",
-      "contract_version": "2.1.0",
-      "contract_digest": "sha256:1451672365ae6e4c806d63777ec41a9b5c7d12e96e889bc6c0f17d31261d589d"
+      "contract_version": "3.0.0",
+      "contract_digest": "sha256:12129502f9ab8c7f7dabc48e4362f5bb044dba25899b04e6be7965343bb46322"
     },
     {
       "contract_kind": "node_type",
       "contract_id": "folding.fold",
-      "contract_version": "2.1.0",
-      "contract_digest": "sha256:0c9ac2fe5dc192a0ea1944d954df2bb36dc20edae7caa1282e996bcaa0339878"
+      "contract_version": "3.0.0",
+      "contract_digest": "sha256:a4c584036ebdfdcd330792b545de574fffc644880c441eb2ee0db9b2ac46d797"
     },
     {
       "contract_kind": "node_type",
@@ -1068,8 +1068,8 @@
     {
       "contract_kind": "node_type",
       "contract_id": "prompt_authoring.prompt_from_structure",
-      "contract_version": "2.1.0",
-      "contract_digest": "sha256:b0b6912c8802ef4bb140e963fbfc9c84dab46cd949a15dbdbb72f6a9382004e5"
+      "contract_version": "3.0.0",
+      "contract_digest": "sha256:f28c85c66f2d2b1b95fdcf1b4399b7ea675a79e78658a9950cdd095bf4757e83"
     },
     {
       "contract_kind": "node_type",
@@ -1086,26 +1086,26 @@
     {
       "contract_kind": "node_type",
       "contract_id": "protein_io.export_structure",
-      "contract_version": "2.1.0",
-      "contract_digest": "sha256:3941c5ce652cc52a954b53d73f9a14d5904a8583ad36764813de67848c0f3393"
+      "contract_version": "3.0.0",
+      "contract_digest": "sha256:1185f4eb2557646941f582989952ec2432741fcdd5332e4f06ec8516e08c01b0"
     },
     {
       "contract_kind": "node_type",
       "contract_id": "protein_io.import_structure",
-      "contract_version": "2.1.0",
-      "contract_digest": "sha256:29c87864bdabd758d4164bf720dedfbe99e331056968ba9acea3fcda76bb8a74"
+      "contract_version": "3.0.0",
+      "contract_digest": "sha256:9daa0861cdc0f933729874452d3331a61d6a5ed549df6e9e00eaa092f435a8a9"
     },
     {
       "contract_kind": "node_type",
       "contract_id": "proteinmpnn.design",
-      "contract_version": "2.1.0",
-      "contract_digest": "sha256:2f4da9e324427ec503d788c43af4056707dfdb44a5b537a375293ff9c30a63ca"
+      "contract_version": "4.0.0",
+      "contract_digest": "sha256:732f774b280d8189177447e8de87b76e736660f1af4eb6d17f15630e4dcadd49"
     },
     {
       "contract_kind": "node_type",
       "contract_id": "proteinmpnn.random_fixed_positions",
-      "contract_version": "2.1.0",
-      "contract_digest": "sha256:e54f328378d4190bb46041f52f5c1c0682a7930ee089ce33bf7d10eb28694a76"
+      "contract_version": "3.0.0",
+      "contract_digest": "sha256:2ed78e2fc79ed31be6fe3569502b9eb914899885071fa9be49af4197571529ec"
     },
     {
       "contract_kind": "node_type",
@@ -1116,14 +1116,14 @@
     {
       "contract_kind": "node_type",
       "contract_id": "structure_comparison.align_pairwise",
-      "contract_version": "2.1.0",
-      "contract_digest": "sha256:5d061b1cdf44d0c028fb3b301ddca6c9812658f478b61cfb92d6385df3dac1bc"
+      "contract_version": "2.2.0",
+      "contract_digest": "sha256:78980d3eb49bdcfdb9334019d603022dfea3c2e5f0ce9c4cc5b41ae5b9a8d14a"
     },
     {
       "contract_kind": "node_type",
       "contract_id": "structure_comparison.batch_tm_score",
-      "contract_version": "2.1.0",
-      "contract_digest": "sha256:dbfb4c00967db21a914fb87ba0c3c9fc7fe703a036aec29cd3665104575a869e"
+      "contract_version": "2.2.0",
+      "contract_digest": "sha256:a2941f35472817c4f1a836a7204bfb5d6ce9ee27a006a9bb5378c6bd39049f53"
     },
     {
       "contract_kind": "port_type",
@@ -1152,8 +1152,8 @@
     {
       "contract_kind": "port_type",
       "contract_id": "protein.structure",
-      "contract_version": "2.1.0",
-      "contract_digest": "sha256:2086d04a0e219966ed5f54d0a965023e79e63dcefa3f650109d40ac1a7197fdc"
+      "contract_version": "3.0.0",
+      "contract_digest": "sha256:cd09d43e3229ca3dedfb5d57c2b154f65629e3da6038d8459b74282015bb60e0"
     },
     {
       "contract_kind": "port_type",
@@ -1164,8 +1164,8 @@
     {
       "contract_kind": "port_type",
       "contract_id": "proteinmpnn.constraints",
-      "contract_version": "2.1.0",
-      "contract_digest": "sha256:07c8916cfc833b43ea3f8f76e35969deb0469c5082f511dffd4742d90271b3bb"
+      "contract_version": "3.0.0",
+      "contract_digest": "sha256:9051751355cc411a1395f320852c96979053e004226cb219516fd82acb33980e"
     },
     {
       "contract_kind": "port_type",
@@ -1187,9 +1187,9 @@
     },
     {
       "contract_kind": "port_type",
-      "contract_id": "structure_comparison.alignment_collection",
+      "contract_id": "structure_comparison.alignment",
       "contract_version": "2.1.0",
-      "contract_digest": "sha256:b032079c116a66cc6664ae01a54fec13af1c7176fe7dcc9052cc336025f145f2"
+      "contract_digest": "sha256:fa11610e3e4eccd91aec45c896cc2e2731b232656c9e8b0ea6fbf58987a5a2c5"
     },
     {
       "contract_kind": "utility_transform",

@@ -30,6 +30,7 @@ from tests.fixtures.prompt_authoring_sources.package import (
 
 
 VERSION = "2.1.0"
+STRUCTURE_VERSION = "3.0.0"
 
 
 def _run(
@@ -121,29 +122,29 @@ def test_2emo_csh_normalization_preserves_parent_span_and_builds_prompt(
     source = WorkflowNodeInstance(
         node_id="source",
         node_type_id="contract_test.prompt_authoring_values",
-        node_type_version=VERSION,
+        node_type_version=STRUCTURE_VERSION,
         binding_id="contract_test.prompt_authoring_values.direct",
-        binding_version=VERSION,
+        binding_version=STRUCTURE_VERSION,
         node_parameters={"fixture": "2emo"},
         binding_parameters={},
     )
     normalize = WorkflowNodeInstance(
         node_id="normalize",
         node_type_id="structure_transform.normalize_csh_parent_span",
-        node_type_version=VERSION,
+        node_type_version=STRUCTURE_VERSION,
         binding_id=(
             "structure_transform.normalize_csh_parent_span.direct"
         ),
-        binding_version=VERSION,
+        binding_version=STRUCTURE_VERSION,
         node_parameters={},
         binding_parameters={},
     )
     prompt = WorkflowNodeInstance(
         node_id="prompt",
         node_type_id="prompt_authoring.prompt_from_structure",
-        node_type_version=VERSION,
+        node_type_version=STRUCTURE_VERSION,
         binding_id="prompt_authoring.prompt_from_structure.direct",
-        binding_version=VERSION,
+        binding_version=STRUCTURE_VERSION,
         node_parameters={},
         binding_parameters={},
     )
@@ -174,18 +175,18 @@ def test_2emo_csh_normalization_preserves_parent_span_and_builds_prompt(
     residue_ids = prompt_value.target_layout.residue_ids
     assert prompt_value.target_layout.length == 224
     index = residue_ids.index("A:64")
-    assert residue_ids[index : index + 5] == [
+    assert residue_ids[index : index + 5] == (
         "A:64",
         "A:65",
         "A:66",
         "A:67",
         "A:68",
-    ]
-    assert prompt_value.sequence_track.values[index + 1 : index + 4] == [
+    )
+    assert prompt_value.sequence_track.values[index + 1 : index + 4] == (
         "S",
         "H",
         "G",
-    ]
+    )
     mapping = outputs[("normalize", "modified_residue_normalizations")]
     assert mapping.entries[0].component_id == "CSH"
     assert mapping.entries[0].observed_residue_id == "A:66"
@@ -198,27 +199,27 @@ def test_5g53_identity_insertions_preserve_every_modeled_residue_and_track(
     source = WorkflowNodeInstance(
         node_id="source",
         node_type_id="contract_test.prompt_authoring_values",
-        node_type_version=VERSION,
+        node_type_version=STRUCTURE_VERSION,
         binding_id="contract_test.prompt_authoring_values.direct",
-        binding_version=VERSION,
+        binding_version=STRUCTURE_VERSION,
         node_parameters={"fixture": "5g53"},
         binding_parameters={},
     )
     prompt = WorkflowNodeInstance(
         node_id="prompt",
         node_type_id="prompt_authoring.prompt_from_structure",
-        node_type_version=VERSION,
+        node_type_version=STRUCTURE_VERSION,
         binding_id="prompt_authoring.prompt_from_structure.direct",
-        binding_version=VERSION,
+        binding_version=STRUCTURE_VERSION,
         node_parameters={},
         binding_parameters={},
     )
     select_chain_a = WorkflowNodeInstance(
         node_id="select-chain-a",
         node_type_id="structure_transform.select_chains",
-        node_type_version=VERSION,
+        node_type_version=STRUCTURE_VERSION,
         binding_id="structure_transform.select_chains.direct",
-        binding_version=VERSION,
+        binding_version=STRUCTURE_VERSION,
         node_parameters={"chain_ids": ["A"]},
         binding_parameters={},
     )
@@ -300,15 +301,15 @@ def test_5g53_identity_insertions_preserve_every_modeled_residue_and_track(
         target_ids = edited.target_layout.residue_ids
         assert edited.target_layout.length == 283 + len(inserted_ids)
         assert target_ids[-1] == "A:312"
-        assert [
+        assert tuple(
             residue_id
             for residue_id in target_ids
             if residue_id not in set(inserted_ids)
-        ] == source_ids
+        ) == source_ids
         junction = target_ids.index("A:211")
         assert target_ids[
             junction + 1 : junction + 1 + len(inserted_ids)
-        ] == inserted_ids
+        ] == tuple(inserted_ids)
         assert target_ids[junction + 1 + len(inserted_ids)] == "A:224"
         assert all(f"A:{index}" in target_ids for index in range(292, 313))
         assert sum(operation == "match" for _, _, operation in residue_map.mappings) == 283
@@ -326,7 +327,7 @@ def test_5g53_identity_insertions_preserve_every_modeled_residue_and_track(
             if source_track is None:
                 assert edited_track is None
                 continue
-            retained = [
+            retained = tuple(
                 value
                 for residue_id, value in zip(
                     target_ids,
@@ -334,7 +335,7 @@ def test_5g53_identity_insertions_preserve_every_modeled_residue_and_track(
                     strict=True,
                 )
                 if residue_id not in set(inserted_ids)
-            ]
+            )
             assert retained == source_track.values
             assert all(
                 edited_track.values[target_ids.index(residue_id)] is None

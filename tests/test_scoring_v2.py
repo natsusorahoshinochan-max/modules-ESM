@@ -13,13 +13,14 @@ from core import (
     BehaviorReference,
     CatalogContract,
     FrozenCatalog,
-    LazyImplementationFactory,
+    OperationCall,
     ReadinessDeclaration,
     ReadinessResult,
     SelectionError,
     SelectionInput,
     SelectionObjective,
     SelectionResult,
+    ScientificOperationFactory,
     builtin_frozen_catalog,
     compile_workflow,
     relock_workflow,
@@ -309,16 +310,11 @@ def _scoring_catalog() -> tuple[FrozenCatalog, dict[str, CatalogContract]]:
     )
 
     class ScoringImplementation:
-        def execute(
-            self,
-            *,
-            inputs: dict,
-            node_parameters: dict,
-            binding_parameters: dict,
-        ) -> dict:
-            assert inputs == {}
-            assert node_parameters == {}
-            assert binding_parameters == {}
+        def execute(self, call: OperationCall) -> dict:
+            assert call.inputs == {}
+            assert call.node_parameters == {}
+            assert call.binding_parameters == {}
+            assert call.input_content_digests == {}
             candidates = CandidateCollection(
                 "raw-candidates",
                 "protein.sequence",
@@ -373,9 +369,9 @@ def _scoring_catalog() -> tuple[FrozenCatalog, dict[str, CatalogContract]]:
         },
         factories={
             ("score.intrinsic.direct", "2.1.0"): (
-                LazyImplementationFactory(
+                ScientificOperationFactory(
                     behavior=factory_behavior,
-                    build=lambda **_: ScoringImplementation(),
+                    build=lambda _: ScoringImplementation(),
                 )
             )
         },
@@ -451,7 +447,7 @@ def test_score_collection_codec_deduplicates_equal_observations_and_fails_closed
         ScoreCollection("scores", [observation, observation])
     )
     decoded = score_type.decode(encoded)
-    assert decoded.entries == [observation]
+    assert decoded.entries == (observation,)
 
     with pytest.raises(PortValueError, match="conflicting values"):
         score_type.encode(
@@ -884,6 +880,96 @@ def test_selection_result_defensively_freezes_all_provenance_paths() -> None:
     assert result.public_provenance() == {
         "objectives": [{"parameters": [1]}]
     }
+
+
+def test_unselected_collection_cannot_override_pairwise_subject_digest() -> None:
+    from core import PairwiseContextSelector
+    from datatypes import (
+        PairwiseObservationContext,
+        PairwiseParticipant,
+    )
+    from tests.test_pairwise_scoring_v2 import (
+        _pairwise_catalog,
+        _reference_from_contract,
+    )
+
+    catalog, contracts = _pairwise_catalog()
+    selected_input = SelectionInput("selected", "candidates")
+    unselected_input = SelectionInput("unselected", "candidates")
+    score_input = SelectionInput("scorer", "scores")
+    selected = Candidate("subject", ProteinSequence("AA"))
+    conflicting = Candidate("subject", ProteinSequence("GG"))
+    reference = Candidate("reference", ProteinSequence("AG"))
+    sequence_type = catalog.require_port_type("protein.sequence", "2.1.0")
+    scores = ScoreCollection(
+        "scores",
+        [
+            ScoreObservation(
+                candidate_id="subject",
+                metric=_reference_from_contract(
+                    contracts["structure.tm_score"]
+                ),
+                method=_reference_from_contract(contracts["tm-align"]),
+                context=PairwiseObservationContext(
+                    subject=PairwiseParticipant(
+                        role="subject",
+                        candidate_id="subject",
+                        content_digest=sequence_type.content_digest(
+                            conflicting.data
+                        ),
+                    ),
+                    reference=PairwiseParticipant(
+                        role="reference",
+                        candidate_id="reference",
+                        content_digest=sequence_type.content_digest(
+                            reference.data
+                        ),
+                    ),
+                    pairing_mode="fixed_reference",
+                    normalization="tm-score/reference-length",
+                ),
+                value=0.8,
+                source_partition="fixed-reference",
+            )
+        ],
+    )
+    objective = SelectionObjective(
+        objective_id="pairwise",
+        candidate_input=selected_input,
+        score_collection_input=score_input,
+        metric=_reference_from_contract(contracts["structure.tm_score"]),
+        method=_reference_from_contract(contracts["tm-align"]),
+        context_selector=PairwiseContextSelector(
+            pairing_mode="fixed_reference",
+            normalization="tm-score/reference-length",
+        ),
+        utility_transform=_reference_from_contract(
+            contracts["tm-score.fixed"]
+        ),
+        utility_parameters={},
+        weight=1,
+        source_partition="fixed-reference",
+    )
+
+    with pytest.raises(SelectionError, match="content digest"):
+        select_candidates(
+            candidate_inputs={
+                selected_input: CandidateCollection(
+                    "selected",
+                    "protein.sequence",
+                    [selected],
+                ),
+                unselected_input: CandidateCollection(
+                    "unselected",
+                    "protein.sequence",
+                    [conflicting],
+                ),
+            },
+            score_collection_inputs={score_input: scores},
+            objectives=(objective,),
+            catalog=catalog,
+            limit=1,
+        )
 
 
 @pytest.mark.parametrize("weight", [-1, -0.0, float("inf"), float("nan")])

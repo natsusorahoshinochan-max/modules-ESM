@@ -4,7 +4,6 @@ from collections.abc import Callable
 from contextlib import AbstractContextManager, nullcontext
 from dataclasses import dataclass
 from functools import lru_cache
-from importlib.metadata import version
 import math
 
 import numpy as np
@@ -139,10 +138,6 @@ def _sequence_correspondence(
     sequence_context = (
         engine_invocation(
             engine_role="sequence_alignment",
-            engine_identity=(
-                "Bio.Align.PairwiseAligner/"
-                f"{version('biopython')}"
-            ),
         )
         if engine_invocation is not None
         else nullcontext(None)
@@ -162,11 +157,6 @@ def _sequence_correspondence(
     selection_context = (
         engine_invocation(
             engine_role="bounded_correspondence_selection",
-            engine_identity=(
-                "structure_alignment.bounded_correspondence_selection/"
-                f"Bio.SVDSuperimposer-{version('biopython')}/"
-                f"numpy-{version('numpy')}"
-            ),
             parent_invocation_id=sequence_invocation_id,
         )
         if engine_invocation is not None
@@ -503,11 +493,6 @@ def align_structures(
     superposition_context = (
         engine_invocation(
             engine_role="rigid_superposition",
-            engine_identity=(
-                "Bio.SVDSuperimposer/"
-                f"{version('biopython')}/"
-                f"numpy-{version('numpy')}"
-            ),
             parent_invocation_id=sequence_invocation_id,
         )
         if engine_invocation is not None

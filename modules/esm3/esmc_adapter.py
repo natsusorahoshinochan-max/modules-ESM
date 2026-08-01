@@ -6,6 +6,7 @@ from collections.abc import Mapping
 import math
 from typing import Any
 
+from core import RunResources
 from datatypes import ProteinSequence
 
 from .domain import ESMCSequenceRepresentation
@@ -162,3 +163,67 @@ def environment_ready(environment: object) -> bool:
         )
         or callable(factory)
     ) and environment.get("credential_handle") is not None
+
+
+class BiohubESMCAdapter:
+    """Translate and admit the exact two-call Biohub ESMC operation."""
+
+    def __init__(
+        self,
+        *,
+        environment: Mapping[str, Any],
+        resources: RunResources,
+        model_name: str,
+    ) -> None:
+        if model_name != BIOHUB_ESMC_MODEL:
+            raise ValueError("Biohub ESMC model identity is not exact")
+        self._environment = environment
+        self._resources = resources
+        self._model_name = model_name
+
+    def _client(self) -> Any:
+        client = self._environment.get("provider_client")
+        if (
+            callable(getattr(client, "encode", None))
+            and callable(getattr(client, "logits", None))
+        ):
+            return client
+        factory = self._environment.get("client_factory")
+        if callable(factory):
+            return factory(
+                model_name=self._model_name,
+                endpoint_id=self._environment["endpoint_id"],
+                credential_handle=self._environment["credential_handle"],
+            )
+        raise RuntimeError(
+            "Biohub ESMC requires an injected provider client or client factory"
+        )
+
+    def represent(
+        self,
+        sequence: ProteinSequence,
+    ) -> ESMCSequenceRepresentation:
+        """Return only the admitted provider-independent representation."""
+        client = self._client()
+        provider_protein = provider_sequence(sequence)
+        with self._resources.engine_invocation(
+            engine_role="sequence_encode",
+        ) as encode_invocation_id:
+            encoded = require_provider_success(
+                client.encode(provider_protein),
+                "encode",
+            )
+        config = logits_config()
+        with self._resources.engine_invocation(
+            engine_role="sequence_logits",
+            parent_invocation_id=encode_invocation_id,
+        ):
+            result = require_provider_success(
+                client.logits(encoded, config),
+                "logits",
+            )
+        return normalize_representation(
+            sequence,
+            result,
+            model_name=self._model_name,
+        )

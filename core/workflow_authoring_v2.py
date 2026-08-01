@@ -10,16 +10,17 @@ import tempfile
 from typing import Any
 
 from core.parameter_contract import find_environment_parameter_field
-from core.port_types import FrozenCatalog
+from core.port_types import FrozenCatalog, canonical_sha256
 from core.project import ProjectManager, ProtectedProjectError
 from core.workflow_v2 import (
     CompiledWorkflow,
     WorkflowCompileError,
     WorkflowDocument,
+    WORKFLOW_DIGEST_NAMESPACE,
     compile_workflow,
     parse_workflow_document,
     relock_workflow,
-    validate_workflow_parameter_values,
+    validate_workflow_generation,
 )
 
 
@@ -36,6 +37,22 @@ class WorkflowAuthoringError(RuntimeError):
         self.code = code
         self.details = dict(details)
         super().__init__(message)
+
+
+def _generation_error(error: WorkflowCompileError) -> WorkflowAuthoringError:
+    code = (
+        error.code
+        if error.code in {
+            "contract_digest_mismatch",
+            "inactive_generation",
+        }
+        else "compile_rejected"
+    )
+    return WorkflowAuthoringError(
+        code,
+        str(error),
+        details={"issues": [error.issue()]},
+    )
 
 
 class WorkflowAuthoringService:
@@ -129,6 +146,34 @@ class WorkflowAuthoringService:
     def load(self, project_id: str) -> dict[str, Any]:
         """Load exactly the last persisted v2 revision without repair."""
         self._require_project(project_id)
+        payload = self._read_persisted_payload(project_id)
+        try:
+            workflow = parse_workflow_document(payload["workflow"])
+        except ValueError as error:
+            raise WorkflowAuthoringError(
+                "unsupported_schema_version",
+                "Persisted Workflow is not a supported exact v2 artifact",
+                details={
+                    "artifact_kind": "workflow",
+                    "expected_schema_version": "2.1.0",
+                    "received_schema_version": "unknown",
+                },
+            ) from error
+        try:
+            validate_workflow_generation(workflow, self._catalog)
+        except WorkflowCompileError as error:
+            raise _generation_error(error) from error
+        return self._snapshot(
+            project_id,
+            payload["workflow_revision"],
+            workflow,
+        )
+
+    def _read_persisted_payload(
+        self,
+        project_id: str,
+    ) -> Mapping[str, Any]:
+        """Read the closed stored document without resolving Catalog facts."""
         path = self._path(project_id)
         if not path.is_file() or path.is_symlink():
             raise WorkflowAuthoringError(
@@ -151,7 +196,6 @@ class WorkflowAuthoringService:
                 != {"schema_version", "workflow_revision", "workflow"}
             ):
                 raise ValueError("closed persisted Workflow schema mismatch")
-            workflow = parse_workflow_document(payload["workflow"])
         except (OSError, ValueError) as error:
             raise WorkflowAuthoringError(
                 "unsupported_schema_version",
@@ -162,11 +206,7 @@ class WorkflowAuthoringService:
                     "received_schema_version": "unknown",
                 },
             ) from error
-        return self._snapshot(
-            project_id,
-            payload["workflow_revision"],
-            workflow,
-        )
+        return payload
 
     def save(
         self,
@@ -202,13 +242,9 @@ class WorkflowAuthoringService:
                         },
                     )
         try:
-            validate_workflow_parameter_values(workflow, self._catalog)
+            validate_workflow_generation(workflow, self._catalog)
         except WorkflowCompileError as error:
-            raise WorkflowAuthoringError(
-                "compile_rejected",
-                "Workflow parameter values do not match exact Catalog contracts",
-                details={"issues": [error.issue()]},
-            ) from error
+            raise _generation_error(error) from error
         try:
             self._projects.assert_writable(project_id)
         except ProtectedProjectError as error:
@@ -367,11 +403,17 @@ class WorkflowAuthoringService:
                     ]
                 },
             ) from error
-        current = self.load(project_id)
+        current = self._read_persisted_payload(project_id)
         plan = compiled.execution_plan
+        persisted_workflow_digest = canonical_sha256(
+            {
+                "schema_namespace": WORKFLOW_DIGEST_NAMESPACE,
+                "workflow": current["workflow"],
+            }
+        )
         if (
             current["workflow_revision"] != workflow_revision
-            or current["workflow_digest"] != plan.workflow_digest
+            or persisted_workflow_digest != plan.workflow_digest
         ):
             raise WorkflowAuthoringError(
                 "compile_rejected",

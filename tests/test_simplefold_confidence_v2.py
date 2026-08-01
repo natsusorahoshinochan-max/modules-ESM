@@ -26,7 +26,16 @@ from core import (
 )
 from core.port_types import canonical_json_bytes
 from core.workflow_v2 import WorkflowEdge
-from datatypes import ScoreCollection
+from datatypes import (
+    Candidate,
+    CandidateCollection,
+    ProteinStructure,
+    ScoreCollection,
+)
+from tests.fixtures.scientific_operation import (
+    operation_call,
+    operation_context,
+)
 
 
 def _two_residue_pdb() -> str:
@@ -233,7 +242,7 @@ def _run_confidence(
         node_type_id="folding.simplefold_confidence",
         node_type_version="2.1.0",
         binding_id="folding.simplefold_confidence.simplefold_local",
-        binding_version="2.1.0",
+        binding_version="2.2.0",
         node_parameters={},
         binding_parameters={},
     )
@@ -282,7 +291,7 @@ def _run_confidence(
         )
     fingerprint = environment_values["resolved_runtime_fingerprint"]
     environment = EnvironmentConfiguration({
-        ("folding.simplefold_confidence.simplefold_local", "2.1.0"): {
+        ("folding.simplefold_confidence.simplefold_local", "2.2.0"): {
             "values": environment_values,
             "safe_fingerprint": fingerprint,
             "invalidation_token": fingerprint,
@@ -327,7 +336,7 @@ def test_simplefold_confidence_is_a_separate_fixed_existing_structure_node() -> 
     binding = catalog.require_contract(
         "binding",
         "folding.simplefold_confidence.simplefold_local",
-        "2.1.0",
+        "2.2.0",
     )
     node = catalog.require_contract(
         "node_type",
@@ -496,9 +505,7 @@ def test_direct_head_is_statically_scaled_and_masks_invalid_residues(
         event["event"]
         for event in events
         if event["event"]["type"] == "engine_invocation_started"
-        and event["event"]["engine_identity"].startswith(
-            "folding.simplefold_confidence."
-        )
+        and event["event"]["engine_role"] == "confidence_subject_0"
     ]
     terminal = [
         event["event"]
@@ -509,24 +516,18 @@ def test_direct_head_is_statically_scaled_and_masks_invalid_residues(
     ]
     assert len(started) == len(terminal) == 1
     assert terminal[0]["status"] == "succeeded"
-    from modules.folding.simplefold_confidence_adapter import (
-        invocation_identity,
+    binding = catalog.require_contract(
+        "binding",
+        "folding.simplefold_confidence.simplefold_local",
+        "2.2.0",
     )
-
-    resolved_identity = client.calls[0]["resolved_provider_identity"]
-    assert started[0]["engine_identity"] == invocation_identity(
-        resolved_identity
+    method_ref = binding.descriptor["method"]
+    method = catalog.require_contract(
+        "method",
+        method_ref["contract_id"],
+        method_ref["contract_version"],
     )
-    changed_identity = {
-        **resolved_identity,
-        "artifact_sha256": {
-            **resolved_identity["artifact_sha256"],
-            "ccd.pkl": "0" * 64,
-        },
-    }
-    assert invocation_identity(changed_identity) != started[0][
-        "engine_identity"
-    ]
+    assert started[0]["engine_identity"] == method.contract_digest
     public = json.dumps({"projection": projection, "events": events})
     for forbidden in (
         "contact-regression",
@@ -536,6 +537,75 @@ def test_direct_head_is_statically_scaled_and_masks_invalid_residues(
         "must-never-publish",
     ):
         assert forbidden not in public
+
+
+def test_canonical_confidence_operation_consumes_normalized_adapter_dto() -> None:
+    from modules.folding.implementation import (
+        SimpleFoldConfidenceImplementation,
+    )
+    from modules.folding.package import MODULE_PACKAGE as FOLDING_PACKAGE
+    from modules.folding.simplefold_confidence_adapter import (
+        SimpleFoldConfidenceAdapterResult,
+    )
+
+    class Adapter:
+        def __init__(self) -> None:
+            self.calls: list[tuple[ProteinStructure, str]] = []
+
+        def evaluate(
+            self,
+            *,
+            structure: ProteinStructure,
+            engine_role: str,
+        ) -> SimpleFoldConfidenceAdapterResult:
+            self.calls.append((structure, engine_role))
+            return SimpleFoldConfidenceAdapterResult(
+                per_residue_plddt=(None, 83.0),
+            )
+
+    catalog = build_frozen_catalog((FOLDING_PACKAGE,))
+    context = operation_context(
+        catalog,
+        "folding.simplefold_confidence.simplefold_local",
+        object(),
+        binding_version="2.2.0",
+        environment={"native_tensor": object()},
+    )
+    adapter = Adapter()
+    operation = SimpleFoldConfidenceImplementation(
+        adapter=adapter,
+        method=context.method,
+        produced_observations=context.produced_observations,
+    )
+    structure = ProteinStructure(_two_residue_pdb())
+    parent = Candidate("structure", structure, [], {})
+
+    outputs = operation.execute(
+        operation_call(
+            catalog=catalog,
+            binding_id=(
+                "folding.simplefold_confidence.simplefold_local"
+            ),
+            binding_version="2.2.0",
+            inputs={
+                "structure_candidates": CandidateCollection(
+                    "structures",
+                    "protein.structure",
+                    [parent],
+                )
+            },
+            node_parameters={},
+            binding_parameters={},
+        )
+    )
+
+    scores = outputs["confidence_observations"]
+    assert type(scores) is ScoreCollection
+    assert [entry.value for entry in scores.entries] == [
+        (None, 83.0),
+        83.0,
+    ]
+    assert adapter.calls == [(structure, "confidence_subject_0")]
 
 
 def test_resolved_asset_digests_are_bound_to_result_contract_identity(
@@ -589,12 +659,12 @@ def test_resolved_asset_digests_are_bound_to_result_contract_identity(
 def test_confidence_direct_head_never_guesses_native_scale(
     native_value: float,
 ) -> None:
-    from modules.folding.implementation import (
-        SimpleFoldConfidenceImplementation,
+    from modules.folding.simplefold_confidence_adapter import (
+        LocalSimpleFoldConfidenceAdapter,
     )
 
     with pytest.raises(ValueError, match="direct-head pLDDT"):
-        SimpleFoldConfidenceImplementation.normalize_native_confidence(
+        LocalSimpleFoldConfidenceAdapter.normalize_native_confidence(
             native_plddt=[native_value],
             valid_protein_residues=[True],
         )

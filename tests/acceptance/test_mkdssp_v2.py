@@ -1,4 +1,4 @@
-"""Real mkdssp 4.6.1 acceptance for the v2.1 annotation contract."""
+"""Real mkdssp 4.6.1 acceptance for the active DSSP contract."""
 
 from __future__ import annotations
 
@@ -10,12 +10,10 @@ from typing import Any
 
 import pytest
 
-from core import ReadinessCheckInput
+from core import ReadinessCheckInput, build_frozen_catalog
 from modules.structure_annotation.domain import DSSPAnnotation
-from modules.structure_annotation.implementation import (
-    StructureAnnotationImplementation,
-)
-from modules.structure_annotation.package import _dssp_ready
+from modules.structure_annotation.package import MODULE_PACKAGE, _dssp_ready
+from tests.fixtures.scientific_operation import build_operation, operation_call
 
 from .conftest import require_ready
 
@@ -27,7 +25,7 @@ _MKDSSP = "/opt/homebrew/bin/mkdssp"
 class _RunResources:
     def __init__(self, root: Path) -> None:
         self._root = root
-        self.invocations: list[str] = []
+        self.invocations = 0
 
     @contextmanager
     def temporary_directory(self, *, prefix: str) -> Iterator[Path]:
@@ -37,11 +35,9 @@ class _RunResources:
     @contextmanager
     def engine_invocation(
         self,
-        *,
-        engine_identity: str,
         **_: Any,
     ) -> Iterator[None]:
-        self.invocations.append(engine_identity)
+        self.invocations += 1
         yield
 
 
@@ -57,17 +53,22 @@ def test_mkdssp_4_6_1_publishes_complete_3gb1_sasa_and_coil(
     assert conclusion.passing
 
     resources = _RunResources(tmp_path)
-    implementation = StructureAnnotationImplementation(
+    catalog = build_frozen_catalog((MODULE_PACKAGE,))
+    implementation = build_operation(
+        catalog,
+        "structure_annotation.dssp_compute.mkdssp_local",
         resources,
-        "dssp_compute",
-        {"dssp_binary": _MKDSSP},
-        None,
+        binding_version="3.0.0",
+        environment={"dssp_binary": _MKDSSP},
     )
-    output = implementation.execute(
-        inputs={"structure": pdb_3gb1},
+    output = implementation.execute(operation_call(
+            catalog=catalog,
+            binding_id="structure_annotation.dssp_compute.mkdssp_local",
+            binding_version="3.0.0",
+            inputs={"structure": pdb_3gb1},
         node_parameters={},
         binding_parameters={},
-    )
+    ))
 
     annotation = output["annotations"]
     assert type(annotation) is DSSPAnnotation
@@ -77,4 +78,4 @@ def test_mkdssp_4_6_1_publishes_complete_3gb1_sasa_and_coil(
     assert all(type(value) is float and value >= 0 for value in annotation.sasa)
     assert "C" in annotation.secondary_structure
     assert "_" not in annotation.secondary_structure
-    assert resources.invocations == ["structure_annotation.mkdssp/4.6.1"]
+    assert resources.invocations == 1

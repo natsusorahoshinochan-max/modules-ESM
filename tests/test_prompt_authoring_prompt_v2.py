@@ -8,6 +8,7 @@ import threading
 import pytest
 
 from core import (
+    OperationCall,
     PortValueError,
     WorkflowAuthoringError,
     build_discovered_frozen_catalog,
@@ -475,12 +476,12 @@ def test_prepared_prompt_operation_waits_for_terminal_projection(
 
     def delayed_execute(
         implementation: AddFunctionAnnotationImplementation,
-        **kwargs: object,
+        call: OperationCall,
     ) -> dict[str, object]:
         entered.set()
         if not release.wait(timeout=5):
             raise AssertionError("delayed prompt operation was not released")
-        return original_execute(implementation, **kwargs)
+        return original_execute(implementation, call)
 
     monkeypatch.setattr(
         AddFunctionAnnotationImplementation,

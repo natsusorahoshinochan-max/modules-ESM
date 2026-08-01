@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping
 from typing import Any
 
 from core import (
@@ -12,11 +11,13 @@ from core import (
     ContractIdentity,
     DefinitionResource,
     ExecutionBindingDefinition,
-    LazyImplementationFactory,
     MethodDefinition,
     ModulePackageRegistration,
+    OperationCall,
+    OperationContext,
     ReadinessDeclaration,
     ReadinessResult,
+    ScientificOperationFactory,
 )
 from datatypes import (
     Candidate,
@@ -33,13 +34,10 @@ class _Source:
     def __init__(self, run_resources: Any) -> None:
         self._run_resources = run_resources
 
-    def execute(
-        self,
-        *,
-        inputs: Mapping[str, Any],
-        node_parameters: Mapping[str, Any],
-        binding_parameters: Mapping[str, Any],
-    ) -> dict[str, Any]:
+    def execute(self, call: OperationCall) -> dict[str, Any]:
+        inputs = call.inputs
+        node_parameters = call.node_parameters
+        binding_parameters = call.binding_parameters
         if (
             inputs
             or set(node_parameters) != {"parent_count"}
@@ -51,9 +49,7 @@ class _Source:
         count = node_parameters["parent_count"]
         if type(count) is not int or not 1 <= count <= 10:
             raise ValueError("ProteinMPNN parent_count is invalid")
-        with self._run_resources.engine_invocation(
-            engine_identity="contract_test.proteinmpnn_source/2.1.0",
-        ):
+        with self._run_resources.engine_invocation():
             parents = [
                 Candidate(
                     f"fixture-parent-{index}",
@@ -64,7 +60,6 @@ class _Source:
                             "0.000   0.000   0.000  1.00 20.00           C\n"
                             "END\n"
                         ),
-                        source="independent-literal",
                     ),
                     [],
                     {"fixture_parent_index": index},
@@ -88,13 +83,10 @@ class _SequenceSource:
     def __init__(self, run_resources: Any) -> None:
         self._run_resources = run_resources
 
-    def execute(
-        self,
-        *,
-        inputs: Mapping[str, Any],
-        node_parameters: Mapping[str, Any],
-        binding_parameters: Mapping[str, Any],
-    ) -> dict[str, Any]:
+    def execute(self, call: OperationCall) -> dict[str, Any]:
+        inputs = call.inputs
+        node_parameters = call.node_parameters
+        binding_parameters = call.binding_parameters
         if (
             set(inputs) != {"structure_candidates"}
             or node_parameters
@@ -110,11 +102,7 @@ class _SequenceSource:
             or not parents.items
         ):
             raise ValueError("ProteinMPNN sequence parents are invalid")
-        with self._run_resources.engine_invocation(
-            engine_identity=(
-                "contract_test.proteinmpnn_sequence_source/2.1.0"
-            ),
-        ):
+        with self._run_resources.engine_invocation():
             sequences = [
                 Candidate(
                     f"fixture-sequence-{index}",
@@ -137,13 +125,13 @@ class _SequenceSource:
 
 
 def _build(operation: str):
-    def factory(**kwargs: object) -> object:
+    def factory(context: OperationContext) -> object:
         implementation = (
             _Source
             if operation == "source"
             else _SequenceSource
         )
-        return implementation(kwargs["run_resources"])
+        return implementation(context.resources)
 
     return factory
 
@@ -195,7 +183,7 @@ MODULE_PACKAGE = ModulePackageRegistration(
             ),
             binding_parameters={},
             execution_route="direct",
-            factory=LazyImplementationFactory(
+            factory=ScientificOperationFactory(
                 behavior=BehaviorReference(
                     "contract_test.proteinmpnn_source/factory",
                     _VERSION,
@@ -243,7 +231,7 @@ MODULE_PACKAGE = ModulePackageRegistration(
             ),
             binding_parameters={},
             execution_route="direct",
-            factory=LazyImplementationFactory(
+            factory=ScientificOperationFactory(
                 behavior=BehaviorReference(
                     "contract_test.proteinmpnn_sequence_source/factory",
                     _VERSION,

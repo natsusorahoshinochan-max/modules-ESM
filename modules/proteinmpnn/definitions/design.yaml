@@ -1,13 +1,13 @@
 schema_version: "2.1.0"
 node_type_id: proteinmpnn.design
-version: "2.1.0"
+version: "4.0.0"
 title: Design sequences with ProteinMPNN
 summary: Designs an exact complete number of child sequences for each selected structure parent through one fixed ProteinMPNN Method.
 category: protein_design
 inputs:
   - name: structure
     port_type_id: protein.structure
-    port_type_version: "2.1.0"
+    port_type_version: "3.0.0"
     required: false
     multiplicity: one
     scientific_meaning: One complete structure value used when no structure Candidate Collection is supplied.
@@ -25,7 +25,7 @@ inputs:
     scientific_meaning: Optional complete reference sequence aligned exactly to each selected structure target layout.
   - name: constraints
     port_type_id: proteinmpnn.constraints
-    port_type_version: "2.1.0"
+    port_type_version: "3.0.0"
     required: false
     multiplicity: one
     scientific_meaning: Optional complete identity-addressed ProteinMPNN constraints validated against every selected structure target layout.

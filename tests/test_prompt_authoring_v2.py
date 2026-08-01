@@ -12,6 +12,7 @@ from core import (
     ModulePackagePortCase,
     WorkflowNodeInstance,
     build_discovered_frozen_catalog,
+    build_frozen_catalog,
     discover_module_packages,
     verify_module_package_contract,
 )
@@ -26,19 +27,18 @@ from datatypes import (
     ResidueTrack,
 )
 from modules.prompt_authoring.domain import AlignedResidueTrack
-from modules.prompt_authoring.implementation import (
-    PromptFromStructureImplementation,
-)
 from modules.prompt_authoring.package import MODULE_PACKAGE
 from tests.fixtures.prompt_authoring_sources.package import (
     MODULE_PACKAGE as SOURCE_PACKAGE,
 )
 from tests.fixtures.prompt_authoring_v2 import (
     SOURCE_LAYOUT,
+    SOURCE_VERSION,
     TARGET_LAYOUT,
     VERSION,
     wire_value,
 )
+from tests.fixtures.scientific_operation import build_operation, operation_call
 
 
 def test_prompt_authoring_is_one_package_with_twelve_independent_nodes() -> None:
@@ -83,7 +83,7 @@ def test_prompt_authoring_is_one_package_with_twelve_independent_nodes() -> None
         ("prompt_authoring.map_residue_track", VERSION),
         ("prompt_authoring.override_residue_track", VERSION),
         ("prompt_authoring.override_protein_prompt_track", VERSION),
-        ("prompt_authoring.prompt_from_structure", VERSION),
+        ("prompt_authoring.prompt_from_structure", "3.0.0"),
         ("prompt_authoring.random_insert_masked", VERSION),
         ("prompt_authoring.random_mask", VERSION),
         ("prompt_authoring.update_prompt_sequence", VERSION),
@@ -93,9 +93,9 @@ def test_prompt_authoring_is_one_package_with_twelve_independent_nodes() -> None
 _SOURCE = WorkflowNodeInstance(
     node_id="source",
     node_type_id="contract_test.prompt_authoring_values",
-    node_type_version=VERSION,
+    node_type_version=SOURCE_VERSION,
     binding_id="contract_test.prompt_authoring_values.direct",
-    binding_version=VERSION,
+    binding_version=SOURCE_VERSION,
     node_parameters={},
     binding_parameters={},
 )
@@ -491,11 +491,11 @@ def test_all_twelve_nodes_execute_through_shared_contract_kit(
             ModulePackageContractCase(
                 case_id="prompt-authoring-prompt-from-structure",
                 node_type_id="prompt_authoring.prompt_from_structure",
-                node_type_version=VERSION,
+                node_type_version="3.0.0",
                 binding_id=(
                     "prompt_authoring.prompt_from_structure.direct"
                 ),
-                binding_version=VERSION,
+                binding_version="3.0.0",
                 node_parameters={},
                 binding_parameters={},
                 environment_values={},
@@ -648,15 +648,22 @@ def test_prompt_from_structure_rejects_multiple_coordinate_models() -> None:
         + "ENDMDL\n"
     )
 
+    catalog = build_frozen_catalog((MODULE_PACKAGE,))
+    implementation = build_operation(
+        catalog,
+        "prompt_authoring.prompt_from_structure.direct",
+        RunResources(),
+        binding_version="3.0.0",
+    )
     with pytest.raises(ValueError, match="exactly one coordinate model"):
-        PromptFromStructureImplementation(
-            RunResources(),
-            "prompt_from_structure",
-        ).execute(
+        implementation.execute(operation_call(
+            catalog=catalog,
+            binding_id="prompt_authoring.prompt_from_structure.direct",
+            binding_version="3.0.0",
             inputs={"structure": structure},
             node_parameters={},
             binding_parameters={},
-        )
+        ))
 
 
 def test_prompt_from_structure_retains_altloc_b_only_residue() -> None:
@@ -672,18 +679,24 @@ def test_prompt_from_structure_retains_altloc_b_only_residue() -> None:
         "TER\nEND\n"
     )
 
-    outputs = PromptFromStructureImplementation(
+    catalog = build_frozen_catalog((MODULE_PACKAGE,))
+    outputs = build_operation(
+        catalog,
+        "prompt_authoring.prompt_from_structure.direct",
         RunResources(),
-        "prompt_from_structure",
-    ).execute(
+        binding_version="3.0.0",
+    ).execute(operation_call(
+        catalog=catalog,
+        binding_id="prompt_authoring.prompt_from_structure.direct",
+        binding_version="3.0.0",
         inputs={"structure": structure},
         node_parameters={},
         binding_parameters={},
-    )
+    ))
 
     assert outputs["layout"] == ResidueLayout("A", 1, ["A:7"])
     prompt = outputs["protein_prompt"]
-    assert prompt.sequence_track.values == ["A"]
-    assert prompt.structure_track.values == [
-        {"CA": (1.25, 2.5, 3.75)}
-    ]
+    assert prompt.sequence_track.values == ("A",)
+    assert prompt.structure_track.values == (
+        {"CA": (1.25, 2.5, 3.75)},
+    )

@@ -26,6 +26,7 @@ from core import (
 from core.port_types import PORT_VALUE_NAMESPACE, canonical_json_bytes
 from core.server import create_app
 from datatypes import CandidateCollection, PairwiseCandidateMapping
+from modules.proteinmpnn.adapter import LocalProteinMPNNAdapter
 from tests.fixtures.canonical_3gb1_v2 import (
     ControlledESM3Client,
     ControlledFoldingClient,
@@ -41,10 +42,11 @@ WORKFLOW_PATH = (
     PROJECT_ROOT / "examples" / "v2" / "canonical-3gb1.workflow.json"
 )
 EXPECTED_TOP_THREE = [
-    "candidate-93d0cc7ee6069d00bb4a6237fd082cc4112893212c2a1bb0f0e17aa18d997bc5",
-    "candidate-4e3952d724960f712685c0eff3d7f7d28d94017e40c609b9e183beed8b1ede05",
-    "candidate-96ed31bd516e5b4c4730fcda65dba279ba0076406bada958c81456b59b20cde1",
+    "candidate-0bc58261da5abcf20c4c9ef3f19d47398c1fe14cfa2b5384e84c5c8b9d5eb389",
+    "candidate-0af4328aee79522591b146769a2a7f36ff5bf46ccecf2cb04b9ceca34a0c45ae",
+    "candidate-a28632eac0a16b458780381efd977faa733bf4aec2d9fa653a8dcd9dcd9992e3",
 ]
+EXPECTED_TOP_PARENT_INDICES = [5, 9, 8]
 pytestmark = pytest.mark.deterministic_acceptance
 
 
@@ -70,10 +72,28 @@ def test_canonical_seed_is_exact_locked_compilable_v2() -> None:
 
     nodes = {node.node_id: node for node in workflow.nodes}
     assert all(
-        node.node_type_version == node.binding_version == "2.1.0"
+        node.node_type_version == node.binding_version
         and not node.binding_parameters
         for node in nodes.values()
     )
+    assert {
+        node.node_id: node.node_type_version
+        for node in nodes.values()
+        if node.node_type_version != "2.1.0"
+    } == {
+        "align-fixed": "2.2.0",
+        "score-fixed": "2.2.0",
+        "align-paired": "2.2.0",
+        "score-paired": "2.2.0",
+        "import-3gb1": "3.0.0",
+        "build-prompt": "3.0.0",
+        "fixed-positions": "3.0.0",
+        "generate-paired": "3.0.0",
+        "fold-sequences": "3.0.0",
+        "design-children": "4.0.0",
+        "fold-final": "3.0.0",
+        "export-final": "3.0.0",
+    }
     assert nodes["mask-sequence"].node_parameters["effective_seed"] == 1603
     assert nodes["mask-structure"].node_parameters["effective_seed"] == 1603
     assert nodes["insert-masked"].node_parameters["effective_seed"] == 1603
@@ -170,6 +190,17 @@ def _decoded_output(
     node_id: str,
     output_port: str,
 ) -> Any:
+    decoded = _decoded_outputs(catalog, projection, node_id, output_port)
+    assert len(decoded) == 1
+    return decoded[0]
+
+
+def _decoded_outputs(
+    catalog: Any,
+    projection: dict[str, Any],
+    node_id: str,
+    output_port: str,
+) -> tuple[Any, ...]:
     output = next(
         item
         for item in projection["outputs"]
@@ -181,13 +212,16 @@ def _decoded_output(
         reference["contract_id"],
         reference["contract_version"],
     )
-    return codec.decode(
-        canonical_json_bytes({
-            "schema_namespace": PORT_VALUE_NAMESPACE,
-            "port_type_id": reference["contract_id"],
-            "port_type_version": reference["contract_version"],
-            "value": output["values"][0],
-        })
+    return tuple(
+        codec.decode(
+            canonical_json_bytes({
+                "schema_namespace": PORT_VALUE_NAMESPACE,
+                "port_type_id": reference["contract_id"],
+                "port_type_version": reference["contract_version"],
+                "value": value,
+            })
+        )
+        for value in output["values"]
     )
 
 
@@ -227,19 +261,29 @@ def test_canonical_v2_public_protocol_reproduces_scientific_intent(
     folding = ControlledFoldingClient()
     proteinmpnn = ControlledProteinMPNNProvider()
     monkeypatch.setattr(
-        "modules.proteinmpnn.implementation.provider_for_environment",
-        lambda environment, *, staging_directory: proteinmpnn,
+        "modules.proteinmpnn.package.LocalProteinMPNNAdapter",
+        lambda **kwargs: LocalProteinMPNNAdapter(
+            environment=kwargs["environment"],
+            resources=kwargs["resources"],
+            provider_factory=(
+                lambda _environment, _directory: proteinmpnn
+            ),
+        ),
     )
     catalog = controlled_catalog()
     assert catalog.contract_digest == (
         build_discovered_frozen_catalog().contract_digest
     )
+    controlled_configuration = controlled_environment(
+        esm3,
+        folding,
+    )
+    assert controlled_configuration[
+        ("proteinmpnn.design.local", "4.0.0")
+    ]["safe_fingerprint"] == "controlled-proteinmpnn-canonical-v2"
     app = create_app(
         frozen_catalog_override=catalog,
-        v2_environment_configuration=controlled_environment(
-            esm3,
-            folding,
-        ),
+        v2_environment_configuration=controlled_configuration,
     )
 
     with TestClient(app) as client:
@@ -332,7 +376,7 @@ def test_canonical_v2_public_protocol_reproduces_scientific_intent(
         assert [
             item.parent_ids for item in structure_candidates.items
         ] == [
-            [sequence.candidate_id]
+            (sequence.candidate_id,)
             for sequence in sequence_candidates.items
         ]
         assert [
@@ -386,13 +430,13 @@ def test_canonical_v2_public_protocol_reproduces_scientific_intent(
             "import-3gb1",
             "structure_candidates",
         )
-        fixed_alignments = _decoded_output(
+        fixed_alignments = _decoded_outputs(
             catalog,
             first,
             "align-fixed",
             "alignments",
         )
-        paired_alignments = _decoded_output(
+        paired_alignments = _decoded_outputs(
             catalog,
             first,
             "align-paired",
@@ -415,14 +459,14 @@ def test_canonical_v2_public_protocol_reproduces_scientific_intent(
         }
         assert {
             alignment.reference.candidate_id
-            for alignment in fixed_alignments.alignments
+            for alignment in fixed_alignments
         } == {canonical_references.items[0].candidate_id}
         assert {
             (
                 alignment.subject.candidate_id,
                 alignment.reference.candidate_id,
             )
-            for alignment in paired_alignments.alignments
+            for alignment in paired_alignments
         } == {
             (
                 pair.subject_candidate_id,
@@ -432,10 +476,10 @@ def test_canonical_v2_public_protocol_reproduces_scientific_intent(
         }
         assert {
             alignment.reference.candidate_id
-            for alignment in fixed_alignments.alignments
+            for alignment in fixed_alignments
         }.isdisjoint({
             alignment.reference.candidate_id
-            for alignment in paired_alignments.alignments
+            for alignment in paired_alignments
         })
 
         ranked = _decoded_output(
@@ -455,6 +499,9 @@ def test_canonical_v2_public_protocol_reproduces_scientific_intent(
         assert [
             candidate.candidate_id for candidate in selected.items
         ] == EXPECTED_TOP_THREE
+        assert [
+            candidate.metadata["parent_index"] for candidate in selected.items
+        ] == EXPECTED_TOP_PARENT_INDICES
         selection = first["selection_results"][0]
         assert selection["selection_node_id"] == "rank-candidates"
         assert [
@@ -533,7 +580,7 @@ def test_canonical_v2_public_protocol_reproduces_scientific_intent(
         assert len(final_folds.items) == 15
         assert [
             folded.parent_ids for folded in final_folds.items
-        ] == [[child.candidate_id] for child in children.items]
+        ] == [(child.candidate_id,) for child in children.items]
         assert len(first["artifact_index"]) == 15
         assert [
             artifact["candidate_id"]
@@ -608,6 +655,16 @@ def test_canonical_v2_public_protocol_reproduces_scientific_intent(
         ]
         assert readiness_sequences
         assert max(readiness_sequences) < min(attempt_sequences)
+        proteinmpnn_readiness = next(
+            message["event"]
+            for message in first_events
+            if message["event"]["type"] == "readiness_attested"
+            and message["event"]["binding"]["contract_id"]
+            == "proteinmpnn.design.local"
+        )
+        assert proteinmpnn_readiness["binding"]["contract_version"] == (
+            "4.0.0"
+        )
 
         esm_calls_before = len(esm3.sequence_prompts)
         fold_calls_before = len(folding.calls)

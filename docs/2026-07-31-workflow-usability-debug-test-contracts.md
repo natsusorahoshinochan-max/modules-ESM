@@ -267,13 +267,15 @@ Workflow 不证明荧光、光谱性质、成熟效率或实验稳定性。
 
 本轮准确执行参数为：
 
-- `proteinmpnn.constraints.local@2.1.0` 使用 `designed_chains=["A"]`、
-  `fixed_chains=[]`、`omit_amino_acids=[]`、`tied_positions=[]`、`bias_by_res=[]`；
-  `designable_positions` 与 `fixed_positions` 只能由上一节稳定 residue identities 显式映射；
-- ProteinMPNN Binding：`proteinmpnn.design.local@2.1.0`；
+- `proteinmpnn.constraints.local@3.0.0` 使用 `designed_chains=["A"]`、
+  `fixed_chains=[]`、`omit_amino_acids=[]`、`tied_residue_groups=[]`、
+  `bias_by_residue=[]`；`designable_residue_ids` 与 `fixed_residue_ids` 只能使用上一节的
+  稳定 residue identities；
+- ProteinMPNN Binding：`proteinmpnn.design.local@4.0.0`；其 Method 保持
+  `proteinmpnn.design.v_48_020_8907e667@3.0.0`；
 - ProteinMPNN `effective_seed=2066001`、`num_sequences=8`、`temperature=0.1`、
   `backbone_noise=0`；
-- 独立折叠 Binding：`folding.fold.esmfold2_remote@2.1.0`；
+- 独立折叠 Binding：`folding.fold.esmfold2_remote@3.0.0`；
 - 折叠 `effective_seed=2066002`、`num_samples=1`；远程 Binding 不声明 provider seed
   control，因此该 seed 只固定 Workbench randomness identity；
 - 可溶性 Binding：`solubility.protein_sol.local@2.1.0`；
@@ -414,7 +416,7 @@ Candidate Collection 合并顺序固定为 shorter-8、numbering-implied-12、lo
 - 不允许从 remote Binding 切换到 local Binding，或从 paired generation 改成
   sequence-only generation。
 
-本轮固定使用 `esm3.generate_paired.biohub_medium@2.1.0`，不允许切换到 Biohub Open
+本轮固定使用 `esm3.generate_paired.biohub_medium@3.0.0`，不允许切换到 Biohub Open
 或 local-open Binding。三个分支的参数为：
 
 | 分支 | `effective_seed` | `num_samples` | `num_steps` | `temperature` |
@@ -449,7 +451,7 @@ scope。不得直接使用不同 normalization length 的全链 TM-score 横向�
 
 如果只能获得无法解释 residue correspondence 的整体分数，应记录 `evidence_gap`。
 
-独立折叠固定使用 `folding.fold.esmfold2_remote@2.1.0`，参数为
+独立折叠固定使用 `folding.fold.esmfold2_remote@3.0.0`，参数为
 `effective_seed=5353999`、`num_samples=1`。第二阶段对每个 Candidate 使用以下闭合判定：
 
 - resolved core 是原始 chain A 中全部 283 个已建模标准 residues；插入 residues、HETATM
@@ -533,9 +535,9 @@ input structure Candidate
 
 两个 Node Instance 必须分别固定：
 
-- `folding.fold.esmfold2_remote@2.1.0`：`effective_seed=1075001`、
+- `folding.fold.esmfold2_remote@3.0.0`：`effective_seed=1075001`、
   `num_samples=1`；
-- `folding.fold.simplefold_local@2.1.0`：`effective_seed=1075002`、
+- `folding.fold.simplefold_local@3.0.0`：`effective_seed=1075002`、
   `num_samples=1`，Binding parameter `num_steps=50`。
 
 二者消费同一个 sequence Candidate，各生成一个 structure Candidate。必须保留：
@@ -703,17 +705,46 @@ provider。`FULLY_USABLE` 要求两阶段均可由公开产品 interface 完成�
 
 ### 13.3 Exact Binding 选择
 
-所有 Binding version 固定为 `2.1.0`。模型或 provider-backed Node Instance 固定如下：
+当前 active Catalog generation 的 Binding version 必须逐项锁定，不能从 package version
+或其他 Binding 推断：
 
-| Workflow | Node Type | Execution Binding |
-|---|---|---|
-| 2EMO | `proteinmpnn.design` | `proteinmpnn.design.local` |
-| 2EMO | `folding.fold` | `folding.fold.esmfold2_remote` |
-| 2EMO | `solubility.score_sequence` | `solubility.protein_sol.local` |
-| 5G53 | `esm3.generate_paired` | `esm3.generate_paired.biohub_medium` |
-| 5G53 | `folding.fold` | `folding.fold.esmfold2_remote` |
-| 1PGA-75 | `folding.fold` | `folding.fold.esmfold2_remote` |
-| 1PGA-75 | `folding.fold` | `folding.fold.simplefold_local` |
+- `proteinmpnn.constraints.local` 与
+  `proteinmpnn.random_fixed_positions.local` 固定为 `3.0.0`，
+  `proteinmpnn.design.local` 固定为 `4.0.0`；
+- `protein_io.import_sequence.direct`、`protein_io.import_structure.direct` 与
+  `protein_io.export_structure.direct` 固定为 `3.0.0`；
+- `prompt_authoring.prompt_from_structure.direct` 固定为 `3.0.0`；
+- `structure_transform.select_chains.direct`、
+  `structure_transform.extract_backbone.direct`、
+  `structure_transform.extract_sequence.direct`、
+  `structure_transform.normalize_csh_parent_span.direct` 与
+  `structure_transform.backbone_to_structure.direct` 固定为 `3.0.0`；
+- `structure_annotation.dssp_compute.mkdssp_local` 固定为 `3.0.0`；其余三个
+  `structure_annotation` direct Binding 固定为 `2.2.0`；
+- `structure_comparison.align_pairwise.direct`、
+  `structure_comparison.align_pairwise.fixed_reference`、两个
+  `batch_tm_score` Binding 与两个 `rmsd` Binding 固定为 `2.2.0`；
+- 三个 ESM3 generation Node Type 的九个 Binding 与三个 `folding.fold` Binding
+  固定为 `3.0.0`；
+- `esm3.represent_sequence.biohub_esmc_600m_2024_12` 与
+  `folding.simplefold_confidence.simplefold_local` 固定为 `2.2.0`；
+- 未列入上述不兼容切换集合的 active Binding 固定为 `2.1.0`。
+
+上述版本矩阵只记录 active Binding identity；Node Type 与 Method 具有各自独立的 exact
+identity，不能由 Binding version 推断。实际 Workflow 仍只能选择下文列出的准确 ID，
+不得因为某个 Binding 已注册就把它加入这三条 Workflow。
+
+模型或 provider-backed Node Instance 固定如下：
+
+| Workflow | Node Type | Node Type Version | Execution Binding | Binding Version |
+|---|---|---|---|---|
+| 2EMO | `proteinmpnn.design` | `4.0.0` | `proteinmpnn.design.local` | `4.0.0` |
+| 2EMO | `folding.fold` | `3.0.0` | `folding.fold.esmfold2_remote` | `3.0.0` |
+| 2EMO | `solubility.score_sequence` | `2.1.0` | `solubility.protein_sol.local` | `2.1.0` |
+| 5G53 | `esm3.generate_paired` | `3.0.0` | `esm3.generate_paired.biohub_medium` | `3.0.0` |
+| 5G53 | `folding.fold` | `3.0.0` | `folding.fold.esmfold2_remote` | `3.0.0` |
+| 1PGA-75 | `folding.fold` | `3.0.0` | `folding.fold.esmfold2_remote` | `3.0.0` |
+| 1PGA-75 | `folding.fold` | `3.0.0` | `folding.fold.simplefold_local` | `3.0.0` |
 
 所需 repository-owned Binding 也必须逐个写入 Workflow，不允许依赖“唯一可用项”的隐式
 选择。本轮允许使用的准确 IDs 为：

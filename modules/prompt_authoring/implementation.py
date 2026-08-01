@@ -8,6 +8,7 @@ import math
 import re
 from typing import Any
 
+from core import OperationCall, RunResources
 from datatypes import (
     FunctionAnnotations,
     ProteinPrompt,
@@ -43,26 +44,18 @@ _TRACK_PORTS = {
 
 
 class _Implementation:
-    def __init__(self, run_resources: Any, operation: str) -> None:
+    def __init__(self, run_resources: RunResources) -> None:
         self._run_resources = run_resources
-        self._operation = operation
 
     def _invocation(self):
-        return self._run_resources.engine_invocation(
-            engine_identity=(
-                f"prompt_authoring.{self._operation}.method/2.1.0"
-            ),
-        )
+        return self._run_resources.engine_invocation()
 
 
 class BuildResidueLayoutImplementation(_Implementation):
-    def execute(
-        self,
-        *,
-        inputs: Mapping[str, Any],
-        node_parameters: Mapping[str, Any],
-        binding_parameters: Mapping[str, Any],
-    ) -> dict[str, Any]:
+    def execute(self, call: OperationCall) -> dict[str, Any]:
+        inputs = call.inputs
+        node_parameters = call.node_parameters
+        binding_parameters = call.binding_parameters
         if inputs or binding_parameters or set(node_parameters) != {"chains"}:
             raise ValueError("layout construction requires only chains")
         with self._invocation():
@@ -71,13 +64,10 @@ class BuildResidueLayoutImplementation(_Implementation):
 
 
 class EditResidueLayoutImplementation(_Implementation):
-    def execute(
-        self,
-        *,
-        inputs: Mapping[str, Any],
-        node_parameters: Mapping[str, Any],
-        binding_parameters: Mapping[str, Any],
-    ) -> dict[str, Any]:
+    def execute(self, call: OperationCall) -> dict[str, Any]:
+        inputs = call.inputs
+        node_parameters = call.node_parameters
+        binding_parameters = call.binding_parameters
         if (
             set(inputs) != {"source_layout", "target_layout"}
             or set(node_parameters) != {"edits"}
@@ -109,13 +99,10 @@ def _selected_track(
 
 
 class MapResidueTrackImplementation(_Implementation):
-    def execute(
-        self,
-        *,
-        inputs: Mapping[str, Any],
-        node_parameters: Mapping[str, Any],
-        binding_parameters: Mapping[str, Any],
-    ) -> dict[str, Any]:
+    def execute(self, call: OperationCall) -> dict[str, Any]:
+        inputs = call.inputs
+        node_parameters = call.node_parameters
+        binding_parameters = call.binding_parameters
         port, kind, track = _selected_track(inputs)
         if (
             set(inputs) != {"residue_map", port}
@@ -135,13 +122,10 @@ class MapResidueTrackImplementation(_Implementation):
 
 
 class OverrideResidueTrackImplementation(_Implementation):
-    def execute(
-        self,
-        *,
-        inputs: Mapping[str, Any],
-        node_parameters: Mapping[str, Any],
-        binding_parameters: Mapping[str, Any],
-    ) -> dict[str, Any]:
+    def execute(self, call: OperationCall) -> dict[str, Any]:
+        inputs = call.inputs
+        node_parameters = call.node_parameters
+        binding_parameters = call.binding_parameters
         port, kind, track = _selected_track(inputs)
         if (
             set(inputs) != {"target_layout", port}
@@ -418,13 +402,10 @@ def _prompt_from_structure(
 
 
 class PromptFromStructureImplementation(_Implementation):
-    def execute(
-        self,
-        *,
-        inputs: Mapping[str, Any],
-        node_parameters: Mapping[str, Any],
-        binding_parameters: Mapping[str, Any],
-    ) -> dict[str, Any]:
+    def execute(self, call: OperationCall) -> dict[str, Any]:
+        inputs = call.inputs
+        node_parameters = call.node_parameters
+        binding_parameters = call.binding_parameters
         if (
             set(inputs) != {"structure"}
             or node_parameters
@@ -439,13 +420,10 @@ class PromptFromStructureImplementation(_Implementation):
 
 
 class OverrideProteinPromptTrackImplementation(_Implementation):
-    def execute(
-        self,
-        *,
-        inputs: Mapping[str, Any],
-        node_parameters: Mapping[str, Any],
-        binding_parameters: Mapping[str, Any],
-    ) -> dict[str, Any]:
+    def execute(self, call: OperationCall) -> dict[str, Any]:
+        inputs = call.inputs
+        node_parameters = call.node_parameters
+        binding_parameters = call.binding_parameters
         if (
             set(inputs) != {"protein_prompt"}
             or set(node_parameters) != {"track", "overrides"}
@@ -464,13 +442,10 @@ class OverrideProteinPromptTrackImplementation(_Implementation):
 
 
 class AssembleProteinPromptImplementation(_Implementation):
-    def execute(
-        self,
-        *,
-        inputs: Mapping[str, Any],
-        node_parameters: Mapping[str, Any],
-        binding_parameters: Mapping[str, Any],
-    ) -> dict[str, Any]:
+    def execute(self, call: OperationCall) -> dict[str, Any]:
+        inputs = call.inputs
+        node_parameters = call.node_parameters
+        binding_parameters = call.binding_parameters
         allowed_inputs = {"layout", "function_annotations", *_TRACK_PORTS}
         if (
             "layout" not in inputs
@@ -496,13 +471,10 @@ class AssembleProteinPromptImplementation(_Implementation):
 
 
 class AddFunctionAnnotationImplementation(_Implementation):
-    def execute(
-        self,
-        *,
-        inputs: Mapping[str, Any],
-        node_parameters: Mapping[str, Any],
-        binding_parameters: Mapping[str, Any],
-    ) -> dict[str, Any]:
+    def execute(self, call: OperationCall) -> dict[str, Any]:
+        inputs = call.inputs
+        node_parameters = call.node_parameters
+        binding_parameters = call.binding_parameters
         if (
             set(inputs) not in (
                 {"layout"},
@@ -526,13 +498,10 @@ class AddFunctionAnnotationImplementation(_Implementation):
 
 
 class UpdatePromptSequenceImplementation(_Implementation):
-    def execute(
-        self,
-        *,
-        inputs: Mapping[str, Any],
-        node_parameters: Mapping[str, Any],
-        binding_parameters: Mapping[str, Any],
-    ) -> dict[str, Any]:
+    def execute(self, call: OperationCall) -> dict[str, Any]:
+        inputs = call.inputs
+        node_parameters = call.node_parameters
+        binding_parameters = call.binding_parameters
         if (
             set(inputs) != {"protein_prompt", "sequence"}
             or node_parameters
@@ -550,13 +519,10 @@ class UpdatePromptSequenceImplementation(_Implementation):
 
 
 class RandomMaskImplementation(_Implementation):
-    def execute(
-        self,
-        *,
-        inputs: Mapping[str, Any],
-        node_parameters: Mapping[str, Any],
-        binding_parameters: Mapping[str, Any],
-    ) -> dict[str, Any]:
+    def execute(self, call: OperationCall) -> dict[str, Any]:
+        inputs = call.inputs
+        node_parameters = call.node_parameters
+        binding_parameters = call.binding_parameters
         if (
             set(inputs) != {"protein_prompt"}
             or set(node_parameters)
@@ -583,13 +549,10 @@ class RandomMaskImplementation(_Implementation):
 
 
 class RandomInsertMaskedImplementation(_Implementation):
-    def execute(
-        self,
-        *,
-        inputs: Mapping[str, Any],
-        node_parameters: Mapping[str, Any],
-        binding_parameters: Mapping[str, Any],
-    ) -> dict[str, Any]:
+    def execute(self, call: OperationCall) -> dict[str, Any]:
+        inputs = call.inputs
+        node_parameters = call.node_parameters
+        binding_parameters = call.binding_parameters
         if (
             set(inputs) != {"protein_prompt"}
             or set(node_parameters)
@@ -617,13 +580,10 @@ class RandomInsertMaskedImplementation(_Implementation):
 
 
 class InsertMaskedResiduesImplementation(_Implementation):
-    def execute(
-        self,
-        *,
-        inputs: Mapping[str, Any],
-        node_parameters: Mapping[str, Any],
-        binding_parameters: Mapping[str, Any],
-    ) -> dict[str, Any]:
+    def execute(self, call: OperationCall) -> dict[str, Any]:
+        inputs = call.inputs
+        node_parameters = call.node_parameters
+        binding_parameters = call.binding_parameters
         if (
             set(inputs) != {"protein_prompt"}
             or set(node_parameters) != {"insertions"}

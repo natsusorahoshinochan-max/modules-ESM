@@ -14,11 +14,13 @@ from core import (
     ContractIdentity,
     DefinitionResource,
     ExecutionBindingDefinition,
-    LazyImplementationFactory,
     MethodDefinition,
     ModulePackageRegistration,
+    OperationCall,
+    OperationContext,
     ReadinessDeclaration,
     ReadinessResult,
+    ScientificOperationFactory,
 )
 from datatypes import (
     Candidate,
@@ -44,26 +46,19 @@ class _StructureSource:
     def __init__(self, resources: Any) -> None:
         self._resources = resources
 
-    def execute(
-        self,
-        *,
-        inputs: Mapping[str, Any],
-        node_parameters: Mapping[str, Any],
-        binding_parameters: Mapping[str, Any],
-    ) -> dict[str, Any]:
+    def execute(self, call: OperationCall) -> dict[str, Any]:
+        inputs = call.inputs
+        node_parameters = call.node_parameters
+        binding_parameters = call.binding_parameters
         if inputs or node_parameters or binding_parameters:
             raise ValueError("3GB1 structure source accepts no values")
         pdb_string = _PDB_PATH.read_text()
         if hashlib.sha256(pdb_string.encode()).hexdigest() != _PDB_SHA256:
             raise RuntimeError("3GB1 structure fixture does not match its source")
-        with self._resources.engine_invocation(
-            engine_identity=(
-                "contract_test.proteinmpnn_3gb1_structure/2.1.0"
-            ),
-        ):
+        with self._resources.engine_invocation():
             candidate = Candidate(
                 "source-bound-3gb1-structure",
-                ProteinStructure(pdb_string, source="pdbs/3GB1.pdb"),
+                ProteinStructure(pdb_string),
                 [],
                 {"source_sha256": _PDB_SHA256},
             )
@@ -80,13 +75,10 @@ class _SequenceSource:
     def __init__(self, resources: Any) -> None:
         self._resources = resources
 
-    def execute(
-        self,
-        *,
-        inputs: Mapping[str, Any],
-        node_parameters: Mapping[str, Any],
-        binding_parameters: Mapping[str, Any],
-    ) -> dict[str, Any]:
+    def execute(self, call: OperationCall) -> dict[str, Any]:
+        inputs = call.inputs
+        node_parameters = call.node_parameters
+        binding_parameters = call.binding_parameters
         if (
             set(inputs) != {"structure_candidates"}
             or node_parameters
@@ -103,11 +95,7 @@ class _SequenceSource:
         if hashlib.sha256(_SEQUENCE.encode()).hexdigest() != _SEQUENCE_SHA256:
             raise RuntimeError("3GB1 sequence fixture does not match its source")
         parent = parents.items[0]
-        with self._resources.engine_invocation(
-            engine_identity=(
-                "contract_test.proteinmpnn_3gb1_sequence/2.1.0"
-            ),
-        ):
+        with self._resources.engine_invocation():
             candidate = Candidate(
                 "source-bound-3gb1-sequence",
                 ProteinSequence(
@@ -127,13 +115,13 @@ class _SequenceSource:
 
 
 def _build(operation: str):
-    def factory(**kwargs: object) -> object:
+    def factory(context: OperationContext) -> object:
         implementation = (
             _StructureSource
             if operation == "structure"
             else _SequenceSource
         )
-        return implementation(kwargs["run_resources"])
+        return implementation(context.resources)
 
     return factory
 
@@ -180,7 +168,7 @@ def _binding(operation: str) -> ExecutionBindingDefinition:
         ),
         binding_parameters={},
         execution_route="direct",
-        factory=LazyImplementationFactory(
+        factory=ScientificOperationFactory(
             behavior=BehaviorReference(
                 f"contract_test.proteinmpnn_3gb1_{operation}/factory",
                 _VERSION,

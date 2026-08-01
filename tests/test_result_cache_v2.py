@@ -14,10 +14,12 @@ from core import (
     EffectiveRandomnessResolver,
     ExecutionTermination,
     FrozenCatalog,
-    LazyImplementationFactory,
+    OperationCall,
+    OperationContext,
     ReadinessDeclaration,
     ReadinessResult,
     ResultReplaySource,
+    ScientificOperationFactory,
     V2RunError,
     builtin_frozen_catalog,
 )
@@ -62,6 +64,7 @@ def _candidate_catalog(
     calls: list[str],
     *,
     duplicate_output_ids: bool = False,
+    declare_root_node_as_parent: bool = False,
 ) -> FrozenCatalog:
     builtin = builtin_frozen_catalog()
     candidates = builtin.require_port_type("candidate.collection", "2.1.0")
@@ -143,15 +146,20 @@ def _candidate_catalog(
         def __init__(self, resources) -> None:
             self._resources = resources
 
-        def execute(self, **kwargs: Any) -> dict[str, Any]:
-            assert kwargs["inputs"] == {}
+        def execute(self, call: OperationCall) -> dict[str, Any]:
+            assert call.inputs == {}
+            assert call.input_content_digests == {}
             calls.append(self._resources.run_id)
             with self._resources.engine_invocation():
                 pass
             produced = Candidate(
                 candidate_id=f"candidate-{self._resources.run_id}",
                 data=ProteinSequence("ACDE"),
-                parent_ids=[self._resources.node_id],
+                parent_ids=(
+                    [self._resources.node_id]
+                    if declare_root_node_as_parent
+                    else []
+                ),
                 metadata={
                     "run_id": self._resources.run_id,
                     "scientific_label": "fixture",
@@ -168,7 +176,7 @@ def _candidate_catalog(
                                 Candidate(
                                     candidate_id=produced.candidate_id,
                                     data=ProteinSequence("WXYZ"),
-                                    parent_ids=[self._resources.node_id],
+                                    parent_ids=list(produced.parent_ids),
                                 )
                             ]
                             if duplicate_output_ids
@@ -178,8 +186,8 @@ def _candidate_catalog(
                 )
             }
 
-    def factory(**kwargs: Any) -> CandidateImplementation:
-        return CandidateImplementation(kwargs["run_resources"])
+    def factory(context: OperationContext) -> CandidateImplementation:
+        return CandidateImplementation(context.resources)
 
     observed_at = datetime(2026, 7, 29, 8, 0, tzinfo=timezone.utc)
     return FrozenCatalog(
@@ -194,7 +202,7 @@ def _candidate_catalog(
         ),
         availability_observed_at=observed_at,
         factories={
-            ("test.candidate.direct", "2.1.0"): LazyImplementationFactory(
+            ("test.candidate.direct", "2.1.0"): ScientificOperationFactory(
                 behavior=factory_behavior,
                 build=factory,
             )
@@ -317,6 +325,53 @@ def test_deterministic_result_replays_from_project_cache_after_readiness(
     }
     assert "operation_attempt_started" not in replay_event_types
     assert "engine_invocation_started" not in replay_event_types
+
+
+def test_project_cache_reuses_admitted_canonical_bytes_without_reencoding(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    calls: list[str] = []
+    monkeypatch.setenv(
+        "PROTEIN_WORKBENCH_PROJECT_ROOT",
+        str(tmp_path / "projects"),
+    )
+    monkeypatch.setenv(
+        "PROTEIN_WORKBENCH_CACHE_ROOT",
+        str(tmp_path / "cache"),
+    )
+    monkeypatch.setenv(
+        "PROTEIN_WORKBENCH_RUN_ROOT",
+        str(tmp_path / "runs"),
+    )
+    monkeypatch.setenv(
+        "PROTEIN_WORKBENCH_OUTPUT_ROOT",
+        str(tmp_path / "outputs"),
+    )
+    app = create_app(
+        frozen_catalog_override=_pipeline_catalog(
+            calls,
+            cacheable=True,
+        )
+    )
+
+    with TestClient(app) as client:
+        project_id, compiled = _compile_pipeline(client)
+        first, _ = _start_run(client, project_id, compiled, "admission-a")
+        second, _ = _start_run(client, project_id, compiled, "admission-b")
+
+    assert first["status"] == second["status"] == "succeeded"
+    assert [
+        item["resolution"] for item in second["node_dispositions"]
+    ] == ["cache_replayed", "cache_replayed"]
+    assert [item for item in calls if item.startswith("validate:")] == [
+        "validate:' READY '",
+        "validate:'ready'",
+        "validate:'ready'",
+        "validate:'ready'",
+        "validate:'ready'",
+        "validate:'ready'",
+    ]
 
 
 def test_replay_without_identity_bound_producer_provenance_is_rejected(
@@ -637,6 +692,50 @@ def test_duplicate_candidate_producer_identity_fails_closed(
     assert terminal["error"]["details"]["exception_type"] == "PortValueError"
 
 
+def test_root_candidate_cannot_declare_node_id_as_pseudo_parent(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    monkeypatch.setenv(
+        "PROTEIN_WORKBENCH_PROJECT_ROOT",
+        str(tmp_path / "projects"),
+    )
+    monkeypatch.setenv(
+        "PROTEIN_WORKBENCH_CACHE_ROOT",
+        str(tmp_path / "cache"),
+    )
+    monkeypatch.setenv("PROTEIN_WORKBENCH_RUN_ROOT", str(tmp_path / "runs"))
+    monkeypatch.setenv(
+        "PROTEIN_WORKBENCH_OUTPUT_ROOT",
+        str(tmp_path / "outputs"),
+    )
+    app = create_app(
+        frozen_catalog_override=_candidate_catalog(
+            [],
+            declare_root_node_as_parent=True,
+        )
+    )
+
+    with TestClient(app) as client:
+        project_id, compiled = _compile_candidate_node(client)
+        projection, events = _start_run(
+            client,
+            project_id,
+            compiled,
+            "root-pseudo-parent",
+        )
+
+    terminal = next(
+        item["event"]
+        for item in events
+        if item["event"]["type"] == "node_attempt_terminal"
+    )
+    assert projection["status"] == "failed"
+    assert projection["outputs"] == []
+    assert terminal["error"]["code"] == "node_execution_failed"
+    assert terminal["error"]["details"]["exception_type"] == "PortValueError"
+
+
 def test_same_result_identity_is_physically_isolated_between_projects(
     tmp_path,
     monkeypatch,
@@ -796,15 +895,16 @@ def test_runtime_credentials_paths_and_performance_choices_do_not_change_identit
     assert "execute:test.direct.local" not in second_calls
 
 
-def test_presentation_only_contract_change_preserves_identity_and_replay(
+def test_presentation_only_contract_change_cannot_replay_from_old_generation(
     tmp_path,
     monkeypatch,
 ) -> None:
     project_root = tmp_path / "projects"
     cache_root = tmp_path / "cache"
+    run_root = tmp_path / "runs"
     monkeypatch.setenv("PROTEIN_WORKBENCH_PROJECT_ROOT", str(project_root))
     monkeypatch.setenv("PROTEIN_WORKBENCH_CACHE_ROOT", str(cache_root))
-    monkeypatch.setenv("PROTEIN_WORKBENCH_RUN_ROOT", str(tmp_path / "runs"))
+    monkeypatch.setenv("PROTEIN_WORKBENCH_RUN_ROOT", str(run_root))
     monkeypatch.setenv(
         "PROTEIN_WORKBENCH_OUTPUT_ROOT",
         str(tmp_path / "outputs"),
@@ -815,13 +915,14 @@ def test_presentation_only_contract_change_preserves_identity_and_replay(
         }
     }
     first_calls: list[str] = []
+    producer_catalog = _direct_catalog(
+        first_calls,
+        cacheable=True,
+        node_title="Scientific text producer",
+    )
     with TestClient(
         create_app(
-            frozen_catalog_override=_direct_catalog(
-                first_calls,
-                cacheable=True,
-                node_title="Scientific text producer",
-            ),
+            frozen_catalog_override=producer_catalog,
             v2_environment_configuration=environment,
         )
     ) as first_client:
@@ -832,59 +933,48 @@ def test_presentation_only_contract_change_preserves_identity_and_replay(
             compiled,
             "presentation-a",
         )
+        producer_run_id = first["run_id"]
+
+    producer_ledger = run_root / project_id / producer_run_id / "ledger"
+    before = {
+        path.name: path.read_bytes()
+        for path in sorted(producer_ledger.glob("*.json"))
+    }
 
     second_calls: list[str] = []
+    active_catalog = _direct_catalog(
+        second_calls,
+        cacheable=True,
+        node_title="Renamed UI label",
+    )
+    assert producer_catalog.contract_digest != active_catalog.contract_digest
     with TestClient(
         create_app(
-            frozen_catalog_override=_direct_catalog(
-                second_calls,
-                cacheable=True,
-                node_title="Renamed UI label",
-            ),
+            frozen_catalog_override=active_catalog,
             v2_environment_configuration=environment,
         )
     ) as second_client:
-        loaded = second_client.get(
+        rejected = second_client.get(
             f"/api/v2/projects/{project_id}/workflow"
-        ).json()
-        unlocked = loaded["workflow"]
-        unlocked["contract_lock"] = []
-        saved = second_client.put(
-            f"/api/v2/projects/{project_id}/workflow",
-            json={
-                "expected_workflow_revision": loaded["workflow_revision"],
-                "workflow": unlocked,
-            },
-        ).json()
-        relocked = second_client.post(
-            f"/api/v2/projects/{project_id}/workflow:relock",
-            json={"workflow_revision": saved["workflow_revision"]},
-        ).json()
-        compiled_again = second_client.post(
-            f"/api/v2/projects/{project_id}/workflow:compile",
-            json={
-                "workflow_revision": relocked["workflow_revision"],
-                "workflow": relocked["workflow"],
-            },
-        ).json()
-        second, _ = _start_run(
-            second_client,
-            project_id,
-            compiled_again,
-            "presentation-b",
         )
 
-    assert (
-        first["outputs"][0]["result_identity"]
-        == second["outputs"][0]["result_identity"]
-    )
+    assert rejected.status_code == 409
+    assert rejected.json()["error"]["code"] == "contract_digest_mismatch"
+    assert rejected.json()["error"]["details"]["issues"][0][
+        "field_path"
+    ] == ["contract_lock"]
+
+    after = {
+        path.name: path.read_bytes()
+        for path in sorted(producer_ledger.glob("*.json"))
+    }
     assert first["node_dispositions"][0]["resolution"] == "executed"
-    assert second["node_dispositions"][0]["resolution"] == "cache_replayed"
     assert "execute:test.direct.local" in first_calls
-    assert "execute:test.direct.local" not in second_calls
+    assert second_calls == []
+    assert before == after
 
 
-def test_changed_implementation_identity_misses_the_existing_project_cache(
+def test_changed_implementation_identity_rejects_the_old_workflow_generation(
     tmp_path,
     monkeypatch,
 ) -> None:
@@ -935,44 +1025,17 @@ def test_changed_implementation_identity_misses_the_existing_project_cache(
             v2_environment_configuration=environment,
         )
     ) as second_client:
-        loaded = second_client.get(
+        rejected = second_client.get(
             f"/api/v2/projects/{project_id}/workflow"
-        ).json()
-        unlocked = loaded["workflow"]
-        unlocked["contract_lock"] = []
-        saved = second_client.put(
-            f"/api/v2/projects/{project_id}/workflow",
-            json={
-                "expected_workflow_revision": loaded["workflow_revision"],
-                "workflow": unlocked,
-            },
-        ).json()
-        relocked = second_client.post(
-            f"/api/v2/projects/{project_id}/workflow:relock",
-            json={"workflow_revision": saved["workflow_revision"]},
-        ).json()
-        compiled_b = second_client.post(
-            f"/api/v2/projects/{project_id}/workflow:compile",
-            json={
-                "workflow_revision": relocked["workflow_revision"],
-                "workflow": relocked["workflow"],
-            },
-        ).json()
-        second, _ = _start_run(
-            second_client,
-            project_id,
-            compiled_b,
-            "algorithm-b",
         )
 
     assert first["outputs"][0]["values"] == ["READY"]
-    assert second["outputs"][0]["values"] == ["READY-B"]
-    assert (
-        first["outputs"][0]["result_identity"]
-        != second["outputs"][0]["result_identity"]
-    )
-    assert second["node_dispositions"][0]["resolution"] == "executed"
-    assert "execute:test.direct.local" in second_calls
+    assert rejected.status_code == 409
+    assert rejected.json()["error"]["code"] == "contract_digest_mismatch"
+    assert rejected.json()["error"]["details"]["issues"][0][
+        "field_path"
+    ] == ["contract_lock"]
+    assert second_calls == []
 
 
 def test_changed_scientific_parameter_changes_result_identity_and_misses(

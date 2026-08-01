@@ -13,13 +13,15 @@ from core import (
     ContractIdentity,
     DefinitionResource,
     ExecutionBindingDefinition,
-    LazyImplementationFactory,
     MethodDefinition,
     ModulePackageRegistration,
+    OperationContext,
     PortTypeDefinition,
     ReadinessCheckInput,
     ReadinessDeclaration,
     ReadinessResult,
+    ScientificOperation,
+    ScientificOperationFactory,
 )
 
 from .implementation import (
@@ -30,7 +32,19 @@ from .implementation import (
 )
 
 
-_VERSION = "2.1.0"
+_PACKAGE_VERSION = "2.1.0"
+_OPERATION_VERSIONS = {
+    "import_sequence": "3.0.0",
+    "import_structure": "3.0.0",
+    "export_sequence": "2.1.0",
+    "export_structure": "3.0.0",
+}
+_METHOD_VERSIONS = {
+    "import_sequence": "3.0.0",
+    "import_structure": "2.1.0",
+    "export_sequence": "2.1.0",
+    "export_structure": "2.1.0",
+}
 _SAFE_NAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$")
 _SAFE_CANDIDATE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$")
 
@@ -90,25 +104,26 @@ def _artifact_from_wire(value: object) -> object:
 
 
 def _build(operation: str):
-    def factory(**kwargs: object) -> object:
+    def factory(context: OperationContext) -> ScientificOperation:
         if operation == "import_sequence":
-            return SequenceImportImplementation(kwargs["run_resources"])
+            return SequenceImportImplementation(context.resources)
         if operation == "import_structure":
-            return StructureImportImplementation(kwargs["run_resources"])
+            return StructureImportImplementation(context.resources)
         if operation == "export_sequence":
-            return SequenceExportImplementation(kwargs["run_resources"])
+            return SequenceExportImplementation(context.resources)
         if operation == "export_structure":
-            return StructureExportImplementation(kwargs["run_resources"])
+            return StructureExportImplementation(context.resources)
         raise RuntimeError("protein I/O implementation is not installed")
 
     return factory
 
 
 def _method(operation: str) -> MethodDefinition:
+    version = _METHOD_VERSIONS[operation]
     return MethodDefinition(
         method_id=f"protein_io.{operation}.method",
-        version=_VERSION,
-        algorithm_identity={"name": operation, "format_contract": _VERSION},
+        version=version,
+        algorithm_identity={"name": operation, "format_contract": version},
         model_identity={"kind": "none"},
         checkpoint_identity={"kind": "none"},
         featurization_identity={"kind": "canonical-protein-io"},
@@ -118,25 +133,26 @@ def _method(operation: str) -> MethodDefinition:
 
 
 def _binding(operation: str) -> ExecutionBindingDefinition:
+    version = _OPERATION_VERSIONS[operation]
     return ExecutionBindingDefinition(
         binding_id=f"protein_io.{operation}.direct",
-        version=_VERSION,
+        version=version,
         node_type=ContractIdentity(
             "node_type",
             f"protein_io.{operation}",
-            _VERSION,
+            version,
         ),
         method=ContractIdentity(
             "method",
             f"protein_io.{operation}.method",
-            _VERSION,
+            _METHOD_VERSIONS[operation],
         ),
         binding_parameters={},
         execution_route="direct",
-        factory=LazyImplementationFactory(
+        factory=ScientificOperationFactory(
             behavior=BehaviorReference(
                 f"protein_io.{operation}/factory",
-                _VERSION,
+                version,
                 {"execution_route": "direct"},
             ),
             build=_build(operation),
@@ -144,7 +160,7 @@ def _binding(operation: str) -> ExecutionBindingDefinition:
         availability=AvailabilityDeclaration(
             behavior=BehaviorReference(
                 f"protein_io.{operation}/availability",
-                _VERSION,
+                version,
                 {"observation": "startup"},
             ),
             prerequisites={},
@@ -153,7 +169,7 @@ def _binding(operation: str) -> ExecutionBindingDefinition:
         readiness=ReadinessDeclaration(
             behavior=BehaviorReference(
                 f"protein_io.{operation}/readiness",
-                _VERSION,
+                version,
                 {"observation": "per-run"},
             ),
             prerequisites={},
@@ -179,7 +195,7 @@ _OPERATIONS = (
 MODULE_PACKAGE = ModulePackageRegistration(
     schema_version="2.1.0",
     package_id="protein_io",
-    package_version=_VERSION,
+    package_version=_PACKAGE_VERSION,
     package_module=__package__,
     node_definitions=(
         DefinitionResource("definitions/sequence_import.yaml"),
@@ -192,10 +208,10 @@ MODULE_PACKAGE = ModulePackageRegistration(
     port_types=(
         PortTypeDefinition(
             type_id="protein_io.artifact_payload",
-            version=_VERSION,
+            version=_PACKAGE_VERSION,
             validator=BehaviorReference(
                 "protein_io.artifact_payload/validate",
-                _VERSION,
+                _PACKAGE_VERSION,
                 {
                     "accepted_value_kind": "artifact_payload",
                     "artifact_publication": {
@@ -208,7 +224,7 @@ MODULE_PACKAGE = ModulePackageRegistration(
             ),
             codec=BehaviorReference(
                 "protein_io.artifact_payload/codec",
-                _VERSION,
+                _PACKAGE_VERSION,
                 {
                     "canonicalization": "RFC 8785",
                     "binary_encoding": "base64",
@@ -216,7 +232,7 @@ MODULE_PACKAGE = ModulePackageRegistration(
             ),
             content_identity=BehaviorReference(
                 "protein_io.artifact_payload/content",
-                _VERSION,
+                _PACKAGE_VERSION,
                 {"digest": "SHA-256"},
             ),
             runtime_validator=_validate_artifact_payload,

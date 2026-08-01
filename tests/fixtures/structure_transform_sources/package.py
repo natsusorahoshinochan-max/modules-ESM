@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Any, Mapping
+from typing import Any
 
 from core import (
     AvailabilityDeclaration,
@@ -11,11 +11,13 @@ from core import (
     ContractIdentity,
     DefinitionResource,
     ExecutionBindingDefinition,
-    LazyImplementationFactory,
     MethodDefinition,
     ModulePackageRegistration,
+    OperationCall,
+    OperationContext,
     ReadinessDeclaration,
     ReadinessResult,
+    ScientificOperationFactory,
 )
 from datatypes import Candidate, CandidateCollection, ProteinStructure
 
@@ -258,22 +260,16 @@ class _Source:
     def __init__(self, resources: Any) -> None:
         self._resources = resources
 
-    def execute(
-        self,
-        *,
-        inputs: Mapping[str, Any],
-        node_parameters: Mapping[str, Any],
-        binding_parameters: Mapping[str, Any],
-    ) -> dict[str, Any]:
+    def execute(self, call: OperationCall) -> dict[str, Any]:
+        inputs = call.inputs
+        node_parameters = call.node_parameters
+        binding_parameters = call.binding_parameters
         if inputs or binding_parameters:
             raise ValueError("fixture source accepts no connected values")
         fixture = node_parameters["fixture"]
-        with self._resources.engine_invocation(
-            engine_identity="contract_test.structure_transform_source/2.1.0",
-        ):
+        with self._resources.engine_invocation():
             structure = ProteinStructure(
                 pdb_string=_FIXTURES[fixture](),
-                source="contract-test",
             )
             return {
                 "structure": structure,
@@ -289,28 +285,23 @@ class _BackboneSink:
     def __init__(self, resources: Any) -> None:
         self._resources = resources
 
-    def execute(
-        self,
-        *,
-        inputs: Mapping[str, Any],
-        node_parameters: Mapping[str, Any],
-        binding_parameters: Mapping[str, Any],
-    ) -> dict[str, Any]:
+    def execute(self, call: OperationCall) -> dict[str, Any]:
+        inputs = call.inputs
+        node_parameters = call.node_parameters
+        binding_parameters = call.binding_parameters
         if node_parameters or binding_parameters or set(inputs) != {"backbone"}:
             raise ValueError("backbone sink requires one backbone")
-        with self._resources.engine_invocation(
-            engine_identity="contract_test.backbone_sink/2.1.0",
-        ):
+        with self._resources.engine_invocation():
             return {"accepted": "accepted"}
 
 
 def _build(operation: str):
-    def factory(**kwargs: object) -> object:
+    def factory(context: OperationContext) -> object:
         implementation = {
             "source": _Source,
             "backbone_sink": _BackboneSink,
         }[operation]
-        return implementation(kwargs["run_resources"])
+        return implementation(context.resources)
 
     return factory
 
@@ -336,8 +327,8 @@ def _binding(operation: str) -> ExecutionBindingDefinition:
     )
     return ExecutionBindingDefinition(
         binding_id=f"{node_id}.direct",
-        version="2.1.0",
-        node_type=ContractIdentity("node_type", node_id, "2.1.0"),
+        version="3.0.0",
+        node_type=ContractIdentity("node_type", node_id, "3.0.0"),
         method=ContractIdentity(
             "method",
             f"contract_test.structure_transform.{operation}.method",
@@ -345,7 +336,7 @@ def _binding(operation: str) -> ExecutionBindingDefinition:
         ),
         binding_parameters={},
         execution_route="direct",
-        factory=LazyImplementationFactory(
+        factory=ScientificOperationFactory(
             behavior=BehaviorReference(
                 f"{node_id}/factory",
                 "2.1.0",

@@ -32,6 +32,7 @@ from tests.fixtures.structure_transform_sources.package import (
 
 
 VERSION = "2.1.0"
+STRUCTURE_VERSION = "3.0.0"
 
 
 def _run_transform(
@@ -50,6 +51,7 @@ def _run_transform(
         run_root=tmp_path / "runs",
     )
     project = projects.create(f"structure transform {operation}")
+    operation_version = STRUCTURE_VERSION
     authoring = WorkflowAuthoringService(projects, catalog)
     workflow = WorkflowDocument(
         schema_version=VERSION,
@@ -58,18 +60,18 @@ def _run_transform(
             WorkflowNodeInstance(
                 node_id="source",
                 node_type_id="contract_test.structure_transform_source",
-                node_type_version=VERSION,
+                node_type_version=STRUCTURE_VERSION,
                 binding_id="contract_test.structure_transform_source.direct",
-                binding_version=VERSION,
+                binding_version=STRUCTURE_VERSION,
                 node_parameters={"fixture": fixture},
                 binding_parameters={},
             ),
             WorkflowNodeInstance(
                 node_id="transform",
                 node_type_id=f"structure_transform.{operation}",
-                node_type_version=VERSION,
+                node_type_version=operation_version,
                 binding_id=f"structure_transform.{operation}.direct",
-                binding_version=VERSION,
+                binding_version=operation_version,
                 node_parameters=node_parameters or {},
                 binding_parameters={},
             ),
@@ -101,7 +103,7 @@ def _run_transform(
             {
                 (
                     f"structure_transform.{operation}.direct",
-                    VERSION,
+                    operation_version,
                 ): {
                     "values": {
                         "irrelevant_runtime_label": (
@@ -376,10 +378,10 @@ def test_backbone_retains_exact_atoms_chain_breaks_and_canonical_digest(
     assert [line[21] for line in atom_lines] == ["A"] * 4 + ["B"] * 4
     assert lines.count("TER") == 2
     assert not any(line.startswith("HETATM") for line in lines)
-    assert backbone.source == "structure_transform.extract_backbone"
+    assert backbone == ProteinStructure(backbone.pdb_string)
     port_type = catalog.require_port_type(
         "structure_transform.backbone_structure",
-        VERSION,
+        STRUCTURE_VERSION,
     )
     assert output["content_digest"] == port_type.content_digest(backbone)
     assert output["result_identity"].startswith("sha256:")
@@ -480,7 +482,7 @@ def test_candidate_sequence_extraction_preserves_parent_lineage(
         sequence="MTYKLILNGKTLKGETTTEAVDAATAEKVFKQYANDNGVDGEWTYDDATKTFTVTE",
         residue_ids=[f"A:{position}" for position in range(1, 57)],
     )
-    assert child.parent_ids == [source.items[0].candidate_id]
+    assert child.parent_ids == (source.items[0].candidate_id,)
 
 
 def test_candidate_chain_selection_preserves_parent_lineage(
@@ -512,7 +514,7 @@ def test_candidate_chain_selection_preserves_parent_lineage(
         for line in child.data.pdb_string.splitlines()
         if line.startswith(("ATOM  ", "HETATM"))
     } == {"A"}
-    assert child.parent_ids == [source.items[0].candidate_id]
+    assert child.parent_ids == (source.items[0].candidate_id,)
 
 
 def test_provider_free_transform_identity_is_stable_across_environments(

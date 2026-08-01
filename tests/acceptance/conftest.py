@@ -102,7 +102,7 @@ def _check_mkdssp_ready() -> bool:
 
 def _check_proteinmpnn_ready() -> bool:
     """Check if ProteinMPNN checkpoints exist."""
-    from modules.proteinmpnn.v2_adapter import (
+    from modules.proteinmpnn.adapter import (
         PROTEINMPNN_DEVICE,
         configured_runtime_fingerprint,
         proteinmpnn_readiness,
@@ -238,14 +238,14 @@ def pdb_3gb1() -> ProteinStructure:
     pdb_str = _read_pdb("pdbs/3GB1.pdb")
     if hashlib.sha256(pdb_str.encode()).hexdigest() != PDB_3GB1_SHA256:
         pytest.fail("3GB1 acceptance fixture does not match its locked SHA-256")
-    return ProteinStructure(pdb_string=pdb_str, source="3GB1")
+    return ProteinStructure(pdb_string=pdb_str)
 
 
 @pytest.fixture(scope="session")
 def pdb_1pga() -> ProteinStructure:
     """Load 1PGA variant PDB as a ProteinStructure."""
     pdb_str = _read_pdb("pdbs/1PGA-75-gen1_0690.pdb")
-    return ProteinStructure(pdb_string=pdb_str, source="1PGA-variant")
+    return ProteinStructure(pdb_string=pdb_str)
 
 
 @pytest.fixture(scope="session")

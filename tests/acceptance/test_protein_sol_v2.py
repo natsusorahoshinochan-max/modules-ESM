@@ -294,16 +294,18 @@ def test_local_protein_sol_golden_multiple_metrics(
     ] == binding.descriptor["readiness_declaration"]["prerequisites"][
         "source_files_sha256"
     ]
+    method = catalog.require_contract(
+        "method",
+        "solubility.protein_sol.sequence_prediction_2017",
+        "2.1.0",
+    )
     started = [
         event["event"]
         for event in events
         if event["event"]["type"] == "engine_invocation_started"
-        and event["event"]["engine_identity"].startswith(
-            "protein-sol.sequence-prediction-2017/"
-        )
+        and event["event"]["engine_identity"] == method.contract_digest
     ]
     assert len(started) == 1
-    assert started[0]["engine_identity"].endswith(fingerprint)
     terminal = [
         event["event"]
         for event in events

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import replace
+from dataclasses import FrozenInstanceError, replace
 from datetime import datetime, timedelta, timezone
 import importlib
 from pathlib import Path
@@ -15,22 +15,26 @@ from core import (
     AvailabilityDeclaration,
     AvailabilityResult,
     BehaviorReference,
+    CandidateDataDigest,
     CatalogBuildError,
     ContractIdentity,
     ExecutionBindingDefinition,
     ExpectedOptionalDependencyMissing,
-    LazyImplementationFactory,
+    InputContentDigests,
     MethodDefinition,
     ModulePackageRegistration,
     ObservationPropagationDefinition,
+    OperationCall,
     ProducedObservationDefinition,
     ReadinessDeclaration,
     ReadinessResult,
+    ScientificOperationFactory,
     build_discovered_frozen_catalog,
     build_frozen_catalog,
     discover_module_packages,
 )
 from core.server import create_app
+from datatypes import Candidate, CandidateCollection, ProteinSequence
 from protein_workbench_public import validate_response
 
 
@@ -103,7 +107,7 @@ from core import (
     ContractIdentity,
     DefinitionResource,
     ExecutionBindingDefinition,
-    LazyImplementationFactory,
+    ScientificOperationFactory,
     MethodDefinition,
     ModulePackageRegistration,
     PortTypeDefinition,
@@ -113,7 +117,8 @@ from core import (
 )
 
 
-def _factory():
+def _factory(context):
+    del context
     if os.environ.get("SYNTHETIC_FACTORY_ALLOWED") != "1":
         raise AssertionError("Catalog discovery constructed an implementation")
     return {"implementation": "synthetic.echo"}
@@ -197,7 +202,7 @@ MODULE_PACKAGE = ModulePackageRegistration(
             method=_METHOD,
             binding_parameters={},
             execution_route="direct",
-            factory=LazyImplementationFactory(
+            factory=ScientificOperationFactory(
                 behavior=BehaviorReference(
                     "synthetic.echo/factory",
                     "2.1.0",
@@ -307,11 +312,12 @@ def _build_synthetic_catalog(
 def _method(
     method_id: str,
     *,
+    version: str = "2.1.0",
     algorithm_identity=None,
 ) -> MethodDefinition:
     return MethodDefinition(
         method_id=method_id,
-        version="2.1.0",
+        version=version,
         algorithm_identity=algorithm_identity or {"name": method_id},
         model_identity={"kind": "none"},
         checkpoint_identity={"kind": "none"},
@@ -744,6 +750,117 @@ def test_duplicate_contract_identity_fails_closed() -> None:
         )
 
 
+def test_active_catalog_rejects_multiple_versions_of_one_logical_contract() -> None:
+    with pytest.raises(
+        CatalogBuildError,
+        match=(
+            "multiple active versions for contract "
+            "method:synthetic.single-active"
+        ),
+    ):
+        build_frozen_catalog(
+            (
+                _registration(
+                    "legacy_owner",
+                    methods=(
+                        _method(
+                            "synthetic.single-active",
+                            version="2.1.0",
+                        ),
+                    ),
+                ),
+                _registration(
+                    "current_owner",
+                    methods=(
+                        _method(
+                            "synthetic.single-active",
+                            version="3.0.0",
+                        ),
+                    ),
+                ),
+            )
+        )
+
+
+def test_identical_exact_metric_contract_retains_common_ownership(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    root_name = _write_discovery_root(tmp_path)
+    shared_owner = tmp_path / root_name / "shared_metric"
+    shared_owner.mkdir()
+    (shared_owner / "__init__.py").write_text("")
+    (shared_owner / "metric.yaml").write_text(METRIC_DEFINITION)
+    (shared_owner / "package.py").write_text(
+        """\
+from core import DefinitionResource, ModulePackageRegistration
+
+MODULE_PACKAGE = ModulePackageRegistration(
+    schema_version="2.1.0",
+    package_id="shared_metric",
+    package_version="2.1.0",
+    package_module=__package__,
+    metric_definitions=(DefinitionResource("metric.yaml"),),
+)
+"""
+    )
+    monkeypatch.syspath_prepend(str(tmp_path))
+    importlib.invalidate_caches()
+
+    try:
+        catalog = build_discovered_frozen_catalog(root_name)
+    finally:
+        _forget_package(root_name)
+
+    assert catalog.owners[("metric", "synthetic.identity", "2.1.0")] == (
+        frozenset({"synthetic", "shared_metric"})
+    )
+
+
+def test_version_conflict_is_rejected_before_binding_availability_probe(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    root_name = _write_discovery_root(tmp_path)
+    monkeypatch.syspath_prepend(str(tmp_path))
+    importlib.invalidate_caches()
+    probes: list[str] = []
+
+    def binding_with_version(binding, version: str):
+        def check() -> AvailabilityResult:
+            probes.append(version)
+            return AvailabilityResult.available()
+
+        return replace(
+            binding,
+            version=version,
+            availability=replace(binding.availability, check=check),
+        )
+
+    try:
+        registration = discover_module_packages(root_name)[0]
+        binding = registration.bindings[0]
+        conflicting = replace(
+            registration,
+            bindings=(
+                binding_with_version(binding, "2.1.0"),
+                binding_with_version(binding, "3.0.0"),
+            ),
+        )
+        with pytest.raises(
+            CatalogBuildError,
+            match=(
+                "multiple active versions for contract "
+                "binding:synthetic.echo.direct"
+            ),
+        ):
+            build_frozen_catalog((conflicting,))
+    finally:
+        _forget_package(root_name)
+
+    assert probes == []
+
+
 def test_conflicting_contract_identity_fails_closed() -> None:
     with pytest.raises(CatalogBuildError, match="conflicting contract identity"):
         build_frozen_catalog(
@@ -927,13 +1044,13 @@ def test_missing_optional_dependency_does_not_hide_available_sibling(
                 },
                 check=missing_optional_dependency,
             ),
-            factory=LazyImplementationFactory(
+            factory=ScientificOperationFactory(
                 behavior=BehaviorReference(
                     "synthetic.echo.optional/factory",
                     "2.1.0",
                     {},
                 ),
-                build=lambda: (_ for _ in ()).throw(
+                build=lambda context: (_ for _ in ()).throw(
                     AssertionError("factory must stay lazy")
                 ),
             ),
@@ -1084,7 +1201,58 @@ def test_lazy_factory_does_not_reload_definition_resources(
     assert catalog.require_factory(
         "synthetic.echo.direct",
         "2.1.0",
-    ).build() == {"implementation": "synthetic.echo"}
+    ).build(None) == {"implementation": "synthetic.echo"}
+
+
+def test_operation_call_freezes_caller_owned_input_and_parameter_containers(
+) -> None:
+    candidate = Candidate(
+        candidate_id="candidate-1",
+        data=ProteinSequence(sequence="MA"),
+    )
+    candidates = CandidateCollection(
+        collection_id="collection-1",
+        item_type="protein.sequence",
+        items=[candidate],
+    )
+    candidate_digest = CandidateDataDigest(
+        candidate_id="candidate-1",
+        data_type_id="protein.sequence",
+        content_digest="sha256:" + ("1" * 64),
+    )
+    inputs = {"value": ["A"], "candidates": candidates}
+    node_parameters = {"nested": {"values": [1, 2]}}
+    call = OperationCall(
+        inputs=inputs,
+        node_parameters=node_parameters,
+        binding_parameters={},
+        input_content_digests={
+            "candidates": InputContentDigests(
+                port_type_id="candidate.collection",
+                value_content_digests=("sha256:" + ("2" * 64),),
+                candidate_data=(candidate_digest,),
+            )
+        },
+    )
+
+    inputs["value"].append("B")
+    node_parameters["nested"]["values"].append(3)
+    with pytest.raises(FrozenInstanceError):
+        candidate.data.sequence = "MUTATED"
+    with pytest.raises(AttributeError):
+        candidates.items.clear()
+
+    assert call.inputs["value"] == ("A",)
+    admitted = call.inputs["candidates"]
+    assert admitted is candidates
+    assert admitted.items[0].candidate_id == "candidate-1"
+    assert admitted.items[0].data.sequence == "MA"
+    assert call.node_parameters["nested"]["values"] == (1, 2)
+    assert call.input_content_digests["candidates"].candidate_data == (
+        candidate_digest,
+    )
+    with pytest.raises(TypeError):
+        call.inputs["new"] = "value"
 
 
 def test_frozen_contract_descriptor_is_immutable(

@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping
 from typing import Any
 
 from core import (
@@ -12,11 +11,13 @@ from core import (
     ContractIdentity,
     DefinitionResource,
     ExecutionBindingDefinition,
-    LazyImplementationFactory,
     MethodDefinition,
     ModulePackageRegistration,
+    OperationCall,
+    OperationContext,
     ReadinessDeclaration,
     ReadinessResult,
+    ScientificOperationFactory,
 )
 from datatypes import (
     Candidate,
@@ -33,13 +34,10 @@ class _SequenceSource:
     def __init__(self, run_resources: Any) -> None:
         self._run_resources = run_resources
 
-    def execute(
-        self,
-        *,
-        inputs: Mapping[str, Any],
-        node_parameters: Mapping[str, Any],
-        binding_parameters: Mapping[str, Any],
-    ) -> dict[str, Any]:
+    def execute(self, call: OperationCall) -> dict[str, Any]:
+        inputs = call.inputs
+        node_parameters = call.node_parameters
+        binding_parameters = call.binding_parameters
         if (
             inputs
             or set(node_parameters) != {"sequence"}
@@ -56,9 +54,7 @@ class _SequenceSource:
             )
         ):
             raise ValueError("folding source sequence is invalid")
-        with self._run_resources.engine_invocation(
-            engine_identity="contract_test.folding_sequence_source/2.1.0",
-        ):
+        with self._run_resources.engine_invocation():
             candidate = Candidate(
                 "fixture-sequence",
                 ProteinSequence(
@@ -84,13 +80,10 @@ class _SequenceBatchSource:
     def __init__(self, run_resources: Any) -> None:
         self._run_resources = run_resources
 
-    def execute(
-        self,
-        *,
-        inputs: Mapping[str, Any],
-        node_parameters: Mapping[str, Any],
-        binding_parameters: Mapping[str, Any],
-    ) -> dict[str, Any]:
+    def execute(self, call: OperationCall) -> dict[str, Any]:
+        inputs = call.inputs
+        node_parameters = call.node_parameters
+        binding_parameters = call.binding_parameters
         if (
             inputs
             or set(node_parameters) != {"sequences"}
@@ -114,11 +107,7 @@ class _SequenceBatchSource:
             )
         ):
             raise ValueError("folding batch source sequences are invalid")
-        with self._run_resources.engine_invocation(
-            engine_identity=(
-                "contract_test.folding_sequence_batch_source/2.1.0"
-            ),
-        ):
+        with self._run_resources.engine_invocation():
             candidates = [
                 Candidate(
                     f"fixture-sequence-{index}",
@@ -153,13 +142,10 @@ class _StructureSource:
     def __init__(self, run_resources: Any) -> None:
         self._run_resources = run_resources
 
-    def execute(
-        self,
-        *,
-        inputs: Mapping[str, Any],
-        node_parameters: Mapping[str, Any],
-        binding_parameters: Mapping[str, Any],
-    ) -> dict[str, Any]:
+    def execute(self, call: OperationCall) -> dict[str, Any]:
+        inputs = call.inputs
+        node_parameters = call.node_parameters
+        binding_parameters = call.binding_parameters
         if (
             inputs
             or set(node_parameters) != {"pdb_string"}
@@ -171,16 +157,11 @@ class _StructureSource:
         pdb_string = node_parameters["pdb_string"]
         if not isinstance(pdb_string, str) or "ATOM" not in pdb_string:
             raise ValueError("folding structure source PDB is invalid")
-        with self._run_resources.engine_invocation(
-            engine_identity=(
-                "contract_test.folding_structure_source/2.1.0"
-            ),
-        ):
+        with self._run_resources.engine_invocation():
             candidate = Candidate(
                 "fixture-structure",
                 ProteinStructure(
                     pdb_string=pdb_string,
-                    source="independent-literal",
                 ),
                 [],
                 {"source": "independent-literal"},
@@ -195,12 +176,12 @@ class _StructureSource:
 
 
 def _build(kind: str):
-    def factory(**kwargs: object) -> object:
+    def factory(context: OperationContext) -> object:
         if kind == "sequence":
-            return _SequenceSource(kwargs["run_resources"])
+            return _SequenceSource(context.resources)
         if kind == "sequence_batch":
-            return _SequenceBatchSource(kwargs["run_resources"])
-        return _StructureSource(kwargs["run_resources"])
+            return _SequenceBatchSource(context.resources)
+        return _StructureSource(context.resources)
 
     return factory
 
@@ -234,7 +215,7 @@ def _binding(kind: str) -> ExecutionBindingDefinition:
         ),
         binding_parameters={},
         execution_route="direct",
-        factory=LazyImplementationFactory(
+        factory=ScientificOperationFactory(
             behavior=BehaviorReference(
                 f"contract_test.folding_{kind}_source/factory",
                 _VERSION,

@@ -4,7 +4,10 @@ from __future__ import annotations
 
 import math
 import os
+from collections.abc import Iterator
+from contextlib import contextmanager
 from pathlib import Path
+from tempfile import TemporaryDirectory
 
 import pytest
 
@@ -13,12 +16,8 @@ from datatypes import (
     ProteinStructure,
     ResidueLayout,
 )
-from modules.proteinmpnn.v2_adapter import (
-    prepare_design_request,
-    prepare_scoring_request,
-    provider_for_environment,
-    validate_design_result,
-    validate_scoring_result,
+from modules.proteinmpnn.adapter import (
+    LocalProteinMPNNAdapter,
 )
 from modules.structure_transform.implementation import normalize_csh_parent_span
 
@@ -30,6 +29,22 @@ pytestmark = [
     pytest.mark.local_provider,
     pytest.mark.slow,
 ]
+
+
+class _RunResources:
+    def __init__(self, root: Path) -> None:
+        self._root = root
+        self.invocations: list[dict[str, object]] = []
+
+    @contextmanager
+    def temporary_directory(self, *, prefix: str) -> Iterator[Path]:
+        with TemporaryDirectory(prefix=prefix, dir=self._root) as path:
+            yield Path(path)
+
+    @contextmanager
+    def engine_invocation(self, **details: object) -> Iterator[None]:
+        self.invocations.append(details)
+        yield
 
 
 def _split_3gb1_into_two_chains(structure: ProteinStructure) -> ProteinStructure:
@@ -59,7 +74,6 @@ def _split_3gb1_into_two_chains(structure: ProteinStructure) -> ProteinStructure
     lines.extend(("TER", "END"))
     return ProteinStructure(
         "\n".join(lines) + "\n",
-        source="3GB1-split-A28-B28",
     )
 
 
@@ -72,12 +86,13 @@ def test_real_proteinmpnn_design_of_chain_b_restores_a_then_b_layout(
     provider_root = Path(
         os.environ["PROTEIN_WORKBENCH_PROTEINMPNN_ROOT"]
     ).resolve()
-    provider = provider_for_environment(
-        {
+    resources = _RunResources(tmp_path)
+    adapter = LocalProteinMPNNAdapter(
+        environment={
             "device": "cpu",
             "provider_root": provider_root,
         },
-        staging_directory=tmp_path,
+        resources=resources,
     )
     structure = _split_3gb1_into_two_chains(pdb_3gb1)
     layout = ResidueLayout(
@@ -88,8 +103,7 @@ def test_real_proteinmpnn_design_of_chain_b_restores_a_then_b_layout(
             *(f"B:{position}" for position in range(1, 29)),
         ],
     )
-    request = prepare_design_request(
-        provider=provider,
+    result = adapter.design(
         structure=structure,
         num_sequences=1,
         temperature=0.1,
@@ -101,19 +115,47 @@ def test_real_proteinmpnn_design_of_chain_b_restores_a_then_b_layout(
             fixed_chains=["A"],
         ),
         reference_sequence=None,
+        engine_role="design_parent_0",
     )
 
-    raw_result = provider.design(request)
-    raw_sequences, _ = raw_result
-    restored, scores = validate_design_result(raw_result, request=request)
-    chain_a = request.pdb_dict_list[0]["seq_chain_A"]
+    restored = result[0]
 
-    assert request.structure_chain_order == ("A", "B")
-    assert request.provider_chain_order == ("B", "A")
-    assert raw_sequences[0].sequence[28:] == chain_a
-    assert restored[0].sequence[:28] == chain_a
-    assert restored[0].residue_ids == layout.residue_ids
-    assert scores is not None and len(scores) == 1
+    assert restored.sequence[:28] == "MTYKLILNGKTLKGETTTEAVDAATAEK"
+    assert restored.residue_ids == layout.residue_ids
+    assert resources.invocations == [
+        {
+            "engine_role": "design_parent_0",
+            "invocation_provenance": {
+                "effective_randomness": {
+                    "control": "exact_seed",
+                    "effective_seed": 1603,
+                },
+                "provider_residue_projection": {
+                    "position_semantics": "one_based_chain_local",
+                    "workbench_chain_order": ["A", "B"],
+                    "provider_chain_order": ["B", "A"],
+                    "entries": [
+                        *(
+                            {
+                                "residue_id": f"A:{position}",
+                                "provider_chain_id": "A",
+                                "provider_position": position,
+                            }
+                            for position in range(1, 29)
+                        ),
+                        *(
+                            {
+                                "residue_id": f"B:{position}",
+                                "provider_chain_id": "B",
+                                "provider_position": position,
+                            }
+                            for position in range(1, 29)
+                        ),
+                    ],
+                },
+            },
+        }
+    ]
 
 
 def test_real_proteinmpnn_preserves_fixed_csh_parent_with_missing_backbone_atom(
@@ -124,16 +166,16 @@ def test_real_proteinmpnn_preserves_fixed_csh_parent_with_missing_backbone_atom(
     provider_root = Path(
         os.environ["PROTEIN_WORKBENCH_PROTEINMPNN_ROOT"]
     ).resolve()
-    provider = provider_for_environment(
-        {
+    resources = _RunResources(tmp_path)
+    adapter = LocalProteinMPNNAdapter(
+        environment={
             "device": "cpu",
             "provider_root": provider_root,
         },
-        staging_directory=tmp_path,
+        resources=resources,
     )
     source = ProteinStructure(
         (Path(__file__).parent.parent.parent / "pdbs" / "2EMO.pdb").read_text(),
-        source="pdbs/2EMO.pdb",
     )
     structure, _ = normalize_csh_parent_span(source)
     layout = ResidueLayout(
@@ -141,8 +183,7 @@ def test_real_proteinmpnn_preserves_fixed_csh_parent_with_missing_backbone_atom(
         224,
         [f"A:{position}" for position in range(6, 230)],
     )
-    request = prepare_design_request(
-        provider=provider,
+    result = adapter.design(
         structure=structure,
         num_sequences=1,
         temperature=0.1,
@@ -153,26 +194,52 @@ def test_real_proteinmpnn_preserves_fixed_csh_parent_with_missing_backbone_atom(
             fixed_residue_ids=["A:65", "A:66", "A:67"],
         ),
         reference_sequence=None,
+        engine_role="design_parent_0",
     )
 
-    raw_result = provider.design(request)
-    restored, scores = validate_design_result(raw_result, request=request)
+    restored = result[0]
     csh_parent_offset = layout.residue_ids.index("A:65")
-    scoring_request = prepare_scoring_request(
-        provider=provider,
+    native_score = adapter.score(
         structure=structure,
-        sequence=restored[0],
-    )
-    native_score = validate_scoring_result(
-        provider.score(scoring_request, restored[0])
+        sequence=restored,
     )
 
-    assert request.fixed_position_dict == {
-        request.pdb_dict_list[0]["name"]: {"A": [60, 61, 62]}
+    assert restored.sequence[csh_parent_offset : csh_parent_offset + 3] == "SHG"
+    assert len(restored.sequence) == layout.length
+    assert restored.residue_ids == layout.residue_ids
+    expected_entries = [
+        {
+            "residue_id": f"A:{residue_number}",
+            "provider_chain_id": "A",
+            "provider_position": provider_position,
+        }
+        for provider_position, residue_number in enumerate(
+            range(6, 230),
+            start=1,
+        )
+    ]
+    expected_projection = {
+        "position_semantics": "one_based_chain_local",
+        "workbench_chain_order": ["A"],
+        "provider_chain_order": ["A"],
+        "entries": expected_entries,
     }
-    assert restored[0].sequence[csh_parent_offset : csh_parent_offset + 3] == "SHG"
-    assert len(restored[0].sequence) == layout.length
-    assert restored[0].residue_ids == layout.residue_ids
-    assert scores is not None and len(scores) == 1
-    assert scoring_request.target_layout == layout
+    assert resources.invocations == [
+        {
+            "engine_role": "design_parent_0",
+            "invocation_provenance": {
+                "effective_randomness": {
+                    "control": "exact_seed",
+                    "effective_seed": 1603,
+                },
+                "provider_residue_projection": expected_projection,
+            },
+        },
+        {
+            "engine_role": "score_subject",
+            "invocation_provenance": {
+                "provider_residue_projection": expected_projection,
+            },
+        },
+    ]
     assert math.isfinite(native_score)

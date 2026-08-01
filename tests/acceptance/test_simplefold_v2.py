@@ -56,9 +56,9 @@ def test_simplefold_v2_folds_3gb1_through_exact_binding(
     fold = WorkflowNodeInstance(
         node_id="fold",
         node_type_id="folding.fold",
-        node_type_version="2.1.0",
+        node_type_version="3.0.0",
         binding_id="folding.fold.simplefold_local",
-        binding_version="2.1.0",
+        binding_version="3.0.0",
         node_parameters={"effective_seed": 1603, "num_samples": 1},
         binding_parameters={"num_steps": 10},
     )
@@ -101,7 +101,7 @@ def test_simplefold_v2_folds_3gb1_through_exact_binding(
     )
     fingerprint = configured_runtime_fingerprint()
     environment = EnvironmentConfiguration({
-        ("folding.fold.simplefold_local", "2.1.0"): {
+        ("folding.fold.simplefold_local", "3.0.0"): {
             "values": {
                 "model_root": Path(
                     os.environ["PROTEIN_WORKBENCH_SIMPLEFOLD_MODEL_ROOT"]
@@ -149,10 +149,16 @@ def test_simplefold_v2_folds_3gb1_through_exact_binding(
     binding = catalog.require_contract(
         "binding",
         "folding.fold.simplefold_local",
-        "2.1.0",
+        "3.0.0",
     )
     assert binding.descriptor["method"]["contract_id"] == (
         "folding.fold.simplefold_100m_c7a5570"
+    )
+    method_ref = binding.descriptor["method"]
+    method = catalog.require_contract(
+        "method",
+        method_ref["contract_id"],
+        method_ref["contract_version"],
     )
     identity = provider_identity()
     prerequisites = binding.descriptor["readiness_declaration"][
@@ -183,28 +189,37 @@ def test_simplefold_v2_folds_3gb1_through_exact_binding(
             started["event"]["type"] == "engine_invocation_started"
             and started["event"]["invocation_id"]
             == event["event"]["invocation_id"]
-            and started["event"]["engine_identity"].startswith(
-                "folding.simplefold_local."
-            )
+            and started["event"]["engine_role"] == "fold_parent_0"
             for started in events
         )
     ]
     assert len(invocations) == 1
     assert invocations[0]["status"] == "succeeded"
+    started = next(
+        event["event"]
+        for event in events
+        if event["event"]["type"] == "engine_invocation_started"
+        and event["event"]["invocation_id"] == invocations[0]["invocation_id"]
+    )
+    assert started["engine_identity"] == method.contract_digest
+    randomness = started["invocation_provenance"]["effective_randomness"]
+    assert randomness["control"] == "exact_seed"
+    assert type(
+        randomness["effective_seed"]
+    ) is int
     readiness_index = next(
         index
         for index, event in enumerate(events)
         if event["event"]["type"] == "readiness_attested"
         and event["event"]["binding"]["contract_id"]
         == "folding.fold.simplefold_local"
-        and event["event"]["binding"]["contract_version"] == "2.1.0"
+        and event["event"]["binding"]["contract_version"] == "3.0.0"
         and event["event"]["conclusion"] == "passing"
     )
     invocation_index = next(
         index
         for index, event in enumerate(events)
-        if event["event"]["type"] == "engine_invocation_started"
-        and event["event"]["invocation_id"] == invocations[0]["invocation_id"]
+        if event["event"] == started
     )
     assert readiness_index < invocation_index
     assert [

@@ -9,13 +9,15 @@ from core import (
     ContractIdentity,
     DefinitionResource,
     ExecutionBindingDefinition,
-    LazyImplementationFactory,
     MethodDefinition,
     ModulePackageRegistration,
+    OperationContext,
     PortTypeDefinition,
     ReadinessCheckInput,
     ReadinessDeclaration,
     ReadinessResult,
+    ScientificOperation,
+    ScientificOperationFactory,
 )
 from datatypes import (
     ModifiedResidueAtomMapping,
@@ -25,12 +27,19 @@ from datatypes import (
 )
 
 from .implementation import (
-    StructureTransformImplementation,
+    BackboneToStructureImplementation,
+    ExtractBackboneImplementation,
+    ExtractSequenceCandidatesImplementation,
+    ExtractSequenceImplementation,
+    NormalizeCshParentSpanImplementation,
+    SelectCandidateChainsImplementation,
+    SelectChainsImplementation,
     validate_backbone_structure,
 )
 
 
 _VERSION = "2.1.0"
+_BACKBONE_PORT_VERSION = "3.0.0"
 _OPERATIONS = (
     "select_chains",
     "select_candidate_chains",
@@ -40,6 +49,25 @@ _OPERATIONS = (
     "normalize_csh_parent_span",
     "backbone_to_structure",
 )
+_NODE_BINDING_VERSIONS = {
+    "select_chains": "3.0.0",
+    "extract_backbone": "3.0.0",
+    "extract_sequence": "3.0.0",
+    "normalize_csh_parent_span": "3.0.0",
+    "backbone_to_structure": "3.0.0",
+}
+_METHOD_VERSIONS = {
+    "backbone_to_structure": "3.0.0",
+}
+_IMPLEMENTATIONS = {
+    "select_chains": SelectChainsImplementation,
+    "select_candidate_chains": SelectCandidateChainsImplementation,
+    "extract_backbone": ExtractBackboneImplementation,
+    "extract_sequence": ExtractSequenceImplementation,
+    "extract_sequence_candidates": ExtractSequenceCandidatesImplementation,
+    "normalize_csh_parent_span": NormalizeCshParentSpanImplementation,
+    "backbone_to_structure": BackboneToStructureImplementation,
+}
 
 
 def _available() -> AvailabilityResult:
@@ -52,11 +80,8 @@ def _ready(check_input: ReadinessCheckInput) -> ReadinessResult:
 
 
 def _build(operation: str):
-    def factory(**kwargs: object) -> object:
-        return StructureTransformImplementation(
-            kwargs["run_resources"],
-            operation,
-        )
+    def factory(context: OperationContext) -> ScientificOperation:
+        return _IMPLEMENTATIONS[operation](context.resources)
 
     return factory
 
@@ -120,16 +145,16 @@ def _method(operation: str) -> MethodDefinition:
         "backbone_to_structure": {
             "name": "explicit-backbone-to-generic-structure-conversion",
             "input_contract": (
-                "structure_transform.backbone_structure@2.1.0"
+                "structure_transform.backbone_structure@3.0.0"
             ),
-            "output_contract": "protein.structure@2.1.0",
+            "output_contract": "protein.structure@3.0.0",
             "pdb_bytes": "preserved",
             "atom_generation": "none",
         },
     }[operation]
     return MethodDefinition(
         method_id=f"structure_transform.{operation}.method",
-        version=_VERSION,
+        version=_METHOD_VERSIONS.get(operation, _VERSION),
         algorithm_identity=algorithm_identity,
         model_identity={"kind": "none"},
         checkpoint_identity={"kind": "none"},
@@ -143,25 +168,26 @@ def _method(operation: str) -> MethodDefinition:
 
 
 def _binding(operation: str) -> ExecutionBindingDefinition:
+    binding_version = _NODE_BINDING_VERSIONS.get(operation, _VERSION)
     return ExecutionBindingDefinition(
         binding_id=f"structure_transform.{operation}.direct",
-        version=_VERSION,
+        version=binding_version,
         node_type=ContractIdentity(
             "node_type",
             f"structure_transform.{operation}",
-            _VERSION,
+            binding_version,
         ),
         method=ContractIdentity(
             "method",
             f"structure_transform.{operation}.method",
-            _VERSION,
+            _METHOD_VERSIONS.get(operation, _VERSION),
         ),
         binding_parameters={},
         execution_route="direct",
-        factory=LazyImplementationFactory(
+        factory=ScientificOperationFactory(
             behavior=BehaviorReference(
                 f"structure_transform.{operation}/factory",
-                _VERSION,
+                binding_version,
                 {"execution_route": "direct"},
             ),
             build=_build(operation),
@@ -169,7 +195,7 @@ def _binding(operation: str) -> ExecutionBindingDefinition:
         availability=AvailabilityDeclaration(
             behavior=BehaviorReference(
                 f"structure_transform.{operation}/availability",
-                _VERSION,
+                binding_version,
                 {"observation": "startup"},
             ),
             prerequisites={},
@@ -178,7 +204,7 @@ def _binding(operation: str) -> ExecutionBindingDefinition:
         readiness=ReadinessDeclaration(
             behavior=BehaviorReference(
                 f"structure_transform.{operation}/readiness",
-                _VERSION,
+                binding_version,
                 {"observation": "per-run"},
             ),
             prerequisites={},
@@ -195,24 +221,17 @@ def _binding(operation: str) -> ExecutionBindingDefinition:
 
 def _backbone_to_wire(value: object) -> object:
     assert type(value) is ProteinStructure
-    return {
-        "pdb_string": value.pdb_string,
-        "source": value.source,
-    }
+    return {"pdb_string": value.pdb_string}
 
 
 def _backbone_from_wire(value: object) -> object:
     if (
         not isinstance(value, dict)
-        or set(value) != {"pdb_string", "source"}
+        or set(value) != {"pdb_string"}
         or type(value["pdb_string"]) is not str
-        or type(value["source"]) is not str
     ):
         raise ValueError("backbone wire value is invalid")
-    return ProteinStructure(
-        pdb_string=value["pdb_string"],
-        source=value["source"],
-    )
+    return ProteinStructure(pdb_string=value["pdb_string"])
 
 
 def _normalizations_to_wire(value: object) -> object:
@@ -356,10 +375,10 @@ MODULE_PACKAGE = ModulePackageRegistration(
     port_types=(
         PortTypeDefinition(
             type_id="structure_transform.backbone_structure",
-            version=_VERSION,
+            version=_BACKBONE_PORT_VERSION,
             validator=BehaviorReference(
                 "structure_transform.backbone_structure/validate",
-                _VERSION,
+                _BACKBONE_PORT_VERSION,
                 {
                     "accepted_value_kind": "protein_structure",
                     "record_contract": {
@@ -373,7 +392,7 @@ MODULE_PACKAGE = ModulePackageRegistration(
             ),
             codec=BehaviorReference(
                 "structure_transform.backbone_structure/codec",
-                _VERSION,
+                _BACKBONE_PORT_VERSION,
                 {
                     "canonicalization": "RFC 8785",
                     "pdb_line_endings": "LF",
@@ -381,7 +400,7 @@ MODULE_PACKAGE = ModulePackageRegistration(
             ),
             content_identity=BehaviorReference(
                 "structure_transform.backbone_structure/content",
-                _VERSION,
+                _BACKBONE_PORT_VERSION,
                 {"digest": "SHA-256"},
             ),
             runtime_validator=validate_backbone_structure,

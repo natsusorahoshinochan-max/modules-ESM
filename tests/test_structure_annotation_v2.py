@@ -12,6 +12,7 @@ from core import (
     EnvironmentConfiguration,
     ModulePackageContractCase,
     ModulePackagePortCase,
+    OperationCall,
     ProjectManager,
     PortValueError,
     ResultReplaySource,
@@ -28,12 +29,13 @@ from core import (
 )
 from core.port_types import canonical_json_bytes
 from core.workflow_v2 import WorkflowEdge
-from datatypes import ResidueLayout
+from datatypes import ProteinStructure, ResidueLayout
 from modules.protein_io.package import MODULE_PACKAGE as PROTEIN_IO_PACKAGE
 from modules.structure_annotation import (
     DSSPAnnotation,
     StructureAnnotationTrack,
 )
+from modules.structure_annotation.implementation import DSSPComputeOperation
 from modules.structure_annotation.package import (
     MODULE_PACKAGE as STRUCTURE_ANNOTATION_PACKAGE,
 )
@@ -65,11 +67,60 @@ def test_structure_annotation_is_one_package_with_four_nodes() -> None:
         in catalog.owners[(kind, contract_id, version)]
     }
     assert owned_nodes == {
-        ("structure_annotation.dssp_compute", "2.1.0"),
+        ("structure_annotation.dssp_compute", "3.0.0"),
         ("structure_annotation.secondary_structure_extract", "2.1.0"),
         ("structure_annotation.sasa_compute", "2.1.0"),
         ("structure_annotation.secondary_structure_agreement", "2.1.0"),
     }
+
+
+def test_structure_annotation_publishes_one_active_contract_generation() -> None:
+    catalog = build_frozen_catalog((STRUCTURE_ANNOTATION_PACKAGE,))
+
+    methods = {
+        (contract.contract_id, contract.contract_version)
+        for contract in catalog.contracts
+        if contract.contract_kind == "method"
+        and contract.contract_id.startswith("structure_annotation.")
+    }
+    assert methods == {
+        ("structure_annotation.dssp_compute.method", "2.2.0"),
+        (
+            "structure_annotation.secondary_structure_extract.method",
+            "2.2.0",
+        ),
+        ("structure_annotation.sasa_compute.method", "2.2.0"),
+        (
+            "structure_annotation.secondary_structure_agreement.method",
+            "2.2.0",
+        ),
+    }
+
+    bindings = {
+        (contract.contract_id, contract.contract_version): contract
+        for contract in catalog.contracts
+        if contract.contract_kind == "binding"
+        and contract.contract_id.startswith("structure_annotation.")
+    }
+    assert set(bindings) == {
+        ("structure_annotation.dssp_compute.mkdssp_local", "3.0.0"),
+        (
+            "structure_annotation.secondary_structure_extract.direct",
+            "2.2.0",
+        ),
+        ("structure_annotation.sasa_compute.direct", "2.2.0"),
+        (
+            "structure_annotation.secondary_structure_agreement.direct",
+            "2.2.0",
+        ),
+    }
+    for binding_id, binding in bindings.items():
+        assert binding.descriptor["node_type"]["contract_version"] == (
+            "3.0.0"
+            if binding_id[0] == "structure_annotation.dssp_compute.mkdssp_local"
+            else "2.1.0"
+        )
+        assert binding.descriptor["method"]["contract_version"] == "2.2.0"
 
 
 def test_annotation_ports_preserve_multichain_layout_missing_and_ss8() -> None:
@@ -108,30 +159,101 @@ def test_annotation_ports_preserve_multichain_layout_missing_and_ss8() -> None:
         )
 
 
+def test_dssp_operation_crosses_one_canonical_only_adapter_interface() -> None:
+    structure = ProteinStructure(
+        "ATOM      1  CA  GLY A   1       "
+        "1.000   2.000   3.000  1.00 20.00           C\n"
+        "TER\nEND\n"
+    )
+    annotation = DSSPAnnotation(
+        layout=ResidueLayout(
+            chain_id="A",
+            length=1,
+            residue_ids=["A:1"],
+        ),
+        secondary_structure=("C",),
+        sasa=(10.0,),
+    )
+
+    class RecordingAdapter:
+        def __init__(self) -> None:
+            self.structures: list[ProteinStructure] = []
+
+        def annotate(self, value: ProteinStructure) -> DSSPAnnotation:
+            self.structures.append(value)
+            return annotation
+
+    adapter = RecordingAdapter()
+    operation = DSSPComputeOperation(adapter)
+    output = operation.execute(
+        OperationCall(
+            inputs={"structure": structure},
+            node_parameters={},
+            binding_parameters={},
+            input_content_digests={},
+        )
+    )
+
+    assert adapter.structures == [structure]
+    assert output == {"annotations": annotation}
+
+
 def test_dssp_binary_is_binding_environment_not_workflow_parameter() -> None:
-    catalog = build_discovered_frozen_catalog()
+    catalog = build_frozen_catalog((STRUCTURE_ANNOTATION_PACKAGE,))
     node = catalog.require_contract(
         "node_type",
         "structure_annotation.dssp_compute",
-        "2.1.0",
+        "3.0.0",
     )
     binding = catalog.require_contract(
         "binding",
-        "structure_annotation.dssp_compute.direct",
-        "2.1.0",
+        "structure_annotation.dssp_compute.mkdssp_local",
+        "3.0.0",
     )
 
     assert node.descriptor["node_parameters"] == {}
     assert binding.descriptor["binding_parameters"] == {}
-    assert binding.descriptor["implementation_identity"][
-        "binary_identity"
-    ] == {"name": "mkdssp", "version": "4.6.1"}
+    assert binding.descriptor["execution_route"] == "adapter"
+    assert binding.descriptor["route_behavior"] == {
+        "behavior_id": "structure_annotation.mkdssp_local/adapter",
+        "behavior_version": "2.1.0",
+        "parameters": {
+            "binary": "mkdssp",
+            "binary_version": "4.6.1",
+            "provider_contract": "PDB-REDO/dssp@v4.6.1",
+            "request_format": "PDB-v3.3-fixed-columns",
+            "residue_reconciliation": "chain-residue-name-CA-coordinate",
+            "response_format": "mkdssp-4.6.1-mmCIF",
+            "source_archive_sha256": (
+                "5ddb8274f03ac0338adffcd661989f515fffb95d40afca404cf2677024256ae3"
+            ),
+        },
+    }
+    provider_identity = binding.descriptor["implementation_identity"][
+        "provider_identity"
+    ]
+    assert provider_identity == {
+        "repository": "PDB-REDO/dssp",
+        "source_revision": "v4.6.1",
+        "source_archive_sha256": (
+            "5ddb8274f03ac0338adffcd661989f515fffb95d40afca404cf2677024256ae3"
+        ),
+        "binary": "mkdssp",
+        "binary_version": "4.6.1",
+    }
+    method_reference = binding.descriptor["method"]
+    method = catalog.require_contract(
+        method_reference["contract_kind"],
+        method_reference["contract_id"],
+        method_reference["contract_version"],
+    )
+    assert method.descriptor["source_identity"] == provider_identity
     prerequisites = binding.descriptor["readiness_declaration"][
         "prerequisites"
     ]
     assert prerequisites["binary"] == {
         "name": "mkdssp",
-        "path_source": "environment_configuration",
+        "path_source": "trusted_environment_configuration",
         "required_version": "4.6.1",
     }
     assert binding.descriptor["availability_declaration"][
@@ -147,23 +269,54 @@ def test_dssp_binary_is_binding_environment_not_workflow_parameter() -> None:
     assert "/opt/" not in published
 
 
+def test_only_mkdssp_compute_crosses_an_adapter_route() -> None:
+    catalog = build_frozen_catalog((STRUCTURE_ANNOTATION_PACKAGE,))
+    bindings = {
+        contract.contract_id: contract
+        for contract in catalog.contracts
+        if contract.contract_kind == "binding"
+        and contract.contract_id.startswith("structure_annotation.")
+    }
+
+    assert set(bindings) == {
+        "structure_annotation.dssp_compute.mkdssp_local",
+        "structure_annotation.secondary_structure_extract.direct",
+        "structure_annotation.sasa_compute.direct",
+        "structure_annotation.secondary_structure_agreement.direct",
+    }
+    assert bindings[
+        "structure_annotation.dssp_compute.mkdssp_local"
+    ].descriptor["execution_route"] == "adapter"
+    for binding_id in (
+        "structure_annotation.secondary_structure_extract.direct",
+        "structure_annotation.sasa_compute.direct",
+        "structure_annotation.secondary_structure_agreement.direct",
+    ):
+        descriptor = bindings[binding_id].descriptor
+        assert descriptor["execution_route"] == "direct"
+        assert "adapter" not in descriptor["implementation_identity"]
+
+
 def _fake_dssp_binary(
     path: Path,
     *,
-    output: str,
+    output: str | None,
     exit_code: int = 0,
     version: str = "4.6.1",
 ) -> Path:
     binary = path / "mkdssp-fixture"
+    output_command = (
+        "printf '\\377'\n"
+        if output is None
+        else "cat <<'DSSP_OUTPUT'\n" + output + "DSSP_OUTPUT\n"
+    )
     binary.write_text(
         "#!/bin/sh\n"
         "if [ \"$1\" = \"--version\" ]; then\n"
         f"  printf '%s\\n' 'mkdssp version {version}'\n"
         "  exit 0\n"
         "fi\n"
-        "cat <<'DSSP_OUTPUT'\n"
-        f"{output}"
-        "DSSP_OUTPUT\n"
+        f"{output_command}"
         f"exit {exit_code}\n",
         encoding="utf-8",
     )
@@ -197,7 +350,7 @@ def _run_dssp(
     monkeypatch: pytest.MonkeyPatch,
     *,
     pdb_text: str,
-    dssp_output: str,
+    dssp_output: str | None,
     configured_binary: str | None = None,
     result_replay_source: ResultReplaySource | None = None,
     binary_version: str = "4.6.1",
@@ -230,18 +383,18 @@ def _run_dssp(
             WorkflowNodeInstance(
                 node_id="import",
                 node_type_id="protein_io.import_structure",
-                node_type_version="2.1.0",
+                node_type_version="3.0.0",
                 binding_id="protein_io.import_structure.direct",
-                binding_version="2.1.0",
+                binding_version="3.0.0",
                 node_parameters={"project_input_ref": "structure-input"},
                 binding_parameters={},
             ),
             WorkflowNodeInstance(
                 node_id="annotate",
                 node_type_id="structure_annotation.dssp_compute",
-                node_type_version="2.1.0",
-                binding_id="structure_annotation.dssp_compute.direct",
-                binding_version="2.1.0",
+                node_type_version="3.0.0",
+                binding_id="structure_annotation.dssp_compute.mkdssp_local",
+                binding_version="3.0.0",
                 node_parameters={},
                 binding_parameters={},
             ),
@@ -272,8 +425,8 @@ def _run_dssp(
         EnvironmentConfiguration(
             {
                 (
-                    "structure_annotation.dssp_compute.direct",
-                    "2.1.0",
+                    "structure_annotation.dssp_compute.mkdssp_local",
+                    "3.0.0",
                 ): {
                     "values": {
                         "dssp_binary": configured_binary or str(binary)
@@ -475,6 +628,7 @@ def test_dssp_readiness_rejects_version_prefix_collision(
 @pytest.mark.parametrize(
     "dssp_output",
     (
+        None,
         "this is not a DSSP mmCIF document\n",
         """\
 data_fixture
@@ -511,7 +665,7 @@ fixture A 1 ALA H 10.0 1.0 2.0 3.0
 def test_dssp_parse_or_postprocess_failure_fails_after_truthful_invocation(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
-    dssp_output: str,
+    dssp_output: str | None,
 ) -> None:
     _, projection, events, _ = _run_dssp(
         tmp_path,
@@ -626,9 +780,9 @@ fixture A 2 ALA . 20.0 2.0 3.0 4.0
     source = WorkflowNodeInstance(
         node_id="source",
         node_type_id="contract_test.structure_annotation_source",
-        node_type_version="2.1.0",
+        node_type_version="3.0.0",
         binding_id="contract_test.structure_annotation_source.direct",
-        binding_version="2.1.0",
+        binding_version="3.0.0",
         node_parameters={},
         binding_parameters={},
     )
@@ -636,9 +790,9 @@ fixture A 2 ALA . 20.0 2.0 3.0 4.0
         ModulePackageContractCase(
             case_id="structure-annotation-dssp",
             node_type_id="structure_annotation.dssp_compute",
-            node_type_version="2.1.0",
-            binding_id="structure_annotation.dssp_compute.direct",
-            binding_version="2.1.0",
+            node_type_version="3.0.0",
+            binding_id="structure_annotation.dssp_compute.mkdssp_local",
+            binding_version="3.0.0",
             node_parameters={},
             binding_parameters={},
             environment_values={"dssp_binary": str(binary)},
@@ -662,7 +816,7 @@ fixture A 2 ALA . 20.0 2.0 3.0 4.0
             binding_id=(
                 "structure_annotation.secondary_structure_extract.direct"
             ),
-            binding_version="2.1.0",
+            binding_version="2.2.0",
             node_parameters={},
             binding_parameters={},
             environment_values={},
@@ -683,7 +837,7 @@ fixture A 2 ALA . 20.0 2.0 3.0 4.0
             node_type_id="structure_annotation.sasa_compute",
             node_type_version="2.1.0",
             binding_id="structure_annotation.sasa_compute.direct",
-            binding_version="2.1.0",
+            binding_version="2.2.0",
             node_parameters={},
             binding_parameters={},
             environment_values={},
@@ -708,7 +862,7 @@ fixture A 2 ALA . 20.0 2.0 3.0 4.0
             binding_id=(
                 "structure_annotation.secondary_structure_agreement.direct"
             ),
-            binding_version="2.1.0",
+            binding_version="2.2.0",
             node_parameters={},
             binding_parameters={},
             environment_values={},
@@ -821,11 +975,11 @@ def test_agreement_emits_one_exact_subject_metric_method_observation(
             WorkflowNodeInstance(
                 node_id="source",
                 node_type_id="contract_test.structure_annotation_source",
-                node_type_version="2.1.0",
+                node_type_version="3.0.0",
                 binding_id=(
                     "contract_test.structure_annotation_source.direct"
                 ),
-                binding_version="2.1.0",
+                binding_version="3.0.0",
                 node_parameters={},
                 binding_parameters={},
             ),
@@ -839,7 +993,7 @@ def test_agreement_emits_one_exact_subject_metric_method_observation(
                     "structure_annotation."
                     "secondary_structure_agreement.direct"
                 ),
-                binding_version="2.1.0",
+                binding_version="2.2.0",
                 node_parameters={},
                 binding_parameters={},
             ),
@@ -918,7 +1072,7 @@ def test_agreement_emits_one_exact_subject_metric_method_observation(
             "candidate_id": subjects.items[0].candidate_id,
             "content_digest": catalog.require_port_type(
                 subjects.item_type,
-                "2.1.0",
+                "3.0.0",
             ).content_digest(subjects.items[0].data),
         },
         "reference": {
@@ -926,7 +1080,7 @@ def test_agreement_emits_one_exact_subject_metric_method_observation(
             "candidate_id": references.items[0].candidate_id,
             "content_digest": catalog.require_port_type(
                 references.item_type,
-                "2.1.0",
+                "3.0.0",
             ).content_digest(references.items[0].data),
         },
         "pairing_mode": "fixed_reference",

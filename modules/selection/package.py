@@ -9,15 +9,16 @@ from core import (
     ContractIdentity,
     DefinitionResource,
     ExecutionBindingDefinition,
-    LazyImplementationFactory,
     MethodDefinition,
     ModulePackageRegistration,
     ObservationSelectorConsumptionDefinition,
     ReadinessCheckInput,
     ReadinessDeclaration,
     ReadinessResult,
+    ScientificOperationFactory,
     SelectionObjectiveConsumptionDefinition,
 )
+from core.operation import OperationContext
 
 from .implementation import SelectionImplementation
 
@@ -46,11 +47,11 @@ def _ready(check_input: ReadinessCheckInput) -> ReadinessResult:
 
 
 def _factory(operation: str):
-    def build(**kwargs: object) -> SelectionImplementation:
+    def build(context: OperationContext) -> SelectionImplementation:
         return SelectionImplementation(
             operation=operation,
-            execution_plan=kwargs["execution_plan"],
-            catalog=kwargs["frozen_catalog"],
+            objectives=context.selection_objectives,
+            selectors=context.observation_selectors,
         )
 
     return build
@@ -130,7 +131,7 @@ def _binding(operation: str) -> ExecutionBindingDefinition:
         ),
         binding_parameters={},
         execution_route="direct",
-        factory=LazyImplementationFactory(
+        factory=ScientificOperationFactory(
             behavior=BehaviorReference(
                 f"selection.{operation}/factory",
                 VERSION,

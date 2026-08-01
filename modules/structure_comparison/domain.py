@@ -48,9 +48,8 @@ class StructureAlignmentNormalization:
 
 @dataclass(frozen=True, slots=True)
 class StructureAlignmentEvidence:
-    """Versioned complete evidence for one subject-to-reference superposition."""
+    """Complete evidence for one subject-to-reference superposition."""
 
-    schema_version: str
     subject: PairwiseParticipant
     reference: PairwiseParticipant
     correspondence: tuple[AlignmentAtomCorrespondence, ...]
@@ -59,13 +58,3 @@ class StructureAlignmentEvidence:
     rmsd: float
     coverage: float
     method: ExactContractReference
-
-
-@dataclass(frozen=True, slots=True)
-class StructureAlignmentEvidenceCollection:
-    """One complete one-to-one collection alignment from an explicit mapping."""
-
-    schema_version: str
-    pairing_source: str
-    accepted_cardinality: str
-    alignments: tuple[StructureAlignmentEvidence, ...]

@@ -12,6 +12,7 @@ from datatypes.protein import (
     PairwiseCandidateMatch,
     PairwiseObservationContext,
     PairwiseParticipant,
+    ProteinMPNNConstraints,
     ProteinPrompt,
     ProteinSequence,
     ProteinStructure,
@@ -30,6 +31,7 @@ from datatypes.function_annotations import (
     FunctionAnnotation,
     validate_canonical_function_annotations,
 )
+from datatypes.i_json import freeze_i_json, thaw_i_json
 
 __all__ = [
     "CalibrationObservationContext",
@@ -59,5 +61,6 @@ __all__ = [
     "PROTEINMPNN_ALPHABET",
     "validate_proteinmpnn_constraints",
     "validate_canonical_function_annotations",
+    "freeze_i_json",
+    "thaw_i_json",
 ]
-from datatypes.protein import ProteinMPNNConstraints

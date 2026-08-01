@@ -1,9 +1,10 @@
-"""Exact, subprocess-isolated adapter for the external SoluProt dependency."""
+"""Concrete local Adapters for the exact sequence-solubility providers."""
 
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
 import csv
+from dataclasses import dataclass, field
 import hashlib
 import io
 import json
@@ -16,7 +17,8 @@ import stat
 import subprocess
 from typing import Any, Literal
 
-from core import ReadinessResult
+from core import ReadinessResult, RunResources
+from datatypes import ProteinSequence
 
 
 SoluProtMode = Literal["full", "no_tm"]
@@ -164,6 +166,16 @@ PROTEIN_SOL_SOURCE_SHA256 = {
         "3c634b252ed83ffd363e6b0936e95813584facddb399f0fcc6769710755fa33f"
     ),
 }
+
+
+@dataclass(frozen=True, slots=True)
+class ProteinSolPrediction:
+    """One provider-independent calibrated soluble-fraction prediction."""
+
+    percent_soluble_fraction: float
+    scaled_soluble_fraction: float
+    population_scaled_solubility: float
+    isoelectric_point: float
 
 
 class SoluProtInvocationError(RuntimeError):
@@ -624,22 +636,15 @@ def _read_provider_output(path: Path) -> bytes:
         os.close(descriptor)
 
 
-def invoke_soluprot(
+def _prepare_soluprot_invocation(
     *,
     sequences: Sequence[str],
     mode: SoluProtMode,
     staging_directory: Path,
-    environment: Mapping[str, Any],
-    run_resources: Any,
-    resolved_environment: Mapping[str, Any] | None = None,
-) -> bytes:
-    """Cross exactly one provider CLI seam and return its unparsed output."""
-    validate_sequences(sequences)
-    resolved = (
-        dict(resolved_environment)
-        if resolved_environment is not None
-        else validate_soluprot_environment(environment, mode=mode)
-    )
+    resolved_environment: Mapping[str, Any],
+) -> tuple[tuple[str, ...], Path]:
+    """Stage one exact provider request before its Engine Invocation."""
+    resolved = dict(resolved_environment)
     input_path = staging_directory / "input.fasta"
     output_path = staging_directory / "output.csv"
     scratch_path = staging_directory / "provider-work"
@@ -674,8 +679,18 @@ def invoke_soluprot(
         command.extend(["--tmhmm", str(resolved["tmhmm_executable"])])
     else:
         command.append("--no_tmhmm")
+    return tuple(command), output_path
+
+
+def invoke_soluprot(
+    *,
+    command: Sequence[str],
+    staging_directory: Path,
+    run_resources: Any,
+) -> None:
+    """Run exactly one already-staged SoluProt provider process."""
     process = subprocess.Popen(
-        command,
+        list(command),
         cwd=staging_directory,
         stdin=subprocess.DEVNULL,
         stdout=subprocess.DEVNULL,
@@ -708,12 +723,6 @@ def invoke_soluprot(
             f"SoluProt provider invocation failed safely "
             f"(exit status {process.returncode})"
         )
-    try:
-        return _read_provider_output(output_path)
-    except OSError as error:
-        raise SoluProtProviderOutputUnavailable(
-            "SoluProt provider produced no readable output"
-        ) from error
 
 
 def parse_soluprot_output(payload: bytes, *, expected_count: int) -> list[float]:
@@ -978,21 +987,14 @@ def _read_protein_sol_output(path: Path) -> bytes:
         os.close(descriptor)
 
 
-def invoke_protein_sol(
+def _prepare_protein_sol_invocation(
     *,
     sequences: Sequence[str],
     staging_directory: Path,
-    environment: Mapping[str, Any],
-    run_resources: Any,
-    resolved_environment: Mapping[str, Any] | None = None,
-) -> bytes:
-    """Stage and run only the exact external Protein-Sol dependency."""
-    validate_protein_sol_sequences(sequences)
-    resolved = (
-        dict(resolved_environment)
-        if resolved_environment is not None
-        else validate_protein_sol_environment(environment)
-    )
+    resolved_environment: Mapping[str, Any],
+) -> tuple[tuple[str, ...], Path]:
+    """Stage one exact Protein-Sol request before its Engine Invocation."""
+    resolved = dict(resolved_environment)
     source_files = resolved.get("source_files")
     if not isinstance(source_files, Mapping):
         raise RuntimeError("Protein-Sol resolved source identity is incomplete")
@@ -1009,12 +1011,25 @@ def invoke_protein_sol(
         )
     input_path = staging_directory / "input.fasta"
     _write_fasta(input_path, sequences)
-    process = subprocess.Popen(
-        [
+    return (
+        (
             str(resolved["bash_executable"]),
             "multiple_prediction_wrapper_export.sh",
             input_path.name,
-        ],
+        ),
+        staging_directory / "seq_prediction.txt",
+    )
+
+
+def invoke_protein_sol(
+    *,
+    command: Sequence[str],
+    staging_directory: Path,
+    run_resources: Any,
+) -> None:
+    """Run exactly one already-staged Protein-Sol provider process."""
+    process = subprocess.Popen(
+        list(command),
         cwd=staging_directory,
         stdin=subprocess.DEVNULL,
         stdout=subprocess.DEVNULL,
@@ -1046,14 +1061,6 @@ def invoke_protein_sol(
         raise ProteinSolProviderNonzeroExit(
             "Protein-Sol provider invocation failed safely"
         )
-    try:
-        return _read_protein_sol_output(
-            staging_directory / "seq_prediction.txt"
-        )
-    except OSError as error:
-        raise ProteinSolProviderOutputUnavailable(
-            "Protein-Sol provider produced no readable output"
-        ) from error
 
 
 def parse_protein_sol_output(
@@ -1133,3 +1140,124 @@ def parse_protein_sol_output(
             }
         )
     return parsed
+
+
+@dataclass(frozen=True, slots=True, eq=False)
+class LocalSoluProtAdapter:
+    """Translate canonical sequences through one immutable SoluProt mode."""
+
+    mode: SoluProtMode
+    environment: Mapping[str, Any] = field(repr=False, compare=False)
+    resources: RunResources = field(repr=False, compare=False)
+
+    def __post_init__(self) -> None:
+        if self.mode not in {"full", "no_tm"}:
+            raise ValueError("unknown SoluProt mode")
+
+    def predict(
+        self,
+        sequences: Sequence[ProteinSequence],
+    ) -> tuple[float, ...]:
+        """Run one exact mode and admit ordered scientific predictions."""
+        provider_sequences = tuple(
+            sequence.sequence
+            for sequence in sequences
+            if type(sequence) is ProteinSequence
+        )
+        if len(provider_sequences) != len(sequences):
+            raise ValueError(
+                "SoluProt requires complete ProteinSequence values"
+            )
+        validate_sequences(provider_sequences)
+        resolved = validate_soluprot_environment(
+            self.environment,
+            mode=self.mode,
+        )
+        with self.resources.temporary_directory(
+            prefix=f"soluprot-{self.mode}-"
+        ) as staging_directory:
+            command, output_path = _prepare_soluprot_invocation(
+                sequences=provider_sequences,
+                mode=self.mode,
+                staging_directory=staging_directory,
+                resolved_environment=resolved,
+            )
+            with self.resources.engine_invocation(
+                engine_role=f"soluprot_{self.mode}",
+            ):
+                invoke_soluprot(
+                    command=command,
+                    staging_directory=staging_directory,
+                    run_resources=self.resources,
+                )
+            try:
+                raw_output = _read_provider_output(output_path)
+            except OSError as error:
+                raise SoluProtProviderOutputUnavailable(
+                    "SoluProt provider produced no readable output"
+                ) from error
+            values = parse_soluprot_output(
+                raw_output,
+                expected_count=len(provider_sequences),
+            )
+        return tuple(values)
+
+
+@dataclass(frozen=True, slots=True, eq=False)
+class LocalProteinSolAdapter:
+    """Translate canonical sequences through the pinned Protein-Sol runtime."""
+
+    environment: Mapping[str, Any] = field(repr=False, compare=False)
+    resources: RunResources = field(repr=False, compare=False)
+
+    def predict(
+        self,
+        sequences: Sequence[ProteinSequence],
+    ) -> tuple[ProteinSolPrediction, ...]:
+        """Run and admit ordered calibrated soluble-fraction predictions."""
+        provider_sequences = tuple(
+            sequence.sequence
+            for sequence in sequences
+            if type(sequence) is ProteinSequence
+        )
+        if len(provider_sequences) != len(sequences):
+            raise ValueError(
+                "Protein-Sol requires complete ProteinSequence values"
+            )
+        validate_protein_sol_sequences(provider_sequences)
+        resolved = validate_protein_sol_environment(self.environment)
+        with self.resources.temporary_directory(
+            prefix="protein-sol-"
+        ) as staging_directory:
+            command, output_path = _prepare_protein_sol_invocation(
+                sequences=provider_sequences,
+                staging_directory=staging_directory,
+                resolved_environment=resolved,
+            )
+            with self.resources.engine_invocation(
+                engine_role="protein_sol_sequence_prediction",
+            ):
+                invoke_protein_sol(
+                    command=command,
+                    staging_directory=staging_directory,
+                    run_resources=self.resources,
+                )
+            try:
+                raw_output = _read_protein_sol_output(output_path)
+            except OSError as error:
+                raise ProteinSolProviderOutputUnavailable(
+                    "Protein-Sol provider produced no readable output"
+                ) from error
+            results = parse_protein_sol_output(
+                raw_output,
+                expected_count=len(provider_sequences),
+            )
+        return tuple(
+            ProteinSolPrediction(
+                percent_soluble_fraction=result["percent_sol"],
+                scaled_soluble_fraction=result["scaled_sol"],
+                population_scaled_solubility=result["population_sol"],
+                isoelectric_point=result["pi"],
+            )
+            for result in results
+        )

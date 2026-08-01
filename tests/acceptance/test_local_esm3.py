@@ -76,7 +76,7 @@ def test_local_esm3_all_generation_modes(
             binding = catalog.require_contract(
                 "binding",
                 binding_id,
-                "2.1.0",
+                "3.0.0",
             )
             assert binding.descriptor["method"]["contract_id"] == (
                 f"esm3.{operation}.esm3_sm_open_v1_local"
@@ -92,19 +92,44 @@ def test_local_esm3_all_generation_modes(
                 for index, event in enumerate(events)
                 if event["event"]["type"] == "readiness_attested"
                 and event["event"]["binding"]["contract_id"] == binding_id
-                and event["event"]["binding"]["contract_version"] == "2.1.0"
+                and event["event"]["binding"]["contract_version"] == "3.0.0"
                 and event["event"]["conclusion"] == "passing"
             )
             invocations = [
                 event["event"]
                 for event in events
                 if event["event"]["type"] == "engine_invocation_started"
-                and event["event"]["engine_identity"].startswith(
-                    "esm3.local_open."
-                )
+                and event["event"]["engine_role"]
+                in {
+                    "sequence_sample",
+                    "structure_sample",
+                    "sequence_parent",
+                    "structure_child",
+                }
             ]
             assert len(invocations) == (
                 2 if operation == "generate_paired" else 1
+            )
+            method = catalog.require_contract(
+                "method",
+                binding.descriptor["method"]["contract_id"],
+                binding.descriptor["method"]["contract_version"],
+            )
+            assert {
+                invocation["engine_identity"] for invocation in invocations
+            } == {method.contract_digest}
+            assert all(
+                invocation["invocation_provenance"][
+                    "effective_randomness"
+                ]["control"]
+                == "exact_seed"
+                and type(
+                    invocation["invocation_provenance"][
+                        "effective_randomness"
+                    ]["effective_seed"]
+                )
+                is int
+                for invocation in invocations
             )
             terminals = [
                 event["event"]
@@ -152,9 +177,9 @@ def test_local_esm3_all_generation_modes(
         paired_outputs["counterpart_pairs"],
     )
     assert len(sequences.items) == len(structures.items) == 1
-    assert structures.items[0].parent_ids == [
-        sequences.items[0].candidate_id
-    ]
+    assert structures.items[0].parent_ids == (
+        sequences.items[0].candidate_id,
+    )
     assert pairing.entries[0].subject_candidate_id == (
         sequences.items[0].candidate_id
     )

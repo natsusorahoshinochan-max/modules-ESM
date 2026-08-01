@@ -1,6 +1,6 @@
 schema_version: "2.1.0"
 node_type_id: contract_test.prompt_authoring_values
-version: "2.1.0"
+version: "3.0.0"
 title: Prompt authoring contract values
 summary: Supplies deterministic identity-complete layouts and tracks to the shared Contract Test Kit.
 category: contract_test
@@ -86,7 +86,7 @@ outputs:
     scientific_meaning: Complete sequence fixture aligned to source_layout.
   - name: structure
     port_type_id: protein.structure
-    port_type_version: "2.1.0"
+    port_type_version: "3.0.0"
     required: true
     multiplicity: one
     scientific_meaning: Complete canonical PDB fixture for prompt construction.

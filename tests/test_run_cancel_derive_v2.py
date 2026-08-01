@@ -18,6 +18,7 @@ import core.run_execution_v2 as run_execution_v2
 from core.server import create_app
 from protein_workbench_public import validate_response
 from tests.fixtures.public_v2 import wait_for_testclient_run_terminal
+from tests.fixtures.result_replay_v2 import admitted_replay_outputs
 from tests.test_run_execution_v2 import (
     _artifact_catalog,
     _compile_artifact_node,
@@ -250,17 +251,23 @@ def test_completion_race_is_decided_by_the_ledger_cursor(
 
 
 class _ControllableReplay(ResultReplaySource):
-    def __init__(self) -> None:
+    def __init__(self, catalog: Any) -> None:
+        self.catalog = catalog
         self.enabled = False
         self.lookups: list[str] = []
 
     def lookup(self, *, node, **kwargs):
         self.lookups.append(node.node_id)
         if self.enabled:
+            outputs = {"text": "REPLAYED"}
             return ResultReplayHit(
-                {"text": "REPLAYED"},
-                kwargs["result_identity"],
-                "fixture-producer",
+                result_identity=kwargs["result_identity"],
+                producer_run_id="fixture-producer",
+                admitted_outputs=admitted_replay_outputs(
+                    catalog=self.catalog,
+                    node=node,
+                    outputs=outputs,
+                ),
             )
         return None
 
@@ -272,16 +279,17 @@ def test_retry_after_failure_creates_new_evidence_without_mutating_source(
     calls: list[str] = []
     entered = threading.Event()
     release = threading.Event()
-    replay = _ControllableReplay()
+    catalog = _direct_catalog(
+        calls,
+        cacheable=True,
+        execution_gate=(entered, release),
+    )
+    replay = _ControllableReplay(catalog)
     monkeypatch.setenv("PROTEIN_WORKBENCH_PROJECT_ROOT", str(tmp_path / "projects"))
     monkeypatch.setenv("PROTEIN_WORKBENCH_RUN_ROOT", str(tmp_path / "runs"))
     monkeypatch.setenv("PROTEIN_WORKBENCH_OUTPUT_ROOT", str(tmp_path / "outputs"))
     app = create_app(
-        frozen_catalog_override=_direct_catalog(
-            calls,
-            cacheable=True,
-            execution_gate=(entered, release),
-        ),
+        frozen_catalog_override=catalog,
         v2_result_replay_source=replay,
         v2_environment_configuration={
             ("test.direct.local", "2.1.0"): {
@@ -341,15 +349,13 @@ def test_force_recompute_executes_selected_node_and_reuses_only_typed_results(
     monkeypatch,
 ) -> None:
     calls: list[str] = []
-    replay = _ControllableReplay()
+    catalog = _direct_catalog(calls, cacheable=True)
+    replay = _ControllableReplay(catalog)
     monkeypatch.setenv("PROTEIN_WORKBENCH_PROJECT_ROOT", str(tmp_path / "projects"))
     monkeypatch.setenv("PROTEIN_WORKBENCH_RUN_ROOT", str(tmp_path / "runs"))
     monkeypatch.setenv("PROTEIN_WORKBENCH_OUTPUT_ROOT", str(tmp_path / "outputs"))
     app = create_app(
-        frozen_catalog_override=_direct_catalog(
-            calls,
-            cacheable=True,
-        ),
+        frozen_catalog_override=catalog,
         v2_result_replay_source=replay,
         v2_environment_configuration={
             ("test.direct.local", "2.1.0"): {
@@ -419,12 +425,13 @@ def test_force_recompute_bypasses_the_selected_downstream_closure(
     monkeypatch,
 ) -> None:
     calls: list[str] = []
-    replay = _ControllableReplay()
+    catalog = _pipeline_catalog(calls, cacheable=True)
+    replay = _ControllableReplay(catalog)
     monkeypatch.setenv("PROTEIN_WORKBENCH_PROJECT_ROOT", str(tmp_path / "projects"))
     monkeypatch.setenv("PROTEIN_WORKBENCH_RUN_ROOT", str(tmp_path / "runs"))
     monkeypatch.setenv("PROTEIN_WORKBENCH_OUTPUT_ROOT", str(tmp_path / "outputs"))
     app = create_app(
-        frozen_catalog_override=_pipeline_catalog(calls, cacheable=True),
+        frozen_catalog_override=catalog,
         v2_result_replay_source=replay,
     )
 
@@ -1009,7 +1016,88 @@ def test_derived_artifacts_and_source_run_remain_independently_immutable(
     )
 
 
-def test_terminal_source_can_be_derived_after_backend_restart(
+def test_derived_run_reuses_the_source_execution_plan_without_recompiling(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    monkeypatch.setenv("PROTEIN_WORKBENCH_PROJECT_ROOT", str(tmp_path / "projects"))
+    monkeypatch.setenv("PROTEIN_WORKBENCH_RUN_ROOT", str(tmp_path / "runs"))
+    monkeypatch.setenv("PROTEIN_WORKBENCH_OUTPUT_ROOT", str(tmp_path / "outputs"))
+    environment = {
+        ("test.direct.local", "2.1.0"): {
+            "values": {"credential": "credential-value"},
+        }
+    }
+    app = create_app(
+        frozen_catalog_override=_direct_catalog([]),
+        v2_environment_configuration=environment,
+    )
+
+    with TestClient(app) as client:
+        project_id, compiled = _compile_one_node(client)
+        source = _start(client, project_id, compiled, "retained-plan-source")
+        assert _wait_terminal(
+            client,
+            project_id,
+            source["run_id"],
+        )["status"] == "succeeded"
+        current_workflow = client.get(
+            f"/api/v2/projects/{project_id}/workflow"
+        ).json()
+        revised = client.put(
+            f"/api/v2/projects/{project_id}/workflow",
+            json={
+                "expected_workflow_revision": current_workflow[
+                    "workflow_revision"
+                ],
+                "workflow": current_workflow["workflow"],
+            },
+        )
+        assert revised.status_code == 200
+        assert revised.json()["workflow_revision"] == 3
+
+        def forbid_workflow_resolution(*_args: Any, **_kwargs: Any) -> Any:
+            raise AssertionError(
+                "Derived Run must reuse the source ExecutionPlan"
+            )
+
+        monkeypatch.setattr(
+            app.state.workflow_authoring_v2,
+            "load",
+            forbid_workflow_resolution,
+        )
+        monkeypatch.setattr(
+            app.state.workflow_authoring_v2,
+            "compile",
+            forbid_workflow_resolution,
+        )
+        monkeypatch.setattr(
+            app.state.workflow_authoring_v2,
+            "require_compiled",
+            forbid_workflow_resolution,
+        )
+        derived_response = client.post(
+            f"/api/v2/projects/{project_id}/runs:derive",
+            json={
+                "source_run_id": source["run_id"],
+                "compile_id": compiled["compile_id"],
+                "policy": "force_selected",
+                "node_ids": ["direct"],
+                "client_request_id": "retained-plan-derived",
+            },
+        )
+        assert derived_response.status_code == 202
+        projection = _wait_terminal(
+            client,
+            project_id,
+            derived_response.json()["run_id"],
+        )
+
+    assert projection["status"] == "succeeded"
+    assert projection["derived_from_run_id"] == source["run_id"]
+
+
+def test_terminal_source_without_its_retained_plan_fails_closed_after_restart(
     tmp_path,
     monkeypatch,
 ) -> None:
@@ -1055,13 +1143,17 @@ def test_terminal_source_can_be_derived_after_backend_restart(
                 "client_request_id": "restart-derived",
             },
         )
-        assert derived_response.status_code == 202
-        derived = derived_response.json()
-        projection = _wait_terminal(
-            restarted_client,
-            project_id,
-            derived["run_id"],
-        )
 
-    assert projection["status"] == "succeeded"
-    assert projection["derived_from_run_id"] == source["run_id"]
+    assert derived_response.status_code == 422
+    assert derived_response.json()["error"]["code"] == "compile_rejected"
+    assert derived_response.json()["error"]["details"]["issues"] == [
+        {
+            "code": "source_execution_plan_unavailable",
+            "severity": "error",
+            "message": (
+                "Derived Run requires the exact in-memory Execution Plan "
+                "retained by its source Run"
+            ),
+            "field_path": ["source_run_id"],
+        }
+    ]

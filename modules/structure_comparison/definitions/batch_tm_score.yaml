@@ -1,15 +1,15 @@
 schema_version: "2.1.0"
 node_type_id: structure_comparison.batch_tm_score
-version: "2.1.0"
+version: "2.2.0"
 title: Observe a scoped batch of reference-normalized TM-scores
-summary: Emits exactly one declared TM-score Observation per subject from a complete fixed-reference or explicit per-subject alignment collection.
+summary: Emits exactly one declared TM-score Observation per subject from complete fixed-reference or explicit per-subject alignment evidence.
 category: structure_comparison
 inputs:
   - name: alignments
-    port_type_id: structure_comparison.alignment_collection
+    port_type_id: structure_comparison.alignment
     port_type_version: "2.1.0"
     required: true
-    multiplicity: one
+    multiplicity: many
     scientific_meaning: Complete role-labelled alignment evidence for the selected fixed-reference or per-subject-counterpart Binding.
   - name: subjects
     port_type_id: candidate.collection

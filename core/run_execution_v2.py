@@ -28,7 +28,14 @@ from protein_workbench_public import (
 )
 
 from core.artifacts import ArtifactPayload, is_valid_artifact_media_type
+from core.operation import (
+    CandidateDataDigest,
+    InputContentDigests,
+    OperationCall,
+    OperationContext,
+)
 from core.port_types import (
+    ContractResolutionError,
     FrozenCatalog,
     PortValueError,
     canonical_json_bytes,
@@ -40,9 +47,9 @@ from core.public_values import sanitize_public_value
 from core.scoring_v2 import (
     SelectionError,
     SelectionInput,
-    selection_objective_provenance,
-    select_candidates,
-    validate_produced_score_collection,
+    selection_objective_provenance_from_facts,
+    select_candidates_from_facts,
+    validate_produced_score_collection_from_facts,
 )
 from core.storage import (
     StoragePathError,
@@ -53,12 +60,18 @@ from core.storage import (
     validate_relative_path,
     write_private_new_file,
 )
+from core.value_admission import (
+    AdmittedPortValues,
+    admitted_port_values,
+    admitted_port_values_from_bytes,
+    normalize_scientific_outputs,
+)
 from core.workflow_authoring_v2 import WorkflowAuthoringService
 from core.workflow_v2 import (
+    CONTRACT_LOCK_NAMESPACE,
     CompiledWorkflow,
     ExecutionPlan,
     ExecutionPlanNode,
-    parse_workflow_document,
 )
 from datatypes import (
     Candidate,
@@ -70,6 +83,7 @@ from datatypes import (
     ScoreCollection,
     ScoreObservation,
     StructureAlignment,
+    ExactContractReference,
 )
 
 
@@ -104,6 +118,79 @@ _ATTEMPT_TERMINALS = frozenset(
 _DISPOSITION_OUTCOMES = frozenset(
     {"succeeded", "failed", "blocked", "cancelled", "interrupted"}
 )
+
+
+def _freeze_invocation_provenance(
+    value: Mapping[str, Any],
+) -> Mapping[str, Any]:
+    """Validate closed orthogonal provenance facts and freeze caller containers."""
+    try:
+        validate_schema("#/$defs/InvocationProvenance", value)
+    except ProtocolValidationError as error:
+        raise ValueError("Engine invocation provenance is malformed") from error
+
+    frozen: dict[str, Any] = {}
+    randomness = value.get("effective_randomness")
+    if randomness is not None:
+        frozen_randomness = {"control": randomness["control"]}
+        if randomness["control"] == "exact_seed":
+            frozen_randomness["effective_seed"] = randomness[
+                "effective_seed"
+            ]
+        frozen["effective_randomness"] = MappingProxyType(
+            frozen_randomness
+        )
+
+    projection = value.get("provider_residue_projection")
+    if projection is None:
+        return MappingProxyType(frozen)
+
+    workbench_chain_order = tuple(projection["workbench_chain_order"])
+    provider_chain_order = tuple(projection["provider_chain_order"])
+    if (
+        len(set(workbench_chain_order)) != len(workbench_chain_order)
+        or len(set(provider_chain_order)) != len(provider_chain_order)
+        or set(workbench_chain_order) != set(provider_chain_order)
+    ):
+        raise ValueError("Engine invocation provenance chain order is malformed")
+
+    frozen_entries: list[Mapping[str, Any]] = []
+    residue_ids: set[str] = set()
+    provider_positions: set[tuple[str, int]] = set()
+    for entry in projection["entries"]:
+        residue_id = entry["residue_id"]
+        provider_chain_id = entry["provider_chain_id"]
+        provider_position = entry["provider_position"]
+        provider_coordinate = (provider_chain_id, provider_position)
+        if (
+            provider_chain_id not in provider_chain_order
+            or residue_id in residue_ids
+            or provider_coordinate in provider_positions
+        ):
+            raise ValueError(
+                "Engine invocation provenance entries are malformed"
+            )
+        residue_ids.add(residue_id)
+        provider_positions.add(provider_coordinate)
+        frozen_entries.append(
+            MappingProxyType(
+                {
+                    "residue_id": residue_id,
+                    "provider_chain_id": provider_chain_id,
+                    "provider_position": provider_position,
+                }
+            )
+        )
+
+    frozen["provider_residue_projection"] = MappingProxyType(
+        {
+            "position_semantics": "one_based_chain_local",
+            "workbench_chain_order": workbench_chain_order,
+            "provider_chain_order": provider_chain_order,
+            "entries": tuple(frozen_entries),
+        }
+    )
+    return MappingProxyType(frozen)
 
 
 def _utc_now() -> datetime:
@@ -584,7 +671,7 @@ class _CancellationControl:
 
 @dataclass(frozen=True, slots=True)
 class RunResources:
-    """Project/Run-contained resources available to one lazy direct factory."""
+    """Project/Run-contained resources available to one Scientific Operation."""
 
     project_id: str
     run_id: str
@@ -692,16 +779,21 @@ class RunResources:
         self,
         *,
         engine_role: str = "primary",
-        engine_identity: str | None = None,
         parent_invocation_id: str | None = None,
+        invocation_provenance: Mapping[str, Any] | None = None,
     ):
         """Record one explicit crossing of a scientific engine boundary."""
         if self._invocation_recorder is None:
             raise RuntimeError("Engine Invocation is unavailable")
+        frozen_provenance = (
+            None
+            if invocation_provenance is None
+            else _freeze_invocation_provenance(invocation_provenance)
+        )
         with self._invocation_recorder.invoke(
             engine_role=engine_role,
-            engine_identity=engine_identity,
             parent_invocation_id=parent_invocation_id,
+            invocation_provenance=frozen_provenance,
         ) as invocation_id:
             yield invocation_id
 
@@ -730,6 +822,10 @@ class ResultReplaySource:
         result_identity: str,
         outputs: list[dict[str, Any]],
         producer_run_id: str,
+        admitted_outputs: Mapping[
+            tuple[str, str],
+            AdmittedPortValues,
+        ],
     ) -> Callable[[], None] | None:
         del (
             project_id,
@@ -738,6 +834,7 @@ class ResultReplaySource:
             result_identity,
             outputs,
             producer_run_id,
+            admitted_outputs,
         )
         return None
 
@@ -750,6 +847,10 @@ class ResultReplaySource:
         result_identity: str,
         outputs: list[dict[str, Any]],
         producer_run_id: str,
+        admitted_outputs: Mapping[
+            tuple[str, str],
+            AdmittedPortValues,
+        ],
     ) -> None:
         del (
             project_id,
@@ -758,6 +859,7 @@ class ResultReplaySource:
             result_identity,
             outputs,
             producer_run_id,
+            admitted_outputs,
         )
 
 
@@ -767,11 +869,32 @@ class RecoverableCacheMiss(RuntimeError):
 
 @dataclass(frozen=True, slots=True)
 class ResultReplayHit:
-    """One identity-bound typed replay with durable producer provenance."""
+    """One identity-bound canonical replay with durable producer provenance."""
 
-    outputs: Mapping[str, Any]
     result_identity: str
     producer_run_id: str
+    admitted_outputs: Mapping[
+        tuple[str, str],
+        AdmittedPortValues,
+    ]
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.admitted_outputs, Mapping) or any(
+            not isinstance(key, tuple)
+            or len(key) != 2
+            or not all(isinstance(part, str) for part in key)
+            or not isinstance(snapshot, AdmittedPortValues)
+            for key, snapshot in self.admitted_outputs.items()
+        ):
+            raise TypeError(
+                "Result replay admitted_outputs must contain canonical "
+                "AdmittedPortValues snapshots"
+            )
+        object.__setattr__(
+            self,
+            "admitted_outputs",
+            MappingProxyType(dict(self.admitted_outputs)),
+        )
 
 
 class V2RunError(RuntimeError):
@@ -1554,7 +1677,7 @@ class _RunEvidenceLedger:
                         "selection_terminal_keys",
                     }
                 ),
-                frozenset({"derived_from"}),
+                frozenset({"derived_from", "resolved_contract_roots"}),
             ),
             "availability_bound": (
                 frozenset(
@@ -1608,7 +1731,9 @@ class _RunEvidenceLedger:
                         "engine_identity",
                     }
                 ),
-                frozenset({"parent_invocation_id"}),
+                frozenset(
+                    {"parent_invocation_id", "invocation_provenance"}
+                ),
             ),
             "engine_invocation_terminal": (
                 frozenset({"invocation_id", "status"}),
@@ -1653,6 +1778,20 @@ class _RunEvidenceLedger:
             required=required,
             optional=optional,
         )
+        if (
+            fact_type == "engine_invocation_started"
+            and "invocation_provenance" in payload
+        ):
+            try:
+                _freeze_invocation_provenance(
+                    payload["invocation_provenance"]
+                )
+            except (TypeError, ValueError) as error:
+                raise V2RunError(
+                    "evidence_unavailable",
+                    "Required Run evidence failed schema validation",
+                    details={"last_durable_cursor": self.cursor},
+                ) from error
         if fact_type == "run_scope_bound":
             plan_nodes = payload["plan_nodes"]
             def valid_plan_node(item: Any) -> bool:
@@ -2458,20 +2597,20 @@ class _OperationInvocationRecorder:
         self,
         *,
         engine_role: str,
-        engine_identity: str | None,
         parent_invocation_id: str | None,
+        invocation_provenance: Mapping[str, Any] | None,
     ):
         invocation_id = f"invocation-{uuid.uuid4().hex}"
         payload = {
             "invocation_id": invocation_id,
             "operation_attempt_id": self.operation_attempt_id,
             "engine_role": engine_role,
-            "engine_identity": (
-                engine_identity or self.default_engine_identity
-            ),
+            "engine_identity": self.default_engine_identity,
         }
         if parent_invocation_id is not None:
             payload["parent_invocation_id"] = parent_invocation_id
+        if invocation_provenance is not None:
+            payload["invocation_provenance"] = invocation_provenance
         self.ledger.append(
             "engine_invocation_started",
             payload,
@@ -2516,6 +2655,188 @@ class _RunRecord:
     )
     finished: threading.Event = field(default_factory=threading.Event)
     execution_error: BaseException | None = None
+
+
+_RESOLVED_CONTRACT_FIELDS = frozenset(
+    {
+        "contract_kind",
+        "contract_id",
+        "contract_version",
+        "contract_digest",
+    }
+)
+
+
+def _execution_plan_contract_roots(
+    plan: ExecutionPlan,
+) -> list[dict[str, Any]]:
+    """Persist the exact roots needed to reconstruct one Plan's Lock."""
+    root_identities = {
+        reference.key
+        for node in plan.nodes
+        for reference in (node.node_type, node.binding)
+    }
+    for resolved_selector in plan._runtime.observation_selectors:
+        selector = resolved_selector.selector
+        root_identities.update(
+            {
+                (
+                    selector.metric.contract_kind,
+                    selector.metric.contract_id,
+                    selector.metric.contract_version,
+                ),
+                (
+                    selector.method.contract_kind,
+                    selector.method.contract_id,
+                    selector.method.contract_version,
+                ),
+            }
+        )
+    for resolved_objective in plan._runtime.selection_objectives:
+        objective = resolved_objective.objective
+        root_identities.update(
+            {
+                (
+                    objective.metric.contract_kind,
+                    objective.metric.contract_id,
+                    objective.metric.contract_version,
+                ),
+                (
+                    objective.method.contract_kind,
+                    objective.method.contract_id,
+                    objective.method.contract_version,
+                ),
+                (
+                    objective.utility_transform.contract_kind,
+                    objective.utility_transform.contract_id,
+                    objective.utility_transform.contract_version,
+                ),
+            }
+        )
+    lock_by_identity = {
+        entry.key: entry for entry in plan.resolved_contracts
+    }
+    return [
+        lock_by_identity[identity].to_public()
+        for identity in sorted(root_identities)
+    ]
+
+
+def _reachable_contract_evidence(
+    catalog: FrozenCatalog,
+    roots: Any,
+) -> list[dict[str, Any]]:
+    """Rebuild the exact active Catalog closure from durable Plan roots."""
+    if (
+        not isinstance(roots, list)
+        or any(
+            not isinstance(entry, Mapping)
+            or set(entry) != _RESOLVED_CONTRACT_FIELDS
+            or not all(
+                isinstance(entry[field], str)
+                for field in _RESOLVED_CONTRACT_FIELDS
+            )
+            for entry in roots
+        )
+    ):
+        raise RuntimeError("Run scope Contract roots are invalid")
+    root_identities = [
+        (
+            entry["contract_kind"],
+            entry["contract_id"],
+            entry["contract_version"],
+        )
+        for entry in roots
+    ]
+    if (
+        len(set(root_identities)) != len(root_identities)
+        or root_identities != sorted(root_identities)
+    ):
+        raise RuntimeError("Run scope Contract roots are invalid")
+
+    pending = [dict(entry) for entry in roots]
+    reachable: dict[tuple[str, str, str], dict[str, Any]] = {}
+    while pending:
+        reference = pending.pop()
+        identity = (
+            reference["contract_kind"],
+            reference["contract_id"],
+            reference["contract_version"],
+        )
+        contract = catalog.require_contract(*identity)
+        current_reference = contract.reference()
+        if reference != current_reference:
+            raise RuntimeError("Run scope Contract root is not active")
+        if identity in reachable:
+            continue
+        reachable[identity] = current_reference
+        nested_values: list[Any] = [contract.descriptor]
+        while nested_values:
+            value = nested_values.pop()
+            if (
+                isinstance(value, Mapping)
+                and set(value) == _RESOLVED_CONTRACT_FIELDS
+            ):
+                pending.append(dict(value))
+            elif isinstance(value, Mapping):
+                nested_values.extend(value.values())
+            elif isinstance(value, (list, tuple)):
+                nested_values.extend(value)
+    return [reachable[identity] for identity in sorted(reachable)]
+
+
+def _validated_run_catalog_digest(
+    ledger: _RunEvidenceLedger,
+    catalog: FrozenCatalog,
+) -> str:
+    """Classify one validated Ledger and verify active-generation locks."""
+    facts = ledger.facts
+    if not facts or facts[0]["fact_type"] != "run_scope_bound":
+        raise RuntimeError("Run scope evidence is missing")
+    scope = facts[0]["payload"]
+    persisted_catalog_digest = scope.get("catalog_contract_digest")
+    if (
+        not isinstance(persisted_catalog_digest, str)
+        or re.fullmatch(
+            r"sha256:[0-9a-f]{64}",
+            persisted_catalog_digest,
+        )
+        is None
+    ):
+        raise RuntimeError("Run scope Catalog identity is invalid")
+    if persisted_catalog_digest != catalog.contract_digest:
+        return persisted_catalog_digest
+
+    resolved_contracts = scope.get("resolved_contracts")
+    persisted_lock_digest = scope.get("contract_lock_digest")
+    if (
+        not isinstance(resolved_contracts, list)
+        or any(
+            not isinstance(entry, Mapping)
+            or set(entry) != _RESOLVED_CONTRACT_FIELDS
+            or not all(
+                isinstance(entry[field], str)
+                for field in _RESOLVED_CONTRACT_FIELDS
+            )
+            for entry in resolved_contracts
+        )
+        or not isinstance(persisted_lock_digest, str)
+        or persisted_lock_digest
+        != canonical_sha256(
+            {
+                "schema_namespace": CONTRACT_LOCK_NAMESPACE,
+                "entries": resolved_contracts,
+            }
+        )
+    ):
+        raise RuntimeError("Run scope Contract Lock evidence is invalid")
+    expected_contracts = _reachable_contract_evidence(
+        catalog,
+        scope.get("resolved_contract_roots"),
+    )
+    if [dict(entry) for entry in resolved_contracts] != expected_contracts:
+        raise RuntimeError("Run scope resolved Contracts are invalid")
+    return persisted_catalog_digest
 
 
 def _read_run_evidence_ledger(
@@ -2569,34 +2890,6 @@ def _read_run_evidence_ledger(
     return ledger
 
 
-def _port_contract(
-    catalog: FrozenCatalog,
-    node_contract: Any,
-    direction: str,
-    port_name: str,
-) -> tuple[Mapping[str, Any], Any]:
-    ports = {
-        port["name"]: port
-        for port in node_contract.descriptor.get(direction, ())
-    }
-    try:
-        port = ports[port_name]
-        reference = port["port_type"]
-        port_type = catalog.require_port_type(
-            reference["contract_id"],
-            reference["contract_version"],
-        )
-    except (KeyError, TypeError) as error:
-        raise PortValueError(
-            f"Unknown {direction} Port {port_name!r}"
-        ) from error
-    if port_type.contract_digest != reference["contract_digest"]:
-        raise PortValueError(
-            f"{direction} Port {port_name!r} contract digest changed"
-        )
-    return port, port_type
-
-
 def _wire_value(encoded: bytes) -> Any:
     payload = json.loads(encoded)
     return payload["value"]
@@ -2634,11 +2927,10 @@ class _EffectiveRandomnessSnapshot:
 
 
 def _resolve_effective_randomness(
-    catalog: FrozenCatalog,
     node: ExecutionPlanNode,
     inputs: Mapping[str, Any],
 ) -> _EffectiveRandomnessSnapshot:
-    binding_contract = catalog.require_contract(*node.binding.key)
+    binding_contract = node._runtime.binding_contract
     node_parameters = _plain_json(node.node_parameters)
     binding_parameters = _plain_json(node.binding_parameters)
     declared_randomness = tuple(
@@ -2648,10 +2940,7 @@ def _resolve_effective_randomness(
         )
     )
     if declared_randomness:
-        resolver = catalog.get_effective_randomness_resolver(
-            node.binding.contract_id,
-            node.binding.contract_version,
-        )
+        resolver = node._runtime.effective_randomness_resolver
         if resolver is None:
             resolved_randomness: Mapping[str, Any] = {
                 parameter_name: (
@@ -2775,65 +3064,50 @@ def _read_stable_private_file(
 
 
 def _result_identity_descriptor(
-    catalog: FrozenCatalog,
-    plan: ExecutionPlan,
     node: ExecutionPlanNode,
     inputs: Mapping[str, Any],
+    *,
+    input_content_digests: Mapping[str, InputContentDigests],
     resolved_resource_inputs: tuple[Mapping[str, Any], ...] = (),
     effective_randomness_snapshot: _EffectiveRandomnessSnapshot | None = None,
 ) -> dict[str, Any]:
     """Build the closed scientific identity of one resolved Node result."""
-    node_contract = catalog.require_contract(*node.node_type.key)
-    binding_contract = catalog.require_contract(*node.binding.key)
-    method_contract = catalog.require_contract(*node.method.key)
+    node_contract = node._runtime.node_contract
+    binding_contract = node._runtime.binding_contract
     declared_inputs = {
         port["name"]: port
         for port in node_contract.descriptor.get("inputs", ())
     }
+    admitted_input_digests = input_content_digests
     input_identities: list[dict[str, Any]] = []
     for port_name in sorted(inputs):
         declaration = declared_inputs[port_name]
         reference = declaration["port_type"]
-        port_type = catalog.require_port_type(
-            reference["contract_id"],
-            reference["contract_version"],
-        )
-        supplied = inputs[port_name]
-        values = (
-            list(supplied)
-            if declaration["multiplicity"] == "many"
-            else [supplied]
-        )
+        digest_record = admitted_input_digests[port_name]
         input_identities.append(
             {
                 "input_port": port_name,
-                "port_type": _identity_without_digest(
-                    port_type.reference()
-                ),
+                "port_type": _identity_without_digest(reference),
                 "multiplicity": declaration["multiplicity"],
-                "value_content_digests": [
-                    _input_content_digest(port_type, value)
-                    for value in values
-                ],
+                "value_content_digests": list(
+                    digest_record.value_content_digests
+                ),
             }
         )
-    relevant_keys = _relevant_result_contract_keys(
-        catalog,
-        plan,
-        node,
-        node_contract,
-        binding_contract,
-    )
-    relevant_contracts = {
-        key: _result_affecting_contract(
-            catalog.require_contract(*key)
-        )
-        for key in relevant_keys
-    }
+    relevant_contracts = {}
+    for contract in node._runtime.result_contracts:
+        facts = _result_affecting_contract(contract)
+        relevant_contracts[
+            (
+                facts["contract_kind"],
+                facts["contract_id"],
+                facts["contract_version"],
+            )
+        ] = facts
     randomness_snapshot = (
         effective_randomness_snapshot
         if effective_randomness_snapshot is not None
-        else _resolve_effective_randomness(catalog, node, inputs)
+        else _resolve_effective_randomness(node, inputs)
     )
     resolved_node_parameters = _plain_json(
         randomness_snapshot.node_parameters
@@ -2891,24 +3165,19 @@ def _result_identity_descriptor(
             )
         ),
     }
-    selected_objectives = _consumed_selection_objectives(
-        plan,
-        node,
-        binding_contract,
+    selected_objectives = tuple(
+        item.objective for item in node._runtime.selection_objectives
     )
     if selected_objectives:
         descriptor["selection_objectives"] = (
             _normalize_nested_contract_references(
-                selection_objective_provenance(
-                    selected_objectives,
-                    catalog,
+                selection_objective_provenance_from_facts(
+                    node._runtime.selection_objectives,
                 )["objectives"]
             )
         )
-    selected_observation_selectors = _consumed_observation_selectors(
-        plan,
-        node,
-        binding_contract,
+    selected_observation_selectors = tuple(
+        item.selector for item in node._runtime.observation_selectors
     )
     if selected_observation_selectors:
         descriptor["observation_selectors"] = (
@@ -2957,40 +3226,6 @@ def _normalize_nested_contract_references(value: Any) -> Any:
     return value
 
 
-def _nested_contract_reference_keys(
-    value: Any,
-) -> set[tuple[str, str, str]]:
-    keys: set[tuple[str, str, str]] = set()
-    if isinstance(value, Mapping):
-        if set(value) == {
-            "contract_kind",
-            "contract_id",
-            "contract_version",
-            "contract_digest",
-        } and all(
-            isinstance(value[field], str)
-            for field in (
-                "contract_kind",
-                "contract_id",
-                "contract_version",
-                "contract_digest",
-            )
-        ):
-            keys.add(
-                (
-                    value["contract_kind"],
-                    value["contract_id"],
-                    value["contract_version"],
-                )
-            )
-        for item in value.values():
-            keys.update(_nested_contract_reference_keys(item))
-    elif isinstance(value, (list, tuple)):
-        for item in value:
-            keys.update(_nested_contract_reference_keys(item))
-    return keys
-
-
 def _result_affecting_contract(contract: Any) -> dict[str, Any]:
     descriptor = (
         contract.descriptor()
@@ -3016,154 +3251,121 @@ def _result_affecting_contract(contract: Any) -> dict[str, Any]:
     }
 
 
-def _candidate_data_content_digest(
-    catalog: FrozenCatalog,
-    candidate: Candidate,
-) -> str:
-    type_id = {
+def _candidate_data_type_id(value: Any) -> str | None:
+    return {
         ProteinSequence: "protein.sequence",
         ProteinStructure: "protein.structure",
         StructureAlignment: "structure.alignment",
-    }.get(type(candidate.data))
+    }.get(type(value))
+
+
+def _active_content_digest(
+    port_types: Mapping[str, Any],
+    type_id: str,
+    value: Any,
+) -> str:
+    try:
+        port_type = port_types[type_id]
+    except KeyError as error:
+        raise PortValueError(
+            f"Execution Plan lacks Candidate data Port Type {type_id!r}"
+        ) from error
+    return port_type.content_digest(value)
+
+
+def _candidate_data_content_digest(
+    port_types: Mapping[str, Any],
+    candidate: Candidate,
+) -> str:
+    type_id = _candidate_data_type_id(candidate.data)
     if type_id is None:
         raise PortValueError(
             "Candidate data has no registered content identity"
         )
-    return catalog.require_port_type(
-        type_id,
-        "2.1.0",
-    ).content_digest(candidate.data)
+    return _active_content_digest(port_types, type_id, candidate.data)
 
 
-def _input_content_digest(
-    port_type: Any,
+def _exact_reference(reference: Any) -> ExactContractReference:
+    return ExactContractReference(
+        contract_kind=reference.contract_kind,
+        contract_id=reference.contract_id,
+        contract_version=reference.contract_version,
+        contract_digest=reference.contract_digest,
+    )
+
+
+def _candidate_digests_for_value(
+    port_types: Mapping[str, Any],
     value: Any,
-) -> str:
-    """Identify every typed scientific input through its registered codec."""
-    return port_type.content_digest(value)
+) -> tuple[CandidateDataDigest, ...]:
+    if type(value) is Candidate:
+        candidates = (value,)
+    elif type(value) is CandidateCollection:
+        candidates = tuple(value.items)
+    else:
+        return ()
+    digests: list[CandidateDataDigest] = []
+    for candidate in candidates:
+        type_id = _candidate_data_type_id(candidate.data)
+        if type_id is None:
+            continue
+        digests.append(
+            CandidateDataDigest(
+                candidate_id=candidate.candidate_id,
+                data_type_id=type_id,
+                content_digest=_active_content_digest(
+                    port_types,
+                    type_id,
+                    candidate.data,
+                ),
+            )
+        )
+    return tuple(digests)
 
 
 def _result_identity(
-    catalog: FrozenCatalog,
-    plan: ExecutionPlan,
     node: ExecutionPlanNode,
     inputs: Mapping[str, Any],
+    *,
+    input_content_digests: Mapping[str, InputContentDigests],
     resolved_resource_inputs: tuple[Mapping[str, Any], ...] = (),
     effective_randomness_snapshot: _EffectiveRandomnessSnapshot | None = None,
 ) -> str:
     return canonical_sha256(
         _result_identity_descriptor(
-            catalog,
-            plan,
             node,
             inputs,
-            resolved_resource_inputs,
-            effective_randomness_snapshot,
+            input_content_digests=input_content_digests,
+            resolved_resource_inputs=resolved_resource_inputs,
+            effective_randomness_snapshot=effective_randomness_snapshot,
         )
     )
-
-
-def _consumed_selection_objectives(
-    plan: ExecutionPlan,
-    node: ExecutionPlanNode,
-    binding_contract: Any,
-) -> tuple[Any, ...]:
-    consumption = binding_contract.descriptor.get(
-        "selection_objective_consumption"
-    )
-    if not isinstance(consumption, Mapping):
-        return ()
-    scalar_parameter = consumption.get("objective_id_parameter")
-    ordered_parameter = consumption.get("objective_ids_parameter")
-    if isinstance(scalar_parameter, str):
-        objective_ids = (node.node_parameters.get(scalar_parameter),)
-    elif isinstance(ordered_parameter, str):
-        raw_ids = node.node_parameters.get(ordered_parameter)
-        objective_ids = (
-            tuple(raw_ids) if isinstance(raw_ids, (list, tuple)) else ()
-        )
-    else:
-        objective_ids = ()
-    objectives = {
-        objective.objective_id: objective
-        for objective in plan.selection_objectives
-    }
-    matches = [
-        objectives[objective_id]
-        for objective_id in objective_ids
-        if isinstance(objective_id, str) and objective_id in objectives
-    ]
-    if not objective_ids or len(matches) != len(objective_ids):
-        raise PortValueError(
-            "Selection Objective consumption is unresolved at execution"
-        )
-    return tuple(matches)
-
-
-def _consumed_observation_selectors(
-    plan: ExecutionPlan,
-    node: ExecutionPlanNode,
-    binding_contract: Any,
-) -> tuple[Any, ...]:
-    consumption = binding_contract.descriptor.get(
-        "observation_selector_consumption"
-    )
-    if not isinstance(consumption, Mapping):
-        return ()
-    parameter = consumption.get("selector_id_parameter")
-    selector_id = (
-        node.node_parameters.get(parameter)
-        if isinstance(parameter, str)
-        else None
-    )
-    selectors = {
-        selector.selector_id: selector
-        for selector in plan.observation_selectors
-    }
-    selector = selectors.get(selector_id)
-    if selector is None:
-        raise PortValueError(
-            "Observation Selector consumption is unresolved at execution"
-        )
-    return (selector,)
 
 
 def _selection_consumer_result(
-    catalog: FrozenCatalog,
-    plan: ExecutionPlan,
     node: ExecutionPlanNode,
-    values: Mapping[tuple[str, str], list[Any]],
+    values: Mapping[tuple[str, str], AdmittedPortValues],
 ) -> dict[str, Any] | None:
     """Project one declared selection Node's actual typed output."""
-    binding = catalog.require_contract(*node.binding.key)
-    objective_consumption = binding.descriptor.get(
-        "selection_objective_consumption"
-    )
-    selector_consumption = binding.descriptor.get(
-        "observation_selector_consumption"
-    )
-    if not isinstance(objective_consumption, Mapping) and not isinstance(
-        selector_consumption,
-        Mapping,
-    ):
+    resolved_objectives = node._runtime.selection_objectives
+    resolved_selectors = node._runtime.observation_selectors
+    if not resolved_objectives and not resolved_selectors:
         return None
-    if isinstance(selector_consumption, Mapping):
-        selectors = _consumed_observation_selectors(plan, node, binding)
+    if resolved_selectors:
+        selectors = tuple(item.selector for item in resolved_selectors)
         candidate_references = {
             selector.candidate_input for selector in selectors
         }
-        consumption = selector_consumption
     else:
-        objectives = _consumed_selection_objectives(plan, node, binding)
+        objectives = tuple(item.objective for item in resolved_objectives)
         candidate_references = {
             objective.candidate_input for objective in objectives
         }
-        consumption = objective_consumption
     if len(candidate_references) != 1:
         raise SelectionError(
             "Selection consumer objectives do not share one Candidate input"
         )
-    output_port = consumption.get("candidate_output_port")
+    output_port = node._runtime.selection_candidate_output_port
     resolved = (
         values.get((node.node_id, output_port), [])
         if isinstance(output_port, str)
@@ -3189,25 +3391,27 @@ def _selection_consumer_result(
             candidate.candidate_id for candidate in selected.items
         ],
     }
-    if isinstance(selector_consumption, Mapping):
+    if resolved_selectors:
         result["observation_selectors"] = [
             selector.to_public() for selector in selectors
         ]
     else:
-        provenance = selection_objective_provenance(objectives, catalog)
+        provenance = selection_objective_provenance_from_facts(
+            resolved_objectives
+        )
         result["objectives"] = provenance["objectives"]
     return result
 
 
 def _workflow_weighted_selection_result(
-    catalog: FrozenCatalog,
     plan: ExecutionPlan,
-    values: Mapping[tuple[str, str], list[Any]],
+    values: Mapping[tuple[str, str], AdmittedPortValues],
 ) -> dict[str, Any]:
     """Retain the Workflow-level weighted result when no Node consumes it."""
     candidate_inputs: dict[SelectionInput, CandidateCollection] = {}
     score_collection_inputs: dict[SelectionInput, ScoreCollection] = {}
-    for objective in plan.selection_objectives:
+    for resolved_objective in plan._runtime.selection_objectives:
+        objective = resolved_objective.objective
         for reference, expected_type, destination in (
             (
                 objective.candidate_input,
@@ -3233,13 +3437,22 @@ def _workflow_weighted_selection_result(
                     f"{expected_type.__name__}"
                 )
             destination[reference] = resolved_values[0]
-    candidate_reference = plan.selection_objectives[0].candidate_input
+    candidate_reference = (
+        plan._runtime.selection_objectives[0].objective.candidate_input
+    )
     candidate_collection = candidate_inputs[candidate_reference]
-    selection = select_candidates(
+    candidate_content_digests = {
+        candidate.candidate_id: _candidate_data_content_digest(
+            plan._runtime.candidate_data_port_types,
+            candidate,
+        )
+        for candidate in candidate_collection.items
+    }
+    selection = select_candidates_from_facts(
         candidate_inputs=candidate_inputs,
         score_collection_inputs=score_collection_inputs,
-        objectives=plan.selection_objectives,
-        catalog=catalog,
+        objectives=plan._runtime.selection_objectives,
+        candidate_content_digests=candidate_content_digests,
         limit=max(1, len(candidate_collection.items)),
     )
     return {
@@ -3252,97 +3465,6 @@ def _workflow_weighted_selection_result(
         ],
         "objectives": selection.public_provenance()["objectives"],
     }
-
-
-def _relevant_result_contract_keys(
-    catalog: FrozenCatalog,
-    plan: ExecutionPlan,
-    node: ExecutionPlanNode,
-    node_contract: Any,
-    binding_contract: Any,
-) -> set[tuple[str, str, str]]:
-    keys = {
-        node.node_type.key,
-        node.binding.key,
-        node.method.key,
-        *{
-            (
-                port["port_type"]["contract_kind"],
-                port["port_type"]["contract_id"],
-                port["port_type"]["contract_version"],
-            )
-            for direction in ("inputs", "outputs")
-            for port in node_contract.descriptor.get(direction, ())
-        },
-        *{
-            (
-                observation["metric"]["contract_kind"],
-                observation["metric"]["contract_id"],
-                observation["metric"]["contract_version"],
-            )
-            for observation in binding_contract.descriptor.get(
-                "produced_observations",
-                (),
-            )
-        },
-        *{
-            entry.key
-            for entry in plan.resolved_contracts
-            if entry.contract_kind == "utility_transform"
-        },
-    }
-    selected_objectives = _consumed_selection_objectives(
-        plan,
-        node,
-        binding_contract,
-    )
-    for selected_objective in selected_objectives:
-        keys.update(
-            {
-                (
-                    reference.contract_kind,
-                    reference.contract_id,
-                    reference.contract_version,
-                )
-                for reference in (
-                    selected_objective.metric,
-                    selected_objective.method,
-                    selected_objective.utility_transform,
-                )
-            }
-        )
-    for selector in _consumed_observation_selectors(
-        plan,
-        node,
-        binding_contract,
-    ):
-        keys.update(
-            {
-                (
-                    reference.contract_kind,
-                    reference.contract_id,
-                    reference.contract_version,
-                )
-                for reference in (selector.metric, selector.method)
-            }
-        )
-    unresolved = list(keys)
-    while unresolved:
-        key = unresolved.pop()
-        contract = catalog.require_contract(*key)
-        descriptor = (
-            contract.descriptor()
-            if callable(contract.descriptor)
-            else contract.descriptor
-        )
-        for reference in _nested_contract_reference_keys(descriptor):
-            if (
-                reference not in keys
-                and catalog.get_contract(*reference) is not None
-            ):
-                keys.add(reference)
-                unresolved.append(reference)
-    return keys
 
 
 def _contains_unresolved_identity(value: Any) -> bool:
@@ -3368,40 +3490,29 @@ def _contains_unresolved_identity(value: Any) -> bool:
 
 
 def _result_identity_is_cache_safe(
-    catalog: FrozenCatalog,
-    plan: ExecutionPlan,
     node: ExecutionPlanNode,
     inputs: Mapping[str, Any],
+    *,
+    input_content_digests: Mapping[str, InputContentDigests],
     resolved_resource_inputs: tuple[Mapping[str, Any], ...] = (),
     effective_randomness_snapshot: _EffectiveRandomnessSnapshot | None = None,
 ) -> bool:
-    node_contract = catalog.require_contract(*node.node_type.key)
-    binding_contract = catalog.require_contract(*node.binding.key)
-    keys = _relevant_result_contract_keys(
-        catalog,
-        plan,
-        node,
-        node_contract,
-        binding_contract,
-    )
-    contracts = tuple(catalog.require_contract(*key) for key in keys)
     if any(
         _contains_unresolved_identity(
             _result_affecting_contract(contract)["descriptor"]
         )
-        for contract in contracts
+        for contract in node._runtime.result_contracts
     ):
         return False
     if _contains_unresolved_identity(inputs):
         return False
     if _contains_unresolved_identity(
         _result_identity_descriptor(
-            catalog,
-            plan,
             node,
             inputs,
-            resolved_resource_inputs,
-            effective_randomness_snapshot,
+            input_content_digests=input_content_digests,
+            resolved_resource_inputs=resolved_resource_inputs,
+            effective_randomness_snapshot=effective_randomness_snapshot,
         )
     ):
         return False
@@ -3413,25 +3524,19 @@ def _result_identity_is_cache_safe(
 
 
 def _result_contract_metadata(
-    catalog: FrozenCatalog,
-    plan: ExecutionPlan,
     node: ExecutionPlanNode,
 ) -> dict[str, Any]:
-    node_contract = catalog.require_contract(*node.node_type.key)
-    binding_contract = catalog.require_contract(*node.binding.key)
-    relevant_keys = _relevant_result_contract_keys(
-        catalog,
-        plan,
-        node,
-        node_contract,
-        binding_contract,
-    )
-    contracts = {
-        identity: _result_affecting_contract(
-            catalog.require_contract(*identity)
-        )
-        for identity in relevant_keys
-    }
+    node_contract = node._runtime.node_contract
+    contracts = {}
+    for contract in node._runtime.result_contracts:
+        facts = _result_affecting_contract(contract)
+        contracts[
+            (
+                facts["contract_kind"],
+                facts["contract_id"],
+                facts["contract_version"],
+            )
+        ] = facts
     metadata = {
         "contracts": [contracts[key] for key in sorted(contracts)],
         "outputs": [
@@ -3444,27 +3549,16 @@ def _result_contract_metadata(
             for port in node_contract.descriptor.get("outputs", ())
         ],
     }
-    selected_objectives = _consumed_selection_objectives(
-        plan,
-        node,
-        binding_contract,
-    )
-    if selected_objectives:
+    if node._runtime.selection_objectives:
         metadata["selection_objectives"] = _plain_json(
-            selection_objective_provenance(
-                selected_objectives,
-                catalog,
+            selection_objective_provenance_from_facts(
+                node._runtime.selection_objectives,
             )["objectives"]
         )
-    selected_observation_selectors = _consumed_observation_selectors(
-        plan,
-        node,
-        binding_contract,
-    )
-    if selected_observation_selectors:
+    if node._runtime.observation_selectors:
         metadata["observation_selectors"] = [
-            selector.to_public()
-            for selector in selected_observation_selectors
+            item.selector.to_public()
+            for item in node._runtime.observation_selectors
         ]
     return metadata
 
@@ -3587,6 +3681,30 @@ class _ProjectResultCache(ResultReplaySource):
                 project_id,
                 producer_run_id,
             )
+            if ledger is None:
+                return False
+            producer_catalog_digest = _validated_run_catalog_digest(
+                ledger,
+                self._catalog,
+            )
+            if producer_catalog_digest != self._catalog.contract_digest:
+                raise V2RunError(
+                    "inactive_generation",
+                    "Result Cache producer belongs to an inactive Catalog generation",
+                    details={
+                        "artifact_kind": "result_cache",
+                        "expected_catalog_contract_digest": (
+                            self._catalog.contract_digest
+                        ),
+                        "received_catalog_contract_digest": (
+                            producer_catalog_digest
+                        ),
+                    },
+                )
+        except V2RunError as error:
+            if error.code == "inactive_generation":
+                raise
+            return False
         except (
             FileNotFoundError,
             KeyError,
@@ -3595,11 +3713,8 @@ class _ProjectResultCache(ResultReplaySource):
             RuntimeError,
             StoragePathError,
             TypeError,
-            V2RunError,
             ValueError,
         ):
-            return False
-        if ledger is None:
             return False
         return any(
             fact["fact_type"] == "node_disposition"
@@ -3622,8 +3737,6 @@ class _ProjectResultCache(ResultReplaySource):
         if entry is None:
             return None
         if entry["contract_metadata"] != _result_contract_metadata(
-            self._catalog,
-            execution_plan,
             node,
         ):
             raise V2RunError(
@@ -3640,12 +3753,14 @@ class _ProjectResultCache(ResultReplaySource):
                 "Cache replay producer provenance is not durably successful",
                 details={"result_identity": result_identity},
             )
-        node_contract = self._catalog.require_contract(*node.node_type.key)
         declarations = {
-            port["name"]: port
-            for port in node_contract.descriptor.get("outputs", ())
+            name: port.declaration
+            for name, port in node._runtime.output_ports.items()
         }
-        decoded_outputs: dict[str, Any] = {}
+        admitted_outputs: dict[
+            tuple[str, str],
+            AdmittedPortValues,
+        ] = {}
         seen_ports: set[str] = set()
         for output in entry["outputs"]:
             if (
@@ -3670,47 +3785,40 @@ class _ProjectResultCache(ResultReplaySource):
                 raise RecoverableCacheMiss(
                     "Result cache output contract storage is corrupt"
                 )
-            port_type = self._catalog.require_port_type(
-                output["port_type"]["contract_id"],
-                output["port_type"]["contract_version"],
-            )
+            port_type = node._runtime.output_ports[
+                output["output_port"]
+            ].port_type
             try:
-                values = [
-                    port_type.decode(
-                        base64.b64decode(item, validate=True)
-                    )
+                canonical_values = tuple(
+                    base64.b64decode(item, validate=True)
                     for item in output["encoded_values"]
                     if isinstance(item, str)
-                ]
+                )
+                admitted = admitted_port_values_from_bytes(
+                    port_type=port_type,
+                    multiplicity=declaration["multiplicity"],
+                    canonical_values=canonical_values,
+                    candidate_data=lambda value: (
+                        _candidate_digests_for_value(
+                            execution_plan._runtime.candidate_data_port_types,
+                            value,
+                        )
+                    ),
+                )
             except (binascii.Error, PortValueError, ValueError):
                 raise RecoverableCacheMiss(
                     "Result cache encoded output storage is corrupt"
                 )
-            if len(values) != len(output["encoded_values"]):
+            if len(canonical_values) != len(output["encoded_values"]):
                 raise RecoverableCacheMiss(
                     "Result cache output cardinality storage is corrupt"
                 )
-            expected_digest = (
-                port_type.content_digest(values[0])
-                if len(values) == 1
-                else canonical_sha256(
-                    {
-                        "port_type": port_type.reference(),
-                        "value_content_digests": [
-                            port_type.content_digest(value)
-                            for value in values
-                        ],
-                    }
-                )
-            )
-            if expected_digest != output["content_digest"]:
+            if admitted.content_digest != output["content_digest"]:
                 raise RecoverableCacheMiss(
                     "Result cache content digest storage is corrupt"
                 )
-            decoded_outputs[output["output_port"]] = (
-                values
-                if declaration["multiplicity"] == "many"
-                else values[0]
+            admitted_outputs[(node.node_id, output["output_port"])] = (
+                admitted
             )
         if any(
             declaration["required"] is True and port_name not in seen_ports
@@ -3720,9 +3828,9 @@ class _ProjectResultCache(ResultReplaySource):
                 "Result cache required output storage is incomplete"
             )
         return ResultReplayHit(
-            outputs=decoded_outputs,
             result_identity=result_identity,
             producer_run_id=entry["producer"]["producer_run_id"],
+            admitted_outputs=MappingProxyType(admitted_outputs),
         )
 
     def _entry(
@@ -3733,33 +3841,26 @@ class _ProjectResultCache(ResultReplaySource):
         result_identity: str,
         outputs: list[dict[str, Any]],
         producer_run_id: str,
+        admitted_outputs: Mapping[
+            tuple[str, str],
+            AdmittedPortValues,
+        ],
     ) -> dict[str, Any] | None:
-        node_contract = self._catalog.require_contract(*node.node_type.key)
-        declarations = {
-            port["name"]: port
-            for port in node_contract.descriptor.get("outputs", ())
-        }
         stored_outputs: list[dict[str, Any]] = []
         for output in outputs:
-            declaration = declarations[output["output_port"]]
-            port_type = self._catalog.require_port_type(
-                output["port_type"]["contract_id"],
-                output["port_type"]["contract_version"],
-            )
-            encoded_values = [
-                port_type.encode(port_type.decode(canonical_json_bytes({
-                    "schema_namespace": "protein-workbench-port-value/v2",
-                    "port_type_id": port_type.type_id,
-                    "port_type_version": port_type.version,
-                    "value": value,
-                })))
-                for value in output["values"]
+            admitted = admitted_outputs[
+                (node.node_id, output["output_port"])
             ]
             if (
-                declaration["multiplicity"] == "one"
-                and len(encoded_values) != 1
+                dict(admitted.port_type) != output["port_type"]
+                or admitted.content_digest != output["content_digest"]
             ):
-                raise PortValueError("Cache output multiplicity is invalid")
+                raise RuntimeError(
+                    "Published output diverged from its admission snapshot"
+                )
+            canonical_values = tuple(
+                value.canonical_bytes for value in admitted.values
+            )
             stored_outputs.append(
                 {
                     "output_port": output["output_port"],
@@ -3767,7 +3868,7 @@ class _ProjectResultCache(ResultReplaySource):
                     "content_digest": output["content_digest"],
                     "encoded_values": [
                         base64.b64encode(encoded).decode("ascii")
-                        for encoded in encoded_values
+                        for encoded in canonical_values
                     ],
                 }
             )
@@ -3775,8 +3876,6 @@ class _ProjectResultCache(ResultReplaySource):
             "schema_namespace": RESULT_CACHE_ENTRY_NAMESPACE,
             "result_identity": result_identity,
             "contract_metadata": _result_contract_metadata(
-                self._catalog,
-                execution_plan,
                 node,
             ),
             "producer": {
@@ -3810,6 +3909,10 @@ class _ProjectResultCache(ResultReplaySource):
         result_identity: str,
         outputs: list[dict[str, Any]],
         producer_run_id: str,
+        admitted_outputs: Mapping[
+            tuple[str, str],
+            AdmittedPortValues,
+        ],
     ) -> None:
         entry = self._entry(
             execution_plan=execution_plan,
@@ -3817,6 +3920,7 @@ class _ProjectResultCache(ResultReplaySource):
             result_identity=result_identity,
             outputs=outputs,
             producer_run_id=producer_run_id,
+            admitted_outputs=admitted_outputs,
         )
         if entry is None:
             return None
@@ -3840,6 +3944,10 @@ class _ProjectResultCache(ResultReplaySource):
         result_identity: str,
         outputs: list[dict[str, Any]],
         producer_run_id: str,
+        admitted_outputs: Mapping[
+            tuple[str, str],
+            AdmittedPortValues,
+        ],
     ) -> Callable[[], None] | None:
         entry = self._entry(
             execution_plan=execution_plan,
@@ -3847,6 +3955,7 @@ class _ProjectResultCache(ResultReplaySource):
             result_identity=result_identity,
             outputs=outputs,
             producer_run_id=producer_run_id,
+            admitted_outputs=admitted_outputs,
         )
         if entry is None:
             return None
@@ -3928,6 +4037,7 @@ class V2RunService:
         )
         self._runs: dict[tuple[str, str], _RunRecord] = {}
         self._damaged_runs: dict[tuple[str, str], str] = {}
+        self._inactive_runs: dict[tuple[str, str], str] = {}
         self._unsupported_runs: dict[tuple[str, str], str] = {}
         self._run_owners: dict[str, str] = {}
         self._worker_condition = threading.Condition(threading.RLock())
@@ -3945,90 +4055,16 @@ class V2RunService:
         self,
         plan: ExecutionPlan,
     ) -> tuple[_PlanNodeEvidence, ...]:
-        dependencies: dict[str, set[str]] = {
-            node.node_id: set() for node in plan.nodes
-        }
-        required_dependencies: dict[str, set[str]] = {
-            node.node_id: set() for node in plan.nodes
-        }
-        nodes = {node.node_id: node for node in plan.nodes}
-        for edge in plan.edges:
-            dependencies[edge.target_node_id].add(edge.source_node_id)
-            target = nodes[edge.target_node_id]
-            contract = self._catalog.require_contract(*target.node_type.key)
-            ports = {
-                port["name"]: port
-                for port in contract.descriptor.get("inputs", ())
-            }
-            constrained_ports = {
-                port_name
-                for constraint in contract.descriptor.get(
-                    "input_constraints",
-                    (),
-                )
-                if constraint.get("kind") == "exactly_one"
-                for port_name in constraint["ports"]
-            }
-            if (
-                ports[edge.target_port]["required"] is True
-                or edge.target_port in constrained_ports
-            ):
-                required_dependencies[edge.target_node_id].add(
-                    edge.source_node_id
-                )
-
-        def artifact_outputs(
-            node: ExecutionPlanNode,
-        ) -> tuple[Mapping[str, Any], ...]:
-            contract = self._catalog.require_contract(*node.node_type.key)
-            evidence: list[Mapping[str, Any]] = []
-            for output in contract.descriptor.get("outputs", ()):
-                artifact_kind = output.get("artifact_kind")
-                if artifact_kind is None:
-                    continue
-                port_reference = output["port_type"]
-                port_type = self._catalog.require_port_type(
-                    port_reference["contract_id"],
-                    port_reference["contract_version"],
-                )
-                accepted_media_types = port_type.artifact_media_types
-                if accepted_media_types is None:
-                    raise PortValueError(
-                        "Artifact Port lacks a publication media contract"
-                    )
-                evidence.append(
-                    {
-                        "output_port": output["name"],
-                        "artifact_kind": artifact_kind,
-                        "artifact_media_type": output.get(
-                            "artifact_media_type"
-                        ),
-                        "port_type": dict(port_reference),
-                        "accepted_media_types": tuple(
-                            accepted_media_types
-                        ),
-                    }
-                )
-            return tuple(evidence)
-
         return tuple(
             _PlanNodeEvidence(
                 node.node_id,
-                tuple(sorted(dependencies[node.node_id])),
-                tuple(sorted(required_dependencies[node.node_id])),
+                node._runtime.dependencies,
+                node._runtime.required_dependencies,
                 node.node_type.to_public(),
-                artifact_outputs(node),
-                isinstance(
-                    self._catalog.require_contract(
-                        *node.binding.key
-                    ).descriptor.get("selection_objective_consumption"),
-                    Mapping,
-                )
-                or isinstance(
-                    self._catalog.require_contract(
-                        *node.binding.key
-                    ).descriptor.get("observation_selector_consumption"),
-                    Mapping,
+                node._runtime.artifact_outputs,
+                bool(
+                    node._runtime.selection_objectives
+                    or node._runtime.observation_selectors
                 ),
             )
             for node in plan.nodes
@@ -4139,6 +4175,7 @@ class V2RunService:
                     run_parent,
                 )
             except (
+                ContractResolutionError,
                 KeyError,
                 OSError,
                 ProtocolValidationError,
@@ -4204,6 +4241,16 @@ class V2RunService:
             and self._run_owners[run_id] != project_id
         ):
             raise RuntimeError("Run identity appears in multiple Projects")
+        persisted_catalog_digest = _validated_run_catalog_digest(
+            ledger,
+            self._catalog,
+        )
+        if persisted_catalog_digest != self._catalog.contract_digest:
+            self._inactive_runs[(project_id, run_id)] = (
+                persisted_catalog_digest
+            )
+            self._run_owners[run_id] = project_id
+            return
         ledger.reconcile_restart()
         try:
             ledger.rebuild_projections()
@@ -4260,6 +4307,23 @@ class V2RunService:
                         "received_schema_version": unsupported_version,
                     },
                 ) from error
+            inactive_catalog_digest = self._inactive_runs.get(
+                (project_id, run_id)
+            )
+            if inactive_catalog_digest is not None:
+                raise V2RunError(
+                    "inactive_generation",
+                    "Run evidence belongs to an inactive Catalog generation",
+                    details={
+                        "artifact_kind": "run_evidence",
+                        "expected_catalog_contract_digest": (
+                            self._catalog.contract_digest
+                        ),
+                        "received_catalog_contract_digest": (
+                            inactive_catalog_digest
+                        ),
+                    },
+                ) from error
             damaged_cursor = self._damaged_runs.get((project_id, run_id))
             if damaged_cursor is not None:
                 raise V2RunError(
@@ -4273,7 +4337,12 @@ class V2RunService:
                 details={"resource_kind": "run", "resource_id": run_id},
             ) from error
 
-    def _availability(self, binding_id: str, version: str) -> Mapping[str, Any]:
+    def _availability(
+        self,
+        node: ExecutionPlanNode,
+    ) -> Mapping[str, Any]:
+        binding_id = node.binding.contract_id
+        version = node.binding.contract_version
         for snapshot in self._catalog.availability:
             reference = snapshot["binding"]
             if (
@@ -4285,11 +4354,7 @@ class V2RunService:
             "binding_unavailable",
             "Selected Binding has no Availability snapshot",
             details={
-                "binding": self._catalog.require_contract(
-                    "binding",
-                    binding_id,
-                    version,
-                ).reference(),
+                "binding": node.binding.to_public(),
                 "reason_code": "availability_missing",
             },
         )
@@ -4346,10 +4411,7 @@ class V2RunService:
     ) -> None:
         binding_id = node.binding.contract_id
         binding_version = node.binding.contract_version
-        declaration = self._catalog.require_readiness_declaration(
-            binding_id,
-            binding_version,
-        )
+        declaration = node._runtime.readiness_declaration
         environment = self._environment.for_binding(
             binding_id,
             binding_version,
@@ -4505,36 +4567,62 @@ class V2RunService:
 
     def _inputs_for(
         self,
-        plan: ExecutionPlan,
         node: ExecutionPlanNode,
-        values: Mapping[tuple[str, str], list[Any]],
-    ) -> dict[str, Any]:
+        values: Mapping[
+            tuple[str, str],
+            AdmittedPortValues,
+        ],
+    ) -> tuple[
+        dict[str, Any],
+        Mapping[str, InputContentDigests],
+    ]:
+        declarations = {
+            name: port.declaration
+            for name, port in node._runtime.input_ports.items()
+        }
+        admitted_inputs: dict[str, list[Any]] = {}
+        for port_name, sources in node._runtime.input_sources.items():
+            for source_reference in sources:
+                source = values.get(
+                    (
+                        source_reference.node_id,
+                        source_reference.output_port,
+                    )
+                )
+                if source is None or not source.values:
+                    continue
+                admitted_inputs.setdefault(port_name, []).extend(
+                    source.values
+                )
+
         inputs: dict[str, Any] = {}
-        for edge in plan.edges:
-            if edge.target_node_id != node.node_id:
-                continue
-            node_contract = self._catalog.require_contract(
-                *node.node_type.key,
-            )
-            port, port_type = _port_contract(
-                self._catalog,
-                node_contract,
-                "inputs",
-                edge.target_port,
-            )
-            source_values = values.get(
-                (edge.source_node_id, edge.source_port),
-                [],
-            )
-            if not source_values:
-                continue
-            for value in source_values:
-                port_type.decode(port_type.encode(value))
-            if port["multiplicity"] == "many":
-                inputs.setdefault(edge.target_port, []).extend(source_values)
+        digests: dict[str, InputContentDigests] = {}
+        for port_name, admitted in admitted_inputs.items():
+            declaration = declarations[port_name]
+            if declaration["multiplicity"] == "many":
+                inputs[port_name] = tuple(
+                    value.runtime_value for value in admitted
+                )
             else:
-                inputs[edge.target_port] = source_values[0]
-        return inputs
+                if len(admitted) != 1:
+                    raise RuntimeError(
+                        "Execution Plan one-valued input Port "
+                        f"{port_name!r} resolved to {len(admitted)} "
+                        "admitted values"
+                    )
+                inputs[port_name] = admitted[0].runtime_value
+            digests[port_name] = InputContentDigests(
+                port_type_id=declaration["port_type"]["contract_id"],
+                value_content_digests=tuple(
+                    value.content_digest for value in admitted
+                ),
+                candidate_data=tuple(
+                    digest
+                    for value in admitted
+                    for digest in value.candidate_data
+                ),
+            )
+        return inputs, MappingProxyType(digests)
 
     def _resolve_project_inputs(
         self,
@@ -4545,14 +4633,9 @@ class V2RunService:
         tuple[Mapping[str, Any], ...],
     ]:
         """Resolve declared Project resources before Result Identity lookup."""
-        node_contract = self._catalog.require_contract(*node.node_type.key)
         resolved: dict[str, tuple[Mapping[str, Any], bytes]] = {}
         identities: list[Mapping[str, Any]] = []
-        for parameter_name, declaration in sorted(
-            node_contract.descriptor.get("node_parameters", {}).items()
-        ):
-            if declaration.get("resource_kind") != "project_input":
-                continue
+        for parameter_name in node._runtime.project_input_parameters:
             reference = node.node_parameters.get(parameter_name)
             if not isinstance(reference, str):
                 raise PortValueError(
@@ -4575,41 +4658,17 @@ class V2RunService:
 
     def _required_input_blockers(
         self,
-        plan: ExecutionPlan,
         node: ExecutionPlanNode,
-        values: Mapping[tuple[str, str], list[Any]],
+        values: Mapping[tuple[str, str], AdmittedPortValues],
     ) -> list[str]:
-        node_contract = self._catalog.require_contract(*node.node_type.key)
-        required_ports = {
-            port["name"]
-            for port in node_contract.descriptor.get("inputs", ())
-            if port.get("required") is True
-        }
-        required_ports.update(
-            edge.target_port
-            for constraint in node_contract.descriptor.get(
-                "input_constraints",
-                (),
-            )
-            if constraint.get("kind") == "exactly_one"
-            for edge in plan.edges
-            if edge.target_node_id == node.node_id
-            and edge.target_port in constraint["ports"]
-        )
         blockers: set[str] = set()
-        for port_name in required_ports:
-            incoming = [
-                edge
-                for edge in plan.edges
-                if edge.target_node_id == node.node_id
-                and edge.target_port == port_name
-            ]
+        for sources in node._runtime.required_input_sources.values():
             if any(
-                values.get((edge.source_node_id, edge.source_port))
-                for edge in incoming
+                values.get((source.node_id, source.output_port))
+                for source in sources
             ):
                 continue
-            blockers.update(edge.source_node_id for edge in incoming)
+            blockers.update(source.node_id for source in sources)
         return sorted(blockers)
 
     @staticmethod
@@ -4626,268 +4685,72 @@ class V2RunService:
             ]
         return []
 
-    def _candidate_content_digest(self, candidate: Candidate) -> str:
-        return _candidate_data_content_digest(self._catalog, candidate)
-
     def _normalize_candidate_outputs(
         self,
         *,
+        plan: ExecutionPlan,
         node: ExecutionPlanNode,
         result_identity: str,
         inputs: Mapping[str, Any],
         outputs: Mapping[str, Any],
     ) -> Mapping[str, Any]:
-        input_candidates = {
-            candidate.candidate_id: candidate
-            for value in inputs.values()
-            for candidate in self._candidate_values(value)
-        }
-        normalized_ids: dict[str, str] = {}
-        seen_raw_candidate_ids: set[str] = set()
-        for output_port in sorted(outputs):
-            supplied = outputs[output_port]
-            output_values = (
-                list(supplied)
-                if isinstance(supplied, (list, tuple))
-                else [supplied]
-            )
-            for value_index, value in enumerate(output_values):
-                candidates = self._candidate_values(value)
-                for sample_index, candidate in enumerate(candidates):
-                    raw_candidate_id = candidate.candidate_id
-                    if raw_candidate_id in seen_raw_candidate_ids:
-                        raise PortValueError(
-                            "Candidate output reuses one producer identity"
-                        )
-                    seen_raw_candidate_ids.add(raw_candidate_id)
-                    input_candidate = input_candidates.get(raw_candidate_id)
-                    if input_candidate is not None:
-                        if candidate != input_candidate:
-                            raise PortValueError(
-                                "Candidate pass-through changed exact input "
-                                "identity, lineage, content, or metadata"
-                            )
-                        normalized_ids[raw_candidate_id] = raw_candidate_id
-                        continue
-                    parents: list[str] = []
-                    for parent_id in candidate.parent_ids:
-                        if parent_id in normalized_ids:
-                            parents.append(normalized_ids[parent_id])
-                        elif parent_id in input_candidates:
-                            parents.append(parent_id)
-                        elif (
-                            not input_candidates
-                            and parent_id == node.node_id
-                        ):
-                            continue
-                        else:
-                            raise PortValueError(
-                                "Candidate parent identity is not a resolved "
-                                "input Candidate"
-                            )
-                    parents = list(dict.fromkeys(parents))
-                    content_digest = self._candidate_content_digest(candidate)
-                    sample_slot = f"{value_index}:{sample_index}"
-                    candidate_identity = canonical_sha256(
-                        {
-                            "schema_namespace": (
-                                "protein-workbench-candidate/v2"
-                            ),
-                            "producer_result_identity": result_identity,
-                            "output_port": output_port,
-                            "sample_slot": sample_slot,
-                            "parent_candidate_identities": parents,
-                            "content_digest": content_digest,
-                        }
-                    )
-                    candidate.candidate_id = (
-                        "candidate-" + candidate_identity.removeprefix("sha256:")
-                    )
-                    candidate.parent_ids = parents
-                    runtime_metadata_keys = {
-                        "run",
-                        "run_id",
-                        "node",
-                        "node_id",
-                        "timestamp",
-                        "created_at",
-                        "updated_at",
-                        "credential",
-                        "credentials",
-                        "private_path",
-                        "runtime_path",
-                        "presentation",
-                        "performance",
-                    }
-                    candidate.metadata = {
-                        **{
-                            key: item
-                            for key, item in candidate.metadata.items()
-                            if key not in runtime_metadata_keys
-                        },
-                        "producer_result_identity": result_identity,
-                        "output_port": output_port,
-                        "sample_slot": sample_slot,
-                        "content_digest": content_digest,
-                    }
-                    normalized_ids[raw_candidate_id] = candidate.candidate_id
-                if type(value) is CandidateCollection:
-                    value.collection_id = (
-                        "collection-"
-                        + canonical_sha256(
-                            {
-                                "schema_namespace": (
-                                    "protein-workbench-candidate-collection/v2"
-                                ),
-                                "producer_result_identity": result_identity,
-                                "output_port": output_port,
-                                "value_slot": value_index,
-                                "candidate_identities": [
-                                    candidate.candidate_id
-                                    for candidate in value.items
-                                ],
-                            }
-                        ).removeprefix("sha256:")
-                    )
-        for output_port in sorted(outputs):
-            supplied = outputs[output_port]
-            output_values = (
-                list(supplied)
-                if isinstance(supplied, (list, tuple))
-                else [supplied]
-            )
-            for value_index, value in enumerate(output_values):
-                if type(value) is PairwiseCandidateMapping:
-                    value.entries[:] = [
-                        replace(
-                            entry,
-                            subject_candidate_id=normalized_ids.get(
-                                entry.subject_candidate_id,
-                                entry.subject_candidate_id,
-                            ),
-                            reference_candidate_id=normalized_ids.get(
-                                entry.reference_candidate_id,
-                                entry.reference_candidate_id,
-                            ),
-                        )
-                        for entry in value.entries
-                    ]
-                    continue
-                if type(value) is not ScoreCollection:
-                    continue
-                normalized_scores: list[Any] = []
-                for score in value.entries:
-                    if type(score) is not ScoreObservation:
-                        raise PortValueError(
-                            "Score Collection contains an unsupported entry"
-                        )
-                    context = score.context
-                    if isinstance(
-                        context,
-                        PairwiseObservationContext,
-                    ):
-                        context = replace(
-                            context,
-                            subject=replace(
-                                context.subject,
-                                candidate_id=normalized_ids.get(
-                                    context.subject.candidate_id,
-                                    context.subject.candidate_id,
-                                ),
-                            ),
-                            reference=replace(
-                                context.reference,
-                                candidate_id=normalized_ids.get(
-                                    context.reference.candidate_id,
-                                    context.reference.candidate_id,
-                                ),
-                            ),
-                        )
-                    normalized_scores.append(
-                        replace(
-                            score,
-                            candidate_id=normalized_ids.get(
-                                score.candidate_id,
-                                score.candidate_id,
-                            ),
-                            context=context,
-                        )
-                    )
-                value.entries[:] = normalized_scores
-                value.collection_id = (
-                    "scores-"
-                    + canonical_sha256(
-                        {
-                            "schema_namespace": (
-                                "protein-workbench-score-collection/v2"
-                            ),
-                            "producer_result_identity": result_identity,
-                            "output_port": output_port,
-                            "value_slot": value_index,
-                            "scores": [
-                                (
-                                    {
-                                        "candidate_id": score.candidate_id,
-                                        "metric": {
-                                            "contract_kind": (
-                                                score.metric.contract_kind
-                                            ),
-                                            "contract_id": (
-                                                score.metric.contract_id
-                                            ),
-                                            "contract_version": (
-                                                score.metric.contract_version
-                                            ),
-                                            "contract_digest": (
-                                                score.metric.contract_digest
-                                            ),
-                                        },
-                                        "method": {
-                                            "contract_kind": (
-                                                score.method.contract_kind
-                                            ),
-                                            "contract_id": (
-                                                score.method.contract_id
-                                            ),
-                                            "contract_version": (
-                                                score.method.contract_version
-                                            ),
-                                            "contract_digest": (
-                                                score.method.contract_digest
-                                            ),
-                                        },
-                                        "context": score.context.to_public(),
-                                        "source_partition": (
-                                            score.source_partition
-                                        ),
-                                        "value": score.value,
-                                    }
-                                )
-                                for score in value.entries
-                            ],
-                        }
-                    ).removeprefix("sha256:")
+        return normalize_scientific_outputs(
+            node_id=node.node_id,
+            result_identity=result_identity,
+            inputs=inputs,
+            outputs=outputs,
+            candidate_content_digest=lambda candidate: (
+                _candidate_data_content_digest(
+                    plan._runtime.candidate_data_port_types,
+                    candidate,
                 )
-        return outputs
+            ),
+        )
 
-    def _validate_outputs(
+    def _published_outputs(
         self,
+        node: ExecutionPlanNode,
+        admitted: Mapping[
+            tuple[str, str],
+            AdmittedPortValues,
+        ],
+    ) -> list[dict[str, Any]]:
+        return [
+            {
+                "node_id": node.node_id,
+                "output_port": output_port,
+                "port_type": dict(snapshot.port_type),
+                "content_digest": snapshot.content_digest,
+                "values": [
+                    _wire_value(value.canonical_bytes)
+                    for value in snapshot.values
+                ],
+            }
+            for (node_id, output_port), snapshot in admitted.items()
+            if node_id == node.node_id
+        ]
+
+    def _admit_outputs(
+        self,
+        plan: ExecutionPlan,
         node: ExecutionPlanNode,
         outputs: Any,
         *,
         inputs: Mapping[str, Any],
-    ) -> tuple[list[dict[str, Any]], dict[tuple[str, str], list[Any]]]:
+    ) -> tuple[
+        list[dict[str, Any]],
+        dict[tuple[str, str], AdmittedPortValues],
+    ]:
         if not isinstance(outputs, Mapping):
             raise PortValueError("Direct implementation output must be an object")
-        node_contract = self._catalog.require_contract(*node.node_type.key)
         declared = {
-            port["name"]: port
-            for port in node_contract.descriptor.get("outputs", ())
+            name: port.declaration
+            for name, port in node._runtime.output_ports.items()
         }
         if set(outputs) - set(declared):
             raise PortValueError("Direct implementation returned unknown outputs")
-        published: list[dict[str, Any]] = []
-        runtime: dict[tuple[str, str], list[Any]] = {}
+
+        admitted: dict[tuple[str, str], AdmittedPortValues] = {}
         for port_name, declaration in declared.items():
             if declaration["required"] is True and port_name not in outputs:
                 raise PortValueError(
@@ -4895,64 +4758,63 @@ class V2RunService:
                 )
             if port_name not in outputs:
                 continue
-            _, port_type = _port_contract(
-                self._catalog,
-                node_contract,
-                "outputs",
-                port_name,
-            )
             supplied = outputs[port_name]
-            values = (
-                list(supplied)
-                if declaration["multiplicity"] == "many"
-                else [supplied]
-            )
-            if declaration["multiplicity"] == "many" and not isinstance(
-                supplied,
-                (list, tuple),
+            if (
+                declaration["multiplicity"] == "many"
+                and not isinstance(supplied, (list, tuple))
             ):
                 raise PortValueError(
                     f"Output Port {port_name!r} requires many values"
                 )
-            encoded = [port_type.encode(value) for value in values]
-            decoded = [
-                port_type.decode(item)
-                for item in encoded
-            ]
-            if port_type.type_id == "score.collection":
-                binding = self._catalog.require_contract(*node.binding.key)
-                for value in decoded:
-                    validate_produced_score_collection(
-                        catalog=self._catalog,
-                        binding=binding,
-                        output_port=port_name,
-                        collection=value,
-                        inputs=inputs,
-                        outputs=outputs,
-                    )
-            runtime[(node.node_id, port_name)] = decoded
-            published.append(
-                {
-                    "node_id": node.node_id,
-                    "output_port": port_name,
-                    "port_type": port_type.reference(),
-                    "content_digest": (
-                        port_type.content_digest(decoded[0])
-                        if len(decoded) == 1
-                        else canonical_sha256(
-                            {
-                                "port_type": port_type.reference(),
-                                "value_content_digests": [
-                                    port_type.content_digest(value)
-                                    for value in decoded
-                                ],
-                            }
+            values = (
+                tuple(supplied)
+                if declaration["multiplicity"] == "many"
+                else (supplied,)
+            )
+            port_type = node._runtime.output_ports[port_name].port_type
+            admitted[(node.node_id, port_name)] = admitted_port_values(
+                port_type=port_type,
+                multiplicity=declaration["multiplicity"],
+                values=values,
+                candidate_data=lambda value: _candidate_digests_for_value(
+                    plan._runtime.candidate_data_port_types,
+                    value,
+                ),
+            )
+
+        canonical_outputs = {
+            port_name: (
+                snapshot.runtime_values
+                if snapshot.multiplicity == "many"
+                else snapshot.values[0].runtime_value
+            )
+            for (node_id, port_name), snapshot in admitted.items()
+            if node_id == node.node_id
+        }
+        for (node_id, port_name), snapshot in admitted.items():
+            if (
+                node_id != node.node_id
+                or snapshot.port_type["contract_id"] != "score.collection"
+            ):
+                continue
+            for value in snapshot.runtime_values:
+                validate_produced_score_collection_from_facts(
+                    binding_descriptor=(
+                        node._runtime.binding_contract.descriptor
+                    ),
+                    output_port=port_name,
+                    collection=value,
+                    inputs=inputs,
+                    outputs=canonical_outputs,
+                    metric_facts=node._runtime.produced_metric_facts,
+                    candidate_content_digest=lambda candidate: (
+                        _candidate_data_content_digest(
+                            plan._runtime.candidate_data_port_types,
+                            candidate,
                         )
                     ),
-                    "values": [_wire_value(item) for item in encoded],
-                }
-            )
-        return published, runtime
+                )
+        return self._published_outputs(node, admitted), admitted
 
     def _publish_artifact_payload(
         self,
@@ -5034,7 +4896,7 @@ class V2RunService:
         node: ExecutionPlanNode,
         resources: RunResources,
         published: list[dict[str, Any]],
-        runtime: Mapping[tuple[str, str], list[Any]],
+        runtime: Mapping[tuple[str, str], AdmittedPortValues],
         current_artifact_count: int,
         current_artifact_bytes: int,
     ) -> tuple[
@@ -5048,10 +4910,9 @@ class V2RunService:
             str,
             tuple[dict[str, Any], tuple[str, ...]],
         ] = {}
-        node_contract = self._catalog.require_contract(*node.node_type.key)
         port_declarations = {
-            port["name"]: port
-            for port in node_contract.descriptor.get("outputs", ())
+            name: port.declaration
+            for name, port in node._runtime.output_ports.items()
         }
         artifact_sources: list[
             tuple[str, str, ArtifactPayload, tuple[str, ...]]
@@ -5060,11 +4921,9 @@ class V2RunService:
             declaration = port_declarations[output["output_port"]]
             artifact_kind = declaration.get("artifact_kind")
             if artifact_kind is None:
-                port_reference = output["port_type"]
-                port_type = self._catalog.require_port_type(
-                    port_reference["contract_id"],
-                    port_reference["contract_version"],
-                )
+                port_type = node._runtime.output_ports[
+                    output["output_port"]
+                ].port_type
                 if port_type.artifact_media_types is not None:
                     raise PortValueError(
                         "Artifact-capable output requires explicit publication "
@@ -5074,11 +4933,10 @@ class V2RunService:
                 continue
             decoded_values = runtime[
                 (node.node_id, output["output_port"])
-            ]
-            port_type = self._catalog.require_port_type(
-                output["port_type"]["contract_id"],
-                output["port_type"]["contract_version"],
-            )
+            ].runtime_values
+            port_type = node._runtime.output_ports[
+                output["output_port"]
+            ].port_type
             accepted_media_types = port_type.artifact_media_types
             if accepted_media_types is None:
                 raise PortValueError(
@@ -5164,13 +5022,41 @@ class V2RunService:
         _before_execute: Callable[[], None] | None = None,
         _derived_from: Mapping[str, Any] | None = None,
         _cache_bypass_nodes: frozenset[str] = frozenset(),
+        _retained_compiled: CompiledWorkflow | None = None,
     ) -> dict[str, Any]:
         del client_request_id
-        compiled = self._authoring.require_compiled(
-            project_id,
-            workflow_revision=workflow_revision,
-            compile_id=compile_id,
-        )
+        if _retained_compiled is None:
+            compiled = self._authoring.require_compiled(
+                project_id,
+                workflow_revision=workflow_revision,
+                compile_id=compile_id,
+            )
+        else:
+            compiled = _retained_compiled
+            if (
+                compiled.execution_plan.workflow_revision
+                != workflow_revision
+                or compiled.receipt["compile_id"] != compile_id
+            ):
+                raise V2RunError(
+                    "contract_digest_mismatch",
+                    "Derived Run source Execution Plan identity changed",
+                    details={
+                        "issues": [
+                            {
+                                "code": (
+                                    "source_execution_plan_identity_mismatch"
+                                ),
+                                "severity": "error",
+                                "message": (
+                                    "Derived Run requires the exact immutable "
+                                    "source Execution Plan identity"
+                                ),
+                                "field_path": ["source_run_id"],
+                            }
+                        ]
+                    },
+                )
         plan = compiled.execution_plan
         if plan.catalog_contract_digest != self._catalog.contract_digest:
             raise V2RunError(
@@ -5214,12 +5100,14 @@ class V2RunService:
             "compile_id": compile_id,
             "execution_plan_digest": plan.execution_plan_digest,
             "catalog_contract_digest": plan.catalog_contract_digest,
+            "resolved_contract_roots": _execution_plan_contract_roots(plan),
             "resolved_contracts": [
                 entry.to_public()
                 for entry in plan.resolved_contracts
             ],
             "selection_required": bool(
-                plan.selection_objectives or plan.observation_selectors
+                plan._runtime.selection_objectives
+                or plan._runtime.observation_selectors
             ),
             "selection_terminal_keys": list(
                 (
@@ -5230,7 +5118,10 @@ class V2RunService:
                     )
                     or ("__workflow__",)
                 )
-                if plan.selection_objectives or plan.observation_selectors
+                if (
+                    plan._runtime.selection_objectives
+                    or plan._runtime.observation_selectors
+                )
                 else ()
             ),
             "plan_nodes": [
@@ -5253,8 +5144,8 @@ class V2RunService:
                 ),
                 node,
             )
-        for identity, node in distinct.items():
-            availability = self._availability(*identity)
+        for node in distinct.values():
+            availability = self._availability(node)
             ledger.append(
                 "availability_bound",
                 {
@@ -5307,7 +5198,7 @@ class V2RunService:
             _on_admitted(receipt, record)
         if _before_execute is not None:
             _before_execute()
-        values: dict[tuple[str, str], list[Any]] = {}
+        values: dict[tuple[str, str], AdmittedPortValues] = {}
         disposition_outcomes: dict[str, str] = {}
         for node in plan.nodes:
             if ledger.cancellation_requested:
@@ -5328,7 +5219,6 @@ class V2RunService:
                 disposition_outcomes[node.node_id] = cancellation_outcome
                 continue
             blocked_by = self._required_input_blockers(
-                plan,
                 node,
                 values,
             )
@@ -5345,10 +5235,11 @@ class V2RunService:
                 continue
             node_attempt_id = f"node-attempt-{uuid.uuid4().hex}"
             operation_attempt_id = f"operation-{uuid.uuid4().hex}"
-            node_inputs = self._inputs_for(plan, node, values)
-            binding_contract = self._catalog.require_contract(
-                *node.binding.key,
+            node_inputs, input_content_digests = self._inputs_for(
+                node,
+                values,
             )
+            binding_contract = node._runtime.binding_contract
             project_inputs: dict[
                 str,
                 tuple[Mapping[str, Any], bytes],
@@ -5370,7 +5261,6 @@ class V2RunService:
                 try:
                     effective_randomness_snapshot = (
                         _resolve_effective_randomness(
-                            self._catalog,
                             node,
                             node_inputs,
                         )
@@ -5385,12 +5275,13 @@ class V2RunService:
                 and binding_contract.descriptor.get("cacheable") is True
                 and binding_contract.descriptor.get("deterministic") is True
                 and _result_identity_is_cache_safe(
-                    self._catalog,
-                    plan,
                     node,
                     node_inputs,
-                    resource_identities,
-                    effective_randomness_snapshot,
+                    input_content_digests=input_content_digests,
+                    resolved_resource_inputs=resource_identities,
+                    effective_randomness_snapshot=(
+                        effective_randomness_snapshot
+                    ),
                 )
             )
             cache_lookup_eligible = (
@@ -5398,17 +5289,18 @@ class V2RunService:
             )
             if cache_eligible:
                 result_identity = _result_identity(
-                    self._catalog,
-                    plan,
                     node,
                     node_inputs,
-                    resource_identities,
-                    effective_randomness_snapshot,
+                    input_content_digests=input_content_digests,
+                    resolved_resource_inputs=resource_identities,
+                    effective_randomness_snapshot=(
+                        effective_randomness_snapshot
+                    ),
                 )
             replayed_published: list[dict[str, Any]] | None = None
             replayed_runtime: dict[
                 tuple[str, str],
-                list[Any],
+                AdmittedPortValues,
             ] | None = None
             replayed_artifacts: list[dict[str, Any]] = []
             replayed_artifact_records: dict[
@@ -5435,7 +5327,7 @@ class V2RunService:
                                     "result_identity": result_identity,
                                 },
                             )
-                        replayed_outputs = replayed.outputs
+                        replayed_admitted = replayed.admitted_outputs
                         replay_producer_run_id = replayed.producer_run_id
                         try:
                             validate_identifier(
@@ -5451,20 +5343,18 @@ class V2RunService:
                                 },
                             ) from error
                     elif replayed is None:
-                        replayed_outputs = None
+                        replayed_admitted = None
                     else:
                         raise V2RunError(
                             "cache_identity_conflict",
                             "Cache replay lacks identity-bound provenance",
                             details={"result_identity": result_identity},
                         )
-                    if replayed_outputs is not None:
-                        candidate_published, candidate_runtime = (
-                            self._validate_outputs(
-                                node,
-                                replayed_outputs,
-                                inputs=node_inputs,
-                            )
+                    if replayed_admitted is not None:
+                        candidate_runtime = dict(replayed_admitted)
+                        candidate_published = self._published_outputs(
+                            node,
+                            candidate_runtime,
                         )
                         replay_resources = RunResources(
                             project_id,
@@ -5624,25 +5514,52 @@ class V2RunService:
                 _project_input_identities=resource_identities,
             )
             body_error: BaseException | None = (
-                resource_resolution_error or randomness_resolution_error
+                resource_resolution_error
+                or randomness_resolution_error
             )
             implementation: Any | None = None
+            operation_execute: Callable[[OperationCall], Mapping[str, Any]] | None = None
+            operation_call: OperationCall | None = None
             try:
                 if body_error is None:
+                    assert effective_randomness_snapshot is not None
+                    operation_call = OperationCall(
+                        inputs=node_inputs,
+                        node_parameters=(
+                            effective_randomness_snapshot.node_parameters
+                        ),
+                        binding_parameters=(
+                            effective_randomness_snapshot.binding_parameters
+                        ),
+                        input_content_digests=input_content_digests,
+                    )
                     environment = self._environment.for_binding(
                         node.binding.contract_id,
                         node.binding.contract_version,
                     )
-                    factory = self._catalog.require_factory(
-                        node.binding.contract_id,
-                        node.binding.contract_version,
+                    implementation = node._runtime.factory.build(
+                        OperationContext(
+                            method=_exact_reference(node.method),
+                            produced_observations=(
+                                node._runtime.produced_observations
+                            ),
+                            selection_objectives=(
+                                node._runtime.selection_objectives
+                            ),
+                            observation_selectors=(
+                                node._runtime.observation_selectors
+                            ),
+                            environment=environment.values,
+                            resources=resources,
+                        )
                     )
-                    implementation = factory.build(
-                        execution_plan=plan,
-                        frozen_catalog=self._catalog,
-                        environment_configuration=environment.values,
-                        run_resources=resources,
-                    )
+                    execute_candidate = getattr(implementation, "execute", None)
+                    if not callable(execute_candidate):
+                        raise TypeError(
+                            "Scientific Operation factory must return an "
+                            "object with callable execute(OperationCall)"
+                        )
+                    operation_execute = execute_candidate
             except PreScheduleTermination as termination:
                 cancellation_outcome: str | None = None
                 if ledger.cancellation_requested:
@@ -5707,7 +5624,10 @@ class V2RunService:
                     "node_attempt_id": node_attempt_id,
                 },
             )
-            pending_runtime: dict[tuple[str, str], list[Any]] = {}
+            pending_runtime: dict[
+                tuple[str, str],
+                AdmittedPortValues,
+            ] = {}
             pending_typed_outputs: list[dict[str, Any]] = []
             pending_cache_outputs: list[dict[str, Any]] = []
             pending_artifacts: list[dict[str, Any]] = []
@@ -5745,35 +5665,34 @@ class V2RunService:
                     },
                 )
                 assert implementation is not None
+                assert operation_execute is not None
+                assert operation_call is not None
                 assert effective_randomness_snapshot is not None
-                raw_outputs = implementation.execute(
-                    inputs=node_inputs,
-                    node_parameters=dict(
-                        effective_randomness_snapshot.node_parameters
-                    ),
-                    binding_parameters=dict(
-                        effective_randomness_snapshot.binding_parameters
-                    ),
-                )
+                raw_outputs = operation_execute(operation_call)
                 if ledger.cancellation_requested:
                     raise ExecutionTermination("cancelled")
                 if result_identity is None:
                     result_identity = _result_identity(
-                        self._catalog,
-                        plan,
                         node,
                         node_inputs,
-                        resources.result_identity_inputs,
-                        effective_randomness_snapshot,
+                        input_content_digests=input_content_digests,
+                        resolved_resource_inputs=(
+                            resources.result_identity_inputs
+                        ),
+                        effective_randomness_snapshot=(
+                            effective_randomness_snapshot
+                        ),
                     )
                 if isinstance(raw_outputs, Mapping):
                     raw_outputs = self._normalize_candidate_outputs(
+                        plan=plan,
                         node=node,
                         result_identity=result_identity,
                         inputs=node_inputs,
                         outputs=raw_outputs,
                     )
-                published, pending_runtime = self._validate_outputs(
+                published, pending_runtime = self._admit_outputs(
+                    plan,
                     node,
                     raw_outputs,
                     inputs=node_inputs,
@@ -5815,6 +5734,7 @@ class V2RunService:
                         result_identity=result_identity,
                         outputs=pending_cache_outputs,
                         producer_run_id=run_id,
+                        admitted_outputs=pending_runtime,
                     )
                 if ledger.cancellation_requested:
                     raise ExecutionTermination("cancelled")
@@ -5925,6 +5845,7 @@ class V2RunService:
                     result_identity=result_identity,
                     outputs=pending_cache_outputs,
                     producer_run_id=run_id,
+                    admitted_outputs=pending_runtime,
                 )
 
             try:
@@ -5976,7 +5897,10 @@ class V2RunService:
             disposition_outcomes[node.node_id] = outcome
         selection_failed = False
         if (
-            (plan.selection_objectives or plan.observation_selectors)
+            (
+                plan._runtime.selection_objectives
+                or plan._runtime.observation_selectors
+            )
             and all(
                 outcome == "succeeded"
                 for outcome in disposition_outcomes.values()
@@ -5988,8 +5912,6 @@ class V2RunService:
                     for node in plan.nodes
                     if (
                         result := _selection_consumer_result(
-                            self._catalog,
-                            plan,
                             node,
                             values,
                         )
@@ -6001,7 +5923,6 @@ class V2RunService:
                     if consumer_results
                     else (
                         _workflow_weighted_selection_result(
-                            self._catalog,
                             plan,
                             values,
                         ),
@@ -6046,6 +5967,7 @@ class V2RunService:
         client_request_id: str,
         _derived_from: Mapping[str, Any] | None = None,
         _cache_bypass_nodes: frozenset[str] = frozenset(),
+        _retained_compiled: CompiledWorkflow | None = None,
     ) -> dict[str, Any]:
         """Admit synchronously, then execute without blocking event delivery."""
         admitted = threading.Event()
@@ -6074,6 +5996,7 @@ class V2RunService:
                     _before_execute=acquire_execution_slot,
                     _derived_from=_derived_from,
                     _cache_bypass_nodes=_cache_bypass_nodes,
+                    _retained_compiled=_retained_compiled,
                 )
             except BaseException as error:
                 state["error"] = error
@@ -6137,12 +6060,15 @@ class V2RunService:
         changed = True
         while changed:
             changed = False
-            for edge in plan.edges:
+            for node in plan.nodes:
                 if (
-                    edge.source_node_id in forced
-                    and edge.target_node_id not in forced
+                    node.node_id not in forced
+                    and any(
+                        dependency in forced
+                        for dependency in node._runtime.dependencies
+                    )
                 ):
-                    forced.add(edge.target_node_id)
+                    forced.add(node.node_id)
                     changed = True
         return frozenset(forced)
 
@@ -6184,54 +6110,57 @@ class V2RunService:
                     ]
                 },
             )
-        current = self._authoring.load(project_id)
-        if (
-            current["workflow_revision"]
-            != source_projection["workflow_revision"]
-            or current["workflow_digest"]
-            != source_projection["workflow_digest"]
-        ):
+        compiled = source.compiled
+        if compiled is None:
             raise V2RunError(
-                "contract_digest_mismatch",
-                "Saved Workflow no longer matches the source Run",
+                "compile_rejected",
+                "Derived Run source Execution Plan is unavailable",
                 details={
                     "issues": [
                         {
-                            "code": "source_workflow_identity_mismatch",
+                            "code": "source_execution_plan_unavailable",
                             "severity": "error",
                             "message": (
-                                "Derived Run requires the exact persisted "
-                                "source Workflow revision and digest"
+                                "Derived Run requires the exact in-memory "
+                                "Execution Plan retained by its source Run"
                             ),
                             "field_path": ["source_run_id"],
                         }
                     ]
                 },
             )
-        compiled = self._authoring.compile(
-            project_id,
-            workflow_revision=current["workflow_revision"],
-            workflow=parse_workflow_document(current["workflow"]),
-        )
-        if compiled.receipt["compile_id"] != compile_id:
+        plan = compiled.execution_plan
+        source_scope = source.ledger.facts[0]["payload"]
+        if (
+            plan.workflow_revision
+            != source_projection["workflow_revision"]
+            or plan.workflow_digest
+            != source_projection["workflow_digest"]
+            or compiled.receipt["compile_id"] != compile_id
+            or plan.contract_lock_digest
+            != source_scope["contract_lock_digest"]
+            or plan.execution_plan_digest
+            != source_scope["execution_plan_digest"]
+            or plan.catalog_contract_digest
+            != source_scope["catalog_contract_digest"]
+        ):
             raise V2RunError(
                 "contract_digest_mismatch",
-                "Recompiled source Workflow identity does not match",
+                "Retained Execution Plan no longer matches the source Run",
                 details={
                     "issues": [
                         {
-                            "code": "source_compile_reconstruction_mismatch",
+                            "code": "source_execution_plan_identity_mismatch",
                             "severity": "error",
                             "message": (
-                                "The immutable source compile identity could "
-                                "not be reconstructed from the saved Workflow"
+                                "Derived Run requires the exact immutable "
+                                "source Execution Plan identity"
                             ),
-                            "field_path": ["compile_id"],
+                            "field_path": ["source_run_id"],
                         }
                     ]
                 },
             )
-        plan = compiled.execution_plan
         plan_node_ids = tuple(node.node_id for node in plan.nodes)
         selected = frozenset(node_ids)
         if (
@@ -6304,6 +6233,7 @@ class V2RunService:
                 "forced_node_ids": forced_in_plan_order,
             },
             _cache_bypass_nodes=forced,
+            _retained_compiled=compiled,
         )
 
     def cancel(

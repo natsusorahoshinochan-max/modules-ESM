@@ -1,4 +1,4 @@
-"""One folding implementation shared by explicit remote and local Bindings."""
+"""Canonical folding Operations behind provider-independent Adapter DTOs."""
 
 from __future__ import annotations
 
@@ -7,9 +7,9 @@ import hashlib
 import math
 from typing import Any
 
-from modules.provider_contract import (
-    SIMPLEFOLD_ESM2_ARTIFACT_SHA256,
-    SIMPLEFOLD_REVISION,
+from core.operation import (
+    OperationCall,
+    ResolvedProducedObservation,
 )
 from datatypes import (
     Candidate,
@@ -23,25 +23,13 @@ from datatypes import (
 )
 
 from .adapter import (
-    LOCAL_ESMFOLD2_MODEL,
-    REMOTE_ESMFOLD2_MODEL,
-    decode_local_fold_result,
-    decode_remote_fold_result,
-    fixed_folding_config,
-    load_local_engine,
-    normalize_residue_plddt,
-    remote_client,
-    resolve_local_runtime,
+    ESMFold2Adapter,
 )
 from .simplefold_adapter import (
-    SIMPLEFOLD_MODEL,
-    fold as simplefold_fold,
-    simplefold_folding_artifact_sha256,
+    SimpleFoldAdapter,
 )
 from .simplefold_confidence_adapter import (
-    evaluate as simplefold_confidence_evaluate,
-    invocation_identity as simplefold_confidence_invocation_identity,
-    validate_simplefold_confidence_environment,
+    SimpleFoldConfidenceAdapter,
 )
 
 
@@ -50,20 +38,17 @@ class ESMFold2FoldingImplementation:
 
     def __init__(
         self,
-        run_resources: Any,
-        environment: Mapping[str, Any],
-        catalog: Any,
         *,
-        route: str,
-        method_id: str,
+        adapter: ESMFold2Adapter,
+        method: ExactContractReference,
+        produced_observations: Sequence[ResolvedProducedObservation],
     ) -> None:
-        if route not in {"remote", "local"}:
-            raise ValueError("ESMFold2 route is not declared")
-        self._run_resources = run_resources
-        self._environment = environment
-        self._catalog = catalog
-        self._route = route
-        self._method_id = method_id
+        self._adapter = adapter
+        self._method = method
+        self._produced_observations = {
+            observation.metric.contract_id: observation
+            for observation in produced_observations
+        }
 
     @staticmethod
     def _parameters(parameters: Mapping[str, Any]) -> tuple[int, int]:
@@ -107,58 +92,61 @@ class ESMFold2FoldingImplementation:
     @staticmethod
     def _call_seed(
         effective_seed: int,
+        parent_content_digest: str,
         parent_index: int,
         sample_index: int,
     ) -> int:
         digest = hashlib.sha256(
             (
                 "protein-workbench-esmfold2-call/v2\0"
-                f"{effective_seed}\0{parent_index}\0{sample_index}"
+                f"{effective_seed}\0{parent_content_digest}\0"
+                f"{parent_index}\0{sample_index}"
             ).encode()
         ).digest()
         return int.from_bytes(digest[:7], "big") % 9_007_199_254_740_992
 
-    def _contract_reference(
-        self,
-        kind: str,
-        contract_id: str,
-    ) -> ExactContractReference:
-        contract = self._catalog.require_contract(
-            kind,
-            contract_id,
-            "2.1.0",
-        )
-        return ExactContractReference(**contract.reference())
-
-    def execute(
-        self,
-        *,
-        inputs: Mapping[str, Any],
-        node_parameters: Mapping[str, Any],
-        binding_parameters: Mapping[str, Any],
-    ) -> dict[str, Any]:
-        if binding_parameters:
-            raise ValueError("folding Bindings accept no route parameters")
-        parents = self._inputs(inputs)
-        effective_seed, sample_count = self._parameters(node_parameters)
-        if self._route == "remote":
-            engine = remote_client(self._environment)
-            runtime_fingerprint = None
-        else:
-            runtime = resolve_local_runtime(self._environment)
-            engine = load_local_engine(self._environment, runtime)
-            runtime_fingerprint = runtime.safe_fingerprint
-
-        method = self._contract_reference("method", self._method_id)
-        metrics = {
-            metric_id: self._contract_reference("metric", metric_id)
-            for metric_id in (
-                "structure.ptm",
-                "structure.plddt.per_residue",
-                "structure.plddt.mean_residue",
-                "structure.pae",
+    @staticmethod
+    def _parent_content_digests(
+        call: OperationCall,
+        parents: Sequence[Candidate],
+    ) -> tuple[str, ...]:
+        digest_set = call.input_content_digests.get("sequence_candidates")
+        if (
+            digest_set is None
+            or digest_set.port_type_id != "candidate.collection"
+        ):
+            raise ValueError(
+                "folding requires admitted sequence Candidate content "
+                "identities"
             )
+        by_candidate_id = {
+            item.candidate_id: item
+            for item in digest_set.candidate_data
         }
+        if (
+            len(by_candidate_id) != len(digest_set.candidate_data)
+            or set(by_candidate_id)
+            != {parent.candidate_id for parent in parents}
+            or any(
+                item.data_type_id != "protein.sequence"
+                for item in by_candidate_id.values()
+            )
+        ):
+            raise ValueError(
+                "folding sequence Candidate content identities are incomplete"
+            )
+        return tuple(
+            by_candidate_id[parent.candidate_id].content_digest
+            for parent in parents
+        )
+
+    def execute(self, call: OperationCall) -> dict[str, Any]:
+        if call.binding_parameters:
+            raise ValueError("ESMFold2 accepts no Binding parameters")
+        parents = self._inputs(call.inputs)
+        effective_seed, sample_count = self._parameters(call.node_parameters)
+        parent_content_digests = self._parent_content_digests(call, parents)
+
         candidates: list[Candidate] = []
         confidence: list[ScoreObservation] = []
         pae: list[ScoreObservation] = []
@@ -168,92 +156,83 @@ class ESMFold2FoldingImplementation:
             for sample_index in range(sample_count):
                 call_seed = self._call_seed(
                     effective_seed,
+                    parent_content_digests[parent_index],
                     parent_index,
                     sample_index,
                 )
-                with self._run_resources.engine_invocation(
-                    engine_role=f"fold_parent_{parent_index}_sample_{sample_index}",
-                    engine_identity=(
-                        f"folding.esmfold2_{self._route}."
-                        f"{self._method_id}"
+                adapter_result = self._adapter.fold(
+                    sequence=sequence,
+                    derived_call_seed=call_seed,
+                    engine_role=(
+                        f"fold_parent_{parent_index}_sample_{sample_index}"
                     ),
-                ):
-                    if self._route == "remote":
-                        raw = engine.fold(
-                            sequence=sequence.sequence,
-                            model_name=REMOTE_ESMFOLD2_MODEL,
-                            config=fixed_folding_config(),
-                        )
-                    else:
-                        raw = engine.fold(
-                            sequence=sequence.sequence,
-                            effective_seed=call_seed,
-                        )
-                    decoded = (
-                        decode_remote_fold_result(raw, sequence)
-                        if self._route == "remote"
-                        else decode_local_fold_result(raw, sequence)
-                    )
-                raw_candidate_id = (
+                )
+                candidate_id = (
                     f"fold-{parent_index}-sample-{sample_index}"
                 )
+                metadata = {
+                    "parent_index": parent_index,
+                    "sample_index": sample_index,
+                }
+                if adapter_result.effective_call_seed is not None:
+                    metadata.update(
+                        {
+                            "configured_base_seed": effective_seed,
+                            "effective_call_seed": (
+                                adapter_result.effective_call_seed
+                            ),
+                        }
+                    )
                 candidate = Candidate(
-                    raw_candidate_id,
-                    decoded.structure,
+                    candidate_id,
+                    adapter_result.structure,
                     [parent.candidate_id],
-                    {
-                        "route": self._route,
-                        "model": (
-                            REMOTE_ESMFOLD2_MODEL
-                            if self._route == "remote"
-                            else LOCAL_ESMFOLD2_MODEL
-                        ),
-                        "parent_index": parent_index,
-                        "sample_index": sample_index,
-                        "effective_seed": effective_seed,
-                        "effective_call_seed": call_seed,
-                        "seed_control": (
-                            "unsupported_by_provider"
-                            if self._route == "remote"
-                            else "torch_local"
-                        ),
-                        "runtime_fingerprint": runtime_fingerprint,
-                    },
+                    metadata,
                 )
                 candidates.append(candidate)
+                per_residue_plddt = (
+                    adapter_result.confidence.per_residue_plddt
+                )
+                finite_plddt = [
+                    value
+                    for value in per_residue_plddt
+                    if value is not None
+                ]
                 values = (
-                    ("structure.ptm", decoded.confidence.ptm),
+                    ("structure.ptm", adapter_result.confidence.ptm),
                     (
                         "structure.plddt.per_residue",
-                        list(decoded.confidence.per_residue_plddt),
+                        list(per_residue_plddt),
                     ),
                     (
                         "structure.plddt.mean_residue",
-                        decoded.confidence.mean_residue_plddt,
+                        math.fsum(finite_plddt) / len(finite_plddt),
                     ),
                 )
                 for metric_id, value in values:
+                    produced = self._produced_observations[metric_id]
                     confidence.append(
                         ScoreObservation(
-                            candidate_id=raw_candidate_id,
-                            metric=metrics[metric_id],
-                            method=method,
+                            candidate_id=candidate_id,
+                            metric=produced.metric,
+                            method=self._method,
                             context=IntrinsicObservationContext(),
                             value=value,
-                            source_partition="folding_confidence",
+                            source_partition=produced.output_partition,
                         )
                     )
+                produced = self._produced_observations["structure.pae"]
                 pae.append(
                     ScoreObservation(
-                        candidate_id=raw_candidate_id,
-                        metric=metrics["structure.pae"],
-                        method=method,
+                        candidate_id=candidate_id,
+                        metric=produced.metric,
+                        method=self._method,
                         context=IntrinsicObservationContext(),
                         value=[
                             list(row)
-                            for row in decoded.confidence.pae
+                            for row in adapter_result.confidence.pae
                         ],
-                        source_partition="folding_confidence",
+                        source_partition=produced.output_partition,
                     )
                 )
         return {
@@ -278,16 +257,17 @@ class SimpleFoldFoldingImplementation:
 
     def __init__(
         self,
-        run_resources: Any,
-        environment: Mapping[str, Any],
-        catalog: Any,
         *,
-        method_id: str,
+        adapter: SimpleFoldAdapter,
+        method: ExactContractReference,
+        produced_observations: Sequence[ResolvedProducedObservation],
     ) -> None:
-        self._run_resources = run_resources
-        self._environment = environment
-        self._catalog = catalog
-        self._method_id = method_id
+        self._adapter = adapter
+        self._method = method
+        self._produced_observations = {
+            observation.metric.contract_id: observation
+            for observation in produced_observations
+        }
 
     @staticmethod
     def _parameters(
@@ -318,169 +298,67 @@ class SimpleFoldFoldingImplementation:
         return ESMFold2FoldingImplementation._inputs(inputs)
 
     @staticmethod
-    def _call_seed(effective_seed: int, parent_index: int) -> int:
+    def _call_seed(
+        effective_seed: int,
+        parent_content_digest: str,
+        parent_index: int,
+    ) -> int:
         digest = hashlib.sha256(
             (
                 "protein-workbench-simplefold-call/v2\0"
-                f"{effective_seed}\0{parent_index}"
+                f"{effective_seed}\0{parent_content_digest}\0{parent_index}"
             ).encode()
         ).digest()
         return int.from_bytes(digest[:7], "big") % 9_007_199_254_740_992
 
-    def _contract_reference(
-        self,
-        kind: str,
-        contract_id: str,
-    ) -> ExactContractReference:
-        contract = self._catalog.require_contract(
-            kind,
-            contract_id,
-            "2.1.0",
-        )
-        return ExactContractReference(**contract.reference())
-
-    @staticmethod
-    def _decode_scores(
-        structures: object,
-        scores: object,
-        sequence: ProteinSequence,
-        sample_count: int,
-    ) -> tuple[list[Any], list[tuple[float, ...]]]:
-        from .adapter import _pdb_sequence
-
-        if (
-            not isinstance(structures, list)
-            or len(structures) != sample_count
-            or any(
-                type(structure) is not ProteinStructure
-                for structure in structures
-            )
-            or not isinstance(scores, Sequence)
-        ):
-            raise ValueError("SimpleFold result is incomplete")
-        for structure in structures:
-            if _pdb_sequence(structure.pdb_string) != sequence.sequence:
-                raise ValueError("SimpleFold structure is malformed")
-        by_sample: dict[int, tuple[float, ...]] = {}
-        for entry in scores:
-            if not isinstance(entry, Mapping) or set(entry) != {
-                "sample_index",
-                "per_residue",
-            }:
-                raise ValueError("SimpleFold confidence result is malformed")
-            sample_index = entry.get("sample_index")
-            values = entry.get("per_residue")
-            if (
-                type(sample_index) is not int
-                or sample_index in by_sample
-                or not isinstance(values, list)
-                or len(values) != len(sequence.sequence)
-            ):
-                raise ValueError("SimpleFold confidence result is incomplete")
-            normalized: list[float] = []
-            for value in values:
-                if (
-                    isinstance(value, bool)
-                    or not isinstance(value, (int, float))
-                    or not math.isfinite(float(value))
-                    or not 0.0 <= float(value) <= 100.0
-                ):
-                    raise ValueError(
-                        "SimpleFold high-level pLDDT is outside [0,100]"
-                    )
-                normalized.append(float(value))
-            if not 0 <= sample_index < sample_count:
-                raise ValueError("SimpleFold sample index is invalid")
-            by_sample[sample_index] = tuple(normalized)
-        if set(by_sample) != set(range(sample_count)):
-            raise ValueError("SimpleFold confidence samples are incomplete")
-        return structures, [by_sample[index] for index in range(sample_count)]
-
-    def execute(
-        self,
-        *,
-        inputs: Mapping[str, Any],
-        node_parameters: Mapping[str, Any],
-        binding_parameters: Mapping[str, Any],
-    ) -> dict[str, Any]:
-        parents = self._inputs(inputs)
+    def execute(self, call: OperationCall) -> dict[str, Any]:
+        parents = self._inputs(call.inputs)
         effective_seed, sample_count, num_steps = self._parameters(
-            node_parameters,
-            binding_parameters,
+            call.node_parameters,
+            call.binding_parameters,
         )
-        method = self._contract_reference("method", self._method_id)
-        metrics = {
-            metric_id: self._contract_reference("metric", metric_id)
-            for metric_id in (
-                "structure.plddt.per_residue",
-                "structure.plddt.mean_residue",
+        parent_content_digests = (
+            ESMFold2FoldingImplementation._parent_content_digests(
+                call,
+                parents,
             )
-        }
+        )
         candidates: list[Candidate] = []
         confidence: list[ScoreObservation] = []
         for parent_index, parent in enumerate(parents):
             sequence = parent.data
             assert type(sequence) is ProteinSequence
-            call_seed = self._call_seed(effective_seed, parent_index)
-            raw_ids = [
-                f"simplefold-parent-{parent_index}-sample-{sample_index}"
-                for sample_index in range(sample_count)
-            ]
-            with self._run_resources.temporary_directory(
-                prefix="simplefold-fold-"
-            ) as staging_directory:
-                with self._run_resources.engine_invocation(
-                    engine_role=f"fold_parent_{parent_index}",
-                    engine_identity=(
-                        "folding.simplefold_local."
-                        f"{self._method_id}"
-                    ),
-                ):
-                    structures, scores = simplefold_fold(
-                        sequence=sequence,
-                        num_steps=num_steps,
-                        num_samples=sample_count,
-                        effective_seed=call_seed,
-                        staging_directory=staging_directory,
-                        environment=self._environment,
-                        call_details={
-                            "parent_candidate_id": parent.candidate_id,
-                            "candidate_ids": raw_ids,
-                        },
-                    )
-            structures, plddt_values = self._decode_scores(
-                structures,
-                scores,
-                sequence,
-                sample_count,
+            call_seed = self._call_seed(
+                effective_seed,
+                parent_content_digests[parent_index],
+                parent_index,
             )
-            for sample_index, (structure, values) in enumerate(
-                zip(structures, plddt_values, strict=True)
-            ):
-                raw_id = raw_ids[sample_index]
+            adapter_result = self._adapter.fold(
+                sequence=sequence,
+                num_steps=num_steps,
+                num_samples=sample_count,
+                derived_call_seed=call_seed,
+                engine_role=f"fold_parent_{parent_index}",
+            )
+            for sample_index, sample in enumerate(adapter_result.samples):
+                candidate_id = (
+                    f"simplefold-parent-{parent_index}-"
+                    f"sample-{sample_index}"
+                )
+                values = sample.per_residue_plddt
                 candidates.append(
                     Candidate(
-                        raw_id,
-                        structure,
+                        candidate_id,
+                        sample.structure,
                         [parent.candidate_id],
                         {
-                            "route": "simplefold_local",
-                            "model": SIMPLEFOLD_MODEL,
-                            "source_revision": SIMPLEFOLD_REVISION,
-                            "checkpoint_sha256": (
-                                simplefold_folding_artifact_sha256()
-                            ),
-                            "esm2_artifact_sha256": dict(
-                                sorted(
-                                    SIMPLEFOLD_ESM2_ARTIFACT_SHA256.items()
-                                )
-                            ),
                             "parent_index": parent_index,
                             "sample_index": sample_index,
-                            "effective_seed": effective_seed,
-                            "effective_call_seed": call_seed,
+                            "configured_base_seed": effective_seed,
+                            "effective_call_seed": (
+                                adapter_result.effective_call_seed
+                            ),
                             "num_steps": num_steps,
-                            "seed_control": "torch_local",
                         },
                     )
                 )
@@ -491,14 +369,15 @@ class SimpleFoldFoldingImplementation:
                         math.fsum(values) / len(values),
                     ),
                 ):
+                    produced = self._produced_observations[metric_id]
                     confidence.append(
                         ScoreObservation(
-                            candidate_id=raw_id,
-                            metric=metrics[metric_id],
-                            method=method,
+                            candidate_id=candidate_id,
+                            metric=produced.metric,
+                            method=self._method,
                             context=IntrinsicObservationContext(),
                             value=value,
-                            source_partition="folding_confidence",
+                            source_partition=produced.output_partition,
                         )
                     )
         return {
@@ -523,16 +402,17 @@ class SimpleFoldConfidenceImplementation:
 
     def __init__(
         self,
-        run_resources: Any,
-        environment: Mapping[str, Any],
-        catalog: Any,
         *,
-        method_id: str,
+        adapter: SimpleFoldConfidenceAdapter,
+        method: ExactContractReference,
+        produced_observations: Sequence[ResolvedProducedObservation],
     ) -> None:
-        self._run_resources = run_resources
-        self._environment = environment
-        self._catalog = catalog
-        self._method_id = method_id
+        self._adapter = adapter
+        self._method = method
+        self._produced_observations = {
+            observation.metric.contract_id: observation
+            for observation in produced_observations
+        }
 
     @staticmethod
     def _inputs(inputs: Mapping[str, Any]) -> list[Candidate]:
@@ -559,126 +439,36 @@ class SimpleFoldConfidenceImplementation:
                 )
         return list(collection.items)
 
-    @staticmethod
-    def normalize_native_confidence(
-        *,
-        native_plddt: object,
-        valid_protein_residues: object,
-    ) -> tuple[float | None, ...]:
-        """Apply the fixed direct-head scale after exact validity masking."""
-        if (
-            not isinstance(native_plddt, Sequence)
-            or isinstance(native_plddt, (str, bytes))
-            or not isinstance(valid_protein_residues, Sequence)
-            or isinstance(valid_protein_residues, (str, bytes))
-            or len(native_plddt) != len(valid_protein_residues)
-            or not native_plddt
-        ):
-            raise ValueError(
-                "SimpleFold direct-head pLDDT mask is malformed"
-            )
-        try:
-            values, _, _ = normalize_residue_plddt(
-                native_plddt=native_plddt,
-                valid_residues=valid_protein_residues,
-                native_maximum=1.0,
-                project_to_valid_residues=False,
-            )
-        except ValueError as error:
-            raise ValueError(
-                "SimpleFold direct-head pLDDT is malformed"
-            ) from error
-        return values
-
-    def _contract_reference(
-        self,
-        kind: str,
-        contract_id: str,
-    ) -> ExactContractReference:
-        contract = self._catalog.require_contract(
-            kind,
-            contract_id,
-            "2.1.0",
-        )
-        return ExactContractReference(**contract.reference())
-
-    def execute(
-        self,
-        *,
-        inputs: Mapping[str, Any],
-        node_parameters: Mapping[str, Any],
-        binding_parameters: Mapping[str, Any],
-    ) -> dict[str, Any]:
-        if node_parameters or binding_parameters:
+    def execute(self, call: OperationCall) -> dict[str, Any]:
+        if call.node_parameters or call.binding_parameters:
             raise ValueError(
                 "SimpleFold confidence has no Workflow parameters"
             )
-        candidates = self._inputs(inputs)
-        method = self._contract_reference("method", self._method_id)
-        metrics = {
-            metric_id: self._contract_reference("metric", metric_id)
-            for metric_id in (
-                "structure.plddt.per_residue",
-                "structure.plddt.mean_residue",
-            )
-        }
-        validated_environment = (
-            validate_simplefold_confidence_environment(
-                self._environment
-            )
-        )
-        resolved_provider_identity = validated_environment[
-            "resolved_provider_identity"
-        ]
+        candidates = self._inputs(call.inputs)
         observations: list[ScoreObservation] = []
         for candidate_index, candidate in enumerate(candidates):
             structure = candidate.data
             assert type(structure) is ProteinStructure
-            with self._run_resources.temporary_directory(
-                prefix="simplefold-confidence-"
-            ) as staging_directory:
-                with self._run_resources.engine_invocation(
-                    engine_role=f"confidence_subject_{candidate_index}",
-                    engine_identity=(
-                        simplefold_confidence_invocation_identity(
-                            resolved_provider_identity
-                        )
-                    ),
-                ):
-                    native = simplefold_confidence_evaluate(
-                        structure=structure,
-                        staging_directory=staging_directory,
-                        environment=self._environment,
-                        validated_environment=validated_environment,
-                    )
-            if set(native) != {
-                "native_plddt",
-                "valid_protein_residues",
-                "resolved_provider_identity",
-            }:
-                raise ValueError(
-                    "SimpleFold confidence provider result is not closed"
-                )
-            values = self.normalize_native_confidence(
-                native_plddt=native["native_plddt"],
-                valid_protein_residues=native[
-                    "valid_protein_residues"
-                ],
+            adapter_result = self._adapter.evaluate(
+                structure=structure,
+                engine_role=f"confidence_subject_{candidate_index}",
             )
+            values = adapter_result.per_residue_plddt
             finite_values = [value for value in values if value is not None]
             mean_value = math.fsum(finite_values) / len(finite_values)
             for metric_id, value in (
                 ("structure.plddt.per_residue", list(values)),
                 ("structure.plddt.mean_residue", mean_value),
             ):
+                produced = self._produced_observations[metric_id]
                 observations.append(
                     ScoreObservation(
                         candidate_id=candidate.candidate_id,
-                        metric=metrics[metric_id],
-                        method=method,
+                        metric=produced.metric,
+                        method=self._method,
                         context=IntrinsicObservationContext(),
                         value=value,
-                        source_partition="existing_structure_confidence",
+                        source_partition=produced.output_partition,
                     )
                 )
         return {

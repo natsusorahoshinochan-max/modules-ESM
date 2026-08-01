@@ -13,9 +13,9 @@ import os
 from pathlib import Path
 import stat
 import threading
-from typing import Any, Iterable
+from typing import Any, Iterable, Protocol
 
-from core import ReadinessResult, canonical_sha256
+from core import ReadinessResult, RunResources, canonical_sha256
 from modules.provider_contract import validate_installed_provider_checkout
 from datatypes import ProteinSequence, ProteinStructure
 
@@ -464,7 +464,6 @@ class NormalizedConfidence:
     """Canonical confidence values for one complete structure Candidate."""
 
     per_residue_plddt: tuple[float | None, ...]
-    mean_residue_plddt: float
     ptm: float
     pae: tuple[tuple[float, ...], ...]
 
@@ -475,6 +474,27 @@ class DecodedFoldResult:
 
     structure: ProteinStructure
     confidence: NormalizedConfidence
+
+
+@dataclass(frozen=True, slots=True)
+class ESMFold2AdapterResult:
+    """Provider-independent result and actual effective call randomness."""
+
+    structure: ProteinStructure
+    confidence: NormalizedConfidence
+    effective_call_seed: int | None
+
+
+class ESMFold2Adapter(Protocol):
+    """Canonical folding Operation boundary for one exact provider route."""
+
+    def fold(
+        self,
+        *,
+        sequence: ProteinSequence,
+        derived_call_seed: int,
+        engine_role: str,
+    ) -> ESMFold2AdapterResult: ...
 
 
 def _flat_values(value: object, field: str) -> tuple[object, ...]:
@@ -607,7 +627,7 @@ def decode_remote_fold_result(
         pae=_matrix_values(getattr(result, "pae", None), "native PAE"),
     )
     return DecodedFoldResult(
-        ProteinStructure(pdb_string, source="esmfold2"),
+        ProteinStructure(pdb_string),
         confidence,
     )
 
@@ -646,7 +666,7 @@ def decode_local_fold_result(
         pae=_matrix_values(getattr(result, "pae", None), "native PAE"),
     )
     return DecodedFoldResult(
-        ProteinStructure(pdb_string, source="esmfold2"),
+        ProteinStructure(pdb_string),
         confidence,
     )
 
@@ -826,7 +846,7 @@ def normalize_native_confidence(
     """Convert exact native `[0,1]` ESMFold2 confidence without range guessing."""
     native = tuple(native_plddt)
     mask = tuple(valid_protein_residues)
-    canonical, mean_plddt, selected_indices = normalize_residue_plddt(
+    canonical, _, selected_indices = normalize_residue_plddt(
         native_plddt=native,
         valid_residues=mask,
         native_maximum=1.0,
@@ -858,7 +878,114 @@ def normalize_native_confidence(
 
     return NormalizedConfidence(
         per_residue_plddt=tuple(canonical),
-        mean_residue_plddt=mean_plddt,
         ptm=ptm_value,
         pae=tuple(normalized_pae),
     )
+
+
+class BiohubESMFold2Adapter:
+    """Translate one canonical sequence through the exact Biohub route."""
+
+    def __init__(
+        self,
+        *,
+        environment: Mapping[str, Any],
+        resources: RunResources,
+    ) -> None:
+        self._environment = environment
+        self._resources = resources
+        self._client: Any | None = None
+
+    def _provider_client(self) -> Any:
+        if self._client is None:
+            self._client = remote_client(self._environment)
+        return self._client
+
+    def fold(
+        self,
+        *,
+        sequence: ProteinSequence,
+        derived_call_seed: int,
+        engine_role: str,
+    ) -> ESMFold2AdapterResult:
+        """Invoke Biohub once, then admit its raw result outside Invocation."""
+        del derived_call_seed
+        provider_sequence = _validated_input_sequence(sequence)
+        client = self._provider_client()
+        config = fixed_folding_config()
+        with self._resources.engine_invocation(
+            engine_role=engine_role,
+            invocation_provenance={
+                "effective_randomness": {
+                    "control": "provider_uncontrolled",
+                }
+            },
+        ):
+            raw_result = client.fold(
+                sequence=provider_sequence,
+                model_name=REMOTE_ESMFOLD2_MODEL,
+                config=config,
+            )
+        decoded = decode_remote_fold_result(raw_result, sequence)
+        return ESMFold2AdapterResult(
+            structure=decoded.structure,
+            confidence=decoded.confidence,
+            effective_call_seed=None,
+        )
+
+
+class LocalESMFold2Adapter:
+    """Translate one canonical sequence through the exact local route."""
+
+    def __init__(
+        self,
+        *,
+        environment: Mapping[str, Any],
+        resources: RunResources,
+    ) -> None:
+        self._environment = environment
+        self._resources = resources
+        self._runtime: LocalESMFold2Runtime | None = None
+        self._engine: Any | None = None
+
+    def _provider_engine(
+        self,
+    ) -> tuple[LocalESMFold2Runtime, Any]:
+        if self._runtime is None:
+            self._runtime = resolve_local_runtime(self._environment)
+        if self._engine is None:
+            self._engine = load_local_engine(
+                self._environment,
+                self._runtime,
+            )
+        return self._runtime, self._engine
+
+    def fold(
+        self,
+        *,
+        sequence: ProteinSequence,
+        derived_call_seed: int,
+        engine_role: str,
+    ) -> ESMFold2AdapterResult:
+        """Invoke the local model once, then admit its raw result."""
+        provider_sequence = _validated_input_sequence(sequence)
+        _, engine = self._provider_engine()
+        with self._resources.engine_invocation(
+            engine_role=engine_role,
+            invocation_provenance={
+                "effective_randomness": {
+                    "control": "exact_seed",
+                    "effective_seed": derived_call_seed,
+                }
+            },
+        ):
+            raw_result = engine.fold(
+                sequence=provider_sequence,
+                effective_seed=derived_call_seed,
+            )
+        decoded = decode_local_fold_result(raw_result, sequence)
+        return ESMFold2AdapterResult(
+            structure=decoded.structure,
+            confidence=decoded.confidence,
+            effective_call_seed=derived_call_seed,
+        )

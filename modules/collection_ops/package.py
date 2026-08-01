@@ -9,14 +9,15 @@ from core import (
     ContractIdentity,
     DefinitionResource,
     ExecutionBindingDefinition,
-    LazyImplementationFactory,
     MethodDefinition,
     ModulePackageRegistration,
     ObservationPropagationDefinition,
     ReadinessCheckInput,
     ReadinessDeclaration,
     ReadinessResult,
+    ScientificOperationFactory,
 )
+from core.operation import OperationContext
 
 from .implementation import CollectionOpsImplementation
 
@@ -41,11 +42,9 @@ def _ready(check_input: ReadinessCheckInput) -> ReadinessResult:
 
 
 def _build(operation: str):
-    def factory(**kwargs: object) -> CollectionOpsImplementation:
-        return CollectionOpsImplementation(
-            operation,
-            kwargs["frozen_catalog"],
-        )
+    def factory(context: OperationContext) -> CollectionOpsImplementation:
+        del context
+        return CollectionOpsImplementation(operation)
 
     return factory
 
@@ -117,7 +116,7 @@ def _binding(operation: str) -> ExecutionBindingDefinition:
         ),
         binding_parameters={},
         execution_route="direct",
-        factory=LazyImplementationFactory(
+        factory=ScientificOperationFactory(
             behavior=BehaviorReference(
                 f"collection_ops.{operation}/factory",
                 _VERSION,

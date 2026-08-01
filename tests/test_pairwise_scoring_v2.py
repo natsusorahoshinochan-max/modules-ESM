@@ -8,6 +8,7 @@ from datetime import datetime, timezone
 import pytest
 
 from core import (
+    BehaviorReference,
     CatalogContract,
     CatalogBuildError,
     FrozenCatalog,
@@ -18,6 +19,9 @@ from core import (
     SelectionObjective,
     ContractIdentity,
     ProducedObservationDefinition,
+    ReadinessDeclaration,
+    ReadinessResult,
+    ScientificOperationFactory,
     WorkflowCompileError,
     WorkflowDocument,
     WorkflowNodeInstance,
@@ -182,7 +186,7 @@ def test_pairwise_context_is_typed_canonical_and_part_of_observation_identity() 
         score_type.encode(ScoreCollection("pairwise-scores", [observation]))
     )
 
-    assert decoded.entries == [observation]
+    assert decoded.entries == (observation,)
     assert context.to_public() == {
         "kind": "pairwise",
         "subject": {
@@ -1163,11 +1167,44 @@ def _compiler_catalog() -> tuple[FrozenCatalog, dict[str, CatalogContract]]:
         }
         for binding in (producer_binding, union_binding)
     )
+
+    def fail_if_factory_is_constructed(_context: object) -> object:
+        raise AssertionError("compile-only factory was constructed")
+
+    factories = {
+        (binding.contract_id, binding.contract_version): (
+            ScientificOperationFactory(
+                behavior=BehaviorReference(
+                    f"{binding.contract_id}/factory",
+                    "2.1.0",
+                    {},
+                ),
+                build=fail_if_factory_is_constructed,
+            )
+        )
+        for binding in (producer_binding, union_binding)
+    }
+    readiness = {
+        (binding.contract_id, binding.contract_version): (
+            ReadinessDeclaration(
+                behavior=BehaviorReference(
+                    f"{binding.contract_id}/readiness",
+                    "2.1.0",
+                    {},
+                ),
+                prerequisites={},
+                check=lambda _input: ReadinessResult(True),
+            )
+        )
+        for binding in (producer_binding, union_binding)
+    }
     return (
         replace(
             base,
             contracts=tuple(contracts.values()),
             availability=availability,
+            factories=factories,
+            readiness_declarations=readiness,
         ),
         contracts,
     )
@@ -1306,14 +1343,34 @@ def test_output_pairwise_relation_is_normalized_as_one_atomic_identity() -> None
     service._catalog = catalog
 
     normalized = service._normalize_candidate_outputs(
+        plan=compiled.execution_plan,
         node=node,
         result_identity="sha256:" + "a" * 64,
         inputs={},
         outputs=outputs,
     )
 
+    assert normalized is not outputs
+    assert outputs["candidates"].collection_id == "raw-subjects"
+    assert outputs["references"].collection_id == "raw-references"
+    assert outputs["scores"].collection_id == "raw-scores"
+    assert subject.candidate_id == "raw-subject"
+    assert reference.candidate_id == "raw-reference"
+    assert outputs["pairings"].entries[0].subject_candidate_id == (
+        "raw-subject"
+    )
+    assert outputs["pairings"].entries[0].reference_candidate_id == (
+        "raw-reference"
+    )
+    assert [score.candidate_id for score in outputs["scores"].entries] == [
+        "raw-subject",
+        "raw-subject",
+    ]
+
     normalized_subject = normalized["candidates"].items[0]
     normalized_reference = normalized["references"].items[0]
+    assert normalized_subject is not subject
+    assert normalized_reference is not reference
     assert normalized_subject.candidate_id != "raw-subject"
     assert normalized_reference.candidate_id != "raw-reference"
     for observation in normalized["scores"].entries:
@@ -1357,3 +1414,48 @@ def test_output_pairwise_relation_is_normalized_as_one_atomic_identity() -> None
         inputs={},
         outputs=normalized,
     )
+
+
+def test_one_raw_candidate_cannot_claim_two_output_slots() -> None:
+    catalog, contracts = _compiler_catalog()
+    compiled = compile_workflow(
+        relock_workflow(_compiler_workflow(contracts), catalog),
+        workflow_revision=1,
+        catalog=catalog,
+    )
+    node = next(
+        item
+        for item in compiled.execution_plan.nodes
+        if item.node_id == "producer"
+    )
+    shared = Candidate("raw-shared", ProteinSequence("AA"))
+    outputs = {
+        "candidates": CandidateCollection(
+            "raw-subjects",
+            "protein.sequence",
+            [shared],
+        ),
+        "references": CandidateCollection(
+            "raw-references",
+            "protein.sequence",
+            [shared],
+        ),
+    }
+    service = object.__new__(V2RunService)
+    service._catalog = catalog
+
+    with pytest.raises(
+        PortValueError,
+        match="reuses one producer identity",
+    ):
+        service._normalize_candidate_outputs(
+            plan=compiled.execution_plan,
+            node=node,
+            result_identity="sha256:" + "a" * 64,
+            inputs={},
+            outputs=outputs,
+        )
+
+    assert shared.candidate_id == "raw-shared"
+    assert outputs["candidates"].collection_id == "raw-subjects"
+    assert outputs["references"].collection_id == "raw-references"

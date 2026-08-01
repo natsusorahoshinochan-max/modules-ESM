@@ -1,6 +1,6 @@
 schema_version: "2.1.0"
 node_type_id: proteinmpnn.random_fixed_positions
-version: "2.1.0"
+version: "3.0.0"
 title: Choose random fixed positions
 summary: Reproducibly chooses a fixed fraction of an explicit residue layout without process-global randomness.
 category: protein_design
@@ -14,7 +14,7 @@ inputs:
 outputs:
   - name: constraints
     port_type_id: proteinmpnn.constraints
-    port_type_version: "2.1.0"
+    port_type_version: "3.0.0"
     required: true
     multiplicity: one
     scientific_meaning: ProteinMPNN constraints containing the stable layout-ordered fixed-residue identity selection.

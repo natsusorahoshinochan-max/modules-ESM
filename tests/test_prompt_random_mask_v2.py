@@ -48,7 +48,7 @@ def test_random_mask_clears_only_seeded_assigned_sequence_positions(
     )
     masked = decoded_output(catalog, output)
     assert masked.sequence_track == ResidueTrack(["A", None, None], None)
-    assert masked.target_layout.residue_ids == ["A:1", "A:2", "B:1"]
+    assert masked.target_layout.residue_ids == ("A:1", "A:2", "B:1")
     assert masked.structure_track == ResidueTrack(
         [
             {"N": (0.0, 0.0, 0.0), "CA": (1.0, 0.0, 0.0)},

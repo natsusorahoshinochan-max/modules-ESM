@@ -9,21 +9,23 @@ from core import (
     AvailabilityDeclaration,
     AvailabilityResult,
     BehaviorReference,
+    CandidatePairingIntent,
+    CandidatePairingIntentEntry,
     ContractIdentity,
     DefinitionResource,
     ExecutionBindingDefinition,
-    LazyImplementationFactory,
     MethodDefinition,
     ModulePackageRegistration,
+    OperationCall,
+    OperationContext,
     ReadinessDeclaration,
     ReadinessResult,
+    ScientificOperationFactory,
     UtilityTransformDefinition,
 )
 from datatypes import (
     Candidate,
     CandidateCollection,
-    PairwiseCandidateMapping,
-    PairwiseCandidateMatch,
     ProteinStructure,
 )
 
@@ -64,7 +66,6 @@ def _pdb(
     ]
     return ProteinStructure(
         pdb_string="\n".join((*lines, "TER", "END", "")),
-        source="contract-test",
     )
 
 
@@ -80,7 +81,6 @@ def _sequence_pdb(sequence: str, *, chain: str) -> ProteinStructure:
     ]
     return ProteinStructure(
         pdb_string="\n".join((*lines, "TER", "END", "")),
-        source="contract-test",
     )
 
 
@@ -119,7 +119,6 @@ _FIXED_SUBJECT_B = _pdb(
 )
 _INCOMPATIBLE = ProteinStructure(
     pdb_string="HEADER    NO COORDINATES\nEND\n",
-    source="contract-test",
 )
 _AMBIGUOUS_REFERENCE = _sequence_pdb(
     "GTSAGTATSTSTGGSTGGGAGTAGTSGASGTGGGGSAATS",
@@ -132,17 +131,13 @@ _AMBIGUOUS_SUBJECT = _sequence_pdb(
 
 
 class _Source:
-    def __init__(self, run_resources: Any, catalog: Any) -> None:
+    def __init__(self, run_resources: Any) -> None:
         self._run_resources = run_resources
-        self._catalog = catalog
 
-    def execute(
-        self,
-        *,
-        inputs: Mapping[str, Any],
-        node_parameters: Mapping[str, Any],
-        binding_parameters: Mapping[str, Any],
-    ) -> dict[str, Any]:
+    def execute(self, call: OperationCall) -> dict[str, Any]:
+        inputs = call.inputs
+        node_parameters = call.node_parameters
+        binding_parameters = call.binding_parameters
         if (
             inputs
             or binding_parameters
@@ -227,38 +222,18 @@ class _Source:
                 for candidate_id, structure in reference_values
             ],
         )
-        structures = {
-            candidate.candidate_id: candidate.data
-            for collection in (subjects, references)
-            for candidate in collection.items
-        }
-        codec = self._catalog.require_port_type(
-            "protein.structure",
-            _VERSION,
-        )
-        pairing = PairwiseCandidateMapping(
-            entries=[
-                PairwiseCandidateMatch(
-                    subject_candidate_id=subject_id,
-                    subject_content_digest=(
-                        "sha256:" + "f" * 64
-                        if scenario == "conflicting_pairing"
-                        and subject_id == "subject-b"
-                        else codec.content_digest(structures[subject_id])
-                    ),
-                    reference_candidate_id=reference_id,
-                    reference_content_digest=codec.content_digest(
-                        structures[reference_id]
-                    ),
-                )
+        if scenario == "conflicting_pairing":
+            pairs = (
+                ("subject-b", "reference-b"),
+                ("subject-b", "reference-a"),
+            )
+        pairing = CandidatePairingIntent(
+            tuple(
+                CandidatePairingIntentEntry(subject_id, reference_id)
                 for subject_id, reference_id in pairs
-            ]
+            )
         )
-        with self._run_resources.engine_invocation(
-            engine_identity=(
-                "contract_test.structure_comparison_source.method/2.1.0"
-            ),
-        ):
+        with self._run_resources.engine_invocation():
             return {
                 "subjects": subjects,
                 "references": references,
@@ -266,11 +241,8 @@ class _Source:
             }
 
 
-def _build(**kwargs: object) -> object:
-    return _Source(
-        kwargs["run_resources"],
-        kwargs["frozen_catalog"],
-    )
+def _build(context: OperationContext) -> object:
+    return _Source(context.resources)
 
 
 def _tm_identity(value: object, parameters: Mapping[str, Any]) -> float:
@@ -344,7 +316,7 @@ MODULE_PACKAGE = ModulePackageRegistration(
             ),
             binding_parameters={},
             execution_route="direct",
-            factory=LazyImplementationFactory(
+            factory=ScientificOperationFactory(
                 behavior=BehaviorReference(
                     "contract_test.structure_comparison_source/factory",
                     _VERSION,

@@ -598,13 +598,16 @@
       "additionalProperties": false,
       "properties": {
         "engine_identity": {
-          "$ref": "#/$defs/Identifier"
+          "$ref": "#/$defs/Digest"
         },
         "engine_role": {
           "$ref": "#/$defs/Identifier"
         },
         "invocation_id": {
           "$ref": "#/$defs/Identifier"
+        },
+        "invocation_provenance": {
+          "$ref": "#/$defs/InvocationProvenance"
         },
         "operation_attempt_id": {
           "$ref": "#/$defs/Identifier"
@@ -622,6 +625,158 @@
         "operation_attempt_id",
         "engine_role",
         "engine_identity"
+      ],
+      "type": "object"
+    },
+    "InvocationProvenance": {
+      "oneOf": [
+        {
+          "$ref": "#/$defs/RandomnessOnlyInvocationProvenance"
+        },
+        {
+          "$ref": "#/$defs/ProjectionOnlyInvocationProvenance"
+        },
+        {
+          "$ref": "#/$defs/RandomnessAndProjectionInvocationProvenance"
+        }
+      ]
+    },
+    "RandomnessOnlyInvocationProvenance": {
+      "additionalProperties": false,
+      "properties": {
+        "effective_randomness": {
+          "$ref": "#/$defs/EffectiveRandomnessInvocationProvenance"
+        }
+      },
+      "required": [
+        "effective_randomness"
+      ],
+      "type": "object"
+    },
+    "ProjectionOnlyInvocationProvenance": {
+      "additionalProperties": false,
+      "properties": {
+        "provider_residue_projection": {
+          "$ref": "#/$defs/ProviderResidueProjectionInvocationProvenance"
+        }
+      },
+      "required": [
+        "provider_residue_projection"
+      ],
+      "type": "object"
+    },
+    "RandomnessAndProjectionInvocationProvenance": {
+      "additionalProperties": false,
+      "properties": {
+        "effective_randomness": {
+          "$ref": "#/$defs/EffectiveRandomnessInvocationProvenance"
+        },
+        "provider_residue_projection": {
+          "$ref": "#/$defs/ProviderResidueProjectionInvocationProvenance"
+        }
+      },
+      "required": [
+        "effective_randomness",
+        "provider_residue_projection"
+      ],
+      "type": "object"
+    },
+    "EffectiveRandomnessInvocationProvenance": {
+      "oneOf": [
+        {
+          "$ref": "#/$defs/ExactSeedInvocationProvenance"
+        },
+        {
+          "$ref": "#/$defs/ProviderUncontrolledInvocationProvenance"
+        }
+      ]
+    },
+    "ExactSeedInvocationProvenance": {
+      "additionalProperties": false,
+      "properties": {
+        "control": {
+          "const": "exact_seed"
+        },
+        "effective_seed": {
+          "maximum": 9007199254740991,
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "control",
+        "effective_seed"
+      ],
+      "type": "object"
+    },
+    "ProviderUncontrolledInvocationProvenance": {
+      "additionalProperties": false,
+      "properties": {
+        "control": {
+          "const": "provider_uncontrolled"
+        }
+      },
+      "required": [
+        "control"
+      ],
+      "type": "object"
+    },
+    "ProviderResidueProjectionEntry": {
+      "additionalProperties": false,
+      "properties": {
+        "provider_chain_id": {
+          "$ref": "#/$defs/Identifier"
+        },
+        "provider_position": {
+          "minimum": 1,
+          "type": "integer"
+        },
+        "residue_id": {
+          "$ref": "#/$defs/Identifier"
+        }
+      },
+      "required": [
+        "residue_id",
+        "provider_chain_id",
+        "provider_position"
+      ],
+      "type": "object"
+    },
+    "ProviderResidueProjectionInvocationProvenance": {
+      "additionalProperties": false,
+      "properties": {
+        "entries": {
+          "items": {
+            "$ref": "#/$defs/ProviderResidueProjectionEntry"
+          },
+          "minItems": 1,
+          "type": "array"
+        },
+        "position_semantics": {
+          "const": "one_based_chain_local"
+        },
+        "provider_chain_order": {
+          "items": {
+            "$ref": "#/$defs/Identifier"
+          },
+          "minItems": 1,
+          "type": "array",
+          "uniqueItems": true
+        },
+        "workbench_chain_order": {
+          "items": {
+            "$ref": "#/$defs/Identifier"
+          },
+          "minItems": 1,
+          "type": "array",
+          "uniqueItems": true
+        }
+      },
+      "required": [
+        "position_semantics",
+        "workbench_chain_order",
+        "provider_chain_order",
+        "entries"
       ],
       "type": "object"
     },
@@ -701,6 +856,39 @@
       "minLength": 1,
       "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:/+-]*$",
       "type": "string"
+    },
+    "InactiveGenerationArtifactDetails": {
+      "additionalProperties": false,
+      "properties": {
+        "artifact_kind": {
+          "enum": [
+            "result_cache",
+            "run_evidence"
+          ]
+        },
+        "expected_catalog_contract_digest": {
+          "$ref": "#/$defs/Digest"
+        },
+        "received_catalog_contract_digest": {
+          "$ref": "#/$defs/Digest"
+        }
+      },
+      "required": [
+        "artifact_kind",
+        "expected_catalog_contract_digest",
+        "received_catalog_contract_digest"
+      ],
+      "type": "object"
+    },
+    "InactiveGenerationDetails": {
+      "oneOf": [
+        {
+          "$ref": "#/$defs/CompileErrorDetails"
+        },
+        {
+          "$ref": "#/$defs/InactiveGenerationArtifactDetails"
+        }
+      ]
     },
     "JsonObject": {
       "additionalProperties": {
@@ -3301,6 +3489,12 @@
         "details_schema": "#/$defs/EvidenceErrorDetails",
         "http_status": 503,
         "retryable": true
+      },
+      "inactive_generation": {
+        "code": "inactive_generation",
+        "details_schema": "#/$defs/InactiveGenerationDetails",
+        "http_status": 409,
+        "retryable": false
       },
       "internal_error": {
         "code": "internal_error",

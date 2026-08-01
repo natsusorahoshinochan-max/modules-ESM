@@ -18,6 +18,7 @@ if TYPE_CHECKING:
 import yaml
 
 from core.artifacts import is_valid_artifact_media_type
+from core.operation import OperationContext, ScientificOperation
 from core.parameter_contract import parameter_value_contract
 from core.port_types import (
     CONTRACT_NAMESPACE,
@@ -25,6 +26,7 @@ from core.port_types import (
     CatalogBuildError,
     FrozenCatalog,
     PortTypeDefinition,
+    _require_single_active_contract_version,
     builtin_frozen_catalog,
     canonical_json_bytes,
 )
@@ -274,15 +276,20 @@ class UtilityTransformDefinition:
 
 
 @dataclass(frozen=True, slots=True)
-class LazyImplementationFactory:
-    """Private lazy constructor paired with a stable public behavior identity."""
+class ScientificOperationFactory:
+    """Lazy constructor for one typed canonical Scientific Operation."""
 
     behavior: BehaviorReference
-    build: Callable[..., Any] = field(repr=False, compare=False)
+    build: Callable[[OperationContext], ScientificOperation] = field(
+        repr=False,
+        compare=False,
+    )
 
     def __post_init__(self) -> None:
         if not callable(self.build):
-            raise CatalogBuildError("lazy implementation factory must be callable")
+            raise CatalogBuildError(
+                "Scientific Operation factory must be callable"
+            )
 
 
 @dataclass(frozen=True, slots=True)
@@ -783,7 +790,7 @@ class ExecutionBindingDefinition:
     method: ContractIdentity
     binding_parameters: Mapping[str, Any]
     execution_route: Literal["adapter", "direct"]
-    factory: LazyImplementationFactory
+    factory: ScientificOperationFactory
     availability: AvailabilityDeclaration
     readiness: ReadinessDeclaration
     deterministic: bool
@@ -1799,6 +1806,8 @@ def build_frozen_catalog(
         entry_by_key[key] = ({owner}, definition)
         template_by_key[key] = fingerprint
 
+    _require_single_active_contract_version(sorted(entry_by_key))
+
     for _, definition in definitions:
         if not isinstance(definition, _NodeDefinition):
             continue
@@ -2236,7 +2245,7 @@ def build_frozen_catalog(
     availability_snapshots: list[dict[str, Any]] = []
     factories: dict[
         tuple[str, str],
-        LazyImplementationFactory,
+        ScientificOperationFactory,
     ] = {}
     readiness: dict[
         tuple[str, str],

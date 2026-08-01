@@ -15,14 +15,16 @@ from core import (
     ContractIdentity,
     DefinitionResource,
     ExecutionBindingDefinition,
-    LazyImplementationFactory,
     MethodDefinition,
     ModulePackageRegistration,
+    OperationContext,
     PortTypeDefinition,
     ProducedObservationDefinition,
     ReadinessCheckInput,
     ReadinessDeclaration,
     ReadinessResult,
+    ScientificOperation,
+    ScientificOperationFactory,
     UtilityTransformDefinition,
 )
 from datatypes import ExactContractReference, PairwiseParticipant
@@ -30,7 +32,6 @@ from datatypes import ExactContractReference, PairwiseParticipant
 from .domain import (
     AlignmentAtomCorrespondence,
     StructureAlignmentEvidence,
-    StructureAlignmentEvidenceCollection,
     StructureAlignmentNormalization,
     StructureAlignmentTransform,
 )
@@ -38,6 +39,7 @@ from .implementation import StructureComparisonImplementation
 
 
 _VERSION = "2.1.0"
+_MANY_ALIGNMENT_VERSION = "2.2.0"
 _DIGEST = re.compile(r"^sha256:[0-9a-f]{64}$")
 _NORMALIZATION = "ca-correspondence-mean-square-angstrom"
 _TM_SCORE_NORMALIZATION = "standard-reference-residue-count"
@@ -110,10 +112,9 @@ def _ready(check_input: ReadinessCheckInput) -> ReadinessResult:
 
 
 def _build(operation: str, pairing_mode: str | None = None):
-    def factory(**kwargs: object) -> object:
+    def factory(context: OperationContext) -> ScientificOperation:
         return StructureComparisonImplementation(
-            kwargs["run_resources"],
-            kwargs["frozen_catalog"],
+            context,
             operation,
             pairing_mode,
         )
@@ -229,10 +230,7 @@ def _validate_normalization(
 
 
 def _validate_alignment(value: object) -> None:
-    if (
-        type(value) is not StructureAlignmentEvidence
-        or value.schema_version != _VERSION
-    ):
+    if type(value) is not StructureAlignmentEvidence:
         raise ValueError("alignment has the wrong nominal version")
     subject = _participant(value.subject, role="subject")
     reference = _participant(value.reference, role="reference")
@@ -366,7 +364,7 @@ def _alignment_to_wire(value: object) -> object:
     assert type(value) is StructureAlignmentEvidence
     _validate_alignment(value)
     return {
-        "schema_version": value.schema_version,
+        "schema_version": _VERSION,
         "subject": value.subject.to_public(),
         "reference": value.reference.to_public(),
         "correspondence": [
@@ -444,6 +442,8 @@ def _alignment_from_wire(value: object) -> object:
         },
         name="alignment",
     )
+    if raw["schema_version"] != _VERSION:
+        raise ValueError("alignment wire schema version is not active")
     subject = _closed(
         raw["subject"],
         {"role", "candidate_id", "content_digest"},
@@ -529,7 +529,6 @@ def _alignment_from_wire(value: object) -> object:
             )
         )
     alignment = StructureAlignmentEvidence(
-        schema_version=raw["schema_version"],
         subject=PairwiseParticipant(**subject),
         reference=PairwiseParticipant(**reference),
         correspondence=tuple(correspondence),
@@ -552,109 +551,6 @@ def _alignment_from_wire(value: object) -> object:
     )
     _validate_alignment(alignment)
     return alignment
-
-
-def _validate_collection(value: object) -> None:
-    if (
-        type(value) is not StructureAlignmentEvidenceCollection
-        or value.schema_version != _VERSION
-        or (
-            (
-                value.pairing_source,
-                value.accepted_cardinality,
-            )
-            not in {
-                (
-                    "candidate.pairing@2.1.0",
-                    "one_to_one_complete",
-                ),
-                (
-                    "fixed_reference.singleton@2.1.0",
-                    "many_to_one_complete",
-                ),
-            }
-        )
-        or type(value.alignments) is not tuple
-        or not value.alignments
-    ):
-        raise ValueError("alignment collection contract is incomplete")
-    subjects: dict[str, str] = {}
-    references: dict[str, str] = {}
-    for alignment in value.alignments:
-        _validate_alignment(alignment)
-        subject_id = alignment.subject.candidate_id
-        subject_digest = alignment.subject.content_digest
-        reference_id = alignment.reference.candidate_id
-        reference_digest = alignment.reference.content_digest
-        if subject_id in subjects or (
-            value.accepted_cardinality == "one_to_one_complete"
-            and reference_id in references
-        ):
-            raise ValueError(
-                "alignment collection is not complete one-to-one evidence"
-            )
-        known_reference_digest = references.get(reference_id)
-        if (
-            known_reference_digest is not None
-            and known_reference_digest != reference_digest
-        ):
-            raise ValueError(
-                "alignment collection reuses one reference identity with "
-                "conflicting content"
-            )
-        subjects[subject_id] = subject_digest
-        references[reference_id] = reference_digest
-    if set(subjects).intersection(references):
-        raise ValueError(
-            "alignment collection reuses Candidate identities across roles"
-        )
-    if (
-        value.accepted_cardinality == "many_to_one_complete"
-        and len(references) != 1
-    ):
-        raise ValueError(
-            "fixed-reference alignment collection requires one exact reference"
-        )
-
-
-def _collection_to_wire(value: object) -> object:
-    assert type(value) is StructureAlignmentEvidenceCollection
-    _validate_collection(value)
-    return {
-        "schema_version": value.schema_version,
-        "pairing_source": value.pairing_source,
-        "accepted_cardinality": value.accepted_cardinality,
-        "alignments": [
-            _alignment_to_wire(alignment)
-            for alignment in value.alignments
-        ],
-    }
-
-
-def _collection_from_wire(value: object) -> object:
-    raw = _closed(
-        value,
-        {
-            "schema_version",
-            "pairing_source",
-            "accepted_cardinality",
-            "alignments",
-        },
-        name="alignment collection",
-    )
-    if not isinstance(raw["alignments"], list):
-        raise ValueError("alignment collection wire value is invalid")
-    collection = StructureAlignmentEvidenceCollection(
-        schema_version=raw["schema_version"],
-        pairing_source=raw["pairing_source"],
-        accepted_cardinality=raw["accepted_cardinality"],
-        alignments=tuple(
-            _alignment_from_wire(item)
-            for item in raw["alignments"]
-        ),
-    )
-    _validate_collection(collection)
-    return collection
 
 
 def _method_definition(operation: str) -> MethodDefinition:
@@ -707,23 +603,23 @@ def _method_definition(operation: str) -> MethodDefinition:
         )
     if operation == "rmsd":
         return MethodDefinition(
-        method_id="structure_comparison.rmsd.method",
-        version=_VERSION,
-        algorithm_identity={
-            "name": "validated-alignment-rmsd-projection",
-            "source_field": "structure_comparison.alignment.rmsd",
-            "validation_formula": (
-                "sqrt(fsum(residual_distance^2)/aligned_atom_count)"
-            ),
-        },
-        model_identity={"kind": "none"},
-        checkpoint_identity={"kind": "none"},
-        featurization_identity={
-            "input": "structure_comparison.alignment@2.1.0",
-            "atom_selection": "CA",
-        },
-        source_identity={"kind": "repository-owned"},
-        scale_contract={"unit": "angstrom"},
+            method_id="structure_comparison.rmsd.method",
+            version=_VERSION,
+            algorithm_identity={
+                "name": "validated-alignment-rmsd-projection",
+                "source_field": "structure_comparison.alignment.rmsd",
+                "validation_formula": (
+                    "sqrt(fsum(residual_distance^2)/aligned_atom_count)"
+                ),
+            },
+            model_identity={"kind": "none"},
+            checkpoint_identity={"kind": "none"},
+            featurization_identity={
+                "input": "structure_comparison.alignment@2.1.0",
+                "atom_selection": "CA",
+            },
+            source_identity={"kind": "repository-owned"},
+            scale_contract={"unit": "angstrom"},
         )
     return MethodDefinition(
         method_id="structure_comparison.tm_score.reference_normalized.method",
@@ -764,6 +660,11 @@ def _binding(
     *,
     pairing_mode: str | None = None,
 ) -> ExecutionBindingDefinition:
+    binding_version = (
+        _MANY_ALIGNMENT_VERSION
+        if operation in {"align_pairwise", "rmsd", "batch_tm_score"}
+        else _VERSION
+    )
     node_id = f"structure_comparison.{operation}"
     binding_suffix = (
         pairing_mode
@@ -834,15 +735,15 @@ def _binding(
         )
     return ExecutionBindingDefinition(
         binding_id=f"{node_id}.{binding_suffix}",
-        version=_VERSION,
-        node_type=ContractIdentity("node_type", node_id, _VERSION),
+        version=binding_version,
+        node_type=ContractIdentity("node_type", node_id, binding_version),
         method=ContractIdentity("method", method_id, _VERSION),
         binding_parameters={},
         execution_route="direct",
-        factory=LazyImplementationFactory(
+        factory=ScientificOperationFactory(
             behavior=BehaviorReference(
                 f"{node_id}.{binding_suffix}/factory",
-                _VERSION,
+                binding_version,
                 {"execution_route": "direct"},
             ),
             build=_build(operation, pairing_mode),
@@ -850,7 +751,7 @@ def _binding(
         availability=AvailabilityDeclaration(
             behavior=BehaviorReference(
                 f"{node_id}.{binding_suffix}/availability",
-                _VERSION,
+                binding_version,
                 {"observation": "startup"},
             ),
             prerequisites={},
@@ -859,7 +760,7 @@ def _binding(
         readiness=ReadinessDeclaration(
             behavior=BehaviorReference(
                 f"{node_id}.{binding_suffix}/readiness",
-                _VERSION,
+                binding_version,
                 {"observation": "per-run"},
             ),
             prerequisites={},
@@ -943,7 +844,7 @@ _ALIGNMENT_METHOD_DIGEST = CatalogContract(
 MODULE_PACKAGE = ModulePackageRegistration(
     schema_version="2.1.0",
     package_id="structure_comparison",
-    package_version=_VERSION,
+    package_version=_MANY_ALIGNMENT_VERSION,
     package_module=__package__,
     node_definitions=(
         DefinitionResource("definitions/align_single.yaml"),
@@ -984,12 +885,6 @@ MODULE_PACKAGE = ModulePackageRegistration(
             _validate_alignment,
             _alignment_to_wire,
             _alignment_from_wire,
-        ),
-        _port_type(
-            "structure_comparison.alignment_collection",
-            _validate_collection,
-            _collection_to_wire,
-            _collection_from_wire,
         ),
     ),
 )

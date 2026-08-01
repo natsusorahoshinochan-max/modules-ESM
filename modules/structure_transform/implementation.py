@@ -4,8 +4,9 @@ from __future__ import annotations
 
 from collections import defaultdict
 from dataclasses import dataclass
-from typing import Any, Mapping
+from typing import Any, ClassVar, Mapping
 
+from core import OperationCall, RunResources
 from datatypes import (
     Candidate,
     CandidateCollection,
@@ -393,7 +394,6 @@ def normalize_csh_parent_span(
     return (
         ProteinStructure(
             pdb_string="\n".join(output_lines) + "\n",
-            source="structure_transform.normalize_csh_parent_span",
         ),
         ModifiedResidueNormalizationCollection(entries=normalizations),
     )
@@ -442,7 +442,6 @@ def select_chains(
     output_lines.append("END")
     return ProteinStructure(
         pdb_string="\n".join(output_lines) + "\n",
-        source="structure_transform.select_chains",
     )
 
 
@@ -509,7 +508,6 @@ def extract_backbone(structure: object) -> ProteinStructure:
     output_lines.append("END")
     backbone = ProteinStructure(
         pdb_string="\n".join(output_lines) + "\n",
-        source="structure_transform.extract_backbone",
     )
     validate_backbone_structure(backbone)
     return backbone
@@ -595,8 +593,6 @@ def validate_backbone_structure(value: object) -> None:
     """Validate the exact canonical backbone-only nominal value."""
     if type(value) is not ProteinStructure:
         raise ValueError("backbone must be a ProteinStructure")
-    if value.source != "structure_transform.extract_backbone":
-        raise ValueError("backbone producer identity is invalid")
     text = value.pdb_string
     if not text.endswith("\n") or "\r" in text or "\n\n" in text:
         raise ValueError("backbone PDB text is not canonical LF text")
@@ -686,17 +682,15 @@ def validate_backbone_structure(value: object) -> None:
 class StructureTransformImplementation:
     """One cohesive executor selected by the exact Node Binding."""
 
-    def __init__(self, run_resources: Any, operation: str) -> None:
-        self._run_resources = run_resources
-        self._operation = operation
+    _operation: ClassVar[str]
 
-    def execute(
-        self,
-        *,
-        inputs: Mapping[str, Any],
-        node_parameters: Mapping[str, Any],
-        binding_parameters: Mapping[str, Any],
-    ) -> dict[str, Any]:
+    def __init__(self, run_resources: RunResources) -> None:
+        self._run_resources = run_resources
+
+    def execute(self, call: OperationCall) -> dict[str, Any]:
+        inputs = call.inputs
+        node_parameters = call.node_parameters
+        binding_parameters = call.binding_parameters
         if self._operation == "backbone_to_structure":
             expected_input = "backbone"
         elif self._operation in {
@@ -721,11 +715,7 @@ class StructureTransformImplementation:
         )
         if set(node_parameters) != expected_parameters:
             raise ValueError("structure transform parameters are invalid")
-        with self._run_resources.engine_invocation(
-            engine_identity=(
-                f"structure_transform.{self._operation}.method/2.1.0"
-            ),
-        ):
+        with self._run_resources.engine_invocation():
             if self._operation == "select_chains":
                 return {
                     "structure": select_chains(
@@ -811,9 +801,38 @@ class StructureTransformImplementation:
                 return {
                     "structure": ProteinStructure(
                         pdb_string=structure.pdb_string,
-                        source=(
-                            "structure_transform.backbone_to_structure"
-                        ),
                     )
                 }
         raise ValueError("unknown structure transform operation")
+
+
+class SelectChainsImplementation(StructureTransformImplementation):
+    _operation = "select_chains"
+
+
+class SelectCandidateChainsImplementation(StructureTransformImplementation):
+    _operation = "select_candidate_chains"
+
+
+class ExtractBackboneImplementation(StructureTransformImplementation):
+    _operation = "extract_backbone"
+
+
+class ExtractSequenceImplementation(StructureTransformImplementation):
+    _operation = "extract_sequence"
+
+
+class ExtractSequenceCandidatesImplementation(
+    StructureTransformImplementation
+):
+    _operation = "extract_sequence_candidates"
+
+
+class NormalizeCshParentSpanImplementation(
+    StructureTransformImplementation
+):
+    _operation = "normalize_csh_parent_span"
+
+
+class BackboneToStructureImplementation(StructureTransformImplementation):
+    _operation = "backbone_to_structure"

@@ -1,4 +1,4 @@
-"""v2 ProteinMPNN constraint and sequence-design implementations."""
+"""Canonical ProteinMPNN Scientific Operation implementations."""
 
 from __future__ import annotations
 
@@ -6,6 +6,7 @@ from collections.abc import Mapping
 import hashlib
 from typing import Any
 
+from core import OperationCall, RunResources
 from datatypes import (
     Candidate,
     CandidateCollection,
@@ -18,109 +19,73 @@ from datatypes import (
     ScoreObservation,
 )
 
+from .adapter import LocalProteinMPNNAdapter
 from .domain import (
     author_constraints,
     normalize_design_parameters,
     random_fixed_positions,
 )
-from .v2_adapter import (
-    PROTEINMPNN_MODEL,
-    prepare_design_request,
-    prepare_scoring_request,
-    provider_for_environment,
-    validate_design_result,
-    validate_scoring_result,
-)
 
 
 class ProteinMPNNConstraintsImplementation:
-    def __init__(
-        self,
-        run_resources: Any,
-        environment: Mapping[str, Any],
-        catalog: Any,
-    ) -> None:
-        self._run_resources = run_resources
-        del environment, catalog
+    """Author one complete identity-addressed constraint value."""
 
-    def execute(
-        self,
-        *,
-        inputs: Mapping[str, Any],
-        node_parameters: Mapping[str, Any],
-        binding_parameters: Mapping[str, Any],
-    ) -> dict[str, Any]:
-        if set(inputs) != {"layout"} or binding_parameters:
+    def __init__(self, resources: RunResources) -> None:
+        self._resources = resources
+
+    def execute(self, call: OperationCall) -> dict[str, Any]:
+        if set(call.inputs) != {"layout"} or call.binding_parameters:
             raise ValueError(
                 "constraint authoring requires one explicit residue layout"
             )
-        with self._run_resources.engine_invocation(
-            engine_identity=(
-                "proteinmpnn.constraints.repository_owned/2.1.0"
-            ),
-        ):
+        with self._resources.engine_invocation():
             constraints = author_constraints(
-                inputs["layout"],
-                node_parameters,
+                call.inputs["layout"],
+                call.node_parameters,
             )
         return {"constraints": constraints}
 
 
 class ProteinMPNNRandomFixedPositionsImplementation:
-    def __init__(
-        self,
-        run_resources: Any,
-        environment: Mapping[str, Any],
-        catalog: Any,
-    ) -> None:
-        self._run_resources = run_resources
-        del environment, catalog
+    """Choose a stable identity-addressed fixed-residue subset."""
 
-    def execute(
-        self,
-        *,
-        inputs: Mapping[str, Any],
-        node_parameters: Mapping[str, Any],
-        binding_parameters: Mapping[str, Any],
-    ) -> dict[str, Any]:
+    def __init__(self, resources: RunResources) -> None:
+        self._resources = resources
+
+    def execute(self, call: OperationCall) -> dict[str, Any]:
         if (
-            set(inputs) != {"layout"}
-            or set(node_parameters) != {"effective_seed", "fraction"}
-            or binding_parameters
+            set(call.inputs) != {"layout"}
+            or set(call.node_parameters) != {"effective_seed", "fraction"}
+            or call.binding_parameters
         ):
             raise ValueError(
                 "random fixed-position selection requires resolved parameters"
             )
-        with self._run_resources.engine_invocation(
-            engine_identity=(
-                "proteinmpnn.random_fixed_positions."
-                "repository_owned/2.1.0"
-            ),
-        ):
+        with self._resources.engine_invocation():
             constraints = random_fixed_positions(
-                inputs["layout"],
-                effective_seed=node_parameters["effective_seed"],
-                fraction=node_parameters["fraction"],
+                call.inputs["layout"],
+                effective_seed=call.node_parameters["effective_seed"],
+                fraction=call.node_parameters["fraction"],
             )
         return {"constraints": constraints}
 
 
 class ProteinMPNNDesignImplementation:
+    """Create sequence Candidates while preserving exact parent lineage."""
+
     def __init__(
         self,
-        run_resources: Any,
-        environment: Mapping[str, Any],
-        catalog: Any,
+        *,
+        resources: RunResources,
+        adapter: LocalProteinMPNNAdapter,
     ) -> None:
-        self._run_resources = run_resources
-        self._environment = environment
-        self._catalog = catalog
+        self._resources = resources
+        self._adapter = adapter
 
-    @staticmethod
     def _parents(
+        self,
         inputs: Mapping[str, Any],
-        node_id: str,
-    ) -> list[tuple[Candidate, str]]:
+    ) -> list[tuple[ProteinStructure, tuple[str, ...]]]:
         allowed = {
             "structure",
             "structure_candidates",
@@ -139,15 +104,7 @@ class ProteinMPNNDesignImplementation:
             structure = inputs["structure"]
             if type(structure) is not ProteinStructure:
                 raise ValueError("structure input is incomplete")
-            return [(
-                Candidate(
-                    node_id,
-                    structure,
-                    [],
-                    {"input_mode": "standalone"},
-                ),
-                "standalone-structure",
-            )]
+            return [(structure, ())]
         collection = inputs["structure_candidates"]
         if (
             type(collection) is not CandidateCollection
@@ -158,7 +115,7 @@ class ProteinMPNNDesignImplementation:
                 "structure_candidates must be non-empty protein structures"
             )
         parent_ids: set[str] = set()
-        parents: list[tuple[Candidate, str]] = []
+        parents: list[tuple[ProteinStructure, tuple[str, ...]]] = []
         for candidate in collection.items:
             if (
                 type(candidate) is not Candidate
@@ -170,17 +127,16 @@ class ProteinMPNNDesignImplementation:
                     "structure_candidates contain incomplete or duplicate parents"
                 )
             parent_ids.add(candidate.candidate_id)
-            parents.append((candidate, candidate.candidate_id))
+            parents.append((candidate.data, (candidate.candidate_id,)))
         return parents
 
     @staticmethod
     def _parameters(
-        node_parameters: Mapping[str, Any],
-        binding_parameters: Mapping[str, Any],
+        call: OperationCall,
     ) -> tuple[int, int, float, float]:
         normalized = normalize_design_parameters(
-            node_parameters,
-            binding_parameters,
+            call.node_parameters,
+            call.binding_parameters,
         )
         return (
             int(normalized["effective_seed"]),
@@ -192,49 +148,93 @@ class ProteinMPNNDesignImplementation:
     @staticmethod
     def _call_seed(
         effective_seed: int,
-        parent: Candidate,
+        parent_content_digest: str,
         parent_slot: int,
     ) -> int:
-        structure = parent.data
-        assert type(structure) is ProteinStructure
         digest = hashlib.sha256(
             (
                 "protein-workbench-proteinmpnn-parent-seed/v2\0"
                 f"{effective_seed}\0"
                 f"{parent_slot}\0"
-                + hashlib.sha256(
-                    structure.pdb_string.encode()
-                ).hexdigest()
+                f"{parent_content_digest}"
             ).encode()
         ).digest()
         return int.from_bytes(digest[:7], "big") % 9_007_199_254_740_992
 
-    def _constraint_digest(
-        self,
-        constraints: ProteinMPNNConstraints,
-    ) -> str:
-        port_type = self._catalog.require_port_type(
-            "proteinmpnn.constraints",
-            "2.1.0",
-        )
-        return port_type.content_digest(constraints)
+    @staticmethod
+    def _parent_content_digests(
+        call: OperationCall,
+        parents: list[tuple[ProteinStructure, tuple[str, ...]]],
+    ) -> tuple[str, ...]:
+        if "structure" in call.inputs:
+            admitted = call.input_content_digests.get("structure")
+            if (
+                admitted is None
+                or admitted.port_type_id != "protein.structure"
+                or len(admitted.value_content_digests) != 1
+                or admitted.candidate_data
+            ):
+                raise ValueError(
+                    "ProteinMPNN design requires the admitted structure "
+                    "content identity"
+                )
+            return admitted.value_content_digests
 
-    def execute(
-        self,
-        *,
-        inputs: Mapping[str, Any],
-        node_parameters: Mapping[str, Any],
-        binding_parameters: Mapping[str, Any],
-    ) -> dict[str, Any]:
-        parents = self._parents(inputs, self._run_resources.node_id)
-        seed, count, temperature, noise = self._parameters(
-            node_parameters,
-            binding_parameters,
+        admitted = call.input_content_digests.get("structure_candidates")
+        if (
+            admitted is None
+            or admitted.port_type_id != "candidate.collection"
+        ):
+            raise ValueError(
+                "ProteinMPNN design requires admitted structure Candidate "
+                "content identities"
+            )
+        by_candidate_id = {
+            item.candidate_id: item
+            for item in admitted.candidate_data
+        }
+        expected_ids = {
+            parent_ids[0]
+            for _, parent_ids in parents
+            if len(parent_ids) == 1
+        }
+        if (
+            len(by_candidate_id) != len(admitted.candidate_data)
+            or len(expected_ids) != len(parents)
+            or set(by_candidate_id) != expected_ids
+            or any(
+                item.data_type_id != "protein.structure"
+                for item in by_candidate_id.values()
+            )
+        ):
+            raise ValueError(
+                "ProteinMPNN structure Candidate content identities are "
+                "incomplete"
+            )
+        return tuple(
+            by_candidate_id[parent_ids[0]].content_digest
+            for _, parent_ids in parents
         )
-        reference = inputs.get("sequence")
+
+    @staticmethod
+    def _constraint_digest(call: OperationCall) -> str | None:
+        admitted = call.input_content_digests.get("constraints")
+        if admitted is None:
+            return None
+        if len(admitted.value_content_digests) != 1:
+            raise RuntimeError(
+                "ProteinMPNN constraints input content identity is incomplete"
+            )
+        return admitted.value_content_digests[0]
+
+    def execute(self, call: OperationCall) -> dict[str, Any]:
+        parents = self._parents(call.inputs)
+        parent_content_digests = self._parent_content_digests(call, parents)
+        seed, count, temperature, noise = self._parameters(call)
+        reference = call.inputs.get("sequence")
         if reference is not None and type(reference) is not ProteinSequence:
             raise ValueError("sequence input must be a complete ProteinSequence")
-        constraints = inputs.get("constraints")
+        constraints = call.inputs.get("constraints")
         if (
             constraints is not None
             and type(constraints) is not ProteinMPNNConstraints
@@ -242,67 +242,38 @@ class ProteinMPNNDesignImplementation:
             raise ValueError(
                 "constraints input must be complete ProteinMPNN constraints"
             )
+        constraint_digest = self._constraint_digest(call)
         candidates: list[Candidate] = []
-        for parent_index, (parent, _) in enumerate(parents):
-            structure = parent.data
-            assert type(structure) is ProteinStructure
+        for parent_index, (structure, parent_ids) in enumerate(parents):
             call_seed = self._call_seed(
                 seed,
-                parent,
+                parent_content_digests[parent_index],
                 parent_index,
             )
-            raw_ids = [
-                (
-                    f"proteinmpnn-parent-{parent_index}-"
-                    f"sample-{sample_index}"
+            sequences = self._adapter.design(
+                structure=structure,
+                num_sequences=count,
+                temperature=temperature,
+                backbone_noise=noise,
+                seed=call_seed,
+                constraints=constraints,
+                reference_sequence=reference,
+                engine_role=f"design_parent_{parent_index}",
+            )
+            if len(sequences) != count:
+                raise RuntimeError(
+                    "ProteinMPNN design returned an incomplete child set"
                 )
-                for sample_index in range(count)
-            ]
-            with self._run_resources.temporary_directory(
-                prefix="proteinmpnn-design-"
-            ) as staging_directory:
-                provider = provider_for_environment(
-                    self._environment,
-                    staging_directory=staging_directory,
-                )
-                request = prepare_design_request(
-                    provider=provider,
-                    structure=structure,
-                    num_sequences=count,
-                    temperature=temperature,
-                    backbone_noise=noise,
-                    seed=call_seed,
-                    constraints=constraints,
-                    reference_sequence=reference,
-                )
-                effective_constraints = constraints or ProteinMPNNConstraints(
-                    layout=request.target_layout
-                )
-                constraint_digest = self._constraint_digest(
-                    effective_constraints
-                )
-                with self._run_resources.engine_invocation(
-                    engine_role=f"design_parent_{parent_index}",
-                    engine_identity=(
-                        "proteinmpnn.design.local."
-                        "proteinmpnn.design.v_48_020_8907e667"
-                    ),
-                ):
-                    raw_result = provider.design(request)
-                sequences, scores = validate_design_result(
-                    raw_result,
-                    request=request,
-                )
-            for sample_index, (raw_id, sequence) in enumerate(
-                zip(raw_ids, sequences, strict=True)
-            ):
+            for sample_index, sequence in enumerate(sequences):
                 candidates.append(
                     Candidate(
-                        raw_id,
+                        (
+                            f"proteinmpnn-parent-{parent_index}-"
+                            f"sample-{sample_index}"
+                        ),
                         sequence,
-                        [parent.candidate_id],
+                        parent_ids,
                         {
-                            "model": PROTEINMPNN_MODEL,
                             "parent_index": parent_index,
                             "sample_index": sample_index,
                             "effective_seed": seed,
@@ -311,28 +282,16 @@ class ProteinMPNNDesignImplementation:
                             "temperature": temperature,
                             "backbone_noise": noise,
                             "constraint_digest": constraint_digest,
-                            "residue_identity_mapping": [
-                                {
-                                    "residue_id": residue_id,
-                                    "provider_chain_id": provider_chain_id,
-                                    "provider_position": provider_position,
-                                }
-                                for (
-                                    residue_id,
-                                    provider_chain_id,
-                                    provider_position,
-                                ) in request.residue_identity_mapping
-                            ],
                         },
                     )
                 )
         if len(candidates) != len(parents) * count:
             raise RuntimeError("ProteinMPNN design children are incomplete")
-        for parent, _ in parents:
+        for _, parent_ids in parents:
             children = [
                 candidate
                 for candidate in candidates
-                if candidate.parent_ids == [parent.candidate_id]
+                if candidate.parent_ids == parent_ids
             ]
             if len(children) != count:
                 raise RuntimeError(
@@ -352,13 +311,14 @@ class ProteinMPNNScoreImplementation:
 
     def __init__(
         self,
-        run_resources: Any,
-        environment: Mapping[str, Any],
-        catalog: Any,
+        *,
+        adapter: LocalProteinMPNNAdapter,
+        method: ExactContractReference,
+        metric: ExactContractReference,
     ) -> None:
-        self._run_resources = run_resources
-        self._environment = environment
-        self._catalog = catalog
+        self._adapter = adapter
+        self._method = method
+        self._metric = metric
 
     @staticmethod
     def _subject(
@@ -395,7 +355,7 @@ class ProteinMPNNScoreImplementation:
             or type(sequence) is not Candidate
             or not sequence.candidate_id
             or type(sequence.data) is not ProteinSequence
-            or sequence.parent_ids != [structure.candidate_id]
+            or sequence.parent_ids != (structure.candidate_id,)
         ):
             raise ValueError(
                 "ProteinMPNN scoring inputs do not identify one sequence "
@@ -403,65 +363,24 @@ class ProteinMPNNScoreImplementation:
             )
         return structure, sequence
 
-    def _contract_reference(
-        self,
-        kind: str,
-        contract_id: str,
-    ) -> ExactContractReference:
-        contract = self._catalog.require_contract(
-            kind,
-            contract_id,
-            "2.1.0",
-        )
-        return ExactContractReference(**contract.reference())
-
-    def execute(
-        self,
-        *,
-        inputs: Mapping[str, Any],
-        node_parameters: Mapping[str, Any],
-        binding_parameters: Mapping[str, Any],
-    ) -> dict[str, Any]:
-        if node_parameters or binding_parameters:
+    def execute(self, call: OperationCall) -> dict[str, Any]:
+        if call.node_parameters or call.binding_parameters:
             raise ValueError(
                 "ProteinMPNN scoring accepts no Workflow parameters"
             )
-        structure_candidate, sequence_candidate = self._subject(inputs)
+        structure_candidate, sequence_candidate = self._subject(call.inputs)
         structure = structure_candidate.data
         sequence = sequence_candidate.data
         assert type(structure) is ProteinStructure
         assert type(sequence) is ProteinSequence
-        with self._run_resources.temporary_directory(
-            prefix="proteinmpnn-score-"
-        ) as staging_directory:
-            provider = provider_for_environment(
-                self._environment,
-                staging_directory=staging_directory,
-            )
-            request = prepare_scoring_request(
-                provider=provider,
-                structure=structure,
-                sequence=sequence,
-            )
-            with self._run_resources.engine_invocation(
-                engine_role="score_subject",
-                engine_identity=(
-                    "proteinmpnn.score.local."
-                    "proteinmpnn.score.v_48_020_8907e667"
-                ),
-            ):
-                raw_score = provider.score(request, sequence)
-            score = validate_scoring_result(raw_score)
+        score = self._adapter.score(
+            structure=structure,
+            sequence=sequence,
+        )
         observation = ScoreObservation(
             candidate_id=sequence_candidate.candidate_id,
-            metric=self._contract_reference(
-                "metric",
-                "proteinmpnn.native_sequence_nll",
-            ),
-            method=self._contract_reference(
-                "method",
-                "proteinmpnn.score.v_48_020_8907e667",
-            ),
+            metric=self._metric,
+            method=self._method,
             context=IntrinsicObservationContext(),
             value=score,
         )
