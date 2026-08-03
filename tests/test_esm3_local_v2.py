@@ -90,18 +90,17 @@ def test_local_esm3_reuses_generation_nodes_alongside_direct_esmc() -> None:
         local = catalog.require_contract(
             "binding",
             f"esm3.{operation}.local_open",
-            "3.0.0",
+            "7.0.0",
         )
         remote = catalog.require_contract(
             "binding",
             f"esm3.{operation}.biohub_open",
-            "3.0.0",
+            "7.0.0",
         )
 
         assert local.descriptor["node_type"] == remote.descriptor["node_type"]
-        assert local.descriptor["produced_observations"] == (
-            remote.descriptor["produced_observations"]
-        )
+        assert local.descriptor["produced_observations"] == ()
+        assert remote.descriptor["produced_observations"] == ()
         assert local.descriptor["binding_parameters"] == {}
         assert local.descriptor["execution_route"] == "adapter"
         assert local.descriptor["method"]["contract_id"] == (
@@ -132,7 +131,7 @@ def test_local_esm3_reuses_generation_nodes_alongside_direct_esmc() -> None:
         node = catalog.require_contract(
             "node_type",
             f"esm3.{operation}",
-            "3.0.0",
+            "7.0.0",
         )
         forbidden = {
             "model",
@@ -221,6 +220,13 @@ def test_local_runtime_rejects_model_replacement_and_stale_configuration(
         environment
     ).safe_fingerprint == fingerprint
 
+    stale_fingerprint = {
+        **environment,
+        "resolved_runtime_fingerprint": f"sha256:{'b' * 64}",
+    }
+    with pytest.raises(RuntimeError, match="fingerprint is stale"):
+        local_adapter.resolve_local_runtime(stale_fingerprint)
+
     artifact.write_bytes(b"replaced fixture")
     with pytest.raises(RuntimeError, match="identity mismatch"):
         local_adapter.resolve_local_runtime(environment)
@@ -237,15 +243,7 @@ def test_local_runtime_rejects_model_replacement_and_stale_configuration(
     with pytest.raises(RuntimeError, match="device does not match"):
         local_adapter.resolve_local_runtime(wrong_device)
 
-    symlink_target = tmp_path / "outside-model.pth"
-    symlink_target.write_bytes(b"locked fixture")
-    artifact.unlink()
-    artifact.symlink_to(symlink_target)
-    with pytest.raises(RuntimeError, match="not repository-contained"):
-        local_adapter.resolve_local_runtime(environment)
-
-
-def test_huggingface_blob_links_are_contained_and_staged_as_regular_files(
+def test_huggingface_blob_links_are_admitted_by_digest_and_staged(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -468,6 +466,7 @@ def test_local_execution_preserves_remote_scientific_contracts(
     response_kind: str,
 ) -> None:
     import torch
+    import modules.esm3.local_adapter as local_adapter
 
     from tests.test_esm3_v2 import (
         _ProviderClient,
@@ -478,11 +477,33 @@ def test_local_execution_preserves_remote_scientific_contracts(
     )
 
     _patch_local_runtime(monkeypatch, tmp_path)
+    readiness_resolve = local_adapter.resolve_local_runtime
+    readiness_calls = 0
+
+    def count_readiness(environment: Any) -> local_adapter.LocalESM3Runtime:
+        nonlocal readiness_calls
+        readiness_calls += 1
+        return readiness_resolve(environment)
+
+    monkeypatch.setattr(
+        local_adapter,
+        "resolve_local_runtime",
+        count_readiness,
+    )
     structure_response = lambda: _ProviderResponse(
         "ACD",
         coordinates=torch.zeros((3, 37, 3)),
-        ptm=torch.tensor(0.75),
+        ptm=torch.tensor([0.75]),
         plddt=torch.tensor([0.7, 0.8, 0.9]),
+        pae=torch.tensor(
+            [[
+                [99.0, 99.0, 99.0, 99.0, 99.0],
+                [99.0, 0.0, 1.0, 2.0, 99.0],
+                [99.0, 3.0, 4.0, 5.0, 99.0],
+                [99.0, 6.0, 7.0, 8.0, 99.0],
+                [99.0, 99.0, 99.0, 99.0, 99.0],
+            ]]
+        ),
         pdb_string=_three_residue_pdb(),
     )
     responses = {
@@ -505,6 +526,7 @@ def test_local_execution_preserves_remote_scientific_contracts(
     )
 
     assert projection["status"] == "succeeded"
+    assert readiness_calls == 1
     outputs = {
         output["output_port"]: output
         for output in projection["outputs"]
@@ -528,6 +550,14 @@ def test_local_execution_preserves_remote_scientific_contracts(
     assert forbidden.isdisjoint(primary.items[0].metadata)
     assert isinstance(primary.items[0].metadata["effective_call_seed"], int)
     assert outputs[primary_port]["result_identity"].startswith("sha256:")
+    if operation != "generate_sequence":
+        confidence = _decode_output(catalog, outputs["confidence_facts"])
+        assert confidence.entries[0].ptm == pytest.approx(0.75)
+        assert confidence.entries[0].pae == (
+            (0.0, 1.0, 2.0),
+            (3.0, 4.0, 5.0),
+            (6.0, 7.0, 8.0),
+        )
     if operation == "generate_paired":
         structures = _decode_output(
             catalog,
@@ -537,10 +567,10 @@ def test_local_execution_preserves_remote_scientific_contracts(
         assert structures.items[0].parent_ids == (
             primary.items[0].candidate_id,
         )
-        assert pairing.entries[0].subject_candidate_id == (
+        assert pairing.entries[0].subject.candidate_id == (
             primary.items[0].candidate_id
         )
-        assert pairing.entries[0].reference_candidate_id == (
+        assert pairing.entries[0].reference.candidate_id == (
             structures.items[0].candidate_id
         )
     readiness = [
@@ -568,7 +598,7 @@ def test_local_execution_preserves_remote_scientific_contracts(
     binding = catalog.require_contract(
         "binding",
         f"esm3.{operation}.local_open",
-        "3.0.0",
+        "7.0.0",
     )
     method = catalog.require_contract(
         "method",
@@ -589,6 +619,65 @@ def test_local_execution_preserves_remote_scientific_contracts(
         is int
         for event in generation_events
     )
+
+
+def test_local_seed_is_declared_result_identity_randomness(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import core.run_execution_v2 as run_execution_v2
+
+    from tests.test_esm3_v2 import (
+        _ProviderClient,
+        _ProviderResponse,
+        _run_generation,
+    )
+
+    _patch_local_runtime(monkeypatch, tmp_path)
+    descriptors: list[dict[str, Any]] = []
+    result_identity_descriptor = (
+        run_execution_v2._result_identity_descriptor
+    )
+
+    def capture_result_identity(*args: Any, **kwargs: Any) -> dict[str, Any]:
+        descriptor = result_identity_descriptor(*args, **kwargs)
+        if args[0].node_id == "generate":
+            descriptors.append(descriptor)
+        return descriptor
+
+    monkeypatch.setattr(
+        run_execution_v2,
+        "_result_identity_descriptor",
+        capture_result_identity,
+    )
+    _, projection, events = _run_generation(
+        tmp_path,
+        operation="generate_sequence",
+        client=_ProviderClient([_ProviderResponse("ACD")]),
+        num_samples=1,
+        binding_route="local_open",
+        environment_overrides=_local_environment(tmp_path),
+        safe_environment_fingerprint=f"sha256:{'a' * 64}",
+        invalidation_token="local-fixture-a",
+    )
+
+    assert projection["status"] == "succeeded"
+    assert descriptors
+    assert all(
+        "effective_seed" not in descriptor["node_parameters"]
+        and descriptor["determinism"]["effective_randomness"]
+        == {"effective_seed": 1603}
+        for descriptor in descriptors
+    )
+    invocation = next(
+        event["event"]
+        for event in events
+        if event["event"]["type"] == "engine_invocation_started"
+        and event["event"]["engine_role"] == "sequence_sample"
+    )
+    randomness = invocation["invocation_provenance"]["effective_randomness"]
+    assert randomness["control"] == "exact_seed"
+    assert type(randomness["effective_seed"]) is int
 
 
 def test_default_local_client_releases_staged_runtime_after_execution(
@@ -664,11 +753,6 @@ def test_cleanup_failure_does_not_replace_primary_execution_failure(
     client = FailingClient()
     monkeypatch.setattr(
         local_adapter,
-        "resolve_local_runtime",
-        lambda environment: runtime,
-    )
-    monkeypatch.setattr(
-        local_adapter,
         "load_local_esm3_client",
         lambda environment, *, model_name, runtime: client,
     )
@@ -683,7 +767,11 @@ def test_cleanup_failure_does_not_replace_primary_execution_failure(
         fail_cleanup,
     )
     adapter = local_adapter.LocalESM3Adapter(
-        environment={},
+        environment={
+            "model_snapshot_path": runtime.snapshot_path,
+            "runtime_directory": runtime.runtime_directory,
+            "resolved_runtime_fingerprint": runtime.safe_fingerprint,
+        },
         resources=InvocationResources(),
         model_name=local_adapter.LOCAL_ESM3_MODEL,
     )

@@ -45,9 +45,10 @@ class _StructureSource:
                         pdb_string=(
                             f"REMARK provider-native-{index:02d}\n"
                             f"MODEL     {index + 1:4d}\n"
-                            "ATOM      1  CA  GLY A   1      "
-                            f"{index + 1:5d}.000   2.000   3.000  "
-                            "1.00 20.00           C\n"
+                            "ATOM      1  CA  GLY A   1    "
+                            f"{float(index + 1):8.3f}"
+                            f"{2.0:8.3f}{3.0:8.3f}"
+                            f"{1.0:6.2f}{20.0:6.2f}           C  \n"
                             "ENDMDL\nEND\n"
                         ),
                     ),
@@ -83,8 +84,8 @@ class _ScalarSource:
                 "structure": ProteinStructure(
                     pdb_string=(
                         "REMARK contract-test-provider-native\n"
-                        "ATOM      1  CA  GLY A   1      "
-                        "1.000   2.000   3.000  1.00 20.00           C\n"
+                        "ATOM      1  CA  GLY A   1       "
+                        "1.000   2.000   3.000  1.00 20.00           C  \n"
                         "END\n"
                     ),
                 )
@@ -114,7 +115,12 @@ def _method(kind: str) -> MethodDefinition:
 
 
 def _binding(kind: str) -> ExecutionBindingDefinition:
-    binding_version = "3.0.0" if kind == "protein_structure" else "2.1.0"
+    binding_versions = {
+        "structure_candidates": "3.0.0",
+        "protein_sequence": "3.0.0",
+        "protein_structure": "4.0.0",
+    }
+    binding_version = binding_versions[kind]
     return ExecutionBindingDefinition(
         binding_id=f"contract_test.{kind}.direct",
         version=binding_version,

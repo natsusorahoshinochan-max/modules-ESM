@@ -1,39 +1,35 @@
 schema_version: "2.1.0"
 node_type_id: contract_test.structure_comparison_source
-version: "2.1.0"
-title: Structure comparison source
-summary: Supplies independent exact subject/reference Candidate collections and a typed pairing fixture.
+version: "4.0.0"
+title: Candidate-associated structure comparison source
+summary: Supplies independently constructed Candidate collections and explicit pairing fixtures for downstream residue-axis resolution.
 category: contract_test
 inputs: []
 outputs:
   - name: subjects
     port_type_id: candidate.collection
-    port_type_version: "2.1.0"
+    port_type_version: "3.0.0"
     required: true
     multiplicity: one
-    scientific_meaning: Independently constructed subject structure Candidates.
+    scientific_meaning: Independent subject structure Candidates.
   - name: references
     port_type_id: candidate.collection
-    port_type_version: "2.1.0"
+    port_type_version: "3.0.0"
     required: true
     multiplicity: one
-    scientific_meaning: Independently constructed reference structure Candidates.
+    scientific_meaning: Independent reference structure Candidates.
   - name: pairing
     port_type_id: candidate.pairing
-    port_type_version: "2.1.0"
-    required: true
+    port_type_version: "3.0.0"
+    required: false
     multiplicity: one
-    scientific_meaning: Exact one-to-one subject/reference pairing independent of collection order.
-parameter_groups:
-  - id: fixture
-    title: Fixture selection
-    parameters:
-      - scenario
+    scientific_meaning: Explicit one-to-one counterpart identities for the counterpart scenario; absent for single and fixed-reference scenarios.
+parameter_groups: []
 node_parameters:
   scenario:
     parameter_scope: scientific
-    scientific_meaning: Exact deterministic independent structure-comparison fixture.
+    scientific_meaning: Exact deterministic comparison scenario.
     required: true
     value_contract:
       type: string
-      enum: [single, paired, fixed_batch, failing_pair, conflicting_pairing, ambiguous]
+      enum: [single, fixed_reference, per_subject_counterpart]

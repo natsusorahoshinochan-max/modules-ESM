@@ -1,3 +1,7 @@
+> Historical v1 specification. This document is non-normative for the active
+> Catalog. In particular, its built-in `StructureAlignment` design is
+> superseded by ADR-0038 and `structure_comparison.alignment_evidence@4.0.0`.
+
 ## Problem Statement
 
 A protein engineer wants to generate, fold, score, and select protein sequences and structures using state-of-the-art models (ESM3, ProteinMPNN, ESMFold2, SimpleFold), but currently every model requires its own ad-hoc scripts, manual format conversions, and separate result tracking. Switching between tools means losing lineage — there is no single surface where a user can compose models into a visual pipeline, compare candidates across branches, and save the entire workflow for reproduction.

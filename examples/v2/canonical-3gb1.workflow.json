@@ -5,29 +5,65 @@
     {
       "node_id": "import-3gb1",
       "node_type_id": "protein_io.import_structure",
-      "node_type_version": "3.0.0",
+      "node_type_version": "5.0.0",
       "binding_id": "protein_io.import_structure.direct",
-      "binding_version": "3.0.0",
+      "binding_version": "5.0.0",
       "node_parameters": {
         "project_input_ref": "3GB1.pdb"
       },
       "binding_parameters": {}
     },
     {
+      "node_id": "resolve-source-residue-axis",
+      "node_type_id": "structure_transform.resolve_residue_axis",
+      "node_type_version": "4.0.0",
+      "binding_id": "structure_transform.resolve_residue_axis.direct",
+      "binding_version": "4.0.0",
+      "node_parameters": {},
+      "binding_parameters": {}
+    },
+    {
+      "node_id": "extract-imported-backbone",
+      "node_type_id": "structure_transform.extract_backbone",
+      "node_type_version": "4.0.0",
+      "binding_id": "structure_transform.extract_backbone.direct",
+      "binding_version": "4.0.0",
+      "node_parameters": {},
+      "binding_parameters": {}
+    },
+    {
+      "node_id": "prompt-backbone-to-structure",
+      "node_type_id": "structure_transform.backbone_to_structure",
+      "node_type_version": "4.0.0",
+      "binding_id": "structure_transform.backbone_to_structure.direct",
+      "binding_version": "4.0.0",
+      "node_parameters": {},
+      "binding_parameters": {}
+    },
+    {
+      "node_id": "resolve-imported-residue-axis",
+      "node_type_id": "structure_transform.resolve_residue_axis",
+      "node_type_version": "4.0.0",
+      "binding_id": "structure_transform.resolve_residue_axis.direct",
+      "binding_version": "4.0.0",
+      "node_parameters": {},
+      "binding_parameters": {}
+    },
+    {
       "node_id": "build-prompt",
       "node_type_id": "prompt_authoring.prompt_from_structure",
-      "node_type_version": "3.0.0",
+      "node_type_version": "5.0.0",
       "binding_id": "prompt_authoring.prompt_from_structure.direct",
-      "binding_version": "3.0.0",
+      "binding_version": "5.0.0",
       "node_parameters": {},
       "binding_parameters": {}
     },
     {
       "node_id": "mask-sequence",
       "node_type_id": "prompt_authoring.random_mask",
-      "node_type_version": "2.1.0",
+      "node_type_version": "3.0.0",
       "binding_id": "prompt_authoring.random_mask.direct",
-      "binding_version": "2.1.0",
+      "binding_version": "3.0.0",
       "node_parameters": {
         "effective_seed": 1603,
         "count": 20,
@@ -39,9 +75,9 @@
     {
       "node_id": "mask-structure",
       "node_type_id": "prompt_authoring.random_mask",
-      "node_type_version": "2.1.0",
+      "node_type_version": "3.0.0",
       "binding_id": "prompt_authoring.random_mask.direct",
-      "binding_version": "2.1.0",
+      "binding_version": "3.0.0",
       "node_parameters": {
         "effective_seed": 1603,
         "count": 10,
@@ -53,9 +89,9 @@
     {
       "node_id": "insert-masked",
       "node_type_id": "prompt_authoring.random_insert_masked",
-      "node_type_version": "2.1.0",
+      "node_type_version": "3.0.0",
       "binding_id": "prompt_authoring.random_insert_masked.direct",
-      "binding_version": "2.1.0",
+      "binding_version": "3.0.0",
       "node_parameters": {
         "effective_seed": 1603,
         "count": 15,
@@ -68,9 +104,9 @@
     {
       "node_id": "override-secondary-structure",
       "node_type_id": "prompt_authoring.override_protein_prompt_track",
-      "node_type_version": "2.1.0",
+      "node_type_version": "3.0.0",
       "binding_id": "prompt_authoring.override_protein_prompt_track.direct",
-      "binding_version": "2.1.0",
+      "binding_version": "3.0.0",
       "node_parameters": {
         "track": "secondary_structure",
         "overrides": [
@@ -326,9 +362,9 @@
     {
       "node_id": "generate-paired",
       "node_type_id": "esm3.generate_paired",
-      "node_type_version": "3.0.0",
+      "node_type_version": "7.0.0",
       "binding_id": "esm3.generate_paired.biohub_medium",
-      "binding_version": "3.0.0",
+      "binding_version": "7.0.0",
       "node_parameters": {
         "effective_seed": 1603,
         "num_samples": 10
@@ -336,11 +372,20 @@
       "binding_parameters": {}
     },
     {
+      "node_id": "materialize-generated-confidence",
+      "node_type_id": "structure_prediction.materialize_confidence",
+      "node_type_version": "1.0.0",
+      "binding_id": "structure_prediction.materialize_confidence.direct",
+      "binding_version": "1.0.0",
+      "node_parameters": {},
+      "binding_parameters": {}
+    },
+    {
       "node_id": "fold-sequences",
       "node_type_id": "folding.fold",
-      "node_type_version": "3.0.0",
+      "node_type_version": "6.0.0",
       "binding_id": "folding.fold.esmfold2_remote",
-      "binding_version": "3.0.0",
+      "binding_version": "7.0.0",
       "node_parameters": {
         "effective_seed": 1603,
         "num_samples": 1
@@ -348,65 +393,101 @@
       "binding_parameters": {}
     },
     {
+      "node_id": "materialize-folded-confidence",
+      "node_type_id": "structure_prediction.materialize_confidence",
+      "node_type_version": "1.0.0",
+      "binding_id": "structure_prediction.materialize_confidence.direct",
+      "binding_version": "1.0.0",
+      "node_parameters": {},
+      "binding_parameters": {}
+    },
+    {
       "node_id": "rebind-counterparts",
       "node_type_id": "collection_ops.rebind_candidate_pairing",
-      "node_type_version": "2.1.0",
+      "node_type_version": "3.0.0",
       "binding_id": "collection_ops.rebind_candidate_pairing.direct",
-      "binding_version": "2.1.0",
+      "binding_version": "3.0.0",
+      "node_parameters": {},
+      "binding_parameters": {}
+    },
+    {
+      "node_id": "resolve-folded-residue-axes",
+      "node_type_id": "structure_transform.resolve_candidate_residue_axes",
+      "node_type_version": "5.0.0",
+      "binding_id": "structure_transform.resolve_candidate_residue_axes.direct",
+      "binding_version": "5.0.0",
+      "node_parameters": {},
+      "binding_parameters": {}
+    },
+    {
+      "node_id": "resolve-generated-residue-axes",
+      "node_type_id": "structure_transform.resolve_candidate_residue_axes",
+      "node_type_version": "5.0.0",
+      "binding_id": "structure_transform.resolve_candidate_residue_axes.direct",
+      "binding_version": "5.0.0",
+      "node_parameters": {},
+      "binding_parameters": {}
+    },
+    {
+      "node_id": "resolve-canonical-residue-axes",
+      "node_type_id": "structure_transform.resolve_candidate_residue_axes",
+      "node_type_version": "5.0.0",
+      "binding_id": "structure_transform.resolve_candidate_residue_axes.direct",
+      "binding_version": "5.0.0",
       "node_parameters": {},
       "binding_parameters": {}
     },
     {
       "node_id": "align-fixed",
-      "node_type_id": "structure_comparison.align_pairwise",
-      "node_type_version": "2.2.0",
-      "binding_id": "structure_comparison.align_pairwise.fixed_reference",
-      "binding_version": "2.2.0",
+      "node_type_id": "structure_comparison.align_fixed_reference",
+      "node_type_version": "4.0.0",
+      "binding_id": "structure_comparison.align_fixed_reference.sequence_primary_affine",
+      "binding_version": "4.0.0",
       "node_parameters": {},
       "binding_parameters": {}
     },
     {
       "node_id": "score-fixed",
-      "node_type_id": "structure_comparison.batch_tm_score",
-      "node_type_version": "2.2.0",
-      "binding_id": "structure_comparison.batch_tm_score.fixed_reference",
-      "binding_version": "2.2.0",
+      "node_type_id": "structure_comparison.tm_score_fixed_reference",
+      "node_type_version": "5.0.0",
+      "binding_id": "structure_comparison.tm_score_fixed_reference.from_alignment_evidence",
+      "binding_version": "5.0.0",
       "node_parameters": {},
       "binding_parameters": {}
     },
     {
       "node_id": "align-paired",
-      "node_type_id": "structure_comparison.align_pairwise",
-      "node_type_version": "2.2.0",
-      "binding_id": "structure_comparison.align_pairwise.direct",
-      "binding_version": "2.2.0",
+      "node_type_id": "structure_comparison.align_counterparts",
+      "node_type_version": "4.0.0",
+      "binding_id": "structure_comparison.align_counterparts.sequence_primary_affine",
+      "binding_version": "4.0.0",
       "node_parameters": {},
       "binding_parameters": {}
     },
     {
       "node_id": "score-paired",
-      "node_type_id": "structure_comparison.batch_tm_score",
-      "node_type_version": "2.2.0",
-      "binding_id": "structure_comparison.batch_tm_score.per_subject_counterpart",
-      "binding_version": "2.2.0",
+      "node_type_id": "structure_comparison.tm_score_counterparts",
+      "node_type_version": "5.0.0",
+      "binding_id": "structure_comparison.tm_score_counterparts.from_alignment_evidence",
+      "binding_version": "5.0.0",
       "node_parameters": {},
       "binding_parameters": {}
     },
     {
       "node_id": "merge-scores",
       "node_type_id": "collection_ops.merge_scores",
-      "node_type_version": "2.1.0",
+      "node_type_version": "4.0.0",
       "binding_id": "collection_ops.merge_scores.direct",
-      "binding_version": "2.1.0",
+      "binding_version": "4.0.0",
       "node_parameters": {},
       "binding_parameters": {}
     },
     {
       "node_id": "rank-candidates",
       "node_type_id": "selection.weighted_rank",
-      "node_type_version": "2.1.0",
+      "node_type_version": "4.0.0",
       "binding_id": "selection.weighted_rank.direct",
-      "binding_version": "2.1.0",
+      "binding_version": "4.0.0",
       "node_parameters": {
         "objective_ids": [
           "fixed-3gb1",
@@ -419,20 +500,29 @@
     {
       "node_id": "take-top-three",
       "node_type_id": "collection_ops.take_candidates",
-      "node_type_version": "2.1.0",
+      "node_type_version": "3.0.0",
       "binding_id": "collection_ops.take_candidates.direct",
-      "binding_version": "2.1.0",
+      "binding_version": "3.0.0",
       "node_parameters": {
         "k": 3
       },
       "binding_parameters": {}
     },
     {
+      "node_id": "resolve-selected-residue-axes",
+      "node_type_id": "structure_transform.resolve_candidate_residue_axes",
+      "node_type_version": "5.0.0",
+      "binding_id": "structure_transform.resolve_candidate_residue_axes.direct",
+      "binding_version": "5.0.0",
+      "node_parameters": {},
+      "binding_parameters": {}
+    },
+    {
       "node_id": "build-final-layout",
       "node_type_id": "prompt_authoring.build_residue_layout",
-      "node_type_version": "2.1.0",
+      "node_type_version": "3.0.0",
       "binding_id": "prompt_authoring.build_residue_layout.direct",
-      "binding_version": "2.1.0",
+      "binding_version": "3.0.0",
       "node_parameters": {
         "chains": [
           {
@@ -446,9 +536,9 @@
     {
       "node_id": "fixed-positions",
       "node_type_id": "proteinmpnn.random_fixed_positions",
-      "node_type_version": "3.0.0",
+      "node_type_version": "4.0.0",
       "binding_id": "proteinmpnn.random_fixed_positions.local",
-      "binding_version": "3.0.0",
+      "binding_version": "4.0.0",
       "node_parameters": {
         "effective_seed": 1603,
         "fraction": 0.5
@@ -458,9 +548,9 @@
     {
       "node_id": "design-children",
       "node_type_id": "proteinmpnn.design",
-      "node_type_version": "4.0.0",
+      "node_type_version": "9.0.0",
       "binding_id": "proteinmpnn.design.local",
-      "binding_version": "4.0.0",
+      "binding_version": "9.0.0",
       "node_parameters": {
         "effective_seed": 1603,
         "num_sequences": 5,
@@ -472,9 +562,9 @@
     {
       "node_id": "fold-final",
       "node_type_id": "folding.fold",
-      "node_type_version": "3.0.0",
+      "node_type_version": "6.0.0",
       "binding_id": "folding.fold.esmfold2_remote",
-      "binding_version": "3.0.0",
+      "binding_version": "7.0.0",
       "node_parameters": {
         "effective_seed": 1603,
         "num_samples": 1
@@ -482,11 +572,20 @@
       "binding_parameters": {}
     },
     {
+      "node_id": "materialize-final-confidence",
+      "node_type_id": "structure_prediction.materialize_confidence",
+      "node_type_version": "1.0.0",
+      "binding_id": "structure_prediction.materialize_confidence.direct",
+      "binding_version": "1.0.0",
+      "node_parameters": {},
+      "binding_parameters": {}
+    },
+    {
       "node_id": "export-final",
       "node_type_id": "protein_io.export_structure",
-      "node_type_version": "3.0.0",
+      "node_type_version": "5.0.0",
       "binding_id": "protein_io.export_structure.direct",
-      "binding_version": "3.0.0",
+      "binding_version": "5.0.0",
       "node_parameters": {},
       "binding_parameters": {}
     }
@@ -495,8 +594,32 @@
     {
       "source_node_id": "import-3gb1",
       "source_port": "structure",
-      "target_node_id": "build-prompt",
+      "target_node_id": "resolve-source-residue-axis",
       "target_port": "structure"
+    },
+    {
+      "source_node_id": "resolve-source-residue-axis",
+      "source_port": "residue_axis",
+      "target_node_id": "extract-imported-backbone",
+      "target_port": "residue_axis"
+    },
+    {
+      "source_node_id": "extract-imported-backbone",
+      "source_port": "backbone",
+      "target_node_id": "prompt-backbone-to-structure",
+      "target_port": "backbone"
+    },
+    {
+      "source_node_id": "prompt-backbone-to-structure",
+      "source_port": "structure",
+      "target_node_id": "resolve-imported-residue-axis",
+      "target_port": "structure"
+    },
+    {
+      "source_node_id": "resolve-imported-residue-axis",
+      "source_port": "residue_axis",
+      "target_node_id": "build-prompt",
+      "target_port": "residue_axis"
     },
     {
       "source_node_id": "build-prompt",
@@ -530,9 +653,33 @@
     },
     {
       "source_node_id": "generate-paired",
+      "source_port": "structure_candidates",
+      "target_node_id": "materialize-generated-confidence",
+      "target_port": "structure_candidates"
+    },
+    {
+      "source_node_id": "generate-paired",
+      "source_port": "confidence_facts",
+      "target_node_id": "materialize-generated-confidence",
+      "target_port": "confidence_facts"
+    },
+    {
+      "source_node_id": "generate-paired",
       "source_port": "sequence_candidates",
       "target_node_id": "fold-sequences",
       "target_port": "sequence_candidates"
+    },
+    {
+      "source_node_id": "fold-sequences",
+      "source_port": "structure_candidates",
+      "target_node_id": "materialize-folded-confidence",
+      "target_port": "structure_candidates"
+    },
+    {
+      "source_node_id": "fold-sequences",
+      "source_port": "confidence_facts",
+      "target_node_id": "materialize-folded-confidence",
+      "target_port": "confidence_facts"
     },
     {
       "source_node_id": "fold-sequences",
@@ -561,14 +708,44 @@
     {
       "source_node_id": "fold-sequences",
       "source_port": "structure_candidates",
+      "target_node_id": "resolve-folded-residue-axes",
+      "target_port": "structure_candidates"
+    },
+    {
+      "source_node_id": "generate-paired",
+      "source_port": "structure_candidates",
+      "target_node_id": "resolve-generated-residue-axes",
+      "target_port": "structure_candidates"
+    },
+    {
+      "source_node_id": "import-3gb1",
+      "source_port": "structure_candidates",
+      "target_node_id": "resolve-canonical-residue-axes",
+      "target_port": "structure_candidates"
+    },
+    {
+      "source_node_id": "fold-sequences",
+      "source_port": "structure_candidates",
       "target_node_id": "align-fixed",
       "target_port": "subjects"
+    },
+    {
+      "source_node_id": "resolve-folded-residue-axes",
+      "source_port": "residue_axes",
+      "target_node_id": "align-fixed",
+      "target_port": "subject_residue_axes"
     },
     {
       "source_node_id": "import-3gb1",
       "source_port": "structure_candidates",
       "target_node_id": "align-fixed",
       "target_port": "references"
+    },
+    {
+      "source_node_id": "resolve-canonical-residue-axes",
+      "source_port": "residue_axes",
+      "target_node_id": "align-fixed",
+      "target_port": "reference_residue_axes"
     },
     {
       "source_node_id": "align-fixed",
@@ -595,10 +772,22 @@
       "target_port": "subjects"
     },
     {
+      "source_node_id": "resolve-folded-residue-axes",
+      "source_port": "residue_axes",
+      "target_node_id": "align-paired",
+      "target_port": "subject_residue_axes"
+    },
+    {
       "source_node_id": "generate-paired",
       "source_port": "structure_candidates",
       "target_node_id": "align-paired",
       "target_port": "references"
+    },
+    {
+      "source_node_id": "resolve-generated-residue-axes",
+      "source_port": "residue_axes",
+      "target_node_id": "align-paired",
+      "target_port": "reference_residue_axes"
     },
     {
       "source_node_id": "rebind-counterparts",
@@ -661,6 +850,12 @@
       "target_port": "candidates"
     },
     {
+      "source_node_id": "take-top-three",
+      "source_port": "candidates",
+      "target_node_id": "resolve-selected-residue-axes",
+      "target_port": "structure_candidates"
+    },
+    {
       "source_node_id": "build-final-layout",
       "source_port": "layout",
       "target_node_id": "fixed-positions",
@@ -673,6 +868,12 @@
       "target_port": "structure_candidates"
     },
     {
+      "source_node_id": "resolve-selected-residue-axes",
+      "source_port": "residue_axes",
+      "target_node_id": "design-children",
+      "target_port": "structure_residue_axes"
+    },
+    {
       "source_node_id": "fixed-positions",
       "source_port": "constraints",
       "target_node_id": "design-children",
@@ -683,6 +884,18 @@
       "source_port": "sequence_candidates",
       "target_node_id": "fold-final",
       "target_port": "sequence_candidates"
+    },
+    {
+      "source_node_id": "fold-final",
+      "source_port": "structure_candidates",
+      "target_node_id": "materialize-final-confidence",
+      "target_port": "structure_candidates"
+    },
+    {
+      "source_node_id": "fold-final",
+      "source_port": "confidence_facts",
+      "target_node_id": "materialize-final-confidence",
+      "target_port": "confidence_facts"
     },
     {
       "source_node_id": "fold-final",
@@ -707,27 +920,27 @@
       "metric": {
         "contract_kind": "metric",
         "contract_id": "structure_comparison.tm_score",
-        "contract_version": "2.1.0",
-        "contract_digest": "sha256:da420b1a3665d381c77e690116e976a112dc32946e8aeb84d5cb54398cfc97ba"
+        "contract_version": "3.0.0",
+        "contract_digest": "sha256:6bbd756040cb0856c6a89d0953826a2cd09002766a5e8257ea24e0e8636b3cb8"
       },
       "method": {
         "contract_kind": "method",
-        "contract_id": "structure_comparison.tm_score.reference_normalized.method",
-        "contract_version": "2.1.0",
-        "contract_digest": "sha256:7809e22c2d0a3b7c180f72e5b6682f2d92f28df78ad9e129d933911a9558f36d"
+        "contract_id": "structure_comparison.tm_score.reference_axis_normalized.method",
+        "contract_version": "3.0.0",
+        "contract_digest": "sha256:b3149ada26856dd1f06c9bcdc228c712a5abf1671b3c219b3c03556c2e8b3625"
       },
       "context_selector": {
         "kind": "pairwise",
         "subject_role": "subject",
         "reference_role": "reference",
         "pairing_mode": "fixed_reference",
-        "normalization": "standard-reference-residue-count"
+        "normalization": "reference-axis-residue-count"
       },
       "utility_transform": {
         "contract_kind": "utility_transform",
         "contract_id": "structure_comparison.tm_score.fixed_reference.identity",
-        "contract_version": "2.1.0",
-        "contract_digest": "sha256:95d409eadbc0b72a65d5641dacae3ba7c6104ef020021635f25cdccddc983bc2"
+        "contract_version": "3.0.0",
+        "contract_digest": "sha256:41234589b28fb879ee76a22d87dab406f678af7efb52a33d7c4a4b22279dd575"
       },
       "utility_parameters": {},
       "weight": 0.7,
@@ -748,27 +961,27 @@
       "metric": {
         "contract_kind": "metric",
         "contract_id": "structure_comparison.tm_score",
-        "contract_version": "2.1.0",
-        "contract_digest": "sha256:da420b1a3665d381c77e690116e976a112dc32946e8aeb84d5cb54398cfc97ba"
+        "contract_version": "3.0.0",
+        "contract_digest": "sha256:6bbd756040cb0856c6a89d0953826a2cd09002766a5e8257ea24e0e8636b3cb8"
       },
       "method": {
         "contract_kind": "method",
-        "contract_id": "structure_comparison.tm_score.reference_normalized.method",
-        "contract_version": "2.1.0",
-        "contract_digest": "sha256:7809e22c2d0a3b7c180f72e5b6682f2d92f28df78ad9e129d933911a9558f36d"
+        "contract_id": "structure_comparison.tm_score.reference_axis_normalized.method",
+        "contract_version": "3.0.0",
+        "contract_digest": "sha256:b3149ada26856dd1f06c9bcdc228c712a5abf1671b3c219b3c03556c2e8b3625"
       },
       "context_selector": {
         "kind": "pairwise",
         "subject_role": "subject",
         "reference_role": "reference",
         "pairing_mode": "per_subject_counterpart",
-        "normalization": "standard-reference-residue-count"
+        "normalization": "reference-axis-residue-count"
       },
       "utility_transform": {
         "contract_kind": "utility_transform",
         "contract_id": "structure_comparison.tm_score.per_subject_counterpart.identity",
-        "contract_version": "2.1.0",
-        "contract_digest": "sha256:6d43ea53ece2d9466adc27289e8630f8d460c4bab3b4c037080bfe51aa5714c1"
+        "contract_version": "3.0.0",
+        "contract_digest": "sha256:21f240b93f03876885946cfcbc0ae19172c8c9678d92704e73044993ddba1a2d"
       },
       "utility_parameters": {},
       "weight": 0.3,
@@ -780,116 +993,146 @@
     {
       "contract_kind": "binding",
       "contract_id": "collection_ops.merge_scores.direct",
-      "contract_version": "2.1.0",
-      "contract_digest": "sha256:5d4054f6924e4e145cf577e8752aaabdbff1f952d9dc4c1ec7e6a12480e22d7b"
+      "contract_version": "4.0.0",
+      "contract_digest": "sha256:52cefdd39824b8c43019cb5cf92939ec63bc5133c4fbdbccc46b539c924e5dcd"
     },
     {
       "contract_kind": "binding",
       "contract_id": "collection_ops.rebind_candidate_pairing.direct",
-      "contract_version": "2.1.0",
-      "contract_digest": "sha256:55f6102e60bda77276a4af81e8d9a4978ff39dce45abe5e90a3c68db6823a720"
+      "contract_version": "3.0.0",
+      "contract_digest": "sha256:9bdc167dd8c0f1193c2cf154e5e40132e64ab0d3e6ce3f8207cefdc2798ee84c"
     },
     {
       "contract_kind": "binding",
       "contract_id": "collection_ops.take_candidates.direct",
-      "contract_version": "2.1.0",
-      "contract_digest": "sha256:498a495a17ffec8ee2a99d506bbc012c1ef7b944bb7bc39524679d8e35fdd80b"
+      "contract_version": "3.0.0",
+      "contract_digest": "sha256:5d669a4ffd1ada8fb66d391046e5539e81309c79e5f5dbaf8a21c98ae1e97896"
     },
     {
       "contract_kind": "binding",
       "contract_id": "esm3.generate_paired.biohub_medium",
-      "contract_version": "3.0.0",
-      "contract_digest": "sha256:88f02ffd26f786100f1bd5f5a2c71cc2d5403abbc8c039e94b662f032698a005"
+      "contract_version": "7.0.0",
+      "contract_digest": "sha256:fd67c0f55575aa85beb8be6232ad734bbb78f9d0f549766b85c7a6eafc503545"
     },
     {
       "contract_kind": "binding",
       "contract_id": "folding.fold.esmfold2_remote",
-      "contract_version": "3.0.0",
-      "contract_digest": "sha256:a62b98ebb42a33e906c20fecb5cdcd5ea338b713658bb90b735aff639a07acc3"
+      "contract_version": "7.0.0",
+      "contract_digest": "sha256:cb0781ac3f9e4b42e54c6fa84b96c68169282f91fb2762e14b889e4b4f5748e4"
     },
     {
       "contract_kind": "binding",
       "contract_id": "prompt_authoring.build_residue_layout.direct",
-      "contract_version": "2.1.0",
-      "contract_digest": "sha256:ef2dd9b00f09aebbf788b5d1c1bdbf67d655d21c36a1c285f9427c740978cbf0"
+      "contract_version": "3.0.0",
+      "contract_digest": "sha256:b30f9c83cd76936b7236c590bf5d2a9fbb92802b9457d9726890cbaa29cf2d60"
     },
     {
       "contract_kind": "binding",
       "contract_id": "prompt_authoring.override_protein_prompt_track.direct",
-      "contract_version": "2.1.0",
-      "contract_digest": "sha256:c2399daca65abc689d8f75c8987e6c526e97d773203689a7c74ec83601c95276"
+      "contract_version": "3.0.0",
+      "contract_digest": "sha256:d3b0b23e42bcfdd8490517b606c41f25afb2059f5226c6f4094e937f4494c719"
     },
     {
       "contract_kind": "binding",
       "contract_id": "prompt_authoring.prompt_from_structure.direct",
-      "contract_version": "3.0.0",
-      "contract_digest": "sha256:a443731238ae7aa8a786cd9ad4fbd205f5c44d58e946d5b5b123bc6551c271a4"
+      "contract_version": "5.0.0",
+      "contract_digest": "sha256:e181723c32acb5bb92d8981513d35081f1d53880e44361fa78aec0cbb907881f"
     },
     {
       "contract_kind": "binding",
       "contract_id": "prompt_authoring.random_insert_masked.direct",
-      "contract_version": "2.1.0",
-      "contract_digest": "sha256:08cab9f25240bf4346f0043be1e71dbcee6e5a677c5cc463e5b2a541f759ceda"
+      "contract_version": "3.0.0",
+      "contract_digest": "sha256:751485219b8aeec9f81796b221e3cd7bd2038f60901a98ef044640f903f69a48"
     },
     {
       "contract_kind": "binding",
       "contract_id": "prompt_authoring.random_mask.direct",
-      "contract_version": "2.1.0",
-      "contract_digest": "sha256:b3e81dcbe7c81d7794e831cd955b03901261ad52af3b4c31d2a084b8a2133631"
+      "contract_version": "3.0.0",
+      "contract_digest": "sha256:4c0eb350bb6f803fa3278740ccbbff7b39b4ca9d723e7faa9626e50397085a72"
     },
     {
       "contract_kind": "binding",
       "contract_id": "protein_io.export_structure.direct",
-      "contract_version": "3.0.0",
-      "contract_digest": "sha256:722a26ec630661f5849869fe31493e3ab268e4c910db5ceb8a798d174936696d"
+      "contract_version": "5.0.0",
+      "contract_digest": "sha256:618cb7c27898112f131699b7443de36b442bc6dc53dbe83d038da042cc6421ad"
     },
     {
       "contract_kind": "binding",
       "contract_id": "protein_io.import_structure.direct",
-      "contract_version": "3.0.0",
-      "contract_digest": "sha256:5a5bbe5ddb176da0d75bce6cabdb313c663e0e917df633a6f8f0d6107cd15b8f"
+      "contract_version": "5.0.0",
+      "contract_digest": "sha256:3cb50990f4d369ff1fcd57d3e8925152a75f8f7b894a8c1a538f8d0767eb9eed"
     },
     {
       "contract_kind": "binding",
       "contract_id": "proteinmpnn.design.local",
-      "contract_version": "4.0.0",
-      "contract_digest": "sha256:0f3af7384f5fae8474731a7702b2e7bdcf1a70383a8f24b6ec9eb58b8fc7d6bb"
+      "contract_version": "9.0.0",
+      "contract_digest": "sha256:d2cb27d5481aeb1ebd6227f56f1949b11d768ad294f39e1069843637d92aaa89"
     },
     {
       "contract_kind": "binding",
       "contract_id": "proteinmpnn.random_fixed_positions.local",
-      "contract_version": "3.0.0",
-      "contract_digest": "sha256:97df5c52e5470a954ce7728440f1ce08b659493e833f6fb37b2d4de1e0cfc65c"
+      "contract_version": "4.0.0",
+      "contract_digest": "sha256:879ab91d675df252d596a003b717cd0b39492e0c89ba2d0d74fe79275fc915a7"
     },
     {
       "contract_kind": "binding",
       "contract_id": "selection.weighted_rank.direct",
-      "contract_version": "2.1.0",
-      "contract_digest": "sha256:bca6123920afb5d2194add2ef18142093befa47529c65453523fc8ff2947a1b7"
+      "contract_version": "4.0.0",
+      "contract_digest": "sha256:7f426e7005dcb9866fb911afc1c422dd2f515adf23b329bcf6d8ad9ddaabf176"
     },
     {
       "contract_kind": "binding",
-      "contract_id": "structure_comparison.align_pairwise.direct",
-      "contract_version": "2.2.0",
-      "contract_digest": "sha256:65cc1fc2bd8de20e2e878a7d511a61f4f9ba9014a8f7ebc96e85812f8cb80684"
+      "contract_id": "structure_comparison.align_counterparts.sequence_primary_affine",
+      "contract_version": "4.0.0",
+      "contract_digest": "sha256:e2c13dada2ad29d4ca20da3ad9ffa1c21f3efdf0dfd95cb05ba5214d8e802a0c"
     },
     {
       "contract_kind": "binding",
-      "contract_id": "structure_comparison.align_pairwise.fixed_reference",
-      "contract_version": "2.2.0",
-      "contract_digest": "sha256:9230351a4f897da81fbe28c9410904b9956454110a8abdc60c595383d20cde62"
+      "contract_id": "structure_comparison.align_fixed_reference.sequence_primary_affine",
+      "contract_version": "4.0.0",
+      "contract_digest": "sha256:e700524ca26e715b03680b3150da0f683060711e58e156691a87a981e9d5f540"
     },
     {
       "contract_kind": "binding",
-      "contract_id": "structure_comparison.batch_tm_score.fixed_reference",
-      "contract_version": "2.2.0",
-      "contract_digest": "sha256:8052322638cc9f1901dffaa25588984bf3c920a35a3bdbb736defbab98e74935"
+      "contract_id": "structure_comparison.tm_score_counterparts.from_alignment_evidence",
+      "contract_version": "5.0.0",
+      "contract_digest": "sha256:473f56f9c25a9c59810e1b058f10245f78dbd55589fca05a94ff231d68a29efb"
     },
     {
       "contract_kind": "binding",
-      "contract_id": "structure_comparison.batch_tm_score.per_subject_counterpart",
-      "contract_version": "2.2.0",
-      "contract_digest": "sha256:3fdf6c4bbf78b900d8600bb838d0e779aded0e25d09dd9dfbec9e4c94244a39a"
+      "contract_id": "structure_comparison.tm_score_fixed_reference.from_alignment_evidence",
+      "contract_version": "5.0.0",
+      "contract_digest": "sha256:f730fb4aa94fd0f5a0e7d4ce741f552636195d255c9789551e2d8a1b6fde1a0a"
+    },
+    {
+      "contract_kind": "binding",
+      "contract_id": "structure_prediction.materialize_confidence.direct",
+      "contract_version": "1.0.0",
+      "contract_digest": "sha256:86de8ef9c5ecb9f86ef490cad1304d60b3e81b566c6a735c7fa1886324060021"
+    },
+    {
+      "contract_kind": "binding",
+      "contract_id": "structure_transform.backbone_to_structure.direct",
+      "contract_version": "4.0.0",
+      "contract_digest": "sha256:737a9a47f57b930ded14c5b8ab4b85b4e6e7684dd30c0e1a622e16c5c10b0f70"
+    },
+    {
+      "contract_kind": "binding",
+      "contract_id": "structure_transform.extract_backbone.direct",
+      "contract_version": "4.0.0",
+      "contract_digest": "sha256:d94e4ab9bc18728160fb3b3854d313e5340397e938f8f910ec8ac403e64a775c"
+    },
+    {
+      "contract_kind": "binding",
+      "contract_id": "structure_transform.resolve_candidate_residue_axes.direct",
+      "contract_version": "5.0.0",
+      "contract_digest": "sha256:c2899e7a2ed9da8d303f5094a11a672d1c7b9521c719003ba3805d397617d499"
+    },
+    {
+      "contract_kind": "binding",
+      "contract_id": "structure_transform.resolve_residue_axis.direct",
+      "contract_version": "4.0.0",
+      "contract_digest": "sha256:74092700c4d58b722965774c310534b9cb2cc7b8e1b8ebebfb8692408b86268b"
     },
     {
       "contract_kind": "method",
@@ -900,8 +1143,8 @@
     {
       "contract_kind": "method",
       "contract_id": "collection_ops.rebind_candidate_pairing.method",
-      "contract_version": "2.1.0",
-      "contract_digest": "sha256:1cd82ab625ff664a2d899cd0994d85db7404a865447a455d5368ad25e597b79a"
+      "contract_version": "3.0.0",
+      "contract_digest": "sha256:6f8c1a32e81187a95a83e388cfe1c3b227680d3e7665a7f681162365dd3c3fb7"
     },
     {
       "contract_kind": "method",
@@ -912,14 +1155,14 @@
     {
       "contract_kind": "method",
       "contract_id": "esm3.generate_paired.esm3_medium_2024_08",
-      "contract_version": "3.0.0",
-      "contract_digest": "sha256:c74650d2ea49f45666813b6ec23e24c4a21dde874d1518e628445a4a117fbcbd"
+      "contract_version": "5.0.0",
+      "contract_digest": "sha256:8fee8cf6dbaa98ccdf39ba1f2e2a7e8be1fa270856c043e19dbc9f5bf9a30607"
     },
     {
       "contract_kind": "method",
       "contract_id": "folding.fold.esmfold2_fast_biohub_2026_05",
-      "contract_version": "3.0.0",
-      "contract_digest": "sha256:376137c4350004a288962a3d09cae4071a5b833c4ef9159770fd64aabb0f7965"
+      "contract_version": "4.0.0",
+      "contract_digest": "sha256:96ba1f830ca71c844cc1ea506e6b60a327b5cf4c17bd0bfc2143b25bf669bee8"
     },
     {
       "contract_kind": "method",
@@ -936,8 +1179,8 @@
     {
       "contract_kind": "method",
       "contract_id": "prompt_authoring.prompt_from_structure.method",
-      "contract_version": "2.1.0",
-      "contract_digest": "sha256:6b338efa83542bbaf3d0668fdbe0915477e91cd16e0498881e91801ffbb5e05a"
+      "contract_version": "3.0.0",
+      "contract_digest": "sha256:819b14e1305fc52ed0e960dc23c34f14395ca3f63a7f542fb31ee505c1215fb1"
     },
     {
       "contract_kind": "method",
@@ -966,8 +1209,8 @@
     {
       "contract_kind": "method",
       "contract_id": "proteinmpnn.design.v_48_020_8907e667",
-      "contract_version": "3.0.0",
-      "contract_digest": "sha256:997fd2bb1f9d9079260dd0d0343cfab0166819975dd496fed394ff2993e0bc40"
+      "contract_version": "5.0.0",
+      "contract_digest": "sha256:350975671bbe626203265078eaebbc17bb81a3eaa2b5089ad5e76584986579df"
     },
     {
       "contract_kind": "method",
@@ -978,38 +1221,68 @@
     {
       "contract_kind": "method",
       "contract_id": "selection.weighted_rank.method",
-      "contract_version": "2.1.0",
-      "contract_digest": "sha256:6aa75ac1f638779603da3048a9912c65a918a7effe73aa8c19df44a06e676f4b"
+      "contract_version": "4.0.0",
+      "contract_digest": "sha256:8f41fc413bff34ca052271490dede97c48fcab62a05fd6ccff8cda638aab7523"
     },
     {
       "contract_kind": "method",
-      "contract_id": "structure_comparison.ca_sequence_svd.method",
-      "contract_version": "2.1.0",
-      "contract_digest": "sha256:fcb9eef2116257b24ebcabd6604a93fde9831738b3c3f37b19bece04cb19cb6d"
+      "contract_id": "structure_comparison.sequence_primary_affine_svd.method",
+      "contract_version": "3.0.0",
+      "contract_digest": "sha256:863f98c327e008e9e5da820470a7c5a6ef72c5911e699cd06487f797e731bb53"
     },
     {
       "contract_kind": "method",
-      "contract_id": "structure_comparison.tm_score.reference_normalized.method",
-      "contract_version": "2.1.0",
-      "contract_digest": "sha256:7809e22c2d0a3b7c180f72e5b6682f2d92f28df78ad9e129d933911a9558f36d"
+      "contract_id": "structure_comparison.tm_score.reference_axis_normalized.method",
+      "contract_version": "3.0.0",
+      "contract_digest": "sha256:b3149ada26856dd1f06c9bcdc228c712a5abf1671b3c219b3c03556c2e8b3625"
+    },
+    {
+      "contract_kind": "method",
+      "contract_id": "structure_prediction.materialize_confidence.exact_reference_join",
+      "contract_version": "1.0.0",
+      "contract_digest": "sha256:20157dc9def4fc79cb9f57182eade975ea281b192888a3af985fb2432ce16569"
+    },
+    {
+      "contract_kind": "method",
+      "contract_id": "structure_transform.backbone_to_structure.method",
+      "contract_version": "4.0.0",
+      "contract_digest": "sha256:50d59e276f8f268482f72579ff7e7bfae8a1d7057cddf76ef944ec877fcec034"
+    },
+    {
+      "contract_kind": "method",
+      "contract_id": "structure_transform.extract_backbone.method",
+      "contract_version": "3.0.0",
+      "contract_digest": "sha256:0234640818bdfb0464641d3d5b2f2b467c1f4f76bee6056aa1f7304c1718186f"
+    },
+    {
+      "contract_kind": "method",
+      "contract_id": "structure_transform.resolve_candidate_residue_axes.method",
+      "contract_version": "3.0.0",
+      "contract_digest": "sha256:f898caefe627a24386bc573606c0a5cae766a30b11f6f78aa64e60cedb78ceff"
+    },
+    {
+      "contract_kind": "method",
+      "contract_id": "structure_transform.resolve_residue_axis.method",
+      "contract_version": "3.0.0",
+      "contract_digest": "sha256:a8e165d221307c09ff8f0e4ad230b0bdb75b1a87d491693dfa8062667b691f09"
     },
     {
       "contract_kind": "metric",
       "contract_id": "structure.pae",
-      "contract_version": "2.1.0",
-      "contract_digest": "sha256:f085ba7d67dc190075b9076e3a3a9b37912bb2a4b2a8c9ff6d1dc02d6155f7c1"
+      "contract_version": "3.0.0",
+      "contract_digest": "sha256:8b56f157ce05a2add518b1ab3d7f1860c4b861b98b36cac55db1ba215ff6b36c"
     },
     {
       "contract_kind": "metric",
       "contract_id": "structure.plddt.mean_residue",
-      "contract_version": "2.1.0",
-      "contract_digest": "sha256:a2210252c653203415771258a8b2887f369dfd2ba0c1011b89829572c782e40c"
+      "contract_version": "3.0.0",
+      "contract_digest": "sha256:f51b9e5fbba31a1a9dbe6c5d724d9f500d1e2ce5d0889d812c82fe73b147399f"
     },
     {
       "contract_kind": "metric",
       "contract_id": "structure.plddt.per_residue",
-      "contract_version": "2.1.0",
-      "contract_digest": "sha256:8c42c10b0cfc461feb3fc459c9e4225a1a7ea5135606c9164ea2b36e2775369d"
+      "contract_version": "3.0.0",
+      "contract_digest": "sha256:25f6cf829620778f7ac889cea552b64132b3123acaece94df03e0be9a679391c"
     },
     {
       "contract_kind": "metric",
@@ -1020,140 +1293,182 @@
     {
       "contract_kind": "metric",
       "contract_id": "structure_comparison.tm_score",
-      "contract_version": "2.1.0",
-      "contract_digest": "sha256:da420b1a3665d381c77e690116e976a112dc32946e8aeb84d5cb54398cfc97ba"
+      "contract_version": "3.0.0",
+      "contract_digest": "sha256:6bbd756040cb0856c6a89d0953826a2cd09002766a5e8257ea24e0e8636b3cb8"
     },
     {
       "contract_kind": "node_type",
       "contract_id": "collection_ops.merge_scores",
-      "contract_version": "2.1.0",
-      "contract_digest": "sha256:ff771d35d9cbcc5859686df99249501d97c98842563fcc83066b82e5576ffc29"
+      "contract_version": "4.0.0",
+      "contract_digest": "sha256:62f8477bdb6305a3aa88338421e74d3371af3e7ca7c2c4c70b5510e981107fc0"
     },
     {
       "contract_kind": "node_type",
       "contract_id": "collection_ops.rebind_candidate_pairing",
-      "contract_version": "2.1.0",
-      "contract_digest": "sha256:34357daa59ff9ab26dc96b5fe56c83d901f48a5d557f068d38c9607d1d15e9ef"
+      "contract_version": "3.0.0",
+      "contract_digest": "sha256:5e50ee6f2707eb6c8b093a6d51503bdfe71591ad0259ee7c7d36bf4207431e01"
     },
     {
       "contract_kind": "node_type",
       "contract_id": "collection_ops.take_candidates",
-      "contract_version": "2.1.0",
-      "contract_digest": "sha256:f7a8ca5a368c92d355ec3362acd17ce2f258454e7a28ed2dbd4a7106753cbe5e"
+      "contract_version": "3.0.0",
+      "contract_digest": "sha256:4fdfd5c60c3bbccd9f64faceebdf6a453f1d01163537cb575f9ccf6d222f5864"
     },
     {
       "contract_kind": "node_type",
       "contract_id": "esm3.generate_paired",
-      "contract_version": "3.0.0",
-      "contract_digest": "sha256:12129502f9ab8c7f7dabc48e4362f5bb044dba25899b04e6be7965343bb46322"
+      "contract_version": "7.0.0",
+      "contract_digest": "sha256:3f202de8eb8a96025f0914b2a86665e9a8c11421470cf78d7d11291168a40b26"
     },
     {
       "contract_kind": "node_type",
       "contract_id": "folding.fold",
-      "contract_version": "3.0.0",
-      "contract_digest": "sha256:a4c584036ebdfdcd330792b545de574fffc644880c441eb2ee0db9b2ac46d797"
+      "contract_version": "6.0.0",
+      "contract_digest": "sha256:a035be76549d73bd861577478eec02edea5391f19c5a0633855f69e586cef9e9"
     },
     {
       "contract_kind": "node_type",
       "contract_id": "prompt_authoring.build_residue_layout",
-      "contract_version": "2.1.0",
-      "contract_digest": "sha256:6c74193ec699dc53a0db070fb49d77e0f2ed12bcc1ec4253d17dc5d052d25eb3"
+      "contract_version": "3.0.0",
+      "contract_digest": "sha256:36c30b8d2ed39ce94230b1985a4bf311b87d4bf2b3e41f2c1e25388e4d437050"
     },
     {
       "contract_kind": "node_type",
       "contract_id": "prompt_authoring.override_protein_prompt_track",
-      "contract_version": "2.1.0",
-      "contract_digest": "sha256:cb3bd17dc79bde6624d5f3ffc1decece99260dd46dc010e4e6b595f21db3da3c"
+      "contract_version": "3.0.0",
+      "contract_digest": "sha256:e0f19e6f8eb6ca447aa8290be7ba960e6e375bb0e66ee7407689e28997ed460d"
     },
     {
       "contract_kind": "node_type",
       "contract_id": "prompt_authoring.prompt_from_structure",
-      "contract_version": "3.0.0",
-      "contract_digest": "sha256:f28c85c66f2d2b1b95fdcf1b4399b7ea675a79e78658a9950cdd095bf4757e83"
+      "contract_version": "5.0.0",
+      "contract_digest": "sha256:2cb1ff0946f4cf022e038e8230feed82198d78dbc706d35894c808f653ec67b5"
     },
     {
       "contract_kind": "node_type",
       "contract_id": "prompt_authoring.random_insert_masked",
-      "contract_version": "2.1.0",
-      "contract_digest": "sha256:0d9c6cc07825bb576b582c5f2341e4b7cd96ae42fec929cc54636652940271c5"
+      "contract_version": "3.0.0",
+      "contract_digest": "sha256:7b798e395d6e9a00d661a8478b8915c16ff24da1737c1b4578d369f9b0c25fdb"
     },
     {
       "contract_kind": "node_type",
       "contract_id": "prompt_authoring.random_mask",
-      "contract_version": "2.1.0",
-      "contract_digest": "sha256:c3cf6aad4091d6b9bb6ea712c56e6bb0eccad3e3b90c5bd0b315f227e98a331d"
+      "contract_version": "3.0.0",
+      "contract_digest": "sha256:7ebb8c1dddfc37067b8431952a55f47912d197722484dd5f7a26617981e00374"
     },
     {
       "contract_kind": "node_type",
       "contract_id": "protein_io.export_structure",
-      "contract_version": "3.0.0",
-      "contract_digest": "sha256:1185f4eb2557646941f582989952ec2432741fcdd5332e4f06ec8516e08c01b0"
+      "contract_version": "5.0.0",
+      "contract_digest": "sha256:3faf7b41fb15fc49601f607dbe59119f5019cea4c07881615729c3227d5a7a7a"
     },
     {
       "contract_kind": "node_type",
       "contract_id": "protein_io.import_structure",
-      "contract_version": "3.0.0",
-      "contract_digest": "sha256:9daa0861cdc0f933729874452d3331a61d6a5ed549df6e9e00eaa092f435a8a9"
+      "contract_version": "5.0.0",
+      "contract_digest": "sha256:3df132307350727bca70afe3e8db7f448d3a641fae5490958f7b56b9b86d3d76"
     },
     {
       "contract_kind": "node_type",
       "contract_id": "proteinmpnn.design",
-      "contract_version": "4.0.0",
-      "contract_digest": "sha256:732f774b280d8189177447e8de87b76e736660f1af4eb6d17f15630e4dcadd49"
+      "contract_version": "9.0.0",
+      "contract_digest": "sha256:03e408d62aa46a4107742ebd44f3d8f53346c436e2bc77c0af6bf756ed4d0dec"
     },
     {
       "contract_kind": "node_type",
       "contract_id": "proteinmpnn.random_fixed_positions",
-      "contract_version": "3.0.0",
-      "contract_digest": "sha256:2ed78e2fc79ed31be6fe3569502b9eb914899885071fa9be49af4197571529ec"
+      "contract_version": "4.0.0",
+      "contract_digest": "sha256:7189a797c74168c32e7098ea7a20eb0f693aad6e0495094d15c3b095c105c6f6"
     },
     {
       "contract_kind": "node_type",
       "contract_id": "selection.weighted_rank",
-      "contract_version": "2.1.0",
-      "contract_digest": "sha256:b31fdc58442e1314cc3eae3f1e5f8bd4447e62fe76f7436093d08497c56b64e9"
+      "contract_version": "4.0.0",
+      "contract_digest": "sha256:bef336449b14a824f43c112b8f8893148916ceb3c9e720bc711b447b67af00af"
     },
     {
       "contract_kind": "node_type",
-      "contract_id": "structure_comparison.align_pairwise",
-      "contract_version": "2.2.0",
-      "contract_digest": "sha256:78980d3eb49bdcfdb9334019d603022dfea3c2e5f0ce9c4cc5b41ae5b9a8d14a"
+      "contract_id": "structure_comparison.align_counterparts",
+      "contract_version": "4.0.0",
+      "contract_digest": "sha256:f3f4270c3613831f48251920dda9f5d7966955756b66c24d1407fa09d59f7e65"
     },
     {
       "contract_kind": "node_type",
-      "contract_id": "structure_comparison.batch_tm_score",
-      "contract_version": "2.2.0",
-      "contract_digest": "sha256:a2941f35472817c4f1a836a7204bfb5d6ce9ee27a006a9bb5378c6bd39049f53"
+      "contract_id": "structure_comparison.align_fixed_reference",
+      "contract_version": "4.0.0",
+      "contract_digest": "sha256:52bd2688b020c4a047e393ae1251eed97a9d6e314835c3e422a52098376c6837"
+    },
+    {
+      "contract_kind": "node_type",
+      "contract_id": "structure_comparison.tm_score_counterparts",
+      "contract_version": "5.0.0",
+      "contract_digest": "sha256:54101a9d224d9e2970f90fc313fedb6023cd3358ee40a3a42a4775e397588baf"
+    },
+    {
+      "contract_kind": "node_type",
+      "contract_id": "structure_comparison.tm_score_fixed_reference",
+      "contract_version": "5.0.0",
+      "contract_digest": "sha256:b89f4e6013ed3422c8426ebd7fa5bdb48cb3d3c404069ea4f277c4f0cc580125"
+    },
+    {
+      "contract_kind": "node_type",
+      "contract_id": "structure_prediction.materialize_confidence",
+      "contract_version": "1.0.0",
+      "contract_digest": "sha256:aa9a7e1387c2806fb3fa270dc7efa5ea624665871f867d4fb0dbe3a9f8b91f08"
+    },
+    {
+      "contract_kind": "node_type",
+      "contract_id": "structure_transform.backbone_to_structure",
+      "contract_version": "4.0.0",
+      "contract_digest": "sha256:762e5b9d5f4063356adf53aff31d8a58abcc1792f93f4129cc0becddf761f22c"
+    },
+    {
+      "contract_kind": "node_type",
+      "contract_id": "structure_transform.extract_backbone",
+      "contract_version": "4.0.0",
+      "contract_digest": "sha256:0f83887ff89fb6b8e66f138c5b5b688c1cf2070bc10396c26af6d49a8143321d"
+    },
+    {
+      "contract_kind": "node_type",
+      "contract_id": "structure_transform.resolve_candidate_residue_axes",
+      "contract_version": "5.0.0",
+      "contract_digest": "sha256:03eda6d7af5bce3f46e6136f0cbcbc7e95de690bc54961a4e877f4317570046a"
+    },
+    {
+      "contract_kind": "node_type",
+      "contract_id": "structure_transform.resolve_residue_axis",
+      "contract_version": "4.0.0",
+      "contract_digest": "sha256:1e4fc97cc6d954819094c0c133e1fc2adb9648760352f49761e1e2e109551486"
     },
     {
       "contract_kind": "port_type",
       "contract_id": "candidate.collection",
-      "contract_version": "2.1.0",
-      "contract_digest": "sha256:6425b44763bd03b2987d9c78e3675e11733416af7dafd01714f9ac121568685c"
+      "contract_version": "3.0.0",
+      "contract_digest": "sha256:e900457e8e059f4f15469e7673fa3156d0f51e060fc8235daf07fc3ce5954812"
     },
     {
       "contract_kind": "port_type",
       "contract_id": "candidate.pairing",
-      "contract_version": "2.1.0",
-      "contract_digest": "sha256:87f96a0b1047dc84683c7f6692ae085470fe68ee45cec2fbf697ac4d76b91c30"
+      "contract_version": "3.0.0",
+      "contract_digest": "sha256:20a3e7771705d5d160342a7b3b5c5a311ed224a002c441bd5c2d4eae4d3ee5cf"
     },
     {
       "contract_kind": "port_type",
       "contract_id": "protein.prompt",
-      "contract_version": "2.1.0",
-      "contract_digest": "sha256:87227c64305f9ac6b10203be5c72b3dd22bb96ba2aeb96d20ae750f2226e9607"
+      "contract_version": "3.0.0",
+      "contract_digest": "sha256:6e95a89810d7cba459009d6b798b9d9290180af0c020d868ad8bd3bc72ef7b44"
     },
     {
       "contract_kind": "port_type",
       "contract_id": "protein.sequence",
-      "contract_version": "2.1.0",
-      "contract_digest": "sha256:36ce4a625ff63ce0f90cebba84b4d72285054bebc74cc05119d241428ec9e533"
+      "contract_version": "3.0.0",
+      "contract_digest": "sha256:914c2c5b605073080b29dbaf8c83decbd7f98cc2d2455311f5865f2fcee9c3a0"
     },
     {
       "contract_kind": "port_type",
       "contract_id": "protein.structure",
-      "contract_version": "3.0.0",
-      "contract_digest": "sha256:cd09d43e3229ca3dedfb5d57c2b154f65629e3da6038d8459b74282015bb60e0"
+      "contract_version": "4.0.0",
+      "contract_digest": "sha256:329ebc4c4f2c3323afa7577999882ef51a7588e5803be4d2b0da5d6e07fe8e0b"
     },
     {
       "contract_kind": "port_type",
@@ -1164,44 +1479,80 @@
     {
       "contract_kind": "port_type",
       "contract_id": "proteinmpnn.constraints",
-      "contract_version": "3.0.0",
-      "contract_digest": "sha256:9051751355cc411a1395f320852c96979053e004226cb219516fd82acb33980e"
+      "contract_version": "4.0.0",
+      "contract_digest": "sha256:f6192bbd9db3539413c6a99e320af04ff5d2c9155b10221c70469cab6c746417"
     },
     {
       "contract_kind": "port_type",
       "contract_id": "residue.layout",
-      "contract_version": "2.1.0",
-      "contract_digest": "sha256:ff3f084e99dab615dcab848d4dd8af3b36622c53e1cf095cbc4d53b873eefb33"
+      "contract_version": "3.0.0",
+      "contract_digest": "sha256:c0b66618ee52d36bda8f857cb422f195152ecfebfc4ed48a45e3924edacb08fd"
     },
     {
       "contract_kind": "port_type",
       "contract_id": "residue.map",
-      "contract_version": "2.1.0",
-      "contract_digest": "sha256:45889114e3e917fdb42f40bec014fbb94abcdbf050ce9e7e92866e0595142a9c"
+      "contract_version": "3.0.0",
+      "contract_digest": "sha256:49fb91759842c064b47b337dc1c6568b1e3035b6965286dcd29a95bcf6525b52"
     },
     {
       "contract_kind": "port_type",
       "contract_id": "score.collection",
-      "contract_version": "2.1.0",
-      "contract_digest": "sha256:f8575371f045e3405e2633ac2fbcd02a3df214a654b7570a021324e44387bb4d"
+      "contract_version": "4.0.0",
+      "contract_digest": "sha256:369193274cf356a6814a81a15d9261467c6eac8768888cfe2643fe5f605d385e"
     },
     {
       "contract_kind": "port_type",
-      "contract_id": "structure_comparison.alignment",
-      "contract_version": "2.1.0",
-      "contract_digest": "sha256:fa11610e3e4eccd91aec45c896cc2e2731b232656c9e8b0ea6fbf58987a5a2c5"
+      "contract_id": "structure_comparison.alignment_evidence",
+      "contract_version": "4.0.0",
+      "contract_digest": "sha256:efb95ad8d5dc6410871c33bd3946af884a975086821933da1f18ca677a34789a"
+    },
+    {
+      "contract_kind": "port_type",
+      "contract_id": "structure_prediction.confidence_facts",
+      "contract_version": "1.0.0",
+      "contract_digest": "sha256:f8cab44a554f5263c6869bbb34be577a6bbea5e292f7305c1d5902dab5a1c01c"
+    },
+    {
+      "contract_kind": "port_type",
+      "contract_id": "structure_transform.backbone_structure",
+      "contract_version": "4.0.0",
+      "contract_digest": "sha256:37603611ca4f042248b1b7255b7c5701cb58627e4ca5bddeecfa95e4627f5835"
+    },
+    {
+      "contract_kind": "port_type",
+      "contract_id": "structure_transform.candidate_modified_residue_normalization_associations",
+      "contract_version": "5.0.0",
+      "contract_digest": "sha256:28b2879d5c993c64fc27ece8359541a6a344490eb4e1816e0dea6a86f84f3510"
+    },
+    {
+      "contract_kind": "port_type",
+      "contract_id": "structure_transform.candidate_resolved_residue_axis_associations",
+      "contract_version": "5.0.0",
+      "contract_digest": "sha256:3d333e0d98d2cc97c58e7ef0a4a3fdd3618a30d96547d1ca831108ab68e6f353"
+    },
+    {
+      "contract_kind": "port_type",
+      "contract_id": "structure_transform.modified_residue_normalizations",
+      "contract_version": "3.0.0",
+      "contract_digest": "sha256:7aadf493f3ca3aee0dc01ca6c0fb0d5b88391c04d63663fffa7330a7aa2e105a"
+    },
+    {
+      "contract_kind": "port_type",
+      "contract_id": "structure_transform.resolved_residue_axis",
+      "contract_version": "4.0.0",
+      "contract_digest": "sha256:0a91e67ef2c9bebfa9793dd10358a4bbe3ad187f9987159cd0f9a767233fc890"
     },
     {
       "contract_kind": "utility_transform",
       "contract_id": "structure_comparison.tm_score.fixed_reference.identity",
-      "contract_version": "2.1.0",
-      "contract_digest": "sha256:95d409eadbc0b72a65d5641dacae3ba7c6104ef020021635f25cdccddc983bc2"
+      "contract_version": "3.0.0",
+      "contract_digest": "sha256:41234589b28fb879ee76a22d87dab406f678af7efb52a33d7c4a4b22279dd575"
     },
     {
       "contract_kind": "utility_transform",
       "contract_id": "structure_comparison.tm_score.per_subject_counterpart.identity",
-      "contract_version": "2.1.0",
-      "contract_digest": "sha256:6d43ea53ece2d9466adc27289e8630f8d460c4bab3b4c037080bfe51aa5714c1"
+      "contract_version": "3.0.0",
+      "contract_digest": "sha256:21f240b93f03876885946cfcbc0ae19172c8c9678d92704e73044993ddba1a2d"
     }
   ]
 }

@@ -15,7 +15,6 @@ from core import (
     AvailabilityDeclaration,
     AvailabilityResult,
     BehaviorReference,
-    CandidateDataDigest,
     CatalogBuildError,
     ContractIdentity,
     ExecutionBindingDefinition,
@@ -34,14 +33,19 @@ from core import (
     discover_module_packages,
 )
 from core.server import create_app
-from datatypes import Candidate, CandidateCollection, ProteinSequence
+from datatypes import (
+    Candidate,
+    CandidateCollection,
+    CandidateDataReference,
+    ProteinSequence,
+)
 from protein_workbench_public import validate_response
 
 
 NODE_DEFINITION = """\
 schema_version: "2.1.0"
 node_type_id: synthetic.echo
-version: "2.1.0"
+version: "3.0.0"
 title: Synthetic Echo
 summary: Returns one text value for Module Package contract testing.
 category: test_support
@@ -52,6 +56,12 @@ inputs:
     required: true
     multiplicity: one
     scientific_meaning: Text supplied to the synthetic operation.
+  - name: candidate_subjects
+    port_type_id: candidate.collection
+    port_type_version: "3.0.0"
+    required: true
+    multiplicity: one
+    scientific_meaning: Candidate subjects supplied to the synthetic operation.
 outputs:
   - name: value
     port_type_id: synthetic.text
@@ -61,13 +71,13 @@ outputs:
     scientific_meaning: Text returned by the synthetic operation.
   - name: candidates
     port_type_id: candidate.collection
-    port_type_version: "2.1.0"
+    port_type_version: "3.0.0"
     required: false
     multiplicity: one
     scientific_meaning: Candidates observed by the synthetic operation.
   - name: scores
     port_type_id: score.collection
-    port_type_version: "2.1.0"
+    port_type_version: "4.0.0"
     required: false
     multiplicity: one
     scientific_meaning: Typed observations emitted by the synthetic operation.
@@ -197,8 +207,8 @@ MODULE_PACKAGE = ModulePackageRegistration(
     bindings=(
         ExecutionBindingDefinition(
             binding_id="synthetic.echo.direct",
-            version="2.1.0",
-            node_type=ContractIdentity("node_type", "synthetic.echo", "2.1.0"),
+            version="3.0.0",
+            node_type=ContractIdentity("node_type", "synthetic.echo", "3.0.0"),
             method=_METHOD,
             binding_parameters={},
             execution_route="direct",
@@ -238,8 +248,8 @@ MODULE_PACKAGE = ModulePackageRegistration(
                     context_profile={"kind": "intrinsic"},
                     subject_grain="candidate",
                     source_role="subject",
-                    subject_direction="output",
-                    subject_port="candidates",
+                    subject_direction="input",
+                    subject_port="candidate_subjects",
                     guaranteed_multiplicity="one",
                 ),
             ),
@@ -250,7 +260,7 @@ MODULE_PACKAGE = ModulePackageRegistration(
 
 EXPECTED_SYNTHETIC_CONTRACT_DIGESTS = {
     ("binding", "synthetic.echo.direct"): (
-        "sha256:c8cd1c2bb713f574b48fa016378489261c75afc2138cbc698e8690d50ca91306"
+        "sha256:ec35d58a34010bfcb70f251d0800171940d1cbc49c29eb2d0d07571e0b52dadc"
     ),
     ("method", "synthetic.echo"): (
         "sha256:e485971a5abafb8460fd29fc8978b89ed2dc4d66efec93c37b75d0289c807120"
@@ -259,7 +269,7 @@ EXPECTED_SYNTHETIC_CONTRACT_DIGESTS = {
         "sha256:51f0164af916ccf5c3e69c72fc2adb1be6d07c07254869e5a304e870d6bfb2e5"
     ),
     ("node_type", "synthetic.echo"): (
-        "sha256:e6638f21a85016e4c306368436465ac6c484dc18a65f3aedc6d52b3b8d0b92b6"
+        "sha256:0e26982b4199f1d90734eb423a1723e8d2c22a239d0e09fbfe48246f0e3d24fb"
     ),
     ("port_type", "synthetic.text"): (
         "sha256:cc3fa0e72b72eb82ced2b58697b44a98587c61b6a6ce567c133ca847d2f47870"
@@ -403,7 +413,7 @@ def test_node_descriptor_keeps_parameter_groups_separate(
     assert catalog.require_contract(
         "node_type",
         "synthetic.echo",
-        "2.1.0",
+        "3.0.0",
     ).descriptor["parameter_groups"] == ()
 
 
@@ -460,7 +470,7 @@ def test_binding_keeps_its_factory_lazy_during_catalog_build(
 
     assert catalog.require_factory(
         "synthetic.echo.direct",
-        "2.1.0",
+        "3.0.0",
     ).behavior.behavior_id == "synthetic.echo/factory"
 
 
@@ -487,7 +497,7 @@ def test_binding_availability_is_published_with_the_catalog_observation(
         "binding": {
             "contract_kind": "binding",
             "contract_id": "synthetic.echo.direct",
-            "contract_version": "2.1.0",
+            "contract_version": "3.0.0",
             "contract_digest": EXPECTED_SYNTHETIC_CONTRACT_DIGESTS[
                 ("binding", "synthetic.echo.direct")
             ],
@@ -548,8 +558,8 @@ def test_binding_rejects_an_observation_for_an_unknown_output_port(
                     context_profile={"kind": "intrinsic"},
                     subject_grain="candidate",
                     source_role="subject",
-                    subject_direction="output",
-                    subject_port="value",
+                    subject_direction="input",
+                    subject_port="candidate_subjects",
                     guaranteed_multiplicity="one",
                 ),
             ),
@@ -565,16 +575,48 @@ def test_binding_rejects_an_observation_for_an_unknown_output_port(
         _forget_package(root_name)
 
 
+def test_binding_rejects_a_same_operation_output_candidate_subject(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    root_name = _write_discovery_root(tmp_path)
+    monkeypatch.syspath_prepend(str(tmp_path))
+    importlib.invalidate_caches()
+
+    try:
+        registration = discover_module_packages(root_name)[0]
+        binding = registration.bindings[0]
+        invalid_binding = replace(
+            binding,
+            produced_observations=(
+                replace(
+                    binding.produced_observations[0],
+                    subject_direction="output",
+                    subject_port="candidates",
+                ),
+            ),
+        )
+        with pytest.raises(
+            CatalogBuildError,
+            match="must use an admitted input Candidate source",
+        ):
+            build_frozen_catalog(
+                (replace(registration, bindings=(invalid_binding,)),)
+            )
+    finally:
+        _forget_package(root_name)
+
+
 @pytest.mark.parametrize(
     ("changes", "message"),
     [
         (
             {"output_port": "value"},
-            "output must use exact score.collection@2.1.0",
+            "output must use exact score.collection@4.0.0",
         ),
         (
             {"subject_port": "value"},
-            "subject must use exact candidate.collection@2.1.0",
+            "subject must use exact candidate.collection@3.0.0",
         ),
     ],
 )
@@ -622,7 +664,7 @@ def test_binding_rejects_many_valued_observation_propagation_inputs(
             "    multiplicity: one\n"
             "    scientific_meaning: Text supplied to the synthetic operation.",
             "    port_type_id: score.collection\n"
-            "    port_type_version: \"2.1.0\"\n"
+            "    port_type_version: \"4.0.0\"\n"
             "    required: true\n"
             "    multiplicity: many\n"
             "    scientific_meaning: Scores supplied to the synthetic operation.",
@@ -1086,7 +1128,7 @@ def test_missing_optional_dependency_does_not_hide_available_sibling(
         "binding": catalog.require_contract(
             "binding",
             "synthetic.echo.optional",
-            "2.1.0",
+            "3.0.0",
         ).reference(),
         "observed_at": by_binding["synthetic.echo.optional"]["observed_at"],
         "available": False,
@@ -1200,7 +1242,7 @@ def test_lazy_factory_does_not_reload_definition_resources(
 
     assert catalog.require_factory(
         "synthetic.echo.direct",
-        "2.1.0",
+        "3.0.0",
     ).build(None) == {"implementation": "synthetic.echo"}
 
 
@@ -1215,7 +1257,7 @@ def test_operation_call_freezes_caller_owned_input_and_parameter_containers(
         item_type="protein.sequence",
         items=[candidate],
     )
-    candidate_digest = CandidateDataDigest(
+    candidate_digest = CandidateDataReference(
         candidate_id="candidate-1",
         data_type_id="protein.sequence",
         content_digest="sha256:" + ("1" * 64),
@@ -1265,7 +1307,7 @@ def test_frozen_contract_descriptor_is_immutable(
         catalog.require_contract(
             "node_type",
             "synthetic.echo",
-            "2.1.0",
+            "3.0.0",
         ).descriptor["title"] = "mutated"
 
 
@@ -1276,7 +1318,7 @@ def test_frozen_runtime_factory_view_is_immutable(
     catalog = _build_synthetic_catalog(tmp_path, monkeypatch)
 
     with pytest.raises(TypeError):
-        catalog.factories[("synthetic.echo.direct", "2.1.0")] = object()
+        catalog.factories[("synthetic.echo.direct", "3.0.0")] = object()
 
 
 def test_observed_availability_never_changes_stable_contract_identity(

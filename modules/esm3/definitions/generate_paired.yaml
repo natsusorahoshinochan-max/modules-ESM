@@ -1,65 +1,53 @@
 schema_version: "2.1.0"
 node_type_id: esm3.generate_paired
-version: "3.0.0"
+version: "7.0.0"
 title: Generate paired sequences and structures with remote ESM-3
 summary: Generates each sequence from a Prompt with at least one masked sequence residue, then samples exactly one structure-track counterpart from that terminal sequence.
 category: generation
 inputs:
   - name: protein_prompt
     port_type_id: protein.prompt
-    port_type_version: "2.1.0"
+    port_type_version: "3.0.0"
     required: true
     multiplicity: one
     scientific_meaning: Complete residue-aligned conditioning Prompt with at least one masked sequence residue, preserved for sequence generation and each counterpart structure request.
 outputs:
   - name: sequence_candidates
     port_type_id: candidate.collection
-    port_type_version: "2.1.0"
+    port_type_version: "3.0.0"
     required: true
     multiplicity: one
     scientific_meaning: Ordered complete terminal sequence Candidates.
   - name: structure_candidates
     port_type_id: candidate.collection
-    port_type_version: "2.1.0"
+    port_type_version: "3.0.0"
     required: true
     multiplicity: one
     scientific_meaning: Ordered complete structure Candidates with exact sequence-Candidate parents at the same sample slot.
   - name: counterpart_pairs
     port_type_id: candidate.pairing
-    port_type_version: "2.1.0"
+    port_type_version: "3.0.0"
     required: true
     multiplicity: one
     scientific_meaning: Explicit one-to-one sequence-to-structure identity and content-digest mapping independent of collection order.
-  - name: confidence_observations
-    port_type_id: score.collection
-    port_type_version: "2.1.0"
+  - name: confidence_facts
+    port_type_id: structure_prediction.confidence_facts
+    port_type_version: "1.0.0"
     required: true
     multiplicity: one
-    scientific_meaning: Exact intrinsic pTM and canonical per-residue and mean-residue pLDDT Observations for structure counterparts.
-  - name: pae_observations
-    port_type_id: score.collection
-    port_type_version: "2.1.0"
-    required: false
-    multiplicity: one
-    scientific_meaning: Exact intrinsic provider PAE matrices for structure counterparts when returned.
+    scientific_meaning: Subjectless provider confidence facts keyed one-to-one to structure_candidates, carrying the exact prediction-input axis, pTM, per-residue pLDDT, and optional PAE for later admitted-Candidate materialization.
   - name: sequence_reconstruction_candidates
     port_type_id: candidate.collection
-    port_type_version: "2.1.0"
+    port_type_version: "3.0.0"
     required: false
     multiplicity: one
     scientific_meaning: Coordinate-conditioned prompt reconstructions returned by sequence calls, never sampled structure counterparts.
-  - name: sequence_reconstruction_confidence_observations
-    port_type_id: score.collection
-    port_type_version: "2.1.0"
+  - name: sequence_reconstruction_confidence_facts
+    port_type_id: structure_prediction.confidence_facts
+    port_type_version: "1.0.0"
     required: false
     multiplicity: one
-    scientific_meaning: Exact intrinsic confidence Observations for coordinate-conditioned prompt reconstructions returned by sequence calls.
-  - name: sequence_reconstruction_pae_observations
-    port_type_id: score.collection
-    port_type_version: "2.1.0"
-    required: false
-    multiplicity: one
-    scientific_meaning: Exact intrinsic PAE matrices for coordinate-conditioned prompt reconstructions when returned by sequence calls.
+    scientific_meaning: Subjectless provider confidence facts keyed one-to-one to sequence_reconstruction_candidates for later admitted-Candidate materialization.
 parameter_groups:
   - id: generation
     title: Generation controls
@@ -91,7 +79,7 @@ node_parameters:
     default: 1
   num_steps:
     parameter_scope: scientific
-    scientific_meaning: Exact number of ESM-3 iterative unmasking steps for each track.
+    scientific_meaning: Requested upper bound on ESM-3 iterative unmasking steps for each track; the official SDK resolves an effective count independently for the sequence and structure calls from the encoded length and sampled positions.
     value_contract:
       type: integer
       minimum: 1

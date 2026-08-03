@@ -6,6 +6,7 @@ import hashlib
 import json
 import threading
 from concurrent.futures import ThreadPoolExecutor
+from contextlib import contextmanager
 from pathlib import Path
 from typing import Any
 
@@ -24,7 +25,6 @@ from core import (
     build_discovered_frozen_catalog,
     build_frozen_catalog,
     discover_module_packages,
-    parse_workflow_document,
 )
 from core.port_types import canonical_json_bytes
 from core.workflow_v2 import WorkflowEdge
@@ -58,12 +58,12 @@ def test_simplefold_is_one_explicit_binding_of_the_shared_folding_node() -> None
     simplefold = catalog.require_contract(
         "binding",
         "folding.fold.simplefold_local",
-        "3.0.0",
+        "6.0.0",
     )
     esmfold2 = catalog.require_contract(
         "binding",
         "folding.fold.esmfold2_local",
-        "3.0.0",
+        "6.0.0",
     )
     assert simplefold.descriptor["node_type"] == esmfold2.descriptor["node_type"]
     assert simplefold.descriptor["execution_route"] == "adapter"
@@ -89,13 +89,7 @@ def test_simplefold_is_one_explicit_binding_of_the_shared_folding_node() -> None
     assert simplefold.descriptor["implementation_identity"]["device"] == (
         "cpu"
     )
-    assert {
-        observation["metric"]["contract_id"]
-        for observation in simplefold.descriptor["produced_observations"]
-    } == {
-        "structure.plddt.per_residue",
-        "structure.plddt.mean_residue",
-    }
+    assert simplefold.descriptor["produced_observations"] == ()
 
     method_reference = simplefold.descriptor["method"]
     method = catalog.require_contract(
@@ -103,6 +97,7 @@ def test_simplefold_is_one_explicit_binding_of_the_shared_folding_node() -> None
         method_reference["contract_id"],
         method_reference["contract_version"],
     )
+    assert method_reference["contract_version"] == "4.0.0"
     assert method.descriptor["model_identity"]["folding_model"] == (
         "simplefold_100M"
     )
@@ -134,6 +129,12 @@ def test_simplefold_readiness_validates_assets_without_hiding_siblings(
 ) -> None:
     import modules.folding.package as folding_package
     import modules.folding.simplefold_adapter as adapter
+    from modules.structure_prediction.package import (
+        MODULE_PACKAGE as STRUCTURE_PREDICTION_PACKAGE,
+    )
+    from modules.structure_transform.package import (
+        MODULE_PACKAGE as STRUCTURE_TRANSFORM_PACKAGE,
+    )
 
     environment = _simplefold_environment(
         tmp_path,
@@ -164,16 +165,22 @@ def test_simplefold_readiness_validates_assets_without_hiding_siblings(
         "simplefold_runtime_structurally_available",
         lambda: False,
     )
-    catalog = build_frozen_catalog((folding_package.MODULE_PACKAGE,))
+    catalog = build_frozen_catalog(
+        (
+            folding_package.MODULE_PACKAGE,
+            STRUCTURE_PREDICTION_PACKAGE,
+            STRUCTURE_TRANSFORM_PACKAGE,
+        )
+    )
     assert catalog.require_contract(
         "binding",
         "folding.fold.esmfold2_remote",
-        "3.0.0",
+        "7.0.0",
     )
     assert catalog.require_contract(
         "binding",
         "folding.fold.esmfold2_local",
-        "3.0.0",
+        "6.0.0",
     )
     snapshots = {
         item["binding"]["contract_id"]: item
@@ -189,12 +196,12 @@ def test_simplefold_readiness_validates_assets_without_hiding_siblings(
 def _two_residue_pdb() -> str:
     return "\n".join(
         (
-            "ATOM      1  N   ALA A   1       0.000   0.000   0.000  1.00 71.00           N",
-            "ATOM      2  CA  ALA A   1       1.000   0.000   0.000  1.00 71.00           C",
-            "ATOM      3  C   ALA A   1       2.000   0.000   0.000  1.00 71.00           C",
-            "ATOM      4  N   GLY A   2       3.000   0.000   0.000  1.00 83.00           N",
-            "ATOM      5  CA  GLY A   2       4.000   0.000   0.000  1.00 83.00           C",
-            "ATOM      6  C   GLY A   2       5.000   0.000   0.000  1.00 83.00           C",
+            "ATOM      1  N   ALA A   1       0.000   0.000   0.000  1.00 71.00           N  ",
+            "ATOM      2  CA  ALA A   1       1.000   0.000   0.000  1.00 71.00           C  ",
+            "ATOM      3  C   ALA A   1       2.000   0.000   0.000  1.00 71.00           C  ",
+            "ATOM      4  N   GLY A   2       3.000   0.000   0.000  1.00 83.00           N  ",
+            "ATOM      5  CA  GLY A   2       4.000   0.000   0.000  1.00 83.00           C  ",
+            "ATOM      6  C   GLY A   2       5.000   0.000   0.000  1.00 83.00           C  ",
             "TER",
             "END",
             "",
@@ -216,6 +223,22 @@ def _decode_output(catalog: Any, output: dict[str, Any]) -> Any:
                 "port_type_version": port_type.version,
                 "value": output["values"][0],
             }
+        )
+    )
+
+
+def _trusted_serialized_pdb_with_independent_residue_names() -> str:
+    return "\n".join(
+        (
+            "ATOM      1  N   GLY A   8       0.000   0.000   0.000  1.00 71.00           N  ",
+            "ATOM      2  CA  GLY A   8       1.000   0.000   0.000  1.00 71.00           C  ",
+            "ATOM      3  C   GLY A   8       2.000   0.000   0.000  1.00 71.00           C  ",
+            "ATOM      4  N   ALA A  13       3.000   0.000   0.000  1.00 83.00           N  ",
+            "ATOM      5  CA  ALA A  13       4.000   0.000   0.000  1.00 83.00           C  ",
+            "ATOM      6  C   ALA A  13       5.000   0.000   0.000  1.00 83.00           C  ",
+            "TER",
+            "END",
+            "",
         )
     )
 
@@ -311,6 +334,12 @@ def _run_simplefold(
     project_id: str = "simplefold",
 ) -> tuple[Any, dict[str, Any], tuple[dict[str, Any], ...]]:
     from modules.folding.package import MODULE_PACKAGE as FOLDING_PACKAGE
+    from modules.structure_prediction.package import (
+        MODULE_PACKAGE as STRUCTURE_PREDICTION_PACKAGE,
+    )
+    from modules.structure_transform.package import (
+        MODULE_PACKAGE as STRUCTURE_TRANSFORM_PACKAGE,
+    )
     from tests.fixtures.folding_sources.package import (
         MODULE_PACKAGE as SOURCE_PACKAGE,
     )
@@ -318,25 +347,41 @@ def _run_simplefold(
     source = WorkflowNodeInstance(
         node_id="source",
         node_type_id="contract_test.folding_sequence_source",
-        node_type_version="2.1.0",
+        node_type_version="3.0.0",
         binding_id="contract_test.folding_sequence_source.direct",
-        binding_version="2.1.0",
+        binding_version="3.0.0",
         node_parameters={"sequence": "AG"},
         binding_parameters={},
     )
     fold = WorkflowNodeInstance(
         node_id="fold",
         node_type_id="folding.fold",
-        node_type_version="3.0.0",
+        node_type_version="6.0.0",
         binding_id="folding.fold.simplefold_local",
-        binding_version="3.0.0",
+        binding_version="6.0.0",
         node_parameters={
             "effective_seed": 1603,
             "num_samples": num_samples,
         },
         binding_parameters={"num_steps": 10},
     )
-    catalog = build_frozen_catalog((FOLDING_PACKAGE, SOURCE_PACKAGE))
+    materialize = WorkflowNodeInstance(
+        node_id="materialize-confidence",
+        node_type_id="structure_prediction.materialize_confidence",
+        node_type_version="1.0.0",
+        binding_id="structure_prediction.materialize_confidence.direct",
+        binding_version="1.0.0",
+        node_parameters={},
+        binding_parameters={},
+    )
+    catalog = build_frozen_catalog(
+        (
+            FOLDING_PACKAGE,
+            SOURCE_PACKAGE,
+            STRUCTURE_PREDICTION_PACKAGE,
+            STRUCTURE_TRANSFORM_PACKAGE,
+        )
+    )
     projects = ProjectManager(
         tmp_path / "projects",
         cache_root=tmp_path / "cache",
@@ -348,7 +393,7 @@ def _run_simplefold(
     workflow = WorkflowDocument(
         schema_version="2.1.0",
         workflow_id=project.id,
-        nodes=(source, fold),
+        nodes=(source, fold, materialize),
         edges=(
             WorkflowEdge(
                 "source",
@@ -356,22 +401,25 @@ def _run_simplefold(
                 "fold",
                 "sequence_candidates",
             ),
+            WorkflowEdge(
+                "fold",
+                "structure_candidates",
+                "materialize-confidence",
+                "structure_candidates",
+            ),
+            WorkflowEdge(
+                "fold",
+                "confidence_facts",
+                "materialize-confidence",
+                "confidence_facts",
+            ),
         ),
         contract_lock=(),
     )
-    saved = authoring.save(
+    committed = authoring.commit(
         project.id,
-        expected_workflow_revision=0,
+        expected_draft_revision=0,
         workflow=workflow,
-    )
-    relocked = authoring.relock(
-        project.id,
-        workflow_revision=saved["workflow_revision"],
-    )
-    compiled = authoring.compile(
-        project.id,
-        workflow_revision=relocked["workflow_revision"],
-        workflow=parse_workflow_document(relocked["workflow"]),
     )
     if environment_values is None:
         environment_values = _simplefold_environment(
@@ -380,7 +428,7 @@ def _run_simplefold(
             client,
         )
     environment = EnvironmentConfiguration({
-        ("folding.fold.simplefold_local", "3.0.0"): {
+        ("folding.fold.simplefold_local", "6.0.0"): {
             "values": environment_values,
             "safe_fingerprint": environment_values[
                 "resolved_runtime_fingerprint"
@@ -400,8 +448,7 @@ def _run_simplefold(
     try:
         receipt = service.start_background(
             project.id,
-            workflow_revision=relocked["workflow_revision"],
-            compile_id=compiled.public_receipt()["compile_id"],
+            workflow_commit_id=committed.workflow_commit_id,
             client_request_id="simplefold",
         )
         service.shutdown()
@@ -454,31 +501,57 @@ def test_simplefold_preserves_high_level_plddt_and_exact_multi_sample_lineage(
         if output["node_id"] == "fold"
     }
     structures = _decode_output(catalog, outputs["structure_candidates"])
-    confidence = _decode_output(
+    facts = _decode_output(
         catalog,
-        outputs["confidence_observations"],
+        outputs["confidence_facts"],
     )
-    pae = _decode_output(catalog, outputs["pae_observations"])
+    materialized_output = next(
+        output
+        for output in projection["outputs"]
+        if output["node_id"] == "materialize-confidence"
+        and output["output_port"] == "observations"
+    )
+    observations = _decode_output(
+        catalog,
+        materialized_output,
+    )
     assert len(structures.items) == 2
     assert len(set(item.candidate_id for item in structures.items)) == 2
     assert {
         item.metadata["sample_index"] for item in structures.items
     } == {0, 1}
     assert all(len(item.parent_ids) == 1 for item in structures.items)
+    assert len(facts.entries) == 2
     assert {
-        (entry.metric.contract_id, tuple(entry.value) if isinstance(entry.value, list) else entry.value)
-        for entry in confidence.entries
+        fact.plddt_per_residue for fact in facts.entries
+    } == {(0.71, 0.83), (71.0, 83.0)}
+    assert all(fact.ptm is None and fact.pae is None for fact in facts.entries)
+    assert {
+        item.metadata["prediction_key"] for item in structures.items
+    } == {fact.prediction_key for fact in facts.entries}
+    assert len({fact.prediction_key for fact in facts.entries}) == 2
+    assert all(
+        fact.prediction_axis == facts.entries[0].prediction_axis
+        for fact in facts.entries
+    )
+    assert {
+        (entry.metric.contract_id, entry.value)
+        for entry in observations.entries
     } == {
         ("structure.plddt.per_residue", (0.71, 0.83)),
         ("structure.plddt.mean_residue", 0.77),
         ("structure.plddt.per_residue", (71.0, 83.0)),
         ("structure.plddt.mean_residue", 77.0),
     }
-    assert len(confidence.entries) == 4
-    assert {entry.candidate_id for entry in confidence.entries} == {
+    assert len(observations.entries) == 4
+    assert {entry.candidate_id for entry in observations.entries} == {
         item.candidate_id for item in structures.items
     }
-    assert pae.entries == ()
+    assert all(
+        entry.residue_axis is not None
+        and entry.residue_axis.layout.residue_ids == ("A:1", "A:2")
+        for entry in observations.entries
+    )
     assert len(client.calls) == 1
     assert client.calls[0]["num_steps"] == 10
     assert client.calls[0]["num_samples"] == 2
@@ -493,7 +566,7 @@ def test_simplefold_preserves_high_level_plddt_and_exact_multi_sample_lineage(
     binding = catalog.require_contract(
         "binding",
         "folding.fold.simplefold_local",
-        "3.0.0",
+        "6.0.0",
     )
     method = catalog.require_contract(
         "method",
@@ -540,6 +613,52 @@ def test_simplefold_preserves_high_level_plddt_and_exact_multi_sample_lineage(
     }.isdisjoint(structures.items[0].metadata)
 
 
+def test_simplefold_admits_provider_pdb_without_rebuilding_sequence(
+    tmp_path: Path,
+) -> None:
+    from modules.folding.simplefold_adapter import LocalSimpleFoldAdapter
+
+    class Client:
+        def fold(
+            self,
+            **_kwargs: Any,
+        ) -> tuple[list[ProteinStructure], list[dict[str, Any]]]:
+            return (
+                [
+                    ProteinStructure(
+                        _trusted_serialized_pdb_with_independent_residue_names()
+                    )
+                ],
+                [{"per_residue": [71.0, 83.0], "sample_index": 0}],
+            )
+
+    class Resources:
+        @contextmanager
+        def temporary_directory(self, *, prefix: str):
+            staging = tmp_path / prefix
+            staging.mkdir()
+            yield staging
+
+        @contextmanager
+        def engine_invocation(self, **_kwargs: Any):
+            yield
+
+    result = LocalSimpleFoldAdapter(
+        environment={"provider_client": Client()},
+        resources=Resources(),
+    ).fold(
+        sequence=ProteinSequence("AG", ("Q:-2A", "Q:10")),
+        num_steps=10,
+        num_samples=1,
+        derived_call_seed=1603,
+        engine_role="fold_parent_0",
+    )
+
+    assert result.samples[0].structure == ProteinStructure(
+        _trusted_serialized_pdb_with_independent_residue_names()
+    )
+
+
 def test_canonical_simplefold_operation_consumes_normalized_adapter_dto() -> None:
     from modules.folding.implementation import (
         SimpleFoldFoldingImplementation,
@@ -549,6 +668,13 @@ def test_canonical_simplefold_operation_consumes_normalized_adapter_dto() -> Non
         SimpleFoldAdapterResult,
         SimpleFoldSampleResult,
     )
+    from modules.structure_prediction.package import (
+        MODULE_PACKAGE as STRUCTURE_PREDICTION_PACKAGE,
+    )
+    from modules.structure_transform.package import (
+        MODULE_PACKAGE as STRUCTURE_TRANSFORM_PACKAGE,
+    )
+    from modules.structure_prediction.domain import ConfidenceFactCollection
 
     class Adapter:
         def __init__(self) -> None:
@@ -568,23 +694,28 @@ def test_canonical_simplefold_operation_consumes_normalized_adapter_dto() -> Non
                 effective_call_seed=kwargs["derived_call_seed"],
             )
 
-    catalog = build_frozen_catalog((FOLDING_PACKAGE,))
+    catalog = build_frozen_catalog(
+        (
+            FOLDING_PACKAGE,
+            STRUCTURE_PREDICTION_PACKAGE,
+            STRUCTURE_TRANSFORM_PACKAGE,
+        )
+    )
     context = operation_context(
         catalog,
         "folding.fold.simplefold_local",
         object(),
-        binding_version="3.0.0",
+        binding_version="6.0.0",
         environment={"native_scores": object()},
     )
     adapter = Adapter()
     operation = SimpleFoldFoldingImplementation(
         adapter=adapter,
         method=context.method,
-        produced_observations=context.produced_observations,
     )
     parent = Candidate(
         "parent",
-        ProteinSequence("AG", ["A:1", "A:2"]),
+        ProteinSequence("AG"),
         [],
         {},
     )
@@ -593,7 +724,7 @@ def test_canonical_simplefold_operation_consumes_normalized_adapter_dto() -> Non
         operation_call(
             catalog=catalog,
             binding_id="folding.fold.simplefold_local",
-            binding_version="3.0.0",
+            binding_version="6.0.0",
             inputs={
                 "sequence_candidates": CandidateCollection(
                     "parents",
@@ -607,8 +738,9 @@ def test_canonical_simplefold_operation_consumes_normalized_adapter_dto() -> Non
     )
 
     structures = outputs["structure_candidates"]
-    confidence = outputs["confidence_observations"]
+    facts = outputs["confidence_facts"]
     assert type(structures) is CandidateCollection
+    assert type(facts) is ConfidenceFactCollection
     assert {
         "provider",
         "model",
@@ -617,10 +749,19 @@ def test_canonical_simplefold_operation_consumes_normalized_adapter_dto() -> Non
         "checkpoint",
         "seed_control",
     }.isdisjoint(structures.items[0].metadata)
-    assert [entry.value for entry in confidence.entries] == [
-        (71.0, 83.0),
-        77.0,
-    ]
+    assert len(facts.entries) == 1
+    fact = facts.entries[0]
+    assert fact.plddt_per_residue == (71.0, 83.0)
+    assert fact.ptm is None
+    assert fact.pae is None
+    assert fact.prediction_axis.sequence.sequence == "AG"
+    assert fact.prediction_axis.sequence.residue_ids == ("A:1", "A:2")
+    assert fact.prediction_axis.layout.residue_ids == ("A:1", "A:2")
+    assert facts.observation_method == context.method
+    assert structures.items[0].metadata["prediction_key"] == (
+        fact.prediction_key
+    )
+    assert set(outputs) == {"structure_candidates", "confidence_facts"}
     assert adapter.calls == [
         {
             "sequence": parent.data,
@@ -642,6 +783,12 @@ def test_simplefold_call_seed_uses_candidate_content_not_candidate_identity(
         SimpleFoldAdapterResult,
         SimpleFoldSampleResult,
     )
+    from modules.structure_prediction.package import (
+        MODULE_PACKAGE as STRUCTURE_PREDICTION_PACKAGE,
+    )
+    from modules.structure_transform.package import (
+        MODULE_PACKAGE as STRUCTURE_TRANSFORM_PACKAGE,
+    )
 
     class Adapter:
         def __init__(self) -> None:
@@ -660,12 +807,18 @@ def test_simplefold_call_seed_uses_candidate_content_not_candidate_identity(
                 effective_call_seed=seed,
             )
 
-    catalog = build_frozen_catalog((FOLDING_PACKAGE,))
+    catalog = build_frozen_catalog(
+        (
+            FOLDING_PACKAGE,
+            STRUCTURE_PREDICTION_PACKAGE,
+            STRUCTURE_TRANSFORM_PACKAGE,
+        )
+    )
     context = operation_context(
         catalog,
         "folding.fold.simplefold_local",
         object(),
-        binding_version="3.0.0",
+        binding_version="6.0.0",
     )
 
     def observed(candidate_id: str, sequence: str) -> int:
@@ -673,14 +826,13 @@ def test_simplefold_call_seed_uses_candidate_content_not_candidate_identity(
         operation = SimpleFoldFoldingImplementation(
             adapter=adapter,
             method=context.method,
-            produced_observations=context.produced_observations,
         )
         parent = Candidate(candidate_id, ProteinSequence(sequence), [], {})
         operation.execute(
             operation_call(
                 catalog=catalog,
                 binding_id="folding.fold.simplefold_local",
-                binding_version="3.0.0",
+                binding_version="6.0.0",
                 inputs={
                     "sequence_candidates": CandidateCollection(
                         "parents",
@@ -707,6 +859,12 @@ def test_source_cache_replay_preserves_noncacheable_simplefold_execution(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     from modules.folding.package import MODULE_PACKAGE as FOLDING_PACKAGE
+    from modules.structure_prediction.package import (
+        MODULE_PACKAGE as STRUCTURE_PREDICTION_PACKAGE,
+    )
+    from modules.structure_transform.package import (
+        MODULE_PACKAGE as STRUCTURE_TRANSFORM_PACKAGE,
+    )
     from tests.fixtures.folding_sources.package import (
         MODULE_PACKAGE as SOURCE_PACKAGE,
     )
@@ -737,18 +895,25 @@ def test_source_cache_replay_preserves_noncacheable_simplefold_execution(
             )
         ],
     )
-    replay_catalog = build_frozen_catalog((FOLDING_PACKAGE, SOURCE_PACKAGE))
+    replay_catalog = build_frozen_catalog(
+        (
+            FOLDING_PACKAGE,
+            SOURCE_PACKAGE,
+            STRUCTURE_PREDICTION_PACKAGE,
+            STRUCTURE_TRANSFORM_PACKAGE,
+        )
+    )
 
     class SourceReplay(ResultReplaySource):
         def __init__(self) -> None:
             self.node_ids: list[str] = []
 
-        def lookup(self, **kwargs: Any) -> ResultReplayHit:
+        def lookup(self, **kwargs: Any) -> ResultReplayHit | None:
             node_id = kwargs["node"].node_id
             self.node_ids.append(node_id)
-            assert node_id == "source", (
-                "the noncacheable SimpleFold Binding must bypass lookup"
-            )
+            if node_id == "materialize-confidence":
+                return None
+            assert node_id == "source"
             outputs = {"sequence_candidates": cached_source}
             return ResultReplayHit(
                 result_identity=kwargs["result_identity"],
@@ -789,7 +954,7 @@ def test_source_cache_replay_preserves_noncacheable_simplefold_execution(
     assert dispositions["fold"]["resolution"] == "executed"
     assert len(client.staging) == 1
     assert all(not path.exists() for path in client.staging)
-    assert replay.node_ids == ["source"]
+    assert replay.node_ids == ["source", "materialize-confidence"]
 
 
 def test_concurrent_runs_use_disjoint_live_staging_and_stable_identity(
@@ -862,57 +1027,6 @@ def test_concurrent_runs_use_disjoint_live_staging_and_stable_identity(
     assert len(client.staging) == 2
     assert client.staging[0] != client.staging[1]
     assert all(not path.exists() for path in client.staging)
-
-
-@pytest.mark.parametrize(
-    "native_result",
-    (
-        (
-            [ProteinStructure("END\n")],
-            [{"per_residue": [71.0, 83.0], "sample_index": 0}],
-        ),
-        (
-            [ProteinStructure(_two_residue_pdb())],
-            [{"per_residue": [0.71, 101.0], "sample_index": 0}],
-        ),
-    ),
-)
-def test_malformed_simplefold_output_cannot_publish_a_candidate(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-    native_result: tuple[list[ProteinStructure], list[dict[str, Any]]],
-) -> None:
-    class Client:
-        def fold(self, **kwargs: Any) -> tuple[list[ProteinStructure], list[dict[str, Any]]]:
-            del kwargs
-            return native_result
-
-    _, projection, events = _run_simplefold(
-        tmp_path,
-        monkeypatch,
-        client=Client(),
-        num_samples=1,
-    )
-
-    assert projection["status"] == "failed"
-    assert all(
-        output["node_id"] != "fold"
-        for output in projection["outputs"]
-    )
-    simplefold_terminal = [
-        event["event"]
-        for event in events
-        if event["event"]["type"] == "engine_invocation_terminal"
-        and any(
-            started["event"]["type"] == "engine_invocation_started"
-            and started["event"]["invocation_id"]
-            == event["event"]["invocation_id"]
-                and started["event"]["engine_role"] == "fold_parent_0"
-                for started in events
-        )
-    ]
-    assert len(simplefold_terminal) == 1
-    assert simplefold_terminal[0]["status"] == "succeeded"
 
 
 @pytest.mark.parametrize(

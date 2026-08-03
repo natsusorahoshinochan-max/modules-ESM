@@ -1,10 +1,9 @@
-"""Exact Workbench-to-Biohub ESM-3 translation and response validation."""
+"""Exact Workbench-to-provider ESM-3 translation and result admission."""
 
 from __future__ import annotations
 
 from collections.abc import Mapping
 from dataclasses import dataclass
-import math
 from typing import Any, Protocol
 
 from core import RunResources
@@ -66,33 +65,6 @@ _ATOM37_INDEX = {
 }
 _PROVIDER_SEQUENCE_ALPHABET = frozenset("ACDEFGHIKLMNPQRSTVWYXBZUO")
 _PROVIDER_SS8 = frozenset("GHITEBSC")
-_PDB_TO_SEQUENCE = {
-    "ALA": "A",
-    "ARG": "R",
-    "ASX": "B",
-    "ASN": "N",
-    "ASP": "D",
-    "CYS": "C",
-    "GLN": "Q",
-    "GLU": "E",
-    "GLY": "G",
-    "GLX": "Z",
-    "HIS": "H",
-    "ILE": "I",
-    "LEU": "L",
-    "LYS": "K",
-    "MET": "M",
-    "PHE": "F",
-    "PRO": "P",
-    "PYL": "O",
-    "SEC": "U",
-    "SER": "S",
-    "THR": "T",
-    "TRP": "W",
-    "TYR": "Y",
-    "VAL": "V",
-    "UNK": "X",
-}
 
 
 @dataclass(frozen=True, slots=True)
@@ -131,6 +103,7 @@ class ESM3SequenceResult:
 class ESM3StructureResult:
     """Provider-independent result of one structure-track invocation."""
 
+    sequence: ProteinSequence
     structure: ProteinStructure
     confidence: ESM3Confidence
     effective_num_steps: int
@@ -169,7 +142,6 @@ class ESM3GenerationAdapter(Protocol):
         self,
         prompt: ProteinPrompt,
         *,
-        expected_sequence: str,
         parameters: ESM3CallParameters,
         derived_call_seed: int,
     ) -> ESM3StructureResult: ...
@@ -389,24 +361,11 @@ def complete_sequence(
     result: Any,
     prompt: ProteinPrompt,
 ) -> ProteinSequence:
-    """Validate one complete provider sequence on the exact Prompt axis."""
-    sequence = getattr(result, "sequence", None)
-    if not isinstance(sequence, str) or not sequence:
-        raise ValueError("ESM-3 provider response has no complete sequence")
-    if (
-        len(sequence) != prompt.num_residues
-        or any(
-            symbol not in _PROVIDER_SEQUENCE_ALPHABET
-            for symbol in sequence
-        )
-    ):
-        raise ValueError(
-            "ESM-3 provider sequence is incomplete or misaligned"
-        )
+    """Translate the documented provider sequence onto the Prompt axis."""
     layout = prompt.target_layout
     assert layout is not None and layout.residue_ids is not None
     return ProteinSequence(
-        sequence=sequence,
+        sequence=result.sequence,
         residue_ids=list(layout.residue_ids),
     )
 
@@ -415,155 +374,36 @@ def response_has_structure(result: Any) -> bool:
     return getattr(result, "coordinates", None) is not None
 
 
-def reject_silent_sequence_fields(result: Any) -> None:
-    """Do not discard confidence without a corresponding structure output."""
-    if response_has_structure(result):
-        return
-    unexpected = [
-        name
-        for name in ("ptm", "plddt", "pae")
-        if getattr(result, name, None) is not None
-    ]
-    if unexpected:
-        raise ValueError(
-            "ESM-3 sequence response contains confidence without structure"
-        )
-
-
 def complete_structure(
     result: Any,
-    prompt: ProteinPrompt,
-    *,
-    expected_sequence: str,
 ) -> ProteinStructure:
-    """Validate provider coordinates and serialized residues before publication."""
-    sequence = complete_sequence(result, prompt).sequence
-    if sequence != expected_sequence:
-        raise ValueError(
-            "ESM-3 structure response is not the exact requested sequence"
-        )
-    coordinates = getattr(result, "coordinates", None)
-    try:
-        shape = tuple(coordinates.shape)
-    except (AttributeError, TypeError) as error:
-        raise ValueError(
-            "ESM-3 structure response has no coordinate tensor"
-        ) from error
-    if shape != (prompt.num_residues, 37, 3):
-        raise ValueError(
-            "ESM-3 coordinates do not match the exact atom37 residue axis"
-        )
-    try:
-        import torch
-
-        backbone = coordinates[:, (0, 1, 2), :]
-        complete_backbone = bool(torch.isfinite(backbone).all())
-    except (AttributeError, IndexError, TypeError) as error:
-        raise ValueError("ESM-3 coordinates are not a valid tensor") from error
-    if not complete_backbone:
-        raise ValueError(
-            "ESM-3 structure response lacks complete N, CA, and C coordinates"
-        )
-    try:
-        pdb_string = result.to_pdb_string()
-    except Exception as error:
-        raise ValueError(
-            "ESM-3 structure response could not be serialized"
-        ) from error
-    if not isinstance(pdb_string, str) or not pdb_string.strip():
-        raise ValueError("ESM-3 structure response has no PDB text")
-    residues: list[tuple[str, str, str, str]] = []
-    seen: set[tuple[str, str, str]] = set()
-    for line in pdb_string.splitlines():
-        if not line.startswith("ATOM  ") or len(line) < 27:
-            continue
-        identity = (line[21], line[22:26], line[26])
-        if identity in seen:
-            continue
-        seen.add(identity)
-        residue_name = line[17:20].strip()
-        symbol = _PDB_TO_SEQUENCE.get(residue_name)
-        if symbol is None:
-            raise ValueError(
-                "ESM-3 PDB contains an unsupported protein residue"
-            )
-        residues.append((*identity, symbol))
-    if (
-        len(residues) != prompt.num_residues
-        or "".join(residue[3] for residue in residues) != sequence
-    ):
-        raise ValueError(
-            "ESM-3 PDB residue identities contradict the response sequence"
-        )
+    """Translate SDK PDB serialization to the canonical terminal record."""
+    pdb_string = result.to_pdb_string()
+    if not pdb_string.endswith("\n"):
+        pdb_string = f"{pdb_string}\n"
+    if pdb_string.splitlines()[-1][:6].strip() != "END":
+        pdb_string = f"{pdb_string}END\n"
     return ProteinStructure(pdb_string=pdb_string)
 
 
-def normalized_confidence(
+def biohub_confidence(
     result: Any,
-    *,
-    residue_count: int,
-) -> tuple[float, list[float], list[list[float]] | None]:
-    """Normalize only exact documented ESM-3 confidence shapes."""
-    import torch
-
-    raw_ptm = getattr(result, "ptm", None)
-    if isinstance(raw_ptm, torch.Tensor):
-        if tuple(raw_ptm.shape) == ():
-            ptm = float(raw_ptm.detach().cpu().item())
-        elif tuple(raw_ptm.shape) == (1,):
-            ptm = float(raw_ptm.detach().cpu()[0].item())
-        else:
-            raise ValueError("ESM-3 pTM has an undocumented shape")
-    elif (
-        isinstance(raw_ptm, (int, float))
-        and not isinstance(raw_ptm, bool)
-    ):
-        ptm = float(raw_ptm)
-    else:
-        raise ValueError("ESM-3 structure response has no scalar pTM")
-    if not math.isfinite(ptm) or not 0 <= ptm <= 1:
-        raise ValueError("ESM-3 pTM is outside its native [0, 1] scale")
-
-    raw_plddt = getattr(result, "plddt", None)
-    if (
-        not isinstance(raw_plddt, torch.Tensor)
-        or tuple(raw_plddt.shape) != (residue_count,)
-        or not bool(torch.isfinite(raw_plddt).all())
-        or bool((raw_plddt < 0).any())
-        or bool((raw_plddt > 1).any())
-    ):
-        raise ValueError(
-            "ESM-3 pLDDT must be one native [0, 1] value per residue"
-        )
-    per_residue = [
+) -> ESM3Confidence:
+    """Translate the fixed Biohub scalar-pTM and residue-axis tensors."""
+    ptm = float(result.ptm.detach().cpu().item())
+    plddt = tuple(
         float(value) * 100.0
-        for value in raw_plddt.detach().cpu().tolist()
-    ]
-    raw_pae = getattr(result, "pae", None)
-    pae: list[list[float]] | None = None
-    if raw_pae is not None:
-        if not isinstance(raw_pae, torch.Tensor):
-            raise ValueError("ESM-3 PAE is not a tensor")
-        shape = tuple(raw_pae.shape)
-        if shape == (residue_count, residue_count):
-            normalized = raw_pae.detach().cpu()
-        elif shape == (1, residue_count + 2, residue_count + 2):
-            normalized = raw_pae.detach().cpu()[0, 1:-1, 1:-1]
-        else:
-            raise ValueError("ESM-3 PAE has an undocumented shape")
-        if (
-            not bool(torch.isfinite(normalized).all())
-            or bool((normalized < 0).any())
-            or bool((normalized > 31.75).any())
-        ):
-            raise ValueError(
-                "ESM-3 PAE is outside the locked angstrom scale"
-            )
-        pae = [
-            [float(value) for value in row]
-            for row in normalized.tolist()
-        ]
-    return ptm, per_residue, pae
+        for value in result.plddt.detach().cpu().tolist()
+    )
+    pae = (
+        None
+        if result.pae is None
+        else tuple(
+            tuple(float(value) for value in row)
+            for row in result.pae.detach().cpu().tolist()
+        )
+    )
+    return ESM3Confidence(ptm=ptm, plddt_per_residue=plddt, pae=pae)
 
 
 def structure_prompt_for_sequence(
@@ -593,8 +433,6 @@ def structure_prompt_for_sequence(
 def _call_parameter_values(
     parameters: ESM3CallParameters,
 ) -> dict[str, Any]:
-    if type(parameters) is not ESM3CallParameters:
-        raise ValueError("ESM-3 Adapter requires exact call parameters")
     return {
         "num_steps": parameters.num_steps,
         "temperature": parameters.temperature,
@@ -603,22 +441,6 @@ def _call_parameter_values(
         "strategy": parameters.strategy,
         "temperature_annealing": parameters.temperature_annealing,
     }
-
-
-def _admit_confidence(result: Any, residue_count: int) -> ESM3Confidence:
-    ptm, per_residue, pae = normalized_confidence(
-        result,
-        residue_count=residue_count,
-    )
-    return ESM3Confidence(
-        ptm=ptm,
-        plddt_per_residue=tuple(per_residue),
-        pae=(
-            None
-            if pae is None
-            else tuple(tuple(row) for row in pae)
-        ),
-    )
 
 
 class _BaseESM3Adapter:
@@ -660,6 +482,9 @@ class _BaseESM3Adapter:
     ) -> Any:
         raise NotImplementedError
 
+    def _admit_confidence(self, result: Any) -> ESM3Confidence:
+        raise NotImplementedError
+
     def _invoke(
         self,
         provider_prompt: Any,
@@ -699,11 +524,7 @@ class _BaseESM3Adapter:
                 provider_operation,
                 effective_call_seed=effective_call_seed,
             )
-        effective_num_steps = getattr(config, "num_steps", None)
-        if type(effective_num_steps) is not int or effective_num_steps < 1:
-            raise RuntimeError(
-                "ESM-3 provider left an invalid effective num_steps"
-            )
+        effective_num_steps = config.num_steps
         return (
             result,
             invocation_id,
@@ -714,7 +535,6 @@ class _BaseESM3Adapter:
     def _admit_sequence_result(
         self,
         prompt: ProteinPrompt,
-        provider_prompt: Any,
         result: Any,
         effective_num_steps: int,
         effective_call_seed: int | None,
@@ -723,19 +543,8 @@ class _BaseESM3Adapter:
         reconstruction: ProteinStructure | None = None
         confidence: ESM3Confidence | None = None
         if response_has_structure(result):
-            if getattr(provider_prompt, "coordinates", None) is None:
-                raise ValueError(
-                    "sequence generation returned structure fields without "
-                    "coordinate-conditioned input"
-                )
-            reconstruction = complete_structure(
-                result,
-                prompt,
-                expected_sequence=sequence.sequence,
-            )
-            confidence = _admit_confidence(result, len(sequence.sequence))
-        else:
-            reject_silent_sequence_fields(result)
+            reconstruction = complete_structure(result)
+            confidence = self._admit_confidence(result)
         return ESM3SequenceResult(
             sequence=sequence,
             reconstruction=reconstruction,
@@ -750,16 +559,12 @@ class _BaseESM3Adapter:
         result: Any,
         effective_num_steps: int,
         effective_call_seed: int | None,
-        *,
-        expected_sequence: str,
     ) -> ESM3StructureResult:
+        sequence = complete_sequence(result, prompt)
         return ESM3StructureResult(
-            structure=complete_structure(
-                result,
-                prompt,
-                expected_sequence=expected_sequence,
-            ),
-            confidence=_admit_confidence(result, prompt.num_residues),
+            sequence=sequence,
+            structure=complete_structure(result),
+            confidence=self._admit_confidence(result),
             effective_num_steps=effective_num_steps,
             effective_call_seed=effective_call_seed,
         )
@@ -786,7 +591,6 @@ class _BaseESM3Adapter:
         )
         return self._admit_sequence_result(
             prompt,
-            provider_prompt,
             result,
             effective_num_steps,
             effective_call_seed,
@@ -796,7 +600,6 @@ class _BaseESM3Adapter:
         self,
         prompt: ProteinPrompt,
         *,
-        expected_sequence: str,
         parameters: ESM3CallParameters,
         derived_call_seed: int,
     ) -> ESM3StructureResult:
@@ -817,7 +620,6 @@ class _BaseESM3Adapter:
             result,
             effective_num_steps,
             effective_call_seed,
-            expected_sequence=expected_sequence,
         )
 
     def generate_pair(
@@ -848,7 +650,6 @@ class _BaseESM3Adapter:
         )
         sequence = self._admit_sequence_result(
             prompt,
-            provider_prompt,
             sequence_response,
             sequence_effective_num_steps,
             sequence_effective_call_seed,
@@ -879,7 +680,6 @@ class _BaseESM3Adapter:
                 structure_response,
                 structure_effective_num_steps,
                 structure_effective_call_seed,
-                expected_sequence=sequence.sequence.sequence,
             ),
         )
 
@@ -944,3 +744,6 @@ class BiohubESM3Adapter(_BaseESM3Adapter):
             config,
             provider_operation,
         )
+
+    def _admit_confidence(self, result: Any) -> ESM3Confidence:
+        return biohub_confidence(result)

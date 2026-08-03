@@ -28,6 +28,34 @@ from datatypes import (
 
 
 _VERSION = "2.1.0"
+_SOURCE_NODE_BINDING_VERSION = "4.0.0"
+_SEQUENCE_SOURCE_NODE_BINDING_VERSION = "3.0.0"
+_CANDIDATEIZE_NODE_BINDING_VERSION = "1.0.0"
+
+
+def _fixture_structure(parent_index: int) -> ProteinStructure:
+    residues = (
+        ("A", 1, "ALA"),
+        ("A", 2, "GLY"),
+        ("B", 1, "SER"),
+        ("B", 2, "THR"),
+        ("B", 3, "TRP"),
+    )
+    lines = [f"REMARK fixture-parent-{parent_index}"]
+    for serial, (chain_id, position, residue_name) in enumerate(
+        residues,
+        start=1,
+    ):
+        coordinate = float(serial)
+        lines.append(
+            f"ATOM  {serial:5d} {'CA':^4s} "
+            f"{residue_name:>3s} {chain_id}{position:4d}    "
+            f"{coordinate:8.3f}{0.0:8.3f}{0.0:8.3f}"
+            f"  1.00 20.00{'':10}{'C':>2s}  "
+        )
+        if serial == 2:
+            lines.append("TER")
+    return ProteinStructure("\n".join([*lines, "TER", "END", ""]))
 
 
 class _Source:
@@ -53,14 +81,7 @@ class _Source:
             parents = [
                 Candidate(
                     f"fixture-parent-{index}",
-                    ProteinStructure(
-                        (
-                            f"REMARK fixture-parent-{index}\n"
-                            "ATOM      1  CA  ALA A   1       "
-                            "0.000   0.000   0.000  1.00 20.00           C\n"
-                            "END\n"
-                        ),
-                    ),
+                    _fixture_structure(index),
                     [],
                     {"fixture_parent_index": index},
                 )
@@ -124,13 +145,43 @@ class _SequenceSource:
         }
 
 
+class _StructureCandidateize:
+    def __init__(self, run_resources: Any) -> None:
+        self._run_resources = run_resources
+
+    def execute(self, call: OperationCall) -> dict[str, Any]:
+        if (
+            set(call.inputs) != {"structure"}
+            or call.node_parameters
+            or call.binding_parameters
+            or type(call.inputs["structure"]) is not ProteinStructure
+        ):
+            raise ValueError(
+                "ProteinMPNN structure candidate fixture requires one structure"
+            )
+        with self._run_resources.engine_invocation():
+            candidate = Candidate(
+                "fixture-candidateized-structure",
+                call.inputs["structure"],
+                (),
+                {"fixture_role": "candidateized_structure"},
+            )
+        return {
+            "structure_candidates": CandidateCollection(
+                "fixture-candidateized-structure-collection",
+                "protein.structure",
+                (candidate,),
+            )
+        }
+
+
 def _build(operation: str):
     def factory(context: OperationContext) -> object:
-        implementation = (
-            _Source
-            if operation == "source"
-            else _SequenceSource
-        )
+        implementation = {
+            "source": _Source,
+            "sequence_source": _SequenceSource,
+            "candidateize": _StructureCandidateize,
+        }[operation]
         return implementation(context.resources)
 
     return factory
@@ -144,6 +195,7 @@ MODULE_PACKAGE = ModulePackageRegistration(
     node_definitions=(
         DefinitionResource("definition.yaml"),
         DefinitionResource("sequence_source.yaml"),
+        DefinitionResource("candidateize_structure.yaml"),
     ),
     methods=(
         MethodDefinition(
@@ -153,6 +205,16 @@ MODULE_PACKAGE = ModulePackageRegistration(
             model_identity={"kind": "none"},
             checkpoint_identity={"kind": "none"},
             featurization_identity={"kind": "literal"},
+            source_identity={"kind": "contract-test-fixture"},
+            scale_contract={"kind": "identity"},
+        ),
+        MethodDefinition(
+            method_id="contract_test.proteinmpnn_candidateize.method",
+            version="1.0.0",
+            algorithm_identity={"name": "exact-single-candidate-wrapper"},
+            model_identity={"kind": "none"},
+            checkpoint_identity={"kind": "none"},
+            featurization_identity={"kind": "identity"},
             source_identity={"kind": "contract-test-fixture"},
             scale_contract={"kind": "identity"},
         ),
@@ -170,11 +232,11 @@ MODULE_PACKAGE = ModulePackageRegistration(
     bindings=(
         ExecutionBindingDefinition(
             binding_id="contract_test.proteinmpnn_source.direct",
-            version=_VERSION,
+            version=_SOURCE_NODE_BINDING_VERSION,
             node_type=ContractIdentity(
                 "node_type",
                 "contract_test.proteinmpnn_source",
-                _VERSION,
+                _SOURCE_NODE_BINDING_VERSION,
             ),
             method=ContractIdentity(
                 "method",
@@ -186,7 +248,7 @@ MODULE_PACKAGE = ModulePackageRegistration(
             factory=ScientificOperationFactory(
                 behavior=BehaviorReference(
                     "contract_test.proteinmpnn_source/factory",
-                    _VERSION,
+                    _SOURCE_NODE_BINDING_VERSION,
                     {},
                 ),
                 build=_build("source"),
@@ -194,7 +256,7 @@ MODULE_PACKAGE = ModulePackageRegistration(
             availability=AvailabilityDeclaration(
                 behavior=BehaviorReference(
                     "contract_test.proteinmpnn_source/availability",
-                    _VERSION,
+                    _SOURCE_NODE_BINDING_VERSION,
                     {},
                 ),
                 prerequisites={},
@@ -203,7 +265,7 @@ MODULE_PACKAGE = ModulePackageRegistration(
             readiness=ReadinessDeclaration(
                 behavior=BehaviorReference(
                     "contract_test.proteinmpnn_source/readiness",
-                    _VERSION,
+                    _SOURCE_NODE_BINDING_VERSION,
                     {},
                 ),
                 prerequisites={},
@@ -217,12 +279,64 @@ MODULE_PACKAGE = ModulePackageRegistration(
             },
         ),
         ExecutionBindingDefinition(
+            binding_id=(
+                "contract_test.proteinmpnn_structure_candidateize.direct"
+            ),
+            version=_CANDIDATEIZE_NODE_BINDING_VERSION,
+            node_type=ContractIdentity(
+                "node_type",
+                "contract_test.proteinmpnn_structure_candidateize",
+                _CANDIDATEIZE_NODE_BINDING_VERSION,
+            ),
+            method=ContractIdentity(
+                "method",
+                "contract_test.proteinmpnn_candidateize.method",
+                "1.0.0",
+            ),
+            binding_parameters={},
+            execution_route="direct",
+            factory=ScientificOperationFactory(
+                behavior=BehaviorReference(
+                    "contract_test.proteinmpnn_structure_candidateize/factory",
+                    _CANDIDATEIZE_NODE_BINDING_VERSION,
+                    {},
+                ),
+                build=_build("candidateize"),
+            ),
+            availability=AvailabilityDeclaration(
+                behavior=BehaviorReference(
+                    "contract_test.proteinmpnn_structure_candidateize/availability",
+                    _CANDIDATEIZE_NODE_BINDING_VERSION,
+                    {},
+                ),
+                prerequisites={},
+                check=AvailabilityResult.available,
+            ),
+            readiness=ReadinessDeclaration(
+                behavior=BehaviorReference(
+                    "contract_test.proteinmpnn_structure_candidateize/readiness",
+                    _CANDIDATEIZE_NODE_BINDING_VERSION,
+                    {},
+                ),
+                prerequisites={},
+                check=lambda environment: ReadinessResult(True),
+            ),
+            deterministic=True,
+            cacheable=True,
+            implementation_identity={
+                "name": (
+                    "contract_test.proteinmpnn_structure_candidateize.direct"
+                ),
+                "source": "contract-test-fixture",
+            },
+        ),
+        ExecutionBindingDefinition(
             binding_id="contract_test.proteinmpnn_sequence_source.direct",
-            version=_VERSION,
+            version=_SEQUENCE_SOURCE_NODE_BINDING_VERSION,
             node_type=ContractIdentity(
                 "node_type",
                 "contract_test.proteinmpnn_sequence_source",
-                _VERSION,
+                _SEQUENCE_SOURCE_NODE_BINDING_VERSION,
             ),
             method=ContractIdentity(
                 "method",
@@ -234,7 +348,7 @@ MODULE_PACKAGE = ModulePackageRegistration(
             factory=ScientificOperationFactory(
                 behavior=BehaviorReference(
                     "contract_test.proteinmpnn_sequence_source/factory",
-                    _VERSION,
+                    _SEQUENCE_SOURCE_NODE_BINDING_VERSION,
                     {},
                 ),
                 build=_build("sequence_source"),
@@ -242,7 +356,7 @@ MODULE_PACKAGE = ModulePackageRegistration(
             availability=AvailabilityDeclaration(
                 behavior=BehaviorReference(
                     "contract_test.proteinmpnn_sequence_source/availability",
-                    _VERSION,
+                    _SEQUENCE_SOURCE_NODE_BINDING_VERSION,
                     {},
                 ),
                 prerequisites={},
@@ -251,7 +365,7 @@ MODULE_PACKAGE = ModulePackageRegistration(
             readiness=ReadinessDeclaration(
                 behavior=BehaviorReference(
                     "contract_test.proteinmpnn_sequence_source/readiness",
-                    _VERSION,
+                    _SEQUENCE_SOURCE_NODE_BINDING_VERSION,
                     {},
                 ),
                 prerequisites={},

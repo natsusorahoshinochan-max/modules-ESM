@@ -20,6 +20,7 @@ from core import (
     ScientificOperationFactory,
 )
 from datatypes import (
+    FunctionAnnotation,
     FunctionAnnotations,
     ProteinPrompt,
     ResidueLayout,
@@ -27,7 +28,9 @@ from datatypes import (
 )
 
 
-_VERSION = "2.1.0"
+_PACKAGE_VERSION = "2.1.0"
+_METHOD_VERSION = "2.1.0"
+_NODE_BINDING_VERSION = "3.0.0"
 
 
 class _Source:
@@ -41,18 +44,21 @@ class _Source:
         if inputs or set(node_parameters) != {"mode"} or binding_parameters:
             raise ValueError("ESM-3 prompt source accepts only resolved mode")
         mode = node_parameters["mode"]
-        sequence_track = (
-            ResidueTrack(["A", "C", "D"], None)
-            if mode == "assigned_sequence"
-            else (
-                ResidueTrack([None, None, None], None)
-                if mode == "coordinate_conditioned"
-                else None
-            )
-        )
+        if mode in {"assigned_sequence", "rich_assigned"}:
+            sequence_track = ResidueTrack(["A", "C", "D"], None)
+        elif mode == "rich_masked":
+            sequence_track = ResidueTrack([None, "C", "D"], None)
+        elif mode == "coordinate_conditioned":
+            sequence_track = ResidueTrack([None, None, None], None)
+        else:
+            sequence_track = None
         structure_track = None
         visibility_track = None
-        if mode == "coordinate_conditioned":
+        if mode in {
+            "coordinate_conditioned",
+            "rich_assigned",
+            "rich_masked",
+        }:
             structure_track = ResidueTrack(
                 [
                     {
@@ -67,6 +73,7 @@ class _Source:
                 None,
             )
             visibility_track = ResidueTrack([True, False, False], None)
+        rich_prompt = mode in {"rich_assigned", "rich_masked"}
         with self._run_resources.engine_invocation():
             prompt = ProteinPrompt(
                 target_layout=ResidueLayout(
@@ -77,9 +84,31 @@ class _Source:
                 sequence_track=sequence_track,
                 structure_track=structure_track,
                 structure_visibility_track=visibility_track,
-                secondary_structure_track=None,
-                sasa_track=None,
-                function_annotations=FunctionAnnotations([]),
+                secondary_structure_track=(
+                    ResidueTrack(["G", "-", None], None)
+                    if rich_prompt
+                    else None
+                ),
+                sasa_track=(
+                    ResidueTrack([0.0, 16.4, None], None)
+                    if rich_prompt
+                    else None
+                ),
+                function_annotations=FunctionAnnotations(
+                    [
+                        FunctionAnnotation(
+                            label="binding site",
+                            start=1,
+                            end=2,
+                            chain_id="A",
+                            start_residue_id="A:1",
+                            end_residue_id="A:2",
+                            overlap_policy="reject",
+                        )
+                    ]
+                    if rich_prompt
+                    else []
+                ),
             )
         return {"protein_prompt": prompt}
 
@@ -91,13 +120,13 @@ def _build(context: OperationContext) -> object:
 MODULE_PACKAGE = ModulePackageRegistration(
     schema_version="2.1.0",
     package_id="contract_test.esm3_sources",
-    package_version=_VERSION,
+    package_version=_PACKAGE_VERSION,
     package_module=__package__,
     node_definitions=(DefinitionResource("definition.yaml"),),
     methods=(
         MethodDefinition(
             method_id="contract_test.esm3_prompt_source.method",
-            version=_VERSION,
+            version=_METHOD_VERSION,
             algorithm_identity={"name": "independent-deterministic-fixture"},
             model_identity={"kind": "none"},
             checkpoint_identity={"kind": "none"},
@@ -109,23 +138,23 @@ MODULE_PACKAGE = ModulePackageRegistration(
     bindings=(
         ExecutionBindingDefinition(
             binding_id="contract_test.esm3_prompt_source.direct",
-            version=_VERSION,
+            version=_NODE_BINDING_VERSION,
             node_type=ContractIdentity(
                 "node_type",
                 "contract_test.esm3_prompt_source",
-                _VERSION,
+                _NODE_BINDING_VERSION,
             ),
             method=ContractIdentity(
                 "method",
                 "contract_test.esm3_prompt_source.method",
-                _VERSION,
+                _METHOD_VERSION,
             ),
             binding_parameters={},
             execution_route="direct",
             factory=ScientificOperationFactory(
                 behavior=BehaviorReference(
                     "contract_test.esm3_prompt_source/factory",
-                    _VERSION,
+                    _NODE_BINDING_VERSION,
                     {},
                 ),
                 build=_build,
@@ -133,7 +162,7 @@ MODULE_PACKAGE = ModulePackageRegistration(
             availability=AvailabilityDeclaration(
                 behavior=BehaviorReference(
                     "contract_test.esm3_prompt_source/availability",
-                    _VERSION,
+                    _NODE_BINDING_VERSION,
                     {},
                 ),
                 prerequisites={},
@@ -142,7 +171,7 @@ MODULE_PACKAGE = ModulePackageRegistration(
             readiness=ReadinessDeclaration(
                 behavior=BehaviorReference(
                     "contract_test.esm3_prompt_source/readiness",
-                    _VERSION,
+                    _NODE_BINDING_VERSION,
                     {},
                 ),
                 prerequisites={},

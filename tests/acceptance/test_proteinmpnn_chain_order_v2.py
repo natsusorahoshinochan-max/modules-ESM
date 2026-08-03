@@ -13,13 +13,17 @@ import pytest
 
 from datatypes import (
     ProteinMPNNConstraints,
+    ProteinSequence,
     ProteinStructure,
     ResidueLayout,
 )
 from modules.proteinmpnn.adapter import (
     LocalProteinMPNNAdapter,
 )
-from modules.structure_transform.implementation import normalize_csh_parent_span
+from modules.structure_transform.implementation import (
+    normalize_csh_parent_span,
+    resolve_residue_axis,
+)
 
 from .conftest import require_ready
 
@@ -57,10 +61,10 @@ def _split_3gb1_into_two_chains(structure: ProteinStructure) -> ProteinStructure
             continue
         residue_number = int(line[22:26])
         if residue_number <= 28:
-            chain = "A"
+            chain = "B"
             chain_residue_number = residue_number
         else:
-            chain = "B"
+            chain = "A"
             chain_residue_number = residue_number - 28
             if not entered_chain_b:
                 lines.append("TER")
@@ -77,7 +81,54 @@ def _split_3gb1_into_two_chains(structure: ProteinStructure) -> ProteinStructure
     )
 
 
-def test_real_proteinmpnn_design_of_chain_b_restores_a_then_b_layout(
+def _stage_identity_edge_cases(
+    structure: ProteinStructure,
+) -> ProteinStructure:
+    lines: list[str] = []
+    for line in structure.pdb_string.splitlines():
+        if not line.startswith("ATOM  "):
+            lines.append(line)
+            continue
+        residue_number = int(line[22:26])
+        if residue_number == 1:
+            staged_number = -2
+            insertion_code = " "
+        elif residue_number == 2:
+            staged_number = 1
+            insertion_code = "A"
+        else:
+            staged_number = residue_number
+            insertion_code = line[26]
+        lines.append(
+            line[:22]
+            + f"{staged_number:4d}"
+            + insertion_code
+            + line[27:]
+        )
+    return ProteinStructure("\n".join(lines) + "\n")
+
+
+def _split_3gb1_into_same_chain_segments(
+    structure: ProteinStructure,
+) -> ProteinStructure:
+    lines: list[str] = []
+    inserted_boundary = False
+    for line in structure.pdb_string.splitlines():
+        if line.startswith("TER"):
+            continue
+        if (
+            line.startswith("ATOM  ")
+            and int(line[22:26]) == 29
+            and not inserted_boundary
+        ):
+            lines.append("TER")
+            inserted_boundary = True
+        lines.append(line)
+    lines.extend(("TER", "END"))
+    return ProteinStructure("\n".join(lines) + "\n")
+
+
+def test_real_proteinmpnn_reversed_axis_design_restores_b_then_a_layout(
     tmp_path: Path,
     readiness: dict[str, bool],
     pdb_3gb1: ProteinStructure,
@@ -96,23 +147,23 @@ def test_real_proteinmpnn_design_of_chain_b_restores_a_then_b_layout(
     )
     structure = _split_3gb1_into_two_chains(pdb_3gb1)
     layout = ResidueLayout(
-        "A,B",
+        "B,A",
         56,
         [
-            *(f"A:{position}" for position in range(1, 29)),
             *(f"B:{position}" for position in range(1, 29)),
+            *(f"A:{position}" for position in range(1, 29)),
         ],
     )
     result = adapter.design(
-        structure=structure,
+        residue_axis=resolve_residue_axis(structure),
         num_sequences=1,
         temperature=0.1,
         backbone_noise=0,
         seed=1603,
         constraints=ProteinMPNNConstraints(
             layout=layout,
-            designed_chains=["B"],
-            fixed_chains=["A"],
+            designed_chains=["A"],
+            fixed_chains=["B"],
         ),
         reference_sequence=None,
         engine_role="design_parent_0",
@@ -132,12 +183,14 @@ def test_real_proteinmpnn_design_of_chain_b_restores_a_then_b_layout(
                 },
                 "provider_residue_projection": {
                     "position_semantics": "one_based_chain_local",
-                    "workbench_chain_order": ["A", "B"],
+                    "workbench_chain_order": ["B", "A"],
+                    "provider_structure_chain_order": ["A", "B"],
                     "provider_chain_order": ["B", "A"],
                     "entries": [
                         *(
                             {
-                                "residue_id": f"A:{position}",
+                                "residue_id": f"B:{position}",
+                                "segment_index": 0,
                                 "provider_chain_id": "A",
                                 "provider_position": position,
                             }
@@ -145,7 +198,8 @@ def test_real_proteinmpnn_design_of_chain_b_restores_a_then_b_layout(
                         ),
                         *(
                             {
-                                "residue_id": f"B:{position}",
+                                "residue_id": f"A:{position}",
+                                "segment_index": 1,
                                 "provider_chain_id": "B",
                                 "provider_position": position,
                             }
@@ -156,6 +210,77 @@ def test_real_proteinmpnn_design_of_chain_b_restores_a_then_b_layout(
             },
         }
     ]
+
+
+def test_real_proteinmpnn_design_and_score_preserve_same_chain_segments(
+    tmp_path: Path,
+    readiness: dict[str, bool],
+    pdb_3gb1: ProteinStructure,
+) -> None:
+    require_ready("proteinmpnn", readiness)
+    provider_root = Path(
+        os.environ["PROTEIN_WORKBENCH_PROTEINMPNN_ROOT"]
+    ).resolve()
+    resources = _RunResources(tmp_path)
+    adapter = LocalProteinMPNNAdapter(
+        environment={
+            "device": "cpu",
+            "provider_root": provider_root,
+        },
+        resources=resources,
+    )
+    residue_axis = resolve_residue_axis(
+        _split_3gb1_into_same_chain_segments(pdb_3gb1)
+    )
+
+    result = adapter.design(
+        residue_axis=residue_axis,
+        num_sequences=1,
+        temperature=0.1,
+        backbone_noise=0,
+        seed=1603,
+        constraints=ProteinMPNNConstraints(
+            layout=residue_axis.layout,
+            designed_chains=["A"],
+            fixed_residue_ids=["A:28", "A:29"],
+        ),
+        reference_sequence=ProteinSequence(
+            residue_axis.sequence,
+            residue_axis.layout.residue_ids,
+        ),
+        engine_role="design_parent_0",
+    )
+    score = adapter.score(
+        residue_axis=residue_axis,
+        sequence=result[0],
+    )
+
+    assert len(residue_axis.segments) == 2
+    assert [segment.chain_id for segment in residue_axis.segments] == ["A", "A"]
+    assert result[0].residue_ids == residue_axis.layout.residue_ids
+    assert result[0].sequence[27:29] == residue_axis.sequence[27:29]
+    assert math.isfinite(score)
+    projection = resources.invocations[0]["invocation_provenance"][
+        "provider_residue_projection"
+    ]
+    assert projection["workbench_chain_order"] == ["A"]
+    assert projection["provider_structure_chain_order"] == ["A", "B"]
+    assert projection["provider_chain_order"] == ["A", "B"]
+    assert projection["entries"][27] == {
+        "residue_id": "A:28",
+        "segment_index": 0,
+        "provider_chain_id": "A",
+        "provider_position": 28,
+    }
+    assert projection["entries"][28] == {
+        "residue_id": "A:29",
+        "segment_index": 1,
+        "provider_chain_id": "B",
+        "provider_position": 1,
+    }
+    assert resources.invocations[1]["invocation_provenance"][
+        "provider_residue_projection"
+    ] == projection
 
 
 def test_real_proteinmpnn_preserves_fixed_csh_parent_with_missing_backbone_atom(
@@ -177,14 +302,15 @@ def test_real_proteinmpnn_preserves_fixed_csh_parent_with_missing_backbone_atom(
     source = ProteinStructure(
         (Path(__file__).parent.parent.parent / "pdbs" / "2EMO.pdb").read_text(),
     )
-    structure, _ = normalize_csh_parent_span(source)
+    structure, normalizations = normalize_csh_parent_span(source)
+    residue_axis = resolve_residue_axis(structure, normalizations)
     layout = ResidueLayout(
         "A",
         224,
         [f"A:{position}" for position in range(6, 230)],
     )
     result = adapter.design(
-        structure=structure,
+        residue_axis=residue_axis,
         num_sequences=1,
         temperature=0.1,
         backbone_noise=0,
@@ -200,7 +326,7 @@ def test_real_proteinmpnn_preserves_fixed_csh_parent_with_missing_backbone_atom(
     restored = result[0]
     csh_parent_offset = layout.residue_ids.index("A:65")
     native_score = adapter.score(
-        structure=structure,
+        residue_axis=residue_axis,
         sequence=restored,
     )
 
@@ -210,6 +336,7 @@ def test_real_proteinmpnn_preserves_fixed_csh_parent_with_missing_backbone_atom(
     expected_entries = [
         {
             "residue_id": f"A:{residue_number}",
+            "segment_index": 0,
             "provider_chain_id": "A",
             "provider_position": provider_position,
         }
@@ -221,6 +348,7 @@ def test_real_proteinmpnn_preserves_fixed_csh_parent_with_missing_backbone_atom(
     expected_projection = {
         "position_semantics": "one_based_chain_local",
         "workbench_chain_order": ["A"],
+        "provider_structure_chain_order": ["A"],
         "provider_chain_order": ["A"],
         "entries": expected_entries,
     }
@@ -238,8 +366,72 @@ def test_real_proteinmpnn_preserves_fixed_csh_parent_with_missing_backbone_atom(
         {
             "engine_role": "score_subject",
             "invocation_provenance": {
+                "effective_randomness": {
+                    "control": "exact_seed",
+                    "effective_seed": 42,
+                },
                 "provider_residue_projection": expected_projection,
             },
         },
     ]
     assert math.isfinite(native_score)
+
+
+def test_real_proteinmpnn_scores_signed_insertion_and_gap_axis(
+    tmp_path: Path,
+    readiness: dict[str, bool],
+    pdb_3gb1: ProteinStructure,
+) -> None:
+    require_ready("proteinmpnn", readiness)
+    provider_root = Path(
+        os.environ["PROTEIN_WORKBENCH_PROTEINMPNN_ROOT"]
+    ).resolve()
+    resources = _RunResources(tmp_path)
+    adapter = LocalProteinMPNNAdapter(
+        environment={
+            "device": "cpu",
+            "provider_root": provider_root,
+        },
+        resources=resources,
+    )
+    residue_axis = resolve_residue_axis(
+        _stage_identity_edge_cases(pdb_3gb1)
+    )
+
+    score = adapter.score(
+        residue_axis=residue_axis,
+        sequence=ProteinSequence(
+            residue_axis.sequence,
+            residue_axis.layout.residue_ids,
+        ),
+    )
+
+    assert residue_axis.layout.residue_ids[:3] == (
+        "A:-2",
+        "A:1A",
+        "A:3",
+    )
+    assert math.isfinite(score)
+    projection = resources.invocations[0]["invocation_provenance"][
+        "provider_residue_projection"
+    ]
+    assert projection["entries"][:3] == [
+        {
+            "residue_id": "A:-2",
+            "segment_index": 0,
+            "provider_chain_id": "A",
+            "provider_position": 1,
+        },
+        {
+            "residue_id": "A:1A",
+            "segment_index": 0,
+            "provider_chain_id": "A",
+            "provider_position": 2,
+        },
+        {
+            "residue_id": "A:3",
+            "segment_index": 0,
+            "provider_chain_id": "A",
+            "provider_position": 3,
+        },
+    ]

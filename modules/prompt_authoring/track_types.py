@@ -12,7 +12,7 @@ from datatypes import ResidueTrack
 from .domain import AlignedResidueTrack, TrackKind, validate_track
 
 
-_VERSION = "2.1.0"
+_VERSION = "3.0.0"
 _TYPE_ID_BY_KIND = {
     TrackKind.SEQUENCE: "prompt_authoring.track.sequence",
     TrackKind.STRUCTURE: "prompt_authoring.track.structure",
@@ -24,7 +24,14 @@ _TYPE_ID_BY_KIND = {
 }
 _BUILTINS = builtin_frozen_catalog()
 _LAYOUT_CODEC = _BUILTINS.require_port_type("residue.layout", _VERSION)
-_TRACK_CODEC = _BUILTINS.require_port_type("residue.track", _VERSION)
+_TRACK_CODEC = _BUILTINS.require_port_type("residue.track", "2.1.0")
+ABSOLUTE_SASA_QUANTITY_CONTRACT = {
+    "quantity": "solvent_accessible_surface_area",
+    "measure": "absolute",
+    "unit": "angstrom_squared",
+    "granularity": "per_residue",
+    "normalization": "none",
+}
 
 
 def _wire_value(codec: PortTypeDefinition, value: object) -> object:
@@ -99,7 +106,7 @@ def _from_wire(kind: TrackKind):
 def aligned_track_port_type(kind: TrackKind) -> PortTypeDefinition:
     """Construct one immutable exact nominal aligned-track contract."""
     type_id = _TYPE_ID_BY_KIND[kind]
-    behavior_prefix = f"{type_id}/v2"
+    behavior_prefix = f"{type_id}/v3"
     return PortTypeDefinition(
         type_id=type_id,
         version=_VERSION,
@@ -111,6 +118,15 @@ def aligned_track_port_type(kind: TrackKind) -> PortTypeDefinition:
                 "scientific_value_domain": kind.value,
                 "layout_identity_required": True,
                 "nullable_semantics": "JSON null means unspecified",
+                **(
+                    {
+                        "quantity_contract": (
+                            ABSOLUTE_SASA_QUANTITY_CONTRACT
+                        ),
+                    }
+                    if kind is TrackKind.SASA
+                    else {}
+                ),
             },
         ),
         codec=BehaviorReference(
@@ -118,7 +134,7 @@ def aligned_track_port_type(kind: TrackKind) -> PortTypeDefinition:
             _VERSION,
             {
                 "canonicalization": "RFC 8785",
-                "embedded_layout_contract": "residue.layout@2.1.0",
+                "embedded_layout_contract": "residue.layout@3.0.0",
                 "embedded_values_contract": "residue.track@2.1.0",
             },
         ),

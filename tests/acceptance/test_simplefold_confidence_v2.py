@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import builtins
+import hashlib
 import io
 import json
 import os
@@ -18,7 +19,6 @@ from core import (
     WorkflowDocument,
     WorkflowNodeInstance,
     build_frozen_catalog,
-    parse_workflow_document,
 )
 from core.port_types import canonical_json_bytes
 from core.workflow_v2 import WorkflowEdge
@@ -45,6 +45,12 @@ def test_simplefold_confidence_v2_evaluates_3gb1_exact_assets_without_refold(
         configured_runtime_fingerprint,
         provider_identity,
     )
+    from modules.structure_prediction.package import (
+        MODULE_PACKAGE as STRUCTURE_PREDICTION_PACKAGE,
+    )
+    from modules.structure_transform.package import (
+        MODULE_PACKAGE as STRUCTURE_TRANSFORM_PACKAGE,
+    )
     from tests.fixtures.folding_sources.package import (
         MODULE_PACKAGE as SOURCE_PACKAGE,
     )
@@ -52,22 +58,43 @@ def test_simplefold_confidence_v2_evaluates_3gb1_exact_assets_without_refold(
     source = WorkflowNodeInstance(
         node_id="source",
         node_type_id="contract_test.folding_structure_source",
-        node_type_version="2.1.0",
+        node_type_version="3.0.0",
         binding_id="contract_test.folding_structure_source.direct",
-        binding_version="2.1.0",
+        binding_version="3.0.0",
         node_parameters={"pdb_string": pdb_3gb1.pdb_string},
+        binding_parameters={},
+    )
+    axis = WorkflowNodeInstance(
+        node_id="axis",
+        node_type_id=(
+            "structure_transform.resolve_candidate_residue_axes"
+        ),
+        node_type_version="5.0.0",
+        binding_id=(
+            "structure_transform."
+            "resolve_candidate_residue_axes.direct"
+        ),
+        binding_version="5.0.0",
+        node_parameters={},
         binding_parameters={},
     )
     confidence = WorkflowNodeInstance(
         node_id="confidence",
         node_type_id="folding.simplefold_confidence",
-        node_type_version="2.1.0",
+        node_type_version="4.0.0",
         binding_id="folding.simplefold_confidence.simplefold_local",
-        binding_version="2.2.0",
+        binding_version="4.0.0",
         node_parameters={},
         binding_parameters={},
     )
-    catalog = build_frozen_catalog((FOLDING_PACKAGE, SOURCE_PACKAGE))
+    catalog = build_frozen_catalog(
+        (
+            FOLDING_PACKAGE,
+            SOURCE_PACKAGE,
+            STRUCTURE_PREDICTION_PACKAGE,
+            STRUCTURE_TRANSFORM_PACKAGE,
+        )
+    )
     projects = ProjectManager(
         tmp_path / "projects",
         cache_root=tmp_path / "cache",
@@ -79,30 +106,33 @@ def test_simplefold_confidence_v2_evaluates_3gb1_exact_assets_without_refold(
     workflow = WorkflowDocument(
         schema_version="2.1.0",
         workflow_id=project.id,
-        nodes=(source, confidence),
+        nodes=(source, axis, confidence),
         edges=(
+            WorkflowEdge(
+                "source",
+                "structure_candidates",
+                "axis",
+                "structure_candidates",
+            ),
             WorkflowEdge(
                 "source",
                 "structure_candidates",
                 "confidence",
                 "structure_candidates",
             ),
+            WorkflowEdge(
+                "axis",
+                "residue_axes",
+                "confidence",
+                "structure_residue_axes",
+            ),
         ),
         contract_lock=(),
     )
-    saved = authoring.save(
+    committed = authoring.commit(
         project.id,
-        expected_workflow_revision=0,
+        expected_draft_revision=0,
         workflow=workflow,
-    )
-    relocked = authoring.relock(
-        project.id,
-        workflow_revision=saved["workflow_revision"],
-    )
-    compiled = authoring.compile(
-        project.id,
-        workflow_revision=relocked["workflow_revision"],
-        workflow=parse_workflow_document(relocked["workflow"]),
     )
     configured_model_root = Path(
         os.environ["PROTEIN_WORKBENCH_SIMPLEFOLD_MODEL_ROOT"]
@@ -208,7 +238,7 @@ def test_simplefold_confidence_v2_evaluates_3gb1_exact_assets_without_refold(
     monkeypatch.setattr(os, "access", guarded_os_access)
     fingerprint = configured_runtime_fingerprint()
     environment = EnvironmentConfiguration({
-        ("folding.simplefold_confidence.simplefold_local", "2.2.0"): {
+        ("folding.simplefold_confidence.simplefold_local", "4.0.0"): {
             "values": {
                 "model_root": model_root,
                 "esm2_source_root": Path(
@@ -226,8 +256,7 @@ def test_simplefold_confidence_v2_evaluates_3gb1_exact_assets_without_refold(
     try:
         receipt = service.start_background(
             project.id,
-            workflow_revision=relocked["workflow_revision"],
-            compile_id=compiled.public_receipt()["compile_id"],
+            workflow_commit_id=committed.workflow_commit_id,
             client_request_id="simplefold-confidence-v2-heavy",
         )
         service.shutdown()
@@ -261,6 +290,39 @@ def test_simplefold_confidence_v2_evaluates_3gb1_exact_assets_without_refold(
     )
     assert type(scores) is ScoreCollection
     assert len(scores.entries) == 2
+    axis_output = next(
+        item
+        for item in projection["outputs"]
+        if item["node_id"] == "axis"
+        and item["output_port"] == "residue_axes"
+    )
+    axis_reference = axis_output["port_type"]
+    associations = catalog.require_port_type(
+        axis_reference["contract_id"],
+        axis_reference["contract_version"],
+    ).decode(
+        canonical_json_bytes(
+            {
+                "schema_namespace": "protein-workbench-port-value/v2",
+                "port_type_id": axis_reference["contract_id"],
+                "port_type_version": axis_reference["contract_version"],
+                "value": axis_output["values"][0],
+            }
+        )
+    )
+    assert len(associations.entries) == 1
+    resolved = associations.entries[0]
+    assert resolved.residue_axis.layout.length == 56
+    assert {
+        entry.subject for entry in scores.entries
+    } == {resolved.subject}
+    assert all(
+        entry.residue_axis is not None
+        and entry.residue_axis.axis_kind == "resolved_structure"
+        and entry.residue_axis.source == resolved.subject
+        and entry.residue_axis.layout == resolved.residue_axis.layout
+        for entry in scores.entries
+    )
     by_metric = {
         entry.metric.contract_id: entry.value
         for entry in scores.entries
@@ -271,6 +333,18 @@ def test_simplefold_confidence_v2_evaluates_3gb1_exact_assets_without_refold(
     assert all(
         isinstance(value, float) and 0.0 <= value <= 100.0
         for value in per_residue
+    )
+    assert hashlib.sha256(
+        canonical_json_bytes(per_residue)
+    ).hexdigest() == (
+        "60722e00f6b0178d5cebc9c24fd51b75c14f9f92303c0b984af90121ff7570e3"
+    )
+    missing_ca_mask = tuple(value is None for value in per_residue)
+    assert missing_ca_mask == (False,) * 56
+    assert hashlib.sha256(
+        canonical_json_bytes(missing_ca_mask)
+    ).hexdigest() == (
+        "cc55fec773bb202faf39eb2c3013392f36b8b73fdf08ceec9a6b8f0a360c5141"
     )
     assert mean_residue == pytest.approx(
         sum(per_residue) / len(per_residue),
@@ -295,7 +369,7 @@ def test_simplefold_confidence_v2_evaluates_3gb1_exact_assets_without_refold(
     binding = catalog.require_contract(
         "binding",
         "folding.simplefold_confidence.simplefold_local",
-        "2.2.0",
+        "4.0.0",
     )
     method_ref = binding.descriptor["method"]
     method = catalog.require_contract(
@@ -310,7 +384,7 @@ def test_simplefold_confidence_v2_evaluates_3gb1_exact_assets_without_refold(
         if event["event"]["type"] == "readiness_attested"
         and event["event"]["binding"]["contract_id"]
         == "folding.simplefold_confidence.simplefold_local"
-        and event["event"]["binding"]["contract_version"] == "2.2.0"
+        and event["event"]["binding"]["contract_version"] == "4.0.0"
         and event["event"]["conclusion"] == "passing"
     )
     invocation_index = next(

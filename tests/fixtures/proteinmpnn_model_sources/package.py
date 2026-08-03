@@ -31,10 +31,11 @@ from datatypes import (
 
 
 _VERSION = "2.1.0"
+_NODE_BINDING_VERSION = "3.0.0"
 _PROJECT_ROOT = Path(__file__).resolve().parents[3]
 _PDB_PATH = _PROJECT_ROOT / "pdbs" / "3GB1.pdb"
 _PDB_SHA256 = (
-    "1d061dc4998f18fe9a7cd8ada15b4b4bcf9d117ca9bb9ee139a79713857cccdf"
+    "ee623d3d9fd77a131895dc367c31ac8d7266b1d4f241b56325170e5f62ed7811"
 )
 _SEQUENCE = "MTYKLILNGKTLKGETTTEAVDAATAEKVFKQYANDNGVDGEWTYDDATKTFTVTE"
 _SEQUENCE_SHA256 = (
@@ -155,11 +156,11 @@ def _binding(operation: str) -> ExecutionBindingDefinition:
         binding_id=(
             f"contract_test.proteinmpnn_3gb1_{operation}.direct"
         ),
-        version=_VERSION,
+        version=_NODE_BINDING_VERSION,
         node_type=ContractIdentity(
             "node_type",
             f"contract_test.proteinmpnn_3gb1_{operation}",
-            _VERSION,
+            _NODE_BINDING_VERSION,
         ),
         method=ContractIdentity(
             "method",
@@ -171,7 +172,7 @@ def _binding(operation: str) -> ExecutionBindingDefinition:
         factory=ScientificOperationFactory(
             behavior=BehaviorReference(
                 f"contract_test.proteinmpnn_3gb1_{operation}/factory",
-                _VERSION,
+                _NODE_BINDING_VERSION,
                 {},
             ),
             build=_build(operation),
@@ -179,7 +180,7 @@ def _binding(operation: str) -> ExecutionBindingDefinition:
         availability=AvailabilityDeclaration(
             behavior=BehaviorReference(
                 f"contract_test.proteinmpnn_3gb1_{operation}/availability",
-                _VERSION,
+                _NODE_BINDING_VERSION,
                 {},
             ),
             prerequisites={},
@@ -188,7 +189,7 @@ def _binding(operation: str) -> ExecutionBindingDefinition:
         readiness=ReadinessDeclaration(
             behavior=BehaviorReference(
                 f"contract_test.proteinmpnn_3gb1_{operation}/readiness",
-                _VERSION,
+                _NODE_BINDING_VERSION,
                 {},
             ),
             prerequisites={},

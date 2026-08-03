@@ -31,11 +31,13 @@ from core.scoring_v2 import (
     ResolvedSelectionObjective,
     SelectionError,
     SelectionObjective,
+    observation_selector_identity_facts_from_facts,
     resolve_selection_objective,
     resolve_observation_selector,
     resolve_observation_selector_facts,
     resolve_metric_facts,
     resolve_selection_objective_facts,
+    selection_objective_identity_facts_from_facts,
 )
 from datatypes import ExactContractReference
 from protein_workbench_public import ProtocolValidationError, validate_schema
@@ -44,7 +46,15 @@ from protein_workbench_public import ProtocolValidationError, validate_schema
 WORKFLOW_SCHEMA_VERSION = "2.1.0"
 WORKFLOW_DIGEST_NAMESPACE = "protein-workbench-workflow/v2"
 CONTRACT_LOCK_NAMESPACE = "protein-workbench-contract-lock/v2"
-EXECUTION_PLAN_NAMESPACE = "protein-workbench-execution-plan/v2"
+EXECUTION_PLAN_NAMESPACE = "protein-workbench-execution-plan/v3"
+RESULT_IDENTITY_PLAN_FACTS_NAMESPACE = (
+    "protein-workbench-result-identity-plan-facts/v1"
+)
+
+_PRESENTATION_CONTRACT_FIELDS = {
+    "node_type": frozenset({"title", "summary", "category"}),
+    "metric": frozenset({"title", "description"}),
+}
 
 
 def _freeze_json(value: Any) -> Any:
@@ -256,6 +266,51 @@ class _ExecutionPlanValueSource:
 
 
 @dataclass(frozen=True, slots=True)
+class ResultIdentityPlanFacts:
+    """Immutable compile-resolved static facts for one Result Identity."""
+
+    identity_facts: Mapping[str, Any]
+    node_parameter_indirections: tuple[str, ...] = ()
+
+    def __post_init__(self) -> None:
+        object.__setattr__(
+            self,
+            "identity_facts",
+            _freeze_json(self.identity_facts),
+        )
+        object.__setattr__(
+            self,
+            "node_parameter_indirections",
+            tuple(sorted(set(self.node_parameter_indirections))),
+        )
+
+    def identity_projection(self) -> dict[str, Any]:
+        """Return one isolated canonical projection shared by runtime users."""
+        return _thaw_json(self.identity_facts)
+
+    def canonical_projection(self) -> dict[str, Any]:
+        """Return the complete compiler-owned plan facts contract."""
+        return {
+            "schema_namespace": RESULT_IDENTITY_PLAN_FACTS_NAMESPACE,
+            "identity_facts": self.identity_projection(),
+            "node_parameter_indirections": list(
+                self.node_parameter_indirections
+            ),
+        }
+
+    def cache_contract_metadata(self) -> dict[str, Any]:
+        """Project the exact static identity facts stored beside Cache data."""
+        return {
+            "result_identity_plan_facts": self.canonical_projection()
+        }
+
+    @property
+    def digest(self) -> str:
+        """Identify the exact compiler-owned facts recorded in Run evidence."""
+        return canonical_sha256(self.canonical_projection())
+
+
+@dataclass(frozen=True, slots=True)
 class _ExecutionPlanNodeRuntime:
     """Private executable facts excluded from the public Plan digest."""
 
@@ -300,7 +355,6 @@ class _ExecutionPlanNodeRuntime:
         compare=False,
     )
     selection_candidate_output_port: str | None
-    result_contracts: tuple[Any, ...] = field(repr=False, compare=False)
     produced_metric_facts: Mapping[
         tuple[str, str, str, str],
         ResolvedMetricFacts,
@@ -350,11 +404,6 @@ class _ExecutionPlanNodeRuntime:
             self,
             "observation_selectors",
             tuple(self.observation_selectors),
-        )
-        object.__setattr__(
-            self,
-            "result_contracts",
-            tuple(self.result_contracts),
         )
         object.__setattr__(
             self,
@@ -408,6 +457,7 @@ class ExecutionPlanNode:
     method: ContractLockEntry
     node_parameters: Mapping[str, Any]
     binding_parameters: Mapping[str, Any]
+    result_identity_plan_facts: ResultIdentityPlanFacts
     _runtime: _ExecutionPlanNodeRuntime = field(repr=False, compare=False)
 
     def __post_init__(self) -> None:
@@ -428,7 +478,7 @@ class ExecutionPlan:
     """Private immutable result of one successful compilation."""
 
     workflow_id: str
-    workflow_revision: int
+    workflow_commit_revision: int
     workflow_digest: str
     catalog_contract_digest: str
     contract_lock_digest: str
@@ -455,17 +505,9 @@ class ExecutionPlan:
 
 @dataclass(frozen=True, slots=True)
 class CompiledWorkflow:
-    """Private plan paired with its compact public compile receipt."""
+    """One private, exact compiler-resolved Execution Plan."""
 
     execution_plan: ExecutionPlan
-    receipt: Mapping[str, Any]
-
-    def __post_init__(self) -> None:
-        object.__setattr__(self, "receipt", _freeze_json(self.receipt))
-
-    def public_receipt(self) -> dict[str, Any]:
-        """Return an isolated mutable wire copy of the compact receipt."""
-        return _thaw_json(self.receipt)
 
 
 class WorkflowCompileError(ValueError):
@@ -621,6 +663,17 @@ def parse_workflow_document(payload: Mapping[str, Any]) -> WorkflowDocument:
             code,
             f"Workflow document is invalid: {error.reason}",
         ) from error
+    return workflow_document_from_admitted_public(payload)
+
+
+def workflow_document_from_admitted_public(
+    payload: Mapping[str, Any],
+) -> WorkflowDocument:
+    """Construct a typed Workflow after exact bundle admission.
+
+    This is not a public wire-admission interface. Callers must first admit
+    ``payload`` against the exact current ``WorkflowDocument`` bundle schema.
+    """
     try:
         return WorkflowDocument(
             schema_version=payload["schema_version"],
@@ -1472,15 +1525,16 @@ def _validate_observation_selectors(
             "contract_version": selector.metric.contract_version,
             "contract_digest": selector.metric.contract_digest,
         }
+        output_capabilities = capabilities.get(
+            (
+                selector.score_collection_input.node_id,
+                selector.score_collection_input.output_port,
+            ),
+            (),
+        )
         produced = [
             capability
-            for capability in capabilities.get(
-                (
-                    selector.score_collection_input.node_id,
-                    selector.score_collection_input.output_port,
-                ),
-                (),
-            )
+            for capability in output_capabilities
             if capability.get("source_partition")
             == selector.source_partition
             and capability.get("metric") == requested_metric
@@ -1494,6 +1548,26 @@ def _validate_observation_selectors(
             == selector.candidate_input.to_public()
         ]
         if len(produced) != 1:
+            if any(
+                capability.get("source_partition")
+                == selector.source_partition
+                and capability.get("metric") == requested_metric
+                and capability.get("context_profile")
+                == selector.context_selector.to_public()
+                and capability.get("subject_grain") == "candidate"
+                and capability.get("source_role") == "subject"
+                and capability.get("guaranteed_multiplicity") == "one"
+                and capability.get("subject_source")
+                == selector.candidate_input.to_public()
+                and capability.get("method") != requested_method
+                for capability in output_capabilities
+            ):
+                raise WorkflowCompileError(
+                    "unsatisfied_observation_selector",
+                    "Exact output capability does not use requested Method",
+                    node_id=selector.score_collection_input.node_id,
+                    field_path=(*selector_path, "method"),
+                )
             raise WorkflowCompileError(
                 "unsatisfied_observation_selector",
                 "Selected scoring Binding cannot guarantee the requested raw "
@@ -1539,6 +1613,16 @@ def _validate_selection_objective_consumers(
         objective.objective_id: objective
         for objective in workflow.selection_objectives
     }
+    objective_consumers: dict[str, list[str]] = {
+        objective_id: [] for objective_id in objectives
+    }
+    selectors = {
+        selector.selector_id: selector
+        for selector in workflow.observation_selectors
+    }
+    selector_consumers: dict[str, list[str]] = {
+        selector_id: [] for selector_id in selectors
+    }
     nodes = {node.node_id: node for node in workflow.nodes}
     for node_id, (node_contract, binding) in plan_nodes.items():
         selector_consumption = binding.descriptor.get(
@@ -1560,10 +1644,6 @@ def _validate_selection_objective_consumers(
                 if isinstance(parameter_name, str)
                 else None
             )
-            selectors = {
-                selector.selector_id: selector
-                for selector in workflow.observation_selectors
-            }
             selector = selectors.get(selector_id)
             if selector is None:
                 raise WorkflowCompileError(
@@ -1614,6 +1694,7 @@ def _validate_selection_objective_consumers(
                             port_name or "",
                         ),
                     )
+            selector_consumers[selector.selector_id].append(node_id)
             continue
         consumption = binding.descriptor.get(
             "selection_objective_consumption"
@@ -1705,6 +1786,41 @@ def _validate_selection_objective_consumers(
                     node_id=node_id,
                     field_path=("nodes", node_id, "inputs", port_name or ""),
                 )
+        for objective in selected_objectives:
+            objective_consumers[objective.objective_id].append(node_id)
+
+    for index, objective in enumerate(workflow.selection_objectives):
+        consumers = objective_consumers[objective.objective_id]
+        if not consumers:
+            raise WorkflowCompileError(
+                "unconsumed_selection_objective",
+                "Selection Objective is not consumed by an explicit "
+                "Selection Node",
+                field_path=("selection_objectives", index),
+            )
+        if len(consumers) != 1:
+            raise WorkflowCompileError(
+                "multiple_selection_objective_consumers",
+                "Selection Objective must be consumed by exactly one explicit "
+                f"Selection Node; resolved consumers: {consumers!r}",
+                field_path=("selection_objectives", index),
+            )
+    for index, selector in enumerate(workflow.observation_selectors):
+        consumers = selector_consumers[selector.selector_id]
+        if not consumers:
+            raise WorkflowCompileError(
+                "unconsumed_observation_selector",
+                "Observation Selector is not consumed by an explicit "
+                "Selection Node",
+                field_path=("observation_selectors", index),
+            )
+        if len(consumers) != 1:
+            raise WorkflowCompileError(
+                "multiple_observation_selector_consumers",
+                "Observation Selector must be consumed by exactly one explicit "
+                f"Selection Node; resolved consumers: {consumers!r}",
+                field_path=("observation_selectors", index),
+            )
 
 
 def _capability_source(
@@ -1743,6 +1859,32 @@ def _capability_matches_filter(
     return True
 
 
+def _produced_observation_method(
+    workflow: WorkflowDocument,
+    *,
+    node_id: str,
+    declaration: Mapping[str, Any],
+    binding_method: object,
+    plan_nodes: Mapping[str, tuple[Any, Any]],
+) -> object:
+    direction = declaration.get("method_direction")
+    port = declaration.get("method_port")
+    if direction != "input" or not isinstance(port, str):
+        return binding_method
+    source = _connected_source(
+        workflow,
+        node_id=node_id,
+        input_port=port,
+    )
+    if source is None:
+        return None
+    source_plan = plan_nodes.get(source["node_id"])
+    if source_plan is None:
+        return None
+    _, source_binding = source_plan
+    return source_binding.descriptor.get("method")
+
+
 def _derive_observation_capabilities(
     workflow: WorkflowDocument,
     *,
@@ -1764,13 +1906,20 @@ def _derive_observation_capabilities(
             output_port = declaration.get("output_port")
             if not isinstance(output_port, str):
                 continue
+            observation_method = _produced_observation_method(
+                workflow,
+                node_id=node_id,
+                declaration=declaration,
+                binding_method=method,
+                plan_nodes=plan_nodes,
+            )
             capability = {
                 "source_partition": declaration.get(
                     "output_partition",
                     "default",
                 ),
                 "metric": declaration.get("metric"),
-                "method": method,
+                "method": observation_method,
                 "context_profile": declaration.get("context_profile"),
                 "subject_grain": declaration.get("subject_grain"),
                 "source_role": declaration.get("source_role"),
@@ -1877,6 +2026,10 @@ def _resolved_produced_observations(
             reference_port=declaration.get("reference_port"),
             pairing_direction=declaration.get("pairing_direction"),
             pairing_port=declaration.get("pairing_port"),
+            axis_direction=declaration.get("axis_direction"),
+            axis_port=declaration.get("axis_port"),
+            method_direction=declaration.get("method_direction"),
+            method_port=declaration.get("method_port"),
         )
         for declaration in binding_contract.descriptor.get(
             "produced_observations",
@@ -1971,6 +2124,57 @@ def _nested_contract_keys(value: Any) -> set[tuple[str, str, str]]:
     return keys
 
 
+def _identity_without_digest(reference: Mapping[str, Any]) -> dict[str, str]:
+    return {
+        "contract_kind": reference["contract_kind"],
+        "contract_id": reference["contract_id"],
+        "contract_version": reference["contract_version"],
+    }
+
+
+def _normalize_nested_contract_references(value: Any) -> Any:
+    if isinstance(value, Mapping):
+        fields = set(value)
+        is_contract_reference = fields == {
+            "contract_kind",
+            "contract_id",
+            "contract_version",
+            "contract_digest",
+        }
+        return {
+            str(key): _normalize_nested_contract_references(item)
+            for key, item in value.items()
+            if not (is_contract_reference and key == "contract_digest")
+        }
+    if isinstance(value, (list, tuple)):
+        return [
+            _normalize_nested_contract_references(item)
+            for item in value
+        ]
+    return value
+
+
+def _result_affecting_contract(contract: Any) -> dict[str, Any]:
+    descriptor = _contract_descriptor(contract)
+    contract_kind = descriptor["contract_kind"]
+    presentation_fields = _PRESENTATION_CONTRACT_FIELDS.get(
+        contract_kind,
+        (),
+    )
+    return {
+        "contract_kind": contract_kind,
+        "contract_id": descriptor["contract_id"],
+        "contract_version": descriptor["contract_version"],
+        "descriptor": _normalize_nested_contract_references(
+            {
+                key: value
+                for key, value in descriptor.items()
+                if key not in presentation_fields
+            }
+        ),
+    }
+
+
 def _result_contracts_for_node(
     *,
     node_contract: Any,
@@ -2014,11 +2218,6 @@ def _result_contracts_for_node(
                 "produced_observations",
                 (),
             )
-        },
-        *{
-            key
-            for key in resolved_by_key
-            if key[0] == "utility_transform"
         },
     }
     for objective in selected_objectives:
@@ -2067,10 +2266,129 @@ def _result_contracts_for_node(
     return tuple(resolved_by_key[key] for key in sorted(keys))
 
 
+def _result_identity_plan_facts(
+    *,
+    node_contract: Any,
+    binding_contract: Any,
+    method_contract: Any,
+    result_contracts: tuple[Any, ...],
+    selected_objectives: tuple[ResolvedSelectionObjective, ...],
+    selected_selectors: tuple[ResolvedObservationSelector, ...],
+) -> ResultIdentityPlanFacts:
+    objective_consumption = binding_contract.descriptor.get(
+        "selection_objective_consumption"
+    )
+    selector_consumption = binding_contract.descriptor.get(
+        "observation_selector_consumption"
+    )
+    facts: dict[str, Any] = {
+        "node_type": _identity_without_digest(node_contract.reference()),
+        "binding": _identity_without_digest(binding_contract.reference()),
+        "method": _identity_without_digest(method_contract.reference()),
+        "resolved_result_contracts": [
+            _result_affecting_contract(contract)
+            for contract in result_contracts
+        ],
+        "input_contracts": [
+            {
+                "input_port": port["name"],
+                "port_type": _identity_without_digest(port["port_type"]),
+                "required": port["required"],
+                "multiplicity": port["multiplicity"],
+                "scientific_meaning": port["scientific_meaning"],
+            }
+            for port in node_contract.descriptor.get("inputs", ())
+        ],
+        "output_contracts": [
+            {
+                "output_port": port["name"],
+                "port_type": _identity_without_digest(port["port_type"]),
+                "required": port["required"],
+                "multiplicity": port["multiplicity"],
+                "scientific_meaning": port["scientific_meaning"],
+            }
+            for port in node_contract.descriptor.get("outputs", ())
+        ],
+        "produced_observations": _normalize_nested_contract_references(
+            binding_contract.descriptor.get("produced_observations", ())
+        ),
+    }
+    node_parameter_indirections: list[str] = []
+    if selected_objectives:
+        if not isinstance(objective_consumption, Mapping):
+            raise WorkflowCompileError(
+                "invalid_selection_objective_consumer",
+                "Selection Objective facts lack exact local input roles",
+            )
+        candidate_input_port = objective_consumption.get(
+            "candidate_input_port"
+        )
+        score_collection_input_port = objective_consumption.get(
+            "score_collection_input_port"
+        )
+        if not isinstance(candidate_input_port, str) or not isinstance(
+            score_collection_input_port,
+            str,
+        ):
+            raise WorkflowCompileError(
+                "invalid_selection_objective_consumer",
+                "Selection Objective facts lack exact local input roles",
+            )
+        facts["selection_objectives"] = list(
+            selection_objective_identity_facts_from_facts(
+                selected_objectives,
+                candidate_input_port=candidate_input_port,
+                score_collection_input_port=score_collection_input_port,
+            )
+        )
+        node_parameter_indirections.extend(
+            parameter
+            for parameter in (
+                objective_consumption.get("objective_id_parameter"),
+                objective_consumption.get("objective_ids_parameter"),
+            )
+            if isinstance(parameter, str)
+        )
+    if selected_selectors:
+        if not isinstance(selector_consumption, Mapping):
+            raise WorkflowCompileError(
+                "invalid_observation_selector_consumer",
+                "Observation Selector facts lack exact local input roles",
+            )
+        candidate_input_port = selector_consumption.get(
+            "candidate_input_port"
+        )
+        score_collection_input_port = selector_consumption.get(
+            "score_collection_input_port"
+        )
+        if not isinstance(candidate_input_port, str) or not isinstance(
+            score_collection_input_port,
+            str,
+        ):
+            raise WorkflowCompileError(
+                "invalid_observation_selector_consumer",
+                "Observation Selector facts lack exact local input roles",
+            )
+        facts["observation_selectors"] = list(
+            observation_selector_identity_facts_from_facts(
+                selected_selectors,
+                candidate_input_port=candidate_input_port,
+                score_collection_input_port=score_collection_input_port,
+            )
+        )
+        parameter = selector_consumption.get("selector_id_parameter")
+        if isinstance(parameter, str):
+            node_parameter_indirections.append(parameter)
+    return ResultIdentityPlanFacts(
+        identity_facts=facts,
+        node_parameter_indirections=tuple(node_parameter_indirections),
+    )
+
+
 def compile_workflow(
     workflow: WorkflowDocument,
     *,
-    workflow_revision: int,
+    workflow_commit_revision: int,
     catalog: FrozenCatalog,
 ) -> CompiledWorkflow:
     """Compile one exact Lock before consulting runtime Availability."""
@@ -2088,7 +2406,6 @@ def compile_workflow(
         in {
             "protein.sequence",
             "protein.structure",
-            "structure.alignment",
         }
     }
     resolved_workflow_objectives = tuple(
@@ -2263,6 +2580,21 @@ def compile_workflow(
             if isinstance(objective_consumption, Mapping)
             else None
         )
+        result_contracts = _result_contracts_for_node(
+            node_contract=node_type_contract,
+            binding_contract=binding,
+            selected_objectives=selected_objectives,
+            selected_selectors=selected_selectors,
+            resolved_by_key=resolved_by_key,
+        )
+        result_identity_plan_facts = _result_identity_plan_facts(
+            node_contract=node_type_contract,
+            binding_contract=binding,
+            method_contract=method_contract,
+            result_contracts=result_contracts,
+            selected_objectives=resolved_selected_objectives,
+            selected_selectors=resolved_selected_selectors,
+        )
         runtime = _ExecutionPlanNodeRuntime(
             node_contract=node_type_contract,
             binding_contract=binding,
@@ -2321,13 +2653,6 @@ def compile_workflow(
                 if isinstance(selection_consumption, Mapping)
                 else None
             ),
-            result_contracts=_result_contracts_for_node(
-                node_contract=node_type_contract,
-                binding_contract=binding,
-                selected_objectives=selected_objectives,
-                selected_selectors=selected_selectors,
-                resolved_by_key=resolved_by_key,
-            ),
             produced_metric_facts=produced_metric_facts,
             artifact_outputs=tuple(artifact_outputs),
         )
@@ -2343,13 +2668,14 @@ def compile_workflow(
                 method=lock_by_key[method_reference.key],
                 node_parameters=normalized_node_parameters,
                 binding_parameters=normalized_binding_parameters,
+                result_identity_plan_facts=result_identity_plan_facts,
                 _runtime=runtime,
             )
         )
     plan_descriptor = {
         "schema_namespace": EXECUTION_PLAN_NAMESPACE,
         "workflow_id": workflow.workflow_id,
-        "workflow_revision": workflow_revision,
+        "workflow_commit_revision": workflow_commit_revision,
         "workflow_digest": workflow.digest,
         "catalog_contract_digest": catalog.contract_digest,
         "contract_lock_digest": workflow.contract_lock_digest,
@@ -2362,6 +2688,9 @@ def compile_workflow(
                 "method": node.method.to_public(),
                 "node_parameters": _thaw_json(node.node_parameters),
                 "binding_parameters": _thaw_json(node.binding_parameters),
+                "result_identity_plan_facts_digest": (
+                    node.result_identity_plan_facts.digest
+                ),
             }
             for node in nodes
         ],
@@ -2381,7 +2710,7 @@ def compile_workflow(
     execution_plan_digest = canonical_sha256(plan_descriptor)
     plan = ExecutionPlan(
         workflow_id=workflow.workflow_id,
-        workflow_revision=workflow_revision,
+        workflow_commit_revision=workflow_commit_revision,
         workflow_digest=workflow.digest,
         catalog_contract_digest=catalog.contract_digest,
         contract_lock_digest=workflow.contract_lock_digest,
@@ -2398,14 +2727,4 @@ def compile_workflow(
         observation_selectors=workflow.observation_selectors,
         selection_objectives=workflow.selection_objectives,
     )
-    receipt = {
-        "accepted": True,
-        "compile_id": execution_plan_digest.replace("sha256:", "compile-"),
-        "workflow_revision": workflow_revision,
-        "workflow_digest": workflow.digest,
-        "catalog_contract_digest": catalog.contract_digest,
-        "contract_lock_digest": workflow.contract_lock_digest,
-        "execution_plan_digest": execution_plan_digest,
-        "issues": [],
-    }
-    return CompiledWorkflow(plan, receipt)
+    return CompiledWorkflow(plan)

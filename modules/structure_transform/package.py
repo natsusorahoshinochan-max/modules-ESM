@@ -19,12 +19,7 @@ from core import (
     ScientificOperation,
     ScientificOperationFactory,
 )
-from datatypes import (
-    ModifiedResidueAtomMapping,
-    ModifiedResidueNormalization,
-    ModifiedResidueNormalizationCollection,
-    ProteinStructure,
-)
+from datatypes import ProteinStructure
 
 from .implementation import (
     BackboneToStructureImplementation,
@@ -32,14 +27,32 @@ from .implementation import (
     ExtractSequenceCandidatesImplementation,
     ExtractSequenceImplementation,
     NormalizeCshParentSpanImplementation,
+    ResolveCandidateResidueAxesImplementation,
+    ResolveResidueAxisImplementation,
     SelectCandidateChainsImplementation,
     SelectChainsImplementation,
     validate_backbone_structure,
 )
+from .port_types import (
+    CANDIDATE_ASSOCIATION_VERSION,
+    CANDIDATE_NORMALIZATION_ASSOCIATIONS_PORT_TYPE,
+    CANDIDATE_RESOLVED_AXIS_ASSOCIATIONS_PORT_TYPE,
+    RESOLVED_AXIS_PORT_TYPE,
+    RESOLVED_AXIS_VERSION,
+    normalizations_from_wire as _normalizations_from_wire,
+    normalizations_to_wire as _normalizations_to_wire,
+    validate_normalizations as _validate_normalizations,
+)
 
 
 _VERSION = "2.1.0"
-_BACKBONE_PORT_VERSION = "3.0.0"
+_BACKBONE_PORT_VERSION = "4.0.0"
+_NORMALIZATION_PORT_VERSION = "3.0.0"
+_CANDIDATE_NODE_VERSION = "3.0.0"
+_STRUCTURE_NODE_VERSION = "4.0.0"
+_NORMALIZE_CSH_NODE_VERSION = "5.0.0"
+_NORMALIZE_CSH_METHOD_VERSION = "4.0.0"
+_RESOLVE_AXIS_METHOD_VERSION = "3.0.0"
 _OPERATIONS = (
     "select_chains",
     "select_candidate_chains",
@@ -47,17 +60,31 @@ _OPERATIONS = (
     "extract_sequence",
     "extract_sequence_candidates",
     "normalize_csh_parent_span",
+    "resolve_residue_axis",
+    "resolve_candidate_residue_axes",
     "backbone_to_structure",
 )
 _NODE_BINDING_VERSIONS = {
-    "select_chains": "3.0.0",
-    "extract_backbone": "3.0.0",
-    "extract_sequence": "3.0.0",
-    "normalize_csh_parent_span": "3.0.0",
-    "backbone_to_structure": "3.0.0",
+    "select_chains": _STRUCTURE_NODE_VERSION,
+    "select_candidate_chains": _CANDIDATE_NODE_VERSION,
+    "extract_backbone": _STRUCTURE_NODE_VERSION,
+    "extract_sequence": _STRUCTURE_NODE_VERSION,
+    "extract_sequence_candidates": _CANDIDATE_NODE_VERSION,
+    "normalize_csh_parent_span": _NORMALIZE_CSH_NODE_VERSION,
+    "resolve_residue_axis": RESOLVED_AXIS_VERSION,
+    "resolve_candidate_residue_axes": CANDIDATE_ASSOCIATION_VERSION,
+    "backbone_to_structure": _STRUCTURE_NODE_VERSION,
 }
 _METHOD_VERSIONS = {
-    "backbone_to_structure": "3.0.0",
+    "backbone_to_structure": "4.0.0",
+    "select_chains": "3.0.0",
+    "select_candidate_chains": "3.0.0",
+    "extract_backbone": "3.0.0",
+    "extract_sequence": "3.0.0",
+    "extract_sequence_candidates": "3.0.0",
+    "normalize_csh_parent_span": _NORMALIZE_CSH_METHOD_VERSION,
+    "resolve_residue_axis": _RESOLVE_AXIS_METHOD_VERSION,
+    "resolve_candidate_residue_axes": _RESOLVE_AXIS_METHOD_VERSION,
 }
 _IMPLEMENTATIONS = {
     "select_chains": SelectChainsImplementation,
@@ -66,6 +93,8 @@ _IMPLEMENTATIONS = {
     "extract_sequence": ExtractSequenceImplementation,
     "extract_sequence_candidates": ExtractSequenceCandidatesImplementation,
     "normalize_csh_parent_span": NormalizeCshParentSpanImplementation,
+    "resolve_residue_axis": ResolveResidueAxisImplementation,
+    "resolve_candidate_residue_axes": ResolveCandidateResidueAxesImplementation,
     "backbone_to_structure": BackboneToStructureImplementation,
 }
 
@@ -93,7 +122,9 @@ def _method(operation: str) -> MethodDefinition:
             "chain_identity": "one-alphanumeric-PDB-chain-ID",
             "ordering": "workflow-request-order",
             "multi_model": "reject",
-            "records": ["ATOM", "HETATM"],
+            "coordinate_records": ["ATOM", "HETATM"],
+            "polymer_declarations": ["MODRES", "SEQRES"],
+            "declaration_selection": "exact-chain-identity",
             "chain_breaks": "canonical-TER-per-retained-segment",
         },
         "select_candidate_chains": {
@@ -104,33 +135,31 @@ def _method(operation: str) -> MethodDefinition:
             "ordering": "input-candidate-order",
         },
         "extract_backbone": {
-            "name": "complete-canonical-protein-backbone-extraction",
-            "retained_records": ["ATOM"],
+            "name": "resolved-axis-canonical-backbone-projection",
+            "input_population": "resolved-structure-residue-axis",
             "retained_atoms": ["N", "CA", "C", "O"],
-            "retained_residues": "every-contiguous-ATOM-residue",
-            "missing_atoms": "reject-residue-and-operation",
-            "alternate_locations": "blank-then-A-otherwise-reject",
-            "chain_breaks": "canonical-TER-per-input-segment",
-            "multi_model": "reject",
+            "retained_residues": "every-axis-residue",
+            "parent_names": "axis-parent-residue-names",
+            "coordinates": "axis-selected-named-atom-coordinates",
+            "missing_atoms": "axis-complete-backbone-mask-fail-fast",
+            "chain_breaks": "canonical-TER-per-axis-segment",
+            "serialization": "PDB-v3.3-ATOM-occupancy-1-temperature-0",
         },
         "extract_sequence": {
-            "name": "ca-residue-correspondent-sequence-extraction",
-            "protein_records": "ATOM-only",
-            "non_protein_records": "ignore-HETATM",
-            "unknown_residue": "X",
-            "chain_order": "PDB-segment-order",
-            "residue_correspondence": "chain-qualified-residue-IDs",
-            "alternate_locations": "blank-then-A-otherwise-reject",
-            "multi_model": "reject",
+            "name": "resolved-axis-parent-sequence-projection",
+            "input_population": "resolved-structure-residue-axis",
+            "sequence": "exact-axis-parent-sequence",
+            "residue_correspondence": "exact-axis-residue-identities",
+            "raw_PDB_reparse": "forbidden",
         },
         "extract_sequence_candidates": {
-            "name": "candidate-aware-sequence-extraction",
-            "extraction": (
-                "ca-residue-correspondent-sequence-extraction"
-            ),
-            "cardinality": "one-child-per-input-parent",
-            "lineage": "structure-parent-to-sequence-child",
-            "ordering": "input-candidate-order",
+            "name": "exact-reference-associated-axis-sequence-projection",
+            "extraction": "resolved-axis-parent-sequence-projection",
+            "cardinality": "one-child-per-input-Candidate",
+            "lineage": "association-subject-to-sequence-child",
+            "association": "exact-CandidateDataReference",
+            "association_join": "complete-exact-reference-bijection",
+            "collection_position": "not-scientific-correspondence",
         },
         "normalize_csh_parent_span": {
             "name": "explicit-CSH-to-SHG-parent-span-normalization",
@@ -141,13 +170,48 @@ def _method(operation: str) -> MethodDefinition:
             "provenance": "typed-normalization-output",
             "missing_or_extra_atoms": "reject",
             "identity_collision": "reject",
+            "input_TER_at_exact_parent_span": "remove-as-noncovalent-artifact",
+            "output_segment_topology": "continuous-through-expanded-parents",
+            "non_CSH_polymer_declarations": "preserve-exact-record-bytes",
+            "CSH_MODRES_at_normalized_identity": "remove",
+            "CSH_SEQRES": (
+                "require-exact-per-chain-component-count-and-expand-to-SER-HIS-GLY"
+            ),
+            "rewritten_SEQRES": "PDB-v3.3-80-column-13-components-per-record",
+        },
+        "resolve_residue_axis": {
+            "name": "resolved-protein-residue-axis",
+            "source_structure": "preserve-exact-PDB-content",
+            "component_classification": "PDB-v3.3-MODRES-SEQRES-and-coordinates",
+            "standard_polymer": (
+                "include-20-parent-residues-independent-of-record-type"
+            ),
+            "unknown_ATOM_polymer": "reject-without-parent-contract",
+            "MSE": "exact-MODRES-MSE-to-MET-at-same-identity",
+            "MSE_SEQRES": "unique-ordered-chain-correspondence",
+            "ordinary_nonpolymer": "exclude-and-record-disposition",
+            "unknown_modified_polymer": "reject",
+            "alternate_locations": "blank-then-A-otherwise-reject",
+            "segment_topology": "explicit-TER-and-chain-boundaries",
+            "coordinate_access": "identity-associated-selected-atoms",
+            "coordinate_masks": ["CA", "complete-N-CA-C-O"],
+            "normalization_provenance": "embedded-typed-records",
+        },
+        "resolve_candidate_residue_axes": {
+            "name": "exact-reference-associated-resolved-residue-axes",
+            "scalar_resolution": "resolved-protein-residue-axis",
+            "association_key": "exact-CandidateDataReference",
+            "collection_position": "not-scientific-correspondence",
+            "candidate_coverage": "complete-no-missing-duplicate-or-extra",
+            "normalization_join": "exact-reference-only",
+            "structure_binding": "candidate-content-digest",
         },
         "backbone_to_structure": {
             "name": "explicit-backbone-to-generic-structure-conversion",
             "input_contract": (
-                "structure_transform.backbone_structure@3.0.0"
+                "structure_transform.backbone_structure@4.0.0"
             ),
-            "output_contract": "protein.structure@3.0.0",
+            "output_contract": "protein.structure@4.0.0",
             "pdb_bytes": "preserved",
             "atom_generation": "none",
         },
@@ -234,128 +298,6 @@ def _backbone_from_wire(value: object) -> object:
     return ProteinStructure(pdb_string=value["pdb_string"])
 
 
-def _normalizations_to_wire(value: object) -> object:
-    assert type(value) is ModifiedResidueNormalizationCollection
-    return {
-        "entries": [
-            {
-                "component_id": entry.component_id,
-                "observed_residue_id": entry.observed_residue_id,
-                "parent_residue_ids": list(entry.parent_residue_ids),
-                "parent_sequence": entry.parent_sequence,
-                "atom_mappings": [
-                    {
-                        "source_atom_name": mapping.source_atom_name,
-                        "parent_residue_id": mapping.parent_residue_id,
-                        "parent_atom_name": mapping.parent_atom_name,
-                    }
-                    for mapping in entry.atom_mappings
-                ],
-            }
-            for entry in value.entries
-        ]
-    }
-
-
-def _normalizations_from_wire(value: object) -> object:
-    if not isinstance(value, dict) or set(value) != {"entries"}:
-        raise ValueError("modified-residue normalization wire value is invalid")
-    entries = value["entries"]
-    if not isinstance(entries, list):
-        raise ValueError("modified-residue normalization entries are invalid")
-    decoded: list[ModifiedResidueNormalization] = []
-    for entry in entries:
-        if not isinstance(entry, dict) or set(entry) != {
-            "component_id",
-            "observed_residue_id",
-            "parent_residue_ids",
-            "parent_sequence",
-            "atom_mappings",
-        }:
-            raise ValueError("modified-residue normalization entry is invalid")
-        mappings = entry["atom_mappings"]
-        if (
-            type(entry["component_id"]) is not str
-            or type(entry["observed_residue_id"]) is not str
-            or not isinstance(entry["parent_residue_ids"], list)
-            or any(
-                type(parent_id) is not str
-                for parent_id in entry["parent_residue_ids"]
-            )
-            or type(entry["parent_sequence"]) is not str
-            or not isinstance(mappings, list)
-        ):
-            raise ValueError("modified-residue atom mappings are invalid")
-        decoded_mappings: list[ModifiedResidueAtomMapping] = []
-        for mapping in mappings:
-            if (
-                not isinstance(mapping, dict)
-                or set(mapping) != {
-                    "source_atom_name",
-                    "parent_residue_id",
-                    "parent_atom_name",
-                }
-                or any(type(item) is not str for item in mapping.values())
-            ):
-                raise ValueError("modified-residue atom mapping is invalid")
-            decoded_mappings.append(ModifiedResidueAtomMapping(**mapping))
-        decoded.append(
-            ModifiedResidueNormalization(
-                component_id=entry["component_id"],
-                observed_residue_id=entry["observed_residue_id"],
-                parent_residue_ids=tuple(entry["parent_residue_ids"]),
-                parent_sequence=entry["parent_sequence"],
-                atom_mappings=tuple(decoded_mappings),
-            )
-        )
-    result = ModifiedResidueNormalizationCollection(entries=decoded)
-    _validate_normalizations(result)
-    return result
-
-
-def _validate_normalizations(value: object) -> None:
-    if (
-        type(value) is not ModifiedResidueNormalizationCollection
-        or not value.entries
-    ):
-        raise ValueError(
-            "modified-residue normalizations must be a nonempty collection"
-        )
-    observed_ids: set[str] = set()
-    for entry in value.entries:
-        if (
-            type(entry) is not ModifiedResidueNormalization
-            or not entry.component_id
-            or not entry.observed_residue_id
-            or not entry.parent_residue_ids
-            or len(entry.parent_sequence) != len(entry.parent_residue_ids)
-            or not entry.atom_mappings
-            or entry.observed_residue_id in observed_ids
-        ):
-            raise ValueError("modified-residue normalization entry is invalid")
-        observed_ids.add(entry.observed_residue_id)
-        parent_ids = set(entry.parent_residue_ids)
-        if len(parent_ids) != len(entry.parent_residue_ids):
-            raise ValueError("modified-residue parent identities are duplicated")
-        source_atoms: set[str] = set()
-        covered_parents: set[str] = set()
-        for mapping in entry.atom_mappings:
-            if (
-                type(mapping) is not ModifiedResidueAtomMapping
-                or not mapping.source_atom_name
-                or mapping.parent_residue_id not in parent_ids
-                or not mapping.parent_atom_name
-                or mapping.source_atom_name in source_atoms
-            ):
-                raise ValueError("modified-residue atom mapping is invalid")
-            source_atoms.add(mapping.source_atom_name)
-            covered_parents.add(mapping.parent_residue_id)
-        if covered_parents != parent_ids:
-            raise ValueError(
-                "modified-residue atom mapping must cover every parent"
-            )
-
-
 MODULE_PACKAGE = ModulePackageRegistration(
     schema_version="2.1.0",
     package_id="structure_transform",
@@ -368,6 +310,8 @@ MODULE_PACKAGE = ModulePackageRegistration(
         DefinitionResource("definitions/extract_sequence.yaml"),
         DefinitionResource("definitions/extract_sequence_candidates.yaml"),
         DefinitionResource("definitions/normalize_csh_parent_span.yaml"),
+        DefinitionResource("definitions/resolve_residue_axis.yaml"),
+        DefinitionResource("definitions/resolve_candidate_residue_axes.yaml"),
         DefinitionResource("definitions/backbone_to_structure.yaml"),
     ),
     methods=tuple(_method(operation) for operation in _OPERATIONS),
@@ -381,6 +325,7 @@ MODULE_PACKAGE = ModulePackageRegistration(
                 _BACKBONE_PORT_VERSION,
                 {
                     "accepted_value_kind": "protein_structure",
+                    "embedded_structure_contract": "protein.structure@4.0.0",
                     "record_contract": {
                         "records": ["ATOM", "TER", "END"],
                         "atoms": ["N", "CA", "C", "O"],
@@ -409,30 +354,35 @@ MODULE_PACKAGE = ModulePackageRegistration(
         ),
         PortTypeDefinition(
             type_id="structure_transform.modified_residue_normalizations",
-            version=_VERSION,
+            version=_NORMALIZATION_PORT_VERSION,
             validator=BehaviorReference(
                 "structure_transform.modified_residue_normalizations/validate",
-                _VERSION,
+                _NORMALIZATION_PORT_VERSION,
                 {
                     "accepted_value_kind": (
                         "modified_residue_normalization_collection"
                     ),
                     "provenance": "component-parent-atom-map",
+                    "parent_sequence": "20-standard-amino-acid-alphabet",
+                    "atom_mapping": "unique-source-and-parent-target-atoms",
                 },
             ),
             codec=BehaviorReference(
                 "structure_transform.modified_residue_normalizations/codec",
-                _VERSION,
+                _NORMALIZATION_PORT_VERSION,
                 {"canonicalization": "RFC 8785"},
             ),
             content_identity=BehaviorReference(
                 "structure_transform.modified_residue_normalizations/content",
-                _VERSION,
+                _NORMALIZATION_PORT_VERSION,
                 {"digest": "SHA-256"},
             ),
             runtime_validator=_validate_normalizations,
             runtime_to_wire=_normalizations_to_wire,
             runtime_from_wire=_normalizations_from_wire,
         ),
+        RESOLVED_AXIS_PORT_TYPE,
+        CANDIDATE_NORMALIZATION_ASSOCIATIONS_PORT_TYPE,
+        CANDIDATE_RESOLVED_AXIS_ASSOCIATIONS_PORT_TYPE,
     ),
 )

@@ -3,13 +3,16 @@
 from __future__ import annotations
 
 import hashlib
+import json
 from pathlib import Path
 import re
+from typing import Any
 
 import pytest
 from fastapi.testclient import TestClient
 import httpx
 
+from core.port_types import builtin_frozen_catalog
 from core.server import create_app
 from protein_workbench_public import (
     PUBLIC_PROTOCOL_NAMESPACE,
@@ -18,7 +21,11 @@ from protein_workbench_public import (
     ProtocolValidationError,
     bundle_bytes,
     bundle_digest,
+    decode_rest_request,
+    decode_project_input_content,
+    decode_run_event_stream_request,
     load_bundle,
+    encode_project_input_content,
     prepare_run_event_stream_request,
     prepare_rest_request,
     validate_artifact_response,
@@ -31,6 +38,9 @@ from protein_workbench_public import (
 from tests.public_protocol_acceptance_client import (
     PublicProtocolAcceptanceClient,
 )
+
+
+_WORKFLOW_COMMIT_ID = f"workflow-commit-{'7' * 64}"
 
 
 def test_public_protocol_bundle_has_stable_canonical_identity() -> None:
@@ -50,6 +60,14 @@ def test_public_protocol_bundle_has_stable_canonical_identity() -> None:
     assert canonical == bundle_bytes()
     assert digest == f"sha256:{hashlib.sha256(canonical).hexdigest()}"
     assert re.fullmatch(r"sha256:[0-9a-f]{64}", digest)
+    assert bundle["project_input_publication"] == {
+        "base64_alphabet": "RFC 4648 standard",
+        "canonical_padding": "required",
+        "max_decoded_bytes": 67_108_864,
+    }
+    assert bundle["$defs"]["ProjectInputContentBase64"]["maxLength"] == (
+        89_478_488
+    )
 
 
 def test_bundle_closes_every_supported_rest_operation() -> None:
@@ -60,13 +78,16 @@ def test_bundle_closes_every_supported_rest_operation() -> None:
         "artifact_retrieval",
         "cancel_run",
         "catalog_snapshot",
-        "project_workflow_snapshot",
-        "relock_project_workflow",
+        "commit_project_workflow",
+        "create_project",
+        "publish_project_input",
+        "project_active_workflow_commit",
+        "project_input_metadata",
+        "project_workflow_draft",
         "run_projection",
-        "save_project_workflow",
+        "save_project_workflow_draft",
         "start_derived_run",
         "start_run",
-        "workflow_compile",
     }
     expected_transports = {
         "artifact_retrieval": (
@@ -79,31 +100,40 @@ def test_bundle_closes_every_supported_rest_operation() -> None:
             "/api/v2/projects/{project_id}/runs/{run_id}:cancel",
         ),
         "catalog_snapshot": ("GET", "/api/v2/catalog"),
-        "project_workflow_snapshot": (
-            "GET",
-            "/api/v2/projects/{project_id}/workflow",
-        ),
-        "relock_project_workflow": (
+        "create_project": ("POST", "/api/v2/projects"),
+        "commit_project_workflow": (
             "POST",
-            "/api/v2/projects/{project_id}/workflow:relock",
+            "/api/v2/projects/{project_id}/workflow:commit",
+        ),
+        "project_active_workflow_commit": (
+            "GET",
+            "/api/v2/projects/{project_id}/workflow/active-commit",
+        ),
+        "project_input_metadata": (
+            "GET",
+            "/api/v2/projects/{project_id}/inputs/{project_input_ref}",
+        ),
+        "project_workflow_draft": (
+            "GET",
+            "/api/v2/projects/{project_id}/workflow/draft",
+        ),
+        "publish_project_input": (
+            "POST",
+            "/api/v2/projects/{project_id}/inputs",
         ),
         "run_projection": (
             "GET",
             "/api/v2/projects/{project_id}/runs/{run_id}",
         ),
-        "save_project_workflow": (
+        "save_project_workflow_draft": (
             "PUT",
-            "/api/v2/projects/{project_id}/workflow",
+            "/api/v2/projects/{project_id}/workflow/draft",
         ),
         "start_derived_run": (
             "POST",
             "/api/v2/projects/{project_id}/runs:derive",
         ),
         "start_run": ("POST", "/api/v2/projects/{project_id}/runs"),
-        "workflow_compile": (
-            "POST",
-            "/api/v2/projects/{project_id}/workflow:compile",
-        ),
     }
     assert {
         operation_id: (operation["method"], operation["route"])
@@ -123,6 +153,52 @@ def test_bundle_closes_every_supported_rest_operation() -> None:
     for name, schema in bundle["$defs"].items():
         if schema.get("type") == "object" and not schema.get("x-opaque-value"):
             assert schema.get("additionalProperties") is False, name
+
+
+def test_bundle_schema_keyword_vocabulary_is_closed() -> None:
+    def collect_keywords(schema: dict[str, Any]) -> set[str]:
+        keywords = set(schema)
+        for name in ("oneOf", "anyOf"):
+            for alternative in schema.get(name, []):
+                keywords.update(collect_keywords(alternative))
+        properties = schema.get("properties", {})
+        for property_schema in properties.values():
+            keywords.update(collect_keywords(property_schema))
+        items = schema.get("items")
+        if isinstance(items, dict):
+            keywords.update(collect_keywords(items))
+        additional = schema.get("additionalProperties")
+        if isinstance(additional, dict):
+            keywords.update(collect_keywords(additional))
+        return keywords
+
+    observed: set[str] = set()
+    for schema in load_bundle()["$defs"].values():
+        observed.update(collect_keywords(schema))
+
+    assert observed == {
+        "$ref",
+        "additionalProperties",
+        "anyOf",
+        "const",
+        "enum",
+        "exclusiveMinimum",
+        "format",
+        "items",
+        "maxItems",
+        "maxLength",
+        "maximum",
+        "minItems",
+        "minLength",
+        "minimum",
+        "oneOf",
+        "pattern",
+        "properties",
+        "required",
+        "type",
+        "uniqueItems",
+        "x-opaque-value",
+    }
 
 
 def test_bundle_freezes_event_replay_close_and_error_vocabulary() -> None:
@@ -192,12 +268,16 @@ def test_bundle_freezes_event_replay_close_and_error_vocabulary() -> None:
         "malformed_request",
         "node_execution_failed",
         "project_not_found",
+        "project_input_not_found",
         "protocol_mismatch",
         "readiness_rejected",
         "run_not_found",
         "selection_failed",
         "unsupported_schema_version",
-        "workflow_not_found",
+        "workflow_commit_identity_mismatch",
+        "workflow_commit_not_found",
+        "workflow_draft_not_found",
+        "workflow_draft_revision_conflict",
     }
     for code, definition in errors["vocabulary"].items():
         assert definition["code"] == code
@@ -225,15 +305,18 @@ def test_engine_invocation_provenance_is_closed_and_residue_typed() -> None:
     projection = {
         "position_semantics": "one_based_chain_local",
         "workbench_chain_order": ["A", "B"],
+        "provider_structure_chain_order": ["A", "B"],
         "provider_chain_order": ["B", "A"],
         "entries": [
             {
                 "residue_id": "A:6",
+                "segment_index": 0,
                 "provider_chain_id": "A",
                 "provider_position": 1,
             },
             {
                 "residue_id": "B:20",
+                "segment_index": 1,
                 "provider_chain_id": "B",
                 "provider_position": 1,
             },
@@ -271,6 +354,7 @@ def test_engine_invocation_provenance_is_closed_and_residue_typed() -> None:
             "entries": [
                 {
                     "residue_id": "A:6",
+                    "segment_index": 0,
                     "provider_chain_id": "A",
                     "provider_position": 0,
                 }
@@ -281,6 +365,7 @@ def test_engine_invocation_provenance_is_closed_and_residue_typed() -> None:
             "entries": [
                 {
                     "residue_id": "A:6",
+                    "segment_index": 0,
                     "provider_chain_id": "A",
                     "provider_position": 1,
                     "unexpected": True,
@@ -310,6 +395,85 @@ def test_engine_invocation_provenance_is_closed_and_residue_typed() -> None:
             "#/$defs/EngineInvocationStartedEvent",
             {**event, "engine_identity": "method-digest-1"},
         )
+
+
+def test_project_input_filename_is_invocation_provenance_only() -> None:
+    event = {
+        "type": "engine_invocation_started",
+        "invocation_id": "invocation-1",
+        "operation_attempt_id": "operation-1",
+        "engine_role": "primary",
+        "engine_identity": "sha256:" + "1" * 64,
+    }
+    validate_schema(
+        "#/$defs/EngineInvocationStartedEvent",
+        {
+            **event,
+            "invocation_provenance": {
+                "project_input_filename": "来源结构 A.pdb"
+            },
+        },
+    )
+    for malformed in (
+        {"project_input_filename": ""},
+        {"project_input_filename": "source.pdb", "project_input_ref": "x"},
+    ):
+        with pytest.raises(ProtocolValidationError):
+            validate_schema(
+                "#/$defs/EngineInvocationStartedEvent",
+                {**event, "invocation_provenance": malformed},
+            )
+
+
+def test_public_validator_enforces_unique_bundle_items() -> None:
+    projection = {
+        "position_semantics": "one_based_chain_local",
+        "workbench_chain_order": ["A", "A"],
+        "provider_structure_chain_order": ["A"],
+        "provider_chain_order": ["A"],
+        "entries": [
+            {
+                "residue_id": "A:1",
+                "segment_index": 0,
+                "provider_chain_id": "A",
+                "provider_position": 1,
+            }
+        ],
+    }
+
+    with pytest.raises(ProtocolValidationError, match="unique"):
+        validate_schema(
+            "#/$defs/ProviderResidueProjectionInvocationProvenance",
+            projection,
+        )
+
+
+def test_provider_projection_supports_multiple_segments_per_workbench_chain() -> None:
+    projection = {
+        "position_semantics": "one_based_chain_local",
+        "workbench_chain_order": ["A"],
+        "provider_structure_chain_order": ["A", "B"],
+        "provider_chain_order": ["B", "A"],
+        "entries": [
+            {
+                "residue_id": "A:1",
+                "segment_index": 0,
+                "provider_chain_id": "A",
+                "provider_position": 1,
+            },
+            {
+                "residue_id": "A:8",
+                "segment_index": 1,
+                "provider_chain_id": "B",
+                "provider_position": 1,
+            },
+        ],
+    }
+
+    validate_schema(
+        "#/$defs/ProviderResidueProjectionInvocationProvenance",
+        projection,
+    )
 
 
 def test_engine_invocation_randomness_provenance_is_a_closed_union() -> None:
@@ -520,6 +684,22 @@ def test_catalog_descriptor_and_node_disposition_are_closed() -> None:
         },
     }
     validate_schema("#/$defs/PublicContract", public_contract)
+    projection_behavior = {
+        "behavior_id": "confidence.project",
+        "behavior_version": "1.0.0",
+        "parameters": {},
+    }
+    validate_schema(
+        "#/$defs/PublicContract",
+        {
+            **public_contract,
+            "descriptor": {
+                **public_contract["descriptor"],
+                "scientific_axis_projection": projection_behavior,
+                "observation_method_projection": projection_behavior,
+            },
+        },
+    )
     with pytest.raises(ProtocolValidationError, match="unexpected"):
         validate_schema(
             "#/$defs/PublicContract",
@@ -555,14 +735,45 @@ def test_catalog_descriptor_and_node_disposition_are_closed() -> None:
 
 
 def test_rest_payloads_are_validated_from_bundle_schemas() -> None:
+    validate_request("create_project", {"name": "project one"})
+    with pytest.raises(ProtocolValidationError, match="unexpected"):
+        validate_request(
+            "create_project",
+            {"name": "project one", "legacy_id": "project-1"},
+        )
+
+    encoded = encode_project_input_content(b"\x00protein\xff")
+    assert encoded == "AHByb3RlaW7/"
+    assert decode_project_input_content(encoded) == b"\x00protein\xff"
+    validate_request(
+        "publish_project_input",
+        {
+            "project_id": "project-1",
+            "filename": "input.pdb",
+            "content_base64": encoded,
+        },
+    )
+    for noncanonical in ("AHByb3RlaW7_", "AB==", "YQ"):
+        with pytest.raises(ProtocolValidationError, match="canonical base64"):
+            decode_project_input_content(noncanonical)
+        with pytest.raises(ProtocolValidationError) as request_error:
+            validate_request(
+                "publish_project_input",
+                {
+                    "project_id": "project-1",
+                    "filename": "input.pdb",
+                    "content_base64": noncanonical,
+                },
+            )
+        assert request_error.value.path == "$.content_base64"
+
     validate_request("catalog_snapshot", {})
     with pytest.raises(ProtocolValidationError, match="unexpected"):
         validate_request("catalog_snapshot", {"v1_fallback": True})
 
     request = {
         "project_id": "project-1",
-        "workflow_revision": 7,
-        "compile_id": "compile-7",
+        "workflow_commit_id": _WORKFLOW_COMMIT_ID,
         "client_request_id": "request-7",
     }
     validate_request("start_run", request)
@@ -572,14 +783,173 @@ def test_rest_payloads_are_validated_from_bundle_schemas() -> None:
     receipt = {
         "project_id": "project-1",
         "run_id": "run-7",
-        "workflow_revision": 7,
-        "compile_id": "compile-7",
+        "workflow_commit_id": _WORKFLOW_COMMIT_ID,
+        "workflow_commit_revision": 7,
         "admitted_sequence": 1,
         "event_cursor": "cursor-1",
     }
     validate_response("start_run", 202, receipt)
     with pytest.raises(ProtocolValidationError, match="unexpected"):
         validate_response("start_run", 202, {**receipt, "status": "queued"})
+
+
+def test_workflow_commit_receipt_can_represent_only_a_successful_commit() -> None:
+    digest = f"sha256:{'a' * 64}"
+    receipt = {
+        "accepted": True,
+        "workflow_commit_id": f"workflow-commit-{'b' * 64}",
+        "workflow_commit_revision": 1,
+        "source_draft_revision": 1,
+        "source_draft_digest": digest,
+        "workflow_digest": digest,
+        "catalog_contract_digest": digest,
+        "contract_lock_digest": digest,
+        "execution_plan_digest": digest,
+        "issues": [],
+    }
+
+    validate_schema("#/$defs/WorkflowCommit", receipt)
+    with pytest.raises(ProtocolValidationError):
+        validate_schema(
+            "#/$defs/WorkflowCommit",
+            {**receipt, "accepted": False},
+        )
+    with pytest.raises(ProtocolValidationError):
+        validate_schema(
+            "#/$defs/WorkflowCommit",
+            {
+                **receipt,
+                "issues": [
+                    {
+                        "code": "unexpected_issue",
+                        "severity": "warning",
+                        "message": "A commit receipt cannot carry issues",
+                        "field_path": [],
+                    }
+                ],
+            },
+        )
+
+
+def test_public_identifiers_use_nominal_bundle_schemas() -> None:
+    valid_values = {
+        "ProjectId": "project-1",
+        "ProjectInputReference": "input-1",
+        "RunId": "run-1",
+        "NodeInstanceId": "node-1",
+        "WorkflowCommitId": _WORKFLOW_COMMIT_ID,
+    }
+    for schema_name, valid in valid_values.items():
+        reference = f"#/$defs/{schema_name}"
+        validate_schema(reference, valid)
+        invalid_values = (
+            ("identity:1", "identity/1", "identity+1")
+            if schema_name != "WorkflowCommitId"
+            else (
+                "workflow-commit-7",
+                f"workflow-commit-{'A' * 64}",
+                f"workflow-commit-{'7' * 63}",
+                f"workflow-commit-{'7' * 65}",
+            )
+        )
+        for invalid in invalid_values:
+            with pytest.raises(ProtocolValidationError, match="must match"):
+                validate_schema(reference, invalid)
+    validate_schema("#/$defs/Identifier", "candidate:sha256:abc")
+    validate_schema("#/$defs/Identifier", "A:42")
+
+    bundle = load_bundle()
+    nominal_fields = {
+        "ProjectId": (
+            ("ArtifactRetrievalRequest", "properties", "project_id"),
+            ("CancelRunReceipt", "properties", "project_id"),
+            ("CancelRunRequest", "properties", "project_id"),
+            ("CrossScopeErrorDetails", "properties", "requested_project_id"),
+            ("ProjectActiveWorkflowCommitRequest", "properties", "project_id"),
+            ("ProjectInputMetadataRequest", "properties", "project_id"),
+            ("ProjectInputPublication", "properties", "project_id"),
+            ("ProjectMetadata", "properties", "id"),
+            ("ProjectWorkflowDraft", "properties", "project_id"),
+            ("ProjectWorkflowDraftRequest", "properties", "project_id"),
+            ("PublishProjectInputRequest", "properties", "project_id"),
+            ("RunEventEnvelope", "properties", "project_id"),
+            ("RunEventStreamRequest", "properties", "project_id"),
+            ("RunProjection", "properties", "project_id"),
+            ("RunProjectionRequest", "properties", "project_id"),
+            ("RunReceipt", "properties", "project_id"),
+            ("SubmitProjectWorkflowRequest", "properties", "project_id"),
+            ("StartDerivedRunRequest", "properties", "project_id"),
+            ("StartRunRequest", "properties", "project_id"),
+            ("WorkflowDocument", "properties", "workflow_id"),
+        ),
+        "ProjectInputReference": (
+            (
+                "ProjectInputPublication",
+                "properties",
+                "project_input_ref",
+            ),
+            (
+                "ProjectInputMetadataRequest",
+                "properties",
+                "project_input_ref",
+            ),
+        ),
+        "RunId": (
+            ("ArtifactRetrievalRequest", "properties", "run_id"),
+            ("CancelRunReceipt", "properties", "run_id"),
+            ("CancelRunRequest", "properties", "run_id"),
+            ("CrossScopeErrorDetails", "properties", "requested_run_id"),
+            ("ResultMaterialization", "properties", "run_id"),
+            ("ResultProducerProvenance", "properties", "producer_run_id"),
+            ("RunEventEnvelope", "properties", "run_id"),
+            ("RunEventStreamRequest", "properties", "run_id"),
+            ("RunProjection", "properties", "derived_from_run_id"),
+            ("RunProjection", "properties", "run_id"),
+            ("RunProjectionRequest", "properties", "run_id"),
+            ("RunReceipt", "properties", "run_id"),
+            ("StartDerivedRunRequest", "properties", "source_run_id"),
+        ),
+        "NodeInstanceId": (
+            ("BlockedNodeDisposition", "properties", "blocked_by", "items"),
+            ("BlockedNodeDisposition", "properties", "node_id"),
+            ("CandidateArtifactDescriptor", "properties", "node_id"),
+            ("CompileIssue", "properties", "node_id"),
+            ("NodeAttemptStartedEvent", "properties", "node_id"),
+            ("NodeInstance", "properties", "node_id"),
+            ("SelectionInput", "properties", "node_id"),
+            ("SelectionResult", "properties", "selection_node_id"),
+            ("StandaloneArtifactDescriptor", "properties", "node_id"),
+            ("StartDerivedRunRequest", "properties", "node_ids", "items"),
+            ("SucceededNodeDisposition", "properties", "blocked_by", "items"),
+            ("SucceededNodeDisposition", "properties", "node_id"),
+            ("TypedOutput", "properties", "node_id"),
+            ("UnsuccessfulNodeDisposition", "properties", "blocked_by", "items"),
+            ("UnsuccessfulNodeDisposition", "properties", "node_id"),
+            ("WorkflowEdge", "properties", "source_node_id"),
+            ("WorkflowEdge", "properties", "target_node_id"),
+        ),
+        "WorkflowCommitId": (
+            ("RunAdmittedEvent", "properties", "workflow_commit_id"),
+            ("RunProjection", "properties", "workflow_commit_id"),
+            ("RunReceipt", "properties", "workflow_commit_id"),
+            ("StartRunRequest", "properties", "workflow_commit_id"),
+            ("WorkflowCommit", "properties", "workflow_commit_id"),
+            (
+                "WorkflowCommitIdentityMismatchDetails",
+                "properties",
+                "workflow_commit_id",
+            ),
+        ),
+    }
+    for schema_name, paths in nominal_fields.items():
+        for definition_name, *path in paths:
+            observed = bundle["$defs"][definition_name]
+            for part in path:
+                observed = observed[part]
+            assert observed == {"$ref": f"#/$defs/{schema_name}"}, (
+                definition_name,
+                path,
+            )
 
 
 def test_event_and_error_envelopes_share_bundle_validation() -> None:
@@ -681,7 +1051,9 @@ def test_backend_serves_the_authoritative_bundle_without_a_v1_fallback(
         )
     discovery = load_bundle()["bundle_discovery"]
 
-    with TestClient(create_app()) as client:
+    with TestClient(
+        create_app(frozen_catalog_override=builtin_frozen_catalog())
+    ) as client:
         response = client.get(discovery["route"])
 
     assert discovery == {
@@ -697,11 +1069,509 @@ def test_backend_serves_the_authoritative_bundle_without_a_v1_fallback(
     assert "/api/" not in discovery["route"].replace("/api/v2/", "")
 
 
+def test_backend_rejects_undeclared_discovery_and_catalog_wire_sources(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    for name in ("PROJECT", "CACHE", "OUTPUT", "RUN"):
+        monkeypatch.setenv(
+            f"PROTEIN_WORKBENCH_{name}_ROOT",
+            str(tmp_path / name.lower()),
+        )
+
+    with TestClient(
+        create_app(frozen_catalog_override=builtin_frozen_catalog())
+    ) as client:
+        responses = (
+            client.get("/api/v2/protocol?legacy=1"),
+            client.request("GET", "/api/v2/protocol", content=b"{}"),
+            client.get("/api/v2/catalog?legacy=1"),
+            client.request("GET", "/api/v2/catalog", content=b"{}"),
+            client.request(
+                "POST",
+                "/api/v2/projects/project-1/runs/run-1:cancel",
+                content=b'{"after_sequence":1e400}',
+                headers={"content-type": "application/json"},
+            ),
+        )
+
+    for response in responses:
+        assert response.status_code == 400
+        assert response.json()["error"]["code"] == "malformed_request"
+
+
+def test_backend_public_route_inventory_equals_the_bundle() -> None:
+    bundle = load_bundle()
+    expected_http = {
+        (operation["method"], operation["route"])
+        for operation in bundle["rest_operations"].values()
+    }
+    discovery = bundle["bundle_discovery"]
+    expected_http.add((discovery["method"], discovery["route"]))
+    expected_websocket = {
+        bundle["run_event_stream"]["route"].partition("?")[0]
+    }
+    observed_http: set[tuple[str, str]] = set()
+    observed_websocket: set[str] = set()
+    framework_documentation_routes = {
+        "/docs",
+        "/docs/oauth2-redirect",
+        "/openapi.json",
+        "/redoc",
+    }
+    for route in create_app().routes:
+        path = getattr(route, "path", "")
+        if path in framework_documentation_routes:
+            continue
+        methods = getattr(route, "methods", None)
+        if methods:
+            observed_http.update((method, path) for method in methods)
+        else:
+            observed_websocket.add(path)
+
+    assert observed_http == expected_http
+    assert observed_websocket == expected_websocket
+
+
+def test_project_and_immutable_input_publication_use_only_bundle_operations(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    for name in ("PROJECT", "CACHE", "OUTPUT", "RUN"):
+        monkeypatch.setenv(
+            f"PROTEIN_WORKBENCH_{name}_ROOT",
+            str(tmp_path / name.lower()),
+        )
+
+    with TestClient(
+        create_app(frozen_catalog_override=builtin_frozen_catalog())
+    ) as http:
+        def public_request(
+            operation_id: str,
+            request_model: dict[str, Any],
+        ) -> dict[str, Any]:
+            prepared = prepare_rest_request(operation_id, request_model)
+            response = http.request(
+                prepared.method,
+                prepared.route,
+                json=prepared.json_body,
+            )
+            payload = response.json()
+            validate_response(operation_id, response.status_code, payload)
+            return payload
+
+        project = public_request("create_project", {"name": "public project"})
+        publication = public_request(
+            "publish_project_input",
+            {
+                "project_id": project["id"],
+                "filename": "source.pdb",
+                "content_base64": encode_project_input_content(b"ATOM\n"),
+            },
+        )
+
+        invalid = http.post(
+            f"/api/v2/projects/{project['id']}/inputs",
+            json={"filename": "source.pdb", "content_base64": "AB=="},
+        )
+        legacy_project = http.post(
+            "/api/projects",
+            json={"name": "legacy"},
+        )
+
+    assert project["schema_namespace"] == PUBLIC_PROTOCOL_NAMESPACE
+    assert set(project) == {
+        "schema_namespace",
+        "id",
+        "name",
+        "created_at",
+        "modified_at",
+        "seed",
+    }
+    assert project["name"] == "public project"
+    assert project["seed"] is False
+    assert publication == {
+        "schema_namespace": PUBLIC_PROTOCOL_NAMESPACE,
+        "project_id": project["id"],
+        "filename": "source.pdb",
+        "project_input_ref": publication["project_input_ref"],
+        "size": 5,
+        "content_digest": (
+            "sha256:" + hashlib.sha256(b"ATOM\n").hexdigest()
+        ),
+    }
+    assert re.fullmatch(r"input-[0-9a-f]{32}", publication["project_input_ref"])
+    assert invalid.status_code == 400
+    validate_response(
+        "publish_project_input",
+        invalid.status_code,
+        invalid.json(),
+    )
+    assert invalid.json()["error"]["details"]["field_path"] == [
+        "content_base64"
+    ]
+    assert legacy_project.status_code == 404
+
+
+def test_project_input_metadata_recovers_filename_after_backend_restart(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    for name in ("PROJECT", "CACHE", "OUTPUT", "RUN"):
+        monkeypatch.setenv(
+            f"PROTEIN_WORKBENCH_{name}_ROOT",
+            str(tmp_path / name.lower()),
+        )
+
+    def public_request(
+        http: TestClient,
+        operation_id: str,
+        request_model: dict[str, Any],
+    ) -> tuple[int, dict[str, Any]]:
+        prepared = prepare_rest_request(operation_id, request_model)
+        response = http.request(
+            prepared.method,
+            prepared.route,
+            json=prepared.json_body,
+        )
+        payload = response.json()
+        validate_response(operation_id, response.status_code, payload)
+        return response.status_code, payload
+
+    with TestClient(
+        create_app(frozen_catalog_override=builtin_frozen_catalog())
+    ) as first_backend:
+        _, project = public_request(
+            first_backend,
+            "create_project",
+            {"name": "restart provenance"},
+        )
+        _, publication = public_request(
+            first_backend,
+            "publish_project_input",
+            {
+                "project_id": project["id"],
+                "filename": "来源结构 A.pdb",
+                "content_base64": encode_project_input_content(b"ATOM\n"),
+            },
+        )
+
+    with TestClient(
+        create_app(frozen_catalog_override=builtin_frozen_catalog())
+    ) as restarted_backend:
+        status, recovered = public_request(
+            restarted_backend,
+            "project_input_metadata",
+            {
+                "project_id": project["id"],
+                "project_input_ref": publication["project_input_ref"],
+            },
+        )
+        missing_status, missing = public_request(
+            restarted_backend,
+            "project_input_metadata",
+            {
+                "project_id": project["id"],
+                "project_input_ref": "input-missing",
+            },
+        )
+
+    assert status == 200
+    assert recovered == publication
+    assert missing_status == 404
+    assert missing["error"]["code"] == "project_input_not_found"
+    assert missing["error"]["details"] == {
+        "resource_kind": "project_input",
+        "resource_id": "input-missing",
+    }
+
+
+def test_project_input_metadata_reports_durable_integrity_mismatch(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    roots = {}
+    for name in ("PROJECT", "CACHE", "OUTPUT", "RUN"):
+        roots[name] = tmp_path / name.lower()
+        monkeypatch.setenv(
+            f"PROTEIN_WORKBENCH_{name}_ROOT",
+            str(roots[name]),
+        )
+
+    with TestClient(
+        create_app(frozen_catalog_override=builtin_frozen_catalog())
+    ) as http:
+        project = http.post(
+            "/api/v2/projects",
+            json={"name": "input integrity"},
+        ).json()
+        publication = http.post(
+            f"/api/v2/projects/{project['id']}/inputs",
+            json={
+                "filename": "source.pdb",
+                "content_base64": encode_project_input_content(b"ATOM\n"),
+            },
+        ).json()
+        payload_path = (
+            roots["PROJECT"]
+            / project["id"]
+            / "inputs"
+            / publication["project_input_ref"]
+            / "payload"
+        )
+        payload_path.write_bytes(b"HETATM\n")
+
+        response = http.get(
+            f"/api/v2/projects/{project['id']}/inputs/"
+            f"{publication['project_input_ref']}"
+        )
+
+    assert response.status_code == 409
+    validate_response(
+        "project_input_metadata",
+        response.status_code,
+        response.json(),
+    )
+    assert response.json()["error"]["code"] == (
+        "artifact_integrity_mismatch"
+    )
+    assert response.json()["error"]["details"] == {
+        "artifact_reference": publication["project_input_ref"],
+    }
+
+
+def test_backend_rejects_route_owned_fields_in_every_json_body(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    for name in ("PROJECT", "CACHE", "OUTPUT", "RUN"):
+        monkeypatch.setenv(
+            f"PROTEIN_WORKBENCH_{name}_ROOT",
+            str(tmp_path / name.lower()),
+        )
+    workflow = {
+        "schema_version": "2.1.0",
+        "workflow_id": "project-2",
+        "nodes": [],
+        "edges": [],
+        "contract_lock": [],
+    }
+    cases = {
+        "save_project_workflow_draft": (
+            "PUT",
+            "/api/v2/projects/project-1/workflow/draft",
+            {
+                "project_id": "project-2",
+                "expected_draft_revision": 0,
+                "workflow": workflow,
+            },
+        ),
+        "commit_project_workflow": (
+            "POST",
+            "/api/v2/projects/project-1/workflow:commit",
+            {
+                "project_id": "project-2",
+                "expected_draft_revision": 0,
+                "workflow": workflow,
+            },
+        ),
+        "start_run": (
+            "POST",
+            "/api/v2/projects/project-1/runs",
+            {
+                "project_id": "project-2",
+                "workflow_commit_id": _WORKFLOW_COMMIT_ID,
+                "client_request_id": "request-1",
+            },
+        ),
+        "cancel_run": (
+            "POST",
+            "/api/v2/projects/project-1/runs/run-1:cancel",
+            {"project_id": "project-2"},
+        ),
+        "start_derived_run": (
+            "POST",
+            "/api/v2/projects/project-1/runs:derive",
+            {
+                "project_id": "project-2",
+                "source_run_id": "run-1",
+                "policy": "retry_failed",
+                "node_ids": ["node-1"],
+                "client_request_id": "request-1",
+            },
+        ),
+        "publish_project_input": (
+            "POST",
+            "/api/v2/projects/project-1/inputs",
+            {
+                "project_id": "project-2",
+                "filename": "input.pdb",
+                "content_base64": "",
+            },
+        ),
+    }
+
+    with TestClient(
+        create_app(frozen_catalog_override=builtin_frozen_catalog())
+    ) as client:
+        for operation_id, (method, route, body) in cases.items():
+            response = client.request(method, route, json=body)
+            payload = response.json()
+            assert response.status_code == 400, operation_id
+            assert payload["error"]["code"] == "malformed_request", operation_id
+            assert payload["error"]["details"]["field_path"] == [
+                "project_id"
+            ], operation_id
+
+
+def test_backend_distinguishes_absent_empty_and_null_cancel_bodies(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    for name in ("PROJECT", "CACHE", "OUTPUT", "RUN"):
+        monkeypatch.setenv(
+            f"PROTEIN_WORKBENCH_{name}_ROOT",
+            str(tmp_path / name.lower()),
+        )
+
+    with TestClient(
+        create_app(frozen_catalog_override=builtin_frozen_catalog())
+    ) as client:
+        absent = client.post(
+            "/api/v2/projects/project-1/runs/run-1:cancel"
+        )
+        empty = client.post(
+            "/api/v2/projects/project-1/runs/run-1:cancel",
+            json={},
+        )
+        explicit_null = client.request(
+            "POST",
+            "/api/v2/projects/project-1/runs/run-1:cancel",
+            content=b"null",
+            headers={"content-type": "application/json"},
+        )
+
+    for response in (absent, empty):
+        assert response.status_code == 404
+        assert response.json()["error"]["code"] == "run_not_found"
+    assert explicit_null.status_code == 400
+    assert explicit_null.json()["error"]["code"] == "malformed_request"
+
+
+def test_backend_rejects_invalid_project_identity_at_public_admission(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    for name in ("PROJECT", "CACHE", "OUTPUT", "RUN"):
+        monkeypatch.setenv(
+            f"PROTEIN_WORKBENCH_{name}_ROOT",
+            str(tmp_path / name.lower()),
+        )
+
+    with TestClient(
+        create_app(frozen_catalog_override=builtin_frozen_catalog())
+    ) as client:
+        response = client.get(
+            "/api/v2/projects/project:1/workflow/draft"
+        )
+
+    payload = response.json()
+    assert response.status_code == 400
+    assert payload["error"]["code"] == "malformed_request"
+    assert payload["error"]["details"]["field_path"] == ["project_id"]
+
+
+def test_backend_classifies_nested_workflow_version_before_authoring(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    for name in ("PROJECT", "CACHE", "OUTPUT", "RUN"):
+        monkeypatch.setenv(
+            f"PROTEIN_WORKBENCH_{name}_ROOT",
+            str(tmp_path / name.lower()),
+        )
+    workflow = {
+        "schema_version": "2.0.0",
+        "workflow_id": "project-1",
+        "nodes": [],
+        "edges": [],
+        "observation_selectors": [],
+        "selection_objectives": [],
+        "contract_lock": [],
+    }
+
+    with TestClient(
+        create_app(frozen_catalog_override=builtin_frozen_catalog())
+    ) as client:
+        response = client.post(
+            "/api/v2/projects/project-1/workflow:commit",
+            json={
+                "expected_draft_revision": 0,
+                "workflow": workflow,
+            },
+        )
+
+    assert response.status_code == 400
+    error = response.json()["error"]
+    assert error["code"] == "unsupported_schema_version"
+    assert error["details"] == {
+        "artifact_kind": "workflow",
+        "expected_schema_version": "2.1.0",
+        "received_schema_version": "2.0.0",
+    }
+
+
+def test_project_input_publication_rejects_invalid_project_id_at_admission(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    for name in ("PROJECT", "CACHE", "OUTPUT", "RUN"):
+        monkeypatch.setenv(
+            f"PROTEIN_WORKBENCH_{name}_ROOT",
+            str(tmp_path / name.lower()),
+        )
+
+    with TestClient(
+        create_app(frozen_catalog_override=builtin_frozen_catalog())
+    ) as client:
+        response = client.post(
+            "/api/v2/projects/bad!/inputs",
+            json={"filename": "input.txt", "content_base64": "aW5wdXQ="},
+        )
+
+    assert response.status_code == 400
+    assert response.json()["error"]["code"] == "malformed_request"
+    assert response.json()["error"]["details"] == {
+        "field_path": ["project_id"]
+    }
+
+
+def test_backend_event_stream_rejects_undeclared_query_fields(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    for name in ("PROJECT", "CACHE", "OUTPUT", "RUN"):
+        monkeypatch.setenv(
+            f"PROTEIN_WORKBENCH_{name}_ROOT",
+            str(tmp_path / name.lower()),
+        )
+
+    with TestClient(
+        create_app(frozen_catalog_override=builtin_frozen_catalog())
+    ) as client:
+        with client.websocket_connect(
+            "/api/v2/projects/project-1/runs/run-1/events?legacy_cursor=1"
+        ) as websocket:
+            payload = websocket.receive_json()
+
+    assert payload["error"]["code"] == "malformed_request"
+    assert payload["error"]["details"]["field_path"] == ["legacy_cursor"]
+
+
 def test_acceptance_request_is_derived_from_the_bundle_operation() -> None:
     request = {
         "project_id": "project-1",
-        "workflow_revision": 7,
-        "compile_id": "compile-7",
+        "workflow_commit_id": _WORKFLOW_COMMIT_ID,
         "client_request_id": "request-7",
     }
 
@@ -709,8 +1579,7 @@ def test_acceptance_request_is_derived_from_the_bundle_operation() -> None:
         method="POST",
         route="/api/v2/projects/project-1/runs",
         json_body={
-            "workflow_revision": 7,
-            "compile_id": "compile-7",
+            "workflow_commit_id": _WORKFLOW_COMMIT_ID,
             "client_request_id": "request-7",
         },
     )
@@ -720,12 +1589,35 @@ def test_acceptance_request_is_derived_from_the_bundle_operation() -> None:
     ).route
 
 
+def test_inbound_rest_request_is_derived_from_the_bundle_operation() -> None:
+    body = {
+        "workflow_commit_id": _WORKFLOW_COMMIT_ID,
+        "client_request_id": "request-7",
+    }
+
+    assert decode_rest_request(
+        "start_run",
+        path_parameters={"project_id": "project-1"},
+        json_body=body,
+    ) == {"project_id": "project-1", **body}
+    with pytest.raises(
+        ProtocolValidationError,
+        match="multiple request sources",
+    ) as collision:
+        decode_rest_request(
+            "start_run",
+            path_parameters={"project_id": "project-1"},
+            json_body={**body, "project_id": "project-2"},
+        )
+    assert collision.value.path == "$.project_id"
+
+
 def test_event_stream_request_is_derived_from_the_bundle_contract() -> None:
     assert prepare_run_event_stream_request(
-        {"project_id": "project/1", "run_id": "run/7"}
+        {"project_id": "project-1", "run_id": "run-7"}
     ) == PreparedEventStreamRequest(
         transport="websocket",
-        route="/api/v2/projects/project%2F1/runs/run%2F7/events",
+        route="/api/v2/projects/project-1/runs/run-7/events",
         message_schema="#/$defs/RunEventStreamMessage",
     )
     assert prepare_run_event_stream_request(
@@ -742,12 +1634,102 @@ def test_event_stream_request_is_derived_from_the_bundle_contract() -> None:
         prepare_run_event_stream_request({"run_id": "run-7"})
 
 
+def test_public_deep_commit_creates_draft_active_commit_and_runnable_plan(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    for name in ("PROJECT", "CACHE", "OUTPUT", "RUN"):
+        monkeypatch.setenv(
+            f"PROTEIN_WORKBENCH_{name}_ROOT",
+            str(tmp_path / name.lower()),
+        )
+
+    with TestClient(
+        create_app(frozen_catalog_override=builtin_frozen_catalog())
+    ) as client:
+        project_id = client.post(
+            "/api/v2/projects",
+            json={"name": "deep commit"},
+        ).json()["id"]
+        workflow = {
+            "schema_version": "2.1.0",
+            "workflow_id": project_id,
+            "nodes": [],
+            "edges": [],
+            "observation_selectors": [],
+            "selection_objectives": [],
+            "contract_lock": [],
+        }
+        committed_response = client.post(
+            f"/api/v2/projects/{project_id}/workflow:commit",
+            json={
+                "expected_draft_revision": 0,
+                "workflow": workflow,
+            },
+        )
+        draft_response = client.get(
+            f"/api/v2/projects/{project_id}/workflow/draft"
+        )
+        active_response = client.get(
+            f"/api/v2/projects/{project_id}/workflow/active-commit"
+        )
+        committed = committed_response.json()
+        started_response = client.post(
+            f"/api/v2/projects/{project_id}/runs",
+            json={
+                "workflow_commit_id": committed.get("workflow_commit_id"),
+                "client_request_id": "deep-commit-run",
+            },
+        )
+
+    assert committed_response.status_code == 200
+    validate_response("commit_project_workflow", 200, committed)
+    assert draft_response.status_code == 200
+    validate_response(
+        "project_workflow_draft",
+        200,
+        draft_response.json(),
+    )
+    assert draft_response.json()["draft_revision"] == 1
+    assert active_response.json() == committed
+    validate_response(
+        "project_active_workflow_commit",
+        200,
+        active_response.json(),
+    )
+    assert started_response.status_code == 202
+    started = started_response.json()
+    validate_response("start_run", 202, started)
+    assert started["workflow_commit_id"] == committed["workflow_commit_id"]
+    assert started["workflow_commit_revision"] == 1
+    with pytest.raises(ProtocolValidationError, match="project_id"):
+        prepare_run_event_stream_request(
+            {"project_id": "project/1", "run_id": "run-7"}
+        )
+
+
+def test_inbound_event_stream_request_is_derived_from_bundle_contract() -> None:
+    assert decode_run_event_stream_request(
+        path_parameters={"project_id": "project-1", "run_id": "run-7"},
+        query_parameters={"after_sequence": "cursor-1"},
+    ) == {
+        "project_id": "project-1",
+        "run_id": "run-7",
+        "after_sequence": "cursor-1",
+    }
+    with pytest.raises(ProtocolValidationError, match="route-owned"):
+        decode_run_event_stream_request(
+            path_parameters={"project_id": "project-1", "run_id": "run-7"},
+            query_parameters={"project_id": "project-2"},
+        )
+
+
 def test_acceptance_client_validates_response_without_backend_imports() -> None:
     receipt = {
         "project_id": "project-1",
         "run_id": "run-7",
-        "workflow_revision": 7,
-        "compile_id": "compile-7",
+        "workflow_commit_id": _WORKFLOW_COMMIT_ID,
+        "workflow_commit_revision": 7,
         "admitted_sequence": 1,
         "event_cursor": "cursor-1",
     }
@@ -765,8 +1747,60 @@ def test_acceptance_client_validates_response_without_backend_imports() -> None:
             "start_run",
             {
                 "project_id": "project-1",
-                "workflow_revision": 7,
-                "compile_id": "compile-7",
+                "workflow_commit_id": _WORKFLOW_COMMIT_ID,
                 "client_request_id": "request-7",
             },
         ) == receipt
+
+
+def test_acceptance_client_prepares_project_and_input_publication() -> None:
+    project = {
+        "schema_namespace": PUBLIC_PROTOCOL_NAMESPACE,
+        "id": "project-1",
+        "name": "public project",
+        "created_at": "2026-08-03T00:00:00+00:00",
+        "modified_at": "2026-08-03T00:00:00+00:00",
+        "seed": False,
+    }
+    publication = {
+        "schema_namespace": PUBLIC_PROTOCOL_NAMESPACE,
+        "project_id": "project-1",
+        "filename": "source.pdb",
+        "project_input_ref": "input-1",
+        "size": 5,
+        "content_digest": (
+            "sha256:" + hashlib.sha256(b"ATOM\n").hexdigest()
+        ),
+    }
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/api/v2/projects":
+            assert request.method == "POST"
+            assert json.loads(request.content) == {"name": "public project"}
+            return httpx.Response(201, json=project)
+        if request.url.path == "/api/v2/projects/project-1/inputs":
+            assert request.method == "POST"
+            assert json.loads(request.content) == {
+                "filename": "source.pdb",
+                "content_base64": "QVRPTQo=",
+            }
+            return httpx.Response(201, json=publication)
+        assert request.url.path == "/api/v2/projects/project-1/inputs/input-1"
+        assert request.method == "GET"
+        assert request.content == b""
+        return httpx.Response(200, json=publication)
+
+    with PublicProtocolAcceptanceClient(
+        "http://backend.invalid",
+        transport=httpx.MockTransport(handler),
+    ) as client:
+        assert client.create_project("public project") == project
+        assert client.publish_project_input(
+            "project-1",
+            filename="source.pdb",
+            content=b"ATOM\n",
+        ) == publication
+        assert client.project_input_metadata(
+            "project-1",
+            "input-1",
+        ) == publication

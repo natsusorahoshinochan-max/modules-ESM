@@ -17,13 +17,12 @@ from typing import Any
 SCHEMA_NAMESPACE = "protein-workbench-fresh-remote-3gb1/v2"
 PROJECT_ID = "canonical-3gb1"
 VERSION = "2.1.0"
-REMOTE_CONTRACT_VERSION = "3.0.0"
-PROTEINMPNN_BINDING_VERSION = "4.0.0"
-PROTEINMPNN_METHOD_VERSION = "3.0.0"
+PROTEINMPNN_BINDING_VERSION = "9.0.0"
+PROTEINMPNN_METHOD_VERSION = "5.0.0"
 PROTEINMPNN_BINDING_ID = "proteinmpnn.design.local"
 PROTEINMPNN_METHOD_ID = "proteinmpnn.design.v_48_020_8907e667"
 CANONICAL_PROVIDER_PROMPT_CONTENT_DIGEST = (
-    "sha256:dc2653e01ea98a529664fab883f1deb4b02d47ef029e9923724050bb59fce419"
+    "sha256:af6fb4017077a24d67882151d39beb7790b118b02c155a986a48907e1a569ab8"
 )
 CANONICAL_SEQUENCE_TRACK = (
     "____Y_KL__N_GKT___G__TT__AVDA_T_E_KV_KQ_Y_A_D_N_GVD_G__W_YD_____TF_V_TE"
@@ -38,12 +37,18 @@ REMOTE_BINDINGS = {
     "esm3.generate_paired.biohub_medium": {
         "method": "esm3.generate_paired.esm3_medium_2024_08",
         "adapter": "esm3.biohub/adapter",
+        "binding_version": "7.0.0",
+        "method_version": "5.0.0",
+        "adapter_version": "7.0.0",
         "model": "esm3-medium-2024-08",
         "source": "Biohub",
     },
     "folding.fold.esmfold2_remote": {
         "method": "folding.fold.esmfold2_fast_biohub_2026_05",
         "adapter": "folding.esmfold2_remote/adapter",
+        "binding_version": "7.0.0",
+        "method_version": "4.0.0",
+        "adapter_version": "7.0.0",
         "model": "esmfold2-fast-2026-05",
         "source": "Biohub",
     },
@@ -52,8 +57,8 @@ REQUIRED_FILES = {
     "source-receipt.json",
     "public-protocol.json",
     "catalog-snapshot.json",
-    "workflow-snapshot.json",
-    "compile-receipt.json",
+    "workflow-draft.json",
+    "workflow-commit.json",
     "run-index.json",
     "candidate-lineage.json",
     "invocation-proof.json",
@@ -144,34 +149,85 @@ def _require_catalog_snapshot_matches_current(
         )
 
 
-def _require_run_matches_compile(
+def _require_workflow_commit_matches_plan(
+    draft: dict[str, Any],
+    workflow_commit: dict[str, Any],
+    locked_workflow_payload: dict[str, Any],
+    catalog: Any,
+) -> Any:
+    """Verify one active Commit against its source Draft and exact Plan."""
+    from dataclasses import replace
+
+    from core import compile_workflow, parse_workflow_document
+
+    locked_workflow = parse_workflow_document(locked_workflow_payload)
+    unlocked_workflow = replace(locked_workflow, contract_lock=())
+    expected_draft = {
+        "project_id": PROJECT_ID,
+        "draft_revision": draft.get("draft_revision"),
+        "draft_digest": unlocked_workflow.digest,
+        "workflow": unlocked_workflow.to_public(),
+    }
+    if draft != expected_draft:
+        raise ValueError("Workflow Draft does not equal the shipped source Draft")
+
+    plan = compile_workflow(
+        locked_workflow,
+        workflow_commit_revision=workflow_commit.get(
+            "workflow_commit_revision"
+        ),
+        catalog=catalog,
+    ).execution_plan
+    expected_commit = {
+        "accepted": True,
+        "workflow_commit_id": plan.execution_plan_digest.replace(
+            "sha256:",
+            "workflow-commit-",
+        ),
+        "workflow_commit_revision": plan.workflow_commit_revision,
+        "source_draft_revision": draft["draft_revision"],
+        "source_draft_digest": draft["draft_digest"],
+        "workflow_digest": locked_workflow.digest,
+        "catalog_contract_digest": catalog.contract_digest,
+        "contract_lock_digest": locked_workflow.contract_lock_digest,
+        "execution_plan_digest": plan.execution_plan_digest,
+        "issues": [],
+    }
+    if workflow_commit != expected_commit:
+        raise ValueError(
+            "Workflow Commit receipt does not equal its exact Execution Plan"
+        )
+    return plan
+
+
+def _require_run_matches_workflow_commit(
     run: dict[str, Any],
-    workflow_snapshot: dict[str, Any],
-    compile_receipt: dict[str, Any],
+    admission: dict[str, Any],
+    manifest: dict[str, Any],
+    workflow_commit: dict[str, Any],
 ) -> None:
-    """Bind one retained Run projection to one exact Workflow compilation."""
+    """Bind one Run receipt, projection, and Manifest to one exact Commit."""
     expected = (
-        workflow_snapshot.get("workflow_revision"),
-        workflow_snapshot.get("workflow_digest"),
-        compile_receipt.get("compile_id"),
+        workflow_commit.get("workflow_commit_id"),
+        workflow_commit.get("workflow_commit_revision"),
+        workflow_commit.get("workflow_digest"),
     )
     if (
-        expected
-        != (
-            compile_receipt.get("workflow_revision"),
-            compile_receipt.get("workflow_digest"),
-            compile_receipt.get("compile_id"),
-        )
-        or expected
-        != (
-            run.get("workflow_revision"),
+        expected != (
+            run.get("workflow_commit_id"),
+            run.get("workflow_commit_revision"),
             run.get("workflow_digest"),
-            run.get("compile_id"),
+        )
+        or expected[:2] != (
+            admission.get("workflow_commit_id"),
+            admission.get("workflow_commit_revision"),
         )
     ):
         raise ValueError(
-            "Run projection crossed Workflow/compile identity"
+            "Run crossed its exact Workflow Commit identity"
         )
+    if manifest != run:
+        raise ValueError("Run Manifest does not equal its public projection")
 
 
 def require_remote_engine_contracts(
@@ -184,7 +240,9 @@ def require_remote_engine_contracts(
     if nodes["generate-paired"]["binding_id"] != (
         "esm3.generate_paired.biohub_medium"
     ) or nodes["generate-paired"]["binding_version"] != (
-        REMOTE_CONTRACT_VERSION
+        REMOTE_BINDINGS["esm3.generate_paired.biohub_medium"][
+            "binding_version"
+        ]
     ):
         raise ValueError("canonical proof does not select remote ESM-3")
     if {
@@ -194,7 +252,12 @@ def require_remote_engine_contracts(
         )
         for node_id in ("fold-sequences", "fold-final")
     } != {
-        ("folding.fold.esmfold2_remote", REMOTE_CONTRACT_VERSION)
+        (
+            "folding.fold.esmfold2_remote",
+            REMOTE_BINDINGS["folding.fold.esmfold2_remote"][
+                "binding_version"
+            ],
+        )
     }:
         raise ValueError("canonical proof does not select remote ESMFold2")
 
@@ -209,13 +272,13 @@ def require_remote_engine_contracts(
             catalog,
             "binding",
             binding_id,
-            REMOTE_CONTRACT_VERSION,
+            expected["binding_version"],
         )
         method = _contract(
             catalog,
             "method",
             expected["method"],
-            REMOTE_CONTRACT_VERSION,
+            expected["method_version"],
         )
         descriptor = binding["descriptor"]
         implementation = descriptor["implementation_identity"]
@@ -238,10 +301,10 @@ def require_remote_engine_contracts(
             or method_descriptor["source_identity"]["service"]
             != expected["source"]
             or proof["method_id"] != expected["method"]
-            or proof["method_version"] != REMOTE_CONTRACT_VERSION
-            or proof["binding_version"] != REMOTE_CONTRACT_VERSION
+            or proof["method_version"] != expected["method_version"]
+            or proof["binding_version"] != expected["binding_version"]
             or proof["adapter_id"] != expected["adapter"]
-            or proof["adapter_version"] != REMOTE_CONTRACT_VERSION
+            or proof["adapter_version"] != expected["adapter_version"]
             or proof["model"] != expected["model"]
             or proof["source"] != expected["source"]
             or not proof["invocations"]
@@ -453,9 +516,10 @@ def _validate_replay_boundary(
 def _validate_run_admission(
     run: dict[str, Any],
     messages: list[dict[str, Any]],
-    compile_receipt: dict[str, Any],
+    admission: dict[str, Any],
+    workflow_commit: dict[str, Any],
 ) -> None:
-    """Bind the public Ledger admission to the retained exact compile."""
+    """Bind the public Ledger admission to the retained exact Commit."""
     _event_payloads(run, messages)
     events = tuple(
         (message["sequence"], message["event"])
@@ -464,9 +528,9 @@ def _validate_run_admission(
         not in {"replay_started", "replay_complete"}
     )
     admissions = tuple(
-        (sequence, event)
-        for sequence, event in events
-        if event["type"] == "run_admitted"
+        message
+        for message in messages
+        if message["event"]["type"] == "run_admitted"
     )
     starts = tuple(
         (sequence, event)
@@ -484,37 +548,53 @@ def _validate_run_admission(
         }
     )
     expected_identity = (
-        run.get("workflow_revision"),
-        run.get("compile_id"),
+        run.get("workflow_commit_id"),
+        run.get("workflow_commit_revision"),
     )
     if (
         len(admissions) != 1
         or len(starts) != 1
         or (
-            admissions[0][1].get("workflow_revision"),
-            admissions[0][1].get("compile_id"),
+            admissions[0]["event"].get("workflow_commit_id"),
+            admissions[0]["event"].get("workflow_commit_revision"),
         )
         != expected_identity
         or (
-            compile_receipt.get("workflow_revision"),
-            compile_receipt.get("compile_id"),
+            admission.get("workflow_commit_id"),
+            admission.get("workflow_commit_revision"),
         )
         != expected_identity
-        or admissions[0][0] >= starts[0][0]
+        or admission.get("project_id") != run.get("project_id")
+        or admission.get("run_id") != run.get("run_id")
+        or admission.get("admitted_sequence")
+        != admissions[0].get("sequence")
+        or admission.get("event_cursor") != admissions[0].get("cursor")
+        or (
+            workflow_commit.get("workflow_commit_id"),
+            workflow_commit.get("workflow_commit_revision"),
+        )
+        != expected_identity
+        or admissions[0]["sequence"] >= starts[0][0]
         or any(sequence <= starts[0][0] for sequence in attempts)
     ):
         raise ValueError(
-            "Run admission does not match the retained compile or event order"
+            "Run admission does not match the retained Commit or event order"
         )
 
 
 def _validate_run_closure(
     run: dict[str, Any],
     messages: list[dict[str, Any]],
-    compile_receipt: dict[str, Any],
+    admission: dict[str, Any],
+    workflow_commit: dict[str, Any],
 ) -> None:
     _validate_replay_boundary(run, messages)
-    _validate_run_admission(run, messages, compile_receipt)
+    _validate_run_admission(
+        run,
+        messages,
+        admission,
+        workflow_commit,
+    )
     events = _event_payloads(run, messages)
     if not events or events[-1] != {
         "type": "run_terminal",
@@ -665,15 +745,12 @@ def validate_evidence_bundle(root: Path) -> dict[str, Any]:
     }:
         raise ValueError("installed artifact receipt lacks wheel or sdist")
 
-    from core import (
-        build_discovered_frozen_catalog,
-        compile_workflow,
-        parse_workflow_document,
-    )
+    from core import build_discovered_frozen_catalog
     from protein_workbench_public import (
         bundle_bytes,
         bundle_digest,
         validate_event,
+        validate_response,
     )
 
     protocol = (root / "public-protocol.json").read_bytes()
@@ -689,33 +766,35 @@ def validate_evidence_bundle(root: Path) -> dict[str, Any]:
     if source["catalog_contract_digest"] != expected_catalog.contract_digest:
         raise ValueError("installed FrozenCatalog does not match clean source")
 
-    snapshot = _load_json(root / "workflow-snapshot.json")
-    workflow = snapshot["workflow"]
+    draft = _load_json(root / "workflow-draft.json")
+    workflow_commit = _load_json(root / "workflow-commit.json")
+    validate_response("project_workflow_draft", 200, draft)
+    validate_response(
+        "project_active_workflow_commit",
+        200,
+        workflow_commit,
+    )
     expected_workflow_path = (
         Path(__file__).resolve().parent.parent
         / "examples"
         / "v2"
         / "canonical-3gb1.workflow.json"
     )
-    expected_workflow = json.loads(expected_workflow_path.read_bytes())
-    compile_receipt = _load_json(root / "compile-receipt.json")
-    parsed_workflow = parse_workflow_document(workflow)
-    expected_compile_receipt = compile_workflow(
-        parsed_workflow,
-        workflow_revision=snapshot["workflow_revision"],
-        catalog=expected_catalog,
-    ).public_receipt()
+    workflow = json.loads(expected_workflow_path.read_bytes())
+    _require_workflow_commit_matches_plan(
+        draft,
+        workflow_commit,
+        workflow,
+        expected_catalog,
+    )
     if (
         workflow["schema_version"] != VERSION
         or workflow["workflow_id"] != PROJECT_ID
-        or workflow != expected_workflow
         or source["workflow_content_digest"]
         != _sha256(expected_workflow_path.read_bytes())
         or not workflow["contract_lock"]
-        or snapshot["workflow_digest"] != parsed_workflow.digest
-        or compile_receipt != expected_compile_receipt
     ):
-        raise ValueError("Workflow or compile receipt is not exact and accepted")
+        raise ValueError("Workflow Commit source is not exact and accepted")
 
     run_index = _load_json(root / "run-index.json")
     run_ids = run_index.get("run_ids", [])
@@ -723,24 +802,46 @@ def validate_evidence_bundle(root: Path) -> dict[str, Any]:
         not run_ids
         or run_index.get("successful_run_id") != run_ids[-1]
         or len(run_ids) != len(set(run_ids))
+        or run_index.get("workflow_commit_id")
+        != workflow_commit["workflow_commit_id"]
+        or run_index.get("workflow_commit_revision")
+        != workflow_commit["workflow_commit_revision"]
     ):
         raise ValueError("fresh Run and retry identity chain is incomplete")
     runs: list[dict[str, Any]] = []
     event_sets: list[list[dict[str, Any]]] = []
     for index, run_id in enumerate(run_ids):
         run = _load_json(root / "runs" / run_id / "projection.json")
+        admission = _load_json(root / "runs" / run_id / "admission.json")
+        manifest = _load_json(root / "runs" / run_id / "manifest.json")
         messages = _load_json(root / "runs" / run_id / "events.json")
+        validate_response(
+            "start_run" if index == 0 else "start_derived_run",
+            202,
+            admission,
+        )
+        validate_response("run_projection", 200, run)
         for message in messages:
             validate_event(message)
         if run["run_id"] != run_id or run["project_id"] != PROJECT_ID:
             raise ValueError("Run projection crossed Project/Run scope")
-        _require_run_matches_compile(run, snapshot, compile_receipt)
+        _require_run_matches_workflow_commit(
+            run,
+            admission,
+            manifest,
+            workflow_commit,
+        )
         if index == 0:
             if "derived_from_run_id" in run:
                 raise ValueError("fresh Run cannot claim a historical parent")
         elif run.get("derived_from_run_id") != run_ids[index - 1]:
             raise ValueError("provider retry is not a newly derived Run")
-        _validate_run_closure(run, messages, compile_receipt)
+        _validate_run_closure(
+            run,
+            messages,
+            admission,
+            workflow_commit,
+        )
         runs.append(run)
         event_sets.append(messages)
     if runs[-1]["status"] != "succeeded":
@@ -1061,11 +1162,11 @@ def _invocation_proof(
         ]
         result.append({
             "binding_id": binding_id,
-            "binding_version": REMOTE_CONTRACT_VERSION,
+            "binding_version": expected["binding_version"],
             "method_id": expected["method"],
-            "method_version": REMOTE_CONTRACT_VERSION,
+            "method_version": expected["method_version"],
             "adapter_id": expected["adapter"],
-            "adapter_version": REMOTE_CONTRACT_VERSION,
+            "adapter_version": expected["adapter_version"],
             "model": expected["model"],
             "source": expected["source"],
             "request_roles": sorted({
@@ -1203,7 +1304,7 @@ def _candidate_lineage(catalog: Any, projection: dict[str, Any]) -> dict[str, An
         for alignment in fixed_alignments
     }
     pairing_pairs = {
-        (entry.subject_candidate_id, entry.reference_candidate_id)
+        (entry.subject.candidate_id, entry.reference.candidate_id)
         for entry in counterparts.entries
     }
     structure_values = prompt.structure_track.values
@@ -1397,9 +1498,11 @@ def _retrieve_artifacts(
 
 def installed_main() -> int:
     """Run the installed backend and write only safe public evidence."""
-    from fastapi.testclient import TestClient
+    from importlib.resources import files
+
     from core import build_discovered_frozen_catalog
     from core.server import create_app
+    from fastapi.testclient import TestClient
     from esm.sdk.forge import (
         ESM3ForgeInferenceClient,
         SequenceStructureForgeInferenceClient,
@@ -1468,7 +1571,9 @@ def installed_main() -> int:
     environment = {
         (
             "esm3.generate_paired.biohub_medium",
-            REMOTE_CONTRACT_VERSION,
+            REMOTE_BINDINGS["esm3.generate_paired.biohub_medium"][
+                "binding_version"
+            ],
         ): {
             "values": {
                 "endpoint_id": "biohub",
@@ -1478,7 +1583,12 @@ def installed_main() -> int:
             "safe_fingerprint": "biohub-esm3-medium-2024-08",
             "invalidation_token": "biohub-esm3-medium-2024-08",
         },
-        ("folding.fold.esmfold2_remote", REMOTE_CONTRACT_VERSION): {
+        (
+            "folding.fold.esmfold2_remote",
+            REMOTE_BINDINGS["folding.fold.esmfold2_remote"][
+                "binding_version"
+            ],
+        ): {
             "values": {
                 "endpoint_id": "biohub",
                 "credential_handle": token,
@@ -1517,26 +1627,32 @@ def installed_main() -> int:
         catalog_response.raise_for_status()
         catalog_snapshot = catalog_response.json()
         _write_json(root / "catalog-snapshot.json", catalog_snapshot)
-        workflow_response = client.get(
-            f"/api/v2/projects/{PROJECT_ID}/workflow"
+        # The protected canonical seed is installed by the authoring owner;
+        # its public proof is the source Draft plus active immutable Commit.
+        draft_response = client.get(
+            f"/api/v2/projects/{PROJECT_ID}/workflow/draft"
         )
-        workflow_response.raise_for_status()
-        workflow_snapshot = workflow_response.json()
-        _write_json(root / "workflow-snapshot.json", workflow_snapshot)
-        compile_response = client.post(
-            f"/api/v2/projects/{PROJECT_ID}/workflow:compile",
-            json={
-                "workflow_revision": workflow_snapshot[
-                    "workflow_revision"
-                ],
-                "workflow": workflow_snapshot["workflow"],
-            },
+        draft_response.raise_for_status()
+        workflow_draft = draft_response.json()
+        _write_json(root / "workflow-draft.json", workflow_draft)
+        commit_response = client.get(
+            f"/api/v2/projects/{PROJECT_ID}/workflow/active-commit"
         )
-        compile_response.raise_for_status()
-        compile_receipt = compile_response.json()
-        _write_json(root / "compile-receipt.json", compile_receipt)
-        if not compile_receipt["accepted"]:
-            raise RuntimeError("canonical v2 Workflow did not compile")
+        commit_response.raise_for_status()
+        workflow_commit = commit_response.json()
+        _write_json(root / "workflow-commit.json", workflow_commit)
+        locked_workflow = json.loads(
+            files("examples").joinpath(
+                "v2",
+                "canonical-3gb1.workflow.json",
+            ).read_text(encoding="utf-8")
+        )
+        _require_workflow_commit_matches_plan(
+            workflow_draft,
+            workflow_commit,
+            locked_workflow,
+            catalog,
+        )
 
         run_ids: list[str] = []
         projections: list[dict[str, Any]] = []
@@ -1544,15 +1660,16 @@ def installed_main() -> int:
         started = client.post(
             f"/api/v2/projects/{PROJECT_ID}/runs",
             json={
-                "workflow_revision": workflow_snapshot[
-                    "workflow_revision"
+                "workflow_commit_id": workflow_commit[
+                    "workflow_commit_id"
                 ],
-                "compile_id": compile_receipt["compile_id"],
                 "client_request_id": "fresh-remote-3gb1-0",
             },
         )
         started.raise_for_status()
-        run_id = started.json()["run_id"]
+        admission = started.json()
+        run_id = admission["run_id"]
+        run_root = Path(os.environ["PROTEIN_WORKBENCH_RUN_ROOT"])
         for retry_index in range(4):
             projection = _wait_terminal(
                 client,
@@ -1566,6 +1683,17 @@ def installed_main() -> int:
             _write_json(
                 root / "runs" / run_id / "projection.json",
                 projection,
+            )
+            _write_json(
+                root / "runs" / run_id / "admission.json",
+                admission,
+            )
+            manifest = _load_json(
+                run_root / PROJECT_ID / run_id / "manifest.json"
+            )
+            _write_json(
+                root / "runs" / run_id / "manifest.json",
+                manifest,
             )
             _write_json(root / "runs" / run_id / "events.json", events)
             if projection["status"] == "succeeded":
@@ -1582,7 +1710,6 @@ def installed_main() -> int:
                 f"/api/v2/projects/{PROJECT_ID}/runs:derive",
                 json={
                     "source_run_id": run_id,
-                    "compile_id": compile_receipt["compile_id"],
                     "policy": "retry_failed",
                     "node_ids": failed_nodes,
                     "client_request_id": (
@@ -1591,11 +1718,16 @@ def installed_main() -> int:
                 },
             )
             derived.raise_for_status()
-            run_id = derived.json()["run_id"]
+            admission = derived.json()
+            run_id = admission["run_id"]
 
         successful = projections[-1]
         _write_json(root / "run-index.json", {
             "schema_namespace": SCHEMA_NAMESPACE,
+            "workflow_commit_id": workflow_commit["workflow_commit_id"],
+            "workflow_commit_revision": workflow_commit[
+                "workflow_commit_revision"
+            ],
             "run_ids": run_ids,
             "successful_run_id": (
                 successful["run_id"]
@@ -1625,7 +1757,7 @@ def installed_main() -> int:
         _write_json(root / "candidate-lineage.json", lineage)
         invocation_proof = _invocation_proof(
             catalog_snapshot,
-            workflow_snapshot["workflow"],
+            locked_workflow,
             list(zip(projections, events_by_run, strict=True)),
         )
         _write_json(root / "invocation-proof.json", invocation_proof)

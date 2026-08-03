@@ -14,6 +14,7 @@ from core import (
     CatalogContract,
     FrozenCatalog,
     OperationCall,
+    PortTypeDefinition,
     ReadinessDeclaration,
     ReadinessResult,
     SelectionError,
@@ -22,12 +23,17 @@ from core import (
     SelectionResult,
     ScientificOperationFactory,
     builtin_frozen_catalog,
+    build_frozen_catalog,
     compile_workflow,
     relock_workflow,
     select_candidates,
     validate_produced_score_collection,
 )
 from core.port_types import PortValueError
+from core.scoring_v2 import (
+    ResolvedMetricFacts,
+    validate_produced_score_collection_from_facts,
+)
 from core.server import create_app
 from core.workflow_v2 import (
     WorkflowCompileError,
@@ -42,13 +48,19 @@ from protein_workbench_public import (
 from datatypes import (
     Candidate,
     CandidateCollection,
+    CandidateDataReference,
     ExactContractReference,
     IntrinsicObservationContext,
     ProteinSequence,
+    ProteinStructure,
+    ResidueAxisReference,
+    ResidueLayout,
     ScoreCollection,
     ScoreObservation,
 )
 from tests.fixtures.public_v2 import wait_for_testclient_run_terminal
+from modules.selection.package import MODULE_PACKAGE as SELECTION_PACKAGE
+from modules.structure_prediction.port_types import CONFIDENCE_FACTS_PORT_TYPE
 
 
 def _contract(
@@ -72,8 +84,9 @@ def _contract(
 
 def _scoring_catalog() -> tuple[FrozenCatalog, dict[str, CatalogContract]]:
     builtin = builtin_frozen_catalog()
-    candidates_type = builtin.require_port_type("candidate.collection", "2.1.0")
-    scores_type = builtin.require_port_type("score.collection", "2.1.0")
+    selection_catalog = build_frozen_catalog((SELECTION_PACKAGE,))
+    candidates_type = builtin.require_port_type("candidate.collection", "3.0.0")
+    scores_type = builtin.require_port_type("score.collection", "4.0.0")
     metric_quality = _contract(
         "metric",
         "quality",
@@ -194,13 +207,13 @@ def _scoring_catalog() -> tuple[FrozenCatalog, dict[str, CatalogContract]]:
             "output_contract": {"minimum": 0, "maximum": 1},
         },
     )
-    producer_node = _contract(
+    source_node = _contract(
         "node_type",
-        "score.intrinsic",
+        "candidate.source",
         {
-            "title": "Intrinsic scorer",
-            "summary": "Produces fixed intrinsic observations.",
-            "category": "evaluation",
+            "title": "Candidate source",
+            "summary": "Produces admitted fixture Candidates.",
+            "category": "input",
             "inputs": [],
             "outputs": [
                 {
@@ -208,8 +221,65 @@ def _scoring_catalog() -> tuple[FrozenCatalog, dict[str, CatalogContract]]:
                     "port_type": candidates_type.reference(),
                     "required": True,
                     "multiplicity": "one",
-                    "scientific_meaning": "Candidates that were observed.",
+                    "scientific_meaning": "Admitted scoring subjects.",
+                }
+            ],
+            "parameter_groups": [],
+            "node_parameters": {},
+        },
+    )
+    source_binding = _contract(
+        "binding",
+        "candidate.source.direct",
+        {
+            "node_type": source_node.reference(),
+            "method": method_a.reference(),
+            "binding_parameters": {},
+            "execution_route": "direct",
+            "route_behavior": {
+                "behavior_id": "candidate.source/execute",
+                "behavior_version": "2.1.0",
+                "parameters": {},
+            },
+            "availability_declaration": {
+                "behavior": {
+                    "behavior_id": "candidate.source/availability",
+                    "behavior_version": "2.1.0",
+                    "parameters": {},
                 },
+                "prerequisites": {},
+            },
+            "readiness_declaration": {
+                "behavior": {
+                    "behavior_id": "candidate.source/readiness",
+                    "behavior_version": "2.1.0",
+                    "parameters": {},
+                },
+                "prerequisites": {},
+            },
+            "deterministic": True,
+            "cacheable": True,
+            "implementation_identity": {"name": "candidate.source.direct"},
+            "produced_observations": [],
+        },
+    )
+    producer_node = _contract(
+        "node_type",
+        "score.intrinsic",
+        {
+            "title": "Intrinsic scorer",
+            "summary": "Produces fixed intrinsic observations.",
+            "category": "evaluation",
+            "inputs": [
+                {
+                    "name": "candidates",
+                    "port_type": candidates_type.reference(),
+                    "required": True,
+                    "multiplicity": "one",
+                    "scientific_meaning": "Admitted Candidates to score.",
+                }
+            ],
+            "outputs": [
                 {
                     "name": "scores",
                     "port_type": scores_type.reference(),
@@ -261,7 +331,7 @@ def _scoring_catalog() -> tuple[FrozenCatalog, dict[str, CatalogContract]]:
                     "context_profile": {"kind": "intrinsic"},
                     "subject_grain": "candidate",
                     "source_role": "subject",
-                    "subject_direction": "output",
+                    "subject_direction": "input",
                     "subject_port": "candidates",
                     "guaranteed_multiplicity": "one",
                 },
@@ -271,7 +341,7 @@ def _scoring_catalog() -> tuple[FrozenCatalog, dict[str, CatalogContract]]:
                     "context_profile": {"kind": "intrinsic"},
                     "subject_grain": "candidate",
                     "source_role": "subject",
-                    "subject_direction": "output",
+                    "subject_direction": "input",
                     "subject_port": "candidates",
                     "guaranteed_multiplicity": "one",
                 },
@@ -287,6 +357,8 @@ def _scoring_catalog() -> tuple[FrozenCatalog, dict[str, CatalogContract]]:
             method_b,
             linear_quality,
             linear_novelty,
+            source_node,
+            source_binding,
             producer_node,
             producer_binding,
         )
@@ -308,39 +380,74 @@ def _scoring_catalog() -> tuple[FrozenCatalog, dict[str, CatalogContract]]:
         "2.1.0",
         {},
     )
+    source_factory_behavior = BehaviorReference(
+        "candidate.source/execute",
+        "2.1.0",
+        {},
+    )
+    source_readiness_behavior = BehaviorReference(
+        "candidate.source/readiness",
+        "2.1.0",
+        {},
+    )
+
+    class CandidateSourceImplementation:
+        def execute(self, call: OperationCall) -> dict:
+            assert call.inputs == {}
+            return {
+                "candidates": CandidateCollection(
+                    "raw-candidates",
+                    "protein.sequence",
+                    [
+                        Candidate("raw-1", ProteinSequence("AA")),
+                        Candidate("raw-2", ProteinSequence("GG")),
+                    ],
+                )
+            }
 
     class ScoringImplementation:
         def execute(self, call: OperationCall) -> dict:
-            assert call.inputs == {}
             assert call.node_parameters == {}
             assert call.binding_parameters == {}
-            assert call.input_content_digests == {}
-            candidates = CandidateCollection(
-                "raw-candidates",
-                "protein.sequence",
-                [
-                    Candidate("raw-1", ProteinSequence("AA")),
-                    Candidate("raw-2", ProteinSequence("GG")),
-                ],
-            )
+            candidates = call.inputs["candidates"]
+            assert type(candidates) is CandidateCollection
+            admitted = call.input_content_digests["candidates"].candidate_data
+            assert len(admitted) == 2
+            first, second = candidates.items
+            first_ref, second_ref = admitted
             return {
-                "candidates": candidates,
                 "scores": ScoreCollection(
                     "raw-scores",
                     [
-                        _observation(contracts, "raw-1", 20),
-                        _observation(contracts, "raw-2", 90),
-                        _observation(
-                            contracts,
-                            "raw-1",
-                            80,
-                            metric="novelty",
+                        replace(
+                            _observation(
+                                contracts, first.candidate_id, 20
+                            ),
+                            subject=first_ref,
                         ),
-                        _observation(
-                            contracts,
-                            "raw-2",
-                            40,
-                            metric="novelty",
+                        replace(
+                            _observation(
+                                contracts, second.candidate_id, 90
+                            ),
+                            subject=second_ref,
+                        ),
+                        replace(
+                            _observation(
+                                contracts,
+                                first.candidate_id,
+                                80,
+                                metric="novelty",
+                            ),
+                            subject=first_ref,
+                        ),
+                        replace(
+                            _observation(
+                                contracts,
+                                second.candidate_id,
+                                40,
+                                metric="novelty",
+                            ),
+                            subject=second_ref,
                         ),
                     ],
                 ),
@@ -348,13 +455,22 @@ def _scoring_catalog() -> tuple[FrozenCatalog, dict[str, CatalogContract]]:
 
     catalog = FrozenCatalog(
         builtin.port_types,
-        contracts=tuple(contracts.values()),
+        contracts=(
+            *contracts.values(),
+            *selection_catalog.contracts,
+        ),
         availability=(
+            {
+                "binding": source_binding.reference(),
+                "observed_at": "2026-07-29T06:00:00Z",
+                "available": True,
+            },
             {
                 "binding": producer_binding.reference(),
                 "observed_at": "2026-07-29T06:00:00Z",
                 "available": True,
             },
+            *selection_catalog.availability,
         ),
         availability_observed_at=datetime(
             2026,
@@ -368,6 +484,13 @@ def _scoring_catalog() -> tuple[FrozenCatalog, dict[str, CatalogContract]]:
             ("novelty.linear", "2.1.0"): linear,
         },
         factories={
+            **dict(selection_catalog.factories),
+            ("candidate.source.direct", "2.1.0"): (
+                ScientificOperationFactory(
+                    behavior=source_factory_behavior,
+                    build=lambda _: CandidateSourceImplementation(),
+                )
+            ),
             ("score.intrinsic.direct", "2.1.0"): (
                 ScientificOperationFactory(
                     behavior=factory_behavior,
@@ -376,11 +499,252 @@ def _scoring_catalog() -> tuple[FrozenCatalog, dict[str, CatalogContract]]:
             )
         },
         readiness_declarations={
+            **dict(selection_catalog.readiness_declarations),
+            ("candidate.source.direct", "2.1.0"): ReadinessDeclaration(
+                behavior=source_readiness_behavior,
+                prerequisites={},
+                check=lambda _: ReadinessResult(True),
+            ),
             ("score.intrinsic.direct", "2.1.0"): ReadinessDeclaration(
                 behavior=readiness_behavior,
                 prerequisites={},
                 check=lambda _: ReadinessResult(True),
             )
+        },
+    )
+    return catalog, contracts
+
+
+def _dynamic_observation_method_catalog(
+) -> tuple[FrozenCatalog, dict[str, CatalogContract]]:
+    catalog, contracts = _scoring_catalog()
+    candidates_type = catalog.require_port_type("candidate.collection", "3.0.0")
+    scores_type = catalog.require_port_type("score.collection", "4.0.0")
+    facts_type = CONFIDENCE_FACTS_PORT_TYPE
+    generation_node = _contract(
+        "node_type",
+        "generation.confidence_facts",
+        {
+            "title": "Confidence fact generation",
+            "summary": "Produces method-bearing confidence facts.",
+            "category": "generation",
+            "inputs": [
+                {
+                    "name": "candidates",
+                    "port_type": candidates_type.reference(),
+                    "required": True,
+                    "multiplicity": "one",
+                    "scientific_meaning": "Candidates to evaluate.",
+                }
+            ],
+            "outputs": [
+                {
+                    "name": "facts",
+                    "port_type": facts_type.reference(),
+                    "required": True,
+                    "multiplicity": "one",
+                    "scientific_meaning": (
+                        "Confidence facts produced by the generation Method."
+                    ),
+                }
+            ],
+            "parameter_groups": [],
+            "node_parameters": {},
+        },
+    )
+    generation_binding = _contract(
+        "binding",
+        "generation.confidence_facts.method_a",
+        {
+            "node_type": generation_node.reference(),
+            "method": contracts["method.a"].reference(),
+            "binding_parameters": {},
+            "execution_route": "direct",
+            "route_behavior": {
+                "behavior_id": "generation.confidence_facts/execute",
+                "behavior_version": "2.1.0",
+                "parameters": {},
+            },
+            "availability_declaration": {
+                "behavior": {
+                    "behavior_id": "generation.confidence_facts/availability",
+                    "behavior_version": "2.1.0",
+                    "parameters": {},
+                },
+                "prerequisites": {},
+            },
+            "readiness_declaration": {
+                "behavior": {
+                    "behavior_id": "generation.confidence_facts/readiness",
+                    "behavior_version": "2.1.0",
+                    "parameters": {},
+                },
+                "prerequisites": {},
+            },
+            "deterministic": True,
+            "cacheable": True,
+            "implementation_identity": {
+                "name": "generation.confidence_facts.method_a"
+            },
+            "produced_observations": [],
+        },
+    )
+    materializer_node = _contract(
+        "node_type",
+        "score.materialize_confidence",
+        {
+            "title": "Confidence materializer",
+            "summary": "Materializes confidence facts as observations.",
+            "category": "evaluation",
+            "inputs": [
+                {
+                    "name": "candidates",
+                    "port_type": candidates_type.reference(),
+                    "required": True,
+                    "multiplicity": "one",
+                    "scientific_meaning": "Candidates described by the facts.",
+                },
+                {
+                    "name": "facts",
+                    "port_type": facts_type.reference(),
+                    "required": True,
+                    "multiplicity": "one",
+                    "scientific_meaning": "Method-bearing confidence facts.",
+                },
+            ],
+            "outputs": [
+                {
+                    "name": "scores",
+                    "port_type": scores_type.reference(),
+                    "required": True,
+                    "multiplicity": "one",
+                    "scientific_meaning": "Materialized confidence observations.",
+                }
+            ],
+            "parameter_groups": [],
+            "node_parameters": {},
+        },
+    )
+    materializer_binding = _contract(
+        "binding",
+        "score.materialize_confidence.method_b",
+        {
+            "node_type": materializer_node.reference(),
+            "method": contracts["method.b"].reference(),
+            "binding_parameters": {},
+            "execution_route": "direct",
+            "route_behavior": {
+                "behavior_id": "score.materialize_confidence/execute",
+                "behavior_version": "2.1.0",
+                "parameters": {},
+            },
+            "availability_declaration": {
+                "behavior": {
+                    "behavior_id": "score.materialize_confidence/availability",
+                    "behavior_version": "2.1.0",
+                    "parameters": {},
+                },
+                "prerequisites": {},
+            },
+            "readiness_declaration": {
+                "behavior": {
+                    "behavior_id": "score.materialize_confidence/readiness",
+                    "behavior_version": "2.1.0",
+                    "parameters": {},
+                },
+                "prerequisites": {},
+            },
+            "deterministic": True,
+            "cacheable": True,
+            "implementation_identity": {
+                "name": "score.materialize_confidence.method_b"
+            },
+            "produced_observations": [
+                {
+                    "output_port": "scores",
+                    "metric": contracts["quality"].reference(),
+                    "context_profile": {"kind": "intrinsic"},
+                    "subject_grain": "candidate",
+                    "source_role": "subject",
+                    "subject_direction": "input",
+                    "subject_port": "candidates",
+                    "guaranteed_multiplicity": "one",
+                    "method_direction": "input",
+                    "method_port": "facts",
+                }
+            ],
+        },
+    )
+    added_contracts = (
+        generation_node,
+        generation_binding,
+        materializer_node,
+        materializer_binding,
+    )
+    contracts.update(
+        {contract.contract_id: contract for contract in added_contracts}
+    )
+
+    class CompileOnlyImplementation:
+        def execute(self, call: OperationCall) -> dict:
+            del call
+            raise AssertionError("dynamic Method fixture is compiler-only")
+
+    def compile_only_factory(binding: CatalogContract):
+        behavior = binding.descriptor["route_behavior"]
+        return ScientificOperationFactory(
+            behavior=BehaviorReference(
+                behavior["behavior_id"],
+                behavior["behavior_version"],
+                behavior["parameters"],
+            ),
+            build=lambda _: CompileOnlyImplementation(),
+        )
+
+    def compile_only_readiness(binding: CatalogContract):
+        behavior = binding.descriptor["readiness_declaration"]["behavior"]
+        return ReadinessDeclaration(
+            behavior=BehaviorReference(
+                behavior["behavior_id"],
+                behavior["behavior_version"],
+                behavior["parameters"],
+            ),
+            prerequisites={},
+            check=lambda _: ReadinessResult(True),
+        )
+
+    catalog = replace(
+        catalog,
+        port_types=(*catalog.port_types, facts_type),
+        contracts=(*catalog.contracts, *added_contracts),
+        availability=(
+            *catalog.availability,
+            *(
+                {
+                    "binding": binding.reference(),
+                    "observed_at": "2026-08-03T00:00:00Z",
+                    "available": True,
+                }
+                for binding in (generation_binding, materializer_binding)
+            ),
+        ),
+        factories={
+            **dict(catalog.factories),
+            (generation_binding.contract_id, "2.1.0"): (
+                compile_only_factory(generation_binding)
+            ),
+            (materializer_binding.contract_id, "2.1.0"): (
+                compile_only_factory(materializer_binding)
+            ),
+        },
+        readiness_declarations={
+            **dict(catalog.readiness_declarations),
+            (generation_binding.contract_id, "2.1.0"): (
+                compile_only_readiness(generation_binding)
+            ),
+            (materializer_binding.contract_id, "2.1.0"): (
+                compile_only_readiness(materializer_binding)
+            ),
         },
     )
     return catalog, contracts
@@ -404,8 +768,19 @@ def _observation(
     metric: str = "quality",
     method: str = "method.a",
 ) -> ScoreObservation:
+    sequence = (
+        "GG" if candidate_id in {"raw-2", "candidate-2"} else "AA"
+    )
+    sequence_type = builtin_frozen_catalog().require_port_type(
+        "protein.sequence",
+        "3.0.0",
+    )
     return ScoreObservation(
-        candidate_id=candidate_id,
+        subject=CandidateDataReference(
+            candidate_id,
+            "protein.sequence",
+            sequence_type.content_digest(ProteinSequence(sequence)),
+        ),
         metric=_reference(contracts[metric]),
         method=_reference(contracts[method]),
         context=IntrinsicObservationContext(),
@@ -440,7 +815,7 @@ def test_observation_identity_excludes_value_and_distinguishes_metric_and_method
 
 def test_score_collection_codec_deduplicates_equal_observations_and_fails_closed() -> None:
     catalog, contracts = _scoring_catalog()
-    score_type = catalog.require_port_type("score.collection", "2.1.0")
+    score_type = catalog.require_port_type("score.collection", "4.0.0")
     observation = _observation(contracts, "candidate-1", 90)
 
     encoded = score_type.encode(
@@ -530,7 +905,7 @@ def test_selection_rejects_one_observation_identity_in_two_partitions() -> None:
 
 def test_score_collection_codec_enforces_metric_and_method_reference_roles() -> None:
     catalog, contracts = _scoring_catalog()
-    score_type = catalog.require_port_type("score.collection", "2.1.0")
+    score_type = catalog.require_port_type("score.collection", "4.0.0")
     malformed = replace(
         _observation(contracts, "candidate-1", 90),
         metric=_reference(contracts["method.a"]),
@@ -566,8 +941,8 @@ def test_binding_output_obeys_exact_method_metric_context_and_multiplicity() -> 
         binding=binding,
         output_port="scores",
         collection=scores,
-        inputs={},
-        outputs={"candidates": candidates, "scores": scores},
+        inputs={"candidates": candidates},
+        outputs={"scores": scores},
     )
 
     with pytest.raises(PortValueError, match="guaranteed one"):
@@ -579,8 +954,8 @@ def test_binding_output_obeys_exact_method_metric_context_and_multiplicity() -> 
                 "scores",
                 [_observation(contracts, "candidate-1", 90)],
             ),
-            inputs={},
-            outputs={"candidates": candidates},
+            inputs={"candidates": candidates},
+            outputs={},
         )
     with pytest.raises(PortValueError, match="undeclared Method"):
         validate_produced_score_collection(
@@ -598,8 +973,8 @@ def test_binding_output_obeys_exact_method_metric_context_and_multiplicity() -> 
                     )
                 ],
             ),
-            inputs={},
-            outputs={"candidates": candidates},
+            inputs={"candidates": candidates},
+            outputs={},
         )
 
 
@@ -628,8 +1003,8 @@ def test_binding_output_uses_exact_subject_source_and_rejects_ghosts() -> None:
         binding=binding,
         output_port="scores",
         collection=valid_scores,
-        inputs={},
-        outputs={"candidates": candidates, "scores": valid_scores},
+        inputs={"candidates": candidates},
+        outputs={"scores": valid_scores},
     )
 
     ghost_scores = ScoreCollection(
@@ -644,14 +1019,14 @@ def test_binding_output_uses_exact_subject_source_and_rejects_ghosts() -> None:
             ),
         ],
     )
-    with pytest.raises(PortValueError, match="outside its declared subject"):
+    with pytest.raises(PortValueError, match="exact subject"):
         validate_produced_score_collection(
             catalog=catalog,
             binding=binding,
             output_port="scores",
             collection=ghost_scores,
-            inputs={},
-            outputs={"candidates": candidates, "scores": ghost_scores},
+            inputs={"candidates": candidates},
+            outputs={"scores": ghost_scores},
         )
 
 
@@ -676,6 +1051,67 @@ def test_binding_output_validates_per_residue_shape_range_and_masking() -> None:
             },
         },
     )
+    axis_holder: dict[str, ResidueAxisReference] = {}
+    axis_type = PortTypeDefinition(
+        type_id="fixture.prediction_residue_axis",
+        version="1.0.0",
+        validator=BehaviorReference(
+            "fixture.prediction_residue_axis/validate",
+            "1.0.0",
+            {"accepted_value_kind": "prediction_residue_axis"},
+        ),
+        codec=BehaviorReference(
+            "fixture.prediction_residue_axis/codec",
+            "1.0.0",
+            {"canonicalization": "RFC 8785"},
+        ),
+        content_identity=BehaviorReference(
+            "fixture.prediction_residue_axis/content",
+            "1.0.0",
+            {"digest": "SHA-256"},
+        ),
+        scientific_axis_projection=BehaviorReference(
+            "fixture.prediction_residue_axis/project",
+            "1.0.0",
+            {"projection": "one-exact-axis"},
+        ),
+        runtime_scientific_axis_projection=lambda _: (
+            axis_holder["axis"],
+        ),
+        runtime_validator=lambda _: None,
+        runtime_to_wire=lambda value: value,
+        runtime_from_wire=lambda value: value,
+    )
+    original_node = contracts["score.intrinsic"].public_contract()[
+        "descriptor"
+    ]
+    residue_node = _contract(
+        "node_type",
+        "score.residue",
+        {
+            key: value
+            for key, value in original_node.items()
+            if key
+            not in {
+                "contract_kind",
+                "contract_id",
+                "contract_version",
+                "schema_namespace",
+                "inputs",
+            }
+        }
+        | {
+            "inputs": [
+                {
+                    "name": "residue_axis",
+                    "port_type": axis_type.reference(),
+                    "required": True,
+                    "multiplicity": "one",
+                    "scientific_meaning": "Exact prediction residue axis.",
+                }
+            ]
+        },
+    )
     original = contracts["score.intrinsic.direct"].public_contract()[
         "descriptor"
     ]
@@ -692,9 +1128,11 @@ def test_binding_output_validates_per_residue_shape_range_and_masking() -> None:
                 "contract_version",
                 "schema_namespace",
                 "produced_observations",
+                "node_type",
             }
         }
         | {
+            "node_type": residue_node.reference(),
             "produced_observations": [
                 {
                     "output_port": "scores",
@@ -704,6 +1142,8 @@ def test_binding_output_validates_per_residue_shape_range_and_masking() -> None:
                     "source_role": "subject",
                     "subject_direction": "output",
                     "subject_port": "candidates",
+                    "axis_direction": "input",
+                    "axis_port": "residue_axis",
                     "guaranteed_multiplicity": "one",
                 }
             ]
@@ -711,19 +1151,46 @@ def test_binding_output_validates_per_residue_shape_range_and_masking() -> None:
     )
     residue_catalog = replace(
         catalog,
-        contracts=(*catalog.contracts, residue_metric, residue_binding),
+        port_types=(*catalog.port_types, axis_type),
+        contracts=(
+            *catalog.contracts,
+            residue_metric,
+            residue_node,
+            residue_binding,
+        ),
     )
     candidates = CandidateCollection(
         "candidates",
         "protein.sequence",
         [Candidate("candidate-1", ProteinSequence("AAA"))],
     )
+    sequence_type = residue_catalog.require_port_type(
+        "protein.sequence", "3.0.0"
+    )
+    subject = CandidateDataReference(
+        "candidate-1",
+        "protein.sequence",
+        sequence_type.content_digest(candidates.items[0].data),
+    )
+    axis_reference = axis_type.reference()
+    axis_holder["axis"] = ResidueAxisReference(
+        axis_kind="prediction_input",
+        axis_contract=ExactContractReference(**axis_reference),
+        axis_content_digest="sha256:" + ("a" * 64),
+        source=subject,
+        layout=ResidueLayout(
+            "A",
+            3,
+            ("A:1", "A:2", "A:3"),
+        ),
+    )
     observation = ScoreObservation(
-        candidate_id="candidate-1",
+        subject=subject,
         metric=_reference(residue_metric),
         method=_reference(contracts["method.a"]),
         context=IntrinsicObservationContext(),
         value=[80, None, 95],
+        residue_axis=axis_holder["axis"],
     )
     scores = ScoreCollection("scores", [observation])
 
@@ -732,7 +1199,7 @@ def test_binding_output_validates_per_residue_shape_range_and_masking() -> None:
         binding=residue_binding,
         output_port="scores",
         collection=scores,
-        inputs={},
+        inputs={"residue_axis": "fixture-axis"},
         outputs={"candidates": candidates, "scores": scores},
     )
 
@@ -745,10 +1212,10 @@ def test_binding_output_validates_per_residue_shape_range_and_masking() -> None:
                 "scores",
                 [replace(observation, value=[80, None, 101])],
             ),
-            inputs={},
+            inputs={"residue_axis": "fixture-axis"},
             outputs={"candidates": candidates},
         )
-    with pytest.raises(PortValueError, match="exact subject residue layout"):
+    with pytest.raises(PortValueError, match="exact residue layout"):
         validate_produced_score_collection(
             catalog=residue_catalog,
             binding=residue_binding,
@@ -757,9 +1224,133 @@ def test_binding_output_validates_per_residue_shape_range_and_masking() -> None:
                 "scores",
                 [replace(observation, value=[80, 95])],
             ),
-            inputs={},
+            inputs={"residue_axis": "fixture-axis"},
             outputs={"candidates": candidates},
         )
+    with pytest.raises(PortValueError, match="does not resolve exactly once"):
+        validate_produced_score_collection(
+            catalog=residue_catalog,
+            binding=residue_binding,
+            output_port="scores",
+            collection=ScoreCollection(
+                "scores",
+                [replace(observation, residue_axis=None)],
+            ),
+            inputs={"residue_axis": "fixture-axis"},
+            outputs={"candidates": candidates},
+        )
+    wrong_subject = CandidateDataReference(
+        "candidate-1",
+        "protein.sequence",
+        "sha256:" + ("f" * 64),
+    )
+    with pytest.raises(PortValueError, match="exact subject"):
+        validate_produced_score_collection(
+            catalog=residue_catalog,
+            binding=residue_binding,
+            output_port="scores",
+            collection=ScoreCollection(
+                "scores",
+                [replace(observation, subject=wrong_subject)],
+            ),
+            inputs={"residue_axis": "fixture-axis"},
+            outputs={"candidates": candidates},
+        )
+
+
+def test_modified_polymer_axis_length_does_not_use_raw_atom_record_count() -> None:
+    metric = ExactContractReference(
+        "metric", "residue.quality", "1.0.0", "sha256:" + ("1" * 64)
+    )
+    method = ExactContractReference(
+        "method", "fixture", "1.0.0", "sha256:" + ("2" * 64)
+    )
+    subject = CandidateDataReference(
+        "structure-1", "protein.structure", "sha256:" + ("3" * 64)
+    )
+    structure = Candidate(
+        "structure-1",
+        ProteinStructure(
+            "ATOM      1  CA  ALA A   1      0.000   0.000   0.000\n"
+            "HETATM    2  CA  MSE A   2      1.000   0.000   0.000\n"
+            "ATOM      3  CA  GLY A   3      2.000   0.000   0.000\nEND"
+        ),
+    )
+    axis = ResidueAxisReference(
+        axis_kind="resolved_structure",
+        axis_contract=ExactContractReference(
+            "port_type",
+            "structure_transform.resolved_residue_axis",
+            "4.0.0",
+            "sha256:" + ("4" * 64),
+        ),
+        axis_content_digest="sha256:" + ("5" * 64),
+        source=subject,
+        layout=ResidueLayout("A", 3, ("A:1", "A:2", "A:3")),
+    )
+    observation = ScoreObservation(
+        subject=subject,
+        metric=metric,
+        method=method,
+        context=IntrinsicObservationContext(),
+        value=[80, 90, 95],
+        residue_axis=axis,
+    )
+    collection = ScoreCollection("scores", [observation])
+    reference = lambda item: {
+        "contract_kind": item.contract_kind,
+        "contract_id": item.contract_id,
+        "contract_version": item.contract_version,
+        "contract_digest": item.contract_digest,
+    }
+    validate_produced_score_collection_from_facts(
+        binding_descriptor={
+            "method": reference(method),
+            "produced_observations": [
+                {
+                    "output_port": "scores",
+                    "metric": reference(metric),
+                    "context_profile": {"kind": "intrinsic"},
+                    "subject_grain": "candidate",
+                    "source_role": "subject",
+                    "subject_direction": "input",
+                    "subject_port": "structures",
+                    "axis_direction": "input",
+                    "axis_port": "axes",
+                    "guaranteed_multiplicity": "one",
+                }
+            ],
+        },
+        output_port="scores",
+        collection=collection,
+        inputs={
+            "structures": CandidateCollection(
+                "structures", "protein.structure", [structure]
+            ),
+            "axes": "axis",
+        },
+        outputs={"scores": collection},
+        metric_facts={
+            (
+                metric.contract_kind,
+                metric.contract_id,
+                metric.contract_version,
+                metric.contract_digest,
+            ): ResolvedMetricFacts(
+                metric,
+                "per_residue",
+                0,
+                100,
+                False,
+                True,
+                False,
+                True,
+            )
+        },
+        axis_references={("input", "axes"): (axis,)},
+        method_references={},
+        candidate_references={("input", "structures"): (subject,)},
+    )
 
 
 def test_explicit_utilities_normalize_weights_and_record_provenance() -> None:
@@ -900,12 +1491,16 @@ def test_unselected_collection_cannot_override_pairwise_subject_digest() -> None
     selected = Candidate("subject", ProteinSequence("AA"))
     conflicting = Candidate("subject", ProteinSequence("GG"))
     reference = Candidate("reference", ProteinSequence("AG"))
-    sequence_type = catalog.require_port_type("protein.sequence", "2.1.0")
+    sequence_type = catalog.require_port_type("protein.sequence", "3.0.0")
     scores = ScoreCollection(
         "scores",
         [
             ScoreObservation(
-                candidate_id="subject",
+                subject=CandidateDataReference(
+                    "subject",
+                    "protein.sequence",
+                    sequence_type.content_digest(conflicting.data),
+                ),
                 metric=_reference_from_contract(
                     contracts["structure.tm_score"]
                 ),
@@ -913,16 +1508,18 @@ def test_unselected_collection_cannot_override_pairwise_subject_digest() -> None
                 context=PairwiseObservationContext(
                     subject=PairwiseParticipant(
                         role="subject",
-                        candidate_id="subject",
-                        content_digest=sequence_type.content_digest(
-                            conflicting.data
+                        candidate=CandidateDataReference(
+                            "subject",
+                            "protein.sequence",
+                            sequence_type.content_digest(conflicting.data),
                         ),
                     ),
                     reference=PairwiseParticipant(
                         role="reference",
-                        candidate_id="reference",
-                        content_digest=sequence_type.content_digest(
-                            reference.data
+                        candidate=CandidateDataReference(
+                            "reference",
+                            "protein.sequence",
+                            sequence_type.content_digest(reference.data),
                         ),
                     ),
                     pairing_mode="fixed_reference",
@@ -951,7 +1548,7 @@ def test_unselected_collection_cannot_override_pairwise_subject_digest() -> None
         source_partition="fixed-reference",
     )
 
-    with pytest.raises(SelectionError, match="content digest"):
+    with pytest.raises(SelectionError, match="exact Candidate"):
         select_candidates(
             candidate_inputs={
                 selected_input: CandidateCollection(
@@ -1107,6 +1704,15 @@ def _workflow_payload(
         "workflow_id": "workflow-scoring",
         "nodes": [
             {
+                "node_id": "source",
+                "node_type_id": "candidate.source",
+                "node_type_version": "2.1.0",
+                "binding_id": "candidate.source.direct",
+                "binding_version": "2.1.0",
+                "node_parameters": {},
+                "binding_parameters": {},
+            },
+            {
                 "node_id": "producer",
                 "node_type_id": "score.intrinsic",
                 "node_type_version": "2.1.0",
@@ -1114,14 +1720,45 @@ def _workflow_payload(
                 "binding_version": "2.1.0",
                 "node_parameters": {},
                 "binding_parameters": {},
-            }
+            },
+            {
+                "node_id": "select",
+                "node_type_id": "selection.weighted_rank",
+                "node_type_version": "4.0.0",
+                "binding_id": "selection.weighted_rank.direct",
+                "binding_version": "4.0.0",
+                "node_parameters": {
+                    "objective_ids": ["quality-objective"],
+                    "tie_policy": "candidate_id_ascending",
+                },
+                "binding_parameters": {},
+            },
         ],
-        "edges": [],
+        "edges": [
+            {
+                "source_node_id": "source",
+                "source_port": "candidates",
+                "target_node_id": "producer",
+                "target_port": "candidates",
+            },
+            {
+                "source_node_id": "source",
+                "source_port": "candidates",
+                "target_node_id": "select",
+                "target_port": "candidates",
+            },
+            {
+                "source_node_id": "producer",
+                "source_port": "scores",
+                "target_node_id": "select",
+                "target_port": "scores",
+            },
+        ],
         "selection_objectives": [
             {
                 "objective_id": "quality-objective",
                 "candidate_input": {
-                    "node_id": "producer",
+                    "node_id": "source",
                     "output_port": "candidates",
                 },
                 "score_collection_input": {
@@ -1143,12 +1780,255 @@ def _workflow_payload(
     }
 
 
+def _dynamic_observation_method_payload(
+    contracts: dict[str, CatalogContract],
+    *,
+    selection_kind: str,
+    requested_method: str,
+    generation_node_id: str = "generation",
+    materializer_node_id: str = "materializer",
+    selection_node_id: str = "select",
+) -> dict:
+    if selection_kind == "objective":
+        selection_node = {
+            "node_id": selection_node_id,
+            "node_type_id": "selection.weighted_rank",
+            "node_type_version": "4.0.0",
+            "binding_id": "selection.weighted_rank.direct",
+            "binding_version": "4.0.0",
+            "node_parameters": {
+                "objective_ids": ["quality-objective"],
+                "tie_policy": "candidate_id_ascending",
+            },
+            "binding_parameters": {},
+        }
+    else:
+        assert selection_kind == "selector"
+        selection_node = {
+            "node_id": selection_node_id,
+            "node_type_id": "selection.filter",
+            "node_type_version": "4.0.0",
+            "binding_id": "selection.filter.direct",
+            "binding_version": "4.0.0",
+            "node_parameters": {
+                "selector_id": "quality-selector",
+                "operator": ">=",
+                "threshold": 0.5,
+                "out_of_scope_policy": "error",
+                "tie_policy": "candidate_id_ascending",
+            },
+            "binding_parameters": {},
+        }
+    observation_request = {
+        "candidate_input": {
+            "node_id": "source",
+            "output_port": "candidates",
+        },
+        "score_collection_input": {
+            "node_id": materializer_node_id,
+            "output_port": "scores",
+        },
+        "source_partition": "default",
+        "metric": contracts["quality"].reference(),
+        "method": contracts[requested_method].reference(),
+        "context_selector": {"kind": "intrinsic"},
+        "match_cardinality": "exactly_one",
+        "missing_policy": "error",
+    }
+    return {
+        "schema_version": "2.1.0",
+        "workflow_id": "workflow-dynamic-observation-method",
+        "nodes": [
+            {
+                "node_id": "source",
+                "node_type_id": "candidate.source",
+                "node_type_version": "2.1.0",
+                "binding_id": "candidate.source.direct",
+                "binding_version": "2.1.0",
+                "node_parameters": {},
+                "binding_parameters": {},
+            },
+            {
+                "node_id": generation_node_id,
+                "node_type_id": "generation.confidence_facts",
+                "node_type_version": "2.1.0",
+                "binding_id": "generation.confidence_facts.method_a",
+                "binding_version": "2.1.0",
+                "node_parameters": {},
+                "binding_parameters": {},
+            },
+            {
+                "node_id": materializer_node_id,
+                "node_type_id": "score.materialize_confidence",
+                "node_type_version": "2.1.0",
+                "binding_id": "score.materialize_confidence.method_b",
+                "binding_version": "2.1.0",
+                "node_parameters": {},
+                "binding_parameters": {},
+            },
+            selection_node,
+        ],
+        "edges": [
+            {
+                "source_node_id": "source",
+                "source_port": "candidates",
+                "target_node_id": generation_node_id,
+                "target_port": "candidates",
+            },
+            {
+                "source_node_id": "source",
+                "source_port": "candidates",
+                "target_node_id": materializer_node_id,
+                "target_port": "candidates",
+            },
+            {
+                "source_node_id": generation_node_id,
+                "source_port": "facts",
+                "target_node_id": materializer_node_id,
+                "target_port": "facts",
+            },
+            {
+                "source_node_id": "source",
+                "source_port": "candidates",
+                "target_node_id": selection_node_id,
+                "target_port": "candidates",
+            },
+            {
+                "source_node_id": materializer_node_id,
+                "source_port": "scores",
+                "target_node_id": selection_node_id,
+                "target_port": "scores",
+            },
+        ],
+        "observation_selectors": (
+            [
+                {
+                    "selector_id": "quality-selector",
+                    **observation_request,
+                }
+            ]
+            if selection_kind == "selector"
+            else []
+        ),
+        "selection_objectives": (
+            [
+                {
+                    "objective_id": "quality-objective",
+                    **observation_request,
+                    "utility_transform": contracts[
+                        "quality.linear"
+                    ].reference(),
+                    "utility_parameters": {},
+                    "weight": 1,
+                }
+            ]
+            if selection_kind == "objective"
+            else []
+        ),
+        "contract_lock": [],
+    }
+
+
+def _compile_dynamic_observation_method(
+    *,
+    selection_kind: str,
+    requested_method: str,
+    generation_node_id: str = "generation",
+    materializer_node_id: str = "materializer",
+    selection_node_id: str = "select",
+):
+    catalog, contracts = _dynamic_observation_method_catalog()
+    workflow = parse_workflow_document(
+        _dynamic_observation_method_payload(
+            contracts,
+            selection_kind=selection_kind,
+            requested_method=requested_method,
+            generation_node_id=generation_node_id,
+            materializer_node_id=materializer_node_id,
+            selection_node_id=selection_node_id,
+        )
+    )
+    return compile_workflow(
+        relock_workflow(workflow, catalog),
+        workflow_commit_revision=1,
+        catalog=catalog,
+    )
+
+
+@pytest.mark.parametrize("selection_kind", ["objective", "selector"])
+def test_compiler_uses_generation_method_for_dynamic_observation_capability(
+    selection_kind: str,
+) -> None:
+    compiled = _compile_dynamic_observation_method(
+        selection_kind=selection_kind,
+        requested_method="method.a",
+    )
+
+    selected = (
+        compiled.execution_plan.selection_objectives
+        if selection_kind == "objective"
+        else compiled.execution_plan.observation_selectors
+    )
+    assert selected[0].method.contract_id == "method.a"
+
+
+@pytest.mark.parametrize(
+    ("selection_kind", "collection", "error_code"),
+    [
+        (
+            "objective",
+            "selection_objectives",
+            "unsatisfied_selection_objective",
+        ),
+        (
+            "selector",
+            "observation_selectors",
+            "unsatisfied_observation_selector",
+        ),
+    ],
+)
+def test_compiler_rejects_materializer_method_for_dynamic_observation_capability(
+    selection_kind: str,
+    collection: str,
+    error_code: str,
+) -> None:
+    with pytest.raises(WorkflowCompileError) as captured:
+        _compile_dynamic_observation_method(
+            selection_kind=selection_kind,
+            requested_method="method.b",
+        )
+
+    assert captured.value.code == error_code
+    assert captured.value.field_path == (collection, 0, "method")
+    assert "Method" in str(captured.value)
+
+
+@pytest.mark.parametrize("selection_kind", ["objective", "selector"])
+def test_dynamic_observation_method_capability_is_independent_of_node_ids(
+    selection_kind: str,
+) -> None:
+    compiled = _compile_dynamic_observation_method(
+        selection_kind=selection_kind,
+        requested_method="method.a",
+        generation_node_id="fact-origin",
+        materializer_node_id="observation-bridge",
+        selection_node_id="decision",
+    )
+
+    assert {node.node_id for node in compiled.execution_plan.nodes} == {
+        "source",
+        "fact-origin",
+        "observation-bridge",
+        "decision",
+    }
+
+
 def test_compiler_resolves_exact_intrinsic_objective_before_runtime() -> None:
     catalog, contracts = _scoring_catalog()
     workflow = parse_workflow_document(_workflow_payload(contracts))
     locked = relock_workflow(workflow, catalog)
 
-    compiled = compile_workflow(locked, workflow_revision=1, catalog=catalog)
+    compiled = compile_workflow(locked, workflow_commit_revision=1, catalog=catalog)
 
     assert compiled.execution_plan.selection_objectives[0].metric == (
         _reference(contracts["quality"])
@@ -1167,12 +2047,12 @@ def test_compiler_resolves_exact_intrinsic_objective_before_runtime() -> None:
     )
     compile_workflow(
         relock_workflow(novelty, catalog),
-        workflow_revision=1,
+        workflow_commit_revision=1,
         catalog=catalog,
     )
 
 
-def test_compiler_and_runtime_accept_65_declared_objectives() -> None:
+def test_compiler_binds_65_declared_objectives_to_explicit_selection() -> None:
     catalog, contracts = _scoring_catalog()
     payload = _workflow_payload(contracts)
     template = payload["selection_objectives"][0]
@@ -1180,42 +2060,28 @@ def test_compiler_and_runtime_accept_65_declared_objectives() -> None:
         {**template, "objective_id": f"quality-objective-{index}"}
         for index in range(65)
     ]
+    payload["nodes"][2]["node_parameters"]["objective_ids"] = [
+        objective["objective_id"]
+        for objective in payload["selection_objectives"]
+    ]
     workflow = parse_workflow_document(payload)
     compiled = compile_workflow(
         relock_workflow(workflow, catalog),
-        workflow_revision=1,
+        workflow_commit_revision=1,
         catalog=catalog,
     )
-    candidate_input = SelectionInput("producer", "candidates")
-    score_input = SelectionInput("producer", "scores")
-    candidates = CandidateCollection(
-        "candidates",
-        "protein.sequence",
-        [Candidate("candidate-1", ProteinSequence("AA"))],
+    selection_node = next(
+        node
+        for node in compiled.execution_plan.nodes
+        if node.node_id == "select"
     )
-    selection = select_candidates(
-        candidate_inputs={candidate_input: candidates},
-        score_collection_inputs={
-            score_input: ScoreCollection(
-                "scores",
-                [_observation(contracts, "candidate-1", 90)],
-            )
-        },
-        objectives=compiled.execution_plan.selection_objectives,
-        catalog=catalog,
-        limit=1,
-    )
-    provenance = selection.public_provenance()
-    result = {
-        "status": "succeeded",
-        "candidate_input": candidate_input.to_public(),
-        "selected_collection_id": selection.candidates.collection_id,
-        "selected_candidate_ids": ["candidate-1"],
-        "objectives": provenance["objectives"],
-    }
 
-    assert len(provenance["objectives"]) == 65
-    validate_schema("#/$defs/SelectionResult", result)
+    assert len(compiled.execution_plan.selection_objectives) == 65
+    assert len(selection_node._runtime.selection_objectives) == 65
+    assert [
+        objective.objective.objective_id
+        for objective in selection_node._runtime.selection_objectives
+    ] == [f"quality-objective-{index}" for index in range(65)]
 
 
 def test_run_executes_objectives_and_publishes_effective_provenance(
@@ -1238,6 +2104,11 @@ def test_run_executes_objectives_and_publishes_effective_provenance(
     app = create_app(
         frozen_catalog_override=catalog,
         v2_environment_configuration={
+            ("candidate.source.direct", "2.1.0"): {
+                "values": {},
+                "safe_fingerprint": "candidate-source-fixture-v1",
+                "invalidation_token": "candidate-source-assets-v1",
+            },
             ("score.intrinsic.direct", "2.1.0"): {
                 "values": {},
                 "safe_fingerprint": "scoring-fixture-v1",
@@ -1248,38 +2119,24 @@ def test_run_executes_objectives_and_publishes_effective_provenance(
 
     with TestClient(app) as client:
         project = client.post(
-            "/api/projects",
+            "/api/v2/projects",
             json={"name": "intrinsic scoring"},
         ).json()
         project_id = project["id"]
         workflow = _workflow_payload(contracts)
         workflow["workflow_id"] = project_id
-        saved = client.put(
-            f"/api/v2/projects/{project_id}/workflow",
+        committed = client.post(
+            f"/api/v2/projects/{project_id}/workflow:commit",
             json={
-                "expected_workflow_revision": 0,
+                "expected_draft_revision": 0,
                 "workflow": workflow,
             },
         )
-        assert saved.status_code == 200
-        relocked = client.post(
-            f"/api/v2/projects/{project_id}/workflow:relock",
-            json={"workflow_revision": 1},
-        )
-        assert relocked.status_code == 200
-        compiled = client.post(
-            f"/api/v2/projects/{project_id}/workflow:compile",
-            json={
-                "workflow_revision": 2,
-                "workflow": relocked.json()["workflow"],
-            },
-        )
-        assert compiled.status_code == 200
+        assert committed.status_code == 200
         started = client.post(
             f"/api/v2/projects/{project_id}/runs",
             json={
-                "workflow_revision": 2,
-                "compile_id": compiled.json()["compile_id"],
+                "workflow_commit_id": committed.json()["workflow_commit_id"],
                 "client_request_id": "scoring-run-1",
             },
         )
@@ -1307,14 +2164,14 @@ def test_run_executes_objectives_and_publishes_effective_provenance(
         produced_ids[0],
     ]
     assert result["candidate_input"] == {
-        "node_id": "producer",
+        "node_id": "source",
         "output_port": "candidates",
     }
     assert result["objectives"] == [
         {
             "objective_id": "quality-objective",
             "candidate_input": {
-                "node_id": "producer",
+                "node_id": "source",
                 "output_port": "candidates",
             },
                 "score_collection_input": {
@@ -1336,6 +2193,11 @@ def test_run_executes_objectives_and_publishes_effective_provenance(
     reloaded_app = create_app(
         frozen_catalog_override=catalog,
         v2_environment_configuration={
+            ("candidate.source.direct", "2.1.0"): {
+                "values": {},
+                "safe_fingerprint": "candidate-source-fixture-v1",
+                "invalidation_token": "candidate-source-assets-v1",
+            },
             ("score.intrinsic.direct", "2.1.0"): {
                 "values": {},
                 "safe_fingerprint": "scoring-fixture-v1",
@@ -1379,6 +2241,11 @@ def test_selection_failure_is_public_and_survives_ledger_reload(
         str(tmp_path / "outputs"),
     )
     environment = {
+        ("candidate.source.direct", "2.1.0"): {
+            "values": {},
+            "safe_fingerprint": "candidate-source-fixture-v1",
+            "invalidation_token": "candidate-source-assets-v1",
+        },
         ("score.intrinsic.direct", "2.1.0"): {
             "values": {},
             "safe_fingerprint": "scoring-fixture-v1",
@@ -1392,35 +2259,24 @@ def test_selection_failure_is_public_and_survives_ledger_reload(
 
     with TestClient(app) as client:
         project = client.post(
-            "/api/projects",
+            "/api/v2/projects",
             json={"name": "unsafe intrinsic scoring"},
         ).json()
         project_id = project["id"]
         workflow = _workflow_payload(contracts)
         workflow["workflow_id"] = project_id
-        assert client.put(
-            f"/api/v2/projects/{project_id}/workflow",
+        committed = client.post(
+            f"/api/v2/projects/{project_id}/workflow:commit",
             json={
-                "expected_workflow_revision": 0,
+                "expected_draft_revision": 0,
                 "workflow": workflow,
             },
-        ).status_code == 200
-        relocked = client.post(
-            f"/api/v2/projects/{project_id}/workflow:relock",
-            json={"workflow_revision": 1},
         )
-        compiled = client.post(
-            f"/api/v2/projects/{project_id}/workflow:compile",
-            json={
-                "workflow_revision": 2,
-                "workflow": relocked.json()["workflow"],
-            },
-        )
+        assert committed.status_code == 200
         started = client.post(
             f"/api/v2/projects/{project_id}/runs",
             json={
-                "workflow_revision": 2,
-                "compile_id": compiled.json()["compile_id"],
+                "workflow_commit_id": committed.json()["workflow_commit_id"],
                 "client_request_id": "unsafe-scoring-run-1",
             },
         )
@@ -1442,10 +2298,12 @@ def test_selection_failure_is_public_and_survives_ledger_reload(
 
     assert projection["status"] == "failed"
     assert projection["selection_results"] == []
-    assert projection["selection_error"]["code"] == "selection_failed"
-    assert projection["selection_error"]["message"] == (
-        "Workflow selection failed safely"
-    )
+    assert "selection_error" not in projection
+    assert next(
+        disposition
+        for disposition in projection["node_dispositions"]
+        if disposition["node_id"] == "select"
+    )["outcome"] == "failed"
     selection_events = [
         message["event"]
         for message in messages
@@ -1453,13 +2311,17 @@ def test_selection_failure_is_public_and_survives_ledger_reload(
     ]
     for message in messages:
         validate_event(message)
-    assert selection_events == [
-        {
-            "type": "selection_terminal",
-            "status": "failed",
-            "error": projection["selection_error"],
-        }
-    ]
+    assert selection_events == []
+    operation_terminal = next(
+        message["event"]
+        for message in messages
+        if message["event"]["type"] == "operation_attempt_terminal"
+        and message["event"]["status"] == "failed"
+    )
+    assert operation_terminal["error"]["code"] == "node_execution_failed"
+    assert operation_terminal["error"]["details"] == {
+        "exception_type": "SelectionError"
+    }
     reloaded_app = create_app(
         frozen_catalog_override=unsafe_catalog,
         v2_environment_configuration=environment,
@@ -1469,9 +2331,11 @@ def test_selection_failure_is_public_and_survives_ledger_reload(
             f"/api/v2/projects/{project_id}/runs/{run_id}"
         )
     assert reloaded.status_code == 200
-    assert reloaded.json()["selection_error"] == (
-        projection["selection_error"]
+    assert reloaded.json()["status"] == "failed"
+    assert reloaded.json()["node_dispositions"] == (
+        projection["node_dispositions"]
     )
+    assert "selection_error" not in reloaded.json()
 
 
 @pytest.mark.parametrize(
@@ -1494,7 +2358,7 @@ def test_compiler_rejects_unsatisfied_objective_before_provider(
     locked = relock_workflow(workflow, catalog)
 
     with pytest.raises(WorkflowCompileError, match=message):
-        compile_workflow(locked, workflow_revision=1, catalog=catalog)
+        compile_workflow(locked, workflow_commit_revision=1, catalog=catalog)
 
 
 def test_compiler_rejects_metric_not_guaranteed_by_selected_binding() -> None:
@@ -1551,7 +2415,7 @@ def test_compiler_rejects_metric_not_guaranteed_by_selected_binding() -> None:
     with pytest.raises(WorkflowCompileError, match="cannot guarantee"):
         compile_workflow(
             locked,
-            workflow_revision=1,
+            workflow_commit_revision=1,
             catalog=limited_catalog,
         )
 
@@ -1585,7 +2449,7 @@ def test_compiler_rejects_weighting_across_different_candidate_inputs() -> None:
     ):
         compile_workflow(
             relock_workflow(workflow, catalog),
-            workflow_revision=1,
+            workflow_commit_revision=1,
             catalog=catalog,
         )
 

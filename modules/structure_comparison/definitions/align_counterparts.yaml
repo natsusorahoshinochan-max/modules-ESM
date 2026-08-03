@@ -1,0 +1,52 @@
+schema_version: "2.1.0"
+node_type_id: structure_comparison.align_counterparts
+version: "4.0.0"
+title: Align exact Candidate counterparts
+summary: Aligns every subject to its explicitly paired reference counterpart through exact Candidate-associated resolved residue axes.
+category: structure_comparison
+inputs:
+  - name: subjects
+    port_type_id: candidate.collection
+    port_type_version: "3.0.0"
+    required: true
+    multiplicity: one
+    scientific_meaning: Nonempty subject structure Candidates; collection position never establishes counterparts.
+  - name: subject_residue_axes
+    port_type_id: structure_transform.candidate_resolved_residue_axis_associations
+    port_type_version: "5.0.0"
+    required: true
+    multiplicity: one
+    scientific_meaning: Complete exact-reference-associated subject axes.
+  - name: references
+    port_type_id: candidate.collection
+    port_type_version: "3.0.0"
+    required: true
+    multiplicity: one
+    scientific_meaning: Reference structure Candidates whose counterparts are established only by the explicit pairing.
+  - name: reference_residue_axes
+    port_type_id: structure_transform.candidate_resolved_residue_axis_associations
+    port_type_version: "5.0.0"
+    required: true
+    multiplicity: one
+    scientific_meaning: Complete exact-reference-associated reference axes.
+  - name: pairing
+    port_type_id: candidate.pairing
+    port_type_version: "3.0.0"
+    required: true
+    multiplicity: one
+    scientific_meaning: Complete one-to-one mapping whose subject and reference are exact protein.structure Candidate Data References.
+outputs:
+  - name: alignments
+    port_type_id: structure_comparison.alignment_evidence
+    port_type_version: "4.0.0"
+    required: true
+    multiplicity: many
+    scientific_meaning: One complete v4 alignment evidence value per exact paired Candidate counterpart.
+parameter_groups: []
+node_parameters:
+  pin_matching_chain_ids:
+    parameter_scope: scientific
+    scientific_meaning: When true, uniquely and identically named segments are pinned before sequence-based assignment; duplicate names fail. The default ignores chain identifiers.
+    value_contract:
+      type: boolean
+    default: false

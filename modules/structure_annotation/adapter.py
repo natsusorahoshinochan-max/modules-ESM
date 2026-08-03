@@ -2,11 +2,9 @@
 
 from __future__ import annotations
 
-from collections import defaultdict
 from collections.abc import Mapping
 from dataclasses import dataclass
 from io import StringIO
-import math
 import os
 from pathlib import Path
 import re
@@ -16,7 +14,7 @@ from typing import Any
 from Bio.PDB.MMCIF2Dict import MMCIF2Dict
 
 from core import ReadinessResult, RunResources
-from datatypes import ProteinStructure, ResidueLayout
+from datatypes import CandidateDataReference, ResolvedStructureResidueAxis
 
 from .domain import DSSPAnnotation
 
@@ -29,8 +27,6 @@ MKDSSP_SOURCE_ARCHIVE_SHA256 = (
     "5ddb8274f03ac0338adffcd661989f515fffb95d40afca404cf2677024256ae3"
 )
 _DSSP_SECONDARY = frozenset("GHITEBSP")
-_DSSP_CA_COORDINATE_TOLERANCE = 0.0500001
-_PDB_RESIDUE_LABEL = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$")
 
 
 def mkdssp_provider_identity() -> dict[str, str]:
@@ -91,162 +87,27 @@ def mkdssp_readiness(environment: Mapping[str, Any]) -> ReadinessResult:
 
 
 @dataclass(frozen=True, slots=True)
-class _ParsedStructure:
-    layout: ResidueLayout
-    residue_names: tuple[str, ...]
-    ca_coordinates: tuple[tuple[float, float, float] | None, ...]
-
-
-@dataclass(frozen=True, slots=True)
 class _DSSPRow:
-    chain_id: str
+    label_asym_id: str
     label_seq_id: str
-    residue_name: str
     secondary_structure: str
     accessibility: str
-    ca_coordinate: tuple[float, float, float]
-
-
-def _structure_layout(structure: ProteinStructure) -> _ParsedStructure:
-    """Project one canonical structure onto the exact mkdssp request layout."""
-    if type(structure) is not ProteinStructure:
-        raise ValueError("DSSP computation requires one ProteinStructure")
-    model_count = sum(
-        line.startswith("MODEL ")
-        for line in structure.pdb_string.splitlines()
-    )
-    if model_count > 1:
-        raise ValueError("DSSP computation requires a single-model structure")
-
-    residues: list[tuple[str, str]] = []
-    residue_names: list[str] = []
-    ca_coordinates: list[tuple[float, float, float] | None] = []
-    ca_altlocs: list[str | None] = []
-    seen: set[tuple[str, str]] = set()
-    previous: tuple[str, str] | None = None
-    closed_chains: set[str] = set()
-    previous_chain: str | None = None
-    chain_order: list[str] = []
-    for line in structure.pdb_string.splitlines():
-        if not line.startswith("ATOM  "):
-            continue
-        if len(line) < 27:
-            raise ValueError("structure contains a truncated ATOM record")
-        chain = line[21].strip()
-        sequence_label = line[22:26].strip()
-        insertion_code = line[26].strip()
-        residue_name = line[17:20].strip()
-        if (
-            len(chain) != 1
-            or not chain.isalnum()
-            or not sequence_label
-            or not residue_name
-            or not residue_name.isalpha()
-        ):
-            raise ValueError(
-                "structure residue identity cannot be represented exactly"
-            )
-        residue_label = f"{sequence_label}{insertion_code}"
-        if _PDB_RESIDUE_LABEL.fullmatch(residue_label) is None:
-            raise ValueError(
-                "structure residue label cannot be represented exactly"
-            )
-        identity = (chain, residue_label)
-        if identity != previous:
-            if identity in seen:
-                raise ValueError(
-                    "structure contains a non-contiguous duplicate residue"
-                )
-            if chain != previous_chain:
-                if chain in closed_chains:
-                    raise ValueError(
-                        "structure chain boundaries are not contiguous"
-                    )
-                if previous_chain is not None:
-                    closed_chains.add(previous_chain)
-                chain_order.append(chain)
-                previous_chain = chain
-            residues.append(identity)
-            residue_names.append(residue_name.upper())
-            ca_coordinates.append(None)
-            ca_altlocs.append(None)
-            seen.add(identity)
-            previous = identity
-        elif residue_names[-1] != residue_name.upper():
-            raise ValueError(
-                "structure residue identity has conflicting names"
-            )
-
-        if line[12:16].strip() != "CA":
-            continue
-        altloc = line[16:17].strip()
-        if altloc not in {"", "A"}:
-            continue
-        try:
-            coordinate = (
-                float(line[30:38]),
-                float(line[38:46]),
-                float(line[46:54]),
-            )
-        except ValueError as error:
-            raise ValueError(
-                "structure contains malformed CA coordinates"
-            ) from error
-        if not all(math.isfinite(value) for value in coordinate):
-            raise ValueError("structure contains non-finite CA coordinates")
-        selected_altloc = ca_altlocs[-1]
-        if selected_altloc == "" or (
-            selected_altloc == "A" and altloc == "A"
-        ):
-            if ca_coordinates[-1] != coordinate:
-                raise ValueError(
-                    "structure contains duplicate selected CA coordinates"
-                )
-            continue
-        ca_coordinates[-1] = coordinate
-        ca_altlocs[-1] = altloc
-    if not residues:
-        raise ValueError("structure contains no protein ATOM residues")
-    return _ParsedStructure(
-        layout=ResidueLayout(
-            chain_id=",".join(chain_order),
-            length=len(residues),
-            residue_ids=[
-                f"{chain}:{residue_label}"
-                for chain, residue_label in residues
-            ],
-        ),
-        residue_names=tuple(residue_names),
-        ca_coordinates=tuple(ca_coordinates),
-    )
 
 
 def _column(
     parsed: Mapping[str, Any],
     name: str,
 ) -> list[str]:
-    value = parsed.get(name)
+    value = parsed[name]
     if isinstance(value, str):
-        values = [value]
-    elif isinstance(value, list) and all(
-        isinstance(item, str) for item in value
-    ):
-        values = value
-    else:
-        raise ValueError(f"DSSP output is missing required column {name}")
-    if not values:
-        raise ValueError(f"DSSP output column {name} is empty")
-    return values
+        return [value]
+    return value
 
 
-def _parse_dssp_rows(text: str) -> tuple[_DSSPRow, ...]:
-    """Parse the closed mkdssp 4.6.1 mmCIF row contract."""
-    if not text.lstrip().startswith("data_"):
-        text = f"data_structure_annotation\n{text}"
-    try:
-        parsed = MMCIF2Dict(StringIO(text))
-    except Exception as error:
-        raise ValueError("DSSP output is malformed mmCIF") from error
+def _parse_dssp_rows(
+    parsed: Mapping[str, Any],
+) -> tuple[_DSSPRow, ...]:
+    """Read trusted mkdssp summary rows in their label namespace."""
     chain_values = _column(
         parsed,
         "_dssp_struct_summary.label_asym_id",
@@ -254,10 +115,6 @@ def _parse_dssp_rows(text: str) -> tuple[_DSSPRow, ...]:
     sequence_values = _column(
         parsed,
         "_dssp_struct_summary.label_seq_id",
-    )
-    residue_names = _column(
-        parsed,
-        "_dssp_struct_summary.label_comp_id",
     )
     secondary_values = _column(
         parsed,
@@ -267,156 +124,131 @@ def _parse_dssp_rows(text: str) -> tuple[_DSSPRow, ...]:
         parsed,
         "_dssp_struct_summary.accessibility",
     )
-    x_ca_values = _column(parsed, "_dssp_struct_summary.x_ca")
-    y_ca_values = _column(parsed, "_dssp_struct_summary.y_ca")
-    z_ca_values = _column(parsed, "_dssp_struct_summary.z_ca")
-    lengths = {
-        len(chain_values),
-        len(sequence_values),
-        len(residue_names),
-        len(secondary_values),
-        len(accessibility_values),
-        len(x_ca_values),
-        len(y_ca_values),
-        len(z_ca_values),
-    }
-    if len(lengths) != 1:
-        raise ValueError("DSSP output columns have inconsistent lengths")
     rows: list[_DSSPRow] = []
-    for row_index, (
+    for (
         chain,
-        sequence_number,
-        residue_name,
+        residue_label,
         raw_secondary,
         raw_accessibility,
-        raw_x_ca,
-        raw_y_ca,
-        raw_z_ca,
-    ) in enumerate(
-        zip(
-            chain_values,
-            sequence_values,
-            residue_names,
-            secondary_values,
-            accessibility_values,
-            x_ca_values,
-            y_ca_values,
-            z_ca_values,
-            strict=True,
-        )
+    ) in zip(
+        chain_values,
+        sequence_values,
+        secondary_values,
+        accessibility_values,
+        strict=True,
     ):
-        try:
-            ca_coordinate = (
-                float(raw_x_ca),
-                float(raw_y_ca),
-                float(raw_z_ca),
-            )
-        except ValueError as error:
-            raise ValueError(
-                f"DSSP row {row_index} has malformed CA coordinates"
-            ) from error
-        if (
-            len(chain) != 1
-            or not chain.isalnum()
-            or not sequence_number
-            or not residue_name
-            or not residue_name.isalpha()
-            or not all(math.isfinite(value) for value in ca_coordinate)
-        ):
-            raise ValueError(f"DSSP row {row_index} has invalid residue identity")
         rows.append(
             _DSSPRow(
-                chain_id=chain,
-                label_seq_id=sequence_number,
-                residue_name=residue_name.upper(),
+                label_asym_id=chain,
+                label_seq_id=residue_label,
                 secondary_structure=raw_secondary,
                 accessibility=raw_accessibility,
-                ca_coordinate=ca_coordinate,
             )
         )
     return tuple(rows)
 
 
+def _authored_residue_ids(
+    parsed: Mapping[str, Any],
+    rows: tuple[_DSSPRow, ...],
+) -> dict[tuple[str, str], str]:
+    """Join DSSP label identifiers to exact authored PDB identities."""
+    summary_keys = {
+        (row.label_asym_id, row.label_seq_id)
+        for row in rows
+    }
+    authored_by_label: dict[tuple[str, str], str] = {}
+    for (
+        label_asym_id,
+        label_seq_id,
+        auth_asym_id,
+        auth_seq_id,
+        insertion_code,
+    ) in zip(
+        _column(parsed, "_atom_site.label_asym_id"),
+        _column(parsed, "_atom_site.label_seq_id"),
+        _column(parsed, "_atom_site.auth_asym_id"),
+        _column(parsed, "_atom_site.auth_seq_id"),
+        _column(parsed, "_atom_site.pdbx_PDB_ins_code"),
+        strict=True,
+    ):
+        label_identity = (label_asym_id, label_seq_id)
+        if label_identity not in summary_keys:
+            continue
+        authored_identity = (
+            f"{auth_asym_id}:{auth_seq_id}"
+            f"{'' if insertion_code in {'.', '?'} else insertion_code}"
+        )
+        previous = authored_by_label.setdefault(
+            label_identity,
+            authored_identity,
+        )
+        if previous != authored_identity:
+            raise ValueError(
+                "mkdssp atom_site label identity maps to conflicting "
+                "authored residue identities"
+            )
+    return authored_by_label
+
+
 def _parse_dssp_output(
     text: str,
     *,
-    structure: _ParsedStructure,
+    residue_axis: ResolvedStructureResidueAxis,
+    subject: CandidateDataReference,
 ) -> DSSPAnnotation:
     """Admit mkdssp mmCIF while reconciling exact canonical residues."""
-    layout = structure.layout
-    rows = _parse_dssp_rows(text)
-
-    residue_ids = layout.residue_ids or []
-    layout_indices_by_identity: dict[tuple[str, str], list[int]] = defaultdict(
-        list
-    )
-    for index, residue_id in enumerate(residue_ids):
-        chain, _ = residue_id.split(":", 1)
-        coordinate = structure.ca_coordinates[index]
-        if coordinate is None:
-            continue
-        layout_indices_by_identity[
-            (chain, structure.residue_names[index])
-        ].append(index)
+    parsed = MMCIF2Dict(StringIO(text))
+    layout = residue_axis.layout
+    rows = _parse_dssp_rows(parsed)
+    authored_by_label = _authored_residue_ids(parsed, rows)
+    layout_index_by_residue_id = {
+        residue_id: index
+        for index, residue_id in enumerate(layout.residue_ids or ())
+    }
     secondary = ["_"] * layout.length
     sasa: list[float | None] = [None] * layout.length
     mapped: set[int] = set()
     for row_index, row in enumerate(rows):
-        candidates = [
-            index
-            for index in layout_indices_by_identity.get(
-                (row.chain_id, row.residue_name),
-                (),
-            )
-            if structure.ca_coordinates[index] is not None
-            and all(
-                abs(source - observed) <= _DSSP_CA_COORDINATE_TOLERANCE
-                for source, observed in zip(
-                    structure.ca_coordinates[index] or (),
-                    row.ca_coordinate,
-                    strict=True,
-                )
-            )
-        ]
-        if len(candidates) != 1:
+        label_identity = (row.label_asym_id, row.label_seq_id)
+        residue_id = authored_by_label.get(label_identity)
+        if residue_id is None:
             raise ValueError(
-                f"DSSP row {row_index} cannot be reconciled to the structure"
+                f"DSSP row {row_index} has no atom_site authored residue "
+                "identity"
             )
-        layout_index = candidates[0]
+        layout_index = layout_index_by_residue_id.get(residue_id)
+        if layout_index is None:
+            raise ValueError(
+                f"DSSP row {row_index} residue identity is absent from the "
+                "authoritative axis"
+            )
         if layout_index in mapped:
             raise ValueError(
                 f"DSSP row {row_index} duplicates one structure residue"
             )
         mapped.add(layout_index)
         raw_secondary = row.secondary_structure
-        if raw_secondary == ".":
-            normalized_secondary = "C"
-        elif raw_secondary == "?":
-            normalized_secondary = "_"
-        elif raw_secondary in _DSSP_SECONDARY:
-            normalized_secondary = raw_secondary
-        else:
-            raise ValueError(
-                f"DSSP row {row_index} contains an unsupported SS8 symbol"
-            )
+        normalized_secondary = {
+            ".": "C",
+            "?": "_",
+            **{symbol: symbol for symbol in _DSSP_SECONDARY},
+        }[raw_secondary]
         secondary[layout_index] = normalized_secondary
 
         raw_accessibility = row.accessibility
-        if raw_accessibility in {".", "?", "_"}:
+        if raw_accessibility in {".", "?"}:
             accessibility = None
         else:
-            try:
-                accessibility = float(raw_accessibility)
-            except ValueError as error:
-                raise ValueError(
-                    f"DSSP row {row_index} has malformed accessibility"
-                ) from error
-            if not math.isfinite(accessibility) or accessibility < 0:
-                raise ValueError(
-                    f"DSSP row {row_index} has invalid accessibility"
-                )
+            accessibility = float(raw_accessibility)
         sasa[layout_index] = accessibility
+    if mapped != set(range(layout.length)):
+        raise ValueError(
+            "DSSP authored residue identities are not exactly equal to the "
+            "authoritative axis layout"
+        )
     return DSSPAnnotation(
+        subject=subject,
         layout=layout,
         secondary_structure=tuple(secondary),
         sasa=tuple(sasa),
@@ -424,7 +256,7 @@ def _parse_dssp_output(
 
 
 class MkdsspAdapter:
-    """Translate canonical structures through one pinned local provider."""
+    """Translate authoritative resolved axes through one pinned provider."""
 
     def __init__(
         self,
@@ -449,16 +281,23 @@ class MkdsspAdapter:
             )
         return timeout
 
-    def annotate(self, structure: ProteinStructure) -> DSSPAnnotation:
+    def annotate(
+        self,
+        residue_axis: ResolvedStructureResidueAxis,
+        *,
+        subject: CandidateDataReference,
+    ) -> DSSPAnnotation:
         """Run mkdssp and return only its admitted canonical annotation."""
-        parsed_structure = _structure_layout(structure)
         binary = self._binary()
         timeout = self._timeout()
         with self._resources.temporary_directory(
             prefix="structure-annotation-dssp-"
         ) as workspace:
             input_path = Path(workspace) / "input.pdb"
-            input_path.write_text(structure.pdb_string, encoding="ascii")
+            input_path.write_text(
+                residue_axis.structure.pdb_string,
+                encoding="ascii",
+            )
             with self._resources.engine_invocation():
                 try:
                     result = subprocess.run(
@@ -484,13 +323,9 @@ class MkdsspAdapter:
                         "mkdssp execution failed with exit code "
                         f"{result.returncode}"
                     )
-            try:
-                output = result.stdout.decode("utf-8")
-            except UnicodeDecodeError as error:
-                raise ValueError(
-                    "mkdssp output is not UTF-8 mmCIF"
-                ) from error
+            output = result.stdout.decode("utf-8")
             return _parse_dssp_output(
                 output,
-                structure=parsed_structure,
+                residue_axis=residue_axis,
+                subject=subject,
             )

@@ -94,11 +94,15 @@ TIERS = {
         ),
         (
             "tests/test_folding_v2.py::"
-            "test_native_plddt_is_statically_scaled_and_masks_invalid_tokens"
+            "test_native_plddt_is_statically_scaled_and_projects_protein_tokens"
         ),
         (
             "tests/test_folding_v2.py::"
-            "test_remote_and_local_provider_native_results_normalize_identically"
+            "test_remote_provider_native_result_translates_to_canonical_confidence"
+        ),
+        (
+            "tests/test_folding_v2.py::"
+            "test_local_provider_native_result_translates_to_canonical_confidence"
         ),
         (
             "tests/test_folding_v2.py::"
@@ -134,10 +138,49 @@ TIERS = {
         ),),
         zero_skip=True,
     ),
+    "installed-biohub-esm3": Tier(
+        ((
+            "tests/test_installed_backend_v2.py::"
+            "test_installed_biohub_esm3_gate"
+        ),),
+        timeout_seconds=40 * 60,
+        zero_skip=True,
+    ),
+    "installed-biohub-esmfold2": Tier(
+        ((
+            "tests/test_installed_backend_v2.py::"
+            "test_installed_biohub_esmfold2_gate"
+        ),),
+        timeout_seconds=35 * 60,
+        zero_skip=True,
+    ),
     "installed-local-esm3": Tier(
         ((
             "tests/test_installed_backend_v2.py::"
             "test_installed_local_esm3_gate"
+        ),),
+        zero_skip=True,
+    ),
+    "installed-local-esmfold2": Tier(
+        ((
+            "tests/test_installed_backend_v2.py::"
+            "test_installed_local_esmfold2_gate"
+        ),),
+        timeout_seconds=105 * 60,
+        zero_skip=True,
+    ),
+    "installed-proteinmpnn": Tier(
+        ((
+            "tests/test_installed_backend_v2.py::"
+            "test_installed_proteinmpnn_gate"
+        ),),
+        timeout_seconds=75 * 60,
+        zero_skip=True,
+    ),
+    "installed-mkdssp": Tier(
+        ((
+            "tests/test_installed_backend_v2.py::"
+            "test_installed_mkdssp_gate"
         ),),
         zero_skip=True,
     ),

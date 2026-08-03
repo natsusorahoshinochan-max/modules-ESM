@@ -9,6 +9,8 @@ from core import (
     AvailabilityDeclaration,
     AvailabilityResult,
     BehaviorReference,
+    CandidatePairingIntent,
+    CandidatePairingIntentEntry,
     ContractIdentity,
     DefinitionResource,
     ExecutionBindingDefinition,
@@ -26,10 +28,9 @@ from core import (
 from datatypes import (
     Candidate,
     CandidateCollection,
+    CandidateDataReference,
     IntrinsicObservationContext,
     ProteinSequence,
-    PairwiseCandidateMapping,
-    PairwiseCandidateMatch,
     ScoreCollection,
     ScoreObservation,
 )
@@ -37,6 +38,8 @@ from tests.fixtures.exact_content_identity import exact_content_identity
 
 
 VERSION = "2.1.0"
+CANDIDATE_NODE_VERSION = "3.0.0"
+SCORE_NODE_VERSION = "4.0.0"
 METRIC = ContractIdentity(
     "metric",
     "contract_test.collection_ops_value",
@@ -45,6 +48,7 @@ METRIC = ContractIdentity(
 _SEQUENCE_CONTENT_IDENTITY = exact_content_identity(
     "protein.sequence",
     "protein_sequence",
+    version="3.0.0",
 )
 
 
@@ -54,13 +58,9 @@ class _Source:
         *,
         resources: Any,
         partition: str,
-        metric: Any,
-        method: Any,
     ) -> None:
         self._resources = resources
         self._partition = partition
-        self._metric = metric
-        self._method = method
 
     def execute(self, call: OperationCall) -> dict[str, Any]:
         inputs = call.inputs
@@ -69,39 +69,12 @@ class _Source:
         if inputs or binding_parameters:
             raise ValueError("collection source accepts no connected inputs")
         count = node_parameters["candidate_count"]
-        candidates: list[Candidate] = []
-        children: list[Candidate] = []
-        observations: list[ScoreObservation] = []
-        rebind_parents = [
-            Candidate(
-                candidate_id=f"rebind-parent-{sample_index}",
-                data=ProteinSequence("ACD"),
-            )
-            for sample_index in range(count)
-        ]
-        rebind_references = list(reversed([
-            Candidate(
-                candidate_id=f"rebind-reference-{sample_index}",
-                data=ProteinSequence("ACE"),
-                parent_ids=[f"rebind-parent-{sample_index}"],
-            )
-            for sample_index in range(count)
-        ]))
-        rebind_subjects = [
-            Candidate(
-                candidate_id=f"rebind-subject-{sample_index}",
-                data=ProteinSequence("ACF"),
-                parent_ids=[f"rebind-parent-{sample_index}"],
-            )
-            for sample_index in range(count)
-        ]
         with self._resources.engine_invocation():
-            for sample_index in range(count):
-                candidate_id = (
-                    f"{self._partition}-candidate-{sample_index}"
-                )
-                candidate = Candidate(
-                    candidate_id=candidate_id,
+            candidates = [
+                Candidate(
+                    candidate_id=(
+                        f"{self._partition}-candidate-{sample_index}"
+                    ),
                     data=ProteinSequence(
                         "ACD" if self._partition == "a" else "ACE"
                     ),
@@ -118,101 +91,73 @@ class _Source:
                         "sample_index": sample_index,
                     },
                 )
-                candidates.append(candidate)
-                children.append(
-                    Candidate(
-                        candidate_id=(
-                            f"{self._partition}-child-{sample_index}"
-                        ),
-                        data=ProteinSequence(
-                            "ACD" if self._partition == "a" else "ACE"
-                        ),
-                        parent_ids=[candidate_id],
-                        metadata={
-                            "fixture_partition": self._partition,
-                            "sample_index": sample_index,
-                        },
-                    )
-                )
-                observations.append(
-                    ScoreObservation(
-                        candidate_id=candidate_id,
-                        metric=self._metric,
-                        method=self._method,
-                        context=IntrinsicObservationContext(),
-                        value=0.25 if self._partition == "a" else 0.75,
-                        source_partition=(
-                            f"contract_test.partition.{self._partition}"
-                        ),
-                    )
-                )
+                for sample_index in range(count)
+            ]
         return {
             "candidates": CandidateCollection(
                 collection_id=f"{self._partition}-candidates",
                 item_type="protein.sequence",
                 items=candidates,
             ),
-            "scores": ScoreCollection(
-                collection_id=f"{self._partition}-scores",
-                entries=observations,
-            ),
-            "children": CandidateCollection(
-                collection_id=f"{self._partition}-children",
-                item_type="protein.sequence",
-                items=children,
-            ),
-            "pairing": PairwiseCandidateMapping([
-                PairwiseCandidateMatch(
-                    subject_candidate_id=(
-                        f"{self._partition}-candidate-{sample_index}"
-                    ),
-                    subject_content_digest=(
-                        _SEQUENCE_CONTENT_IDENTITY.content_digest(
-                            ProteinSequence(
-                                "ACD"
-                                if self._partition == "a"
-                                else "ACE"
-                            ),
-                        )
-                    ),
-                    reference_candidate_id=f"b-candidate-{sample_index}",
-                    reference_content_digest=(
-                        _SEQUENCE_CONTENT_IDENTITY.content_digest(
-                            ProteinSequence("ACE"),
-                        )
-                    ),
+        }
+
+
+class _LineageSource:
+    def __init__(self, *, resources: Any) -> None:
+        self._resources = resources
+
+    def execute(self, call: OperationCall) -> dict[str, Any]:
+        if call.inputs or call.binding_parameters:
+            raise ValueError("lineage source accepts no connected inputs")
+        count = call.node_parameters["candidate_count"]
+        with self._resources.engine_invocation():
+            parents = [
+                Candidate(
+                    candidate_id=f"lineage-parent-{sample_index}",
+                    data=ProteinSequence("ACD"),
                 )
                 for sample_index in range(count)
-            ]),
-            "rebind_parents": CandidateCollection(
+            ]
+            references = list(reversed([
+                Candidate(
+                    candidate_id=f"lineage-reference-{sample_index}",
+                    data=ProteinSequence("ACE"),
+                    parent_ids=[f"lineage-parent-{sample_index}"],
+                )
+                for sample_index in range(count)
+            ]))
+            subjects = [
+                Candidate(
+                    candidate_id=f"lineage-subject-{sample_index}",
+                    data=ProteinSequence("ACF"),
+                    parent_ids=[f"lineage-parent-{sample_index}"],
+                )
+                for sample_index in range(count)
+            ]
+        return {
+            "parents": CandidateCollection(
                 collection_id="rebind-parents",
                 item_type="protein.sequence",
-                items=rebind_parents,
+                items=parents,
             ),
-            "rebind_references": CandidateCollection(
+            "references": CandidateCollection(
                 collection_id="rebind-references",
                 item_type="protein.sequence",
-                items=rebind_references,
+                items=references,
             ),
-            "rebind_subjects": CandidateCollection(
+            "subjects": CandidateCollection(
                 collection_id="rebind-subjects",
                 item_type="protein.sequence",
-                items=rebind_subjects,
+                items=subjects,
             ),
-            "rebind_pairing": PairwiseCandidateMapping([
-                PairwiseCandidateMatch(
+            "parent_pairing": CandidatePairingIntent([
+                CandidatePairingIntentEntry(
                     subject_candidate_id=parent.candidate_id,
-                    subject_content_digest=(
-                        _SEQUENCE_CONTENT_IDENTITY.content_digest(parent.data)
-                    ),
                     reference_candidate_id=reference.candidate_id,
-                    reference_content_digest=(
-                        _SEQUENCE_CONTENT_IDENTITY.content_digest(reference.data)
-                    ),
                 )
                 for parent, reference in zip(
-                    rebind_parents,
-                    rebind_references,
+                    parents,
+                    references,
                     strict=True,
                 )
             ]),
@@ -244,19 +189,29 @@ class _Scorer:
             or binding_parameters
         ):
             raise ValueError("fixture scorer requires exact Candidates")
+        admitted = call.input_content_digests.get("candidates")
+        if admitted is None:
+            raise ValueError("fixture scorer requires admitted Candidates")
+        subjects: tuple[CandidateDataReference, ...] = admitted.candidate_data
+        if tuple(subject.candidate_id for subject in subjects) != tuple(
+            candidate.candidate_id for candidate in candidates.items
+        ):
+            raise ValueError(
+                "fixture scorer Candidate references must match its input"
+            )
         return {
             "scores": ScoreCollection(
                 collection_id="fixture-scores",
                 entries=[
                     ScoreObservation(
-                        candidate_id=candidate.candidate_id,
+                        subject=subject,
                         metric=self._metric,
                         method=self._method,
                         context=IntrinsicObservationContext(),
                         value=self._value,
                         source_partition=self._source_partition,
                     )
-                    for candidate in candidates.items
+                    for subject in subjects
                 ],
             )
         }
@@ -286,7 +241,7 @@ def _ready(check_input: ReadinessCheckInput) -> ReadinessResult:
     return ReadinessResult(True)
 
 
-def _method(partition: str) -> MethodDefinition:
+def _source_method(partition: str) -> MethodDefinition:
     return MethodDefinition(
         method_id=f"contract_test.collection_ops_source.{partition}.method",
         version=VERSION,
@@ -302,7 +257,7 @@ def _method(partition: str) -> MethodDefinition:
     )
 
 
-def _binding(partition: str) -> ExecutionBindingDefinition:
+def _source_binding(partition: str) -> ExecutionBindingDefinition:
     method = ContractIdentity(
         "method",
         f"contract_test.collection_ops_source.{partition}.method",
@@ -313,17 +268,15 @@ def _binding(partition: str) -> ExecutionBindingDefinition:
         return _Source(
             resources=context.resources,
             partition=partition,
-            metric=context.produced_observations[0].metric,
-            method=context.method,
         )
 
     return ExecutionBindingDefinition(
         binding_id=f"contract_test.collection_ops_source.{partition}",
-        version=VERSION,
+        version=CANDIDATE_NODE_VERSION,
         node_type=ContractIdentity(
             "node_type",
             "contract_test.collection_ops_source",
-            VERSION,
+            CANDIDATE_NODE_VERSION,
         ),
         method=method,
         binding_parameters={},
@@ -331,7 +284,7 @@ def _binding(partition: str) -> ExecutionBindingDefinition:
         factory=ScientificOperationFactory(
             behavior=BehaviorReference(
                 f"contract_test.collection_ops_source/{partition}/factory",
-                VERSION,
+                CANDIDATE_NODE_VERSION,
                 {"execution_route": "direct"},
             ),
             build=build,
@@ -339,7 +292,7 @@ def _binding(partition: str) -> ExecutionBindingDefinition:
         availability=AvailabilityDeclaration(
             behavior=BehaviorReference(
                 f"contract_test.collection_ops_source/{partition}/availability",
-                VERSION,
+                CANDIDATE_NODE_VERSION,
                 {"observation": "startup"},
             ),
             prerequisites={},
@@ -348,7 +301,7 @@ def _binding(partition: str) -> ExecutionBindingDefinition:
         readiness=ReadinessDeclaration(
             behavior=BehaviorReference(
                 f"contract_test.collection_ops_source/{partition}/readiness",
-                VERSION,
+                CANDIDATE_NODE_VERSION,
                 {"observation": "per-run"},
             ),
             prerequisites={},
@@ -360,21 +313,74 @@ def _binding(partition: str) -> ExecutionBindingDefinition:
             "name": f"contract_test.collection_ops_source.{partition}",
             "source": "contract-test",
         },
-        produced_observations=(
-            ProducedObservationDefinition(
-                output_port="scores",
-                metric=METRIC,
-                context_profile={"kind": "intrinsic"},
-                subject_grain="candidate",
-                source_role="subject",
-                subject_direction="output",
-                subject_port="candidates",
-                guaranteed_multiplicity="one",
-                output_partition=(
-                    f"contract_test.partition.{partition}"
-                ),
-            ),
+    )
+
+
+def _lineage_method() -> MethodDefinition:
+    return MethodDefinition(
+        method_id="contract_test.collection_ops_lineage_source.method",
+        version=VERSION,
+        algorithm_identity={"name": "closed-lineage-source"},
+        model_identity={"kind": "none"},
+        checkpoint_identity={"kind": "none"},
+        featurization_identity={"kind": "identity"},
+        source_identity={"kind": "contract-test"},
+        scale_contract={"kind": "identity"},
+    )
+
+
+def _lineage_binding() -> ExecutionBindingDefinition:
+    def build(context: OperationContext) -> _LineageSource:
+        return _LineageSource(resources=context.resources)
+
+    behavior_prefix = "contract_test.collection_ops_lineage_source"
+    return ExecutionBindingDefinition(
+        binding_id=f"{behavior_prefix}.direct",
+        version=CANDIDATE_NODE_VERSION,
+        node_type=ContractIdentity(
+            "node_type",
+            behavior_prefix,
+            CANDIDATE_NODE_VERSION,
         ),
+        method=ContractIdentity(
+            "method",
+            f"{behavior_prefix}.method",
+            VERSION,
+        ),
+        binding_parameters={},
+        execution_route="direct",
+        factory=ScientificOperationFactory(
+            behavior=BehaviorReference(
+                f"{behavior_prefix}/factory",
+                CANDIDATE_NODE_VERSION,
+                {"execution_route": "direct"},
+            ),
+            build=build,
+        ),
+        availability=AvailabilityDeclaration(
+            behavior=BehaviorReference(
+                f"{behavior_prefix}/availability",
+                CANDIDATE_NODE_VERSION,
+                {"observation": "startup"},
+            ),
+            prerequisites={},
+            check=_available,
+        ),
+        readiness=ReadinessDeclaration(
+            behavior=BehaviorReference(
+                f"{behavior_prefix}/readiness",
+                CANDIDATE_NODE_VERSION,
+                {"observation": "per-run"},
+            ),
+            prerequisites={},
+            check=_ready,
+        ),
+        deterministic=True,
+        cacheable=True,
+        implementation_identity={
+            "name": f"{behavior_prefix}.direct",
+            "source": "contract-test",
+        },
     )
 
 
@@ -420,11 +426,11 @@ def _scorer_binding(
 
     return ExecutionBindingDefinition(
         binding_id=f"contract_test.collection_ops_scorer.{binding_name}",
-        version=VERSION,
+        version=SCORE_NODE_VERSION,
         node_type=ContractIdentity(
             "node_type",
             "contract_test.collection_ops_scorer",
-            VERSION,
+            SCORE_NODE_VERSION,
         ),
         method=ContractIdentity(
             "method",
@@ -436,7 +442,7 @@ def _scorer_binding(
         factory=ScientificOperationFactory(
             behavior=BehaviorReference(
                 f"contract_test.collection_ops_scorer/{binding_name}",
-                VERSION,
+                SCORE_NODE_VERSION,
                 {
                     "value": value,
                     "source_partition": source_partition,
@@ -447,7 +453,7 @@ def _scorer_binding(
         availability=AvailabilityDeclaration(
             behavior=BehaviorReference(
                 f"contract_test.collection_ops_scorer/{binding_name}/availability",
-                VERSION,
+                SCORE_NODE_VERSION,
                 {"observation": "startup"},
             ),
             prerequisites={},
@@ -456,7 +462,7 @@ def _scorer_binding(
         readiness=ReadinessDeclaration(
             behavior=BehaviorReference(
                 f"contract_test.collection_ops_scorer/{binding_name}/readiness",
-                VERSION,
+                SCORE_NODE_VERSION,
                 {"observation": "per-run"},
             ),
             prerequisites={},
@@ -491,11 +497,11 @@ def _legacy_binding() -> ExecutionBindingDefinition:
 
     return ExecutionBindingDefinition(
         binding_id="contract_test.collection_ops_legacy_scores.direct",
-        version=VERSION,
+        version=SCORE_NODE_VERSION,
         node_type=ContractIdentity(
             "node_type",
             "contract_test.collection_ops_legacy_scores",
-            VERSION,
+            SCORE_NODE_VERSION,
         ),
         method=ContractIdentity(
             "method",
@@ -507,7 +513,7 @@ def _legacy_binding() -> ExecutionBindingDefinition:
         factory=ScientificOperationFactory(
             behavior=BehaviorReference(
                 "contract_test.collection_ops_legacy_scores/factory",
-                VERSION,
+                SCORE_NODE_VERSION,
                 {"execution_route": "direct"},
             ),
             build=build,
@@ -515,7 +521,7 @@ def _legacy_binding() -> ExecutionBindingDefinition:
         availability=AvailabilityDeclaration(
             behavior=BehaviorReference(
                 "contract_test.collection_ops_legacy_scores/availability",
-                VERSION,
+                SCORE_NODE_VERSION,
                 {"observation": "startup"},
             ),
             prerequisites={},
@@ -524,7 +530,7 @@ def _legacy_binding() -> ExecutionBindingDefinition:
         readiness=ReadinessDeclaration(
             behavior=BehaviorReference(
                 "contract_test.collection_ops_legacy_scores/readiness",
-                VERSION,
+                SCORE_NODE_VERSION,
                 {"observation": "per-run"},
             ),
             prerequisites={},
@@ -553,7 +559,7 @@ def _utility(partition: str) -> UtilityTransformDefinition:
             "metric": METRIC,
             "method": ContractIdentity(
                 "method",
-                f"contract_test.collection_ops_source.{partition}.method",
+                "contract_test.collection_ops_scorer.method",
                 VERSION,
             ),
             "context_profile": {"kind": "intrinsic"},
@@ -575,19 +581,32 @@ MODULE_PACKAGE = ModulePackageRegistration(
     package_module=__package__,
     node_definitions=(
         DefinitionResource("source.yaml"),
+        DefinitionResource("lineage_source.yaml"),
         DefinitionResource("scorer.yaml"),
         DefinitionResource("legacy_scores.yaml"),
     ),
     metric_definitions=(DefinitionResource("metric.yaml"),),
     methods=(
-        _method("a"),
-        _method("b"),
+        _source_method("a"),
+        _source_method("b"),
+        _lineage_method(),
         _scorer_method(),
         _legacy_method(),
     ),
     bindings=(
-        _binding("a"),
-        _binding("b"),
+        _source_binding("a"),
+        _source_binding("b"),
+        _lineage_binding(),
+        _scorer_binding(
+            "a",
+            value=0.25,
+            source_partition="contract_test.partition.a",
+        ),
+        _scorer_binding(
+            "b",
+            value=0.75,
+            source_partition="contract_test.partition.b",
+        ),
         _scorer_binding(
             "low",
             value=0.25,

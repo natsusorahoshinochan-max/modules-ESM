@@ -5,13 +5,10 @@ from __future__ import annotations
 import hashlib
 import importlib.util
 import json
-import math
-import os
-import stat
-from collections.abc import Callable, Mapping, Sequence
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Protocol
+from typing import Any, cast, Protocol, TypedDict, TypeAlias
 
 from core import ReadinessResult, RunResources
 from modules.provider_contract import (
@@ -31,6 +28,17 @@ from .simplefold_contract import SIMPLEFOLD_FOLDING_ARTIFACTS
 
 SIMPLEFOLD_MODEL = "simplefold_100M"
 SIMPLEFOLD_DEVICE = "cpu"
+
+
+class _SimpleFoldNativeScore(TypedDict):
+    sample_index: int
+    per_residue: list[float]
+
+
+_SimpleFoldNativeResult: TypeAlias = tuple[
+    list[ProteinStructure],
+    list[_SimpleFoldNativeScore],
+]
 
 
 @dataclass(frozen=True, slots=True)
@@ -130,28 +138,13 @@ def simplefold_runtime_structurally_available() -> bool:
 
 def _sha256_file(path: Path, *, expected_bytes: int | None = None) -> str:
     digest = hashlib.sha256()
-    flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0)
-    try:
-        descriptor = os.open(path, flags)
-    except OSError as error:
-        raise FileNotFoundError(
-            f"SimpleFold asset is unavailable: {path.name}"
-        ) from error
-    try:
-        metadata = os.fstat(descriptor)
-        if not stat.S_ISREG(metadata.st_mode):
-            raise FileNotFoundError(
-                f"SimpleFold asset is unavailable: {path.name}"
-            )
-        if expected_bytes is not None and metadata.st_size != expected_bytes:
-            raise RuntimeError(
-                f"SimpleFold asset byte count mismatch: {path.name}"
-            )
-        with os.fdopen(descriptor, "rb", closefd=False) as handle:
-            while chunk := handle.read(1024 * 1024):
-                digest.update(chunk)
-    finally:
-        os.close(descriptor)
+    if expected_bytes is not None and path.stat().st_size != expected_bytes:
+        raise RuntimeError(
+            f"SimpleFold asset byte count mismatch: {path.name}"
+        )
+    with path.open("rb") as handle:
+        while chunk := handle.read(1024 * 1024):
+            digest.update(chunk)
     return digest.hexdigest()
 
 
@@ -160,7 +153,7 @@ def _validated_file_set(
     expected: Mapping[str, str],
     identities: Mapping[str, Mapping[str, Any]],
 ) -> Path:
-    if not isinstance(root, Path) or root.is_symlink() or not root.is_dir():
+    if not isinstance(root, Path) or not root.is_dir():
         raise FileNotFoundError("SimpleFold asset root is unavailable")
     for name, expected_digest in sorted(expected.items()):
         expected_bytes = identities.get(name, {}).get("bytes")
@@ -243,65 +236,17 @@ def provider_identity() -> dict[str, Any]:
 
 def _decode_fold_result(
     *,
-    raw_result: object,
-    sequence: ProteinSequence,
+    raw_result: _SimpleFoldNativeResult,
     sample_count: int,
 ) -> tuple[SimpleFoldSampleResult, ...]:
     """Admit provider-native structures and high-level `[0,100]` scores."""
-    from .adapter import _pdb_sequence
-
-    if (
-        not isinstance(raw_result, tuple)
-        or len(raw_result) != 2
-    ):
-        raise ValueError("SimpleFold result is incomplete")
     structures, scores = raw_result
-    if (
-        not isinstance(structures, list)
-        or len(structures) != sample_count
-        or any(
-            type(structure) is not ProteinStructure
-            for structure in structures
+    by_sample = {
+        entry["sample_index"]: tuple(
+            float(value) for value in entry["per_residue"]
         )
-        or not isinstance(scores, Sequence)
-    ):
-        raise ValueError("SimpleFold result is incomplete")
-    for structure in structures:
-        if _pdb_sequence(structure.pdb_string) != sequence.sequence:
-            raise ValueError("SimpleFold structure is malformed")
-    by_sample: dict[int, tuple[float, ...]] = {}
-    for entry in scores:
-        if not isinstance(entry, Mapping) or set(entry) != {
-            "sample_index",
-            "per_residue",
-        }:
-            raise ValueError("SimpleFold confidence result is malformed")
-        sample_index = entry.get("sample_index")
-        values = entry.get("per_residue")
-        if (
-            type(sample_index) is not int
-            or sample_index in by_sample
-            or not isinstance(values, list)
-            or len(values) != len(sequence.sequence)
-        ):
-            raise ValueError("SimpleFold confidence result is incomplete")
-        normalized: list[float] = []
-        for value in values:
-            if (
-                isinstance(value, bool)
-                or not isinstance(value, (int, float))
-                or not math.isfinite(float(value))
-                or not 0.0 <= float(value) <= 100.0
-            ):
-                raise ValueError(
-                    "SimpleFold high-level pLDDT is outside [0,100]"
-                )
-            normalized.append(float(value))
-        if not 0 <= sample_index < sample_count:
-            raise ValueError("SimpleFold sample index is invalid")
-        by_sample[sample_index] = tuple(normalized)
-    if set(by_sample) != set(range(sample_count)):
-        raise ValueError("SimpleFold confidence samples are incomplete")
+        for entry in scores
+    }
     return tuple(
         SimpleFoldSampleResult(
             structure=structures[sample_index],
@@ -331,37 +276,51 @@ class LocalSimpleFoldAdapter:
         num_samples: int,
         effective_seed: int,
         staging_directory: Path,
-    ) -> Callable[[], object]:
+    ) -> Callable[[], _SimpleFoldNativeResult]:
         client = self._environment.get("provider_client")
         if client is not None:
-            def invoke_client() -> object:
-                return client.fold(
-                    sequence=sequence,
-                    num_steps=num_steps,
-                    num_samples=num_samples,
-                    effective_seed=effective_seed,
-                    staging_directory=staging_directory,
+            def invoke_client() -> _SimpleFoldNativeResult:
+                return cast(
+                    _SimpleFoldNativeResult,
+                    client.fold(
+                        sequence=sequence,
+                        num_steps=num_steps,
+                        num_samples=num_samples,
+                        effective_seed=effective_seed,
+                        staging_directory=staging_directory,
+                    ),
                 )
 
             return invoke_client
-        validated = validate_simplefold_folding_environment(
-            self._environment
-        )
+        configured = {
+            "model_root": cast(Path, self._environment["model_root"]),
+            "esm2_source_root": cast(
+                Path,
+                self._environment["esm2_source_root"],
+            ),
+            "esm2_model_root": cast(
+                Path,
+                self._environment["esm2_model_root"],
+            ),
+        }
         from .simplefold_runtime import fold_sequence
 
-        def invoke_local_runtime() -> object:
-            return fold_sequence(
-                sequence=sequence,
-                model_name=SIMPLEFOLD_MODEL,
-                num_steps=num_steps,
-                num_samples=num_samples,
-                project_dir=str(staging_directory),
-                effective_seed=effective_seed,
-                model_root=validated["model_root"],
-                esm2_source_root=validated["esm2_source_root"],
-                esm2_model_root=validated["esm2_model_root"],
-                required_device=SIMPLEFOLD_DEVICE,
-                record_evidence=False,
+        def invoke_local_runtime() -> _SimpleFoldNativeResult:
+            return cast(
+                _SimpleFoldNativeResult,
+                fold_sequence(
+                    sequence=sequence,
+                    model_name=SIMPLEFOLD_MODEL,
+                    num_steps=num_steps,
+                    num_samples=num_samples,
+                    project_dir=str(staging_directory),
+                    effective_seed=effective_seed,
+                    model_root=configured["model_root"],
+                    esm2_source_root=configured["esm2_source_root"],
+                    esm2_model_root=configured["esm2_model_root"],
+                    required_device=SIMPLEFOLD_DEVICE,
+                    record_evidence=False,
+                ),
             )
 
         return invoke_local_runtime
@@ -398,7 +357,6 @@ class LocalSimpleFoldAdapter:
                 raw_result = provider_call()
             samples = _decode_fold_result(
                 raw_result=raw_result,
-                sequence=sequence,
                 sample_count=num_samples,
             )
         return SimpleFoldAdapterResult(

@@ -29,7 +29,6 @@ from protein_workbench_public import (
 
 from core.artifacts import ArtifactPayload, is_valid_artifact_media_type
 from core.operation import (
-    CandidateDataDigest,
     InputContentDigests,
     OperationCall,
     OperationContext,
@@ -42,13 +41,12 @@ from core.port_types import (
     canonical_sha256,
 )
 from core.process_control import signal_process_group
-from core.project import ProjectManager
+from core.project import ProjectInputIntegrityError, ProjectManager
 from core.public_values import sanitize_public_value
 from core.scoring_v2 import (
     SelectionError,
-    SelectionInput,
+    resolve_structure_alignment_evidence_admission_facts,
     selection_objective_provenance_from_facts,
-    select_candidates_from_facts,
     validate_produced_score_collection_from_facts,
 )
 from core.storage import (
@@ -65,6 +63,7 @@ from core.value_admission import (
     admitted_port_values,
     admitted_port_values_from_bytes,
     normalize_scientific_outputs,
+    validate_candidate_input_identities,
 )
 from core.workflow_authoring_v2 import WorkflowAuthoringService
 from core.workflow_v2 import (
@@ -76,27 +75,25 @@ from core.workflow_v2 import (
 from datatypes import (
     Candidate,
     CandidateCollection,
+    CandidateDataReference,
     PairwiseCandidateMapping,
     PairwiseObservationContext,
     ProteinSequence,
     ProteinStructure,
     ScoreCollection,
     ScoreObservation,
-    StructureAlignment,
     ExactContractReference,
+    validate_canonical_identifier,
 )
+from datatypes.protein import residue_identity_chain
 
 
 READINESS_ATTESTATION_NAMESPACE = (
     "protein-workbench-readiness-attestation/v2"
 )
-RESULT_IDENTITY_NAMESPACE = "protein-workbench-cache/v2"
-RESULT_CACHE_ENTRY_NAMESPACE = "protein-workbench-cache-entry/v2"
-_PRESENTATION_CONTRACT_FIELDS = {
-    "node_type": frozenset({"title", "summary", "category"}),
-    "metric": frozenset({"title", "description"}),
-}
-RUN_LEDGER_SCHEMA_VERSION = "2.1.0"
+RESULT_IDENTITY_NAMESPACE = "protein-workbench-cache/v3"
+RESULT_CACHE_ENTRY_NAMESPACE = "protein-workbench-cache-entry/v3"
+RUN_LEDGER_SCHEMA_VERSION = "3.0.0"
 MAX_ARTIFACTS_PER_RUN = 2_048
 MAX_ARTIFACT_SIZE_BYTES = 64 * 1024 * 1024
 MAX_ARTIFACT_BYTES_PER_RUN = 256 * 1024 * 1024
@@ -141,51 +138,116 @@ def _freeze_invocation_provenance(
             frozen_randomness
         )
 
+    project_input_filename = value.get("project_input_filename")
+    if project_input_filename is not None:
+        frozen["project_input_filename"] = project_input_filename
+
     projection = value.get("provider_residue_projection")
     if projection is None:
         return MappingProxyType(frozen)
 
     workbench_chain_order = tuple(projection["workbench_chain_order"])
+    provider_structure_chain_order = tuple(
+        projection["provider_structure_chain_order"]
+    )
     provider_chain_order = tuple(projection["provider_chain_order"])
     if (
         len(set(workbench_chain_order)) != len(workbench_chain_order)
+        or len(set(provider_structure_chain_order))
+        != len(provider_structure_chain_order)
         or len(set(provider_chain_order)) != len(provider_chain_order)
-        or set(workbench_chain_order) != set(provider_chain_order)
+        or set(provider_structure_chain_order) != set(provider_chain_order)
     ):
         raise ValueError("Engine invocation provenance chain order is malformed")
 
     frozen_entries: list[Mapping[str, Any]] = []
     residue_ids: set[str] = set()
+    workbench_entry_chains: set[str] = set()
+    provider_entry_chains: set[str] = set()
     provider_positions: set[tuple[str, int]] = set()
+    workbench_segment_order: list[str] = []
+    current_segment_index = -1
+    current_provider_position = 0
     for entry in projection["entries"]:
         residue_id = entry["residue_id"]
+        segment_index = entry["segment_index"]
         provider_chain_id = entry["provider_chain_id"]
         provider_position = entry["provider_position"]
         provider_coordinate = (provider_chain_id, provider_position)
+        try:
+            workbench_chain_id = residue_identity_chain(
+                residue_id,
+                subject="provider projection residue identity",
+            )
+        except ValueError as error:
+            raise ValueError(
+                "Engine invocation provenance entries are malformed"
+            ) from error
         if (
-            provider_chain_id not in provider_chain_order
+            workbench_chain_id not in workbench_chain_order
+            or provider_chain_id not in provider_chain_order
+            or segment_index < current_segment_index
+            or segment_index > current_segment_index + 1
+            or segment_index >= len(provider_structure_chain_order)
+            or provider_chain_id
+            != provider_structure_chain_order[segment_index]
             or residue_id in residue_ids
             or provider_coordinate in provider_positions
         ):
             raise ValueError(
                 "Engine invocation provenance entries are malformed"
             )
+        if segment_index != current_segment_index:
+            if provider_position != 1:
+                raise ValueError(
+                    "Engine invocation provenance entries are malformed"
+                )
+            current_segment_index = segment_index
+            current_provider_position = 1
+            workbench_segment_order.append(workbench_chain_id)
+        else:
+            if (
+                provider_position != current_provider_position + 1
+                or workbench_segment_order[-1] != workbench_chain_id
+            ):
+                raise ValueError(
+                    "Engine invocation provenance entries are malformed"
+                )
+            current_provider_position = provider_position
         residue_ids.add(residue_id)
+        workbench_entry_chains.add(workbench_chain_id)
+        provider_entry_chains.add(provider_chain_id)
         provider_positions.add(provider_coordinate)
         frozen_entries.append(
             MappingProxyType(
                 {
                     "residue_id": residue_id,
+                    "segment_index": segment_index,
                     "provider_chain_id": provider_chain_id,
                     "provider_position": provider_position,
                 }
             )
         )
+    if (
+        workbench_entry_chains != set(workbench_chain_order)
+        or provider_entry_chains != set(provider_structure_chain_order)
+        or current_segment_index
+        != len(provider_structure_chain_order) - 1
+        or tuple(
+            chain
+            for index, chain in enumerate(workbench_segment_order)
+            if index == 0 or chain != workbench_segment_order[index - 1]
+        ) != workbench_chain_order
+    ):
+        raise ValueError("Engine invocation provenance entries are malformed")
 
     frozen["provider_residue_projection"] = MappingProxyType(
         {
             "position_semantics": "one_based_chain_local",
             "workbench_chain_order": workbench_chain_order,
+            "provider_structure_chain_order": (
+                provider_structure_chain_order
+            ),
             "provider_chain_order": provider_chain_order,
             "entries": tuple(frozen_entries),
         }
@@ -942,6 +1004,7 @@ class _PlanNodeEvidence:
     node_id: str
     dependencies: tuple[str, ...]
     required_dependencies: tuple[str, ...]
+    result_identity_plan_facts_digest: str
     node_type: Mapping[str, Any] | None = None
     artifact_outputs: tuple[Mapping[str, Any], ...] = ()
     selection_consumer: bool = False
@@ -951,6 +1014,9 @@ class _PlanNodeEvidence:
             "node_id": self.node_id,
             "dependencies": list(self.dependencies),
             "required_dependencies": list(self.required_dependencies),
+            "result_identity_plan_facts_digest": (
+                self.result_identity_plan_facts_digest
+            ),
         }
         if self.node_type is not None:
             result["node_type"] = dict(self.node_type)
@@ -982,6 +1048,7 @@ def _parse_plan_evidence(
             "node_id",
             "dependencies",
             "required_dependencies",
+            "result_identity_plan_facts_digest",
         }
         if (
             not isinstance(item, Mapping)
@@ -991,6 +1058,15 @@ def _parse_plan_evidence(
             or not isinstance(item["node_id"], str)
             or not isinstance(item["dependencies"], list)
             or not isinstance(item["required_dependencies"], list)
+            or not isinstance(
+                item["result_identity_plan_facts_digest"],
+                str,
+            )
+            or re.fullmatch(
+                r"sha256:[0-9a-f]{64}",
+                item["result_identity_plan_facts_digest"],
+            )
+            is None
             or type(item.get("selection_consumer", False)) is not bool
             or not all(
                 isinstance(dependency, str)
@@ -1099,6 +1175,7 @@ def _parse_plan_evidence(
                 node_id,
                 dependencies,
                 required,
+                item["result_identity_plan_facts_digest"],
                 node_type,
                 tuple(artifact_outputs),
                 item.get("selection_consumer", False),
@@ -1136,6 +1213,10 @@ class _RunEvidenceLedger:
         }
         self._required_dependencies = {
             node.node_id: frozenset(node.required_dependencies)
+            for node in plan_nodes
+        }
+        self._result_identity_plan_facts_digests = {
+            node.node_id: node.result_identity_plan_facts_digest
             for node in plan_nodes
         }
         self._node_types = {
@@ -1212,6 +1293,7 @@ class _RunEvidenceLedger:
                 node_id,
                 tuple(sorted(self._dependencies[node_id])),
                 tuple(sorted(self._required_dependencies[node_id])),
+                self._result_identity_plan_facts_digests[node_id],
                 self._node_types[node_id],
                 self._artifact_outputs[node_id],
                 node_id in self._selection_consumer_ids,
@@ -1300,10 +1382,20 @@ class _RunEvidenceLedger:
         if self._run_terminal:
             raise self._causal_error()
         if fact_type == "run_scope_bound":
+            try:
+                workflow_commit_id = validate_identifier(
+                    payload["workflow_commit_id"],
+                    "workflow_commit_id",
+                )
+            except StoragePathError as error:
+                raise self._causal_error() from error
             if (
                 self._facts
                 or payload["project_id"] != self._project_id
                 or payload["run_id"] != self._run_id
+                or workflow_commit_id != payload["workflow_commit_id"]
+                or type(payload["workflow_commit_revision"]) is not int
+                or payload["workflow_commit_revision"] < 1
             ):
                 raise self._causal_error()
             return
@@ -1314,7 +1406,15 @@ class _RunEvidenceLedger:
                 raise self._causal_error()
             return
         if fact_type == "run_admitted":
-            if self._run_admitted or self._run_started:
+            scope = self._facts[0]["payload"]
+            if (
+                self._run_admitted
+                or self._run_started
+                or payload["workflow_commit_id"]
+                != scope["workflow_commit_id"]
+                or payload["workflow_commit_revision"]
+                != scope["workflow_commit_revision"]
+            ):
                 raise self._causal_error()
             return
         if fact_type == "run_started":
@@ -1567,7 +1667,7 @@ class _RunEvidenceLedger:
         if fact_type == "selection_terminal":
             result = payload.get("result")
             selection_key = (
-                result.get("selection_node_id", "__workflow__")
+                result.get("selection_node_id")
                 if isinstance(result, Mapping)
                 else "__failed__"
             )
@@ -1665,10 +1765,10 @@ class _RunEvidenceLedger:
                     {
                         "project_id",
                         "run_id",
-                        "workflow_revision",
+                        "workflow_commit_id",
+                        "workflow_commit_revision",
                         "workflow_digest",
                         "contract_lock_digest",
-                        "compile_id",
                         "execution_plan_digest",
                         "catalog_contract_digest",
                         "resolved_contracts",
@@ -1702,7 +1802,9 @@ class _RunEvidenceLedger:
                 ),
             ),
             "run_admitted": (
-                frozenset({"workflow_revision", "compile_id"}),
+                frozenset(
+                    {"workflow_commit_id", "workflow_commit_revision"}
+                ),
                 frozenset(),
             ),
             "run_started": (frozenset({"started_at"}), frozenset()),
@@ -1815,6 +1917,7 @@ class _RunEvidenceLedger:
                     "node_id",
                     "dependencies",
                     "required_dependencies",
+                    "result_identity_plan_facts_digest",
                 }
                 if expected_node_type is not None:
                     expected_fields.add("node_type")
@@ -1833,6 +1936,8 @@ class _RunEvidenceLedger:
                     == sorted(self._dependencies[node_id])
                     and item["required_dependencies"]
                     == sorted(self._required_dependencies[node_id])
+                    and item["result_identity_plan_facts_digest"]
+                    == self._result_identity_plan_facts_digests[node_id]
                     and item.get("node_type") == expected_node_type
                     and item.get("artifact_outputs", [])
                     == expected_artifact_outputs
@@ -1854,17 +1959,13 @@ class _RunEvidenceLedger:
             selection_required = payload["selection_required"]
             expected_selection_terminal_keys = list(
                 self._selection_consumer_ids
-                if selection_required and self._selection_consumer_ids
-                else ("__workflow__",)
                 if selection_required
                 else ()
             )
             if (
                 type(selection_required) is not bool
-                or (
-                    self._selection_consumer_ids
-                    and not selection_required
-                )
+                or selection_required
+                != bool(self._selection_consumer_ids)
                 or payload["selection_terminal_keys"]
                 != expected_selection_terminal_keys
             ):
@@ -1990,7 +2091,7 @@ class _RunEvidenceLedger:
             terminal = dict(payload)
             result = terminal.get("result")
             selection_key = (
-                result.get("selection_node_id", "__workflow__")
+                result.get("selection_node_id")
                 if isinstance(result, Mapping)
                 else "__failed__"
             )
@@ -2056,9 +2157,11 @@ class _RunEvidenceLedger:
         projection = {
             "project_id": self._project_id,
             "run_id": self._run_id,
-            "workflow_revision": scope["workflow_revision"],
+            "workflow_commit_id": scope["workflow_commit_id"],
+            "workflow_commit_revision": scope[
+                "workflow_commit_revision"
+            ],
             "workflow_digest": scope["workflow_digest"],
-            "compile_id": scope["compile_id"],
             "status": status,
             "ledger_cursor": self._cursor_at(len(self._facts)),
             "node_dispositions": dispositions,
@@ -2991,14 +3094,7 @@ def _resolve_effective_randomness(
             ):
                 binding_parameters[parameter_name] = resolved_value
     else:
-        effective_randomness = {
-            key: value
-            for key, value in {
-                **node_parameters,
-                **binding_parameters,
-            }.items()
-            if key in {"seed", "random_seed", "effective_seed"}
-        }
+        effective_randomness = {}
     canonical_json_bytes(
         {
             "effective_randomness": effective_randomness,
@@ -3072,38 +3168,29 @@ def _result_identity_descriptor(
     effective_randomness_snapshot: _EffectiveRandomnessSnapshot | None = None,
 ) -> dict[str, Any]:
     """Build the closed scientific identity of one resolved Node result."""
-    node_contract = node._runtime.node_contract
     binding_contract = node._runtime.binding_contract
+    plan_facts = node.result_identity_plan_facts
+    canonical_plan_facts = plan_facts.canonical_projection()
+    static_facts = canonical_plan_facts["identity_facts"]
     declared_inputs = {
-        port["name"]: port
-        for port in node_contract.descriptor.get("inputs", ())
+        port["input_port"]: port
+        for port in static_facts["input_contracts"]
     }
     admitted_input_digests = input_content_digests
     input_identities: list[dict[str, Any]] = []
     for port_name in sorted(inputs):
         declaration = declared_inputs[port_name]
-        reference = declaration["port_type"]
         digest_record = admitted_input_digests[port_name]
         input_identities.append(
             {
                 "input_port": port_name,
-                "port_type": _identity_without_digest(reference),
+                "port_type": declaration["port_type"],
                 "multiplicity": declaration["multiplicity"],
                 "value_content_digests": list(
                     digest_record.value_content_digests
                 ),
             }
         )
-    relevant_contracts = {}
-    for contract in node._runtime.result_contracts:
-        facts = _result_affecting_contract(contract)
-        relevant_contracts[
-            (
-                facts["contract_kind"],
-                facts["contract_id"],
-                facts["contract_version"],
-            )
-        ] = facts
     randomness_snapshot = (
         effective_randomness_snapshot
         if effective_randomness_snapshot is not None
@@ -3115,6 +3202,10 @@ def _result_identity_descriptor(
     resolved_binding_parameters = _plain_json(
         randomness_snapshot.binding_parameters
     )
+    for parameter_name in plan_facts.node_parameter_indirections:
+        resolved_node_parameters.pop(parameter_name, None)
+    for parameter_name in node._runtime.project_input_parameters:
+        resolved_node_parameters.pop(parameter_name, None)
     declared_randomness = binding_contract.descriptor.get(
         "effective_randomness_parameters"
     )
@@ -3131,12 +3222,7 @@ def _result_identity_descriptor(
         )
     descriptor = {
         "schema_namespace": RESULT_IDENTITY_NAMESPACE,
-        "node_type": _identity_without_digest(node.node_type.to_public()),
-        "binding": _identity_without_digest(node.binding.to_public()),
-        "method": _identity_without_digest(node.method.to_public()),
-        "resolved_result_contracts": [
-            relevant_contracts[key] for key in sorted(relevant_contracts)
-        ],
+        "result_identity_plan_facts": canonical_plan_facts,
         "inputs": input_identities,
         "node_parameters": resolved_node_parameters,
         "binding_parameters": resolved_binding_parameters,
@@ -3144,50 +3230,7 @@ def _result_identity_descriptor(
             "deterministic": binding_contract.descriptor.get("deterministic"),
             "effective_randomness": effective_randomness,
         },
-        "output_contracts": [
-            {
-                "output_port": port["name"],
-                "port_type": _identity_without_digest(
-                    port["port_type"]
-                ),
-                "required": port["required"],
-                "multiplicity": port["multiplicity"],
-                "scientific_meaning": port["scientific_meaning"],
-            }
-            for port in node_contract.descriptor.get("outputs", ())
-        ],
-        "produced_observations": _normalize_nested_contract_references(
-            _plain_json(
-                binding_contract.descriptor.get(
-                    "produced_observations",
-                    (),
-                )
-            )
-        ),
     }
-    selected_objectives = tuple(
-        item.objective for item in node._runtime.selection_objectives
-    )
-    if selected_objectives:
-        descriptor["selection_objectives"] = (
-            _normalize_nested_contract_references(
-                selection_objective_provenance_from_facts(
-                    node._runtime.selection_objectives,
-                )["objectives"]
-            )
-        )
-    selected_observation_selectors = tuple(
-        item.selector for item in node._runtime.observation_selectors
-    )
-    if selected_observation_selectors:
-        descriptor["observation_selectors"] = (
-            _normalize_nested_contract_references(
-                [
-                    selector.to_public()
-                    for selector in selected_observation_selectors
-                ]
-            )
-        )
     if resolved_resource_inputs:
         descriptor["resolved_resource_inputs"] = [
             _plain_json(identity)
@@ -3196,66 +3239,10 @@ def _result_identity_descriptor(
     return descriptor
 
 
-def _identity_without_digest(reference: Mapping[str, Any]) -> dict[str, Any]:
-    return {
-        "contract_kind": reference["contract_kind"],
-        "contract_id": reference["contract_id"],
-        "contract_version": reference["contract_version"],
-    }
-
-
-def _normalize_nested_contract_references(value: Any) -> Any:
-    if isinstance(value, Mapping):
-        fields = set(value)
-        is_contract_reference = fields == {
-            "contract_kind",
-            "contract_id",
-            "contract_version",
-            "contract_digest",
-        }
-        return {
-            str(key): _normalize_nested_contract_references(item)
-            for key, item in value.items()
-            if not (is_contract_reference and key == "contract_digest")
-        }
-    if isinstance(value, (list, tuple)):
-        return [
-            _normalize_nested_contract_references(item)
-            for item in value
-        ]
-    return value
-
-
-def _result_affecting_contract(contract: Any) -> dict[str, Any]:
-    descriptor = (
-        contract.descriptor()
-        if callable(contract.descriptor)
-        else contract.descriptor
-    )
-    contract_kind = descriptor["contract_kind"]
-    presentation_fields = _PRESENTATION_CONTRACT_FIELDS.get(
-        contract_kind,
-        (),
-    )
-    return {
-        "contract_kind": contract_kind,
-        "contract_id": descriptor["contract_id"],
-        "contract_version": descriptor["contract_version"],
-        "descriptor": _normalize_nested_contract_references(
-            {
-                key: value
-                for key, value in descriptor.items()
-                if key not in presentation_fields
-            }
-        ),
-    }
-
-
 def _candidate_data_type_id(value: Any) -> str | None:
     return {
         ProteinSequence: "protein.sequence",
         ProteinStructure: "protein.structure",
-        StructureAlignment: "structure.alignment",
     }.get(type(value))
 
 
@@ -3297,20 +3284,20 @@ def _exact_reference(reference: Any) -> ExactContractReference:
 def _candidate_digests_for_value(
     port_types: Mapping[str, Any],
     value: Any,
-) -> tuple[CandidateDataDigest, ...]:
+) -> tuple[CandidateDataReference, ...]:
     if type(value) is Candidate:
         candidates = (value,)
     elif type(value) is CandidateCollection:
         candidates = tuple(value.items)
     else:
         return ()
-    digests: list[CandidateDataDigest] = []
+    digests: list[CandidateDataReference] = []
     for candidate in candidates:
         type_id = _candidate_data_type_id(candidate.data)
         if type_id is None:
             continue
         digests.append(
-            CandidateDataDigest(
+            CandidateDataReference(
                 candidate_id=candidate.candidate_id,
                 data_type_id=type_id,
                 content_digest=_active_content_digest(
@@ -3403,70 +3390,6 @@ def _selection_consumer_result(
     return result
 
 
-def _workflow_weighted_selection_result(
-    plan: ExecutionPlan,
-    values: Mapping[tuple[str, str], AdmittedPortValues],
-) -> dict[str, Any]:
-    """Retain the Workflow-level weighted result when no Node consumes it."""
-    candidate_inputs: dict[SelectionInput, CandidateCollection] = {}
-    score_collection_inputs: dict[SelectionInput, ScoreCollection] = {}
-    for resolved_objective in plan._runtime.selection_objectives:
-        objective = resolved_objective.objective
-        for reference, expected_type, destination in (
-            (
-                objective.candidate_input,
-                CandidateCollection,
-                candidate_inputs,
-            ),
-            (
-                objective.score_collection_input,
-                ScoreCollection,
-                score_collection_inputs,
-            ),
-        ):
-            resolved_values = values.get(
-                (reference.node_id, reference.output_port),
-                [],
-            )
-            if (
-                len(resolved_values) != 1
-                or type(resolved_values[0]) is not expected_type
-            ):
-                raise SelectionError(
-                    "Selection input did not resolve to one exact "
-                    f"{expected_type.__name__}"
-                )
-            destination[reference] = resolved_values[0]
-    candidate_reference = (
-        plan._runtime.selection_objectives[0].objective.candidate_input
-    )
-    candidate_collection = candidate_inputs[candidate_reference]
-    candidate_content_digests = {
-        candidate.candidate_id: _candidate_data_content_digest(
-            plan._runtime.candidate_data_port_types,
-            candidate,
-        )
-        for candidate in candidate_collection.items
-    }
-    selection = select_candidates_from_facts(
-        candidate_inputs=candidate_inputs,
-        score_collection_inputs=score_collection_inputs,
-        objectives=plan._runtime.selection_objectives,
-        candidate_content_digests=candidate_content_digests,
-        limit=max(1, len(candidate_collection.items)),
-    )
-    return {
-        "status": "succeeded",
-        "candidate_input": candidate_reference.to_public(),
-        "selected_collection_id": selection.candidates.collection_id,
-        "selected_candidate_ids": [
-            candidate.candidate_id
-            for candidate in selection.candidates.items
-        ],
-        "objectives": selection.public_provenance()["objectives"],
-    }
-
-
 def _contains_unresolved_identity(value: Any) -> bool:
     if isinstance(value, Mapping):
         if value.get("identity_complete") is False:
@@ -3497,11 +3420,8 @@ def _result_identity_is_cache_safe(
     resolved_resource_inputs: tuple[Mapping[str, Any], ...] = (),
     effective_randomness_snapshot: _EffectiveRandomnessSnapshot | None = None,
 ) -> bool:
-    if any(
-        _contains_unresolved_identity(
-            _result_affecting_contract(contract)["descriptor"]
-        )
-        for contract in node._runtime.result_contracts
+    if _contains_unresolved_identity(
+        node.result_identity_plan_facts.canonical_projection()
     ):
         return False
     if _contains_unresolved_identity(inputs):
@@ -3526,41 +3446,9 @@ def _result_identity_is_cache_safe(
 def _result_contract_metadata(
     node: ExecutionPlanNode,
 ) -> dict[str, Any]:
-    node_contract = node._runtime.node_contract
-    contracts = {}
-    for contract in node._runtime.result_contracts:
-        facts = _result_affecting_contract(contract)
-        contracts[
-            (
-                facts["contract_kind"],
-                facts["contract_id"],
-                facts["contract_version"],
-            )
-        ] = facts
-    metadata = {
-        "contracts": [contracts[key] for key in sorted(contracts)],
-        "outputs": [
-            {
-                "output_port": port["name"],
-                "port_type": _plain_json(port["port_type"]),
-                "required": port["required"],
-                "multiplicity": port["multiplicity"],
-            }
-            for port in node_contract.descriptor.get("outputs", ())
-        ],
-    }
-    if node._runtime.selection_objectives:
-        metadata["selection_objectives"] = _plain_json(
-            selection_objective_provenance_from_facts(
-                node._runtime.selection_objectives,
-            )["objectives"]
-        )
-    if node._runtime.observation_selectors:
-        metadata["observation_selectors"] = [
-            item.selector.to_public()
-            for item in node._runtime.observation_selectors
-        ]
-    return metadata
+    return (
+        node.result_identity_plan_facts.cache_contract_metadata()
+    )
 
 
 def _with_result_provenance(
@@ -3609,7 +3497,7 @@ class _ProjectResultCache(ResultReplaySource):
             or re.fullmatch(r"[0-9a-f]{64}", digest) is None
         ):
             raise PortValueError("Result Identity is not a canonical digest")
-        return ("v2", "results", f"{digest}.json")
+        return ("v3", "results", f"{digest}.json")
 
     def _load_entry(
         self,
@@ -4060,6 +3948,7 @@ class V2RunService:
                 node.node_id,
                 node._runtime.dependencies,
                 node._runtime.required_dependencies,
+                node.result_identity_plan_facts.digest,
                 node.node_type.to_public(),
                 node._runtime.artifact_outputs,
                 bool(
@@ -4622,6 +4511,7 @@ class V2RunService:
                     for digest in value.candidate_data
                 ),
             )
+        validate_candidate_input_identities(inputs, digests)
         return inputs, MappingProxyType(digests)
 
     def _resolve_project_inputs(
@@ -4641,10 +4531,17 @@ class V2RunService:
                 raise PortValueError(
                     f"Project input parameter {parameter_name!r} is invalid"
                 )
-            descriptor, payload = self._projects.read_input(
-                project_id,
-                reference,
-            )
+            try:
+                descriptor, payload = self._projects.read_input(
+                    project_id,
+                    reference,
+                )
+            except ProjectInputIntegrityError as error:
+                raise V2RunError(
+                    "artifact_integrity_mismatch",
+                    "Project Input integrity verification failed",
+                    details={"artifact_reference": error.project_input_ref},
+                ) from error
             resolved[reference] = (descriptor, payload)
             identities.append(
                 {
@@ -4705,6 +4602,11 @@ class V2RunService:
                     candidate,
                 )
             ),
+            observation_propagation=(
+                node._runtime.binding_contract.descriptor.get(
+                    "observation_propagation"
+                )
+            ),
         )
 
     def _published_outputs(
@@ -4737,6 +4639,7 @@ class V2RunService:
         outputs: Any,
         *,
         inputs: Mapping[str, Any],
+        input_content_digests: Mapping[str, InputContentDigests],
     ) -> tuple[
         list[dict[str, Any]],
         dict[tuple[str, str], AdmittedPortValues],
@@ -4772,7 +4675,7 @@ class V2RunService:
                 else (supplied,)
             )
             port_type = node._runtime.output_ports[port_name].port_type
-            admitted[(node.node_id, port_name)] = admitted_port_values(
+            snapshot = admitted_port_values(
                 port_type=port_type,
                 multiplicity=declaration["multiplicity"],
                 values=values,
@@ -4781,6 +4684,25 @@ class V2RunService:
                     value,
                 ),
             )
+            if (
+                port_type.type_id != "score.collection"
+                and port_type.observation_method_projection is not None
+            ):
+                producing_method = _exact_reference(node.method)
+                projected_methods = tuple(
+                    method
+                    for value in snapshot.runtime_values
+                    for method in port_type.observation_method_references(value)
+                )
+                if any(
+                    method != producing_method
+                    for method in projected_methods
+                ):
+                    raise PortValueError(
+                        "Output Observation Method projection does not equal "
+                        "the producing Binding Method"
+                    )
+            admitted[(node.node_id, port_name)] = snapshot
 
         canonical_outputs = {
             port_name: (
@@ -4791,6 +4713,176 @@ class V2RunService:
             for (node_id, port_name), snapshot in admitted.items()
             if node_id == node.node_id
         }
+        axis_references: dict[tuple[str, str], tuple[Any, ...]] = {}
+        method_references: dict[tuple[str, str], tuple[Any, ...]] = {}
+        alignment_evidence_references: dict[
+            tuple[str, str],
+            tuple[Any, ...],
+        ] = {}
+        candidate_references: dict[
+            tuple[str, str],
+            tuple[CandidateDataReference, ...],
+        ] = {}
+        for resolved_metric in node._runtime.produced_metric_facts.values():
+            evidence_contract = resolved_metric.structure_alignment_evidence
+            if evidence_contract is None:
+                continue
+            direction = evidence_contract["source_direction"]
+            source_port = evidence_contract["source_port"]
+            key = (direction, source_port)
+            if key in alignment_evidence_references:
+                continue
+            if direction == "input":
+                port = node._runtime.input_ports.get(source_port)
+                digest_record = input_content_digests.get(source_port)
+                if (
+                    port is None
+                    or source_port not in inputs
+                    or digest_record is None
+                ):
+                    raise PortValueError(
+                        "Produced Observation alignment evidence input lacks "
+                        "admitted identity evidence"
+                    )
+                raw_value = inputs[source_port]
+                values = (
+                    tuple(raw_value)
+                    if port.declaration["multiplicity"] == "many"
+                    else (raw_value,)
+                )
+                content_digests = digest_record.value_content_digests
+            elif direction == "output":
+                snapshot = admitted.get((node.node_id, source_port))
+                if snapshot is None:
+                    raise PortValueError(
+                        "Produced Observation alignment evidence output was "
+                        "not admitted"
+                    )
+                values = snapshot.runtime_values
+                content_digests = tuple(
+                    value.content_digest for value in snapshot.values
+                )
+            else:
+                raise PortValueError(
+                    "Produced Observation alignment evidence source direction "
+                    "is invalid"
+                )
+            alignment_evidence_references[key] = (
+                resolve_structure_alignment_evidence_admission_facts(
+                    values,
+                    content_digests,
+                )
+            )
+        for declaration in node._runtime.binding_contract.descriptor.get(
+            "produced_observations",
+            (),
+        ):
+            for projection_kind, direction, source_port in (
+                (
+                    "axis",
+                    declaration.get("axis_direction"),
+                    declaration.get("axis_port"),
+                ),
+                (
+                    "method",
+                    declaration.get("method_direction"),
+                    declaration.get("method_port"),
+                ),
+            ):
+                if direction not in {"input", "output"} or not isinstance(
+                    source_port, str
+                ):
+                    continue
+                target = (
+                    axis_references
+                    if projection_kind == "axis"
+                    else method_references
+                )
+                key = (direction, source_port)
+                if key in target:
+                    continue
+                if direction == "input":
+                    port = node._runtime.input_ports.get(source_port)
+                    if (
+                        port is None
+                        or source_port not in input_content_digests
+                    ):
+                        raise PortValueError(
+                            f"Declared input {projection_kind} Port lacks "
+                            "admitted identity evidence"
+                        )
+                    raw_value = inputs.get(source_port)
+                else:
+                    port = node._runtime.output_ports.get(source_port)
+                    snapshot = admitted.get((node.node_id, source_port))
+                    if port is None or snapshot is None:
+                        raise PortValueError(
+                            f"Declared output {projection_kind} Port was not "
+                            "admitted"
+                        )
+                    raw_value = canonical_outputs.get(source_port)
+                if raw_value is None:
+                    target[key] = ()
+                    continue
+                values = (
+                    tuple(raw_value)
+                    if port.declaration["multiplicity"] == "many"
+                    else (raw_value,)
+                )
+                projected = tuple(
+                    reference
+                    for value in values
+                    for reference in (
+                        port.port_type.scientific_axis_references(value)
+                        if projection_kind == "axis"
+                        else port.port_type.observation_method_references(value)
+                    )
+                )
+                if len(projected) != len(set(projected)):
+                    raise PortValueError(
+                        f"Declared {projection_kind} Port projected duplicate "
+                        "exact references"
+                    )
+                target[key] = projected
+        for declaration in node._runtime.binding_contract.descriptor.get(
+            "produced_observations",
+            (),
+        ):
+            for direction_name, port_name_key in (
+                ("subject_direction", "subject_port"),
+                ("reference_direction", "reference_port"),
+            ):
+                direction = declaration.get(direction_name)
+                source_port = declaration.get(port_name_key)
+                if direction not in {"input", "output"} or not isinstance(
+                    source_port, str
+                ):
+                    continue
+                key = (direction, source_port)
+                if key in candidate_references:
+                    continue
+                if direction == "input":
+                    evidence = input_content_digests.get(source_port)
+                    if evidence is None:
+                        raise PortValueError(
+                            "Produced Observation Candidate source lacks "
+                            "admitted identity evidence"
+                        )
+                    candidate_references[key] = tuple(
+                        evidence.candidate_data
+                    )
+                else:
+                    snapshot = admitted.get((node.node_id, source_port))
+                    if snapshot is None:
+                        raise PortValueError(
+                            "Produced Observation output Candidate source was "
+                            "not admitted"
+                        )
+                    candidate_references[key] = tuple(
+                        reference
+                        for value in snapshot.values
+                        for reference in value.candidate_data
+                    )
         for (node_id, port_name), snapshot in admitted.items():
             if (
                 node_id != node.node_id
@@ -4807,11 +4899,11 @@ class V2RunService:
                     inputs=inputs,
                     outputs=canonical_outputs,
                     metric_facts=node._runtime.produced_metric_facts,
-                    candidate_content_digest=lambda candidate: (
-                        _candidate_data_content_digest(
-                            plan._runtime.candidate_data_port_types,
-                            candidate,
-                        )
+                    axis_references=axis_references,
+                    method_references=method_references,
+                    candidate_references=candidate_references,
+                    alignment_evidence_references=(
+                        alignment_evidence_references
                     ),
                 )
         return self._published_outputs(node, admitted), admitted
@@ -4854,13 +4946,12 @@ class V2RunService:
                     "Standalone artifact cannot claim a Candidate identity"
                 )
         elif artifact_kind == "candidate":
-            if not isinstance(payload.candidate_id, str):
-                raise PortValueError(
-                    "Candidate artifact requires one Candidate identity"
-                )
             try:
-                validate_identifier(payload.candidate_id, "candidate_id")
-            except StoragePathError as error:
+                validate_canonical_identifier(
+                    payload.candidate_id,
+                    "candidate_id",
+                )
+            except ValueError as error:
                 raise PortValueError(
                     "Candidate artifact identity is invalid"
                 ) from error
@@ -5011,8 +5102,7 @@ class V2RunService:
         self,
         project_id: str,
         *,
-        workflow_revision: int,
-        compile_id: str,
+        workflow_commit_id: str,
         client_request_id: str,
         _on_admitted: Callable[
             [dict[str, Any], _RunRecord],
@@ -5028,36 +5118,12 @@ class V2RunService:
         if _retained_compiled is None:
             compiled = self._authoring.require_compiled(
                 project_id,
-                workflow_revision=workflow_revision,
-                compile_id=compile_id,
+                workflow_commit_id=workflow_commit_id,
             )
         else:
             compiled = _retained_compiled
-            if (
-                compiled.execution_plan.workflow_revision
-                != workflow_revision
-                or compiled.receipt["compile_id"] != compile_id
-            ):
-                raise V2RunError(
-                    "contract_digest_mismatch",
-                    "Derived Run source Execution Plan identity changed",
-                    details={
-                        "issues": [
-                            {
-                                "code": (
-                                    "source_execution_plan_identity_mismatch"
-                                ),
-                                "severity": "error",
-                                "message": (
-                                    "Derived Run requires the exact immutable "
-                                    "source Execution Plan identity"
-                                ),
-                                "field_path": ["source_run_id"],
-                            }
-                        ]
-                    },
-                )
         plan = compiled.execution_plan
+        workflow_commit_revision = plan.workflow_commit_revision
         if plan.catalog_contract_digest != self._catalog.contract_digest:
             raise V2RunError(
                 "contract_digest_mismatch",
@@ -5071,7 +5137,7 @@ class V2RunService:
                                 "Start Run requires the FrozenCatalog used "
                                 "during compilation"
                             ),
-                            "field_path": ["compile_id"],
+                            "field_path": ["workflow_commit_id"],
                         }
                     ]
                 },
@@ -5094,10 +5160,10 @@ class V2RunService:
         scope_payload: dict[str, Any] = {
             "project_id": project_id,
             "run_id": run_id,
-            "workflow_revision": workflow_revision,
+            "workflow_commit_id": workflow_commit_id,
+            "workflow_commit_revision": workflow_commit_revision,
             "workflow_digest": plan.workflow_digest,
             "contract_lock_digest": plan.contract_lock_digest,
-            "compile_id": compile_id,
             "execution_plan_digest": plan.execution_plan_digest,
             "catalog_contract_digest": plan.catalog_contract_digest,
             "resolved_contract_roots": _execution_plan_contract_roots(plan),
@@ -5105,24 +5171,13 @@ class V2RunService:
                 entry.to_public()
                 for entry in plan.resolved_contracts
             ],
-            "selection_required": bool(
-                plan._runtime.selection_objectives
-                or plan._runtime.observation_selectors
+            "selection_required": any(
+                node.selection_consumer for node in plan_evidence
             ),
             "selection_terminal_keys": list(
-                (
-                    tuple(
-                        node.node_id
-                        for node in plan_evidence
-                        if node.selection_consumer
-                    )
-                    or ("__workflow__",)
-                )
-                if (
-                    plan._runtime.selection_objectives
-                    or plan._runtime.observation_selectors
-                )
-                else ()
+                node.node_id
+                for node in plan_evidence
+                if node.selection_consumer
             ),
             "plan_nodes": [
                 node.to_dict()
@@ -5167,8 +5222,8 @@ class V2RunService:
         admitted = ledger.append(
             "run_admitted",
             {
-                "workflow_revision": workflow_revision,
-                "compile_id": compile_id,
+                "workflow_commit_id": workflow_commit_id,
+                "workflow_commit_revision": workflow_commit_revision,
             },
         )
         ledger.append("run_started", {"started_at": run_timestamp()})
@@ -5189,8 +5244,8 @@ class V2RunService:
         receipt = {
             "project_id": project_id,
             "run_id": run_id,
-            "workflow_revision": workflow_revision,
-            "compile_id": compile_id,
+            "workflow_commit_id": workflow_commit_id,
+            "workflow_commit_revision": workflow_commit_revision,
             "admitted_sequence": admitted["sequence"],
             "event_cursor": ledger.cursor_at(admitted["sequence"]),
         }
@@ -5235,10 +5290,19 @@ class V2RunService:
                 continue
             node_attempt_id = f"node-attempt-{uuid.uuid4().hex}"
             operation_attempt_id = f"operation-{uuid.uuid4().hex}"
-            node_inputs, input_content_digests = self._inputs_for(
-                node,
-                values,
-            )
+            node_inputs: dict[str, Any] = {}
+            input_content_digests: Mapping[
+                str,
+                InputContentDigests,
+            ] = MappingProxyType({})
+            input_admission_error: PortValueError | None = None
+            try:
+                node_inputs, input_content_digests = self._inputs_for(
+                    node,
+                    values,
+                )
+            except PortValueError as error:
+                input_admission_error = error
             binding_contract = node._runtime.binding_contract
             project_inputs: dict[
                 str,
@@ -5246,18 +5310,22 @@ class V2RunService:
             ] = {}
             resource_identities: tuple[Mapping[str, Any], ...] = ()
             resource_resolution_error: BaseException | None = None
-            try:
-                (
-                    project_inputs,
-                    resource_identities,
-                ) = self._resolve_project_inputs(project_id, node)
-            except BaseException as error:
-                resource_resolution_error = error
+            if input_admission_error is None:
+                try:
+                    (
+                        project_inputs,
+                        resource_identities,
+                    ) = self._resolve_project_inputs(project_id, node)
+                except BaseException as error:
+                    resource_resolution_error = error
             effective_randomness_snapshot: (
                 _EffectiveRandomnessSnapshot | None
             ) = None
             randomness_resolution_error: BaseException | None = None
-            if resource_resolution_error is None:
+            if (
+                input_admission_error is None
+                and resource_resolution_error is None
+            ):
                 try:
                     effective_randomness_snapshot = (
                         _resolve_effective_randomness(
@@ -5269,7 +5337,8 @@ class V2RunService:
                     randomness_resolution_error = error
             result_identity: str | None = None
             cache_eligible = (
-                resource_resolution_error is None
+                input_admission_error is None
+                and resource_resolution_error is None
                 and randomness_resolution_error is None
                 and effective_randomness_snapshot is not None
                 and binding_contract.descriptor.get("cacheable") is True
@@ -5514,7 +5583,8 @@ class V2RunService:
                 _project_input_identities=resource_identities,
             )
             body_error: BaseException | None = (
-                resource_resolution_error
+                input_admission_error
+                or resource_resolution_error
                 or randomness_resolution_error
             )
             implementation: Any | None = None
@@ -5696,6 +5766,7 @@ class V2RunService:
                     node,
                     raw_outputs,
                     inputs=node_inputs,
+                    input_content_digests=input_content_digests,
                 )
                 pending_cache_outputs = _with_result_provenance(
                     published,
@@ -5896,39 +5967,31 @@ class V2RunService:
                 artifact_records.update(pending_artifact_records)
             disposition_outcomes[node.node_id] = outcome
         selection_failed = False
-        if (
-            (
-                plan._runtime.selection_objectives
-                or plan._runtime.observation_selectors
+        selection_consumers = tuple(
+            node
+            for node in plan.nodes
+            if (
+                node._runtime.selection_objectives
+                or node._runtime.observation_selectors
             )
+        )
+        if (
+            selection_consumers
             and all(
                 outcome == "succeeded"
                 for outcome in disposition_outcomes.values()
             )
         ):
             try:
-                consumer_results = tuple(
-                    result
-                    for node in plan.nodes
-                    if (
-                        result := _selection_consumer_result(
-                            node,
-                            values,
-                        )
-                    )
-                    is not None
-                )
-                results = (
-                    consumer_results
-                    if consumer_results
-                    else (
-                        _workflow_weighted_selection_result(
-                            plan,
-                            values,
-                        ),
-                    )
+                results = tuple(
+                    _selection_consumer_result(node, values)
+                    for node in selection_consumers
                 )
                 for result in results:
+                    if result is None:
+                        raise RuntimeError(
+                            "Selection consumer lacks an exact result"
+                        )
                     ledger.append(
                         "selection_terminal",
                         {
@@ -5962,8 +6025,7 @@ class V2RunService:
         self,
         project_id: str,
         *,
-        workflow_revision: int,
-        compile_id: str,
+        workflow_commit_id: str,
         client_request_id: str,
         _derived_from: Mapping[str, Any] | None = None,
         _cache_bypass_nodes: frozenset[str] = frozenset(),
@@ -5989,8 +6051,7 @@ class V2RunService:
 
                 self.start(
                     project_id,
-                    workflow_revision=workflow_revision,
-                    compile_id=compile_id,
+                    workflow_commit_id=workflow_commit_id,
                     client_request_id=client_request_id,
                     _on_admitted=on_admitted,
                     _before_execute=acquire_execution_slot,
@@ -6077,7 +6138,6 @@ class V2RunService:
         project_id: str,
         *,
         source_run_id: str,
-        compile_id: str,
         policy: str,
         node_ids: list[str],
         client_request_id: str,
@@ -6091,24 +6151,6 @@ class V2RunService:
                 "malformed_request",
                 "Start Derived Run requires a terminal source Run",
                 details={"field_path": ["source_run_id"]},
-            )
-        if compile_id != source_projection["compile_id"]:
-            raise V2RunError(
-                "contract_digest_mismatch",
-                "Start Derived Run requires the source compile identity",
-                details={
-                    "issues": [
-                        {
-                            "code": "source_compile_identity_mismatch",
-                            "severity": "error",
-                            "message": (
-                                "Derived Run compile_id must equal the "
-                                "immutable source Run compile_id"
-                            ),
-                            "field_path": ["compile_id"],
-                        }
-                    ]
-                },
             )
         compiled = source.compiled
         if compiled is None:
@@ -6132,11 +6174,12 @@ class V2RunService:
         plan = compiled.execution_plan
         source_scope = source.ledger.facts[0]["payload"]
         if (
-            plan.workflow_revision
-            != source_projection["workflow_revision"]
+            plan.workflow_commit_revision
+            != source_projection["workflow_commit_revision"]
             or plan.workflow_digest
             != source_projection["workflow_digest"]
-            or compiled.receipt["compile_id"] != compile_id
+            or source_scope["workflow_commit_id"]
+            != source_projection["workflow_commit_id"]
             or plan.contract_lock_digest
             != source_scope["contract_lock_digest"]
             or plan.execution_plan_digest
@@ -6223,8 +6266,7 @@ class V2RunService:
         ]
         return self.start_background(
             project_id,
-            workflow_revision=source_projection["workflow_revision"],
-            compile_id=compile_id,
+            workflow_commit_id=source_projection["workflow_commit_id"],
             client_request_id=client_request_id,
             _derived_from={
                 "source_run_id": source_run_id,

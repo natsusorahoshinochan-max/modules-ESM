@@ -8,6 +8,8 @@ import struct
 
 
 _AMINO_ACIDS = frozenset("ACDEFGHIKLMNPQRSTVWYBXZJUO")
+ESMC_MEAN_EMBEDDING_DIMENSION = 1152
+ESMC_SEQUENCE_LOGITS_DIMENSION = 64
 
 
 @dataclass(frozen=True, slots=True)
@@ -16,8 +18,9 @@ class ESMCSequenceRepresentation:
 
     The embedding is the Biohub ESMC mean embedding.  The logits themselves are
     intentionally not retained because their transfer and persistence cost is
-    disproportionate; their exact returned tensor shape is retained after the
-    adapter validates that sequence logits were actually produced.
+    disproportionate; their exact returned tensor shape is retained.  This
+    value owns the one fixed ESMC-600M representation contract admitted by the
+    Workbench.
     """
 
     sequence: str
@@ -53,6 +56,8 @@ class ESMCSequenceRepresentation:
             raise ValueError(
                 "ESMC mean embedding must contain finite binary32 values"
             )
+        if len(self.mean_embedding) != ESMC_MEAN_EMBEDDING_DIMENSION:
+            raise ValueError("ESMC mean embedding must contain 1152 values")
         if any(
             value == 0.0 and math.copysign(1.0, value) < 0.0
             for value in self.mean_embedding
@@ -73,16 +78,14 @@ class ESMCSequenceRepresentation:
                 "as binary32"
             )
         if (
-            len(self.sequence_logits_shape) not in {2, 3}
-            or any(
-                type(dimension) is not int or dimension <= 0
-                for dimension in self.sequence_logits_shape
-            )
-            or (
-                len(self.sequence_logits_shape) == 3
-                and self.sequence_logits_shape[0] != 1
+            any(type(value) is not int for value in self.sequence_logits_shape)
+            or self.sequence_logits_shape
+            != (
+                len(self.sequence) + 2,
+                ESMC_SEQUENCE_LOGITS_DIMENSION,
             )
         ):
             raise ValueError(
-                "ESMC sequence logits shape must describe one non-empty batch"
+                "ESMC sequence logits shape must be the exact integer shape "
+                "(L + 2, 64)"
             )

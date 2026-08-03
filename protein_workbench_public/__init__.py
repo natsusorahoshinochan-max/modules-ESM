@@ -2,11 +2,16 @@
 
 from protein_workbench_public.protocol import (
     PUBLIC_PROTOCOL_NAMESPACE,
+    REST_BODY_ABSENT,
     PreparedEventStreamRequest,
     PreparedRestRequest,
     ProtocolValidationError,
     bundle_bytes,
     bundle_digest,
+    decode_project_input_content,
+    decode_rest_request,
+    decode_run_event_stream_request,
+    encode_project_input_content,
     load_bundle,
     prepare_run_event_stream_request,
     prepare_rest_request,
@@ -20,11 +25,16 @@ from protein_workbench_public.protocol import (
 
 __all__ = [
     "PUBLIC_PROTOCOL_NAMESPACE",
+    "REST_BODY_ABSENT",
     "PreparedEventStreamRequest",
     "PreparedRestRequest",
     "ProtocolValidationError",
     "bundle_bytes",
     "bundle_digest",
+    "decode_project_input_content",
+    "decode_rest_request",
+    "decode_run_event_stream_request",
+    "encode_project_input_content",
     "load_bundle",
     "prepare_run_event_stream_request",
     "prepare_rest_request",

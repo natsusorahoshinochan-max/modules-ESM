@@ -16,11 +16,16 @@ from core import (
     WorkflowDocument,
     WorkflowNodeInstance,
     build_frozen_catalog,
-    parse_workflow_document,
 )
+from core.port_types import canonical_json_bytes
 from core.workflow_v2 import WorkflowEdge
-from modules.folding.adapter import _pdb_sequence
+from datatypes import ScoreCollection
 from tests.acceptance.conftest import require_ready
+
+
+SEQUENCE_3GB1 = (
+    "MTYKLILNGKTLKGETTTEAVDAATAEKVFKQYANDNGVDGEWTYDDATKTFTVTE"
+)
 
 
 @pytest.mark.acceptance
@@ -28,7 +33,6 @@ from tests.acceptance.conftest import require_ready
 @pytest.mark.slow
 def test_simplefold_v2_folds_3gb1_through_exact_binding(
     readiness: dict[str, bool],
-    pdb_3gb1: object,
     tmp_path: Path,
 ) -> None:
     """Execute the exact v2 Binding; skips are forbidden by its full gate."""
@@ -39,30 +43,51 @@ def test_simplefold_v2_folds_3gb1_through_exact_binding(
         configured_runtime_fingerprint,
         provider_identity,
     )
+    from modules.structure_prediction.package import (
+        MODULE_PACKAGE as STRUCTURE_PREDICTION_PACKAGE,
+    )
+    from modules.structure_transform.package import (
+        MODULE_PACKAGE as STRUCTURE_TRANSFORM_PACKAGE,
+    )
     from tests.fixtures.folding_sources.package import (
         MODULE_PACKAGE as SOURCE_PACKAGE,
     )
 
-    sequence = _pdb_sequence(pdb_3gb1.pdb_string)
     source = WorkflowNodeInstance(
         node_id="source",
         node_type_id="contract_test.folding_sequence_source",
-        node_type_version="2.1.0",
+        node_type_version="3.0.0",
         binding_id="contract_test.folding_sequence_source.direct",
-        binding_version="2.1.0",
-        node_parameters={"sequence": sequence},
+        binding_version="3.0.0",
+        node_parameters={"sequence": SEQUENCE_3GB1},
         binding_parameters={},
     )
     fold = WorkflowNodeInstance(
         node_id="fold",
         node_type_id="folding.fold",
-        node_type_version="3.0.0",
+        node_type_version="6.0.0",
         binding_id="folding.fold.simplefold_local",
-        binding_version="3.0.0",
+        binding_version="6.0.0",
         node_parameters={"effective_seed": 1603, "num_samples": 1},
         binding_parameters={"num_steps": 10},
     )
-    catalog = build_frozen_catalog((FOLDING_PACKAGE, SOURCE_PACKAGE))
+    materialize = WorkflowNodeInstance(
+        node_id="materialize-confidence",
+        node_type_id="structure_prediction.materialize_confidence",
+        node_type_version="1.0.0",
+        binding_id="structure_prediction.materialize_confidence.direct",
+        binding_version="1.0.0",
+        node_parameters={},
+        binding_parameters={},
+    )
+    catalog = build_frozen_catalog(
+        (
+            FOLDING_PACKAGE,
+            SOURCE_PACKAGE,
+            STRUCTURE_PREDICTION_PACKAGE,
+            STRUCTURE_TRANSFORM_PACKAGE,
+        )
+    )
     projects = ProjectManager(
         tmp_path / "projects",
         cache_root=tmp_path / "cache",
@@ -74,7 +99,7 @@ def test_simplefold_v2_folds_3gb1_through_exact_binding(
     workflow = WorkflowDocument(
         schema_version="2.1.0",
         workflow_id=project.id,
-        nodes=(source, fold),
+        nodes=(source, fold, materialize),
         edges=(
             WorkflowEdge(
                 "source",
@@ -82,26 +107,29 @@ def test_simplefold_v2_folds_3gb1_through_exact_binding(
                 "fold",
                 "sequence_candidates",
             ),
+            WorkflowEdge(
+                "fold",
+                "structure_candidates",
+                "materialize-confidence",
+                "structure_candidates",
+            ),
+            WorkflowEdge(
+                "fold",
+                "confidence_facts",
+                "materialize-confidence",
+                "confidence_facts",
+            ),
         ),
         contract_lock=(),
     )
-    saved = authoring.save(
+    committed = authoring.commit(
         project.id,
-        expected_workflow_revision=0,
+        expected_draft_revision=0,
         workflow=workflow,
-    )
-    relocked = authoring.relock(
-        project.id,
-        workflow_revision=saved["workflow_revision"],
-    )
-    compiled = authoring.compile(
-        project.id,
-        workflow_revision=relocked["workflow_revision"],
-        workflow=parse_workflow_document(relocked["workflow"]),
     )
     fingerprint = configured_runtime_fingerprint()
     environment = EnvironmentConfiguration({
-        ("folding.fold.simplefold_local", "3.0.0"): {
+        ("folding.fold.simplefold_local", "6.0.0"): {
             "values": {
                 "model_root": Path(
                     os.environ["PROTEIN_WORKBENCH_SIMPLEFOLD_MODEL_ROOT"]
@@ -125,8 +153,7 @@ def test_simplefold_v2_folds_3gb1_through_exact_binding(
     try:
         receipt = service.start_background(
             project.id,
-            workflow_revision=relocked["workflow_revision"],
-            compile_id=compiled.public_receipt()["compile_id"],
+            workflow_commit_id=committed.workflow_commit_id,
             client_request_id="simplefold-v2-heavy",
         )
         service.shutdown()
@@ -143,13 +170,74 @@ def test_simplefold_v2_folds_3gb1_through_exact_binding(
     }
     assert {
         "structure_candidates",
-        "confidence_observations",
-        "pae_observations",
+        "confidence_facts",
     } == set(outputs)
+    structure_output = outputs["structure_candidates"]
+    structure_reference = structure_output["port_type"]
+    structures = catalog.require_port_type(
+        structure_reference["contract_id"],
+        structure_reference["contract_version"],
+    ).decode(
+        canonical_json_bytes(
+            {
+                "schema_namespace": "protein-workbench-port-value/v2",
+                "port_type_id": structure_reference["contract_id"],
+                "port_type_version": structure_reference[
+                    "contract_version"
+                ],
+                "value": structure_output["values"][0],
+            }
+        )
+    )
+    observation_output = next(
+        output
+        for output in projection["outputs"]
+        if output["node_id"] == "materialize-confidence"
+        and output["output_port"] == "observations"
+    )
+    observation_reference = observation_output["port_type"]
+    observations = catalog.require_port_type(
+        observation_reference["contract_id"],
+        observation_reference["contract_version"],
+    ).decode(
+        canonical_json_bytes(
+            {
+                "schema_namespace": "protein-workbench-port-value/v2",
+                "port_type_id": observation_reference["contract_id"],
+                "port_type_version": observation_reference[
+                    "contract_version"
+                ],
+                "value": observation_output["values"][0],
+            }
+        )
+    )
+    assert type(observations) is ScoreCollection
+    assert {
+        entry.metric.contract_id for entry in observations.entries
+    } == {
+        "structure.plddt.per_residue",
+        "structure.plddt.mean_residue",
+    }
+    assert {
+        entry.subject.candidate_id for entry in observations.entries
+    } == {structures.items[0].candidate_id}
+    structure_codec = catalog.require_port_type(
+        "protein.structure",
+        "4.0.0",
+    )
+    assert {
+        entry.subject.content_digest for entry in observations.entries
+    } == {structure_codec.content_digest(structures.items[0].data)}
+    assert all(
+        entry.residue_axis is not None
+        and entry.residue_axis.axis_kind == "prediction_input"
+        and entry.residue_axis.layout.length == len(SEQUENCE_3GB1)
+        for entry in observations.entries
+    )
     binding = catalog.require_contract(
         "binding",
         "folding.fold.simplefold_local",
-        "3.0.0",
+        "6.0.0",
     )
     assert binding.descriptor["method"]["contract_id"] == (
         "folding.fold.simplefold_100m_c7a5570"
@@ -213,7 +301,7 @@ def test_simplefold_v2_folds_3gb1_through_exact_binding(
         if event["event"]["type"] == "readiness_attested"
         and event["event"]["binding"]["contract_id"]
         == "folding.fold.simplefold_local"
-        and event["event"]["binding"]["contract_version"] == "3.0.0"
+        and event["event"]["binding"]["contract_version"] == "6.0.0"
         and event["event"]["conclusion"] == "passing"
     )
     invocation_index = next(

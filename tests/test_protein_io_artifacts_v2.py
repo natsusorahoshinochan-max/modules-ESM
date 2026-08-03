@@ -19,7 +19,6 @@ from core import (
     build_discovered_frozen_catalog,
     build_frozen_catalog,
     builtin_frozen_catalog,
-    parse_workflow_document,
 )
 from core.port_types import canonical_json_bytes
 from core.server import create_app
@@ -44,29 +43,30 @@ def _run_import_export(
         run_root=tmp_path / "runs",
     )
     project = projects.create(f"protein I/O {value_kind} round trip")
-    projects.publish_input(project.id, f"{value_kind}-input", payload)
+    projects.publish_input(
+        project.id,
+        f"{value_kind}-input",
+        payload,
+        filename=f"{value_kind}-input",
+    )
     authoring = WorkflowAuthoringService(projects, catalog)
     nodes = tuple(
         WorkflowNodeInstance(
             node_id=role,
             node_type_id=f"protein_io.{role}_{value_kind}",
-            node_type_version=(
-                "3.0.0"
-                if (
-                    (role == "import" and value_kind == "sequence")
-                    or value_kind == "structure"
-                )
-                else "2.1.0"
-            ),
+            node_type_version={
+                ("import", "sequence"): "5.0.0",
+                ("export", "sequence"): "3.0.0",
+                ("import", "structure"): "5.0.0",
+                ("export", "structure"): "5.0.0",
+            }[(role, value_kind)],
             binding_id=f"protein_io.{role}_{value_kind}.direct",
-            binding_version=(
-                "3.0.0"
-                if (
-                    (role == "import" and value_kind == "sequence")
-                    or value_kind == "structure"
-                )
-                else "2.1.0"
-            ),
+            binding_version={
+                ("import", "sequence"): "5.0.0",
+                ("export", "sequence"): "3.0.0",
+                ("import", "structure"): "5.0.0",
+                ("export", "structure"): "5.0.0",
+            }[(role, value_kind)],
             node_parameters=(
                 {"project_input_ref": f"{value_kind}-input"}
                 if role == "import"
@@ -85,19 +85,18 @@ def _run_import_export(
         ),
         contract_lock=(),
     )
-    saved = authoring.save(
+    committed = authoring.commit(
         project.id,
-        expected_workflow_revision=0,
+        expected_draft_revision=0,
         workflow=workflow,
     )
-    relocked = authoring.relock(
+    compiled = authoring.require_compiled(
         project.id,
-        workflow_revision=saved["workflow_revision"],
+        workflow_commit_id=committed.workflow_commit_id,
     )
-    compiled = authoring.compile(
-        project.id,
-        workflow_revision=relocked["workflow_revision"],
-        workflow=parse_workflow_document(relocked["workflow"]),
+    assert (
+        compiled.execution_plan.workflow_commit_revision
+        == committed.workflow_commit_revision
     )
     service = V2RunService(
         projects,
@@ -107,8 +106,7 @@ def _run_import_export(
     )
     receipt = service.start_background(
         project.id,
-        workflow_revision=relocked["workflow_revision"],
-        compile_id=compiled.public_receipt()["compile_id"],
+        workflow_commit_id=committed.workflow_commit_id,
         client_request_id=f"protein-io-{value_kind}-round-trip",
     )
     service.shutdown()
@@ -208,12 +206,12 @@ def test_artifact_retrieval_rejects_inactive_generation_without_rewriting_eviden
     assert original_catalog.get_contract(
         "binding",
         "protein_io.import_sequence.direct",
-        "3.0.0",
+        "5.0.0",
     ) is not None
     assert active_catalog.get_contract(
         "binding",
         "protein_io.import_sequence.direct",
-        "3.0.0",
+        "5.0.0",
     ) is None
 
     artifact = projection["artifact_index"][0]
@@ -316,8 +314,8 @@ def test_structure_export_preserves_the_validated_native_pdb_serialization(
     native = (
         b"REMARK provider-native serialization\n"
         b"MODEL        7\n"
-        b"ATOM      1  CA  GLY A   1      "
-        b"1.000   2.000   3.000  1.00 20.00           C\n"
+        b"ATOM      1  CA  GLY A   1       "
+        b"1.000   2.000   3.000  1.00 20.00           C  \n"
         b"ENDMDL\n"
         b"END\n"
     )
@@ -361,18 +359,18 @@ def test_fifteen_candidate_pdbs_keep_identity_slots_and_cache_rematerialize(
             WorkflowNodeInstance(
                 node_id="source",
                 node_type_id="contract_test.structure_candidates",
-                node_type_version="2.1.0",
+                node_type_version="3.0.0",
                 binding_id="contract_test.structure_candidates.direct",
-                binding_version="2.1.0",
+                binding_version="3.0.0",
                 node_parameters={},
                 binding_parameters={},
             ),
             WorkflowNodeInstance(
                 node_id="export",
                 node_type_id="protein_io.export_structure",
-                node_type_version="3.0.0",
+                node_type_version="5.0.0",
                 binding_id="protein_io.export_structure.direct",
-                binding_version="3.0.0",
+                binding_version="5.0.0",
                 node_parameters={},
                 binding_parameters={},
             ),
@@ -382,19 +380,18 @@ def test_fifteen_candidate_pdbs_keep_identity_slots_and_cache_rematerialize(
         ),
         contract_lock=(),
     )
-    saved = authoring.save(
+    committed = authoring.commit(
         project.id,
-        expected_workflow_revision=0,
+        expected_draft_revision=0,
         workflow=workflow,
     )
-    relocked = authoring.relock(
+    compiled = authoring.require_compiled(
         project.id,
-        workflow_revision=saved["workflow_revision"],
+        workflow_commit_id=committed.workflow_commit_id,
     )
-    compiled = authoring.compile(
-        project.id,
-        workflow_revision=relocked["workflow_revision"],
-        workflow=parse_workflow_document(relocked["workflow"]),
+    assert (
+        compiled.execution_plan.workflow_commit_revision
+        == committed.workflow_commit_revision
     )
     service = V2RunService(
         projects,
@@ -408,8 +405,7 @@ def test_fifteen_candidate_pdbs_keep_identity_slots_and_cache_rematerialize(
     for suffix in ("first", "replay"):
         receipt = service.start(
             project.id,
-            workflow_revision=relocked["workflow_revision"],
-            compile_id=compiled.public_receipt()["compile_id"],
+            workflow_commit_id=committed.workflow_commit_id,
             client_request_id=f"fifteen-pdb-{suffix}",
         )
         projections.append(service.projection(project.id, receipt["run_id"]))
@@ -420,7 +416,7 @@ def test_fifteen_candidate_pdbs_keep_identity_slots_and_cache_rematerialize(
 
     candidate_port = catalog.require_port_type(
         "candidate.collection",
-        "2.1.0",
+        "3.0.0",
     )
     first_candidates_output = next(
         output
@@ -432,7 +428,7 @@ def test_fifteen_candidate_pdbs_keep_identity_slots_and_cache_rematerialize(
             {
                 "schema_namespace": "protein-workbench-port-value/v2",
                 "port_type_id": "candidate.collection",
-                "port_type_version": "2.1.0",
+                "port_type_version": "3.0.0",
                 "value": first_candidates_output["values"][0],
             }
         )

@@ -3,14 +3,10 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-import re
 
-from datatypes.protein import FunctionAnnotations
-
-
-_CHAIN_ID = re.compile(r"^[A-Za-z0-9]$")
-_RESIDUE_ID = re.compile(
-    r"^(?P<chain>[A-Za-z0-9]):[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$"
+from datatypes.protein import (
+    FunctionAnnotations,
+    residue_identity_chain,
 )
 
 
@@ -61,21 +57,18 @@ def validate_canonical_function_annotations(
             or any(ord(character) < 32 for character in annotation.label)
         ):
             raise ValueError(f"{subject}.label is invalid")
-        start_match = _RESIDUE_ID.fullmatch(
-            annotation.start_residue_id
-        ) if type(annotation.start_residue_id) is str else None
-        end_match = (
-            _RESIDUE_ID.fullmatch(annotation.end_residue_id)
-            if type(annotation.end_residue_id) is str
-            else None
+        start_chain = residue_identity_chain(
+            annotation.start_residue_id,
+            subject=f"{subject}.start_residue_id",
+        )
+        end_chain = residue_identity_chain(
+            annotation.end_residue_id,
+            subject=f"{subject}.end_residue_id",
         )
         if (
             type(annotation.chain_id) is not str
-            or _CHAIN_ID.fullmatch(annotation.chain_id) is None
-            or start_match is None
-            or end_match is None
-            or start_match.group("chain") != annotation.chain_id
-            or end_match.group("chain") != annotation.chain_id
+            or start_chain != annotation.chain_id
+            or end_chain != annotation.chain_id
         ):
             raise ValueError(
                 f"{subject} chain-qualified provenance is invalid"

@@ -3,16 +3,13 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
-from dataclasses import dataclass, field
-import math
-import re
 from typing import Any
 
 from core import OperationCall, RunResources
 from datatypes import (
     FunctionAnnotations,
     ProteinPrompt,
-    ProteinStructure,
+    ResolvedStructureResidueAxis,
     ResidueLayout,
     ResidueTrack,
 )
@@ -145,260 +142,42 @@ class OverrideResidueTrackImplementation(_Implementation):
         return {port: result}
 
 
-_AA3_TO_1 = {
-    "ALA": "A",
-    "CYS": "C",
-    "ASP": "D",
-    "GLU": "E",
-    "PHE": "F",
-    "GLY": "G",
-    "HIS": "H",
-    "ILE": "I",
-    "LYS": "K",
-    "LEU": "L",
-    "MET": "M",
-    "ASN": "N",
-    "PRO": "P",
-    "GLN": "Q",
-    "ARG": "R",
-    "SER": "S",
-    "THR": "T",
-    "VAL": "V",
-    "TRP": "W",
-    "TYR": "Y",
-}
-_PDB_ATOM_NAME = re.compile(r"^[A-Z0-9][A-Z0-9']{0,3}$")
-_PROMPT_ATOMS = frozenset({
-    "N",
-    "CA",
-    "C",
-    "CB",
-    "O",
-    "CG",
-    "CG1",
-    "CG2",
-    "OG",
-    "OG1",
-    "SG",
-    "CD",
-    "CD1",
-    "CD2",
-    "ND1",
-    "ND2",
-    "OD1",
-    "OD2",
-    "SD",
-    "CE",
-    "CE1",
-    "CE2",
-    "CE3",
-    "NE",
-    "NE1",
-    "NE2",
-    "OE1",
-    "OE2",
-    "CH2",
-    "NH1",
-    "NH2",
-    "OH",
-    "CZ",
-    "CZ2",
-    "CZ3",
-    "NZ",
-    "OXT",
-})
-
-
-@dataclass
-class _StructureAtom:
-    coordinate: tuple[float, float, float]
-    occupancy: float
-
-
-@dataclass
-class _StructureResidue:
-    residue_id: str
-    amino_acid: str
-    atoms: dict[str, tuple[float, float, float]] = field(
-        default_factory=dict
-    )
-    blank_atoms: dict[str, _StructureAtom] = field(default_factory=dict)
-    conformers: dict[str, dict[str, _StructureAtom]] = field(
-        default_factory=dict
-    )
-
-
 def _prompt_from_structure(
-    structure: object,
+    residue_axis: object,
 ) -> tuple[ResidueLayout, ProteinPrompt]:
-    if type(structure) is not ProteinStructure:
-        raise ValueError("structure must be one complete ProteinStructure")
-    residues: list[_StructureResidue] = []
-    by_identity: dict[tuple[str, str], _StructureResidue] = {}
-    chain_order: list[str] = []
-    closed_chains: set[str] = set()
-    previous_chain: str | None = None
-    explicit_model = False
-    model_open = False
-    model_closed = False
-    for line in structure.pdb_string.splitlines():
-        if line.startswith("MODEL "):
-            if explicit_model or model_open or model_closed or residues:
-                raise ValueError(
-                    "structure must contain exactly one coordinate model"
-                )
-            explicit_model = True
-            model_open = True
-            continue
-        if line.startswith("ENDMDL"):
-            if not explicit_model or not model_open:
-                raise ValueError("structure has invalid model boundaries")
-            model_open = False
-            model_closed = True
-            continue
-        if line.startswith("HETATM") and len(line) >= 27:
-            residue_name = line[17:20].strip().upper()
-            if residue_name == "CSH":
-                chain_id = line[21:22].strip() or "?"
-                residue_label = (
-                    line[22:26].strip() + line[26:27].strip()
-                )
-                raise ValueError(
-                    "unsupported_modified_residue: CSH at "
-                    f"{chain_id}:{residue_label} requires an explicit "
-                    "parent-residue normalization contract"
-                )
-        if not line.startswith("ATOM  "):
-            continue
-        if explicit_model and not model_open:
-            raise ValueError("structure contains atoms outside its sole model")
-        if len(line) < 60:
-            raise ValueError("structure contains a truncated PDB atom record")
-        alternate = line[16:17].strip()
-        if alternate and re.fullmatch(r"[A-Za-z0-9]", alternate) is None:
-            raise ValueError("structure contains an invalid altloc identifier")
-        atom_name = line[12:16].strip()
-        if atom_name not in _PROMPT_ATOMS:
-            continue
-        chain_id = line[21:22].strip()
-        residue_number = line[22:26].strip()
-        insertion_code = line[26:27].strip()
-        residue_name = line[17:20].strip().upper()
-        if (
-            _PDB_ATOM_NAME.fullmatch(atom_name) is None
-            or not chain_id.isalnum()
-            or len(chain_id) != 1
-            or not residue_number
-            or residue_name not in _AA3_TO_1
-        ):
-            raise ValueError(
-                "structure contains an unsupported canonical residue record"
-            )
-        if chain_id != previous_chain:
-            if chain_id in closed_chains:
-                raise ValueError("structure chains are not contiguous")
-            if previous_chain is not None:
-                closed_chains.add(previous_chain)
-            chain_order.append(chain_id)
-            previous_chain = chain_id
-        residue_label = residue_number + insertion_code
-        key = (chain_id, residue_label)
-        residue = by_identity.get(key)
-        if residue is None:
-            residue = _StructureResidue(
-                residue_id=f"{chain_id}:{residue_label}",
-                amino_acid=_AA3_TO_1[residue_name],
-            )
-            by_identity[key] = residue
-            residues.append(residue)
-        elif residue.amino_acid != _AA3_TO_1[residue_name]:
-            raise ValueError("structure residue identity has conflicting names")
-        try:
-            coordinate = (
-                float(line[30:38]),
-                float(line[38:46]),
-                float(line[46:54]),
-            )
-            occupancy = float(line[54:60])
-        except ValueError as error:
-            raise ValueError(
-                "structure contains non-numeric coordinates or occupancy"
-            ) from error
-        if (
-            not all(math.isfinite(value) for value in coordinate)
-            or not math.isfinite(occupancy)
-            or not 0.0 <= occupancy <= 1.0
-        ):
-            raise ValueError(
-                "structure contains invalid coordinates or occupancy"
-            )
-        atom = _StructureAtom(coordinate, occupancy)
-        conformer_atoms = (
-            residue.blank_atoms
-            if not alternate
-            else residue.conformers.setdefault(alternate, {})
+    if type(residue_axis) is not ResolvedStructureResidueAxis:
+        raise ValueError(
+            "prompt construction requires one ResolvedStructureResidueAxis"
         )
-        if atom_name in conformer_atoms:
-            raise ValueError(
-                "structure selected conformer contains a duplicate atom"
-            )
-        conformer_atoms[atom_name] = atom
-    if model_open:
-        raise ValueError("structure has an unterminated coordinate model")
-    for residue in residues:
-        merged = dict(residue.blank_atoms)
-        if residue.conformers:
-            selected_altloc = min(
-                residue.conformers,
-                key=lambda altloc: (
-                    -math.fsum(
-                        atom.occupancy
-                        for atom in residue.conformers[altloc].values()
-                    ),
-                    altloc,
-                ),
-            )
-            for atom_name, atom in residue.conformers[
-                selected_altloc
-            ].items():
-                if atom_name in merged:
-                    raise ValueError(
-                        "structure blank and selected altloc atoms conflict"
-                    )
-                merged[atom_name] = atom
-        residue.atoms = {
-            atom_name: atom.coordinate
-            for atom_name, atom in merged.items()
+    coordinates = [
+        {
+            atom.atom_name: atom.coordinate
+            for atom in residue.atom_coordinates
         }
-    if not residues or any(not residue.atoms for residue in residues):
-        raise ValueError("structure contains no complete canonical residues")
-    layout = ResidueLayout(
-        chain_id=",".join(chain_order),
-        length=len(residues),
-        residue_ids=[residue.residue_id for residue in residues],
-    )
+        for residue in residue_axis.residue_coordinates
+    ]
     prompt = ProteinPrompt(
-        target_layout=layout,
+        target_layout=residue_axis.layout,
         sequence_track=ResidueTrack(
-            [residue.amino_acid for residue in residues],
+            list(residue_axis.sequence),
             None,
         ),
         structure_track=ResidueTrack(
-            [dict(residue.atoms) for residue in residues],
+            coordinates,
             None,
         ),
         structure_visibility_track=ResidueTrack(
-            [True for _ in residues],
+            [bool(value) for value in coordinates],
             None,
         ),
         secondary_structure_track=ResidueTrack(
-            [None for _ in residues],
+            [None for _ in coordinates],
             None,
         ),
         sasa_track=None,
         function_annotations=FunctionAnnotations(),
     )
-    return layout, prompt
+    return residue_axis.layout, prompt
 
 
 class PromptFromStructureImplementation(_Implementation):
@@ -407,15 +186,15 @@ class PromptFromStructureImplementation(_Implementation):
         node_parameters = call.node_parameters
         binding_parameters = call.binding_parameters
         if (
-            set(inputs) != {"structure"}
+            set(inputs) != {"residue_axis"}
             or node_parameters
             or binding_parameters
         ):
             raise ValueError(
-                "prompt construction requires one structure and no parameters"
+                "prompt construction requires one resolved axis and no parameters"
             )
         with self._invocation():
-            layout, prompt = _prompt_from_structure(inputs["structure"])
+            layout, prompt = _prompt_from_structure(inputs["residue_axis"])
         return {"layout": layout, "protein_prompt": prompt}
 
 

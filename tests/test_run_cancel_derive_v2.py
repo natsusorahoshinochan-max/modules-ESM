@@ -21,10 +21,10 @@ from tests.fixtures.public_v2 import wait_for_testclient_run_terminal
 from tests.fixtures.result_replay_v2 import admitted_replay_outputs
 from tests.test_run_execution_v2 import (
     _artifact_catalog,
-    _compile_artifact_node,
-    _compile_independent_nodes,
-    _compile_one_node,
-    _compile_pipeline,
+    _commit_artifact_node,
+    _commit_independent_nodes,
+    _commit_one_node,
+    _commit_pipeline,
     _direct_catalog,
     _pipeline_catalog,
 )
@@ -33,14 +33,13 @@ from tests.test_run_execution_v2 import (
 def _start(
     client: TestClient,
     project_id: str,
-    compiled: dict[str, Any],
+    committed: dict[str, Any],
     request_id: str,
 ) -> dict[str, Any]:
     response = client.post(
         f"/api/v2/projects/{project_id}/runs",
         json={
-            "workflow_revision": compiled["workflow_revision"],
-            "compile_id": compiled["compile_id"],
+            "workflow_commit_id": committed["workflow_commit_id"],
             "client_request_id": request_id,
         },
     )
@@ -106,8 +105,8 @@ def test_cancel_during_operation_is_idempotent_and_closes_active_evidence(
     )
 
     with TestClient(app) as client:
-        project_id, compiled = _compile_one_node(client)
-        receipt = _start(client, project_id, compiled, "cancel-active")
+        project_id, committed = _commit_one_node(client)
+        receipt = _start(client, project_id, committed, "cancel-active")
         assert entered.wait(timeout=2)
 
         cancelled = client.post(
@@ -181,14 +180,14 @@ def test_cancel_before_schedule_disposes_every_node_without_attempts(
     )
 
     with TestClient(app) as client:
-        first_project, first_compiled = _compile_one_node(client)
-        second_project, second_compiled = _compile_independent_nodes(
+        first_project, first_committed = _commit_one_node(client)
+        second_project, second_committed = _commit_independent_nodes(
             client,
             ("test.direct.local", "test.direct.local"),
         )
-        first = _start(client, first_project, first_compiled, "occupy-worker")
+        first = _start(client, first_project, first_committed, "occupy-worker")
         assert first_entered.wait(timeout=2)
-        queued = _start(client, second_project, second_compiled, "cancel-queued")
+        queued = _start(client, second_project, second_committed, "cancel-queued")
 
         cancelled = client.post(
             f"/api/v2/projects/{second_project}/runs/{queued['run_id']}:cancel",
@@ -229,8 +228,8 @@ def test_completion_race_is_decided_by_the_ledger_cursor(
     )
 
     with TestClient(app) as client:
-        project_id, compiled = _compile_one_node(client)
-        receipt = _start(client, project_id, compiled, "complete-first")
+        project_id, committed = _commit_one_node(client)
+        receipt = _start(client, project_id, committed, "complete-first")
         projection = _wait_terminal(client, project_id, receipt["run_id"])
         raced = client.post(
             f"/api/v2/projects/{project_id}/runs/{receipt['run_id']}:cancel",
@@ -299,8 +298,8 @@ def test_retry_after_failure_creates_new_evidence_without_mutating_source(
     )
 
     with TestClient(app) as client:
-        project_id, compiled = _compile_one_node(client)
-        source = _start(client, project_id, compiled, "source-failure")
+        project_id, committed = _commit_one_node(client)
+        source = _start(client, project_id, committed, "source-failure")
         assert entered.wait(timeout=2)
         source_projection = _wait_terminal(client, project_id, source["run_id"])
         assert source_projection["status"] == "failed"
@@ -313,7 +312,6 @@ def test_retry_after_failure_creates_new_evidence_without_mutating_source(
             f"/api/v2/projects/{project_id}/runs:derive",
             json={
                 "source_run_id": source["run_id"],
-                "compile_id": compiled["compile_id"],
                 "policy": "retry_failed",
                 "node_ids": ["direct"],
                 "client_request_id": "retry-source-failure",
@@ -365,11 +363,11 @@ def test_force_recompute_executes_selected_node_and_reuses_only_typed_results(
     )
 
     with TestClient(app) as client:
-        project_id, compiled = _compile_independent_nodes(
+        project_id, committed = _commit_independent_nodes(
             client,
             ("test.direct.local", "test.direct.local"),
         )
-        source = _start(client, project_id, compiled, "source-success")
+        source = _start(client, project_id, committed, "source-success")
         source_projection = _wait_terminal(client, project_id, source["run_id"])
         source_facts = _facts(app, project_id, source["run_id"])
         replay.enabled = True
@@ -379,7 +377,6 @@ def test_force_recompute_executes_selected_node_and_reuses_only_typed_results(
             f"/api/v2/projects/{project_id}/runs:derive",
             json={
                 "source_run_id": source["run_id"],
-                "compile_id": compiled["compile_id"],
                 "policy": "force_selected",
                 "node_ids": ["direct-0"],
                 "client_request_id": "force-one-node",
@@ -436,8 +433,8 @@ def test_force_recompute_bypasses_the_selected_downstream_closure(
     )
 
     with TestClient(app) as client:
-        project_id, compiled = _compile_pipeline(client)
-        source = _start(client, project_id, compiled, "force-source")
+        project_id, committed = _commit_pipeline(client)
+        source = _start(client, project_id, committed, "force-source")
         assert _wait_terminal(
             client,
             project_id,
@@ -450,7 +447,6 @@ def test_force_recompute_bypasses_the_selected_downstream_closure(
             f"/api/v2/projects/{project_id}/runs:derive",
             json={
                 "source_run_id": source["run_id"],
-                "compile_id": compiled["compile_id"],
                 "policy": "force_selected",
                 "node_ids": ["source"],
                 "client_request_id": "force-source-closure",
@@ -526,8 +522,8 @@ def test_cancel_terminates_registered_process_group_children_and_temp_work(
     )
 
     with TestClient(app) as client:
-        project_id, compiled = _compile_one_node(client)
-        receipt = _start(client, project_id, compiled, "cancel-process-group")
+        project_id, committed = _commit_one_node(client)
+        receipt = _start(client, project_id, committed, "cancel-process-group")
         assert entered.wait(timeout=2)
         cancelled = client.post(
             f"/api/v2/projects/{project_id}/runs/{receipt['run_id']}:cancel",
@@ -619,8 +615,8 @@ def test_process_group_registered_after_cancel_uses_full_cleanup_protocol(
     )
 
     with TestClient(app) as client:
-        project_id, compiled = _compile_one_node(client)
-        receipt = _start(client, project_id, compiled, "cancel-late-group")
+        project_id, committed = _commit_one_node(client)
+        receipt = _start(client, project_id, committed, "cancel-late-group")
         assert spawned.wait(timeout=2)
         cancelled = client.post(
             f"/api/v2/projects/{project_id}/runs/{receipt['run_id']}:cancel",
@@ -676,8 +672,8 @@ def test_successful_process_fallback_is_confirmed_when_context_exits(
     )
 
     with TestClient(app) as client:
-        project_id, compiled = _compile_one_node(client)
-        receipt = _start(client, project_id, compiled, "cancel-fallback")
+        project_id, committed = _commit_one_node(client)
+        receipt = _start(client, project_id, committed, "cancel-fallback")
         assert entered.wait(timeout=2)
         cancelled = client.post(
             f"/api/v2/projects/{project_id}/runs/{receipt['run_id']}:cancel",
@@ -726,8 +722,8 @@ def test_cancel_factory_cleanup_failure_is_interrupted_without_false_attempt(
     )
 
     with TestClient(app) as client:
-        project_id, compiled = _compile_one_node(client)
-        receipt = _start(client, project_id, compiled, "cancel-factory")
+        project_id, committed = _commit_one_node(client)
+        receipt = _start(client, project_id, committed, "cancel-factory")
         assert entered.wait(timeout=2)
         cancelled = client.post(
             f"/api/v2/projects/{project_id}/runs/{receipt['run_id']}:cancel",
@@ -791,8 +787,8 @@ def test_cancel_during_artifact_materialization_removes_uncommitted_files(
     app = create_app(frozen_catalog_override=_artifact_catalog([]))
 
     with TestClient(app) as client:
-        project_id, compiled = _compile_artifact_node(client)
-        receipt = _start(client, project_id, compiled, "cancel-artifact")
+        project_id, committed = _commit_artifact_node(client)
+        receipt = _start(client, project_id, committed, "cancel-artifact")
         assert entered.wait(timeout=2)
         cancelled = client.post(
             f"/api/v2/projects/{project_id}/runs/{receipt['run_id']}:cancel",
@@ -834,8 +830,8 @@ def test_normal_temp_cleanup_failure_rolls_back_uncommitted_artifact(
     app = create_app(frozen_catalog_override=_artifact_catalog([]))
 
     with TestClient(app) as client:
-        project_id, compiled = _compile_artifact_node(client)
-        receipt = _start(client, project_id, compiled, "cleanup-artifact")
+        project_id, committed = _commit_artifact_node(client)
+        receipt = _start(client, project_id, committed, "cleanup-artifact")
         projection = _wait_terminal(client, project_id, receipt["run_id"])
 
     assert projection["status"] == "failed"
@@ -891,8 +887,8 @@ def test_one_process_cleanup_failure_does_not_skip_other_process_groups(
     )
 
     with TestClient(app) as client:
-        project_id, compiled = _compile_one_node(client)
-        receipt = _start(client, project_id, compiled, "cancel-two-groups")
+        project_id, committed = _commit_one_node(client)
+        receipt = _start(client, project_id, committed, "cancel-two-groups")
         assert entered.wait(timeout=2)
         cancelled = client.post(
             f"/api/v2/projects/{project_id}/runs/{receipt['run_id']}:cancel",
@@ -932,9 +928,9 @@ def test_cancel_and_derive_reject_cross_project_scope_with_shared_errors(
     )
 
     with TestClient(app) as client:
-        owner_project, owner_compiled = _compile_one_node(client)
-        other_project, other_compiled = _compile_one_node(client)
-        source = _start(client, owner_project, owner_compiled, "scope-source")
+        owner_project, owner_committed = _commit_one_node(client)
+        other_project, _ = _commit_one_node(client)
+        source = _start(client, owner_project, owner_committed, "scope-source")
         _wait_terminal(client, owner_project, source["run_id"])
 
         cancel = client.post(
@@ -945,7 +941,6 @@ def test_cancel_and_derive_reject_cross_project_scope_with_shared_errors(
             f"/api/v2/projects/{other_project}/runs:derive",
             json={
                 "source_run_id": source["run_id"],
-                "compile_id": other_compiled["compile_id"],
                 "policy": "force_selected",
                 "node_ids": ["direct"],
                 "client_request_id": "cross-scope-derive",
@@ -968,8 +963,8 @@ def test_derived_artifacts_and_source_run_remain_independently_immutable(
     app = create_app(frozen_catalog_override=_artifact_catalog([]))
 
     with TestClient(app) as client:
-        project_id, compiled = _compile_artifact_node(client)
-        source = _start(client, project_id, compiled, "artifact-source")
+        project_id, committed = _commit_artifact_node(client)
+        source = _start(client, project_id, committed, "artifact-source")
         source_projection = _wait_terminal(client, project_id, source["run_id"])
         source_artifact = source_projection["artifact_index"][0]
         app.state.run_execution_v2._require_record(
@@ -986,7 +981,6 @@ def test_derived_artifacts_and_source_run_remain_independently_immutable(
             f"/api/v2/projects/{project_id}/runs:derive",
             json={
                 "source_run_id": source["run_id"],
-                "compile_id": compiled["compile_id"],
                 "policy": "force_selected",
                 "node_ids": ["artifact"],
                 "client_request_id": "artifact-derived",
@@ -1034,27 +1028,37 @@ def test_derived_run_reuses_the_source_execution_plan_without_recompiling(
     )
 
     with TestClient(app) as client:
-        project_id, compiled = _compile_one_node(client)
-        source = _start(client, project_id, compiled, "retained-plan-source")
+        project_id, committed = _commit_one_node(client)
+        source = _start(client, project_id, committed, "retained-plan-source")
         assert _wait_terminal(
             client,
             project_id,
             source["run_id"],
         )["status"] == "succeeded"
-        current_workflow = client.get(
-            f"/api/v2/projects/{project_id}/workflow"
+        current_draft = client.get(
+            f"/api/v2/projects/{project_id}/workflow/draft"
         ).json()
-        revised = client.put(
-            f"/api/v2/projects/{project_id}/workflow",
+        revised_workflow = {
+            **current_draft["workflow"],
+            "nodes": [
+                {
+                    **current_draft["workflow"]["nodes"][0],
+                    "node_id": "replacement",
+                }
+            ],
+        }
+        revised = client.post(
+            f"/api/v2/projects/{project_id}/workflow:commit",
             json={
-                "expected_workflow_revision": current_workflow[
-                    "workflow_revision"
-                ],
-                "workflow": current_workflow["workflow"],
+                "expected_draft_revision": current_draft["draft_revision"],
+                "workflow": revised_workflow,
             },
         )
         assert revised.status_code == 200
-        assert revised.json()["workflow_revision"] == 3
+        assert revised.json()["workflow_commit_revision"] == 2
+        assert revised.json()["workflow_commit_id"] != (
+            committed["workflow_commit_id"]
+        )
 
         def forbid_workflow_resolution(*_args: Any, **_kwargs: Any) -> Any:
             raise AssertionError(
@@ -1063,12 +1067,12 @@ def test_derived_run_reuses_the_source_execution_plan_without_recompiling(
 
         monkeypatch.setattr(
             app.state.workflow_authoring_v2,
-            "load",
+            "load_draft",
             forbid_workflow_resolution,
         )
         monkeypatch.setattr(
             app.state.workflow_authoring_v2,
-            "compile",
+            "load_active_commit",
             forbid_workflow_resolution,
         )
         monkeypatch.setattr(
@@ -1080,7 +1084,6 @@ def test_derived_run_reuses_the_source_execution_plan_without_recompiling(
             f"/api/v2/projects/{project_id}/runs:derive",
             json={
                 "source_run_id": source["run_id"],
-                "compile_id": compiled["compile_id"],
                 "policy": "force_selected",
                 "node_ids": ["direct"],
                 "client_request_id": "retained-plan-derived",
@@ -1115,11 +1118,11 @@ def test_terminal_source_without_its_retained_plan_fails_closed_after_restart(
     )
 
     with TestClient(first_app) as first_client:
-        project_id, compiled = _compile_one_node(first_client)
+        project_id, committed = _commit_one_node(first_client)
         source = _start(
             first_client,
             project_id,
-            compiled,
+            committed,
             "restart-source",
         )
         assert _wait_terminal(
@@ -1137,7 +1140,6 @@ def test_terminal_source_without_its_retained_plan_fails_closed_after_restart(
             f"/api/v2/projects/{project_id}/runs:derive",
             json={
                 "source_run_id": source["run_id"],
-                "compile_id": compiled["compile_id"],
                 "policy": "force_selected",
                 "node_ids": ["direct"],
                 "client_request_id": "restart-derived",

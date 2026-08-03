@@ -11,7 +11,7 @@ from core.scoring_v2 import (
     ResolvedObservationSelector,
     ResolvedSelectionObjective,
 )
-from datatypes import ExactContractReference
+from datatypes import CandidateDataReference, ExactContractReference
 
 if TYPE_CHECKING:
     from core.run_execution_v2 import RunResources
@@ -26,15 +26,6 @@ def _freeze_container(value: Any) -> Any:
     if isinstance(value, (list, tuple)):
         return tuple(_freeze_container(item) for item in value)
     return value
-
-
-@dataclass(frozen=True, slots=True)
-class CandidateDataDigest:
-    """Content identity of one Candidate's provider-independent data value."""
-
-    candidate_id: str
-    data_type_id: str
-    content_digest: str
 
 
 @dataclass(frozen=True, slots=True)
@@ -61,7 +52,7 @@ class InputContentDigests:
 
     port_type_id: str
     value_content_digests: tuple[str, ...]
-    candidate_data: tuple[CandidateDataDigest, ...] = ()
+    candidate_data: tuple[CandidateDataReference, ...] = ()
 
     def __post_init__(self) -> None:
         object.__setattr__(
@@ -69,7 +60,15 @@ class InputContentDigests:
             "value_content_digests",
             tuple(self.value_content_digests),
         )
-        object.__setattr__(self, "candidate_data", tuple(self.candidate_data))
+        candidate_data = tuple(self.candidate_data)
+        if any(
+            type(reference) is not CandidateDataReference
+            for reference in candidate_data
+        ):
+            raise TypeError(
+                "candidate_data entries must be CandidateDataReference values"
+            )
+        object.__setattr__(self, "candidate_data", candidate_data)
 
 
 @dataclass(frozen=True, slots=True)
@@ -89,6 +88,10 @@ class ResolvedProducedObservation:
     reference_port: str | None = None
     pairing_direction: str | None = None
     pairing_port: str | None = None
+    axis_direction: str | None = None
+    axis_port: str | None = None
+    method_direction: str | None = None
+    method_port: str | None = None
 
     def __post_init__(self) -> None:
         object.__setattr__(

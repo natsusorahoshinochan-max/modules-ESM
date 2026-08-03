@@ -5,27 +5,27 @@
     {
       "node_id": "collection-ops-concat-candidates-direct",
       "node_type_id": "collection_ops.concat_candidates",
-      "node_type_version": "2.1.0",
+      "node_type_version": "3.0.0",
       "binding_id": "collection_ops.concat_candidates.direct",
-      "binding_version": "2.1.0",
+      "binding_version": "3.0.0",
       "node_parameters": {},
       "binding_parameters": {}
     },
     {
       "node_id": "collection-ops-merge-scores-direct",
       "node_type_id": "collection_ops.merge_scores",
-      "node_type_version": "2.1.0",
+      "node_type_version": "4.0.0",
       "binding_id": "collection_ops.merge_scores.direct",
-      "binding_version": "2.1.0",
+      "binding_version": "4.0.0",
       "node_parameters": {},
       "binding_parameters": {}
     },
     {
       "node_id": "esm3-generate-paired-biohub-medium",
       "node_type_id": "esm3.generate_paired",
-      "node_type_version": "3.0.0",
+      "node_type_version": "7.0.0",
       "binding_id": "esm3.generate_paired.biohub_medium",
-      "binding_version": "3.0.0",
+      "binding_version": "7.0.0",
       "node_parameters": {
         "effective_seed": 3402,
         "num_samples": 2
@@ -35,9 +35,9 @@
     {
       "node_id": "esm3-generate-paired-biohub-open",
       "node_type_id": "esm3.generate_paired",
-      "node_type_version": "3.0.0",
+      "node_type_version": "7.0.0",
       "binding_id": "esm3.generate_paired.biohub_open",
-      "binding_version": "3.0.0",
+      "binding_version": "7.0.0",
       "node_parameters": {
         "effective_seed": 3403,
         "num_samples": 2
@@ -47,9 +47,9 @@
     {
       "node_id": "esm3-generate-paired-local-open",
       "node_type_id": "esm3.generate_paired",
-      "node_type_version": "3.0.0",
+      "node_type_version": "7.0.0",
       "binding_id": "esm3.generate_paired.local_open",
-      "binding_version": "3.0.0",
+      "binding_version": "7.0.0",
       "node_parameters": {
         "effective_seed": 3404,
         "num_samples": 2
@@ -59,9 +59,9 @@
     {
       "node_id": "esm3-generate-sequence-biohub-medium",
       "node_type_id": "esm3.generate_sequence",
-      "node_type_version": "3.0.0",
+      "node_type_version": "7.0.0",
       "binding_id": "esm3.generate_sequence.biohub_medium",
-      "binding_version": "3.0.0",
+      "binding_version": "7.0.0",
       "node_parameters": {
         "effective_seed": 3405,
         "num_samples": 2
@@ -71,9 +71,9 @@
     {
       "node_id": "esm3-generate-sequence-biohub-open",
       "node_type_id": "esm3.generate_sequence",
-      "node_type_version": "3.0.0",
+      "node_type_version": "7.0.0",
       "binding_id": "esm3.generate_sequence.biohub_open",
-      "binding_version": "3.0.0",
+      "binding_version": "7.0.0",
       "node_parameters": {
         "effective_seed": 3406,
         "num_samples": 2
@@ -83,9 +83,9 @@
     {
       "node_id": "esm3-generate-sequence-local-open",
       "node_type_id": "esm3.generate_sequence",
-      "node_type_version": "3.0.0",
+      "node_type_version": "7.0.0",
       "binding_id": "esm3.generate_sequence.local_open",
-      "binding_version": "3.0.0",
+      "binding_version": "7.0.0",
       "node_parameters": {
         "effective_seed": 3407,
         "num_samples": 2
@@ -95,9 +95,9 @@
     {
       "node_id": "esm3-generate-structure-biohub-medium",
       "node_type_id": "esm3.generate_structure",
-      "node_type_version": "3.0.0",
+      "node_type_version": "7.0.0",
       "binding_id": "esm3.generate_structure.biohub_medium",
-      "binding_version": "3.0.0",
+      "binding_version": "7.0.0",
       "node_parameters": {
         "effective_seed": 3408,
         "num_samples": 2
@@ -107,9 +107,9 @@
     {
       "node_id": "esm3-generate-structure-biohub-open",
       "node_type_id": "esm3.generate_structure",
-      "node_type_version": "3.0.0",
+      "node_type_version": "7.0.0",
       "binding_id": "esm3.generate_structure.biohub_open",
-      "binding_version": "3.0.0",
+      "binding_version": "7.0.0",
       "node_parameters": {
         "effective_seed": 3409,
         "num_samples": 2
@@ -119,9 +119,9 @@
     {
       "node_id": "esm3-generate-structure-local-open",
       "node_type_id": "esm3.generate_structure",
-      "node_type_version": "3.0.0",
+      "node_type_version": "7.0.0",
       "binding_id": "esm3.generate_structure.local_open",
-      "binding_version": "3.0.0",
+      "binding_version": "7.0.0",
       "node_parameters": {
         "effective_seed": 3410,
         "num_samples": 2
@@ -131,9 +131,9 @@
     {
       "node_id": "folding-fold-esmfold2-local",
       "node_type_id": "folding.fold",
-      "node_type_version": "3.0.0",
+      "node_type_version": "6.0.0",
       "binding_id": "folding.fold.esmfold2_local",
-      "binding_version": "3.0.0",
+      "binding_version": "6.0.0",
       "node_parameters": {
         "effective_seed": 3511,
         "num_samples": 1
@@ -143,9 +143,9 @@
     {
       "node_id": "folding-fold-esmfold2-remote",
       "node_type_id": "folding.fold",
-      "node_type_version": "3.0.0",
+      "node_type_version": "6.0.0",
       "binding_id": "folding.fold.esmfold2_remote",
-      "binding_version": "3.0.0",
+      "binding_version": "7.0.0",
       "node_parameters": {
         "effective_seed": 3512,
         "num_samples": 1
@@ -155,9 +155,9 @@
     {
       "node_id": "folding-fold-simplefold-local",
       "node_type_id": "folding.fold",
-      "node_type_version": "3.0.0",
+      "node_type_version": "6.0.0",
       "binding_id": "folding.fold.simplefold_local",
-      "binding_version": "3.0.0",
+      "binding_version": "6.0.0",
       "node_parameters": {
         "effective_seed": 3513,
         "num_samples": 1
@@ -167,18 +167,18 @@
     {
       "node_id": "folding-simplefold-confidence-simplefold-local",
       "node_type_id": "folding.simplefold_confidence",
-      "node_type_version": "2.1.0",
+      "node_type_version": "4.0.0",
       "binding_id": "folding.simplefold_confidence.simplefold_local",
-      "binding_version": "2.2.0",
+      "binding_version": "4.0.0",
       "node_parameters": {},
       "binding_parameters": {}
     },
     {
       "node_id": "prompt-authoring-add-function-annotation-direct",
       "node_type_id": "prompt_authoring.add_function_annotation",
-      "node_type_version": "2.1.0",
+      "node_type_version": "3.0.0",
       "binding_id": "prompt_authoring.add_function_annotation.direct",
-      "binding_version": "2.1.0",
+      "binding_version": "3.0.0",
       "node_parameters": {
         "annotation": {
           "label": "example-function",
@@ -193,18 +193,18 @@
     {
       "node_id": "prompt-authoring-assemble-protein-prompt-direct",
       "node_type_id": "prompt_authoring.assemble_protein_prompt",
-      "node_type_version": "2.1.0",
+      "node_type_version": "3.0.0",
       "binding_id": "prompt_authoring.assemble_protein_prompt.direct",
-      "binding_version": "2.1.0",
+      "binding_version": "3.0.0",
       "node_parameters": {},
       "binding_parameters": {}
     },
     {
       "node_id": "prompt-authoring-build-residue-layout-direct",
       "node_type_id": "prompt_authoring.build_residue_layout",
-      "node_type_version": "2.1.0",
+      "node_type_version": "3.0.0",
       "binding_id": "prompt_authoring.build_residue_layout.direct",
-      "binding_version": "2.1.0",
+      "binding_version": "3.0.0",
       "node_parameters": {
         "chains": [
           {
@@ -218,9 +218,9 @@
     {
       "node_id": "prompt-authoring-edit-residue-layout-direct",
       "node_type_id": "prompt_authoring.edit_residue_layout",
-      "node_type_version": "2.1.0",
+      "node_type_version": "3.0.0",
       "binding_id": "prompt_authoring.edit_residue_layout.direct",
-      "binding_version": "2.1.0",
+      "binding_version": "3.0.0",
       "node_parameters": {
         "edits": []
       },
@@ -229,9 +229,9 @@
     {
       "node_id": "prompt-authoring-random-insert-masked-direct",
       "node_type_id": "prompt_authoring.random_insert_masked",
-      "node_type_version": "2.1.0",
+      "node_type_version": "3.0.0",
       "binding_id": "prompt_authoring.random_insert_masked.direct",
-      "binding_version": "2.1.0",
+      "binding_version": "3.0.0",
       "node_parameters": {
         "effective_seed": 3302,
         "count": 0,
@@ -244,9 +244,9 @@
     {
       "node_id": "prompt-authoring-random-mask-direct",
       "node_type_id": "prompt_authoring.random_mask",
-      "node_type_version": "2.1.0",
+      "node_type_version": "3.0.0",
       "binding_id": "prompt_authoring.random_mask.direct",
-      "binding_version": "2.1.0",
+      "binding_version": "3.0.0",
       "node_parameters": {
         "effective_seed": 3301,
         "count": 0,
@@ -258,36 +258,36 @@
     {
       "node_id": "prompt-authoring-update-prompt-sequence-direct",
       "node_type_id": "prompt_authoring.update_prompt_sequence",
-      "node_type_version": "2.1.0",
+      "node_type_version": "3.0.0",
       "binding_id": "prompt_authoring.update_prompt_sequence.direct",
-      "binding_version": "2.1.0",
+      "binding_version": "3.0.0",
       "node_parameters": {},
       "binding_parameters": {}
     },
     {
       "node_id": "protein-io-export-sequence-direct",
       "node_type_id": "protein_io.export_sequence",
-      "node_type_version": "2.1.0",
+      "node_type_version": "3.0.0",
       "binding_id": "protein_io.export_sequence.direct",
-      "binding_version": "2.1.0",
+      "binding_version": "3.0.0",
       "node_parameters": {},
       "binding_parameters": {}
     },
     {
       "node_id": "protein-io-export-structure-direct",
       "node_type_id": "protein_io.export_structure",
-      "node_type_version": "3.0.0",
+      "node_type_version": "5.0.0",
       "binding_id": "protein_io.export_structure.direct",
-      "binding_version": "3.0.0",
+      "binding_version": "5.0.0",
       "node_parameters": {},
       "binding_parameters": {}
     },
     {
       "node_id": "protein-io-import-sequence-direct",
       "node_type_id": "protein_io.import_sequence",
-      "node_type_version": "3.0.0",
+      "node_type_version": "5.0.0",
       "binding_id": "protein_io.import_sequence.direct",
-      "binding_version": "3.0.0",
+      "binding_version": "5.0.0",
       "node_parameters": {
         "project_input_ref": "example-sequence"
       },
@@ -296,9 +296,9 @@
     {
       "node_id": "protein-io-import-structure-direct",
       "node_type_id": "protein_io.import_structure",
-      "node_type_version": "3.0.0",
+      "node_type_version": "5.0.0",
       "binding_id": "protein_io.import_structure.direct",
-      "binding_version": "3.0.0",
+      "binding_version": "5.0.0",
       "node_parameters": {
         "project_input_ref": "example-structure"
       },
@@ -307,9 +307,9 @@
     {
       "node_id": "proteinmpnn-constraints-local",
       "node_type_id": "proteinmpnn.constraints",
-      "node_type_version": "3.0.0",
+      "node_type_version": "4.0.0",
       "binding_id": "proteinmpnn.constraints.local",
-      "binding_version": "3.0.0",
+      "binding_version": "4.0.0",
       "node_parameters": {
         "designed_chains": [
           "A"
@@ -320,9 +320,9 @@
     {
       "node_id": "proteinmpnn-design-local",
       "node_type_id": "proteinmpnn.design",
-      "node_type_version": "4.0.0",
+      "node_type_version": "9.0.0",
       "binding_id": "proteinmpnn.design.local",
-      "binding_version": "4.0.0",
+      "binding_version": "9.0.0",
       "node_parameters": {
         "effective_seed": 3304,
         "num_sequences": 2
@@ -332,9 +332,9 @@
     {
       "node_id": "proteinmpnn-random-fixed-positions-local",
       "node_type_id": "proteinmpnn.random_fixed_positions",
-      "node_type_version": "3.0.0",
+      "node_type_version": "4.0.0",
       "binding_id": "proteinmpnn.random_fixed_positions.local",
-      "binding_version": "3.0.0",
+      "binding_version": "4.0.0",
       "node_parameters": {
         "effective_seed": 3303,
         "fraction": 0.5
@@ -344,180 +344,243 @@
     {
       "node_id": "proteinmpnn-score-local",
       "node_type_id": "proteinmpnn.score",
-      "node_type_version": "2.1.0",
+      "node_type_version": "6.0.0",
       "binding_id": "proteinmpnn.score.local",
-      "binding_version": "2.1.0",
+      "binding_version": "6.0.0",
       "node_parameters": {},
       "binding_parameters": {}
     },
     {
       "node_id": "solubility-protein-sol-local",
       "node_type_id": "solubility.score_sequence",
-      "node_type_version": "2.1.0",
+      "node_type_version": "4.0.0",
       "binding_id": "solubility.protein_sol.local",
-      "binding_version": "2.1.0",
+      "binding_version": "4.0.0",
       "node_parameters": {},
       "binding_parameters": {}
     },
     {
       "node_id": "solubility-soluprot-full-local",
       "node_type_id": "solubility.score_sequence",
-      "node_type_version": "2.1.0",
+      "node_type_version": "4.0.0",
       "binding_id": "solubility.soluprot_full.local",
-      "binding_version": "2.1.0",
+      "binding_version": "4.0.0",
       "node_parameters": {},
       "binding_parameters": {}
     },
     {
       "node_id": "solubility-soluprot-no-tm-local",
       "node_type_id": "solubility.score_sequence",
-      "node_type_version": "2.1.0",
+      "node_type_version": "4.0.0",
       "binding_id": "solubility.soluprot_no_tm.local",
-      "binding_version": "2.1.0",
+      "binding_version": "4.0.0",
       "node_parameters": {},
       "binding_parameters": {}
     },
     {
       "node_id": "structure-annotation-dssp-compute-mkdssp-local",
       "node_type_id": "structure_annotation.dssp_compute",
-      "node_type_version": "3.0.0",
+      "node_type_version": "6.0.0",
       "binding_id": "structure_annotation.dssp_compute.mkdssp_local",
-      "binding_version": "3.0.0",
+      "binding_version": "6.0.0",
+      "node_parameters": {},
+      "binding_parameters": {}
+    },
+    {
+      "node_id": "structure-annotation-dssp-compute-subject-mkdssp-local",
+      "node_type_id": "structure_annotation.dssp_compute",
+      "node_type_version": "6.0.0",
+      "binding_id": "structure_annotation.dssp_compute.mkdssp_local",
+      "binding_version": "6.0.0",
       "node_parameters": {},
       "binding_parameters": {}
     },
     {
       "node_id": "structure-annotation-sasa-compute-direct",
       "node_type_id": "structure_annotation.sasa_compute",
-      "node_type_version": "2.1.0",
+      "node_type_version": "4.0.0",
       "binding_id": "structure_annotation.sasa_compute.direct",
-      "binding_version": "2.2.0",
+      "binding_version": "4.0.0",
+      "node_parameters": {},
+      "binding_parameters": {}
+    },
+    {
+      "node_id": "structure-annotation-apply-sasa-to-prompt-direct",
+      "node_type_id": "structure_annotation.apply_sasa_to_prompt",
+      "node_type_version": "5.0.0",
+      "binding_id": "structure_annotation.apply_sasa_to_prompt.direct",
+      "binding_version": "5.0.0",
+      "node_parameters": {},
+      "binding_parameters": {}
+    },
+    {
+      "node_id": "structure-annotation-apply-secondary-structure-to-prompt-direct",
+      "node_type_id": "structure_annotation.apply_secondary_structure_to_prompt",
+      "node_type_version": "5.0.0",
+      "binding_id": "structure_annotation.apply_secondary_structure_to_prompt.direct",
+      "binding_version": "5.0.0",
+      "node_parameters": {},
+      "binding_parameters": {}
+    },
+    {
+      "node_id": "structure-annotation-expected-secondary-structure-from-prompt-direct",
+      "node_type_id": "structure_annotation.expected_secondary_structure_from_prompt",
+      "node_type_version": "5.0.0",
+      "binding_id": "structure_annotation.expected_secondary_structure_from_prompt.direct",
+      "binding_version": "5.0.0",
       "node_parameters": {},
       "binding_parameters": {}
     },
     {
       "node_id": "structure-annotation-secondary-structure-agreement-direct",
       "node_type_id": "structure_annotation.secondary_structure_agreement",
-      "node_type_version": "2.1.0",
+      "node_type_version": "5.0.0",
       "binding_id": "structure_annotation.secondary_structure_agreement.direct",
-      "binding_version": "2.2.0",
+      "binding_version": "5.0.0",
       "node_parameters": {},
       "binding_parameters": {}
     },
     {
       "node_id": "structure-annotation-secondary-structure-extract-direct",
       "node_type_id": "structure_annotation.secondary_structure_extract",
-      "node_type_version": "2.1.0",
+      "node_type_version": "4.0.0",
       "binding_id": "structure_annotation.secondary_structure_extract.direct",
-      "binding_version": "2.2.0",
+      "binding_version": "4.0.0",
       "node_parameters": {},
       "binding_parameters": {}
     },
     {
-      "node_id": "structure-comparison-align-pairwise-direct",
-      "node_type_id": "structure_comparison.align_pairwise",
-      "node_type_version": "2.2.0",
-      "binding_id": "structure_comparison.align_pairwise.direct",
-      "binding_version": "2.2.0",
+      "node_id": "structure-annotation-secondary-structure-extract-subject-direct",
+      "node_type_id": "structure_annotation.secondary_structure_extract",
+      "node_type_version": "4.0.0",
+      "binding_id": "structure_annotation.secondary_structure_extract.direct",
+      "binding_version": "4.0.0",
       "node_parameters": {},
       "binding_parameters": {}
     },
     {
-      "node_id": "structure-comparison-align-pairwise-fixed-reference",
-      "node_type_id": "structure_comparison.align_pairwise",
-      "node_type_version": "2.2.0",
-      "binding_id": "structure_comparison.align_pairwise.fixed_reference",
-      "binding_version": "2.2.0",
+      "node_id": "structure-comparison-align-counterparts-sequence-primary-affine",
+      "node_type_id": "structure_comparison.align_counterparts",
+      "node_type_version": "4.0.0",
+      "binding_id": "structure_comparison.align_counterparts.sequence_primary_affine",
+      "binding_version": "4.0.0",
       "node_parameters": {},
       "binding_parameters": {}
     },
     {
-      "node_id": "structure-comparison-align-single-direct",
+      "node_id": "structure-comparison-align-fixed-reference-sequence-primary-affine",
+      "node_type_id": "structure_comparison.align_fixed_reference",
+      "node_type_version": "4.0.0",
+      "binding_id": "structure_comparison.align_fixed_reference.sequence_primary_affine",
+      "binding_version": "4.0.0",
+      "node_parameters": {},
+      "binding_parameters": {}
+    },
+    {
+      "node_id": "structure-comparison-align-single-sequence-primary-affine",
       "node_type_id": "structure_comparison.align_single",
-      "node_type_version": "2.1.0",
-      "binding_id": "structure_comparison.align_single.direct",
-      "binding_version": "2.1.0",
+      "node_type_version": "4.0.0",
+      "binding_id": "structure_comparison.align_single.sequence_primary_affine",
+      "binding_version": "4.0.0",
       "node_parameters": {},
       "binding_parameters": {}
     },
     {
-      "node_id": "structure-comparison-batch-tm-score-fixed-reference",
-      "node_type_id": "structure_comparison.batch_tm_score",
-      "node_type_version": "2.2.0",
-      "binding_id": "structure_comparison.batch_tm_score.fixed_reference",
-      "binding_version": "2.2.0",
+      "node_id": "structure-comparison-align-single-structure-first-tm-align",
+      "node_type_id": "structure_comparison.align_single",
+      "node_type_version": "4.0.0",
+      "binding_id": "structure_comparison.align_single.structure_first_tm_align",
+      "binding_version": "4.0.0",
       "node_parameters": {},
       "binding_parameters": {}
     },
     {
-      "node_id": "structure-comparison-batch-tm-score-per-subject-counterpart",
-      "node_type_id": "structure_comparison.batch_tm_score",
-      "node_type_version": "2.2.0",
-      "binding_id": "structure_comparison.batch_tm_score.per_subject_counterpart",
-      "binding_version": "2.2.0",
+      "node_id": "structure-comparison-tm-score-counterparts",
+      "node_type_id": "structure_comparison.tm_score_counterparts",
+      "node_type_version": "5.0.0",
+      "binding_id": "structure_comparison.tm_score_counterparts.from_alignment_evidence",
+      "binding_version": "5.0.0",
       "node_parameters": {},
       "binding_parameters": {}
     },
     {
       "node_id": "structure-comparison-rmsd-fixed-reference",
-      "node_type_id": "structure_comparison.rmsd",
-      "node_type_version": "2.2.0",
-      "binding_id": "structure_comparison.rmsd.fixed_reference",
-      "binding_version": "2.2.0",
+      "node_type_id": "structure_comparison.rmsd_fixed_reference",
+      "node_type_version": "5.0.0",
+      "binding_id": "structure_comparison.rmsd_fixed_reference.from_alignment_evidence",
+      "binding_version": "5.0.0",
       "node_parameters": {},
       "binding_parameters": {}
     },
     {
-      "node_id": "structure-comparison-rmsd-per-subject-counterpart",
-      "node_type_id": "structure_comparison.rmsd",
-      "node_type_version": "2.2.0",
-      "binding_id": "structure_comparison.rmsd.per_subject_counterpart",
-      "binding_version": "2.2.0",
+      "node_id": "structure-comparison-rmsd-counterparts",
+      "node_type_id": "structure_comparison.rmsd_counterparts",
+      "node_type_version": "5.0.0",
+      "binding_id": "structure_comparison.rmsd_counterparts.from_alignment_evidence",
+      "binding_version": "5.0.0",
       "node_parameters": {},
       "binding_parameters": {}
     },
     {
       "node_id": "structure-comparison-tm-score-fixed-reference",
-      "node_type_id": "structure_comparison.tm_score",
-      "node_type_version": "2.1.0",
-      "binding_id": "structure_comparison.tm_score.fixed_reference",
-      "binding_version": "2.1.0",
+      "node_type_id": "structure_comparison.tm_score_fixed_reference",
+      "node_type_version": "5.0.0",
+      "binding_id": "structure_comparison.tm_score_fixed_reference.from_alignment_evidence",
+      "binding_version": "5.0.0",
       "node_parameters": {},
       "binding_parameters": {}
     },
     {
       "node_id": "structure-transform-backbone-to-structure-direct",
       "node_type_id": "structure_transform.backbone_to_structure",
-      "node_type_version": "3.0.0",
+      "node_type_version": "4.0.0",
       "binding_id": "structure_transform.backbone_to_structure.direct",
-      "binding_version": "3.0.0",
+      "binding_version": "4.0.0",
+      "node_parameters": {},
+      "binding_parameters": {}
+    },
+    {
+      "node_id": "structure-transform-resolve-backbone-residue-axis-direct",
+      "node_type_id": "structure_transform.resolve_residue_axis",
+      "node_type_version": "4.0.0",
+      "binding_id": "structure_transform.resolve_residue_axis.direct",
+      "binding_version": "4.0.0",
       "node_parameters": {},
       "binding_parameters": {}
     },
     {
       "node_id": "structure-transform-extract-backbone-direct",
       "node_type_id": "structure_transform.extract_backbone",
-      "node_type_version": "3.0.0",
+      "node_type_version": "4.0.0",
       "binding_id": "structure_transform.extract_backbone.direct",
-      "binding_version": "3.0.0",
+      "binding_version": "4.0.0",
       "node_parameters": {},
       "binding_parameters": {}
     },
     {
       "node_id": "structure-transform-extract-sequence-direct",
       "node_type_id": "structure_transform.extract_sequence",
-      "node_type_version": "3.0.0",
+      "node_type_version": "4.0.0",
       "binding_id": "structure_transform.extract_sequence.direct",
-      "binding_version": "3.0.0",
+      "binding_version": "4.0.0",
+      "node_parameters": {},
+      "binding_parameters": {}
+    },
+    {
+      "node_id": "structure-transform-resolve-selected-residue-axis-direct",
+      "node_type_id": "structure_transform.resolve_residue_axis",
+      "node_type_version": "4.0.0",
+      "binding_id": "structure_transform.resolve_residue_axis.direct",
+      "binding_version": "4.0.0",
       "node_parameters": {},
       "binding_parameters": {}
     },
     {
       "node_id": "structure-transform-select-chains-direct",
       "node_type_id": "structure_transform.select_chains",
-      "node_type_version": "3.0.0",
+      "node_type_version": "4.0.0",
       "binding_id": "structure_transform.select_chains.direct",
-      "binding_version": "3.0.0",
+      "binding_version": "4.0.0",
       "node_parameters": {
         "chain_ids": [
           "A"
@@ -526,29 +589,56 @@
       "binding_parameters": {}
     },
     {
+      "node_id": "structure-transform-resolve-candidate-residue-axes-esmfold-direct",
+      "node_type_id": "structure_transform.resolve_candidate_residue_axes",
+      "node_type_version": "5.0.0",
+      "binding_id": "structure_transform.resolve_candidate_residue_axes.direct",
+      "binding_version": "5.0.0",
+      "node_parameters": {},
+      "binding_parameters": {}
+    },
+    {
+      "node_id": "structure-transform-resolve-candidate-residue-axes-imported-direct",
+      "node_type_id": "structure_transform.resolve_candidate_residue_axes",
+      "node_type_version": "5.0.0",
+      "binding_id": "structure_transform.resolve_candidate_residue_axes.direct",
+      "binding_version": "5.0.0",
+      "node_parameters": {},
+      "binding_parameters": {}
+    },
+    {
+      "node_id": "structure-transform-resolve-candidate-residue-axes-simplefold-direct",
+      "node_type_id": "structure_transform.resolve_candidate_residue_axes",
+      "node_type_version": "5.0.0",
+      "binding_id": "structure_transform.resolve_candidate_residue_axes.direct",
+      "binding_version": "5.0.0",
+      "node_parameters": {},
+      "binding_parameters": {}
+    },
+    {
       "node_id": "esm3-represent-sequence-biohub-esmc-600m-2024-12",
       "node_type_id": "esm3.represent_sequence",
-      "node_type_version": "2.1.0",
+      "node_type_version": "5.0.0",
       "binding_id": "esm3.represent_sequence.biohub_esmc_600m_2024_12",
-      "binding_version": "2.2.0",
+      "binding_version": "5.0.0",
       "node_parameters": {},
       "binding_parameters": {}
     },
     {
       "node_id": "collection-ops-pair-siblings-by-parent-direct",
       "node_type_id": "collection_ops.pair_siblings_by_parent",
-      "node_type_version": "2.1.0",
+      "node_type_version": "3.0.0",
       "binding_id": "collection_ops.pair_siblings_by_parent.direct",
-      "binding_version": "2.1.0",
+      "binding_version": "3.0.0",
       "node_parameters": {},
       "binding_parameters": {}
     },
     {
       "node_id": "prompt-authoring-insert-masked-residues-direct",
       "node_type_id": "prompt_authoring.insert_masked_residues",
-      "node_type_version": "2.1.0",
+      "node_type_version": "3.0.0",
       "binding_id": "prompt_authoring.insert_masked_residues.direct",
-      "binding_version": "2.1.0",
+      "binding_version": "3.0.0",
       "node_parameters": {
         "insertions": [
           {
@@ -565,32 +655,113 @@
     {
       "node_id": "structure-transform-extract-sequence-candidates-direct",
       "node_type_id": "structure_transform.extract_sequence_candidates",
-      "node_type_version": "2.1.0",
+      "node_type_version": "3.0.0",
       "binding_id": "structure_transform.extract_sequence_candidates.direct",
-      "binding_version": "2.1.0",
+      "binding_version": "3.0.0",
       "node_parameters": {},
       "binding_parameters": {}
     },
     {
       "node_id": "structure-transform-normalize-csh-parent-span-direct",
       "node_type_id": "structure_transform.normalize_csh_parent_span",
-      "node_type_version": "3.0.0",
+      "node_type_version": "5.0.0",
       "binding_id": "structure_transform.normalize_csh_parent_span.direct",
-      "binding_version": "3.0.0",
+      "binding_version": "5.0.0",
       "node_parameters": {},
       "binding_parameters": {}
     },
     {
       "node_id": "structure-transform-select-candidate-chains-direct",
       "node_type_id": "structure_transform.select_candidate_chains",
-      "node_type_version": "2.1.0",
+      "node_type_version": "3.0.0",
       "binding_id": "structure_transform.select_candidate_chains.direct",
-      "binding_version": "2.1.0",
+      "binding_version": "3.0.0",
       "node_parameters": {
         "chain_ids": [
           "A"
         ]
       },
+      "binding_parameters": {}
+    },
+    {
+      "node_id": "materialize-confidence-esm3-generate-paired-biohub-medium",
+      "node_type_id": "structure_prediction.materialize_confidence",
+      "node_type_version": "1.0.0",
+      "binding_id": "structure_prediction.materialize_confidence.direct",
+      "binding_version": "1.0.0",
+      "node_parameters": {},
+      "binding_parameters": {}
+    },
+    {
+      "node_id": "materialize-confidence-esm3-generate-paired-biohub-open",
+      "node_type_id": "structure_prediction.materialize_confidence",
+      "node_type_version": "1.0.0",
+      "binding_id": "structure_prediction.materialize_confidence.direct",
+      "binding_version": "1.0.0",
+      "node_parameters": {},
+      "binding_parameters": {}
+    },
+    {
+      "node_id": "materialize-confidence-esm3-generate-paired-local-open",
+      "node_type_id": "structure_prediction.materialize_confidence",
+      "node_type_version": "1.0.0",
+      "binding_id": "structure_prediction.materialize_confidence.direct",
+      "binding_version": "1.0.0",
+      "node_parameters": {},
+      "binding_parameters": {}
+    },
+    {
+      "node_id": "materialize-confidence-esm3-generate-structure-biohub-medium",
+      "node_type_id": "structure_prediction.materialize_confidence",
+      "node_type_version": "1.0.0",
+      "binding_id": "structure_prediction.materialize_confidence.direct",
+      "binding_version": "1.0.0",
+      "node_parameters": {},
+      "binding_parameters": {}
+    },
+    {
+      "node_id": "materialize-confidence-esm3-generate-structure-biohub-open",
+      "node_type_id": "structure_prediction.materialize_confidence",
+      "node_type_version": "1.0.0",
+      "binding_id": "structure_prediction.materialize_confidence.direct",
+      "binding_version": "1.0.0",
+      "node_parameters": {},
+      "binding_parameters": {}
+    },
+    {
+      "node_id": "materialize-confidence-esm3-generate-structure-local-open",
+      "node_type_id": "structure_prediction.materialize_confidence",
+      "node_type_version": "1.0.0",
+      "binding_id": "structure_prediction.materialize_confidence.direct",
+      "binding_version": "1.0.0",
+      "node_parameters": {},
+      "binding_parameters": {}
+    },
+    {
+      "node_id": "materialize-confidence-folding-fold-esmfold2-local",
+      "node_type_id": "structure_prediction.materialize_confidence",
+      "node_type_version": "1.0.0",
+      "binding_id": "structure_prediction.materialize_confidence.direct",
+      "binding_version": "1.0.0",
+      "node_parameters": {},
+      "binding_parameters": {}
+    },
+    {
+      "node_id": "materialize-confidence-folding-fold-esmfold2-remote",
+      "node_type_id": "structure_prediction.materialize_confidence",
+      "node_type_version": "1.0.0",
+      "binding_id": "structure_prediction.materialize_confidence.direct",
+      "binding_version": "1.0.0",
+      "node_parameters": {},
+      "binding_parameters": {}
+    },
+    {
+      "node_id": "materialize-confidence-folding-fold-simplefold-local",
+      "node_type_id": "structure_prediction.materialize_confidence",
+      "node_type_version": "1.0.0",
+      "binding_id": "structure_prediction.materialize_confidence.direct",
+      "binding_version": "1.0.0",
+      "node_parameters": {},
       "binding_parameters": {}
     }
   ],
@@ -722,7 +893,7 @@
       "target_port": "sequence_candidates"
     },
     {
-      "source_node_id": "folding-fold-esmfold2-remote",
+      "source_node_id": "folding-fold-simplefold-local",
       "source_port": "structure_candidates",
       "target_node_id": "folding-simplefold-confidence-simplefold-local",
       "target_port": "structure_candidates"
@@ -741,9 +912,9 @@
     },
     {
       "source_node_id": "protein-io-import-structure-direct",
-      "source_port": "structure",
+      "source_port": "structure_candidates",
       "target_node_id": "proteinmpnn-design-local",
-      "target_port": "structure"
+      "target_port": "structure_candidates"
     },
     {
       "source_node_id": "proteinmpnn-constraints-local",
@@ -765,15 +936,63 @@
     },
     {
       "source_node_id": "protein-io-import-structure-direct",
-      "source_port": "structure",
+      "source_port": "structure_candidates",
       "target_node_id": "structure-annotation-dssp-compute-mkdssp-local",
-      "target_port": "structure"
+      "target_port": "structure_candidates"
+    },
+    {
+      "source_node_id": "folding-fold-esmfold2-remote",
+      "source_port": "structure_candidates",
+      "target_node_id": "structure-annotation-dssp-compute-subject-mkdssp-local",
+      "target_port": "structure_candidates"
     },
     {
       "source_node_id": "structure-annotation-dssp-compute-mkdssp-local",
       "source_port": "annotations",
       "target_node_id": "structure-annotation-secondary-structure-extract-direct",
       "target_port": "annotations"
+    },
+    {
+      "source_node_id": "structure-annotation-dssp-compute-subject-mkdssp-local",
+      "source_port": "annotations",
+      "target_node_id": "structure-annotation-secondary-structure-extract-subject-direct",
+      "target_port": "annotations"
+    },
+    {
+      "source_node_id": "prompt-authoring-assemble-protein-prompt-direct",
+      "source_port": "protein_prompt",
+      "target_node_id": "structure-annotation-apply-secondary-structure-to-prompt-direct",
+      "target_port": "protein_prompt"
+    },
+    {
+      "source_node_id": "structure-annotation-secondary-structure-extract-direct",
+      "source_port": "secondary_structure_track",
+      "target_node_id": "structure-annotation-apply-secondary-structure-to-prompt-direct",
+      "target_port": "secondary_structure_track"
+    },
+    {
+      "source_node_id": "prompt-authoring-assemble-protein-prompt-direct",
+      "source_port": "protein_prompt",
+      "target_node_id": "structure-annotation-apply-sasa-to-prompt-direct",
+      "target_port": "protein_prompt"
+    },
+    {
+      "source_node_id": "structure-annotation-sasa-compute-direct",
+      "source_port": "sasa_track",
+      "target_node_id": "structure-annotation-apply-sasa-to-prompt-direct",
+      "target_port": "sasa_track"
+    },
+    {
+      "source_node_id": "structure-annotation-apply-secondary-structure-to-prompt-direct",
+      "source_port": "protein_prompt",
+      "target_node_id": "structure-annotation-expected-secondary-structure-from-prompt-direct",
+      "target_port": "protein_prompt"
+    },
+    {
+      "source_node_id": "protein-io-import-structure-direct",
+      "source_port": "structure_candidates",
+      "target_node_id": "structure-annotation-expected-secondary-structure-from-prompt-direct",
+      "target_port": "references"
     },
     {
       "source_node_id": "structure-annotation-dssp-compute-mkdssp-local",
@@ -788,22 +1007,22 @@
       "target_port": "subjects"
     },
     {
-      "source_node_id": "esm3-generate-paired-biohub-open",
+      "source_node_id": "protein-io-import-structure-direct",
       "source_port": "structure_candidates",
       "target_node_id": "structure-annotation-secondary-structure-agreement-direct",
       "target_port": "references"
     },
     {
-      "source_node_id": "structure-annotation-secondary-structure-extract-direct",
-      "source_port": "secondary_structure_track",
-      "target_node_id": "structure-annotation-secondary-structure-agreement-direct",
-      "target_port": "expected"
-    },
-    {
-      "source_node_id": "structure-annotation-secondary-structure-extract-direct",
+      "source_node_id": "structure-annotation-secondary-structure-extract-subject-direct",
       "source_port": "secondary_structure_track",
       "target_node_id": "structure-annotation-secondary-structure-agreement-direct",
       "target_port": "observed"
+    },
+    {
+      "source_node_id": "structure-annotation-expected-secondary-structure-from-prompt-direct",
+      "source_port": "secondary_structure_track",
+      "target_node_id": "structure-annotation-secondary-structure-agreement-direct",
+      "target_port": "expected"
     },
     {
       "source_node_id": "protein-io-import-structure-direct",
@@ -814,8 +1033,14 @@
     {
       "source_node_id": "structure-transform-select-chains-direct",
       "source_port": "structure",
-      "target_node_id": "structure-transform-extract-backbone-direct",
+      "target_node_id": "structure-transform-resolve-selected-residue-axis-direct",
       "target_port": "structure"
+    },
+    {
+      "source_node_id": "structure-transform-resolve-selected-residue-axis-direct",
+      "source_port": "residue_axis",
+      "target_node_id": "structure-transform-extract-backbone-direct",
+      "target_port": "residue_axis"
     },
     {
       "source_node_id": "structure-transform-extract-backbone-direct",
@@ -826,8 +1051,14 @@
     {
       "source_node_id": "structure-transform-backbone-to-structure-direct",
       "source_port": "structure",
-      "target_node_id": "structure-transform-extract-sequence-direct",
+      "target_node_id": "structure-transform-resolve-backbone-residue-axis-direct",
       "target_port": "structure"
+    },
+    {
+      "source_node_id": "structure-transform-resolve-backbone-residue-axis-direct",
+      "source_port": "residue_axis",
+      "target_node_id": "structure-transform-extract-sequence-direct",
+      "target_port": "residue_axis"
     },
     {
       "source_node_id": "structure-transform-extract-sequence-direct",
@@ -844,95 +1075,125 @@
     {
       "source_node_id": "folding-fold-esmfold2-remote",
       "source_port": "structure_candidates",
-      "target_node_id": "structure-comparison-align-single-direct",
-      "target_port": "subjects"
+      "target_node_id": "structure-transform-resolve-candidate-residue-axes-esmfold-direct",
+      "target_port": "structure_candidates"
+    },
+    {
+      "source_node_id": "protein-io-import-structure-direct",
+      "source_port": "structure_candidates",
+      "target_node_id": "structure-transform-resolve-candidate-residue-axes-imported-direct",
+      "target_port": "structure_candidates"
+    },
+    {
+      "source_node_id": "folding-fold-simplefold-local",
+      "source_port": "structure_candidates",
+      "target_node_id": "structure-transform-resolve-candidate-residue-axes-simplefold-direct",
+      "target_port": "structure_candidates"
     },
     {
       "source_node_id": "folding-fold-esmfold2-remote",
       "source_port": "structure_candidates",
-      "target_node_id": "structure-comparison-align-pairwise-direct",
+      "target_node_id": "structure-comparison-align-single-sequence-primary-affine",
       "target_port": "subjects"
+    },
+    {
+      "source_node_id": "structure-transform-resolve-candidate-residue-axes-esmfold-direct",
+      "source_port": "residue_axes",
+      "target_node_id": "structure-comparison-align-single-sequence-primary-affine",
+      "target_port": "subject_residue_axes"
+    },
+    {
+      "source_node_id": "protein-io-import-structure-direct",
+      "source_port": "structure_candidates",
+      "target_node_id": "structure-comparison-align-single-sequence-primary-affine",
+      "target_port": "references"
+    },
+    {
+      "source_node_id": "structure-transform-resolve-candidate-residue-axes-imported-direct",
+      "source_port": "residue_axes",
+      "target_node_id": "structure-comparison-align-single-sequence-primary-affine",
+      "target_port": "reference_residue_axes"
     },
     {
       "source_node_id": "folding-fold-esmfold2-remote",
       "source_port": "structure_candidates",
-      "target_node_id": "structure-comparison-align-pairwise-fixed-reference",
+      "target_node_id": "structure-comparison-align-single-structure-first-tm-align",
       "target_port": "subjects"
     },
     {
-      "source_node_id": "esm3-generate-paired-biohub-open",
+      "source_node_id": "structure-transform-resolve-candidate-residue-axes-esmfold-direct",
+      "source_port": "residue_axes",
+      "target_node_id": "structure-comparison-align-single-structure-first-tm-align",
+      "target_port": "subject_residue_axes"
+    },
+    {
+      "source_node_id": "protein-io-import-structure-direct",
       "source_port": "structure_candidates",
-      "target_node_id": "structure-comparison-align-single-direct",
+      "target_node_id": "structure-comparison-align-single-structure-first-tm-align",
       "target_port": "references"
     },
     {
-      "source_node_id": "esm3-generate-paired-biohub-open",
-      "source_port": "structure_candidates",
-      "target_node_id": "structure-comparison-align-pairwise-direct",
-      "target_port": "references"
-    },
-    {
-      "source_node_id": "esm3-generate-paired-biohub-open",
-      "source_port": "structure_candidates",
-      "target_node_id": "structure-comparison-align-pairwise-fixed-reference",
-      "target_port": "references"
-    },
-    {
-      "source_node_id": "structure-comparison-align-single-direct",
-      "source_port": "alignment",
-      "target_node_id": "structure-comparison-tm-score-fixed-reference",
-      "target_port": "alignment"
+      "source_node_id": "structure-transform-resolve-candidate-residue-axes-imported-direct",
+      "source_port": "residue_axes",
+      "target_node_id": "structure-comparison-align-single-structure-first-tm-align",
+      "target_port": "reference_residue_axes"
     },
     {
       "source_node_id": "folding-fold-esmfold2-remote",
       "source_port": "structure_candidates",
-      "target_node_id": "structure-comparison-tm-score-fixed-reference",
+      "target_node_id": "structure-comparison-align-fixed-reference-sequence-primary-affine",
       "target_port": "subjects"
     },
     {
-      "source_node_id": "esm3-generate-paired-biohub-open",
+      "source_node_id": "structure-transform-resolve-candidate-residue-axes-esmfold-direct",
+      "source_port": "residue_axes",
+      "target_node_id": "structure-comparison-align-fixed-reference-sequence-primary-affine",
+      "target_port": "subject_residue_axes"
+    },
+    {
+      "source_node_id": "protein-io-import-structure-direct",
       "source_port": "structure_candidates",
-      "target_node_id": "structure-comparison-tm-score-fixed-reference",
+      "target_node_id": "structure-comparison-align-fixed-reference-sequence-primary-affine",
       "target_port": "references"
     },
     {
-      "source_node_id": "structure-comparison-align-pairwise-direct",
-      "source_port": "alignments",
-      "target_node_id": "structure-comparison-batch-tm-score-fixed-reference",
-      "target_port": "alignments"
+      "source_node_id": "structure-transform-resolve-candidate-residue-axes-imported-direct",
+      "source_port": "residue_axes",
+      "target_node_id": "structure-comparison-align-fixed-reference-sequence-primary-affine",
+      "target_port": "reference_residue_axes"
     },
     {
       "source_node_id": "folding-fold-esmfold2-remote",
       "source_port": "structure_candidates",
-      "target_node_id": "structure-comparison-batch-tm-score-fixed-reference",
+      "target_node_id": "structure-comparison-align-counterparts-sequence-primary-affine",
       "target_port": "subjects"
     },
     {
-      "source_node_id": "esm3-generate-paired-biohub-open",
+      "source_node_id": "structure-transform-resolve-candidate-residue-axes-esmfold-direct",
+      "source_port": "residue_axes",
+      "target_node_id": "structure-comparison-align-counterparts-sequence-primary-affine",
+      "target_port": "subject_residue_axes"
+    },
+    {
+      "source_node_id": "folding-fold-simplefold-local",
       "source_port": "structure_candidates",
-      "target_node_id": "structure-comparison-batch-tm-score-fixed-reference",
+      "target_node_id": "structure-comparison-align-counterparts-sequence-primary-affine",
       "target_port": "references"
     },
     {
-      "source_node_id": "structure-comparison-align-pairwise-direct",
-      "source_port": "alignments",
-      "target_node_id": "structure-comparison-batch-tm-score-per-subject-counterpart",
-      "target_port": "alignments"
+      "source_node_id": "structure-transform-resolve-candidate-residue-axes-simplefold-direct",
+      "source_port": "residue_axes",
+      "target_node_id": "structure-comparison-align-counterparts-sequence-primary-affine",
+      "target_port": "reference_residue_axes"
     },
     {
-      "source_node_id": "folding-fold-esmfold2-remote",
-      "source_port": "structure_candidates",
-      "target_node_id": "structure-comparison-batch-tm-score-per-subject-counterpart",
-      "target_port": "subjects"
+      "source_node_id": "collection-ops-pair-siblings-by-parent-direct",
+      "source_port": "pairing",
+      "target_node_id": "structure-comparison-align-counterparts-sequence-primary-affine",
+      "target_port": "pairing"
     },
     {
-      "source_node_id": "esm3-generate-paired-biohub-open",
-      "source_port": "structure_candidates",
-      "target_node_id": "structure-comparison-batch-tm-score-per-subject-counterpart",
-      "target_port": "references"
-    },
-    {
-      "source_node_id": "structure-comparison-align-pairwise-direct",
+      "source_node_id": "structure-comparison-align-fixed-reference-sequence-primary-affine",
       "source_port": "alignments",
       "target_node_id": "structure-comparison-rmsd-fixed-reference",
       "target_port": "alignments"
@@ -944,28 +1205,76 @@
       "target_port": "subjects"
     },
     {
-      "source_node_id": "esm3-generate-paired-biohub-open",
+      "source_node_id": "protein-io-import-structure-direct",
       "source_port": "structure_candidates",
       "target_node_id": "structure-comparison-rmsd-fixed-reference",
       "target_port": "references"
     },
     {
-      "source_node_id": "structure-comparison-align-pairwise-direct",
+      "source_node_id": "structure-comparison-align-counterparts-sequence-primary-affine",
       "source_port": "alignments",
-      "target_node_id": "structure-comparison-rmsd-per-subject-counterpart",
+      "target_node_id": "structure-comparison-rmsd-counterparts",
       "target_port": "alignments"
     },
     {
       "source_node_id": "folding-fold-esmfold2-remote",
       "source_port": "structure_candidates",
-      "target_node_id": "structure-comparison-rmsd-per-subject-counterpart",
+      "target_node_id": "structure-comparison-rmsd-counterparts",
       "target_port": "subjects"
     },
     {
-      "source_node_id": "esm3-generate-paired-biohub-open",
+      "source_node_id": "folding-fold-simplefold-local",
       "source_port": "structure_candidates",
-      "target_node_id": "structure-comparison-rmsd-per-subject-counterpart",
+      "target_node_id": "structure-comparison-rmsd-counterparts",
       "target_port": "references"
+    },
+    {
+      "source_node_id": "collection-ops-pair-siblings-by-parent-direct",
+      "source_port": "pairing",
+      "target_node_id": "structure-comparison-rmsd-counterparts",
+      "target_port": "pairing"
+    },
+    {
+      "source_node_id": "structure-comparison-align-single-sequence-primary-affine",
+      "source_port": "alignments",
+      "target_node_id": "structure-comparison-tm-score-fixed-reference",
+      "target_port": "alignments"
+    },
+    {
+      "source_node_id": "folding-fold-esmfold2-remote",
+      "source_port": "structure_candidates",
+      "target_node_id": "structure-comparison-tm-score-fixed-reference",
+      "target_port": "subjects"
+    },
+    {
+      "source_node_id": "protein-io-import-structure-direct",
+      "source_port": "structure_candidates",
+      "target_node_id": "structure-comparison-tm-score-fixed-reference",
+      "target_port": "references"
+    },
+    {
+      "source_node_id": "structure-comparison-align-counterparts-sequence-primary-affine",
+      "source_port": "alignments",
+      "target_node_id": "structure-comparison-tm-score-counterparts",
+      "target_port": "alignments"
+    },
+    {
+      "source_node_id": "folding-fold-esmfold2-remote",
+      "source_port": "structure_candidates",
+      "target_node_id": "structure-comparison-tm-score-counterparts",
+      "target_port": "subjects"
+    },
+    {
+      "source_node_id": "folding-fold-simplefold-local",
+      "source_port": "structure_candidates",
+      "target_node_id": "structure-comparison-tm-score-counterparts",
+      "target_port": "references"
+    },
+    {
+      "source_node_id": "collection-ops-pair-siblings-by-parent-direct",
+      "source_port": "pairing",
+      "target_node_id": "structure-comparison-tm-score-counterparts",
+      "target_port": "pairing"
     },
     {
       "source_node_id": "esm3-generate-sequence-biohub-open",
@@ -1004,7 +1313,7 @@
       "target_port": "scores_a"
     },
     {
-      "source_node_id": "structure-comparison-batch-tm-score-fixed-reference",
+      "source_node_id": "structure-comparison-tm-score-fixed-reference",
       "source_port": "scores",
       "target_node_id": "collection-ops-merge-scores-direct",
       "target_port": "scores_b"
@@ -1046,6 +1355,12 @@
       "target_port": "structure_candidates"
     },
     {
+      "source_node_id": "structure-transform-resolve-candidate-residue-axes-imported-direct",
+      "source_port": "residue_axes",
+      "target_node_id": "structure-transform-extract-sequence-candidates-direct",
+      "target_port": "residue_axes"
+    },
+    {
       "source_node_id": "protein-io-import-structure-direct",
       "source_port": "structure",
       "target_node_id": "structure-transform-normalize-csh-parent-span-direct",
@@ -1056,6 +1371,150 @@
       "source_port": "structure_candidates",
       "target_node_id": "structure-transform-select-candidate-chains-direct",
       "target_port": "structure_candidates"
+    },
+    {
+      "source_node_id": "structure-transform-resolve-candidate-residue-axes-simplefold-direct",
+      "source_port": "residue_axes",
+      "target_node_id": "folding-simplefold-confidence-simplefold-local",
+      "target_port": "structure_residue_axes"
+    },
+    {
+      "source_node_id": "structure-transform-resolve-candidate-residue-axes-imported-direct",
+      "source_port": "residue_axes",
+      "target_node_id": "proteinmpnn-design-local",
+      "target_port": "structure_residue_axes"
+    },
+    {
+      "source_node_id": "structure-transform-resolve-candidate-residue-axes-esmfold-direct",
+      "source_port": "residue_axes",
+      "target_node_id": "proteinmpnn-score-local",
+      "target_port": "structure_residue_axes"
+    },
+    {
+      "source_node_id": "structure-transform-resolve-candidate-residue-axes-imported-direct",
+      "source_port": "residue_axes",
+      "target_node_id": "structure-annotation-dssp-compute-mkdssp-local",
+      "target_port": "residue_axes"
+    },
+    {
+      "source_node_id": "structure-transform-resolve-candidate-residue-axes-esmfold-direct",
+      "source_port": "residue_axes",
+      "target_node_id": "structure-annotation-dssp-compute-subject-mkdssp-local",
+      "target_port": "residue_axes"
+    },
+    {
+      "source_node_id": "structure-transform-resolve-candidate-residue-axes-esmfold-direct",
+      "source_port": "residue_axes",
+      "target_node_id": "structure-annotation-secondary-structure-agreement-direct",
+      "target_port": "subject_residue_axes"
+    },
+    {
+      "source_node_id": "esm3-generate-paired-biohub-medium",
+      "source_port": "structure_candidates",
+      "target_node_id": "materialize-confidence-esm3-generate-paired-biohub-medium",
+      "target_port": "structure_candidates"
+    },
+    {
+      "source_node_id": "esm3-generate-paired-biohub-medium",
+      "source_port": "confidence_facts",
+      "target_node_id": "materialize-confidence-esm3-generate-paired-biohub-medium",
+      "target_port": "confidence_facts"
+    },
+    {
+      "source_node_id": "esm3-generate-paired-biohub-open",
+      "source_port": "structure_candidates",
+      "target_node_id": "materialize-confidence-esm3-generate-paired-biohub-open",
+      "target_port": "structure_candidates"
+    },
+    {
+      "source_node_id": "esm3-generate-paired-biohub-open",
+      "source_port": "confidence_facts",
+      "target_node_id": "materialize-confidence-esm3-generate-paired-biohub-open",
+      "target_port": "confidence_facts"
+    },
+    {
+      "source_node_id": "esm3-generate-paired-local-open",
+      "source_port": "structure_candidates",
+      "target_node_id": "materialize-confidence-esm3-generate-paired-local-open",
+      "target_port": "structure_candidates"
+    },
+    {
+      "source_node_id": "esm3-generate-paired-local-open",
+      "source_port": "confidence_facts",
+      "target_node_id": "materialize-confidence-esm3-generate-paired-local-open",
+      "target_port": "confidence_facts"
+    },
+    {
+      "source_node_id": "esm3-generate-structure-biohub-medium",
+      "source_port": "structure_candidates",
+      "target_node_id": "materialize-confidence-esm3-generate-structure-biohub-medium",
+      "target_port": "structure_candidates"
+    },
+    {
+      "source_node_id": "esm3-generate-structure-biohub-medium",
+      "source_port": "confidence_facts",
+      "target_node_id": "materialize-confidence-esm3-generate-structure-biohub-medium",
+      "target_port": "confidence_facts"
+    },
+    {
+      "source_node_id": "esm3-generate-structure-biohub-open",
+      "source_port": "structure_candidates",
+      "target_node_id": "materialize-confidence-esm3-generate-structure-biohub-open",
+      "target_port": "structure_candidates"
+    },
+    {
+      "source_node_id": "esm3-generate-structure-biohub-open",
+      "source_port": "confidence_facts",
+      "target_node_id": "materialize-confidence-esm3-generate-structure-biohub-open",
+      "target_port": "confidence_facts"
+    },
+    {
+      "source_node_id": "esm3-generate-structure-local-open",
+      "source_port": "structure_candidates",
+      "target_node_id": "materialize-confidence-esm3-generate-structure-local-open",
+      "target_port": "structure_candidates"
+    },
+    {
+      "source_node_id": "esm3-generate-structure-local-open",
+      "source_port": "confidence_facts",
+      "target_node_id": "materialize-confidence-esm3-generate-structure-local-open",
+      "target_port": "confidence_facts"
+    },
+    {
+      "source_node_id": "folding-fold-esmfold2-local",
+      "source_port": "structure_candidates",
+      "target_node_id": "materialize-confidence-folding-fold-esmfold2-local",
+      "target_port": "structure_candidates"
+    },
+    {
+      "source_node_id": "folding-fold-esmfold2-local",
+      "source_port": "confidence_facts",
+      "target_node_id": "materialize-confidence-folding-fold-esmfold2-local",
+      "target_port": "confidence_facts"
+    },
+    {
+      "source_node_id": "folding-fold-esmfold2-remote",
+      "source_port": "structure_candidates",
+      "target_node_id": "materialize-confidence-folding-fold-esmfold2-remote",
+      "target_port": "structure_candidates"
+    },
+    {
+      "source_node_id": "folding-fold-esmfold2-remote",
+      "source_port": "confidence_facts",
+      "target_node_id": "materialize-confidence-folding-fold-esmfold2-remote",
+      "target_port": "confidence_facts"
+    },
+    {
+      "source_node_id": "folding-fold-simplefold-local",
+      "source_port": "structure_candidates",
+      "target_node_id": "materialize-confidence-folding-fold-simplefold-local",
+      "target_port": "structure_candidates"
+    },
+    {
+      "source_node_id": "folding-fold-simplefold-local",
+      "source_port": "confidence_facts",
+      "target_node_id": "materialize-confidence-folding-fold-simplefold-local",
+      "target_port": "confidence_facts"
     }
   ],
   "observation_selectors": [],
@@ -1064,332 +1523,368 @@
     {
       "contract_kind": "binding",
       "contract_id": "collection_ops.concat_candidates.direct",
-      "contract_version": "2.1.0",
-      "contract_digest": "sha256:6e8e3d8214b9215eeccfc37bde4810d723ed46bd7410cf38997103ef918b2e20"
+      "contract_version": "3.0.0",
+      "contract_digest": "sha256:1dded77878a201075f0eab47ba4faf2ce18ac6936ca0aecc39b103b9a946f6c8"
     },
     {
       "contract_kind": "binding",
       "contract_id": "collection_ops.merge_scores.direct",
-      "contract_version": "2.1.0",
-      "contract_digest": "sha256:5d4054f6924e4e145cf577e8752aaabdbff1f952d9dc4c1ec7e6a12480e22d7b"
+      "contract_version": "4.0.0",
+      "contract_digest": "sha256:52cefdd39824b8c43019cb5cf92939ec63bc5133c4fbdbccc46b539c924e5dcd"
     },
     {
       "contract_kind": "binding",
       "contract_id": "collection_ops.pair_siblings_by_parent.direct",
-      "contract_version": "2.1.0",
-      "contract_digest": "sha256:4a4cf341dc3dd141ff91d3e0107b49e79c9b83acee6ec7b756b104c19049df12"
+      "contract_version": "3.0.0",
+      "contract_digest": "sha256:788377c00b3a47c288b924c2625b39bf43e020aebc9e0d95615e986f998f7754"
     },
     {
       "contract_kind": "binding",
       "contract_id": "esm3.generate_paired.biohub_medium",
-      "contract_version": "3.0.0",
-      "contract_digest": "sha256:88f02ffd26f786100f1bd5f5a2c71cc2d5403abbc8c039e94b662f032698a005"
+      "contract_version": "7.0.0",
+      "contract_digest": "sha256:fd67c0f55575aa85beb8be6232ad734bbb78f9d0f549766b85c7a6eafc503545"
     },
     {
       "contract_kind": "binding",
       "contract_id": "esm3.generate_paired.biohub_open",
-      "contract_version": "3.0.0",
-      "contract_digest": "sha256:3c13ec089fe0efa1d4ac606fabdc9a612e2555131c23276e5e7f3be738bf15cd"
+      "contract_version": "7.0.0",
+      "contract_digest": "sha256:2d3521735e0daf06262de20bf993d046e21bf7a1dfc84485ac7c1b117f1aad8f"
     },
     {
       "contract_kind": "binding",
       "contract_id": "esm3.generate_paired.local_open",
-      "contract_version": "3.0.0",
-      "contract_digest": "sha256:09d6acafafdcde927186424c1ba5eebcffedb07311c64c77929d75032b7145e7"
+      "contract_version": "7.0.0",
+      "contract_digest": "sha256:b2c504db788a2394c878b21df35fc5bc64c7917832a10a5662675bb3e33f133b"
     },
     {
       "contract_kind": "binding",
       "contract_id": "esm3.generate_sequence.biohub_medium",
-      "contract_version": "3.0.0",
-      "contract_digest": "sha256:9891529695a822818aa3e30387f6ddea1bc5901530bda2d59523425547a78c39"
+      "contract_version": "7.0.0",
+      "contract_digest": "sha256:3603181b31529d11c4c314cf2e19636e713bb7ae674682ba1f06c138b6e9e877"
     },
     {
       "contract_kind": "binding",
       "contract_id": "esm3.generate_sequence.biohub_open",
-      "contract_version": "3.0.0",
-      "contract_digest": "sha256:7fbeacc07d58884d5377ef37d9472206287c0802b8879362834dc080ea8194eb"
+      "contract_version": "7.0.0",
+      "contract_digest": "sha256:83432292e5c11a5992074b92875c629e1ed4e648405d6af7bd6117be84677c4f"
     },
     {
       "contract_kind": "binding",
       "contract_id": "esm3.generate_sequence.local_open",
-      "contract_version": "3.0.0",
-      "contract_digest": "sha256:67105f999dc01cc5bc250d380a97383b5cec5d3440069bc52a8d726e60448179"
+      "contract_version": "7.0.0",
+      "contract_digest": "sha256:c0867aa8696acef8c710c04c01b24042c3adc82e4bc970de83f199d243f1e83d"
     },
     {
       "contract_kind": "binding",
       "contract_id": "esm3.generate_structure.biohub_medium",
-      "contract_version": "3.0.0",
-      "contract_digest": "sha256:c114106b5c12351dd9fd37a8c48a1209694ab13d7f96a90e3c395f4882941847"
+      "contract_version": "7.0.0",
+      "contract_digest": "sha256:da232564840ab87699acbbbf4e18d0c232a943835121761cd15b335fc549a718"
     },
     {
       "contract_kind": "binding",
       "contract_id": "esm3.generate_structure.biohub_open",
-      "contract_version": "3.0.0",
-      "contract_digest": "sha256:93b47e5e93c5f2b3bacef3f268a008f6b9e8c8bddb678206eae48094734ce203"
+      "contract_version": "7.0.0",
+      "contract_digest": "sha256:ae10bfdb1fde190d3d471c4b483b1787a4b7e25a1c203d747d3305b1c2038178"
     },
     {
       "contract_kind": "binding",
       "contract_id": "esm3.generate_structure.local_open",
-      "contract_version": "3.0.0",
-      "contract_digest": "sha256:1947352a7ef8d33cdc746922dc261cd265202818663cbda11de7c334d1f51877"
+      "contract_version": "7.0.0",
+      "contract_digest": "sha256:ed5841ade2045bad355ff1042908395a62420c531ced50fa66a2fb81e8002cca"
     },
     {
       "contract_kind": "binding",
       "contract_id": "esm3.represent_sequence.biohub_esmc_600m_2024_12",
-      "contract_version": "2.2.0",
-      "contract_digest": "sha256:ec489449cb8b7b461fbc789f17e61f17e0f1632a26567ed071c6f253fe097e5a"
+      "contract_version": "5.0.0",
+      "contract_digest": "sha256:a668cb369124da32d894d9f6c589c086f6cba69659307381311d8391486ab703"
     },
     {
       "contract_kind": "binding",
       "contract_id": "folding.fold.esmfold2_local",
-      "contract_version": "3.0.0",
-      "contract_digest": "sha256:6c12f2135900e59ecf1c0e11613f3332777475c1aeffcf187c8e8bf7d8e56bfe"
+      "contract_version": "6.0.0",
+      "contract_digest": "sha256:9331bf637d6e70ea4eed20e1e65152a95f2b2d2dc96f3ff7a96c7e2fb819fb49"
     },
     {
       "contract_kind": "binding",
       "contract_id": "folding.fold.esmfold2_remote",
-      "contract_version": "3.0.0",
-      "contract_digest": "sha256:a62b98ebb42a33e906c20fecb5cdcd5ea338b713658bb90b735aff639a07acc3"
+      "contract_version": "7.0.0",
+      "contract_digest": "sha256:cb0781ac3f9e4b42e54c6fa84b96c68169282f91fb2762e14b889e4b4f5748e4"
     },
     {
       "contract_kind": "binding",
       "contract_id": "folding.fold.simplefold_local",
-      "contract_version": "3.0.0",
-      "contract_digest": "sha256:6c912037852083e573ffeb9731e552e44f3b9fb5dc8a2ad5c7ddafe5342bed2a"
+      "contract_version": "6.0.0",
+      "contract_digest": "sha256:66344992b10334219f75de73d53a801f14486fc9e784c1c85eca1b20db7f9055"
     },
     {
       "contract_kind": "binding",
       "contract_id": "folding.simplefold_confidence.simplefold_local",
-      "contract_version": "2.2.0",
-      "contract_digest": "sha256:6a42b22721ca0a93ee6afa50fcbb471bc3fe85fcf0d44a9611505a6fec48fe78"
+      "contract_version": "4.0.0",
+      "contract_digest": "sha256:b97175840916815c72959fde2f2527ae0719369fd6070dbe76f96d539aa871ad"
     },
     {
       "contract_kind": "binding",
       "contract_id": "prompt_authoring.add_function_annotation.direct",
-      "contract_version": "2.1.0",
-      "contract_digest": "sha256:82de0326cc6a4bdafcfad4a4f9de8c25ad145f58ab95f8f3ddb3c60d0f255937"
+      "contract_version": "3.0.0",
+      "contract_digest": "sha256:b96046d733f5395028ceffa454ba471e6e55f281e773e9a30d3e70aad881a03f"
     },
     {
       "contract_kind": "binding",
       "contract_id": "prompt_authoring.assemble_protein_prompt.direct",
-      "contract_version": "2.1.0",
-      "contract_digest": "sha256:f97b7a8ecb4acd1ecc9b016a86c5a9bfdec7c71e301902c152be43917d4eb799"
+      "contract_version": "3.0.0",
+      "contract_digest": "sha256:e2747fb456995362070a3e91eac098b9cb953cea69d96c00effcab916afd4365"
     },
     {
       "contract_kind": "binding",
       "contract_id": "prompt_authoring.build_residue_layout.direct",
-      "contract_version": "2.1.0",
-      "contract_digest": "sha256:ef2dd9b00f09aebbf788b5d1c1bdbf67d655d21c36a1c285f9427c740978cbf0"
+      "contract_version": "3.0.0",
+      "contract_digest": "sha256:b30f9c83cd76936b7236c590bf5d2a9fbb92802b9457d9726890cbaa29cf2d60"
     },
     {
       "contract_kind": "binding",
       "contract_id": "prompt_authoring.edit_residue_layout.direct",
-      "contract_version": "2.1.0",
-      "contract_digest": "sha256:506354d0e54c89c4c60a5e4ca00e355170da55c29746e030e515b1fdfa71b7cb"
+      "contract_version": "3.0.0",
+      "contract_digest": "sha256:0dd7c6428b8c086b429229fda611c93c2103de53c6a7b0e6f445d714a384faa5"
     },
     {
       "contract_kind": "binding",
       "contract_id": "prompt_authoring.insert_masked_residues.direct",
-      "contract_version": "2.1.0",
-      "contract_digest": "sha256:2c43589b86487e27df9715944fe57c0153aa166068295d87409103b04708b3c6"
+      "contract_version": "3.0.0",
+      "contract_digest": "sha256:a8439db7d35f1764a3078a87967966e1b09d62f50820ac4438d0ca23e1cbdff4"
     },
     {
       "contract_kind": "binding",
       "contract_id": "prompt_authoring.random_insert_masked.direct",
-      "contract_version": "2.1.0",
-      "contract_digest": "sha256:08cab9f25240bf4346f0043be1e71dbcee6e5a677c5cc463e5b2a541f759ceda"
+      "contract_version": "3.0.0",
+      "contract_digest": "sha256:751485219b8aeec9f81796b221e3cd7bd2038f60901a98ef044640f903f69a48"
     },
     {
       "contract_kind": "binding",
       "contract_id": "prompt_authoring.random_mask.direct",
-      "contract_version": "2.1.0",
-      "contract_digest": "sha256:b3e81dcbe7c81d7794e831cd955b03901261ad52af3b4c31d2a084b8a2133631"
+      "contract_version": "3.0.0",
+      "contract_digest": "sha256:4c0eb350bb6f803fa3278740ccbbff7b39b4ca9d723e7faa9626e50397085a72"
     },
     {
       "contract_kind": "binding",
       "contract_id": "prompt_authoring.update_prompt_sequence.direct",
-      "contract_version": "2.1.0",
-      "contract_digest": "sha256:34cf08bce99a7dc39e9e3c47dc0b87ba007721e332c171bc484f768e4fff6345"
+      "contract_version": "3.0.0",
+      "contract_digest": "sha256:c95fdd9f05a220aa49a510c5f07a0e2eaf77ea5af29c9d248563cb918d81a4f3"
     },
     {
       "contract_kind": "binding",
       "contract_id": "protein_io.export_sequence.direct",
-      "contract_version": "2.1.0",
-      "contract_digest": "sha256:418af9dc2f4be5006c32f707e98b72ea2326d40a1d575e651b023d0826a269c2"
+      "contract_version": "3.0.0",
+      "contract_digest": "sha256:e702a328ffb75eec9f97f2fd3cafb9679a60e50a92916fca2feb6043f8cc0dd4"
     },
     {
       "contract_kind": "binding",
       "contract_id": "protein_io.export_structure.direct",
-      "contract_version": "3.0.0",
-      "contract_digest": "sha256:722a26ec630661f5849869fe31493e3ab268e4c910db5ceb8a798d174936696d"
+      "contract_version": "5.0.0",
+      "contract_digest": "sha256:618cb7c27898112f131699b7443de36b442bc6dc53dbe83d038da042cc6421ad"
     },
     {
       "contract_kind": "binding",
       "contract_id": "protein_io.import_sequence.direct",
-      "contract_version": "3.0.0",
-      "contract_digest": "sha256:a6a7f9eede3f4be1f5033d5c9aae21a3b7130951844f1c6b1b03fe6e564858b5"
+      "contract_version": "5.0.0",
+      "contract_digest": "sha256:6e86099c2cc0ec0e69e8e21c5769fad47463e8549169a4520b71d803810d5d9f"
     },
     {
       "contract_kind": "binding",
       "contract_id": "protein_io.import_structure.direct",
-      "contract_version": "3.0.0",
-      "contract_digest": "sha256:5a5bbe5ddb176da0d75bce6cabdb313c663e0e917df633a6f8f0d6107cd15b8f"
+      "contract_version": "5.0.0",
+      "contract_digest": "sha256:3cb50990f4d369ff1fcd57d3e8925152a75f8f7b894a8c1a538f8d0767eb9eed"
     },
     {
       "contract_kind": "binding",
       "contract_id": "proteinmpnn.constraints.local",
-      "contract_version": "3.0.0",
-      "contract_digest": "sha256:25a6df5d9590176b774496e455c638e3db11c7c2260bd55b5cc44da65eac75a2"
+      "contract_version": "4.0.0",
+      "contract_digest": "sha256:ec46373f022aa3cdea053178ba8fdc5d33a81883c6af2bbf37ff55d4a6bb1aff"
     },
     {
       "contract_kind": "binding",
       "contract_id": "proteinmpnn.design.local",
-      "contract_version": "4.0.0",
-      "contract_digest": "sha256:0f3af7384f5fae8474731a7702b2e7bdcf1a70383a8f24b6ec9eb58b8fc7d6bb"
+      "contract_version": "9.0.0",
+      "contract_digest": "sha256:d2cb27d5481aeb1ebd6227f56f1949b11d768ad294f39e1069843637d92aaa89"
     },
     {
       "contract_kind": "binding",
       "contract_id": "proteinmpnn.random_fixed_positions.local",
-      "contract_version": "3.0.0",
-      "contract_digest": "sha256:97df5c52e5470a954ce7728440f1ce08b659493e833f6fb37b2d4de1e0cfc65c"
+      "contract_version": "4.0.0",
+      "contract_digest": "sha256:879ab91d675df252d596a003b717cd0b39492e0c89ba2d0d74fe79275fc915a7"
     },
     {
       "contract_kind": "binding",
       "contract_id": "proteinmpnn.score.local",
-      "contract_version": "2.1.0",
-      "contract_digest": "sha256:076258290c3915afdfac78d78c361fd3bad2c600659f7fc57a93d5608ca45138"
+      "contract_version": "6.0.0",
+      "contract_digest": "sha256:e9fd35e942297838aa0b4da1d4b03b14238ddbd1d2ce44ad76b2df96d5c3178d"
     },
     {
       "contract_kind": "binding",
       "contract_id": "solubility.protein_sol.local",
-      "contract_version": "2.1.0",
-      "contract_digest": "sha256:683c20a4c125024f68229ec49e48b6e3e59c6daacd9a521b6b9c05b5d7043271"
+      "contract_version": "4.0.0",
+      "contract_digest": "sha256:3776a2b4898ad5d4a1c32e0fdd0034a04b4cacda65ff5883e8a0a34e530ebc95"
     },
     {
       "contract_kind": "binding",
       "contract_id": "solubility.soluprot_full.local",
-      "contract_version": "2.1.0",
-      "contract_digest": "sha256:d8c0f692e745d3eeabdd5d372347ba157f3afd03805b0c4240a06dc7a4dbbc8a"
+      "contract_version": "4.0.0",
+      "contract_digest": "sha256:b17307c9617f6dbd2b11321b9b827bc3ba513c3fb5eb708b79b4b38e07c55348"
     },
     {
       "contract_kind": "binding",
       "contract_id": "solubility.soluprot_no_tm.local",
-      "contract_version": "2.1.0",
-      "contract_digest": "sha256:486e187357c8d8ea41712f1b8e81334639985a7f19c1db8ac62e15a65b75cdb3"
+      "contract_version": "4.0.0",
+      "contract_digest": "sha256:587951db6d1bb5ff839d24edd0125d05c4a9b18392583e08e8104eb7f7f1fbeb"
+    },
+    {
+      "contract_kind": "binding",
+      "contract_id": "structure_annotation.apply_sasa_to_prompt.direct",
+      "contract_version": "5.0.0",
+      "contract_digest": "sha256:23d6c0ea6045acb088cbdcd7b9997a74130edb9ea25238028b8cd6fdf695f64e"
+    },
+    {
+      "contract_kind": "binding",
+      "contract_id": "structure_annotation.apply_secondary_structure_to_prompt.direct",
+      "contract_version": "5.0.0",
+      "contract_digest": "sha256:426e2dc4ec69b7b5ecc17d27352260fd002b50703c1d6e5e8d444b648c376eec"
     },
     {
       "contract_kind": "binding",
       "contract_id": "structure_annotation.dssp_compute.mkdssp_local",
-      "contract_version": "3.0.0",
-      "contract_digest": "sha256:379108232a736d05449fc0ab3c77a4477e386158476912748f6fa384948a62f3"
+      "contract_version": "6.0.0",
+      "contract_digest": "sha256:6cf310bb588d2a0aa4acc06778da73d1f7e86fe172d25dd12c7d18783356bade"
+    },
+    {
+      "contract_kind": "binding",
+      "contract_id": "structure_annotation.expected_secondary_structure_from_prompt.direct",
+      "contract_version": "5.0.0",
+      "contract_digest": "sha256:775b027db5a52bd2da827ff57ab84ac38748e453d0bcd2804606dfbaa0ac1dd0"
     },
     {
       "contract_kind": "binding",
       "contract_id": "structure_annotation.sasa_compute.direct",
-      "contract_version": "2.2.0",
-      "contract_digest": "sha256:e546aa4272d8af94563e9e677e9b18c6256af8608914e48f8335a6a8e5d5146f"
+      "contract_version": "4.0.0",
+      "contract_digest": "sha256:e62ec70480c87c4555c967b6f586f379ac9a1f298cb4001f5ff8267ec6f6890d"
     },
     {
       "contract_kind": "binding",
       "contract_id": "structure_annotation.secondary_structure_agreement.direct",
-      "contract_version": "2.2.0",
-      "contract_digest": "sha256:a7e54abf529aaa59a62f0e4622f0fa6ba4e383fc31946e52964fcd4938403592"
+      "contract_version": "5.0.0",
+      "contract_digest": "sha256:df97856aca60aaf2ad55424796f4699f3e316d18c1ab20ad3f940d9f7e85ae34"
     },
     {
       "contract_kind": "binding",
       "contract_id": "structure_annotation.secondary_structure_extract.direct",
-      "contract_version": "2.2.0",
-      "contract_digest": "sha256:065225230f16edb08ed6ad266d1c01172411815fd64400d11ca153c5ca10b08b"
+      "contract_version": "4.0.0",
+      "contract_digest": "sha256:e8a9594956400c087bb20347e3ccac7c0943a49c8e8bc25ffc89935834e7dadc"
     },
     {
       "contract_kind": "binding",
-      "contract_id": "structure_comparison.align_pairwise.direct",
-      "contract_version": "2.2.0",
-      "contract_digest": "sha256:65cc1fc2bd8de20e2e878a7d511a61f4f9ba9014a8f7ebc96e85812f8cb80684"
+      "contract_id": "structure_comparison.align_counterparts.sequence_primary_affine",
+      "contract_version": "4.0.0",
+      "contract_digest": "sha256:e2c13dada2ad29d4ca20da3ad9ffa1c21f3efdf0dfd95cb05ba5214d8e802a0c"
     },
     {
       "contract_kind": "binding",
-      "contract_id": "structure_comparison.align_pairwise.fixed_reference",
-      "contract_version": "2.2.0",
-      "contract_digest": "sha256:9230351a4f897da81fbe28c9410904b9956454110a8abdc60c595383d20cde62"
+      "contract_id": "structure_comparison.align_fixed_reference.sequence_primary_affine",
+      "contract_version": "4.0.0",
+      "contract_digest": "sha256:e700524ca26e715b03680b3150da0f683060711e58e156691a87a981e9d5f540"
     },
     {
       "contract_kind": "binding",
-      "contract_id": "structure_comparison.align_single.direct",
-      "contract_version": "2.1.0",
-      "contract_digest": "sha256:8624f1813469c9bb96c79bd9cc591e99e343d25a99c384b54da24e166e15a90a"
+      "contract_id": "structure_comparison.align_single.sequence_primary_affine",
+      "contract_version": "4.0.0",
+      "contract_digest": "sha256:64452f9f4f06b051431c3221780bd5431b1649b9c5c0a563f3dd2121a7993dc1"
     },
     {
       "contract_kind": "binding",
-      "contract_id": "structure_comparison.batch_tm_score.fixed_reference",
-      "contract_version": "2.2.0",
-      "contract_digest": "sha256:8052322638cc9f1901dffaa25588984bf3c920a35a3bdbb736defbab98e74935"
+      "contract_id": "structure_comparison.align_single.structure_first_tm_align",
+      "contract_version": "4.0.0",
+      "contract_digest": "sha256:eebc105245dd8db2b7f80ef3078c0d01629163932d8a111c20d7c89c8b27b8c8"
     },
     {
       "contract_kind": "binding",
-      "contract_id": "structure_comparison.batch_tm_score.per_subject_counterpart",
-      "contract_version": "2.2.0",
-      "contract_digest": "sha256:3fdf6c4bbf78b900d8600bb838d0e779aded0e25d09dd9dfbec9e4c94244a39a"
+      "contract_id": "structure_comparison.rmsd_counterparts.from_alignment_evidence",
+      "contract_version": "5.0.0",
+      "contract_digest": "sha256:fef310704e4692dfe0624109e35611ff7da985782e9f55e4770f4c9369f996ff"
     },
     {
       "contract_kind": "binding",
-      "contract_id": "structure_comparison.rmsd.fixed_reference",
-      "contract_version": "2.2.0",
-      "contract_digest": "sha256:ebe37f8146daff16cb2afb9f715d6420f63163eea7ee0d497c37948e65a69629"
+      "contract_id": "structure_comparison.rmsd_fixed_reference.from_alignment_evidence",
+      "contract_version": "5.0.0",
+      "contract_digest": "sha256:6a18447e835b0ab3dedac4079b68e5b3175ca20c2b7b6dc0e70ace62ab4320f3"
     },
     {
       "contract_kind": "binding",
-      "contract_id": "structure_comparison.rmsd.per_subject_counterpart",
-      "contract_version": "2.2.0",
-      "contract_digest": "sha256:dd07cc817e671448f4d34d1eb5185ad2adb03ff8d308684aac5ecf2185dc3014"
+      "contract_id": "structure_comparison.tm_score_counterparts.from_alignment_evidence",
+      "contract_version": "5.0.0",
+      "contract_digest": "sha256:473f56f9c25a9c59810e1b058f10245f78dbd55589fca05a94ff231d68a29efb"
     },
     {
       "contract_kind": "binding",
-      "contract_id": "structure_comparison.tm_score.fixed_reference",
-      "contract_version": "2.1.0",
-      "contract_digest": "sha256:2addf46cff89166eb088202388b5c27e1e2d11ec10093176f696fe2e4993c632"
+      "contract_id": "structure_comparison.tm_score_fixed_reference.from_alignment_evidence",
+      "contract_version": "5.0.0",
+      "contract_digest": "sha256:f730fb4aa94fd0f5a0e7d4ce741f552636195d255c9789551e2d8a1b6fde1a0a"
+    },
+    {
+      "contract_kind": "binding",
+      "contract_id": "structure_prediction.materialize_confidence.direct",
+      "contract_version": "1.0.0",
+      "contract_digest": "sha256:86de8ef9c5ecb9f86ef490cad1304d60b3e81b566c6a735c7fa1886324060021"
     },
     {
       "contract_kind": "binding",
       "contract_id": "structure_transform.backbone_to_structure.direct",
-      "contract_version": "3.0.0",
-      "contract_digest": "sha256:b93bf5de4728eaae72e78c8d2ef22b2eac2449432940993a8373af900cf5e6f0"
+      "contract_version": "4.0.0",
+      "contract_digest": "sha256:737a9a47f57b930ded14c5b8ab4b85b4e6e7684dd30c0e1a622e16c5c10b0f70"
     },
     {
       "contract_kind": "binding",
       "contract_id": "structure_transform.extract_backbone.direct",
-      "contract_version": "3.0.0",
-      "contract_digest": "sha256:7414e93823696252c423df9811263037dc950cb5b9eb6d92feb448af53cad93c"
+      "contract_version": "4.0.0",
+      "contract_digest": "sha256:d94e4ab9bc18728160fb3b3854d313e5340397e938f8f910ec8ac403e64a775c"
     },
     {
       "contract_kind": "binding",
       "contract_id": "structure_transform.extract_sequence.direct",
-      "contract_version": "3.0.0",
-      "contract_digest": "sha256:15783efa2d7d37657005342f1a65017271110e7f6887299af7b9795bb590006c"
+      "contract_version": "4.0.0",
+      "contract_digest": "sha256:0a515fc0b31f53043b622ba14d6d99715418908cf75ab08a804624835f982586"
     },
     {
       "contract_kind": "binding",
       "contract_id": "structure_transform.extract_sequence_candidates.direct",
-      "contract_version": "2.1.0",
-      "contract_digest": "sha256:f260226be479a9fc77d20216e052e0ca0df06a4a42f7537d577bf4e272b9f35d"
+      "contract_version": "3.0.0",
+      "contract_digest": "sha256:ea1cc9fc10c539de3e484d60e695f965da935933bc9012bd79e2ee168a60ac2b"
     },
     {
       "contract_kind": "binding",
       "contract_id": "structure_transform.normalize_csh_parent_span.direct",
-      "contract_version": "3.0.0",
-      "contract_digest": "sha256:bc73fc0ee4d5045ddca4180b92f7a2ddd3be0189c6ff96da83c8455b5f5c467d"
+      "contract_version": "5.0.0",
+      "contract_digest": "sha256:ef76f90eeabc5bbdd423d5b29bd938031ed7f307c5d60bc2288fa7ba44abadc0"
+    },
+    {
+      "contract_kind": "binding",
+      "contract_id": "structure_transform.resolve_candidate_residue_axes.direct",
+      "contract_version": "5.0.0",
+      "contract_digest": "sha256:c2899e7a2ed9da8d303f5094a11a672d1c7b9521c719003ba3805d397617d499"
+    },
+    {
+      "contract_kind": "binding",
+      "contract_id": "structure_transform.resolve_residue_axis.direct",
+      "contract_version": "4.0.0",
+      "contract_digest": "sha256:74092700c4d58b722965774c310534b9cb2cc7b8e1b8ebebfb8692408b86268b"
     },
     {
       "contract_kind": "binding",
       "contract_id": "structure_transform.select_candidate_chains.direct",
-      "contract_version": "2.1.0",
-      "contract_digest": "sha256:e9f09e47fd2a3fef54946f49dd421c5dd1592353bbd784ed29cf27eab34648e3"
+      "contract_version": "3.0.0",
+      "contract_digest": "sha256:430e50efb0e7094b1fc76b930bd04facbc463c569d18ed9361d0b0617b7e7e8f"
     },
     {
       "contract_kind": "binding",
       "contract_id": "structure_transform.select_chains.direct",
-      "contract_version": "3.0.0",
-      "contract_digest": "sha256:dea2aa1bb01bd27bfd7100136ced29081d4c7cb7d97a87dac7ab5b5a48ff9d16"
+      "contract_version": "4.0.0",
+      "contract_digest": "sha256:b42da8a1746a0dfb03709042accc1ec3041320c3542518aa6e9729d60d3f0eb6"
     },
     {
       "contract_kind": "method",
@@ -1406,92 +1901,92 @@
     {
       "contract_kind": "method",
       "contract_id": "collection_ops.pair_siblings_by_parent.method",
-      "contract_version": "2.1.0",
-      "contract_digest": "sha256:18ca3d71e3755dcd2cd8dea00304b741ba33a67b612ce45ce60bd3c59197d4d8"
+      "contract_version": "3.0.0",
+      "contract_digest": "sha256:b088f7ac400f889e5a3ed2cd9b89d603f2654a0a2b6d662ec8802dce87088fa8"
     },
     {
       "contract_kind": "method",
       "contract_id": "esm3.generate_paired.esm3_medium_2024_08",
-      "contract_version": "3.0.0",
-      "contract_digest": "sha256:c74650d2ea49f45666813b6ec23e24c4a21dde874d1518e628445a4a117fbcbd"
+      "contract_version": "5.0.0",
+      "contract_digest": "sha256:8fee8cf6dbaa98ccdf39ba1f2e2a7e8be1fa270856c043e19dbc9f5bf9a30607"
     },
     {
       "contract_kind": "method",
       "contract_id": "esm3.generate_paired.esm3_open_2024_03",
-      "contract_version": "3.0.0",
-      "contract_digest": "sha256:4933117c58e25dd2513def7ee939853d25a4427d7dcf74f3ef0060b3cd08413d"
+      "contract_version": "5.0.0",
+      "contract_digest": "sha256:8efaf4181e2dcc7fcd80daf010d8958f3479979080720f4c82e0806969701ad6"
     },
     {
       "contract_kind": "method",
       "contract_id": "esm3.generate_paired.esm3_sm_open_v1_local",
-      "contract_version": "3.0.0",
-      "contract_digest": "sha256:3618bf67bc972e12b8a5fc9d38cb930bf95bcb085ab91045549552a7444e3cd8"
+      "contract_version": "5.0.0",
+      "contract_digest": "sha256:cd13f619e29bcb407aeb4ac9736f65487d60dcf7d76f9dc367240914d7d9c1c7"
     },
     {
       "contract_kind": "method",
       "contract_id": "esm3.generate_sequence.esm3_medium_2024_08",
-      "contract_version": "3.0.0",
-      "contract_digest": "sha256:340fb29808a960225ff75cf2742116afe0fc008fb3258bbdbc56ebba01a86878"
+      "contract_version": "5.0.0",
+      "contract_digest": "sha256:fb26c42cc0bf34352dbd2d57aadcd65d1763676a32d8bd828379a1349e6f951f"
     },
     {
       "contract_kind": "method",
       "contract_id": "esm3.generate_sequence.esm3_open_2024_03",
-      "contract_version": "3.0.0",
-      "contract_digest": "sha256:d8e4f604875c078e3c5b7d7942e7606edb05349f071da56cf0abd75ceb8a62a5"
+      "contract_version": "5.0.0",
+      "contract_digest": "sha256:f1633dc7d558ffdf1fc73d3b63433905cc3efc6b84bd72f106600713f778ad4d"
     },
     {
       "contract_kind": "method",
       "contract_id": "esm3.generate_sequence.esm3_sm_open_v1_local",
-      "contract_version": "3.0.0",
-      "contract_digest": "sha256:487196775d5880e8826768421d606eaacd31a59d33b74a3b75e7bb7abfb97fdb"
+      "contract_version": "5.0.0",
+      "contract_digest": "sha256:4627c41f5c738511ba3c0139c031e4e8e94b1af28f0117dbabe4663d7c9037b7"
     },
     {
       "contract_kind": "method",
       "contract_id": "esm3.generate_structure.esm3_medium_2024_08",
-      "contract_version": "3.0.0",
-      "contract_digest": "sha256:334864f019dd3fbfd00900512bcde84de8eac9e99eccd08a623bb491a10eabed"
+      "contract_version": "5.0.0",
+      "contract_digest": "sha256:10b2a17a2b06004d4d8682520a0dbbcf909120c0bdab1bc601d79d77aae98843"
     },
     {
       "contract_kind": "method",
       "contract_id": "esm3.generate_structure.esm3_open_2024_03",
-      "contract_version": "3.0.0",
-      "contract_digest": "sha256:8130753843a2962b2c879f58d15fe1db6ccfdc1d74cebde719d11e36e5374d0b"
+      "contract_version": "5.0.0",
+      "contract_digest": "sha256:5c54106b38c13bb182544c7357ff63f94d3d748f1f673b7ca74ee854d322fad9"
     },
     {
       "contract_kind": "method",
       "contract_id": "esm3.generate_structure.esm3_sm_open_v1_local",
-      "contract_version": "3.0.0",
-      "contract_digest": "sha256:c9b4bc14a3746a459539f347832cc23d6140402ac42102dfb5fa2056cdbcabde"
+      "contract_version": "5.0.0",
+      "contract_digest": "sha256:9cde2a000e1e3008fce8ac42cf3ea76599be06dfb1e8ca6fc25f347ff1a6b9d8"
     },
     {
       "contract_kind": "method",
       "contract_id": "esm3.represent_sequence.esmc_600m_2024_12",
-      "contract_version": "2.1.0",
-      "contract_digest": "sha256:0c040fa224a3c8790e0698c10b48b17dd10dcd5595e12978aad6d251d54ddacd"
+      "contract_version": "3.0.0",
+      "contract_digest": "sha256:f5b70a5aa6491a704691db546485d652ce79ec05d6cfa91c0b90a6ede05bf819"
     },
     {
       "contract_kind": "method",
       "contract_id": "folding.fold.esmfold2_fast_biohub_2026_05",
-      "contract_version": "3.0.0",
-      "contract_digest": "sha256:376137c4350004a288962a3d09cae4071a5b833c4ef9159770fd64aabb0f7965"
+      "contract_version": "4.0.0",
+      "contract_digest": "sha256:96ba1f830ca71c844cc1ea506e6b60a327b5cf4c17bd0bfc2143b25bf669bee8"
     },
     {
       "contract_kind": "method",
       "contract_id": "folding.fold.esmfold2_hf_1ebf0e3",
-      "contract_version": "3.0.0",
-      "contract_digest": "sha256:3060820dc5c45ea51f612f477a41a182ffa3212b63f85bd94b479a870b57b465"
+      "contract_version": "4.0.0",
+      "contract_digest": "sha256:013f91c4b3651e5c3481559c277a2d09a0df5395d81039158b06a9a56c764452"
     },
     {
       "contract_kind": "method",
       "contract_id": "folding.fold.simplefold_100m_c7a5570",
-      "contract_version": "3.0.0",
-      "contract_digest": "sha256:57c55a581b1c62fbad2d631ac2f12d7d03a7d68c5bf878fdeacdce63a664f01e"
+      "contract_version": "4.0.0",
+      "contract_digest": "sha256:554eabb76c346ee58682719ef758edc476582172ae84e1d80725bc44d76c97c9"
     },
     {
       "contract_kind": "method",
       "contract_id": "folding.simplefold_confidence.existing_structure_1_6b_c7a5570",
-      "contract_version": "2.1.0",
-      "contract_digest": "sha256:4454dd835409ff90f7e6609a2d2efd75290ecdac7199f78e441e6472cf27295f"
+      "contract_version": "3.0.0",
+      "contract_digest": "sha256:cd081f395b74fde33521d86f039f7f119bbbcf6fb16b6d200b05dc1f07058b86"
     },
     {
       "contract_kind": "method",
@@ -1556,8 +2051,8 @@
     {
       "contract_kind": "method",
       "contract_id": "protein_io.import_sequence.method",
-      "contract_version": "3.0.0",
-      "contract_digest": "sha256:4f7b57e1deab78d698b9bf4a2a625a8f5deac3e254548475d7a61ad87400d50d"
+      "contract_version": "4.0.0",
+      "contract_digest": "sha256:b51a04c7f87be504129dd70464b89adc3528c87671d32f40578e6a18deb824c4"
     },
     {
       "contract_kind": "method",
@@ -1574,8 +2069,8 @@
     {
       "contract_kind": "method",
       "contract_id": "proteinmpnn.design.v_48_020_8907e667",
-      "contract_version": "3.0.0",
-      "contract_digest": "sha256:997fd2bb1f9d9079260dd0d0343cfab0166819975dd496fed394ff2993e0bc40"
+      "contract_version": "5.0.0",
+      "contract_digest": "sha256:350975671bbe626203265078eaebbc17bb81a3eaa2b5089ad5e76584986579df"
     },
     {
       "contract_kind": "method",
@@ -1586,116 +2081,158 @@
     {
       "contract_kind": "method",
       "contract_id": "proteinmpnn.score.v_48_020_8907e667",
-      "contract_version": "2.1.0",
-      "contract_digest": "sha256:932facaedb0db4dba5dc11f62197751367fcedde7fc64a561170c1ec94e7db9b"
+      "contract_version": "5.0.0",
+      "contract_digest": "sha256:70f84f4c49c67636f59b10c50815c17bf33e97778e57c9613da47c9b751d4774"
     },
     {
       "contract_kind": "method",
       "contract_id": "solubility.protein_sol.sequence_prediction_2017",
-      "contract_version": "2.1.0",
-      "contract_digest": "sha256:58d6bf62cf329d121b4f913a2f94ec351dfaa70c72b1dc43c5c8b4edf622afce"
+      "contract_version": "3.0.0",
+      "contract_digest": "sha256:c110ee9faf456785d79b6151599af85309dd2221f5f9208a34cc9726089a5ce5"
     },
     {
       "contract_kind": "method",
       "contract_id": "solubility.soluprot_full.v1_1_0",
-      "contract_version": "2.1.0",
-      "contract_digest": "sha256:bfc05a1e5d8ed7bb1a91495ba7b5aad093c4549ca6088fbd69d8187f08b25e19"
+      "contract_version": "3.0.0",
+      "contract_digest": "sha256:c99458b0d8c6acc08f86b0f8fd4af1678dba115f23c2a049d93ce7d51443441f"
     },
     {
       "contract_kind": "method",
       "contract_id": "solubility.soluprot_no_tm.v1_1_0",
-      "contract_version": "2.1.0",
-      "contract_digest": "sha256:9e0c8d1944b1aff024f6c7f2a8f14eeda18d233c1cad1249d5c333f665d72acc"
+      "contract_version": "3.0.0",
+      "contract_digest": "sha256:5fb7687a470a5b3733e3aa7788b545f280d9cb8fa23e46163702105a8f93c29e"
+    },
+    {
+      "contract_kind": "method",
+      "contract_id": "structure_annotation.apply_sasa_to_prompt.method",
+      "contract_version": "2.2.0",
+      "contract_digest": "sha256:58459f40c6c286ffa3af30d43361f9d85d80be2b7bf7cefe3c28b64ebc47eb03"
+    },
+    {
+      "contract_kind": "method",
+      "contract_id": "structure_annotation.apply_secondary_structure_to_prompt.method",
+      "contract_version": "2.2.0",
+      "contract_digest": "sha256:fdd2ff9360248b26e726818af911526c6fb749313b1301d8f535c115d5984bac"
     },
     {
       "contract_kind": "method",
       "contract_id": "structure_annotation.dssp_compute.method",
-      "contract_version": "2.2.0",
-      "contract_digest": "sha256:50a85a7383621e7b08133c4283efe6c482159424eb686d1906c2260168a849fa"
+      "contract_version": "3.0.0",
+      "contract_digest": "sha256:e0bc6d2cd0eadd19ea47aaeb371b775f41bdf198f50e8c194a8ad4ef24f4063a"
+    },
+    {
+      "contract_kind": "method",
+      "contract_id": "structure_annotation.expected_secondary_structure_from_prompt.method",
+      "contract_version": "3.0.0",
+      "contract_digest": "sha256:3463ca69ba7135f0740764749e3b22e623aa7e6aad90191a1775df319aea78f5"
     },
     {
       "contract_kind": "method",
       "contract_id": "structure_annotation.sasa_compute.method",
-      "contract_version": "2.2.0",
-      "contract_digest": "sha256:524d80ae82d3531ba758c1e096a462a1427aa68ec468c697b8c884ae59e67fff"
+      "contract_version": "3.0.0",
+      "contract_digest": "sha256:f12bf5747e499d2d6e8da182d7c3a215383c57405c2abc01a9f4777dd8f2395d"
     },
     {
       "contract_kind": "method",
       "contract_id": "structure_annotation.secondary_structure_agreement.method",
-      "contract_version": "2.2.0",
-      "contract_digest": "sha256:7b4ec2cf57ec15313d7545c9acc890a6fb65a1b2923bc4f7b18bfa7666dbd554"
+      "contract_version": "3.0.0",
+      "contract_digest": "sha256:b071ea7abae55a2e1a8047cd62155440b4b64debea528ca41ce00dfe485d2644"
     },
     {
       "contract_kind": "method",
       "contract_id": "structure_annotation.secondary_structure_extract.method",
-      "contract_version": "2.2.0",
-      "contract_digest": "sha256:2bd2b84d91b165951badbc224620e8d10b908916ff5d1847bbb3e801e145cfd9"
+      "contract_version": "3.0.0",
+      "contract_digest": "sha256:256cd029d7d7d11eff33aa0a47cc7710869972a01ae791f6d951c1818ce600d9"
     },
     {
       "contract_kind": "method",
-      "contract_id": "structure_comparison.ca_sequence_svd.method",
-      "contract_version": "2.1.0",
-      "contract_digest": "sha256:fcb9eef2116257b24ebcabd6604a93fde9831738b3c3f37b19bece04cb19cb6d"
+      "contract_id": "structure_comparison.rmsd.from_alignment_evidence.method",
+      "contract_version": "3.0.0",
+      "contract_digest": "sha256:e3fd0502f31ddf8c029ffd862673dbadbcb7e19a844c39fd742d1ca591e7dd99"
     },
     {
       "contract_kind": "method",
-      "contract_id": "structure_comparison.rmsd.method",
-      "contract_version": "2.1.0",
-      "contract_digest": "sha256:e39e3c4a6d85cef9eef50902471d4a67f176721cf0a76ff3edf762fab43845c1"
+      "contract_id": "structure_comparison.sequence_primary_affine_svd.method",
+      "contract_version": "3.0.0",
+      "contract_digest": "sha256:863f98c327e008e9e5da820470a7c5a6ef72c5911e699cd06487f797e731bb53"
     },
     {
       "contract_kind": "method",
-      "contract_id": "structure_comparison.tm_score.reference_normalized.method",
-      "contract_version": "2.1.0",
-      "contract_digest": "sha256:7809e22c2d0a3b7c180f72e5b6682f2d92f28df78ad9e129d933911a9558f36d"
+      "contract_id": "structure_comparison.structure_first_tm_align.method",
+      "contract_version": "3.0.0",
+      "contract_digest": "sha256:577f493b1f3d57f89ff69037ad1fc69fd5eb2ef45b2283082c39a1ca5c2530b1"
+    },
+    {
+      "contract_kind": "method",
+      "contract_id": "structure_comparison.tm_score.reference_axis_normalized.method",
+      "contract_version": "3.0.0",
+      "contract_digest": "sha256:b3149ada26856dd1f06c9bcdc228c712a5abf1671b3c219b3c03556c2e8b3625"
+    },
+    {
+      "contract_kind": "method",
+      "contract_id": "structure_prediction.materialize_confidence.exact_reference_join",
+      "contract_version": "1.0.0",
+      "contract_digest": "sha256:20157dc9def4fc79cb9f57182eade975ea281b192888a3af985fb2432ce16569"
     },
     {
       "contract_kind": "method",
       "contract_id": "structure_transform.backbone_to_structure.method",
-      "contract_version": "3.0.0",
-      "contract_digest": "sha256:5a16d808ced9e28e5c4d8564b9adf4a3b92946923d1705adb9eaeeedbc952ee8"
+      "contract_version": "4.0.0",
+      "contract_digest": "sha256:50d59e276f8f268482f72579ff7e7bfae8a1d7057cddf76ef944ec877fcec034"
     },
     {
       "contract_kind": "method",
       "contract_id": "structure_transform.extract_backbone.method",
-      "contract_version": "2.1.0",
-      "contract_digest": "sha256:eebeb913f348c644fd9b64c111535900cc54079dd433c1eec0d70698725eab89"
+      "contract_version": "3.0.0",
+      "contract_digest": "sha256:0234640818bdfb0464641d3d5b2f2b467c1f4f76bee6056aa1f7304c1718186f"
     },
     {
       "contract_kind": "method",
       "contract_id": "structure_transform.extract_sequence.method",
-      "contract_version": "2.1.0",
-      "contract_digest": "sha256:c6434292c8b607bc9465ed4eaf8d8b5eee6d4847e0a172980523fab4d9e38723"
+      "contract_version": "3.0.0",
+      "contract_digest": "sha256:ecfd5d13518e32ce821042c0f0c5cfe7d0e1448ca8190f07214df239bbd87ef5"
     },
     {
       "contract_kind": "method",
       "contract_id": "structure_transform.extract_sequence_candidates.method",
-      "contract_version": "2.1.0",
-      "contract_digest": "sha256:2d4a40c3455c05f3c58e9e5508733268559ab0368a1177f1b1777c5660e6c4d8"
+      "contract_version": "3.0.0",
+      "contract_digest": "sha256:291770103cc85d960431a4520161ba83fa5b96f946d46d6cc895aa6795393b3d"
     },
     {
       "contract_kind": "method",
       "contract_id": "structure_transform.normalize_csh_parent_span.method",
-      "contract_version": "2.1.0",
-      "contract_digest": "sha256:100fd2b4705f66b121cde7ad2bed7993786085a77d172b32917356c9e0d354ba"
+      "contract_version": "4.0.0",
+      "contract_digest": "sha256:1a5c37edaa576424c193da412420ba10e7549106de44c153c3003d1894583751"
+    },
+    {
+      "contract_kind": "method",
+      "contract_id": "structure_transform.resolve_candidate_residue_axes.method",
+      "contract_version": "3.0.0",
+      "contract_digest": "sha256:f898caefe627a24386bc573606c0a5cae766a30b11f6f78aa64e60cedb78ceff"
+    },
+    {
+      "contract_kind": "method",
+      "contract_id": "structure_transform.resolve_residue_axis.method",
+      "contract_version": "3.0.0",
+      "contract_digest": "sha256:a8e165d221307c09ff8f0e4ad230b0bdb75b1a87d491693dfa8062667b691f09"
     },
     {
       "contract_kind": "method",
       "contract_id": "structure_transform.select_candidate_chains.method",
-      "contract_version": "2.1.0",
-      "contract_digest": "sha256:148d1d4b61f8f86a6bdf9f47d4fc2624f30a469339203254780ade1e221a0349"
+      "contract_version": "3.0.0",
+      "contract_digest": "sha256:34682ee5c5dc30fd418526384fae8d308b89b3932d66a9fc557bf8f1ed290a4c"
     },
     {
       "contract_kind": "method",
       "contract_id": "structure_transform.select_chains.method",
-      "contract_version": "2.1.0",
-      "contract_digest": "sha256:4cdf76d8d32ee330d5005be97691f84b95120c96cf8b2830c107e13de6843722"
+      "contract_version": "3.0.0",
+      "contract_digest": "sha256:23539167817c0dbdd29a377ac20570e6c18486f193d883f4410a8be6b5e44254"
     },
     {
       "contract_kind": "metric",
       "contract_id": "proteinmpnn.native_sequence_nll",
-      "contract_version": "2.1.0",
-      "contract_digest": "sha256:fbcb85f7da2bf3a3d4022163a00ad4e58a4a82afcaa5703dc991eca3953c21ef"
+      "contract_version": "3.0.0",
+      "contract_digest": "sha256:a70f20841e090d08864b445cc4205ff5108ca93e59730fc6fcad39a4513f03eb"
     },
     {
       "contract_kind": "metric",
@@ -1724,20 +2261,20 @@
     {
       "contract_kind": "metric",
       "contract_id": "structure.pae",
-      "contract_version": "2.1.0",
-      "contract_digest": "sha256:f085ba7d67dc190075b9076e3a3a9b37912bb2a4b2a8c9ff6d1dc02d6155f7c1"
+      "contract_version": "3.0.0",
+      "contract_digest": "sha256:8b56f157ce05a2add518b1ab3d7f1860c4b861b98b36cac55db1ba215ff6b36c"
     },
     {
       "contract_kind": "metric",
       "contract_id": "structure.plddt.mean_residue",
-      "contract_version": "2.1.0",
-      "contract_digest": "sha256:a2210252c653203415771258a8b2887f369dfd2ba0c1011b89829572c782e40c"
+      "contract_version": "3.0.0",
+      "contract_digest": "sha256:f51b9e5fbba31a1a9dbe6c5d724d9f500d1e2ce5d0889d812c82fe73b147399f"
     },
     {
       "contract_kind": "metric",
       "contract_id": "structure.plddt.per_residue",
-      "contract_version": "2.1.0",
-      "contract_digest": "sha256:8c42c10b0cfc461feb3fc459c9e4225a1a7ea5135606c9164ea2b36e2775369d"
+      "contract_version": "3.0.0",
+      "contract_digest": "sha256:25f6cf829620778f7ac889cea552b64132b3123acaece94df03e0be9a679391c"
     },
     {
       "contract_kind": "metric",
@@ -1748,344 +2285,392 @@
     {
       "contract_kind": "metric",
       "contract_id": "structure_annotation.secondary_structure_agreement",
-      "contract_version": "2.1.0",
-      "contract_digest": "sha256:c7417a10fe36bd49b4fd79da380b7d1dcfeb3f9e1d936f8e21321982ebd8e526"
+      "contract_version": "3.0.0",
+      "contract_digest": "sha256:72792102bc5113955217292243aaffb5deb135143acb2f658a15fbf3763e0ba9"
     },
     {
       "contract_kind": "metric",
       "contract_id": "structure_comparison.rmsd",
-      "contract_version": "2.1.0",
-      "contract_digest": "sha256:da76d774051cfb6b5e909a4fa488474efa82edeebd1a21b3ccc67f7483c10833"
+      "contract_version": "3.0.0",
+      "contract_digest": "sha256:dcb428d5d2e9e9d91511004c539d281dd136a964edb7cc7c2a5d9dbda86d5f44"
     },
     {
       "contract_kind": "metric",
       "contract_id": "structure_comparison.tm_score",
-      "contract_version": "2.1.0",
-      "contract_digest": "sha256:da420b1a3665d381c77e690116e976a112dc32946e8aeb84d5cb54398cfc97ba"
+      "contract_version": "3.0.0",
+      "contract_digest": "sha256:6bbd756040cb0856c6a89d0953826a2cd09002766a5e8257ea24e0e8636b3cb8"
     },
     {
       "contract_kind": "node_type",
       "contract_id": "collection_ops.concat_candidates",
-      "contract_version": "2.1.0",
-      "contract_digest": "sha256:d3492115d45f03e4f5923b311252719363d2a6fd1b50c73afd5887848bbd1a9a"
+      "contract_version": "3.0.0",
+      "contract_digest": "sha256:22deea81734ec782e5ddc45bf4e2ba3e874d2ea73a71121f4b34c9d9531c288c"
     },
     {
       "contract_kind": "node_type",
       "contract_id": "collection_ops.merge_scores",
-      "contract_version": "2.1.0",
-      "contract_digest": "sha256:ff771d35d9cbcc5859686df99249501d97c98842563fcc83066b82e5576ffc29"
+      "contract_version": "4.0.0",
+      "contract_digest": "sha256:62f8477bdb6305a3aa88338421e74d3371af3e7ca7c2c4c70b5510e981107fc0"
     },
     {
       "contract_kind": "node_type",
       "contract_id": "collection_ops.pair_siblings_by_parent",
-      "contract_version": "2.1.0",
-      "contract_digest": "sha256:9a5ec79691a1ddad857ada44c0a321ba22d36c6d85e06d94b86b5d5851b24c34"
+      "contract_version": "3.0.0",
+      "contract_digest": "sha256:7de5d6bd2b726834f7ca9e2389d81ffa423b35740a887a46cdfe12da9a13e9c7"
     },
     {
       "contract_kind": "node_type",
       "contract_id": "esm3.generate_paired",
-      "contract_version": "3.0.0",
-      "contract_digest": "sha256:12129502f9ab8c7f7dabc48e4362f5bb044dba25899b04e6be7965343bb46322"
+      "contract_version": "7.0.0",
+      "contract_digest": "sha256:3f202de8eb8a96025f0914b2a86665e9a8c11421470cf78d7d11291168a40b26"
     },
     {
       "contract_kind": "node_type",
       "contract_id": "esm3.generate_sequence",
-      "contract_version": "3.0.0",
-      "contract_digest": "sha256:759274a55af472b2e0da8822e7cc8dff4d832d1727b5c69da0ac8781c45bc66a"
+      "contract_version": "7.0.0",
+      "contract_digest": "sha256:6eeaa01ddf09059a5149e6d9785bf95a8da96ca38f6318fc7d1058dd159b7c9a"
     },
     {
       "contract_kind": "node_type",
       "contract_id": "esm3.generate_structure",
-      "contract_version": "3.0.0",
-      "contract_digest": "sha256:cdf0694f833f2e396b5e08793a7880244403ef47f47fa70ab0342f29a466a7a4"
+      "contract_version": "7.0.0",
+      "contract_digest": "sha256:408e2d2bb9537896319fb2cb3d2e2e1db8290431f80fe0d7bfdbf172ee208b7d"
     },
     {
       "contract_kind": "node_type",
       "contract_id": "esm3.represent_sequence",
-      "contract_version": "2.1.0",
-      "contract_digest": "sha256:3dd74a03f0bc664d0a69e455bab98c3eb16040b45646a4a38fa3d8841e496c29"
+      "contract_version": "5.0.0",
+      "contract_digest": "sha256:764c762d762da73ab19c85aacca3919c5f11a4e53bdf9631a0edfce2d74b691e"
     },
     {
       "contract_kind": "node_type",
       "contract_id": "folding.fold",
-      "contract_version": "3.0.0",
-      "contract_digest": "sha256:a4c584036ebdfdcd330792b545de574fffc644880c441eb2ee0db9b2ac46d797"
+      "contract_version": "6.0.0",
+      "contract_digest": "sha256:a035be76549d73bd861577478eec02edea5391f19c5a0633855f69e586cef9e9"
     },
     {
       "contract_kind": "node_type",
       "contract_id": "folding.simplefold_confidence",
-      "contract_version": "2.1.0",
-      "contract_digest": "sha256:0c7c58df05d0516d2352a1212098f4f5138aecaf47c1f09c3576b33190438df8"
+      "contract_version": "4.0.0",
+      "contract_digest": "sha256:334c9cf79bdbe7d247ba2c0ec6de8c3df8cd49b6a44be790f4cdbca60a65dca5"
     },
     {
       "contract_kind": "node_type",
       "contract_id": "prompt_authoring.add_function_annotation",
-      "contract_version": "2.1.0",
-      "contract_digest": "sha256:b6dcd766e711e93bd82fec4ecdeb481d8d167a822f3eee3f5c5b37487f1ab509"
+      "contract_version": "3.0.0",
+      "contract_digest": "sha256:09427a1f4e1feb8215e991b85a117ad8618d6bfbac99681d961c54bd4fd5c438"
     },
     {
       "contract_kind": "node_type",
       "contract_id": "prompt_authoring.assemble_protein_prompt",
-      "contract_version": "2.1.0",
-      "contract_digest": "sha256:bc4d2b14e942e4e39d4220223a5aa30463c2a2a35cd3e8d5323c588c0233a15a"
+      "contract_version": "3.0.0",
+      "contract_digest": "sha256:2dce21f7854778268b0c89230020dfe6b9f2a0fa872e34bed2836b34c9abffe4"
     },
     {
       "contract_kind": "node_type",
       "contract_id": "prompt_authoring.build_residue_layout",
-      "contract_version": "2.1.0",
-      "contract_digest": "sha256:6c74193ec699dc53a0db070fb49d77e0f2ed12bcc1ec4253d17dc5d052d25eb3"
+      "contract_version": "3.0.0",
+      "contract_digest": "sha256:36c30b8d2ed39ce94230b1985a4bf311b87d4bf2b3e41f2c1e25388e4d437050"
     },
     {
       "contract_kind": "node_type",
       "contract_id": "prompt_authoring.edit_residue_layout",
-      "contract_version": "2.1.0",
-      "contract_digest": "sha256:b39c19b9fa03f8a2fe13346cbdec9c127c35f484bfc98ee94b29b15f04f818b8"
+      "contract_version": "3.0.0",
+      "contract_digest": "sha256:fdd047341beb06e18477ce71412080eaa5c2e1ee9598957954fd9243278be564"
     },
     {
       "contract_kind": "node_type",
       "contract_id": "prompt_authoring.insert_masked_residues",
-      "contract_version": "2.1.0",
-      "contract_digest": "sha256:34466bfaea4c1b97bcdcd9ad9d507b464917acb442c92e7077382a67c39908be"
+      "contract_version": "3.0.0",
+      "contract_digest": "sha256:c50f91aeb56bdb7810897bbec5df0a1a1c8e2175d57f9d4d724a317389e4e109"
     },
     {
       "contract_kind": "node_type",
       "contract_id": "prompt_authoring.random_insert_masked",
-      "contract_version": "2.1.0",
-      "contract_digest": "sha256:0d9c6cc07825bb576b582c5f2341e4b7cd96ae42fec929cc54636652940271c5"
+      "contract_version": "3.0.0",
+      "contract_digest": "sha256:7b798e395d6e9a00d661a8478b8915c16ff24da1737c1b4578d369f9b0c25fdb"
     },
     {
       "contract_kind": "node_type",
       "contract_id": "prompt_authoring.random_mask",
-      "contract_version": "2.1.0",
-      "contract_digest": "sha256:c3cf6aad4091d6b9bb6ea712c56e6bb0eccad3e3b90c5bd0b315f227e98a331d"
+      "contract_version": "3.0.0",
+      "contract_digest": "sha256:7ebb8c1dddfc37067b8431952a55f47912d197722484dd5f7a26617981e00374"
     },
     {
       "contract_kind": "node_type",
       "contract_id": "prompt_authoring.update_prompt_sequence",
-      "contract_version": "2.1.0",
-      "contract_digest": "sha256:6ef3a0578c30e464eba86a40b05068da65bcd8780498184483e01886669e32b0"
+      "contract_version": "3.0.0",
+      "contract_digest": "sha256:baef07ced04bb4a57497d7fb4106b926635de015b45e267335839a646e0b22f4"
     },
     {
       "contract_kind": "node_type",
       "contract_id": "protein_io.export_sequence",
-      "contract_version": "2.1.0",
-      "contract_digest": "sha256:bbfd9be2e24e66acd0a7f588fc75167d34127f6f64b6f494912d4c39d6772e04"
+      "contract_version": "3.0.0",
+      "contract_digest": "sha256:022d2aba1f800ee58d543640a6dd2eda2a9a25df15b8f413b07ef8d23ae645cc"
     },
     {
       "contract_kind": "node_type",
       "contract_id": "protein_io.export_structure",
-      "contract_version": "3.0.0",
-      "contract_digest": "sha256:1185f4eb2557646941f582989952ec2432741fcdd5332e4f06ec8516e08c01b0"
+      "contract_version": "5.0.0",
+      "contract_digest": "sha256:3faf7b41fb15fc49601f607dbe59119f5019cea4c07881615729c3227d5a7a7a"
     },
     {
       "contract_kind": "node_type",
       "contract_id": "protein_io.import_sequence",
-      "contract_version": "3.0.0",
-      "contract_digest": "sha256:cbcd6e292c639f31e20437a57b4898853045f6a3067d607ea169f5f60a2b104e"
+      "contract_version": "5.0.0",
+      "contract_digest": "sha256:950e49ad6e8a0ec88bcddb934cfae715989ce8484b746965974cde27e990c620"
     },
     {
       "contract_kind": "node_type",
       "contract_id": "protein_io.import_structure",
-      "contract_version": "3.0.0",
-      "contract_digest": "sha256:9daa0861cdc0f933729874452d3331a61d6a5ed549df6e9e00eaa092f435a8a9"
+      "contract_version": "5.0.0",
+      "contract_digest": "sha256:3df132307350727bca70afe3e8db7f448d3a641fae5490958f7b56b9b86d3d76"
     },
     {
       "contract_kind": "node_type",
       "contract_id": "proteinmpnn.constraints",
-      "contract_version": "3.0.0",
-      "contract_digest": "sha256:607a36749ff18f51f1923429c057520944b3437a792aed38f851d035441e3978"
+      "contract_version": "4.0.0",
+      "contract_digest": "sha256:5b8806b545584262041d87fc2346ffbe091276ea4f9e3455b2a2bae322463cbc"
     },
     {
       "contract_kind": "node_type",
       "contract_id": "proteinmpnn.design",
-      "contract_version": "4.0.0",
-      "contract_digest": "sha256:732f774b280d8189177447e8de87b76e736660f1af4eb6d17f15630e4dcadd49"
+      "contract_version": "9.0.0",
+      "contract_digest": "sha256:03e408d62aa46a4107742ebd44f3d8f53346c436e2bc77c0af6bf756ed4d0dec"
     },
     {
       "contract_kind": "node_type",
       "contract_id": "proteinmpnn.random_fixed_positions",
-      "contract_version": "3.0.0",
-      "contract_digest": "sha256:2ed78e2fc79ed31be6fe3569502b9eb914899885071fa9be49af4197571529ec"
+      "contract_version": "4.0.0",
+      "contract_digest": "sha256:7189a797c74168c32e7098ea7a20eb0f693aad6e0495094d15c3b095c105c6f6"
     },
     {
       "contract_kind": "node_type",
       "contract_id": "proteinmpnn.score",
-      "contract_version": "2.1.0",
-      "contract_digest": "sha256:158e6922d13017bb2ae1a3a1b591969e976004adb3af06322d860c20f6d755b6"
+      "contract_version": "6.0.0",
+      "contract_digest": "sha256:dab2e2e4b5ed9b3ca23cf62f058d369baf24a755a016e3e931923b6e284e22b0"
     },
     {
       "contract_kind": "node_type",
       "contract_id": "solubility.score_sequence",
-      "contract_version": "2.1.0",
-      "contract_digest": "sha256:0b391ec13eb323caa0ca6e079c751e6528eb0aaff8d4d7971e0700d064f54c75"
+      "contract_version": "4.0.0",
+      "contract_digest": "sha256:2a089f743759caa1a0639eec1e45733216e07c07c568fa829dc7c0c8bee9075d"
+    },
+    {
+      "contract_kind": "node_type",
+      "contract_id": "structure_annotation.apply_sasa_to_prompt",
+      "contract_version": "5.0.0",
+      "contract_digest": "sha256:5ecdba7598c39ed1af0403e837503a17a219b1887642ad70166c3fcb3e5d866d"
+    },
+    {
+      "contract_kind": "node_type",
+      "contract_id": "structure_annotation.apply_secondary_structure_to_prompt",
+      "contract_version": "5.0.0",
+      "contract_digest": "sha256:bfa1b006b1f4079dd4d288a71587a596254ff3a42feda21629bdc77779ffb60e"
     },
     {
       "contract_kind": "node_type",
       "contract_id": "structure_annotation.dssp_compute",
-      "contract_version": "3.0.0",
-      "contract_digest": "sha256:f886720800e120cfd59a98bbec7874f8df62d9c90e9df192f55ec8de9ae368c0"
+      "contract_version": "6.0.0",
+      "contract_digest": "sha256:c591a63e7a7842ab0a788b0172e0613c1aad30968506a2657a3d8cf150f3c7d4"
+    },
+    {
+      "contract_kind": "node_type",
+      "contract_id": "structure_annotation.expected_secondary_structure_from_prompt",
+      "contract_version": "5.0.0",
+      "contract_digest": "sha256:d1dc4ab1d711b915fda370a3a9af0d4d29daa8d2a8671d3f5bac09b14193ee54"
     },
     {
       "contract_kind": "node_type",
       "contract_id": "structure_annotation.sasa_compute",
-      "contract_version": "2.1.0",
-      "contract_digest": "sha256:eecb56efa6b9c67d24847a0ea35ab1a5f32c0025d65067b7f8fcf6420ebd2853"
+      "contract_version": "4.0.0",
+      "contract_digest": "sha256:a32a23408924b4687c5a14543ffd7614325b919149b65279437e1624fe71898f"
     },
     {
       "contract_kind": "node_type",
       "contract_id": "structure_annotation.secondary_structure_agreement",
-      "contract_version": "2.1.0",
-      "contract_digest": "sha256:70f08fdae364578b9151d2278ac112128af87746373559e56b4ce601802223d0"
+      "contract_version": "5.0.0",
+      "contract_digest": "sha256:93a3b19529b088529070dc19107672524e83d585716047280a971577c7db5b66"
     },
     {
       "contract_kind": "node_type",
       "contract_id": "structure_annotation.secondary_structure_extract",
-      "contract_version": "2.1.0",
-      "contract_digest": "sha256:74cb584ab6cebd8583bc52416f1c472c4e7ab8d3c6bb1e3fd24da1971a5ce84f"
+      "contract_version": "4.0.0",
+      "contract_digest": "sha256:fd06eb3e3b3850fdbdf061803859628c58fe23d181e0210f3aa35414768edb2c"
     },
     {
       "contract_kind": "node_type",
-      "contract_id": "structure_comparison.align_pairwise",
-      "contract_version": "2.2.0",
-      "contract_digest": "sha256:78980d3eb49bdcfdb9334019d603022dfea3c2e5f0ce9c4cc5b41ae5b9a8d14a"
+      "contract_id": "structure_comparison.align_counterparts",
+      "contract_version": "4.0.0",
+      "contract_digest": "sha256:f3f4270c3613831f48251920dda9f5d7966955756b66c24d1407fa09d59f7e65"
+    },
+    {
+      "contract_kind": "node_type",
+      "contract_id": "structure_comparison.align_fixed_reference",
+      "contract_version": "4.0.0",
+      "contract_digest": "sha256:52bd2688b020c4a047e393ae1251eed97a9d6e314835c3e422a52098376c6837"
     },
     {
       "contract_kind": "node_type",
       "contract_id": "structure_comparison.align_single",
-      "contract_version": "2.1.0",
-      "contract_digest": "sha256:981d8f7ad4c4bfdd6c7d8f309e5349b5584ddf3988beb7b6112008ccabc1120e"
+      "contract_version": "4.0.0",
+      "contract_digest": "sha256:48e8225cb206a4b99cac7daf28bb7231659c1695b942991e0b5a0cfcef149711"
     },
     {
       "contract_kind": "node_type",
-      "contract_id": "structure_comparison.batch_tm_score",
-      "contract_version": "2.2.0",
-      "contract_digest": "sha256:a2941f35472817c4f1a836a7204bfb5d6ce9ee27a006a9bb5378c6bd39049f53"
+      "contract_id": "structure_comparison.rmsd_counterparts",
+      "contract_version": "5.0.0",
+      "contract_digest": "sha256:46bdf9a771d9eb462f7edca6b30bdc39edd02e0442bfe3777039a65bf4885bf4"
     },
     {
       "contract_kind": "node_type",
-      "contract_id": "structure_comparison.rmsd",
-      "contract_version": "2.2.0",
-      "contract_digest": "sha256:bd98afc43132a1383e3a4d1939c4cb8e0b5f7000cbb0ad45875c3ee414187d4f"
+      "contract_id": "structure_comparison.rmsd_fixed_reference",
+      "contract_version": "5.0.0",
+      "contract_digest": "sha256:f86dc88b776d9d9da8068d491e46c2a89cfe584e0840957581fa7e673c2b2fe3"
     },
     {
       "contract_kind": "node_type",
-      "contract_id": "structure_comparison.tm_score",
-      "contract_version": "2.1.0",
-      "contract_digest": "sha256:53ca43b27d869f3c9cfd57708a5417b9b90acdb99f5f3a194d70d42a2b72873e"
+      "contract_id": "structure_comparison.tm_score_counterparts",
+      "contract_version": "5.0.0",
+      "contract_digest": "sha256:54101a9d224d9e2970f90fc313fedb6023cd3358ee40a3a42a4775e397588baf"
+    },
+    {
+      "contract_kind": "node_type",
+      "contract_id": "structure_comparison.tm_score_fixed_reference",
+      "contract_version": "5.0.0",
+      "contract_digest": "sha256:b89f4e6013ed3422c8426ebd7fa5bdb48cb3d3c404069ea4f277c4f0cc580125"
+    },
+    {
+      "contract_kind": "node_type",
+      "contract_id": "structure_prediction.materialize_confidence",
+      "contract_version": "1.0.0",
+      "contract_digest": "sha256:aa9a7e1387c2806fb3fa270dc7efa5ea624665871f867d4fb0dbe3a9f8b91f08"
     },
     {
       "contract_kind": "node_type",
       "contract_id": "structure_transform.backbone_to_structure",
-      "contract_version": "3.0.0",
-      "contract_digest": "sha256:429e574e760cac25de2ce963ee79957997d7002b4626d616c1a9a353a4219828"
+      "contract_version": "4.0.0",
+      "contract_digest": "sha256:762e5b9d5f4063356adf53aff31d8a58abcc1792f93f4129cc0becddf761f22c"
     },
     {
       "contract_kind": "node_type",
       "contract_id": "structure_transform.extract_backbone",
-      "contract_version": "3.0.0",
-      "contract_digest": "sha256:2d6cedd9a2b4aff71c00ffead388d5d8a031d54a389fdcfd8e8d33f6bcae1d94"
+      "contract_version": "4.0.0",
+      "contract_digest": "sha256:0f83887ff89fb6b8e66f138c5b5b688c1cf2070bc10396c26af6d49a8143321d"
     },
     {
       "contract_kind": "node_type",
       "contract_id": "structure_transform.extract_sequence",
-      "contract_version": "3.0.0",
-      "contract_digest": "sha256:183cceb5c6622ce4966cf28b12f469621e0f4c4da6c3ccda2a50554f831b426d"
+      "contract_version": "4.0.0",
+      "contract_digest": "sha256:f89d6ee8cdf88a81dfa816a332511fb340df61ad839ba2d9d15555f9e8fc69ce"
     },
     {
       "contract_kind": "node_type",
       "contract_id": "structure_transform.extract_sequence_candidates",
-      "contract_version": "2.1.0",
-      "contract_digest": "sha256:85eb0073cd721ed1e417a38d1688fd7d50763b007fd2b74069ac8a2b3ae68e01"
+      "contract_version": "3.0.0",
+      "contract_digest": "sha256:d292e412d0c96da3b8740fe10b8e222f1cb8978d43d80dbfb777ad3f3525fab2"
     },
     {
       "contract_kind": "node_type",
       "contract_id": "structure_transform.normalize_csh_parent_span",
-      "contract_version": "3.0.0",
-      "contract_digest": "sha256:6818d2d59980ce05f9aa23c1e7596e0f3a8708e121753a2ef495709225d164b9"
+      "contract_version": "5.0.0",
+      "contract_digest": "sha256:fc70c3d38dc32dd5a846ff5da6db5e079219bc00f0f4a01c4252f4911645aa8d"
+    },
+    {
+      "contract_kind": "node_type",
+      "contract_id": "structure_transform.resolve_candidate_residue_axes",
+      "contract_version": "5.0.0",
+      "contract_digest": "sha256:03eda6d7af5bce3f46e6136f0cbcbc7e95de690bc54961a4e877f4317570046a"
+    },
+    {
+      "contract_kind": "node_type",
+      "contract_id": "structure_transform.resolve_residue_axis",
+      "contract_version": "4.0.0",
+      "contract_digest": "sha256:1e4fc97cc6d954819094c0c133e1fc2adb9648760352f49761e1e2e109551486"
     },
     {
       "contract_kind": "node_type",
       "contract_id": "structure_transform.select_candidate_chains",
-      "contract_version": "2.1.0",
-      "contract_digest": "sha256:d6658e15ebbc63a0e3e22953f88f13687f76147c281ba678b0aa6e13138ad293"
+      "contract_version": "3.0.0",
+      "contract_digest": "sha256:dfefa188d0cee527b4a64d82e0e84bcaf1b010dacd65def2730b73787a3d5107"
     },
     {
       "contract_kind": "node_type",
       "contract_id": "structure_transform.select_chains",
-      "contract_version": "3.0.0",
-      "contract_digest": "sha256:c5741aaff0b9c67a6f129ab86906851486a4bd18eda418bd2482e2f369b1c030"
+      "contract_version": "4.0.0",
+      "contract_digest": "sha256:6d3f156140fed051e9f1f39ad7914916c6d488b52e42a400e30d4045678070eb"
     },
     {
       "contract_kind": "port_type",
       "contract_id": "candidate.collection",
-      "contract_version": "2.1.0",
-      "contract_digest": "sha256:6425b44763bd03b2987d9c78e3675e11733416af7dafd01714f9ac121568685c"
+      "contract_version": "3.0.0",
+      "contract_digest": "sha256:e900457e8e059f4f15469e7673fa3156d0f51e060fc8235daf07fc3ce5954812"
     },
     {
       "contract_kind": "port_type",
       "contract_id": "candidate.pairing",
-      "contract_version": "2.1.0",
-      "contract_digest": "sha256:87f96a0b1047dc84683c7f6692ae085470fe68ee45cec2fbf697ac4d76b91c30"
+      "contract_version": "3.0.0",
+      "contract_digest": "sha256:20a3e7771705d5d160342a7b3b5c5a311ed224a002c441bd5c2d4eae4d3ee5cf"
     },
     {
       "contract_kind": "port_type",
       "contract_id": "esm3.esmc_sequence_representation",
-      "contract_version": "2.1.0",
-      "contract_digest": "sha256:23837110c826cca96d0e5f4d7f050e1ae0a8e0e5c6c3161545b18db2a96535bf"
+      "contract_version": "4.0.0",
+      "contract_digest": "sha256:974ac4307ace0525adfe4748da1b94d1fc7d84a5fd972c2bb19c3a5adc61a805"
     },
     {
       "contract_kind": "port_type",
       "contract_id": "function.annotations",
-      "contract_version": "2.1.0",
-      "contract_digest": "sha256:eb7d7dd6dbe6fc62569d5f8fadcc52793e2cf4f5bb43387b892c8161671cfded"
+      "contract_version": "3.0.0",
+      "contract_digest": "sha256:588a10bc34079eb599d5dba191be126fa067675400427d6b9191d348c32d98a4"
     },
     {
       "contract_kind": "port_type",
       "contract_id": "prompt_authoring.track.sasa",
-      "contract_version": "2.1.0",
-      "contract_digest": "sha256:db3f813d06ea571d68907bbfb7ca5e3169e4ae06fbe55a484f0d078a08a7636f"
+      "contract_version": "3.0.0",
+      "contract_digest": "sha256:f44852095ba958fe59b5bce9cb8beae305a2b152f52c4a7d04b596ee2db2b7d4"
     },
     {
       "contract_kind": "port_type",
       "contract_id": "prompt_authoring.track.secondary_structure",
-      "contract_version": "2.1.0",
-      "contract_digest": "sha256:2c528e933ee507e4f9355237d155f100aa51b7c0f1b59feb38968f1bda35dc24"
+      "contract_version": "3.0.0",
+      "contract_digest": "sha256:84ed841c480f9c0087f2030a999ac17b23963b8fee94bba9f0979238de52d9d9"
     },
     {
       "contract_kind": "port_type",
       "contract_id": "prompt_authoring.track.sequence",
-      "contract_version": "2.1.0",
-      "contract_digest": "sha256:f30e04ab5592d777754d6f8e1e7030490953a8405a47f7d4b252846e8939fb70"
+      "contract_version": "3.0.0",
+      "contract_digest": "sha256:52968fb80baa83bccb31c1ef27aa90a6142321747e095dc2ec06b9a3ee26f222"
     },
     {
       "contract_kind": "port_type",
       "contract_id": "prompt_authoring.track.structure",
-      "contract_version": "2.1.0",
-      "contract_digest": "sha256:28cbcf7d7b6f0acda7e517745ce29f61edb7660abdb7ea552e3cf94f87b60c4a"
+      "contract_version": "3.0.0",
+      "contract_digest": "sha256:b3558d8c8b1fa558e56e021bdcf7b1bc7554b3ef8fcadaf5213358fd9de3ed02"
     },
     {
       "contract_kind": "port_type",
       "contract_id": "prompt_authoring.track.visibility",
-      "contract_version": "2.1.0",
-      "contract_digest": "sha256:2539baaf5664141ceadfb10ded0ce3f4a58419efef405217367a95fadf2e5cf6"
+      "contract_version": "3.0.0",
+      "contract_digest": "sha256:f8ee8fd28a4493d394cc91058d6edf5ae91bea91bede971fbfc65cfb5dc00cc4"
     },
     {
       "contract_kind": "port_type",
       "contract_id": "protein.prompt",
-      "contract_version": "2.1.0",
-      "contract_digest": "sha256:87227c64305f9ac6b10203be5c72b3dd22bb96ba2aeb96d20ae750f2226e9607"
+      "contract_version": "3.0.0",
+      "contract_digest": "sha256:6e95a89810d7cba459009d6b798b9d9290180af0c020d868ad8bd3bc72ef7b44"
     },
     {
       "contract_kind": "port_type",
       "contract_id": "protein.sequence",
-      "contract_version": "2.1.0",
-      "contract_digest": "sha256:36ce4a625ff63ce0f90cebba84b4d72285054bebc74cc05119d241428ec9e533"
+      "contract_version": "3.0.0",
+      "contract_digest": "sha256:914c2c5b605073080b29dbaf8c83decbd7f98cc2d2455311f5865f2fcee9c3a0"
     },
     {
       "contract_kind": "port_type",
       "contract_id": "protein.structure",
-      "contract_version": "3.0.0",
-      "contract_digest": "sha256:cd09d43e3229ca3dedfb5d57c2b154f65629e3da6038d8459b74282015bb60e0"
+      "contract_version": "4.0.0",
+      "contract_digest": "sha256:329ebc4c4f2c3323afa7577999882ef51a7588e5803be4d2b0da5d6e07fe8e0b"
     },
     {
       "contract_kind": "port_type",
@@ -2096,62 +2681,86 @@
     {
       "contract_kind": "port_type",
       "contract_id": "proteinmpnn.constraints",
-      "contract_version": "3.0.0",
-      "contract_digest": "sha256:9051751355cc411a1395f320852c96979053e004226cb219516fd82acb33980e"
+      "contract_version": "4.0.0",
+      "contract_digest": "sha256:f6192bbd9db3539413c6a99e320af04ff5d2c9155b10221c70469cab6c746417"
     },
     {
       "contract_kind": "port_type",
       "contract_id": "residue.layout",
-      "contract_version": "2.1.0",
-      "contract_digest": "sha256:ff3f084e99dab615dcab848d4dd8af3b36622c53e1cf095cbc4d53b873eefb33"
+      "contract_version": "3.0.0",
+      "contract_digest": "sha256:c0b66618ee52d36bda8f857cb422f195152ecfebfc4ed48a45e3924edacb08fd"
     },
     {
       "contract_kind": "port_type",
       "contract_id": "residue.map",
-      "contract_version": "2.1.0",
-      "contract_digest": "sha256:45889114e3e917fdb42f40bec014fbb94abcdbf050ce9e7e92866e0595142a9c"
+      "contract_version": "3.0.0",
+      "contract_digest": "sha256:49fb91759842c064b47b337dc1c6568b1e3035b6965286dcd29a95bcf6525b52"
     },
     {
       "contract_kind": "port_type",
       "contract_id": "score.collection",
-      "contract_version": "2.1.0",
-      "contract_digest": "sha256:f8575371f045e3405e2633ac2fbcd02a3df214a654b7570a021324e44387bb4d"
+      "contract_version": "4.0.0",
+      "contract_digest": "sha256:369193274cf356a6814a81a15d9261467c6eac8768888cfe2643fe5f605d385e"
     },
     {
       "contract_kind": "port_type",
       "contract_id": "structure_annotation.dssp_annotations",
-      "contract_version": "2.1.0",
-      "contract_digest": "sha256:13bcc0b40e6f19c16c371be559246f0fe5152bc109b3d9bc757adf3da1fd74f8"
+      "contract_version": "4.0.0",
+      "contract_digest": "sha256:c9262f6f5e114b068b5406301c6463a7795a7a216b3ca5714f3e603274ca5458"
     },
     {
       "contract_kind": "port_type",
       "contract_id": "structure_annotation.sasa_track",
-      "contract_version": "2.1.0",
-      "contract_digest": "sha256:d50e21b037521856b77ed00f540166424b40516c2d67bd1d07920f8250d38954"
+      "contract_version": "4.0.0",
+      "contract_digest": "sha256:9d49b71739b12a8c7b56ba342552a11b129bcc899c461752a55832cae5097d63"
     },
     {
       "contract_kind": "port_type",
       "contract_id": "structure_annotation.secondary_structure_track",
-      "contract_version": "2.1.0",
-      "contract_digest": "sha256:671284f11550959b12acd207beb7af50386a5506698bc070894ab4f043f8178f"
+      "contract_version": "4.0.0",
+      "contract_digest": "sha256:3773948e99f3755f77614bbc406997b5a7b9e4a805c8ce0081fe3a1c72830c37"
     },
     {
       "contract_kind": "port_type",
-      "contract_id": "structure_comparison.alignment",
-      "contract_version": "2.1.0",
-      "contract_digest": "sha256:fa11610e3e4eccd91aec45c896cc2e2731b232656c9e8b0ea6fbf58987a5a2c5"
+      "contract_id": "structure_comparison.alignment_evidence",
+      "contract_version": "4.0.0",
+      "contract_digest": "sha256:efb95ad8d5dc6410871c33bd3946af884a975086821933da1f18ca677a34789a"
+    },
+    {
+      "contract_kind": "port_type",
+      "contract_id": "structure_prediction.confidence_facts",
+      "contract_version": "1.0.0",
+      "contract_digest": "sha256:f8cab44a554f5263c6869bbb34be577a6bbea5e292f7305c1d5902dab5a1c01c"
     },
     {
       "contract_kind": "port_type",
       "contract_id": "structure_transform.backbone_structure",
-      "contract_version": "3.0.0",
-      "contract_digest": "sha256:d06d2ba97777023ac4bc3565b2c3ee3d86ee055cb1f9467fae818ecef40e82ff"
+      "contract_version": "4.0.0",
+      "contract_digest": "sha256:37603611ca4f042248b1b7255b7c5701cb58627e4ca5bddeecfa95e4627f5835"
+    },
+    {
+      "contract_kind": "port_type",
+      "contract_id": "structure_transform.candidate_modified_residue_normalization_associations",
+      "contract_version": "5.0.0",
+      "contract_digest": "sha256:28b2879d5c993c64fc27ece8359541a6a344490eb4e1816e0dea6a86f84f3510"
+    },
+    {
+      "contract_kind": "port_type",
+      "contract_id": "structure_transform.candidate_resolved_residue_axis_associations",
+      "contract_version": "5.0.0",
+      "contract_digest": "sha256:3d333e0d98d2cc97c58e7ef0a4a3fdd3618a30d96547d1ca831108ab68e6f353"
     },
     {
       "contract_kind": "port_type",
       "contract_id": "structure_transform.modified_residue_normalizations",
-      "contract_version": "2.1.0",
-      "contract_digest": "sha256:0b9f1879eb510df579fed364fc3788fb87013aefdbad29184e61e40b0deb5970"
+      "contract_version": "3.0.0",
+      "contract_digest": "sha256:7aadf493f3ca3aee0dc01ca6c0fb0d5b88391c04d63663fffa7330a7aa2e105a"
+    },
+    {
+      "contract_kind": "port_type",
+      "contract_id": "structure_transform.resolved_residue_axis",
+      "contract_version": "4.0.0",
+      "contract_digest": "sha256:0a91e67ef2c9bebfa9793dd10358a4bbe3ad187f9987159cd0f9a767233fc890"
     }
   ]
 }

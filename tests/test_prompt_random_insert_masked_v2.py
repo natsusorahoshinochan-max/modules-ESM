@@ -208,14 +208,14 @@ def test_canonical_3gb1_insertion_intent_is_an_ordinary_regression(
     assert inserted.target_layout.length == 71
     assert catalog.require_port_type(
         "protein.prompt",
-        "2.1.0",
+        VERSION,
     ).content_digest(inserted) == (
-        "sha256:9f1c46bbd5f298883e6f3dfb3c90106eba08dcdb020248b0169bc48049a1ce62"
+        "sha256:4eab8a2f2da724eebd19ba5430de9c73afec264f59a07575b53aa0934eb73e19"
     )
     method = catalog.require_contract(
         "method",
         "prompt_authoring.random_insert_masked.method",
-        VERSION,
+        "2.1.0",
     )
     assert method.descriptor["algorithm_identity"]["sampling"] == (
         "sha256-boundary-set-digest-counter-modulo-v1"

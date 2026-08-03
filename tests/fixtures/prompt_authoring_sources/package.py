@@ -32,11 +32,32 @@ from datatypes import (
     ResidueTrack,
 )
 from modules.prompt_authoring.domain import AlignedResidueTrack
+from modules.structure_transform.implementation import (
+    normalize_csh_parent_span,
+    resolve_residue_axis,
+)
 
 
 _VERSION = "2.1.0"
-_NODE_BINDING_VERSION = "3.0.0"
+_NODE_BINDING_VERSION = "4.0.0"
 _PROJECT_ROOT = Path(__file__).resolve().parents[3]
+
+
+def _atom(
+    serial: int,
+    atom_name: str,
+    residue_name: str,
+    chain_id: str,
+    residue_number: int,
+    *,
+    x: float,
+) -> str:
+    return (
+        f"ATOM  {serial:5d} {atom_name:^4} {residue_name:>3} "
+        f"{chain_id}{residue_number:4d}    "
+        f"{x:8.3f}{0.0:8.3f}{0.0:8.3f}"
+        f"{1.0:6.2f}{20.0:6.2f}          {atom_name[0]:>2}  "
+    )
 
 
 def _annotations(
@@ -350,29 +371,36 @@ class _Source:
                         (0, -1, "delete"),
                     ],
                 )
-            structure = ProteinStructure(
-                "ATOM      1  N   ALA A   1       0.000   0.000   "
-                "0.000  1.00 20.00           N\n"
-                "ATOM      2  CA  ALA A   1       1.000   0.000   "
-                "0.000  1.00 20.00           C\n"
-                "ATOM      3  N   GLY A   2       2.000   0.000   "
-                "0.000  1.00 20.00           N\n"
-                "ATOM      4  CA  GLY A   2       3.000   0.000   "
-                "0.000  1.00 20.00           C\n"
-                "ATOM      5  N   SER B   1       4.000   0.000   "
-                "0.000  1.00 20.00           N\n"
-                "ATOM      6  CA  SER B   1       5.000   0.000   "
-                "0.000  1.00 20.00           C\n"
-                "END\n"
-            )
+            structure = ProteinStructure("\n".join((
+                _atom(1, "N", "ALA", "A", 1, x=0.0),
+                _atom(2, "CA", "ALA", "A", 1, x=1.0),
+                _atom(3, "N", "GLY", "A", 2, x=2.0),
+                _atom(4, "CA", "GLY", "A", 2, x=3.0),
+                "TER",
+                _atom(5, "N", "SER", "B", 1, x=4.0),
+                _atom(6, "CA", "SER", "B", 1, x=5.0),
+                "TER",
+                "END",
+                "",
+            )))
             if fixture == "2emo":
                 structure = ProteinStructure(
                     (_PROJECT_ROOT / "pdbs" / "2EMO.pdb").read_text(),
+                )
+                normalized, normalizations = normalize_csh_parent_span(
+                    structure
+                )
+                resolved_residue_axis = resolve_residue_axis(
+                    normalized,
+                    normalizations,
                 )
             elif fixture == "5g53":
                 structure = ProteinStructure(
                     (_PROJECT_ROOT / "pdbs" / "5G53.pdb").read_text(),
                 )
+                resolved_residue_axis = resolve_residue_axis(structure)
+            else:
+                resolved_residue_axis = resolve_residue_axis(structure)
         return {
             "source_layout": source,
             "target_layout": target,
@@ -453,6 +481,7 @@ class _Source:
                 ),
             ),
             "structure": structure,
+            "resolved_residue_axis": resolved_residue_axis,
         }
 
 

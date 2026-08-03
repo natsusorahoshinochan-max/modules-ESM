@@ -13,6 +13,9 @@ from core import (
     discover_module_packages,
 )
 from modules.prompt_authoring.package import MODULE_PACKAGE
+from modules.structure_transform.package import (
+    MODULE_PACKAGE as STRUCTURE_TRANSFORM_PACKAGE,
+)
 from tests.fixtures.prompt_authoring_v2 import VERSION
 
 
@@ -64,7 +67,10 @@ def test_randomness_declaration_cannot_name_an_undeclared_parameter() -> None:
 
     with pytest.raises(CatalogBuildError, match="undeclared parameters"):
         build_frozen_catalog(
-            (replace(MODULE_PACKAGE, bindings=broken_bindings),)
+            (
+                replace(MODULE_PACKAGE, bindings=broken_bindings),
+                STRUCTURE_TRANSFORM_PACKAGE,
+            )
         )
 
 
@@ -90,7 +96,10 @@ def test_randomness_declaration_has_one_unambiguous_parameter_scope() -> None:
 
     with pytest.raises(CatalogBuildError, match="exactly one parameter scope"):
         build_frozen_catalog(
-            (replace(MODULE_PACKAGE, bindings=broken_bindings),)
+            (
+                replace(MODULE_PACKAGE, bindings=broken_bindings),
+                STRUCTURE_TRANSFORM_PACKAGE,
+            )
         )
 
 

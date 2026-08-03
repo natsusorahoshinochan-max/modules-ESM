@@ -1,9 +1,6 @@
-"""Independent source registration for structure-comparison acceptance."""
+"""Independent Candidate-associated source for comparison conformance."""
 
 from __future__ import annotations
-
-from collections.abc import Mapping, Sequence
-from typing import Any
 
 from core import (
     AvailabilityDeclaration,
@@ -21,7 +18,6 @@ from core import (
     ReadinessDeclaration,
     ReadinessResult,
     ScientificOperationFactory,
-    UtilityTransformDefinition,
 )
 from datatypes import (
     Candidate,
@@ -30,18 +26,7 @@ from datatypes import (
 )
 
 
-_VERSION = "2.1.0"
-_TM_METRIC = ContractIdentity(
-    "metric",
-    "structure_comparison.tm_score",
-    _VERSION,
-)
-_TM_METHOD = ContractIdentity(
-    "method",
-    "structure_comparison.tm_score.reference_normalized.method",
-    _VERSION,
-)
-_RESIDUES = ("ALA", "GLY", "SER", "THR")
+_VERSION = "4.0.0"
 _RESIDUE_NAMES = {
     "A": "ALA",
     "G": "GLY",
@@ -50,236 +35,145 @@ _RESIDUE_NAMES = {
 }
 
 
-def _pdb(
-    coordinates: Sequence[tuple[float, float, float]],
+def _structure(
+    sequence: str,
     *,
-    chain: str,
+    chain_id: str,
+    translation: tuple[float, float, float],
 ) -> ProteinStructure:
-    lines = [
-        (
-            f"ATOM  {index:5d}  CA  {_RESIDUES[index - 1]} {chain}"
-            f"{index:4d}    "
+    base = (
+        (0.0, 0.0, 0.0),
+        (1.0, 0.0, 0.0),
+        (0.0, 2.0, 0.0),
+        (0.0, 0.0, 3.0),
+        (1.0, 2.0, 3.0),
+    )
+    lines = []
+    for index, (amino_acid, coordinate) in enumerate(
+        zip(sequence, base, strict=True),
+        start=1,
+    ):
+        x = coordinate[0] + translation[0]
+        y = coordinate[1] + translation[1]
+        z = coordinate[2] + translation[2]
+        line = (
+            f"ATOM  {index:5d}  CA  {_RESIDUE_NAMES[amino_acid]} "
+            f"{chain_id}{index:4d}    "
             f"{x:8.3f}{y:8.3f}{z:8.3f}"
             "  1.00 20.00           C"
         )
-        for index, (x, y, z) in enumerate(coordinates, start=1)
-    ]
+        lines.append(line.ljust(80))
+    return ProteinStructure("\n".join((*lines, "TER", "END", "")))
+
+
+def mse_structure_axis_fixture() -> ProteinStructure:
+    """Return one MODRES-declared MSE with an admitted CA coordinate."""
+    modres = [" "] * 80
+    modres[0:6] = "MODRES"
+    modres[7:11] = "TEST"
+    modres[12:15] = "MSE"
+    modres[16] = "A"
+    modres[18:22] = f"{1:4d}"
+    modres[24:27] = "MET"
+    modres[29:45] = "SELENOMETHIONINE"
+    ca = (
+        f"HETATM{1:5d}  CA  MSE A{1:4d}    "
+        f"{7.0:8.3f}{8.0:8.3f}{9.0:8.3f}"
+        "  1.00 20.00           C"
+    ).ljust(80)
     return ProteinStructure(
-        pdb_string="\n".join((*lines, "TER", "END", "")),
-    )
-
-
-def _sequence_pdb(sequence: str, *, chain: str) -> ProteinStructure:
-    lines = [
-        (
-            f"ATOM  {index:5d}  CA  {_RESIDUE_NAMES[amino_acid]} {chain}"
-            f"{index:4d}    "
-            f"{index * 1.5:8.3f}{index % 3:8.3f}{index % 2:8.3f}"
-            "  1.00 20.00           C"
+        "\n".join(
+            (
+                "SEQRES   1 A    1  MSE",
+                "".join(modres).rstrip(),
+                ca,
+                "TER",
+                "END",
+                "",
+            )
         )
-        for index, amino_acid in enumerate(sequence, start=1)
-    ]
-    return ProteinStructure(
-        pdb_string="\n".join((*lines, "TER", "END", "")),
     )
-
-
-_REFERENCE_A = _pdb(
-    ((0.0, 0.0, 0.0), (2.0, 0.0, 0.0), (0.0, 3.0, 0.0)),
-    chain="R",
-)
-_SUBJECT_A = _pdb(
-    ((5.0, -2.0, 1.0), (7.0, -2.0, 1.0), (5.0, 1.0, 1.0)),
-    chain="A",
-)
-_REFERENCE_B = _pdb(
-    ((0.0, 0.0, 0.0), (3.0, 0.0, 0.0), (0.0, 2.0, 0.0)),
-    chain="S",
-)
-_SUBJECT_B = _pdb(
-    ((-4.0, 6.0, 2.0), (-1.0, 6.0, 2.0), (-4.0, 8.0, 2.0)),
-    chain="B",
-)
-_FIXED_REFERENCE = _pdb(
-    (
-        (0.0, 0.0, 0.0),
-        (2.0, 0.0, 0.0),
-        (0.0, 3.0, 0.0),
-        (2.0, 3.0, 1.0),
-    ),
-    chain="R",
-)
-_FIXED_SUBJECT_A = _pdb(
-    ((5.0, -2.0, 1.0), (7.0, -2.0, 1.0), (5.0, 1.0, 1.0)),
-    chain="A",
-)
-_FIXED_SUBJECT_B = _pdb(
-    ((-4.0, 6.0, 2.0), (-2.0, 6.0, 2.0), (-4.0, 9.0, 2.0)),
-    chain="B",
-)
-_INCOMPATIBLE = ProteinStructure(
-    pdb_string="HEADER    NO COORDINATES\nEND\n",
-)
-_AMBIGUOUS_REFERENCE = _sequence_pdb(
-    "GTSAGTATSTSTGGSTGGGAGTAGTSGASGTGGGGSAATS",
-    chain="R",
-)
-_AMBIGUOUS_SUBJECT = _sequence_pdb(
-    "SATSGTTSSASAAGTAAASTTGSTSGSSSGTTTTTASAAGSGSS",
-    chain="A",
-)
 
 
 class _Source:
-    def __init__(self, run_resources: Any) -> None:
-        self._run_resources = run_resources
+    def __init__(self, resources: object) -> None:
+        self._resources = resources
 
-    def execute(self, call: OperationCall) -> dict[str, Any]:
-        inputs = call.inputs
-        node_parameters = call.node_parameters
-        binding_parameters = call.binding_parameters
+    def execute(self, call: OperationCall) -> dict[str, object]:
         if (
-            inputs
-            or binding_parameters
-            or set(node_parameters) != {"scenario"}
-            or node_parameters["scenario"]
-            not in {
-                "single",
-                "paired",
-                "fixed_batch",
-                "failing_pair",
-                "conflicting_pairing",
-                "ambiguous",
-            }
+            call.inputs
+            or call.binding_parameters
+            or set(call.node_parameters) != {"scenario"}
         ):
-            raise ValueError("structure comparison fixture is not resolved")
-        scenario = node_parameters["scenario"]
+            raise ValueError("comparison source inputs are unresolved")
+        scenario = call.node_parameters["scenario"]
+        fixed = _structure(
+            "AGSTA",
+            chain_id="R",
+            translation=(0.0, 0.0, 0.0),
+        )
+        alpha = _structure(
+            "AGSTA",
+            chain_id="A",
+            translation=(2.0, -1.0, 3.0),
+        )
+        beta = _structure(
+            "AGSTA",
+            chain_id="B",
+            translation=(-4.0, 5.0, 2.0),
+        )
+        other = _structure(
+            "AGSTA",
+            chain_id="S",
+            translation=(1.0, 2.0, -3.0),
+        )
         if scenario == "single":
-            subject_values = (("subject-a", _SUBJECT_A),)
-            reference_values = (("reference-a", _REFERENCE_A),)
-            pairs = (("subject-a", "reference-a"),)
-        elif scenario == "ambiguous":
-            subject_values = (("subject-ambiguous", _AMBIGUOUS_SUBJECT),)
-            reference_values = (
-                ("reference-ambiguous", _AMBIGUOUS_REFERENCE),
-            )
-            pairs = (("subject-ambiguous", "reference-ambiguous"),)
-        elif scenario == "fixed_batch":
-            subject_values = (
-                ("subject-fixed-a", _FIXED_SUBJECT_A),
-                ("subject-fixed-b", _FIXED_SUBJECT_B),
-            )
-            reference_values = (
-                ("reference-fixed", _FIXED_REFERENCE),
-            )
-            pairs = ()
+            subject_values = (("alpha", alpha),)
+            reference_values = (("fixed", fixed),)
+            pairs = None
+        elif scenario == "fixed_reference":
+            subject_values = (("beta", beta), ("alpha", alpha))
+            reference_values = (("fixed", fixed),)
+            pairs = None
+        elif scenario == "per_subject_counterpart":
+            subject_values = (("beta", beta), ("alpha", alpha))
+            reference_values = (("other", other), ("fixed", fixed))
+            pairs = (("alpha", "fixed"), ("beta", "other"))
         else:
-            subject_values = (
-                ("subject-a", _SUBJECT_A),
-                (
-                    "subject-b",
-                    _SUBJECT_B
-                    if scenario in {"paired", "conflicting_pairing"}
-                    else _INCOMPATIBLE,
-                ),
-            )
-            reference_values = (
-                ("reference-b", _REFERENCE_B),
-                ("reference-a", _REFERENCE_A),
-            )
-            pairs = (
-                (
-                    ("subject-a", "reference-a"),
-                    ("subject-b", "reference-b"),
-                )
-                if scenario == "failing_pair"
-                else (
-                    ("subject-b", "reference-b"),
-                    ("subject-a", "reference-a"),
-                )
-            )
+            raise ValueError("unknown comparison source scenario")
         subjects = CandidateCollection(
-            collection_id=f"fixture-{scenario}-subjects",
+            collection_id=f"{scenario}-subjects",
             item_type="protein.structure",
-            items=[
-                Candidate(
-                    candidate_id=candidate_id,
-                    data=structure,
-                    metadata={"fixture_label": candidate_id},
-                )
+            items=tuple(
+                Candidate(candidate_id, structure)
                 for candidate_id, structure in subject_values
-            ],
+            ),
         )
         references = CandidateCollection(
-            collection_id=f"fixture-{scenario}-references",
+            collection_id=f"{scenario}-references",
             item_type="protein.structure",
-            items=[
-                Candidate(
-                    candidate_id=candidate_id,
-                    data=structure,
-                    metadata={"fixture_label": candidate_id},
-                )
+            items=tuple(
+                Candidate(candidate_id, structure)
                 for candidate_id, structure in reference_values
-            ],
+            ),
         )
-        if scenario == "conflicting_pairing":
-            pairs = (
-                ("subject-b", "reference-b"),
-                ("subject-b", "reference-a"),
-            )
-        pairing = CandidatePairingIntent(
-            tuple(
-                CandidatePairingIntentEntry(subject_id, reference_id)
-                for subject_id, reference_id in pairs
-            )
-        )
-        with self._run_resources.engine_invocation():
-            return {
+        with self._resources.engine_invocation():
+            outputs: dict[str, object] = {
                 "subjects": subjects,
                 "references": references,
-                "pairing": pairing,
             }
+            if pairs is not None:
+                outputs["pairing"] = CandidatePairingIntent(
+                    entries=tuple(
+                        CandidatePairingIntentEntry(subject_id, reference_id)
+                        for subject_id, reference_id in pairs
+                    )
+                )
+            return outputs
 
 
-def _build(context: OperationContext) -> object:
+def _build(context: OperationContext) -> _Source:
     return _Source(context.resources)
-
-
-def _tm_identity(value: object, parameters: Mapping[str, Any]) -> float:
-    if parameters:
-        raise ValueError("TM-score identity Utility accepts no parameters")
-    result = float(value)
-    if not 0.0 <= result <= 1.0:
-        raise ValueError("TM-score identity Utility requires [0, 1]")
-    return result
-
-
-def _tm_utility(
-    transform_id: str,
-    pairing_mode: str,
-) -> UtilityTransformDefinition:
-    return UtilityTransformDefinition(
-        transform_id=transform_id,
-        version=_VERSION,
-        compatible_input_contract={
-            "metric": _TM_METRIC,
-            "method": _TM_METHOD,
-            "context_profile": {
-                "kind": "pairwise",
-                "subject_role": "subject",
-                "reference_role": "reference",
-                "pairing_mode": pairing_mode,
-                "normalization": "standard-reference-residue-count",
-            },
-        },
-        parameters={},
-        behavior=BehaviorReference(
-            f"{transform_id}/transform",
-            _VERSION,
-            {"mapping": "identity"},
-        ),
-        transform=_tm_identity,
-    )
 
 
 MODULE_PACKAGE = ModulePackageRegistration(
@@ -292,17 +186,19 @@ MODULE_PACKAGE = ModulePackageRegistration(
         MethodDefinition(
             method_id="contract_test.structure_comparison_source.method",
             version=_VERSION,
-            algorithm_identity={"name": "independent-literal-structures"},
+            algorithm_identity={
+                "name": "independent-structure-candidate-collections"
+            },
             model_identity={"kind": "none"},
             checkpoint_identity={"kind": "none"},
-            featurization_identity={"kind": "PDB-CA-fixtures"},
+            featurization_identity={"kind": "canonical-PDB-v3.3"},
             source_identity={"kind": "contract-test-fixture"},
-            scale_contract={"kind": "angstrom"},
+            scale_contract={"coordinate_unit": "angstrom"},
         ),
     ),
     bindings=(
         ExecutionBindingDefinition(
-            binding_id="contract_test.structure_comparison_source.direct",
+            binding_id="contract_test.structure_comparison_source.fixture",
             version=_VERSION,
             node_type=ContractIdentity(
                 "node_type",
@@ -340,24 +236,14 @@ MODULE_PACKAGE = ModulePackageRegistration(
                     {},
                 ),
                 prerequisites={},
-                check=lambda environment: ReadinessResult(True),
+                check=lambda check_input: ReadinessResult(True),
             ),
             deterministic=True,
             cacheable=True,
             implementation_identity={
-                "name": "contract_test.structure_comparison_source.direct",
+                "name": "contract_test.structure_comparison_source.fixture",
                 "source": "contract-test-fixture",
             },
-        ),
-    ),
-    utility_transforms=(
-        _tm_utility(
-            "contract_test.tm_score.fixed_identity",
-            "fixed_reference",
-        ),
-        _tm_utility(
-            "contract_test.tm_score.paired_identity",
-            "per_subject_counterpart",
         ),
     ),
 )

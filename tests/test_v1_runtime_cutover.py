@@ -11,6 +11,7 @@ import core
 import core.server as server
 from core import build_discovered_frozen_catalog, discover_module_packages
 from core.project import ProjectManager
+from protein_workbench_public import encode_project_input_content
 
 
 ACCEPTED_MODULE_PACKAGES = {
@@ -24,6 +25,7 @@ ACCEPTED_MODULE_PACKAGES = {
     "solubility",
     "structure_annotation",
     "structure_comparison",
+    "structure_prediction",
     "structure_transform",
 }
 
@@ -33,7 +35,7 @@ def test_production_discovery_is_exactly_the_accepted_package_surface() -> None:
     assert {registration.package_id for registration in registrations} == (
         ACCEPTED_MODULE_PACKAGES
     )
-    assert len(registrations) == 11
+    assert len(registrations) == 12
 
     catalog = build_discovered_frozen_catalog()
     node_ids = {
@@ -79,7 +81,7 @@ def test_server_publishes_only_the_frozen_catalog_runtime(
         assert not hasattr(server, "_module_factories")
 
 
-def test_legacy_persisted_workflow_and_run_are_stably_rejected(
+def test_legacy_persisted_workflow_is_not_adopted_and_run_is_rejected(
     monkeypatch,
     tmp_path: Path,
 ) -> None:
@@ -88,7 +90,8 @@ def test_legacy_persisted_workflow_and_run_are_stably_rejected(
     manager = ProjectManager(project_root, run_root=run_root)
     workflow_project = manager.create("legacy-workflow")
     workflow_project_dir = manager.project_dir(workflow_project.id)
-    (workflow_project_dir / "workflow-v2.json").write_text(
+    legacy_workflow_path = workflow_project_dir / "workflow-v2.json"
+    legacy_workflow_path.write_text(
         json.dumps(
             {
                 "schema_version": "1.0.0",
@@ -98,6 +101,7 @@ def test_legacy_persisted_workflow_and_run_are_stably_rejected(
         ),
         encoding="utf-8",
     )
+    legacy_workflow_bytes = legacy_workflow_path.read_bytes()
     project_id = "legacy-project"
     project_dir = manager.project_dir(project_id)
     project_dir.mkdir(parents=True)
@@ -122,28 +126,33 @@ def test_legacy_persisted_workflow_and_run_are_stably_rejected(
 
     with TestClient(server.create_app()) as client:
         workflow = client.get(
-            f"/api/v2/projects/{workflow_project.id}/workflow"
+            f"/api/v2/projects/{workflow_project.id}/workflow/draft"
         )
-        assert workflow.status_code == 400
-        assert workflow.json()["error"]["code"] == "unsupported_schema_version"
+        assert workflow.status_code == 404
+        assert workflow.json()["error"]["code"] == (
+            "workflow_draft_not_found"
+        )
         assert workflow.json()["error"]["details"] == {
-            "artifact_kind": "workflow",
-            "expected_schema_version": "2.1.0",
-            "received_schema_version": "unknown",
+            "resource_kind": "workflow_draft",
+            "resource_id": workflow_project.id,
         }
+        assert legacy_workflow_path.read_bytes() == legacy_workflow_bytes
 
         run = client.get(f"/api/v2/projects/{project_id}/runs/legacy-run")
         assert run.status_code == 400
         assert run.json()["error"]["code"] == "unsupported_schema_version"
         assert run.json()["error"]["details"] == {
             "artifact_kind": "run_evidence",
-            "expected_schema_version": "2.1.0",
+            "expected_schema_version": "3.0.0",
             "received_schema_version": "1",
         }
 
         uploaded = client.post(
-            f"/api/projects/{project_id}/inputs",
-            files={"file": ("legacy.pdb", b"legacy", "chemical/x-pdb")},
+            f"/api/v2/projects/{project_id}/inputs",
+            json={
+                "filename": "legacy.pdb",
+                "content_base64": encode_project_input_content(b"legacy"),
+            },
         )
         assert uploaded.status_code == 400
         assert uploaded.json()["error"]["code"] == (
@@ -181,7 +190,6 @@ def test_seed_install_does_not_adopt_or_rewrite_existing_local_data(
     manager = ProjectManager(project_root)
 
     result = manager.ensure_seed_project_v2(
-        Path("examples/v2/canonical-3gb1.workflow.json"),
         input_sources={"3GB1.pdb": Path("pdbs/3GB1.pdb")},
     )
 

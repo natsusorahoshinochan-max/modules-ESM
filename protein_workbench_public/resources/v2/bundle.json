@@ -29,7 +29,7 @@
           "$ref": "#/$defs/MediaType"
         },
         "node_id": {
-          "$ref": "#/$defs/Identifier"
+          "$ref": "#/$defs/NodeInstanceId"
         },
         "output_port": {
           "$ref": "#/$defs/Identifier"
@@ -68,7 +68,7 @@
           "$ref": "#/$defs/MediaType"
         },
         "node_id": {
-          "$ref": "#/$defs/Identifier"
+          "$ref": "#/$defs/NodeInstanceId"
         },
         "output_port": {
           "$ref": "#/$defs/Identifier"
@@ -97,10 +97,10 @@
           "$ref": "#/$defs/OpaqueReference"
         },
         "project_id": {
-          "$ref": "#/$defs/Identifier"
+          "$ref": "#/$defs/ProjectId"
         },
         "run_id": {
-          "$ref": "#/$defs/Identifier"
+          "$ref": "#/$defs/RunId"
         }
       },
       "required": [
@@ -223,10 +223,10 @@
           ]
         },
         "project_id": {
-          "$ref": "#/$defs/Identifier"
+          "$ref": "#/$defs/ProjectId"
         },
         "run_id": {
-          "$ref": "#/$defs/Identifier"
+          "$ref": "#/$defs/RunId"
         }
       },
       "required": [
@@ -245,7 +245,7 @@
           "$ref": "#/$defs/OpaqueCursor"
         },
         "project_id": {
-          "$ref": "#/$defs/Identifier"
+          "$ref": "#/$defs/ProjectId"
         },
         "reason": {
           "maxLength": 512,
@@ -253,7 +253,7 @@
           "type": "string"
         },
         "run_id": {
-          "$ref": "#/$defs/Identifier"
+          "$ref": "#/$defs/RunId"
         }
       },
       "required": [
@@ -335,7 +335,7 @@
           "type": "string"
         },
         "node_id": {
-          "$ref": "#/$defs/Identifier"
+          "$ref": "#/$defs/NodeInstanceId"
         },
         "severity": {
           "enum": [
@@ -352,17 +352,14 @@
       ],
       "type": "object"
     },
-    "CompileReceipt": {
+    "WorkflowCommit": {
       "additionalProperties": false,
       "properties": {
         "accepted": {
-          "type": "boolean"
+          "const": true
         },
         "catalog_contract_digest": {
           "$ref": "#/$defs/Digest"
-        },
-        "compile_id": {
-          "$ref": "#/$defs/Identifier"
         },
         "contract_lock_digest": {
           "$ref": "#/$defs/Digest"
@@ -374,21 +371,33 @@
           "items": {
             "$ref": "#/$defs/CompileIssue"
           },
-          "maxItems": 4096,
+          "maxItems": 0,
           "type": "array"
         },
         "workflow_digest": {
           "$ref": "#/$defs/Digest"
         },
-        "workflow_revision": {
+        "source_draft_digest": {
+          "$ref": "#/$defs/Digest"
+        },
+        "source_draft_revision": {
+          "minimum": 1,
+          "type": "integer"
+        },
+        "workflow_commit_id": {
+          "$ref": "#/$defs/WorkflowCommitId"
+        },
+        "workflow_commit_revision": {
           "minimum": 1,
           "type": "integer"
         }
       },
       "required": [
         "accepted",
-        "compile_id",
-        "workflow_revision",
+        "workflow_commit_id",
+        "workflow_commit_revision",
+        "source_draft_revision",
+        "source_draft_digest",
         "workflow_digest",
         "catalog_contract_digest",
         "contract_lock_digest",
@@ -577,10 +586,10 @@
       "additionalProperties": false,
       "properties": {
         "requested_project_id": {
-          "$ref": "#/$defs/Identifier"
+          "$ref": "#/$defs/ProjectId"
         },
         "requested_run_id": {
-          "$ref": "#/$defs/Identifier"
+          "$ref": "#/$defs/RunId"
         }
       },
       "required": [
@@ -638,8 +647,25 @@
         },
         {
           "$ref": "#/$defs/RandomnessAndProjectionInvocationProvenance"
+        },
+        {
+          "$ref": "#/$defs/ProjectInputInvocationProvenance"
         }
       ]
+    },
+    "ProjectInputInvocationProvenance": {
+      "additionalProperties": false,
+      "properties": {
+        "project_input_filename": {
+          "maxLength": 512,
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "project_input_filename"
+      ],
+      "type": "object"
     },
     "RandomnessOnlyInvocationProvenance": {
       "additionalProperties": false,
@@ -733,10 +759,15 @@
         },
         "residue_id": {
           "$ref": "#/$defs/Identifier"
+        },
+        "segment_index": {
+          "minimum": 0,
+          "type": "integer"
         }
       },
       "required": [
         "residue_id",
+        "segment_index",
         "provider_chain_id",
         "provider_position"
       ],
@@ -763,6 +794,14 @@
           "type": "array",
           "uniqueItems": true
         },
+        "provider_structure_chain_order": {
+          "items": {
+            "$ref": "#/$defs/Identifier"
+          },
+          "minItems": 1,
+          "type": "array",
+          "uniqueItems": true
+        },
         "workbench_chain_order": {
           "items": {
             "$ref": "#/$defs/Identifier"
@@ -775,6 +814,7 @@
       "required": [
         "position_semantics",
         "workbench_chain_order",
+        "provider_structure_chain_order",
         "provider_chain_order",
         "entries"
       ],
@@ -855,6 +895,40 @@
       "maxLength": 128,
       "minLength": 1,
       "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:/+-]*$",
+      "type": "string"
+    },
+    "NodeInstanceId": {
+      "maxLength": 128,
+      "minLength": 1,
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$",
+      "type": "string"
+    },
+    "ProjectId": {
+      "maxLength": 128,
+      "minLength": 1,
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$",
+      "type": "string"
+    },
+    "ProjectInputContentBase64": {
+      "format": "canonical-base64",
+      "maxLength": 89478488,
+      "pattern": "^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$",
+      "type": "string"
+    },
+    "ProjectInputReference": {
+      "maxLength": 128,
+      "minLength": 1,
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$",
+      "type": "string"
+    },
+    "RunId": {
+      "maxLength": 128,
+      "minLength": 1,
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$",
+      "type": "string"
+    },
+    "WorkflowCommitId": {
+      "pattern": "^workflow-commit-[0-9a-f]{64}$",
       "type": "string"
     },
     "InactiveGenerationArtifactDetails": {
@@ -964,7 +1038,7 @@
           "$ref": "#/$defs/Identifier"
         },
         "node_id": {
-          "$ref": "#/$defs/Identifier"
+          "$ref": "#/$defs/NodeInstanceId"
         },
         "type": {
           "const": "node_attempt_started"
@@ -1041,14 +1115,14 @@
       "properties": {
         "blocked_by": {
           "items": {
-            "$ref": "#/$defs/Identifier"
+            "$ref": "#/$defs/NodeInstanceId"
           },
           "maxItems": 2048,
           "minItems": 1,
           "type": "array"
         },
         "node_id": {
-          "$ref": "#/$defs/Identifier"
+          "$ref": "#/$defs/NodeInstanceId"
         },
         "outcome": {
           "const": "blocked"
@@ -1071,13 +1145,13 @@
       "properties": {
         "blocked_by": {
           "items": {
-            "$ref": "#/$defs/Identifier"
+            "$ref": "#/$defs/NodeInstanceId"
           },
           "maxItems": 0,
           "type": "array"
         },
         "node_id": {
-          "$ref": "#/$defs/Identifier"
+          "$ref": "#/$defs/NodeInstanceId"
         },
         "outcome": {
           "const": "succeeded"
@@ -1107,13 +1181,13 @@
       "properties": {
         "blocked_by": {
           "items": {
-            "$ref": "#/$defs/Identifier"
+            "$ref": "#/$defs/NodeInstanceId"
           },
           "maxItems": 0,
           "type": "array"
         },
         "node_id": {
-          "$ref": "#/$defs/Identifier"
+          "$ref": "#/$defs/NodeInstanceId"
         },
         "outcome": {
           "enum": [
@@ -1148,7 +1222,7 @@
           "$ref": "#/$defs/SemanticVersion"
         },
         "node_id": {
-          "$ref": "#/$defs/Identifier"
+          "$ref": "#/$defs/NodeInstanceId"
         },
         "node_parameters": {
           "$ref": "#/$defs/JsonObject"
@@ -1225,36 +1299,158 @@
       ],
       "type": "object"
     },
-    "ProjectWorkflowSnapshot": {
+    "CreateProjectRequest": {
       "additionalProperties": false,
       "properties": {
-        "project_id": {
-          "$ref": "#/$defs/Identifier"
+        "name": {
+          "maxLength": 256,
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "name"
+      ],
+      "type": "object"
+    },
+    "ProjectMetadata": {
+      "additionalProperties": false,
+      "properties": {
+        "created_at": {
+          "$ref": "#/$defs/Timestamp"
         },
-        "workflow": {
-          "$ref": "#/$defs/WorkflowDocument"
+        "id": {
+          "$ref": "#/$defs/ProjectId"
         },
-        "workflow_digest": {
+        "modified_at": {
+          "$ref": "#/$defs/Timestamp"
+        },
+        "name": {
+          "maxLength": 256,
+          "minLength": 1,
+          "type": "string"
+        },
+        "schema_namespace": {
+          "const": "protein-workbench-public/v2"
+        },
+        "seed": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "schema_namespace",
+        "id",
+        "name",
+        "created_at",
+        "modified_at",
+        "seed"
+      ],
+      "type": "object"
+    },
+    "ProjectInputPublication": {
+      "additionalProperties": false,
+      "properties": {
+        "content_digest": {
           "$ref": "#/$defs/Digest"
         },
-        "workflow_revision": {
-          "minimum": 1,
+        "filename": {
+          "maxLength": 512,
+          "minLength": 1,
+          "type": "string"
+        },
+        "project_id": {
+          "$ref": "#/$defs/ProjectId"
+        },
+        "project_input_ref": {
+          "$ref": "#/$defs/ProjectInputReference"
+        },
+        "schema_namespace": {
+          "const": "protein-workbench-public/v2"
+        },
+        "size": {
+          "maximum": 67108864,
+          "minimum": 0,
           "type": "integer"
         }
       },
       "required": [
+        "schema_namespace",
         "project_id",
-        "workflow_revision",
-        "workflow_digest",
+        "filename",
+        "project_input_ref",
+        "size",
+        "content_digest"
+      ],
+      "type": "object"
+    },
+    "PublishProjectInputRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "content_base64": {
+          "$ref": "#/$defs/ProjectInputContentBase64"
+        },
+        "filename": {
+          "maxLength": 512,
+          "minLength": 1,
+          "type": "string"
+        },
+        "project_id": {
+          "$ref": "#/$defs/ProjectId"
+        }
+      },
+      "required": [
+        "project_id",
+        "filename",
+        "content_base64"
+      ],
+      "type": "object"
+    },
+    "ProjectInputMetadataRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "project_id": {
+          "$ref": "#/$defs/ProjectId"
+        },
+        "project_input_ref": {
+          "$ref": "#/$defs/ProjectInputReference"
+        }
+      },
+      "required": [
+        "project_id",
+        "project_input_ref"
+      ],
+      "type": "object"
+    },
+    "ProjectWorkflowDraft": {
+      "additionalProperties": false,
+      "properties": {
+        "draft_digest": {
+          "$ref": "#/$defs/Digest"
+        },
+        "draft_revision": {
+          "minimum": 1,
+          "type": "integer"
+        },
+        "project_id": {
+          "$ref": "#/$defs/ProjectId"
+        },
+        "workflow": {
+          "$ref": "#/$defs/WorkflowDocument"
+        }
+      },
+      "required": [
+        "project_id",
+        "draft_revision",
+        "draft_digest",
         "workflow"
       ],
       "type": "object"
     },
-    "ProjectWorkflowSnapshotRequest": {
+    "ProjectWorkflowDraftRequest": {
       "additionalProperties": false,
       "properties": {
         "project_id": {
-          "$ref": "#/$defs/Identifier"
+          "$ref": "#/$defs/ProjectId"
         }
       },
       "required": [
@@ -1262,32 +1458,27 @@
       ],
       "type": "object"
     },
-    "RelockProjectWorkflowRequest": {
+    "ProjectActiveWorkflowCommitRequest": {
       "additionalProperties": false,
       "properties": {
         "project_id": {
-          "$ref": "#/$defs/Identifier"
-        },
-        "workflow_revision": {
-          "minimum": 1,
-          "type": "integer"
+          "$ref": "#/$defs/ProjectId"
         }
       },
       "required": [
-        "project_id",
-        "workflow_revision"
+        "project_id"
       ],
       "type": "object"
     },
-    "SaveProjectWorkflowRequest": {
+    "SubmitProjectWorkflowRequest": {
       "additionalProperties": false,
       "properties": {
-        "expected_workflow_revision": {
+        "expected_draft_revision": {
           "minimum": 0,
           "type": "integer"
         },
         "project_id": {
-          "$ref": "#/$defs/Identifier"
+          "$ref": "#/$defs/ProjectId"
         },
         "workflow": {
           "$ref": "#/$defs/WorkflowDocument"
@@ -1295,7 +1486,7 @@
       },
       "required": [
         "project_id",
-        "expected_workflow_revision",
+        "expected_draft_revision",
         "workflow"
       ],
       "type": "object"
@@ -1669,8 +1860,14 @@
         "contract_version": {
           "$ref": "#/$defs/SemanticVersion"
         },
+        "observation_method_projection": {
+          "$ref": "#/$defs/BehaviorReference"
+        },
         "schema_namespace": {
           "const": "protein-workbench-contract/v2"
+        },
+        "scientific_axis_projection": {
+          "$ref": "#/$defs/BehaviorReference"
         },
         "validator": {
           "$ref": "#/$defs/BehaviorReference"
@@ -1703,6 +1900,29 @@
         "metric": {
           "$ref": "#/$defs/ContractReference"
         },
+        "method_direction": {
+          "oneOf": [
+            {
+              "enum": [
+                "input",
+                "output"
+              ]
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "method_port": {
+          "oneOf": [
+            {
+              "$ref": "#/$defs/Identifier"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
         "output_port": {
           "$ref": "#/$defs/Identifier"
         },
@@ -1723,6 +1943,29 @@
           ]
         },
         "pairing_port": {
+          "oneOf": [
+            {
+              "$ref": "#/$defs/Identifier"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "axis_direction": {
+          "oneOf": [
+            {
+              "enum": [
+                "input",
+                "output"
+              ]
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "axis_port": {
           "oneOf": [
             {
               "$ref": "#/$defs/Identifier"
@@ -1784,6 +2027,10 @@
         "reference_port",
         "pairing_direction",
         "pairing_port",
+        "axis_direction",
+        "axis_port",
+        "method_direction",
+        "method_port",
         "guaranteed_multiplicity"
       ],
       "type": "object"
@@ -2099,8 +2346,11 @@
           "enum": [
             "artifact",
             "project",
+            "project_input",
             "run",
-            "workflow"
+            "workflow",
+            "workflow_commit",
+            "workflow_draft"
           ]
         }
       },
@@ -2113,21 +2363,21 @@
     "RunAdmittedEvent": {
       "additionalProperties": false,
       "properties": {
-        "compile_id": {
-          "$ref": "#/$defs/Identifier"
+        "workflow_commit_id": {
+          "$ref": "#/$defs/WorkflowCommitId"
         },
         "type": {
           "const": "run_admitted"
         },
-        "workflow_revision": {
+        "workflow_commit_revision": {
           "minimum": 1,
           "type": "integer"
         }
       },
       "required": [
         "type",
-        "workflow_revision",
-        "compile_id"
+        "workflow_commit_id",
+        "workflow_commit_revision"
       ],
       "type": "object"
     },
@@ -2190,10 +2440,10 @@
           "$ref": "#/$defs/RunEvent"
         },
         "project_id": {
-          "$ref": "#/$defs/Identifier"
+          "$ref": "#/$defs/ProjectId"
         },
         "run_id": {
-          "$ref": "#/$defs/Identifier"
+          "$ref": "#/$defs/RunId"
         },
         "schema_namespace": {
           "const": "protein-workbench-public/v2"
@@ -2231,10 +2481,10 @@
           "$ref": "#/$defs/OpaqueCursor"
         },
         "project_id": {
-          "$ref": "#/$defs/Identifier"
+          "$ref": "#/$defs/ProjectId"
         },
         "run_id": {
-          "$ref": "#/$defs/Identifier"
+          "$ref": "#/$defs/RunId"
         }
       },
       "required": [
@@ -2253,11 +2503,11 @@
           "maxItems": 2048,
           "type": "array"
         },
-        "compile_id": {
-          "$ref": "#/$defs/Identifier"
+        "workflow_commit_id": {
+          "$ref": "#/$defs/WorkflowCommitId"
         },
         "derived_from_run_id": {
-          "$ref": "#/$defs/Identifier"
+          "$ref": "#/$defs/RunId"
         },
         "ledger_cursor": {
           "$ref": "#/$defs/OpaqueCursor"
@@ -2277,10 +2527,10 @@
           "type": "array"
         },
         "project_id": {
-          "$ref": "#/$defs/Identifier"
+          "$ref": "#/$defs/ProjectId"
         },
         "run_id": {
-          "$ref": "#/$defs/Identifier"
+          "$ref": "#/$defs/RunId"
         },
         "selection_error": {
           "$ref": "#/$defs/StructuredError"
@@ -2309,7 +2559,7 @@
         "workflow_digest": {
           "$ref": "#/$defs/Digest"
         },
-        "workflow_revision": {
+        "workflow_commit_revision": {
           "minimum": 1,
           "type": "integer"
         }
@@ -2317,9 +2567,9 @@
       "required": [
         "project_id",
         "run_id",
-        "workflow_revision",
+        "workflow_commit_id",
+        "workflow_commit_revision",
         "workflow_digest",
-        "compile_id",
         "status",
         "ledger_cursor",
         "node_dispositions",
@@ -2332,10 +2582,10 @@
       "additionalProperties": false,
       "properties": {
         "project_id": {
-          "$ref": "#/$defs/Identifier"
+          "$ref": "#/$defs/ProjectId"
         },
         "run_id": {
-          "$ref": "#/$defs/Identifier"
+          "$ref": "#/$defs/RunId"
         }
       },
       "required": [
@@ -2351,19 +2601,19 @@
           "minimum": 1,
           "type": "integer"
         },
-        "compile_id": {
-          "$ref": "#/$defs/Identifier"
+        "workflow_commit_id": {
+          "$ref": "#/$defs/WorkflowCommitId"
         },
         "event_cursor": {
           "$ref": "#/$defs/OpaqueCursor"
         },
         "project_id": {
-          "$ref": "#/$defs/Identifier"
+          "$ref": "#/$defs/ProjectId"
         },
         "run_id": {
-          "$ref": "#/$defs/Identifier"
+          "$ref": "#/$defs/RunId"
         },
-        "workflow_revision": {
+        "workflow_commit_revision": {
           "minimum": 1,
           "type": "integer"
         }
@@ -2371,8 +2621,8 @@
       "required": [
         "project_id",
         "run_id",
-        "workflow_revision",
-        "compile_id",
+        "workflow_commit_id",
+        "workflow_commit_revision",
         "admitted_sequence",
         "event_cursor"
       ],
@@ -2427,12 +2677,9 @@
         "client_request_id": {
           "$ref": "#/$defs/Identifier"
         },
-        "compile_id": {
-          "$ref": "#/$defs/Identifier"
-        },
         "node_ids": {
           "items": {
-            "$ref": "#/$defs/Identifier"
+            "$ref": "#/$defs/NodeInstanceId"
           },
           "maxItems": 2048,
           "type": "array"
@@ -2444,16 +2691,15 @@
           ]
         },
         "project_id": {
-          "$ref": "#/$defs/Identifier"
+          "$ref": "#/$defs/ProjectId"
         },
         "source_run_id": {
-          "$ref": "#/$defs/Identifier"
+          "$ref": "#/$defs/RunId"
         }
       },
       "required": [
         "project_id",
         "source_run_id",
-        "compile_id",
         "policy",
         "node_ids",
         "client_request_id"
@@ -2466,21 +2712,16 @@
         "client_request_id": {
           "$ref": "#/$defs/Identifier"
         },
-        "compile_id": {
-          "$ref": "#/$defs/Identifier"
+        "workflow_commit_id": {
+          "$ref": "#/$defs/WorkflowCommitId"
         },
         "project_id": {
-          "$ref": "#/$defs/Identifier"
-        },
-        "workflow_revision": {
-          "minimum": 1,
-          "type": "integer"
+          "$ref": "#/$defs/ProjectId"
         }
       },
       "required": [
         "project_id",
-        "workflow_revision",
-        "compile_id",
+        "workflow_commit_id",
         "client_request_id"
       ],
       "type": "object"
@@ -2556,7 +2797,7 @@
           ]
         },
         "run_id": {
-          "$ref": "#/$defs/Identifier"
+          "$ref": "#/$defs/RunId"
         }
       },
       "required": [
@@ -2575,7 +2816,7 @@
           "$ref": "#/$defs/Digest"
         },
         "producer_run_id": {
-          "$ref": "#/$defs/Identifier"
+          "$ref": "#/$defs/RunId"
         }
       },
       "required": [
@@ -2595,7 +2836,7 @@
           "$ref": "#/$defs/ResultMaterialization"
         },
         "node_id": {
-          "$ref": "#/$defs/Identifier"
+          "$ref": "#/$defs/NodeInstanceId"
         },
         "output_port": {
           "$ref": "#/$defs/Identifier"
@@ -2733,7 +2974,7 @@
       "additionalProperties": false,
       "properties": {
         "node_id": {
-          "$ref": "#/$defs/Identifier"
+          "$ref": "#/$defs/NodeInstanceId"
         },
         "output_port": {
           "$ref": "#/$defs/Identifier"
@@ -2910,7 +3151,7 @@
           "$ref": "#/$defs/ContractReference"
         },
         "selection_node_id": {
-          "$ref": "#/$defs/Identifier"
+          "$ref": "#/$defs/NodeInstanceId"
         },
         "status": {
           "const": "succeeded"
@@ -3074,7 +3315,9 @@
             "manifest",
             "project",
             "run_evidence",
-            "workflow"
+            "workflow",
+            "workflow_commit",
+            "workflow_draft"
           ]
         },
         "expected_schema_version": {
@@ -3093,24 +3336,33 @@
       ],
       "type": "object"
     },
-    "WorkflowCompileRequest": {
+    "WorkflowCommitIdentityMismatchDetails": {
       "additionalProperties": false,
       "properties": {
-        "project_id": {
-          "$ref": "#/$defs/Identifier"
+        "workflow_commit_id": {
+          "$ref": "#/$defs/WorkflowCommitId"
+        }
+      },
+      "required": [
+        "workflow_commit_id"
+      ],
+      "type": "object"
+    },
+    "WorkflowDraftRevisionConflictDetails": {
+      "additionalProperties": false,
+      "properties": {
+        "expected_draft_revision": {
+          "minimum": 0,
+          "type": "integer"
         },
-        "workflow": {
-          "$ref": "#/$defs/WorkflowDocument"
-        },
-        "workflow_revision": {
-          "minimum": 1,
+        "observed_draft_revision": {
+          "minimum": 0,
           "type": "integer"
         }
       },
       "required": [
-        "project_id",
-        "workflow_revision",
-        "workflow"
+        "expected_draft_revision",
+        "observed_draft_revision"
       ],
       "type": "object"
     },
@@ -3156,7 +3408,7 @@
           "type": "array"
         },
         "workflow_id": {
-          "$ref": "#/$defs/Identifier"
+          "$ref": "#/$defs/ProjectId"
         }
       },
       "required": [
@@ -3172,13 +3424,13 @@
       "additionalProperties": false,
       "properties": {
         "source_node_id": {
-          "$ref": "#/$defs/Identifier"
+          "$ref": "#/$defs/NodeInstanceId"
         },
         "source_port": {
           "$ref": "#/$defs/Identifier"
         },
         "target_node_id": {
-          "$ref": "#/$defs/Identifier"
+          "$ref": "#/$defs/NodeInstanceId"
         },
         "target_port": {
           "$ref": "#/$defs/Identifier"
@@ -3205,6 +3457,11 @@
     "digest_algorithm": "SHA-256",
     "digest_representation": "sha256:<64 lowercase hexadecimal digits>",
     "value_domain": "I-JSON"
+  },
+  "project_input_publication": {
+    "base64_alphabet": "RFC 4648 standard",
+    "canonical_padding": "required",
+    "max_decoded_bytes": 67108864
   },
   "rest_operations": {
     "artifact_retrieval": {
@@ -3263,35 +3520,99 @@
         "default": "structured_error"
       }
     },
-    "project_workflow_snapshot": {
-      "method": "GET",
-      "request_schema": "#/$defs/ProjectWorkflowSnapshotRequest",
-      "response": {
-        "kind": "json",
-        "schema": "#/$defs/ProjectWorkflowSnapshot",
-        "success_status": 200
-      },
-      "route": "/api/v2/projects/{project_id}/workflow",
-      "status_mapping": {
-        "200": "response",
-        "404": "structured_error",
-        "default": "structured_error"
-      }
-    },
-    "relock_project_workflow": {
+    "commit_project_workflow": {
       "method": "POST",
-      "request_schema": "#/$defs/RelockProjectWorkflowRequest",
+      "request_schema": "#/$defs/SubmitProjectWorkflowRequest",
       "response": {
         "kind": "json",
-        "schema": "#/$defs/ProjectWorkflowSnapshot",
+        "schema": "#/$defs/WorkflowCommit",
         "success_status": 200
       },
-      "route": "/api/v2/projects/{project_id}/workflow:relock",
+      "route": "/api/v2/projects/{project_id}/workflow:commit",
       "status_mapping": {
         "200": "response",
         "404": "structured_error",
         "409": "structured_error",
         "422": "structured_error",
+        "default": "structured_error"
+      }
+    },
+    "create_project": {
+      "method": "POST",
+      "request_schema": "#/$defs/CreateProjectRequest",
+      "response": {
+        "kind": "json",
+        "schema": "#/$defs/ProjectMetadata",
+        "success_status": 201
+      },
+      "route": "/api/v2/projects",
+      "status_mapping": {
+        "201": "response",
+        "400": "structured_error",
+        "default": "structured_error"
+      }
+    },
+    "project_active_workflow_commit": {
+      "method": "GET",
+      "request_schema": "#/$defs/ProjectActiveWorkflowCommitRequest",
+      "response": {
+        "kind": "json",
+        "schema": "#/$defs/WorkflowCommit",
+        "success_status": 200
+      },
+      "route": "/api/v2/projects/{project_id}/workflow/active-commit",
+      "status_mapping": {
+        "200": "response",
+        "404": "structured_error",
+        "409": "structured_error",
+        "default": "structured_error"
+      }
+    },
+    "project_input_metadata": {
+      "method": "GET",
+      "request_schema": "#/$defs/ProjectInputMetadataRequest",
+      "response": {
+        "kind": "json",
+        "schema": "#/$defs/ProjectInputPublication",
+        "success_status": 200
+      },
+      "route": "/api/v2/projects/{project_id}/inputs/{project_input_ref}",
+      "status_mapping": {
+        "200": "response",
+        "404": "structured_error",
+        "409": "structured_error",
+        "default": "structured_error"
+      }
+    },
+    "project_workflow_draft": {
+      "method": "GET",
+      "request_schema": "#/$defs/ProjectWorkflowDraftRequest",
+      "response": {
+        "kind": "json",
+        "schema": "#/$defs/ProjectWorkflowDraft",
+        "success_status": 200
+      },
+      "route": "/api/v2/projects/{project_id}/workflow/draft",
+      "status_mapping": {
+        "200": "response",
+        "404": "structured_error",
+        "409": "structured_error",
+        "default": "structured_error"
+      }
+    },
+    "publish_project_input": {
+      "method": "POST",
+      "request_schema": "#/$defs/PublishProjectInputRequest",
+      "response": {
+        "kind": "json",
+        "schema": "#/$defs/ProjectInputPublication",
+        "success_status": 201
+      },
+      "route": "/api/v2/projects/{project_id}/inputs",
+      "status_mapping": {
+        "201": "response",
+        "400": "structured_error",
+        "404": "structured_error",
         "default": "structured_error"
       }
     },
@@ -3312,15 +3633,15 @@
         "default": "structured_error"
       }
     },
-    "save_project_workflow": {
+    "save_project_workflow_draft": {
       "method": "PUT",
-      "request_schema": "#/$defs/SaveProjectWorkflowRequest",
+      "request_schema": "#/$defs/SubmitProjectWorkflowRequest",
       "response": {
         "kind": "json",
-        "schema": "#/$defs/ProjectWorkflowSnapshot",
+        "schema": "#/$defs/ProjectWorkflowDraft",
         "success_status": 200
       },
-      "route": "/api/v2/projects/{project_id}/workflow",
+      "route": "/api/v2/projects/{project_id}/workflow/draft",
       "status_mapping": {
         "200": "response",
         "404": "structured_error",
@@ -3358,24 +3679,6 @@
       "route": "/api/v2/projects/{project_id}/runs",
       "status_mapping": {
         "202": "response",
-        "404": "structured_error",
-        "409": "structured_error",
-        "422": "structured_error",
-        "503": "structured_error",
-        "default": "structured_error"
-      }
-    },
-    "workflow_compile": {
-      "method": "POST",
-      "request_schema": "#/$defs/WorkflowCompileRequest",
-      "response": {
-        "kind": "json",
-        "schema": "#/$defs/CompileReceipt",
-        "success_status": 200
-      },
-      "route": "/api/v2/projects/{project_id}/workflow:compile",
-      "status_mapping": {
-        "200": "response",
         "404": "structured_error",
         "409": "structured_error",
         "422": "structured_error",
@@ -3526,6 +3829,12 @@
         "http_status": 404,
         "retryable": false
       },
+      "project_input_not_found": {
+        "code": "project_input_not_found",
+        "details_schema": "#/$defs/ResourceNotFoundDetails",
+        "http_status": 404,
+        "retryable": false
+      },
       "protocol_mismatch": {
         "code": "protocol_mismatch",
         "details_schema": "#/$defs/ProtocolMismatchDetails",
@@ -3556,10 +3865,28 @@
         "http_status": 400,
         "retryable": false
       },
-      "workflow_not_found": {
-        "code": "workflow_not_found",
+      "workflow_commit_identity_mismatch": {
+        "code": "workflow_commit_identity_mismatch",
+        "details_schema": "#/$defs/WorkflowCommitIdentityMismatchDetails",
+        "http_status": 409,
+        "retryable": false
+      },
+      "workflow_commit_not_found": {
+        "code": "workflow_commit_not_found",
         "details_schema": "#/$defs/ResourceNotFoundDetails",
         "http_status": 404,
+        "retryable": false
+      },
+      "workflow_draft_not_found": {
+        "code": "workflow_draft_not_found",
+        "details_schema": "#/$defs/ResourceNotFoundDetails",
+        "http_status": 404,
+        "retryable": false
+      },
+      "workflow_draft_revision_conflict": {
+        "code": "workflow_draft_revision_conflict",
+        "details_schema": "#/$defs/WorkflowDraftRevisionConflictDetails",
+        "http_status": 409,
         "retryable": false
       }
     },

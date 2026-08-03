@@ -5,6 +5,8 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
+import pytest
+
 from core import (
     EnvironmentConfiguration,
     ProjectManager,
@@ -13,7 +15,6 @@ from core import (
     WorkflowDocument,
     WorkflowNodeInstance,
     build_frozen_catalog,
-    parse_workflow_document,
 )
 from core.port_types import canonical_json_bytes
 from core.workflow_v2 import WorkflowEdge
@@ -24,13 +25,17 @@ from modules.prompt_authoring.package import (
 from modules.structure_transform.package import (
     MODULE_PACKAGE as STRUCTURE_TRANSFORM_PACKAGE,
 )
-from tests.fixtures.prompt_authoring_sources.package import (
-    MODULE_PACKAGE as PROMPT_SOURCE_PACKAGE,
+from tests.fixtures.structure_transform_sources.package import (
+    MODULE_PACKAGE as STRUCTURE_SOURCE_PACKAGE,
 )
 
 
 VERSION = "2.1.0"
-STRUCTURE_VERSION = "3.0.0"
+STRUCTURE_VERSION = "4.0.0"
+NORMALIZE_CSH_VERSION = "5.0.0"
+SOURCE_VERSION = "5.0.0"
+PROMPT_EDIT_VERSION = "3.0.0"
+PROMPT_FROM_STRUCTURE_VERSION = "5.0.0"
 
 
 def _run(
@@ -49,9 +54,9 @@ def _run(
     )
     project = projects.create("workflow usability repair regression")
     authoring = WorkflowAuthoringService(projects, catalog)
-    saved = authoring.save(
+    committed = authoring.commit(
         project.id,
-        expected_workflow_revision=0,
+        expected_draft_revision=0,
         workflow=WorkflowDocument(
             schema_version=VERSION,
             workflow_id=project.id,
@@ -59,15 +64,6 @@ def _run(
             edges=edges,
             contract_lock=(),
         ),
-    )
-    relocked = authoring.relock(
-        project.id,
-        workflow_revision=saved["workflow_revision"],
-    )
-    compiled = authoring.compile(
-        project.id,
-        workflow_revision=relocked["workflow_revision"],
-        workflow=parse_workflow_document(relocked["workflow"]),
     )
     service = V2RunService(
         projects,
@@ -77,8 +73,7 @@ def _run(
     )
     receipt = service.start(
         project.id,
-        workflow_revision=relocked["workflow_revision"],
-        compile_id=compiled.public_receipt()["compile_id"],
+        workflow_commit_id=committed.workflow_commit_id,
         client_request_id="workflow-usability-repair",
     )
     projection = service.projection(project.id, receipt["run_id"])
@@ -121,44 +116,70 @@ def test_2emo_csh_normalization_preserves_parent_span_and_builds_prompt(
 ) -> None:
     source = WorkflowNodeInstance(
         node_id="source",
-        node_type_id="contract_test.prompt_authoring_values",
-        node_type_version=STRUCTURE_VERSION,
-        binding_id="contract_test.prompt_authoring_values.direct",
-        binding_version=STRUCTURE_VERSION,
+        node_type_id="contract_test.structure_transform_source",
+        node_type_version=SOURCE_VERSION,
+        binding_id="contract_test.structure_transform_source.direct",
+        binding_version=SOURCE_VERSION,
         node_parameters={"fixture": "2emo"},
         binding_parameters={},
     )
     normalize = WorkflowNodeInstance(
         node_id="normalize",
         node_type_id="structure_transform.normalize_csh_parent_span",
-        node_type_version=STRUCTURE_VERSION,
+        node_type_version=NORMALIZE_CSH_VERSION,
         binding_id=(
             "structure_transform.normalize_csh_parent_span.direct"
         ),
-        binding_version=STRUCTURE_VERSION,
+        binding_version=NORMALIZE_CSH_VERSION,
         node_parameters={},
         binding_parameters={},
     )
     prompt = WorkflowNodeInstance(
         node_id="prompt",
         node_type_id="prompt_authoring.prompt_from_structure",
-        node_type_version=STRUCTURE_VERSION,
+        node_type_version=PROMPT_FROM_STRUCTURE_VERSION,
         binding_id="prompt_authoring.prompt_from_structure.direct",
+        binding_version=PROMPT_FROM_STRUCTURE_VERSION,
+        node_parameters={},
+        binding_parameters={},
+    )
+    resolve_axis = WorkflowNodeInstance(
+        node_id="resolve-axis",
+        node_type_id="structure_transform.resolve_residue_axis",
+        node_type_version=STRUCTURE_VERSION,
+        binding_id="structure_transform.resolve_residue_axis.direct",
         binding_version=STRUCTURE_VERSION,
         node_parameters={},
         binding_parameters={},
     )
     catalog, projection = _run(
         tmp_path,
-        nodes=(source, normalize, prompt),
+        nodes=(source, normalize, resolve_axis, prompt),
         edges=(
             WorkflowEdge("source", "structure", "normalize", "structure"),
-            WorkflowEdge("normalize", "structure", "prompt", "structure"),
+            WorkflowEdge(
+                "normalize",
+                "structure",
+                "resolve-axis",
+                "structure",
+            ),
+            WorkflowEdge(
+                "normalize",
+                "modified_residue_normalizations",
+                "resolve-axis",
+                "modified_residue_normalizations",
+            ),
+            WorkflowEdge(
+                "resolve-axis",
+                "residue_axis",
+                "prompt",
+                "residue_axis",
+            ),
         ),
         registrations=(
             STRUCTURE_TRANSFORM_PACKAGE,
             PROMPT_AUTHORING_PACKAGE,
-            PROMPT_SOURCE_PACKAGE,
+            STRUCTURE_SOURCE_PACKAGE,
         ),
     )
 
@@ -191,6 +212,93 @@ def test_2emo_csh_normalization_preserves_parent_span_and_builds_prompt(
     assert mapping.entries[0].component_id == "CSH"
     assert mapping.entries[0].observed_residue_id == "A:66"
     assert mapping.entries[0].parent_residue_ids == ("A:65", "A:66", "A:67")
+    normalized_lines = normalized.pdb_string.splitlines()
+    last_a64 = max(
+        index
+        for index, line in enumerate(normalized_lines)
+        if line.startswith("ATOM  ")
+        and line[21] == "A"
+        and line[22:26].strip() == "64"
+    )
+    first_a65 = min(
+        index
+        for index, line in enumerate(normalized_lines)
+        if line.startswith("ATOM  ")
+        and line[21] == "A"
+        and line[22:26].strip() == "65"
+    )
+    assert "TER" not in normalized_lines[last_a64 + 1 : first_a65]
+
+    axis = outputs[("resolve-axis", "residue_axis")]
+    assert axis.structure == normalized
+    assert axis.layout.length == 224
+    assert len(axis.segments) == 1
+    assert axis.segments[0].chain_id == "A"
+    assert axis.segments[0].residue_ids == axis.layout.residue_ids
+    axis_index = axis.layout.residue_ids.index("A:64")
+    assert axis.layout.residue_ids[axis_index : axis_index + 5] == (
+        "A:64",
+        "A:65",
+        "A:66",
+        "A:67",
+        "A:68",
+    )
+    assert axis.sequence[axis_index + 1 : axis_index + 4] == "SHG"
+    assert axis.ca_coordinate_mask[axis_index + 1] is True
+    assert axis.complete_backbone_mask[axis_index + 1] is False
+    assert axis.coordinate_for("A:65", "CA") == pytest.approx(
+        (-12.147, 73.489, 39.240)
+    )
+    csh_disposition = next(
+        item
+        for item in axis.component_dispositions
+        if item.component_id == "CSH"
+    )
+    assert csh_disposition.observed_residue_id == "A:66"
+    assert csh_disposition.parent_residue_ids == ("A:65", "A:66", "A:67")
+    assert csh_disposition.normalization_source == "explicit_mapping"
+
+
+def test_2emo_raw_modified_polymer_is_rejected_at_residue_axis_seam(
+    tmp_path: Path,
+) -> None:
+    source = WorkflowNodeInstance(
+        node_id="source",
+        node_type_id="contract_test.structure_transform_source",
+        node_type_version=SOURCE_VERSION,
+        binding_id="contract_test.structure_transform_source.direct",
+        binding_version=SOURCE_VERSION,
+        node_parameters={"fixture": "2emo"},
+        binding_parameters={},
+    )
+    resolve_axis = WorkflowNodeInstance(
+        node_id="resolve-axis",
+        node_type_id="structure_transform.resolve_residue_axis",
+        node_type_version=STRUCTURE_VERSION,
+        binding_id="structure_transform.resolve_residue_axis.direct",
+        binding_version=STRUCTURE_VERSION,
+        node_parameters={},
+        binding_parameters={},
+    )
+    _, projection = _run(
+        tmp_path,
+        nodes=(source, resolve_axis),
+        edges=(
+            WorkflowEdge(
+                "source",
+                "structure",
+                "resolve-axis",
+                "structure",
+            ),
+        ),
+        registrations=(STRUCTURE_TRANSFORM_PACKAGE, STRUCTURE_SOURCE_PACKAGE),
+    )
+
+    assert projection["status"] == "failed"
+    assert not any(
+        output["node_id"] == "resolve-axis"
+        for output in projection["outputs"]
+    )
 
 
 def test_5g53_identity_insertions_preserve_every_modeled_residue_and_track(
@@ -198,19 +306,19 @@ def test_5g53_identity_insertions_preserve_every_modeled_residue_and_track(
 ) -> None:
     source = WorkflowNodeInstance(
         node_id="source",
-        node_type_id="contract_test.prompt_authoring_values",
-        node_type_version=STRUCTURE_VERSION,
-        binding_id="contract_test.prompt_authoring_values.direct",
-        binding_version=STRUCTURE_VERSION,
+        node_type_id="contract_test.structure_transform_source",
+        node_type_version=SOURCE_VERSION,
+        binding_id="contract_test.structure_transform_source.direct",
+        binding_version=SOURCE_VERSION,
         node_parameters={"fixture": "5g53"},
         binding_parameters={},
     )
     prompt = WorkflowNodeInstance(
         node_id="prompt",
         node_type_id="prompt_authoring.prompt_from_structure",
-        node_type_version=STRUCTURE_VERSION,
+        node_type_version=PROMPT_FROM_STRUCTURE_VERSION,
         binding_id="prompt_authoring.prompt_from_structure.direct",
-        binding_version=STRUCTURE_VERSION,
+        binding_version=PROMPT_FROM_STRUCTURE_VERSION,
         node_parameters={},
         binding_parameters={},
     )
@@ -221,6 +329,15 @@ def test_5g53_identity_insertions_preserve_every_modeled_residue_and_track(
         binding_id="structure_transform.select_chains.direct",
         binding_version=STRUCTURE_VERSION,
         node_parameters={"chain_ids": ["A"]},
+        binding_parameters={},
+    )
+    resolve_axis = WorkflowNodeInstance(
+        node_id="resolve-axis",
+        node_type_id="structure_transform.resolve_residue_axis",
+        node_type_version=STRUCTURE_VERSION,
+        binding_id="structure_transform.resolve_residue_axis.direct",
+        binding_version=STRUCTURE_VERSION,
+        node_parameters={},
         binding_parameters={},
     )
     branch_insertions = {
@@ -236,9 +353,9 @@ def test_5g53_identity_insertions_preserve_every_modeled_residue_and_track(
         WorkflowNodeInstance(
             node_id=f"edit-{branch}",
             node_type_id="prompt_authoring.insert_masked_residues",
-            node_type_version=VERSION,
+            node_type_version=PROMPT_EDIT_VERSION,
             binding_id="prompt_authoring.insert_masked_residues.direct",
-            binding_version=VERSION,
+            binding_version=PROMPT_EDIT_VERSION,
             node_parameters={
                 "insertions": [{
                     "after_residue_id": "A:211",
@@ -252,7 +369,7 @@ def test_5g53_identity_insertions_preserve_every_modeled_residue_and_track(
     )
     catalog, projection = _run(
         tmp_path,
-        nodes=(source, select_chain_a, prompt, *edit_nodes),
+        nodes=(source, select_chain_a, resolve_axis, prompt, *edit_nodes),
         edges=(
             WorkflowEdge(
                 "source",
@@ -263,8 +380,14 @@ def test_5g53_identity_insertions_preserve_every_modeled_residue_and_track(
             WorkflowEdge(
                 "select-chain-a",
                 "structure",
-                "prompt",
+                "resolve-axis",
                 "structure",
+            ),
+            WorkflowEdge(
+                "resolve-axis",
+                "residue_axis",
+                "prompt",
+                "residue_axis",
             ),
             *(
                 WorkflowEdge(
@@ -278,7 +401,7 @@ def test_5g53_identity_insertions_preserve_every_modeled_residue_and_track(
         ),
         registrations=(
             PROMPT_AUTHORING_PACKAGE,
-            PROMPT_SOURCE_PACKAGE,
+            STRUCTURE_SOURCE_PACKAGE,
             STRUCTURE_TRANSFORM_PACKAGE,
         ),
     )
@@ -312,8 +435,14 @@ def test_5g53_identity_insertions_preserve_every_modeled_residue_and_track(
         ] == tuple(inserted_ids)
         assert target_ids[junction + 1 + len(inserted_ids)] == "A:224"
         assert all(f"A:{index}" in target_ids for index in range(292, 313))
-        assert sum(operation == "match" for _, _, operation in residue_map.mappings) == 283
-        assert sum(operation == "insert" for _, _, operation in residue_map.mappings) == len(inserted_ids)
+        assert sum(
+            operation == "match"
+            for _, _, operation in residue_map.mappings
+        ) == 283
+        assert sum(
+            operation == "insert"
+            for _, _, operation in residue_map.mappings
+        ) == len(inserted_ids)
         assert all(operation != "delete" for _, _, operation in residue_map.mappings)
         for attribute in (
             "sequence_track",

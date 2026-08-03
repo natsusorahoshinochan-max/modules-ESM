@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import csv
+import hashlib
+import os
 from pathlib import Path
 from typing import Any
 
@@ -16,7 +18,6 @@ from core import (
     WorkflowDocument,
     WorkflowNodeInstance,
     build_frozen_catalog,
-    parse_workflow_document,
 )
 from core.port_types import canonical_json_bytes
 from core.workflow_v2 import WorkflowEdge
@@ -29,8 +30,6 @@ from tests.fixtures.public_v2 import wait_for_service_run_terminal_events
 
 pytestmark = [pytest.mark.acceptance, pytest.mark.local_provider]
 
-EXTERNAL_ROOT = Path("/Users/sorachan/Documents/ESM-workflow-NEXT")
-SOURCE_ROOT = EXTERNAL_ROOT / "vendor/protein-sol"
 FIXTURE_ROOT = (
     Path(__file__).resolve().parents[2] / "modules/solubility/fixtures"
 )
@@ -64,9 +63,20 @@ with (FIXTURE_ROOT / "protein_sol_expected.csv").open(newline="") as handle:
     )
 
 
+def _trusted_source_root() -> Path:
+    configured = os.environ.get("PROTEIN_WORKBENCH_PROTEIN_SOL_ROOT")
+    assert configured is not None, (
+        "PROTEIN_WORKBENCH_PROTEIN_SOL_ROOT must select the trusted "
+        "Protein-Sol source root"
+    )
+    root = Path(configured).expanduser()
+    assert root.is_absolute()
+    return root.resolve()
+
+
 def _environment() -> dict[str, Any]:
     return {
-        "source_root": SOURCE_ROOT,
+        "source_root": _trusted_source_root(),
         "bash_executable": Path("/bin/bash"),
         "perl_executable": Path("/usr/bin/perl"),
         "resolved_runtime_fingerprint": (
@@ -95,14 +105,17 @@ def _decode_output(catalog: Any, output: dict[str, Any]) -> Any:
 
 def test_local_protein_sol_golden_multiple_metrics(
     tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    import modules.solubility.adapter as adapter
     from modules.solubility.package import MODULE_PACKAGE
     from tests.fixtures.folding_sources.package import (
         MODULE_PACKAGE as SOURCE_PACKAGE,
     )
 
+    source_root = _trusted_source_root()
     required = (
-        SOURCE_ROOT,
+        source_root,
         Path("/bin/bash"),
         Path("/usr/bin/perl"),
     )
@@ -111,6 +124,31 @@ def test_local_protein_sol_golden_multiple_metrics(
     )
     readiness = protein_sol_readiness(_environment())
     assert readiness.passing is True, readiness
+
+    recorded: list[dict[str, Any]] = []
+    original_invoke = adapter.invoke_protein_sol
+
+    def record_and_delegate(**kwargs: Any) -> None:
+        staging_directory = kwargs["staging_directory"]
+        record = {
+            "command": tuple(kwargs["command"]),
+            "input_fasta": (
+                staging_directory / "input.fasta"
+            ).read_text(encoding="ascii"),
+            "source_files_sha256": {
+                relative: hashlib.sha256(
+                    (staging_directory / relative).read_bytes()
+                ).hexdigest()
+                for relative in adapter.PROTEIN_SOL_SOURCE_SHA256
+            },
+        }
+        original_invoke(**kwargs)
+        record["raw_output"] = (
+            staging_directory / "seq_prediction.txt"
+        ).read_bytes()
+        recorded.append(record)
+
+    monkeypatch.setattr(adapter, "invoke_protein_sol", record_and_delegate)
 
     catalog = build_frozen_catalog((MODULE_PACKAGE, SOURCE_PACKAGE))
     projects = ProjectManager(
@@ -121,9 +159,9 @@ def test_local_protein_sol_golden_multiple_metrics(
     )
     project = projects.create("model-backed Protein-Sol")
     authoring = WorkflowAuthoringService(projects, catalog)
-    saved = authoring.save(
+    committed = authoring.commit(
         project.id,
-        expected_workflow_revision=0,
+        expected_draft_revision=0,
         workflow=WorkflowDocument(
             schema_version="2.1.0",
             workflow_id=project.id,
@@ -133,20 +171,20 @@ def test_local_protein_sol_golden_multiple_metrics(
                     node_type_id=(
                         "contract_test.folding_sequence_batch_source"
                     ),
-                    node_type_version="2.1.0",
+                    node_type_version="3.0.0",
                     binding_id=(
                         "contract_test.folding_sequence_batch_source.direct"
                     ),
-                    binding_version="2.1.0",
+                    binding_version="3.0.0",
                     node_parameters={"sequences": list(SEQUENCES)},
                     binding_parameters={},
                 ),
                 WorkflowNodeInstance(
                     node_id="score",
                     node_type_id="solubility.score_sequence",
-                    node_type_version="2.1.0",
+                    node_type_version="4.0.0",
                     binding_id="solubility.protein_sol.local",
-                    binding_version="2.1.0",
+                    binding_version="4.0.0",
                     node_parameters={},
                     binding_parameters={},
                 ),
@@ -162,15 +200,6 @@ def test_local_protein_sol_golden_multiple_metrics(
             contract_lock=(),
         ),
     )
-    relocked = authoring.relock(
-        project.id,
-        workflow_revision=saved["workflow_revision"],
-    )
-    compiled = authoring.compile(
-        project.id,
-        workflow_revision=relocked["workflow_revision"],
-        workflow=parse_workflow_document(relocked["workflow"]),
-    )
     fingerprint = configured_protein_sol_runtime_fingerprint()
     service = V2RunService(
         projects,
@@ -178,7 +207,7 @@ def test_local_protein_sol_golden_multiple_metrics(
         authoring,
         EnvironmentConfiguration(
             {
-                ("solubility.protein_sol.local", "2.1.0"): {
+                ("solubility.protein_sol.local", "4.0.0"): {
                     "values": _environment(),
                     "safe_fingerprint": fingerprint,
                     "invalidation_token": fingerprint,
@@ -189,8 +218,7 @@ def test_local_protein_sol_golden_multiple_metrics(
     try:
         receipt = service.start(
             project.id,
-            workflow_revision=relocked["workflow_revision"],
-            compile_id=compiled.public_receipt()["compile_id"],
+            workflow_commit_id=committed.workflow_commit_id,
             client_request_id="model-backed-protein-sol",
         )
         wait_for_service_run_terminal_events(
@@ -221,6 +249,28 @@ def test_local_protein_sol_golden_multiple_metrics(
         candidate.candidate_id for candidate in source_candidates.items
     ]
     assert len(candidate_ids) == len(SEQUENCES) == len(EXPECTED) == 2
+    assert len(recorded) == 1
+    assert recorded[0]["command"] == (
+        "/bin/bash",
+        "multiple_prediction_wrapper_export.sh",
+        "input.fasta",
+    )
+    assert recorded[0]["input_fasta"] == "".join(
+        f">candidate_{index}\n{sequence}\n"
+        for index, sequence in enumerate(SEQUENCES)
+    )
+    assert recorded[0]["source_files_sha256"] == (
+        adapter.PROTEIN_SOL_SOURCE_SHA256
+    )
+    assert adapter.parse_protein_sol_output(recorded[0]["raw_output"]) == [
+        adapter.ProteinSolPrediction(
+            provider_sequence_id=f"candidate_{index}",
+            percent_soluble_fraction=expected["percent-sol"],
+            scaled_soluble_fraction=expected["scaled-sol"],
+            isoelectric_point=expected["pI"],
+        )
+        for index, expected in enumerate(EXPECTED)
+    ]
     assert [entry.candidate_id for entry in scores.entries] == [
         candidate_id
         for candidate_id in candidate_ids
@@ -263,15 +313,11 @@ def test_local_protein_sol_golden_multiple_metrics(
         (
             candidate_id,
             "population_scaled_solubility",
-            expected["population-sol"],
+            adapter.PROTEIN_SOL_POPULATION_SCALED,
             "dimensionless",
             "niwa_non_membrane_2396",
         )
-        for candidate_id, expected in zip(
-            candidate_ids,
-            EXPECTED,
-            strict=True,
-        )
+        for candidate_id in candidate_ids
     }
     assert all(
         entry.context.to_public() == {"kind": "intrinsic"}
@@ -284,7 +330,7 @@ def test_local_protein_sol_golden_multiple_metrics(
     binding = catalog.require_contract(
         "binding",
         "solubility.protein_sol.local",
-        "2.1.0",
+        "4.0.0",
     )
     assert binding.descriptor["method"]["contract_id"] == (
         "solubility.protein_sol.sequence_prediction_2017"
@@ -297,7 +343,7 @@ def test_local_protein_sol_golden_multiple_metrics(
     method = catalog.require_contract(
         "method",
         "solubility.protein_sol.sequence_prediction_2017",
-        "2.1.0",
+        "3.0.0",
     )
     started = [
         event["event"]
@@ -319,7 +365,7 @@ def test_local_protein_sol_golden_multiple_metrics(
         if event["event"]["type"] == "readiness_attested"
         and event["event"]["binding"]["contract_id"]
         == "solubility.protein_sol.local"
-        and event["event"]["binding"]["contract_version"] == "2.1.0"
+        and event["event"]["binding"]["contract_version"] == "4.0.0"
         and event["event"]["conclusion"] == "passing"
     )
     invocation_index = next(

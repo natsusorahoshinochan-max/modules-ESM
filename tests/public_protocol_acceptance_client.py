@@ -9,6 +9,7 @@ import httpx
 
 from protein_workbench_public import (
     ProtocolValidationError,
+    encode_project_input_content,
     prepare_rest_request,
     validate_artifact_response,
     validate_error,
@@ -60,6 +61,38 @@ class PublicProtocolAcceptanceClient:
         payload = response.json()
         validate_response(operation_id, response.status_code, payload)
         return payload
+
+    def create_project(self, name: str) -> dict[str, Any]:
+        return self.request("create_project", {"name": name})
+
+    def publish_project_input(
+        self,
+        project_id: str,
+        *,
+        filename: str,
+        content: bytes,
+    ) -> dict[str, Any]:
+        return self.request(
+            "publish_project_input",
+            {
+                "project_id": project_id,
+                "filename": filename,
+                "content_base64": encode_project_input_content(content),
+            },
+        )
+
+    def project_input_metadata(
+        self,
+        project_id: str,
+        project_input_ref: str,
+    ) -> dict[str, Any]:
+        return self.request(
+            "project_input_metadata",
+            {
+                "project_id": project_id,
+                "project_input_ref": project_input_ref,
+            },
+        )
 
     def artifact(
         self,

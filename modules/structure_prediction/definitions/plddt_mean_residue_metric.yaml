@@ -1,8 +1,8 @@
 schema_version: "2.1.0"
 metric_id: structure.plddt.mean_residue
-version: "2.1.0"
+version: "3.0.0"
 title: Mean-residue pLDDT
-description: Equal-weight arithmetic mean of the canonical per-residue pLDDT values over every valid protein residue.
+description: Equal-weight arithmetic mean of canonical per-residue pLDDT over the exact prediction-input or resolved-structure residue population carried by every Observation.
 value_shape: scalar
 unit: dimensionless
 direction: higher_is_better
@@ -12,8 +12,8 @@ canonical_range:
 granularity: candidate
 aggregation_semantics:
   kind: equal_weight_mean
-  source_metric: structure.plddt.per_residue@2.1.0
-  included_values: valid_protein_residues
+  source_metric: structure.plddt.per_residue@3.0.0
+  included_values: non_null_per_residue_values_on_exact_axis
 observation_context_schema:
   type: object
   properties:

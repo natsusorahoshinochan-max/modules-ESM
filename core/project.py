@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import re
 import shutil
 import tempfile
 import uuid
@@ -25,7 +26,11 @@ from core.storage import (
 
 CANONICAL_3GB1_PROJECT_ID = "canonical-3gb1"
 MAX_PROJECT_INPUT_BYTES = 64 * 1024 * 1024
+MAX_PROJECT_INPUT_DESCRIPTOR_BYTES = 8 * 1024
 PROJECT_SCHEMA_VERSION = "2.1.0"
+PROJECT_INPUT_SCHEMA_VERSION = "2.1.0"
+_PROJECT_INPUT_ARTIFACT_KIND = "project_input"
+_PROJECT_INPUT_DIGEST_PATTERN = re.compile(r"^sha256:[0-9a-f]{64}$")
 
 
 class CanonicalSeedError(RuntimeError):
@@ -34,6 +39,14 @@ class CanonicalSeedError(RuntimeError):
 
 class ProtectedProjectError(PermissionError):
     """An ordinary write targeted the protected canonical project."""
+
+
+class ProjectInputIntegrityError(ValueError):
+    """One published Project Input snapshot failed durable verification."""
+
+    def __init__(self, project_input_ref: str) -> None:
+        super().__init__("Project input snapshot failed integrity verification")
+        self.project_input_ref = project_input_ref
 
 
 @dataclass
@@ -78,98 +91,255 @@ class ProjectManager:
         safe_project_id = validate_identifier(project_id, "project_id")
         return contained_path(self.root_dir, safe_project_id)
 
-    def input_path(self, project_id: str, uploaded_name: str) -> Path:
-        """Resolve one uploaded file beneath the project's inputs directory."""
-        name_parts = validate_relative_path(
-            uploaded_name,
-            "uploaded_name",
-            allow_nested=False,
-        )
-        return contained_path(
-            self.project_dir(project_id),
-            "inputs",
-            *name_parts,
-            field="uploaded_name",
-        )
-
-    def publish_input(
-        self,
-        project_id: str,
-        input_reference: str,
-        payload: bytes,
-    ) -> dict[str, Any]:
-        """Publish one immutable owner-only Project input under an opaque ID."""
-        self.assert_writable(project_id)
+    def input_path(self, project_id: str, input_reference: str) -> Path:
+        """Resolve one immutable Project Input payload for local diagnostics."""
         safe_reference = validate_identifier(
             input_reference,
             "project_input_ref",
         )
-        if type(payload) is not bytes or len(payload) > MAX_PROJECT_INPUT_BYTES:
-            raise ValueError("Project input payload is invalid or too large")
-        write_private_new_file(
+        return contained_path(
             self.project_dir(project_id),
-            ("inputs", safe_reference),
-            payload,
+            "inputs",
+            safe_reference,
+            "payload",
             field="project_input_ref",
         )
+
+    @staticmethod
+    def _validate_input_filename(filename: str) -> str:
+        if type(filename) is not str or not 1 <= len(filename) <= 512:
+            raise ValueError("Project input filename is invalid")
+        try:
+            filename.encode("utf-8")
+        except UnicodeEncodeError as error:
+            raise ValueError("Project input filename is invalid") from error
+        return filename
+
+    @staticmethod
+    def _input_descriptor_bytes(descriptor: Mapping[str, Any]) -> bytes:
+        try:
+            return json.dumps(
+                dict(descriptor),
+                ensure_ascii=False,
+                separators=(",", ":"),
+                sort_keys=True,
+                allow_nan=False,
+            ).encode("utf-8")
+        except (TypeError, ValueError, UnicodeEncodeError) as error:
+            raise ValueError("Project input descriptor is invalid") from error
+
+    @classmethod
+    def _input_descriptor(
+        cls,
+        input_reference: str,
+        payload: bytes,
+        *,
+        filename: str,
+    ) -> dict[str, Any]:
+        if (
+            type(payload) is not bytes
+            or len(payload) > MAX_PROJECT_INPUT_BYTES
+        ):
+            raise ValueError("Project input payload is invalid or too large")
+        safe_filename = cls._validate_input_filename(filename)
         return {
-            "project_input_ref": safe_reference,
+            "schema_version": PROJECT_INPUT_SCHEMA_VERSION,
+            "artifact_kind": _PROJECT_INPUT_ARTIFACT_KIND,
+            "project_input_ref": input_reference,
+            "filename": safe_filename,
             "size": len(payload),
             "content_digest": (
                 "sha256:" + hashlib.sha256(payload).hexdigest()
             ),
         }
 
+    @staticmethod
+    def _public_input_descriptor(
+        descriptor: Mapping[str, Any],
+    ) -> dict[str, Any]:
+        return {
+            "project_input_ref": descriptor["project_input_ref"],
+            "filename": descriptor["filename"],
+            "size": descriptor["size"],
+            "content_digest": descriptor["content_digest"],
+        }
+
+    @staticmethod
+    def _read_private_bytes(
+        root: Path,
+        relative_parts: tuple[str, ...],
+        *,
+        field: str,
+        maximum_size: int,
+    ) -> bytes:
+        file_descriptor = open_private_regular_file(
+            root,
+            relative_parts,
+            field=field,
+        )
+        try:
+            with os.fdopen(file_descriptor, "rb", closefd=False) as source:
+                payload = source.read(maximum_size + 1)
+        finally:
+            os.close(file_descriptor)
+        if len(payload) > maximum_size:
+            raise ValueError(f"{field} exceeds the supported size")
+        return payload
+
+    def _publish_input_snapshot(
+        self,
+        project_dir: Path,
+        input_reference: str,
+        payload: bytes,
+        *,
+        filename: str,
+    ) -> dict[str, Any]:
+        descriptor = self._input_descriptor(
+            input_reference,
+            payload,
+            filename=filename,
+        )
+        inputs_dir = contained_path(
+            project_dir,
+            "inputs",
+            field="project_input_ref",
+        )
+        inputs_dir.mkdir(mode=0o700, parents=True, exist_ok=True)
+        destination = contained_path(
+            inputs_dir,
+            input_reference,
+            field="project_input_ref",
+        )
+        if destination.exists():
+            raise FileExistsError(input_reference)
+        staging_dir = Path(
+            tempfile.mkdtemp(
+                prefix=f".{input_reference}.",
+                suffix=".pending",
+                dir=inputs_dir,
+            )
+        )
+        try:
+            write_private_new_file(
+                staging_dir,
+                ("descriptor.json",),
+                self._input_descriptor_bytes(descriptor),
+                field="project_input_descriptor",
+            )
+            write_private_new_file(
+                staging_dir,
+                ("payload",),
+                payload,
+                field="project_input_ref",
+            )
+            if destination.exists():
+                raise FileExistsError(input_reference)
+            staging_dir.rename(destination)
+            directory_descriptor = os.open(
+                inputs_dir,
+                os.O_RDONLY | getattr(os, "O_DIRECTORY", 0),
+            )
+            try:
+                os.fsync(directory_descriptor)
+            finally:
+                os.close(directory_descriptor)
+        finally:
+            if staging_dir.exists():
+                shutil.rmtree(staging_dir)
+        return self._public_input_descriptor(descriptor)
+
+    def publish_input(
+        self,
+        project_id: str,
+        input_reference: str,
+        payload: bytes,
+        *,
+        filename: str,
+    ) -> dict[str, Any]:
+        """Atomically publish one immutable Project Input snapshot."""
+        self.assert_writable(project_id)
+        safe_reference = validate_identifier(
+            input_reference,
+            "project_input_ref",
+        )
+        return self._publish_input_snapshot(
+            self.project_dir(project_id),
+            safe_reference,
+            payload,
+            filename=filename,
+        )
+
     def read_input(
         self,
         project_id: str,
         input_reference: str,
     ) -> tuple[dict[str, Any], bytes]:
-        """Read and revalidate one immutable Project-scoped input snapshot."""
+        """Read and verify one exact immutable Project Input snapshot."""
         safe_reference = validate_identifier(
             input_reference,
             "project_input_ref",
         )
-        descriptor = open_private_regular_file(
-            self.project_dir(project_id),
-            ("inputs", safe_reference),
-            field="project_input_ref",
-        )
+        project_dir = self.project_dir(project_id)
         try:
-            before = os.fstat(descriptor)
-            if before.st_size > MAX_PROJECT_INPUT_BYTES:
-                raise ValueError("Project input exceeds the supported size")
-            with os.fdopen(descriptor, "rb", closefd=False) as source:
-                payload = source.read(MAX_PROJECT_INPUT_BYTES + 1)
-            after = os.fstat(descriptor)
-            stable_fields = (
-                "st_dev",
-                "st_ino",
-                "st_size",
-                "st_mtime_ns",
-                "st_ctime_ns",
+            descriptor_bytes = self._read_private_bytes(
+                project_dir,
+                ("inputs", safe_reference, "descriptor.json"),
+                field="project_input_descriptor",
+                maximum_size=MAX_PROJECT_INPUT_DESCRIPTOR_BYTES,
+            )
+        except FileNotFoundError:
+            raise
+        except (OSError, StoragePathError, ValueError) as error:
+            raise ProjectInputIntegrityError(safe_reference) from error
+        try:
+            descriptor = json.loads(descriptor_bytes.decode("utf-8"))
+            if (
+                not isinstance(descriptor, dict)
+                or set(descriptor)
+                != {
+                    "schema_version",
+                    "artifact_kind",
+                    "project_input_ref",
+                    "filename",
+                    "size",
+                    "content_digest",
+                }
+                or descriptor["schema_version"]
+                != PROJECT_INPUT_SCHEMA_VERSION
+                or descriptor["artifact_kind"]
+                != _PROJECT_INPUT_ARTIFACT_KIND
+                or descriptor["project_input_ref"] != safe_reference
+                or type(descriptor["size"]) is not int
+                or not 0 <= descriptor["size"] <= MAX_PROJECT_INPUT_BYTES
+                or type(descriptor["content_digest"]) is not str
+                or _PROJECT_INPUT_DIGEST_PATTERN.fullmatch(
+                    descriptor["content_digest"]
+                )
+                is None
+            ):
+                raise ValueError("Project input descriptor is invalid")
+            self._validate_input_filename(descriptor["filename"])
+            if descriptor_bytes != self._input_descriptor_bytes(descriptor):
+                raise ValueError("Project input descriptor is not canonical")
+            payload = self._read_private_bytes(
+                project_dir,
+                ("inputs", safe_reference, "payload"),
+                field="project_input_ref",
+                maximum_size=MAX_PROJECT_INPUT_BYTES,
+            )
+            observed_digest = (
+                "sha256:" + hashlib.sha256(payload).hexdigest()
             )
             if (
-                len(payload) > MAX_PROJECT_INPUT_BYTES
-                or any(
-                    getattr(before, field_name)
-                    != getattr(after, field_name)
-                    for field_name in stable_fields
-                )
+                len(payload) != descriptor["size"]
+                or observed_digest != descriptor["content_digest"]
             ):
-                raise ValueError("Project input changed while it was read")
-        finally:
-            os.close(descriptor)
-        return (
-            {
-                "project_input_ref": safe_reference,
-                "size": len(payload),
-                "content_digest": (
-                    "sha256:" + hashlib.sha256(payload).hexdigest()
-                ),
-            },
-            payload,
-        )
+                raise ValueError(
+                    "Project input payload size or digest mismatch"
+                )
+        except (OSError, StoragePathError, ValueError) as error:
+            raise ProjectInputIntegrityError(safe_reference) from error
+        return self._public_input_descriptor(descriptor), payload
 
     def cache_dir(self, project_id: str) -> Path:
         """Resolve the shared content-addressed Cache directory for a project."""
@@ -258,34 +428,15 @@ class ProjectManager:
 
     def ensure_seed_project_v2(
         self,
-        workflow_json_path: str | Path,
         *,
         input_sources: Mapping[str, str | Path],
         name: str = "3GB1 Design Pipeline",
     ) -> ProjectMeta | None:
-        """Install the maintained v2 seed without converting existing state."""
-        from core.workflow_v2 import parse_workflow_document
+        """Install only the maintained seed Project scope and exact inputs.
 
-        workflow_path = Path(workflow_json_path)
-        if not workflow_path.is_file() or workflow_path.is_symlink():
-            raise CanonicalSeedError(
-                f"Canonical v2 Workflow JSON not found: {workflow_path}"
-            )
-        try:
-            parsed = parse_workflow_document(
-                json.loads(workflow_path.read_text(encoding="utf-8"))
-            )
-        except (OSError, ValueError, json.JSONDecodeError) as error:
-            raise CanonicalSeedError(
-                "Canonical v2 Workflow is not an exact supported document"
-            ) from error
-        if (
-            parsed.workflow_id != CANONICAL_3GB1_PROJECT_ID
-            or not parsed.contract_lock
-        ):
-            raise CanonicalSeedError(
-                "Canonical v2 Workflow identity or Contract Lock is invalid"
-            )
+        Workflow Draft and Commit state belongs exclusively to the authoring
+        owner and is installed separately after the Catalog is frozen.
+        """
 
         project_dir = self.project_dir(CANONICAL_3GB1_PROJECT_ID)
         metadata_path = project_dir / "project.json"
@@ -306,7 +457,7 @@ class ProjectManager:
                 return None
             return meta
 
-        input_payloads: dict[str, bytes] = {}
+        input_payloads: dict[str, tuple[str, bytes]] = {}
         for reference, source_value in input_sources.items():
             reference_parts = validate_relative_path(
                 reference,
@@ -319,7 +470,10 @@ class ProjectManager:
                     f"Canonical v2 input source is unavailable: {reference}"
                 )
             try:
-                input_payloads[reference_parts[0]] = source.read_bytes()
+                input_payloads[reference_parts[0]] = (
+                    source.name,
+                    source.read_bytes(),
+                )
             except OSError as error:
                 raise CanonicalSeedError(
                     f"Canonical v2 input cannot be installed: {reference}"
@@ -330,11 +484,6 @@ class ProjectManager:
             name=name,
             seed=True,
         )
-        descriptor = {
-            "schema_version": PROJECT_SCHEMA_VERSION,
-            "workflow_revision": 1,
-            "workflow": parsed.to_public(),
-        }
         self.root_dir.mkdir(parents=True, exist_ok=True)
         staging_dir = Path(
             tempfile.mkdtemp(
@@ -356,31 +505,19 @@ class ProjectManager:
                 ).encode("utf-8"),
                 field="canonical_v2_metadata",
             )
-            write_private_new_file(
-                staging_dir,
-                ("workflow-v2.json",),
-                json.dumps(
-                    descriptor,
-                    ensure_ascii=False,
-                    separators=(",", ":"),
-                    sort_keys=True,
-                    allow_nan=False,
-                ).encode("utf-8"),
-                field="canonical_v2_workflow",
-            )
-            for reference, payload in input_payloads.items():
-                write_private_new_file(
+            for reference, (filename, payload) in input_payloads.items():
+                self._publish_input_snapshot(
                     staging_dir,
-                    ("inputs", reference),
+                    reference,
                     payload,
-                    field="canonical_v2_input",
+                    filename=filename,
                 )
             if project_dir.exists():
                 return None
             staging_dir.rename(project_dir)
         except (OSError, StoragePathError, ValueError) as error:
             raise CanonicalSeedError(
-                "Canonical v2 Workflow cannot be installed safely"
+                "Canonical v2 Project cannot be installed safely"
             ) from error
         finally:
             if staging_dir.exists():

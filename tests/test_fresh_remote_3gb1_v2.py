@@ -26,14 +26,14 @@ from scripts.fresh_remote_3gb1 import (
     PROTEINMPNN_METHOD_ID,
     PROTEINMPNN_METHOD_VERSION,
     REMOTE_BINDINGS,
-    REMOTE_CONTRACT_VERSION,
     SCHEMA_NAMESPACE,
     _decode_output,
     _decode_output_values,
     _event_payloads,
     _invocation_proof,
     _require_catalog_snapshot_matches_current,
-    _require_run_matches_compile,
+    _require_run_matches_workflow_commit,
+    _require_workflow_commit_matches_plan,
     _validate_run_admission,
     _validate_replay_boundary,
     require_invocation_proof_matches_ledger,
@@ -50,6 +50,8 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent
 WORKFLOW_PATH = (
     PROJECT_ROOT / "examples" / "v2" / "canonical-3gb1.workflow.json"
 )
+WORKFLOW_COMMIT_ID_EXACT = "workflow-commit-" + "1" * 64
+WORKFLOW_COMMIT_ID_FOREIGN = "workflow-commit-" + "2" * 64
 
 
 class _EchoPortType:
@@ -63,8 +65,8 @@ class _EchoCatalog:
         contract_id: str,
         contract_version: str,
     ) -> _EchoPortType:
-        assert contract_id == "structure_comparison.alignment"
-        assert contract_version == "2.1.0"
+        assert contract_id == "structure_comparison.alignment_evidence"
+        assert contract_version == "4.0.0"
         return _EchoPortType()
 
 
@@ -74,8 +76,8 @@ def test_decode_output_values_preserves_every_many_port_value() -> None:
             "node_id": "align-fixed",
             "output_port": "alignments",
             "port_type": {
-                "contract_id": "structure_comparison.alignment",
-                "contract_version": "2.1.0",
+                "contract_id": "structure_comparison.alignment_evidence",
+                "contract_version": "4.0.0",
             },
             "values": [{"alignment": 1}, {"alignment": 2}],
         }]
@@ -127,12 +129,16 @@ def _exact_invocation_proof() -> dict[str, object]:
     esm3_method_digest = _method_digest(
         catalog,
         "esm3.generate_paired.esm3_medium_2024_08",
-        REMOTE_CONTRACT_VERSION,
+        REMOTE_BINDINGS["esm3.generate_paired.biohub_medium"][
+            "method_version"
+        ],
     )
     folding_method_digest = _method_digest(
         catalog,
         "folding.fold.esmfold2_fast_biohub_2026_05",
-        REMOTE_CONTRACT_VERSION,
+        REMOTE_BINDINGS["folding.fold.esmfold2_remote"][
+            "method_version"
+        ],
     )
     proteinmpnn_method_digest = _method_digest(
         catalog,
@@ -190,11 +196,11 @@ def _exact_invocation_proof() -> dict[str, object]:
         "remote_bindings": [
             {
                 "binding_id": binding_id,
-                "binding_version": REMOTE_CONTRACT_VERSION,
+                "binding_version": expected["binding_version"],
                 "method_id": expected["method"],
-                "method_version": REMOTE_CONTRACT_VERSION,
+                "method_version": expected["method_version"],
                 "adapter_id": expected["adapter"],
-                "adapter_version": REMOTE_CONTRACT_VERSION,
+                "adapter_version": expected["adapter_version"],
                 "model": expected["model"],
                 "source": expected["source"],
                 "request_roles": (
@@ -236,10 +242,12 @@ def _exact_invocation_proof() -> dict[str, object]:
                         "provider_residue_projection": {
                             "position_semantics": "one_based_chain_local",
                             "workbench_chain_order": ["A"],
+                            "provider_structure_chain_order": ["A"],
                             "provider_chain_order": ["A"],
                             "entries": [
                                 {
                                     "residue_id": "A:1",
+                                    "segment_index": 0,
                                     "provider_chain_id": "A",
                                     "provider_position": 1,
                                 }
@@ -372,37 +380,95 @@ def test_catalog_snapshot_requires_current_protocol_and_exact_stable_contracts(
         )
 
 
-def test_run_projection_must_match_retained_workflow_and_compile() -> None:
+def test_active_seed_commit_matches_draft_and_exact_recompiled_plan(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from fastapi.testclient import TestClient
+
+    from core.server import create_app
+
+    for name in ("PROJECT", "CACHE", "OUTPUT", "RUN"):
+        root = tmp_path / name.lower()
+        root.mkdir()
+        monkeypatch.setenv(f"PROTEIN_WORKBENCH_{name}_ROOT", str(root))
+
+    catalog = build_discovered_frozen_catalog()
+    with TestClient(create_app(
+        frozen_catalog_override=catalog,
+        _install_canonical_seed=True,
+    )) as client:
+        draft_response = client.get(
+            f"/api/v2/projects/{PROJECT_ID}/workflow/draft"
+        )
+        commit_response = client.get(
+            f"/api/v2/projects/{PROJECT_ID}/workflow/active-commit"
+        )
+        assert draft_response.status_code == 200
+        assert commit_response.status_code == 200
+
+    plan = _require_workflow_commit_matches_plan(
+        draft_response.json(),
+        commit_response.json(),
+        json.loads(WORKFLOW_PATH.read_text(encoding="utf-8")),
+        catalog,
+    )
+    assert plan.execution_plan_digest == (
+        commit_response.json()["execution_plan_digest"]
+    )
+
+
+def test_run_receipt_projection_and_manifest_match_exact_workflow_commit(
+) -> None:
     workflow_digest = "sha256:" + "1" * 64
-    snapshot = {
-        "workflow_revision": 3,
-        "workflow_digest": workflow_digest,
-    }
-    compile_receipt = {
-        "compile_id": "compile-exact",
-        "workflow_revision": 3,
+    workflow_commit = {
+        "workflow_commit_id": WORKFLOW_COMMIT_ID_EXACT,
+        "workflow_commit_revision": 3,
         "workflow_digest": workflow_digest,
     }
     run = {
-        "compile_id": "compile-exact",
-        "workflow_revision": 3,
+        "workflow_commit_id": WORKFLOW_COMMIT_ID_EXACT,
+        "workflow_commit_revision": 3,
         "workflow_digest": workflow_digest,
     }
+    admission = {
+        "workflow_commit_id": WORKFLOW_COMMIT_ID_EXACT,
+        "workflow_commit_revision": 3,
+    }
+    manifest = dict(run)
 
-    _require_run_matches_compile(run, snapshot, compile_receipt)
+    _require_run_matches_workflow_commit(
+        run,
+        admission,
+        manifest,
+        workflow_commit,
+    )
 
     for field, wrong_value in (
-        ("compile_id", "compile-foreign"),
-        ("workflow_revision", 4),
+        ("workflow_commit_id", WORKFLOW_COMMIT_ID_FOREIGN),
+        ("workflow_commit_revision", 4),
         ("workflow_digest", "sha256:" + "2" * 64),
     ):
         mismatched = {**run, field: wrong_value}
-        with pytest.raises(ValueError, match="Workflow/compile identity"):
-            _require_run_matches_compile(
+        with pytest.raises(ValueError, match="Workflow Commit identity"):
+            _require_run_matches_workflow_commit(
                 mismatched,
-                snapshot,
-                compile_receipt,
+                admission,
+                manifest,
+                workflow_commit,
             )
+
+    stale_manifest = {
+        **manifest,
+        "workflow_commit_revision": 2,
+    }
+    with pytest.raises(ValueError, match="Run Manifest"):
+        _require_run_matches_workflow_commit(
+            run,
+            admission,
+            stale_manifest,
+            workflow_commit,
+        )
 
 
 def test_run_event_envelopes_and_replay_cursor_are_scope_bound() -> None:
@@ -459,26 +525,35 @@ def test_run_event_envelopes_and_replay_cursor_are_scope_bound() -> None:
         _validate_replay_boundary(run, stale_cursor)
 
 
-def test_run_admission_event_must_match_compile_and_precede_execution() -> None:
+def test_run_admission_event_must_match_commit_and_precede_execution() -> None:
     run = {
         "project_id": PROJECT_ID,
         "run_id": "run-1",
-        "workflow_revision": 3,
-        "compile_id": "compile-exact",
+        "workflow_commit_id": WORKFLOW_COMMIT_ID_EXACT,
+        "workflow_commit_revision": 3,
     }
-    compile_receipt = {
-        "workflow_revision": 3,
-        "compile_id": "compile-exact",
+    workflow_commit = {
+        "workflow_commit_id": WORKFLOW_COMMIT_ID_EXACT,
+        "workflow_commit_revision": 3,
+    }
+    admission = {
+        "project_id": PROJECT_ID,
+        "run_id": "run-1",
+        "workflow_commit_id": WORKFLOW_COMMIT_ID_EXACT,
+        "workflow_commit_revision": 3,
+        "admitted_sequence": 5,
+        "event_cursor": "cursor-admitted",
     }
     messages = [
         {
             "project_id": PROJECT_ID,
             "run_id": "run-1",
             "sequence": 5,
+            "cursor": "cursor-admitted",
             "event": {
                 "type": "run_admitted",
-                "workflow_revision": 3,
-                "compile_id": "compile-exact",
+                "workflow_commit_id": WORKFLOW_COMMIT_ID_EXACT,
+                "workflow_commit_revision": 3,
             },
         },
         {
@@ -502,17 +577,38 @@ def test_run_admission_event_must_match_compile_and_precede_execution() -> None:
         },
     ]
 
-    _validate_run_admission(run, messages, compile_receipt)
+    _validate_run_admission(run, messages, admission, workflow_commit)
 
-    foreign_compile = json.loads(json.dumps(messages))
-    foreign_compile[0]["event"]["compile_id"] = "compile-foreign"
+    foreign_commit = json.loads(json.dumps(messages))
+    foreign_commit[0]["event"]["workflow_commit_id"] = (
+        WORKFLOW_COMMIT_ID_FOREIGN
+    )
     with pytest.raises(ValueError, match="Run admission"):
-        _validate_run_admission(run, foreign_compile, compile_receipt)
+        _validate_run_admission(
+            run,
+            foreign_commit,
+            admission,
+            workflow_commit,
+        )
 
     out_of_order = json.loads(json.dumps(messages))
     out_of_order[0]["sequence"] = 8
     with pytest.raises(ValueError, match="Run admission"):
-        _validate_run_admission(run, out_of_order, compile_receipt)
+        _validate_run_admission(
+            run,
+            out_of_order,
+            admission,
+            workflow_commit,
+        )
+
+    stale_receipt = {**admission, "event_cursor": "cursor-foreign"}
+    with pytest.raises(ValueError, match="Run admission"):
+        _validate_run_admission(
+            run,
+            messages,
+            stale_receipt,
+            workflow_commit,
+        )
 
 
 def test_invocation_proof_must_equal_retained_run_ledger() -> None:
@@ -522,17 +618,23 @@ def test_invocation_proof_must_equal_retained_run_ledger() -> None:
         "generate-paired": _method_digest(
             catalog,
             "esm3.generate_paired.esm3_medium_2024_08",
-            REMOTE_CONTRACT_VERSION,
+            REMOTE_BINDINGS["esm3.generate_paired.biohub_medium"][
+                "method_version"
+            ],
         ),
         "fold-sequences": _method_digest(
             catalog,
             "folding.fold.esmfold2_fast_biohub_2026_05",
-            REMOTE_CONTRACT_VERSION,
+            REMOTE_BINDINGS["folding.fold.esmfold2_remote"][
+                "method_version"
+            ],
         ),
         "fold-final": _method_digest(
             catalog,
             "folding.fold.esmfold2_fast_biohub_2026_05",
-            REMOTE_CONTRACT_VERSION,
+            REMOTE_BINDINGS["folding.fold.esmfold2_remote"][
+                "method_version"
+            ],
         ),
         "design-children": _method_digest(
             catalog,
@@ -585,10 +687,12 @@ def test_invocation_proof_must_equal_retained_run_ledger() -> None:
                                         "one_based_chain_local"
                                     ),
                                     "workbench_chain_order": ["A"],
+                                    "provider_structure_chain_order": ["A"],
                                     "provider_chain_order": ["A"],
                                     "entries": [
                                         {
                                             "residue_id": "A:1",
+                                            "segment_index": 0,
                                             "provider_chain_id": "A",
                                             "provider_position": 1,
                                         }

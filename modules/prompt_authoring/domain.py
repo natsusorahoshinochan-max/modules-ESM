@@ -10,12 +10,14 @@ import re
 from typing import Any
 
 from datatypes import ResidueLayout, ResidueMap
+from datatypes.protein import (
+    residue_identity_chain,
+    validate_residue_layout,
+    validate_residue_map as validate_canonical_residue_map,
+)
 
 
 _CHAIN_ID = re.compile(r"^[A-Za-z0-9]$")
-_RESIDUE_ID = re.compile(
-    r"^(?P<chain>[A-Za-z0-9]):(?P<label>[A-Za-z0-9][A-Za-z0-9_.-]{0,63})$"
-)
 _SECONDARY_STRUCTURE = frozenset({"H", "B", "E", "G", "I", "T", "S", "-"})
 _MAX_RESIDUES = 2_000_000
 
@@ -40,53 +42,15 @@ class AlignedResidueTrack:
 
 def residue_chain(residue_id: str) -> str:
     """Return the chain encoded by one canonical residue identity."""
-    if not isinstance(residue_id, str):
-        raise ValueError("residue identity must be text")
-    match = _RESIDUE_ID.fullmatch(residue_id)
-    if match is None:
-        raise ValueError(
-            f"residue identity {residue_id!r} must be '<chain>:<label>'"
-        )
-    return match.group("chain")
+    return residue_identity_chain(residue_id)
 
 
 def validate_layout(layout: object, *, subject: str) -> ResidueLayout:
     """Validate one identity-complete layout and its contiguous chains."""
-    if type(layout) is not ResidueLayout:
-        raise ValueError(f"{subject} must be a ResidueLayout")
-    if (
-        type(layout.length) is not int
-        or layout.length <= 0
-        or layout.length > _MAX_RESIDUES
-    ):
+    admitted = validate_residue_layout(layout, subject=subject)
+    if admitted.length > _MAX_RESIDUES:
         raise ValueError(f"{subject} length is outside the supported range")
-    residue_ids = layout.residue_ids
-    if residue_ids is None or len(residue_ids) != layout.length:
-        raise ValueError(f"{subject} requires one identity for every residue")
-    if len(set(residue_ids)) != len(residue_ids):
-        raise ValueError(f"{subject} contains duplicate residue identities")
-
-    chain_order: list[str] = []
-    closed_chains: set[str] = set()
-    previous: str | None = None
-    for residue_id in residue_ids:
-        chain = residue_chain(residue_id)
-        if chain != previous:
-            if chain in closed_chains:
-                raise ValueError(
-                    f"{subject} chain {chain!r} is not one contiguous boundary"
-                )
-            if previous is not None:
-                closed_chains.add(previous)
-            chain_order.append(chain)
-            previous = chain
-    declared_chain_id = ",".join(chain_order)
-    if layout.chain_id != declared_chain_id:
-        raise ValueError(
-            f"{subject} chain_id must equal contiguous chain order "
-            f"{declared_chain_id!r}"
-        )
-    return layout
+    return admitted
 
 
 def build_layout(chains: object) -> ResidueLayout:
@@ -241,64 +205,14 @@ def build_residue_map(
 
 def validate_residue_map(value: object) -> ResidueMap:
     """Require one complete, one-to-one, identity-preserving residue map."""
-    if type(value) is not ResidueMap:
-        raise ValueError("residue_map must be a ResidueMap")
-    source = validate_layout(value.source_layout, subject="source layout")
-    target = validate_layout(value.target_layout, subject="target layout")
-    source_ids = tuple(source.residue_ids or ())
-    target_ids = tuple(target.residue_ids or ())
-    common_ids = set(source_ids) & set(target_ids)
-    covered_sources: set[int] = set()
-    covered_targets: set[int] = set()
-    matched_ids: set[str] = set()
-    for entry in value.mappings:
-        if type(entry) is not tuple or len(entry) != 3:
-            raise ValueError("residue_map entries must be three-item tuples")
-        source_index, target_index, operation = entry
-        if operation == "match":
-            if (
-                source_index in covered_sources
-                or target_index in covered_targets
-                or not 0 <= source_index < source.length
-                or not 0 <= target_index < target.length
-            ):
-                raise ValueError("residue_map contains overlapping match entries")
-            if source_ids[source_index] != target_ids[target_index]:
-                raise ValueError(
-                    "residue_map matches contradictory residue identities"
-                )
-            covered_sources.add(source_index)
-            covered_targets.add(target_index)
-            matched_ids.add(source_ids[source_index])
-        elif operation == "insert":
-            if (
-                source_index != -1
-                or target_index in covered_targets
-                or not 0 <= target_index < target.length
-                or target_ids[target_index] in common_ids
-            ):
-                raise ValueError("residue_map contains invalid insert entries")
-            covered_targets.add(target_index)
-        elif operation == "delete":
-            if (
-                target_index != -1
-                or source_index in covered_sources
-                or not 0 <= source_index < source.length
-                or source_ids[source_index] in common_ids
-            ):
-                raise ValueError("residue_map contains invalid delete entries")
-            covered_sources.add(source_index)
-        else:
-            raise ValueError("residue_map operation is invalid")
-    if covered_sources != set(range(source.length)):
-        raise ValueError("residue_map does not cover every source residue")
-    if covered_targets != set(range(target.length)):
-        raise ValueError("residue_map does not cover every target residue")
-    if matched_ids != common_ids:
-        raise ValueError(
-            "residue_map must match every identity preserved by both layouts"
-        )
-    return value
+    admitted = validate_canonical_residue_map(value, subject="residue_map")
+    for subject, layout in (
+        ("source layout", admitted.source_layout),
+        ("target layout", admitted.target_layout),
+    ):
+        if layout.length > _MAX_RESIDUES:
+            raise ValueError(f"{subject} length is outside the supported range")
+    return admitted
 
 
 def validate_track(
@@ -357,7 +271,8 @@ def validate_track(
                 or item < 0
             ):
                 raise ValueError(
-                    f"{subject}[{index}] is not nullable non-negative SASA"
+                    f"{subject}[{index}] is not nullable absolute SASA in "
+                    "square angstroms"
                 )
     return track
 

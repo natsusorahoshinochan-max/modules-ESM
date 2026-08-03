@@ -23,7 +23,9 @@ from core.operation import OperationContext
 from .implementation import SelectionImplementation
 
 
-VERSION = "2.1.0"
+PACKAGE_VERSION = "2.1.0"
+METHOD_VERSION = "4.0.0"
+NODE_BINDING_VERSION = "4.0.0"
 OPERATIONS = (
     "filter",
     "sort",
@@ -61,6 +63,7 @@ def _method(operation: str) -> MethodDefinition:
     if operation == "weighted_rank":
         algorithm_identity = {
             "name": "normalized-weighted-utility-ranking",
+            "candidate_score_join": "exact-candidate-data-reference",
             "weight_policy": "finite-non-negative-positive-total",
             "normalization": "divide-by-declared-weight-sum",
             "ranking": "descending-weighted-utility",
@@ -69,12 +72,14 @@ def _method(operation: str) -> MethodDefinition:
     elif operation == "pareto":
         algorithm_identity = {
             "name": "dimensionless-utility-pareto-frontier",
+            "candidate_score_join": "exact-candidate-data-reference",
             "dominance": "greater-or-equal-all-and-greater-any",
             "final_order": "candidate_id_ascending",
         }
     elif operation == "diversity":
         algorithm_identity = {
             "name": "weighted-max-min-euclidean-utility-diversity",
+            "candidate_score_join": "exact-candidate-data-reference",
             "seed": "maximum-normalized-weighted-utility",
             "distance": "sqrt-sum-effective-weight-times-squared-delta",
             "iteration": "maximum-minimum-distance",
@@ -83,6 +88,7 @@ def _method(operation: str) -> MethodDefinition:
     else:
         algorithm_identity = {
             "name": f"deterministic-candidate-{operation}",
+            "candidate_score_join": "exact-candidate-data-reference",
             "objective_scope": "workflow-owned-exact-source",
             "match_cardinality": "exactly_one",
             "missing_policy": "error",
@@ -96,7 +102,7 @@ def _method(operation: str) -> MethodDefinition:
         }
     return MethodDefinition(
         method_id=f"selection.{operation}.method",
-        version=VERSION,
+        version=METHOD_VERSION,
         algorithm_identity=algorithm_identity,
         model_identity={"kind": "none"},
         checkpoint_identity={"kind": "none"},
@@ -118,23 +124,23 @@ def _method(operation: str) -> MethodDefinition:
 def _binding(operation: str) -> ExecutionBindingDefinition:
     return ExecutionBindingDefinition(
         binding_id=f"selection.{operation}.direct",
-        version=VERSION,
+        version=NODE_BINDING_VERSION,
         node_type=ContractIdentity(
             "node_type",
             f"selection.{operation}",
-            VERSION,
+            NODE_BINDING_VERSION,
         ),
         method=ContractIdentity(
             "method",
             f"selection.{operation}.method",
-            VERSION,
+            METHOD_VERSION,
         ),
         binding_parameters={},
         execution_route="direct",
         factory=ScientificOperationFactory(
             behavior=BehaviorReference(
                 f"selection.{operation}/factory",
-                VERSION,
+                NODE_BINDING_VERSION,
                 {"execution_route": "direct"},
             ),
             build=_factory(operation),
@@ -142,7 +148,7 @@ def _binding(operation: str) -> ExecutionBindingDefinition:
         availability=AvailabilityDeclaration(
             behavior=BehaviorReference(
                 f"selection.{operation}/availability",
-                VERSION,
+                NODE_BINDING_VERSION,
                 {"observation": "startup"},
             ),
             prerequisites={},
@@ -151,7 +157,7 @@ def _binding(operation: str) -> ExecutionBindingDefinition:
         readiness=ReadinessDeclaration(
             behavior=BehaviorReference(
                 f"selection.{operation}/readiness",
-                VERSION,
+                NODE_BINDING_VERSION,
                 {"observation": "per-run"},
             ),
             prerequisites={},
@@ -194,7 +200,7 @@ def _binding(operation: str) -> ExecutionBindingDefinition:
 MODULE_PACKAGE = ModulePackageRegistration(
     schema_version="2.1.0",
     package_id="selection",
-    package_version=VERSION,
+    package_version=PACKAGE_VERSION,
     package_module=__package__,
     node_definitions=tuple(
         DefinitionResource(f"definitions/{operation}.yaml")

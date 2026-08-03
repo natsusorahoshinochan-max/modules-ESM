@@ -1,1259 +1,1319 @@
-"""Public v2 contracts for reproducible structure comparison."""
+"""Focused v3 contracts for resolved-axis structure alignment."""
 
 from __future__ import annotations
 
 from dataclasses import replace
-import json
-import math
+from contextlib import contextmanager
+from pathlib import Path
 
 import numpy as np
 import pytest
 
-from core import build_discovered_frozen_catalog, discover_module_packages
 from core import (
-    EnvironmentConfiguration,
     ModulePackageContractCase,
     ModulePackagePortCase,
-    ProjectManager,
-    V2RunService,
-    WorkflowAuthoringService,
-    WorkflowDocument,
+    PortValueError,
     WorkflowNodeInstance,
     build_frozen_catalog,
-    parse_workflow_document,
+    builtin_frozen_catalog,
+    validate_produced_score_collection,
     verify_module_package_contract,
 )
-from core.port_types import canonical_json_bytes
-from core.port_types import PortValueError
 from core.workflow_v2 import WorkflowEdge
 from datatypes import (
+    Candidate,
     CandidateCollection,
-    ExactContractReference,
-    PairwiseCandidateMapping,
-    PairwiseParticipant,
+    CandidateDataReference,
     ProteinStructure,
     ScoreCollection,
-    ScoreObservation,
 )
-from modules.structure_comparison import (
-    AlignmentAtomCorrespondence,
+from modules.structure_comparison.alignment import (
+    _affine_sequence_alignment,
+    align_resolved_axes,
+)
+from modules.structure_comparison.contracts import (
+    SEQUENCE_PRIMARY_AFFINE_METHOD,
+    SEQUENCE_PRIMARY_AFFINE_METHOD_REFERENCE,
+    STRUCTURE_FIRST_TM_ALIGN_METHOD,
+    STRUCTURE_FIRST_TM_ALIGN_METHOD_REFERENCE,
+)
+from modules.structure_comparison.domain import (
+    AlignmentSegmentMapEntry,
     StructureAlignmentEvidence,
-    StructureAlignmentNormalization,
-    StructureAlignmentTransform,
 )
-from modules.structure_comparison.package import (
-    MODULE_PACKAGE as STRUCTURE_COMPARISON_PACKAGE,
+from modules.structure_comparison.port_types import (
+    ALIGNMENT_EVIDENCE_PORT_TYPE,
+    alignment_evidence_from_wire,
+    alignment_evidence_to_wire,
 )
-from modules.structure_comparison.alignment import align_structures
+from modules.structure_comparison.package import MODULE_PACKAGE
+from modules.structure_transform import (
+    CandidateResolvedResidueAxisAssociation,
+    CandidateResolvedResidueAxisAssociations,
+)
+from modules.structure_transform.implementation import resolve_residue_axis
+from modules.structure_transform.package import MODULE_PACKAGE as TRANSFORM_PACKAGE
 from tests.fixtures.structure_comparison_sources.package import (
     MODULE_PACKAGE as SOURCE_PACKAGE,
+    mse_structure_axis_fixture,
 )
+from tests.fixtures.scientific_operation import build_operation, operation_call
 
 
-VERSION = "2.1.0"
-MANY_ALIGNMENT_VERSION = "2.2.0"
-SUBJECT_DIGEST = "sha256:" + "1" * 64
-REFERENCE_DIGEST = "sha256:" + "2" * 64
-METHOD_DIGEST = build_frozen_catalog(
-    (STRUCTURE_COMPARISON_PACKAGE,)
-).require_contract(
-    "method",
-    "structure_comparison.ca_sequence_svd.method",
-    VERSION,
-).contract_digest
-
+_SUBJECT_DIGEST = "sha256:" + "1" * 64
+_REFERENCE_DIGEST = "sha256:" + "2" * 64
 _AA_1TO3 = {
     "A": "ALA",
     "G": "GLY",
+    "M": "MET",
     "S": "SER",
     "T": "THR",
     "V": "VAL",
+    "W": "TRP",
 }
 
 
-def _multi_chain_structure(
-    chains: tuple[
+def _multi_segment_structure(
+    segments: tuple[
         tuple[str, str, tuple[tuple[float, float, float], ...]],
         ...,
     ],
-    *,
-    extra_lines: tuple[str, ...] = (),
 ) -> ProteinStructure:
     lines: list[str] = []
     serial = 1
-    for chain, sequence, coordinates in chains:
+    for chain_id, sequence, coordinates in segments:
         for residue_number, (amino_acid, coordinate) in enumerate(
             zip(sequence, coordinates, strict=True),
             start=1,
         ):
             x, y, z = coordinate
-            lines.append(
-                f"ATOM  {serial:5d}  CA  {_AA_1TO3[amino_acid]} {chain}"
+            line = (
+                f"ATOM  {serial:5d}  CA  {_AA_1TO3[amino_acid]} {chain_id}"
                 f"{residue_number:4d}    "
                 f"{x:8.3f}{y:8.3f}{z:8.3f}"
                 "  1.00 20.00           C"
             )
+            lines.append(line.ljust(80))
             serial += 1
         lines.append("TER")
-    return ProteinStructure("\n".join((*lines, *extra_lines, "END", "")))
+    return ProteinStructure("\n".join((*lines, "END", "")))
 
 
-def _alignment() -> StructureAlignmentEvidence:
-    return StructureAlignmentEvidence(
-        subject=PairwiseParticipant(
-            role="subject",
-            candidate_id="subject-1",
-            content_digest=SUBJECT_DIGEST,
-        ),
-        reference=PairwiseParticipant(
-            role="reference",
-            candidate_id="reference-1",
-            content_digest=REFERENCE_DIGEST,
-        ),
-        correspondence=(
-            AlignmentAtomCorrespondence(
-                subject_residue_id="A:1",
-                subject_atom_name="CA",
-                subject_coordinate=(1.0, 0.0, 0.0),
-                reference_residue_id="R:9",
-                reference_atom_name="CA",
-                reference_coordinate=(0.0, 0.0, 0.0),
-                transformed_subject_coordinate=(0.0, 0.0, 0.0),
-                residual_distance=0.0,
-            ),
-            AlignmentAtomCorrespondence(
-                subject_residue_id="A:2",
-                subject_atom_name="CA",
-                subject_coordinate=(2.0, 0.0, 0.0),
-                reference_residue_id="R:10",
-                reference_atom_name="CA",
-                reference_coordinate=(1.0, 0.0, 0.0),
-                transformed_subject_coordinate=(1.0, 0.0, 0.0),
-                residual_distance=0.0,
-            ),
-        ),
-        transform=StructureAlignmentTransform(
-            maps_from_role="subject",
-            maps_to_role="reference",
-            row_vector_rotation=(
-                (1.0, 0.0, 0.0),
-                (0.0, 1.0, 0.0),
-                (0.0, 0.0, 1.0),
-            ),
-            translation=(-1.0, 0.0, 0.0),
-        ),
-        normalization=StructureAlignmentNormalization(
-            atom_selection="CA",
-            subject_residue_count=2,
-            reference_residue_count=2,
-            aligned_atom_count=2,
-            coverage_denominator="max(subject_residue_count,reference_residue_count)",
-        ),
-        rmsd=0.0,
-        coverage=1.0,
-        method=ExactContractReference(
-            contract_kind="method",
-            contract_id="structure_comparison.ca_sequence_svd.method",
-            contract_version=VERSION,
-            contract_digest=METHOD_DIGEST,
-        ),
+def _axis(
+    chain_id: str,
+    sequence: str,
+    coordinates: tuple[tuple[float, float, float], ...],
+):
+    return resolve_residue_axis(
+        _multi_segment_structure(((chain_id, sequence, coordinates),))
     )
 
 
-def test_structure_comparison_is_one_package_with_five_nodes() -> None:
-    registrations = {
-        registration.package_id: registration
-        for registration in discover_module_packages()
-    }
-
-    registration = registrations["structure_comparison"]
-    assert registration.package_module == "modules.structure_comparison"
-    assert {
-        resource.resource for resource in registration.node_definitions
-    } == {
-        "definitions/align_single.yaml",
-        "definitions/align_pairwise.yaml",
-        "definitions/rmsd.yaml",
-        "definitions/tm_score.yaml",
-        "definitions/batch_tm_score.yaml",
-    }
-
-    catalog = build_discovered_frozen_catalog()
-    assert {
-        (contract_id, version)
-        for kind, contract_id, version in catalog.owners
-        if kind == "node_type"
-        and "structure_comparison"
-        in catalog.owners[(kind, contract_id, version)]
-    } == {
-        ("structure_comparison.align_single", VERSION),
-        (
-            "structure_comparison.align_pairwise",
-            MANY_ALIGNMENT_VERSION,
-        ),
-        ("structure_comparison.rmsd", MANY_ALIGNMENT_VERSION),
-        ("structure_comparison.tm_score", VERSION),
-        (
-            "structure_comparison.batch_tm_score",
-            MANY_ALIGNMENT_VERSION,
-        ),
-    }
-
-
-def test_alignment_codec_owns_the_exact_wire_version() -> None:
-    catalog = build_discovered_frozen_catalog()
-    alignment_type = catalog.require_port_type(
-        "structure_comparison.alignment",
-        VERSION,
+def test_sequence_primary_axis_alignment_ignores_coordinate_lure() -> None:
+    reference_axis = _axis(
+        "R",
+        "AAA",
+        ((0.0, 0.0, 0.0), (100.0, 0.0, 0.0), (101.0, 0.0, 0.0)),
     )
-    alignment = _alignment()
-
-    encoded = alignment_type.encode(alignment)
-    assert alignment_type.decode(encoded) == alignment
-    assert not hasattr(alignment, "schema_version")
-    payload = json.loads(encoded)
-    assert payload["value"]["schema_version"] == VERSION
-    payload["value"]["schema_version"] = "2.0.0"
-    with pytest.raises(PortValueError):
-        alignment_type.decode(canonical_json_bytes(payload))
-
-
-def test_many_alignment_nodes_use_only_the_scalar_alignment_port() -> None:
-    catalog = build_discovered_frozen_catalog()
-    assert catalog.get_port_type(
-        "structure_comparison.alignment_collection",
-        VERSION,
-    ) is None
-    align_pairwise = catalog.require_contract(
-        "node_type",
-        "structure_comparison.align_pairwise",
-        MANY_ALIGNMENT_VERSION,
-    )
-    batch_tm_score = catalog.require_contract(
-        "node_type",
-        "structure_comparison.batch_tm_score",
-        MANY_ALIGNMENT_VERSION,
-    )
-    alignment_output = next(
-        output
-        for output in align_pairwise.descriptor["outputs"]
-        if output["name"] == "alignments"
-    )
-    alignment_input = next(
-        input_port
-        for input_port in batch_tm_score.descriptor["inputs"]
-        if input_port["name"] == "alignments"
-    )
-    assert (
-        alignment_output["port_type"]["contract_id"],
-        alignment_output["multiplicity"],
-    ) == ("structure_comparison.alignment", "many")
-    assert (
-        alignment_input["port_type"]["contract_id"],
-        alignment_input["multiplicity"],
-    ) == ("structure_comparison.alignment", "many")
-
-
-@pytest.mark.parametrize(
-    "invalid",
-    (
-        replace(_alignment(), correspondence=()),
-        replace(
-            _alignment(),
-            subject=replace(
-                _alignment().subject,
-                content_digest=REFERENCE_DIGEST,
-            ),
-            reference=replace(
-                _alignment().reference,
-                candidate_id="subject-1",
-            ),
-        ),
-        replace(
-            _alignment(),
-            transform=replace(
-                _alignment().transform,
-                translation=(math.inf, 0.0, 0.0),
-            ),
-        ),
-        replace(
-            _alignment(),
-            transform=replace(
-                _alignment().transform,
-                row_vector_rotation=(
-                    (2.0, 0.0, 0.0),
-                    (0.0, 1.0, 0.0),
-                    (0.0, 0.0, 1.0),
-                ),
-            ),
-        ),
-        replace(
-            _alignment(),
-            correspondence=(
-                replace(
-                    _alignment().correspondence[0],
-                    residual_distance=1.0,
-                ),
-                _alignment().correspondence[1],
-            ),
-        ),
-        replace(_alignment(), rmsd=1.0),
-        replace(_alignment(), coverage=0.5),
-        replace(
-            _alignment(),
-            method=replace(
-                _alignment().method,
-                contract_digest="sha256:" + "3" * 64,
-            ),
-        ),
-    ),
-)
-def test_alignment_nominal_value_rejects_incomplete_or_conflicting_evidence(
-    invalid: StructureAlignmentEvidence,
-) -> None:
-    port_type = build_discovered_frozen_catalog().require_port_type(
-        "structure_comparison.alignment",
-        VERSION,
+    subject_axis = _axis(
+        "S",
+        "AA",
+        ((100.0, 0.0, 0.0), (101.0, 0.0, 0.0)),
     )
 
-    with pytest.raises(PortValueError):
-        port_type.encode(invalid)
+    alignment = align_resolved_axes(subject_axis, reference_axis)
+
+    assert alignment.policy.kind == "sequence_primary_affine"
+    assert alignment.segment_map[0].cigar == "MMD"
+    assert [
+        (entry.subject_residue_id, entry.reference_residue_id)
+        for entry in alignment.correspondence
+    ] == [("S:1", "R:1"), ("S:2", "R:2")]
 
 
-def _decode_output(catalog: object, output: dict[str, object]) -> object:
-    reference = output["port_type"]
-    assert isinstance(reference, dict)
-    port_type = catalog.require_port_type(
-        reference["contract_id"],
-        reference["contract_version"],
-    )
-    values = output["values"]
-    assert isinstance(values, list) and values
-    decoded = tuple(
-        port_type.decode(
-            canonical_json_bytes(
-                {
-                    "schema_namespace": "protein-workbench-port-value/v2",
-                    "port_type_id": port_type.type_id,
-                    "port_type_version": port_type.version,
-                    "value": value,
-                }
-            )
-        )
-        for value in values
-    )
-    return decoded[0] if len(decoded) == 1 else decoded
+def test_affine_global_alignment_allows_opposite_terminal_gap_runs() -> None:
+    alignment = _affine_sequence_alignment("A", "WW")
+
+    assert alignment.score == -9
+    assert alignment.paired_count == 0
+    assert alignment.cigar == "DII"
 
 
-def _workflow(
-    workflow_id: str,
-    *,
-    scenario: str,
-    pairwise: bool,
-) -> WorkflowDocument:
-    alignment_operation = "align_pairwise" if pairwise else "align_single"
-    alignment_version = MANY_ALIGNMENT_VERSION if pairwise else VERSION
-    rmsd_binding = (
-        "per_subject_counterpart" if pairwise else "fixed_reference"
+def test_sequence_primary_transform_maps_subject_to_reference() -> None:
+    subject_coordinates = (
+        (1.0, 2.0, 0.0),
+        (3.0, 1.0, 1.0),
+        (-1.0, 4.0, 2.0),
     )
-    source = WorkflowNodeInstance(
-        node_id="source",
-        node_type_id="contract_test.structure_comparison_source",
-        node_type_version=VERSION,
-        binding_id="contract_test.structure_comparison_source.direct",
-        binding_version=VERSION,
-        node_parameters={"scenario": scenario},
-        binding_parameters={},
-    )
-    alignment = WorkflowNodeInstance(
-        node_id="alignment",
-        node_type_id=f"structure_comparison.{alignment_operation}",
-        node_type_version=alignment_version,
-        binding_id=(
-            f"structure_comparison.{alignment_operation}.direct"
-        ),
-        binding_version=alignment_version,
-        node_parameters={},
-        binding_parameters={},
-    )
-    rmsd = WorkflowNodeInstance(
-        node_id="rmsd",
-        node_type_id="structure_comparison.rmsd",
-        node_type_version=MANY_ALIGNMENT_VERSION,
-        binding_id=f"structure_comparison.rmsd.{rmsd_binding}",
-        binding_version=MANY_ALIGNMENT_VERSION,
-        node_parameters={},
-        binding_parameters={},
-    )
-    edges = [
-        WorkflowEdge("source", "subjects", "alignment", "subjects"),
-        WorkflowEdge("source", "references", "alignment", "references"),
-        WorkflowEdge("source", "subjects", "rmsd", "subjects"),
-        WorkflowEdge("source", "references", "rmsd", "references"),
-        WorkflowEdge(
-            "alignment",
-            "alignments" if pairwise else "alignment",
-            "rmsd",
-            "alignments" if pairwise else "alignment",
-        ),
-    ]
-    if pairwise:
-        edges.extend(
-            (
-                WorkflowEdge("source", "pairing", "alignment", "pairing"),
-                WorkflowEdge("source", "pairing", "rmsd", "pairing"),
-            )
-        )
-    return WorkflowDocument(
-        schema_version=VERSION,
-        workflow_id=workflow_id,
-        nodes=(source, alignment, rmsd),
-        edges=tuple(edges),
-        contract_lock=(),
+    reference_coordinates = (
+        (3.0, -1.0, 3.0),
+        (4.0, 1.0, 4.0),
+        (1.0, -3.0, 5.0),
     )
 
-
-def _run_comparison(
-    tmp_path: object,
-    *,
-    scenario: str,
-    pairwise: bool,
-    replay: bool = False,
-) -> tuple[object, tuple[dict[str, object], ...], tuple[tuple[dict[str, object], ...], ...]]:
-    catalog = build_frozen_catalog(
-        (STRUCTURE_COMPARISON_PACKAGE, SOURCE_PACKAGE)
-    )
-    projects = ProjectManager(
-        tmp_path / "projects",
-        cache_root=tmp_path / "cache",
-        output_root=tmp_path / "outputs",
-        run_root=tmp_path / "runs",
-    )
-    project = projects.create("structure comparison")
-    authoring = WorkflowAuthoringService(projects, catalog)
-    workflow = _workflow(
-        project.id,
-        scenario=scenario,
-        pairwise=pairwise,
-    )
-    saved = authoring.save(
-        project.id,
-        expected_workflow_revision=0,
-        workflow=workflow,
-    )
-    relocked = authoring.relock(
-        project.id,
-        workflow_revision=saved["workflow_revision"],
-    )
-    compiled = authoring.compile(
-        project.id,
-        workflow_revision=relocked["workflow_revision"],
-        workflow=parse_workflow_document(relocked["workflow"]),
-    )
-    service = V2RunService(
-        projects,
-        catalog,
-        authoring,
-        EnvironmentConfiguration(
-            {
-                (node.binding_id, node.binding_version): {
-                    "values": {},
-                    "safe_fingerprint": "provider-free",
-                    "invalidation_token": "structure-comparison-v1",
-                }
-                for node in workflow.nodes
-            }
-        ),
-    )
-    projections = []
-    event_groups = []
-    try:
-        for index in range(2 if replay else 1):
-            receipt = service.start(
-                project.id,
-                workflow_revision=relocked["workflow_revision"],
-                compile_id=compiled.public_receipt()["compile_id"],
-                client_request_id=f"structure-comparison-{index}",
-            )
-            projections.append(
-                service.projection(project.id, receipt["run_id"])
-            )
-            event_groups.append(
-                service.public_events(project.id, receipt["run_id"])
-            )
-    finally:
-        service.shutdown()
-    return catalog, tuple(projections), tuple(event_groups)
-
-
-def _outputs_by_node(
-    catalog: object,
-    projection: dict[str, object],
-) -> dict[tuple[str, str], object]:
-    outputs = {}
-    raw_outputs = projection["outputs"]
-    assert isinstance(raw_outputs, list)
-    for output in raw_outputs:
-        outputs[(output["node_id"], output["output_port"])] = (
-            _decode_output(catalog, output)
-        )
-    return outputs
-
-
-def test_single_alignment_preserves_role_orientation_and_emits_typed_rmsd(
-    tmp_path: object,
-) -> None:
-    catalog, (projection,), (events,) = _run_comparison(
-        tmp_path,
-        scenario="single",
-        pairwise=False,
+    alignment = align_resolved_axes(
+        _axis("S", "AGS", subject_coordinates),
+        _axis("R", "AGS", reference_coordinates),
     )
 
-    assert projection["status"] == "succeeded"
-    outputs = _outputs_by_node(catalog, projection)
-    subjects = outputs[("source", "subjects")]
-    references = outputs[("source", "references")]
-    alignment = outputs[("alignment", "alignment")]
-    scores = outputs[("rmsd", "scores")]
-    assert isinstance(subjects, CandidateCollection)
-    assert isinstance(references, CandidateCollection)
-    assert isinstance(alignment, StructureAlignmentEvidence)
-    assert isinstance(scores, ScoreCollection)
-    assert alignment.subject.candidate_id == subjects.items[0].candidate_id
-    assert (
-        alignment.subject.content_digest
-        == subjects.items[0].metadata["content_digest"]
-    )
-    assert alignment.reference.candidate_id == references.items[0].candidate_id
-    assert (
-        alignment.reference.content_digest
-        == references.items[0].metadata["content_digest"]
-    )
     assert alignment.transform.maps_from_role == "subject"
     assert alignment.transform.maps_to_role == "reference"
-    assert alignment.normalization.aligned_atom_count == 3
     assert alignment.rmsd == pytest.approx(0.0, abs=1e-12)
-    assert alignment.coverage == pytest.approx(1.0, abs=1e-12)
-    assert alignment.method.contract_digest == (
-        catalog.require_contract(
-            "method",
-            "structure_comparison.ca_sequence_svd.method",
-            VERSION,
-        ).contract_digest
-    )
-    assert [
-        (item.subject_residue_id, item.reference_residue_id)
-        for item in alignment.correspondence
-    ] == [("A:1", "R:1"), ("A:2", "R:2"), ("A:3", "R:3")]
-    assert all(
-        item.residual_distance == pytest.approx(0.0, abs=1e-12)
-        for item in alignment.correspondence
-    )
-    assert len(scores.entries) == 1
-    observation = scores.entries[0]
-    assert isinstance(observation, ScoreObservation)
-    assert observation.candidate_id == alignment.subject.candidate_id
-    assert observation.metric.contract_id == "structure_comparison.rmsd"
-    assert observation.method.contract_id == "structure_comparison.rmsd.method"
-    assert observation.context.subject == alignment.subject
-    assert observation.context.reference == alignment.reference
-    assert observation.context.pairing_mode == "fixed_reference"
-    assert observation.value == pytest.approx(0.0, abs=1e-12)
-
-    alignment_attempt = next(
-        event["event"]["node_attempt_id"]
-        for event in events
-        if event["event"]["type"] == "node_attempt_started"
-        and event["event"]["node_id"] == "alignment"
-    )
-    operation_ids = {
-        event["event"]["operation_attempt_id"]
-        for event in events
-        if event["event"]["type"] == "operation_attempt_started"
-        and event["event"]["node_attempt_id"] == alignment_attempt
-    }
-    assert len(operation_ids) == 1
-    assert {
-        event["event"]["operation_attempt_id"]
-        for event in events
-        if event["event"]["type"] == "engine_invocation_started"
-        and event["event"]["operation_attempt_id"] in operation_ids
-    } == operation_ids
-
-
-def test_high_ambiguity_alignment_records_true_nested_engine_invocation(
-    tmp_path: object,
-) -> None:
-    catalog, (projection,), (events,) = _run_comparison(
-        tmp_path,
-        scenario="ambiguous",
-        pairwise=False,
-    )
-
-    assert projection["status"] == "succeeded"
-    alignment = _outputs_by_node(catalog, projection)[
-        ("alignment", "alignment")
-    ]
-    assert isinstance(alignment, StructureAlignmentEvidence)
-    assert alignment.normalization.aligned_atom_count >= 3
-    alignment_attempt = next(
-        event["event"]["node_attempt_id"]
-        for event in events
-        if event["event"]["type"] == "node_attempt_started"
-        and event["event"]["node_id"] == "alignment"
-    )
-    operation_id = next(
-        event["event"]["operation_attempt_id"]
-        for event in events
-        if event["event"]["type"] == "operation_attempt_started"
-        and event["event"]["node_attempt_id"] == alignment_attempt
-    )
-    invocations = [
-        event["event"]
-        for event in events
-        if event["event"]["type"] == "engine_invocation_started"
-        and event["event"]["operation_attempt_id"] == operation_id
-    ]
-    assert [event["engine_role"] for event in invocations] == [
-        "sequence_alignment",
-        "bounded_correspondence_selection",
-        "rigid_superposition",
-    ]
-    parent, child, superposition = invocations
-    assert "parent_invocation_id" not in parent
-    assert child["parent_invocation_id"] == parent["invocation_id"]
-    assert (
-        superposition["parent_invocation_id"]
-        == parent["invocation_id"]
-    )
-    assert {
-        invocation["engine_identity"] for invocation in invocations
-    } == {METHOD_DIGEST}
-    terminals = [
-        event["event"]
-        for event in events
-        if event["event"]["type"] == "engine_invocation_terminal"
-        and event["event"]["invocation_id"]
-        in {
-            parent["invocation_id"],
-            child["invocation_id"],
-            superposition["invocation_id"],
-        }
-    ]
-    assert len(terminals) == 3
-    assert {event["status"] for event in terminals} == {"succeeded"}
-
-
-def test_chain_record_order_does_not_change_complete_dimer_alignment() -> None:
-    chain_a = (
-        "A",
-        "AGS",
-        ((0.0, 0.0, 0.0), (2.0, 0.0, 0.0), (0.0, 3.0, 0.0)),
-    )
-    chain_b = (
-        "B",
-        "TV",
-        ((10.0, 0.0, 0.0), (10.0, 2.0, 1.0)),
-    )
-
-    alignment = align_structures(
-        _multi_chain_structure((chain_a, chain_b)),
-        _multi_chain_structure((chain_b, chain_a)),
-    )
-
-    assert alignment.chain_map == {"A": "A", "B": "B"}
-    assert alignment.coverage == pytest.approx(1.0)
-    assert alignment.rmsd == pytest.approx(0.0, abs=1e-12)
-    assert alignment.residue_map == (
-        ("A:1", "A:1"),
-        ("A:2", "A:2"),
-        ("A:3", "A:3"),
-        ("B:1", "B:1"),
-        ("B:2", "B:2"),
-    )
-
-
-def test_heteroatom_ca_ion_does_not_enter_alignment_axis() -> None:
-    chain = (
-        "A",
-        "AGS",
-        ((0.0, 0.0, 0.0), (2.0, 0.0, 0.0), (0.0, 3.0, 0.0)),
-    )
-    calcium = (
-        "HETATM 9999  CA   CA  Z   1      50.000  50.000  50.000"
-        "  1.00 20.00          CA"
-    )
-
-    alignment = align_structures(
-        _multi_chain_structure((chain,)),
-        _multi_chain_structure((chain,), extra_lines=(calcium,)),
-    )
-
-    assert alignment.reference_length == alignment.mobile_length == 3
-    assert alignment.coverage == pytest.approx(1.0)
-    assert alignment.rmsd == pytest.approx(0.0, abs=1e-12)
-
-
-def test_high_ambiguity_uses_a_true_sequence_optimal_correspondence() -> None:
-    from modules.structure_comparison.alignment import (
-        _sequence_aligner,
-        _sequence_correspondence,
-    )
-
-    reference_sequence = "GTSAGTATSTSTGGSTGGGAGTAGTSGASGTGGGGSAATS"
-    mobile_sequence = "SATSGTTSSASAAGTAAASTTGSTSGSSSGTTTTTASAAGSGSS"
-    reference_coordinates = np.asarray(
-        [
-            (index * 1.5, index % 3, index % 2)
-            for index in range(len(reference_sequence))
-        ],
-        dtype=np.float64,
-    )
-    mobile_coordinates = np.asarray(
-        [
-            (index * 1.5, index % 3, index % 2)
-            for index in range(len(mobile_sequence))
-        ],
-        dtype=np.float64,
-    )
-    expected = next(
-        iter(_sequence_aligner().align(reference_sequence, mobile_sequence))
-    )
-    expected_pairs = [
-        (int(reference_index), int(mobile_index))
-        for reference_index, mobile_index in zip(*expected.indices)
-        if reference_index >= 0 and mobile_index >= 0
-    ]
-
-    reference_indices, mobile_indices, _ = _sequence_correspondence(
-        reference_sequence,
-        mobile_sequence,
+    np.testing.assert_allclose(
+        [entry.transformed_subject_coordinate for entry in alignment.correspondence],
         reference_coordinates,
-        mobile_coordinates,
-        engine_invocation=None,
+        atol=1e-12,
     )
 
-    assert list(zip(reference_indices, mobile_indices)) == expected_pairs
 
-
-def test_pairwise_alignment_uses_exact_mapping_not_collection_order(
-    tmp_path: object,
-) -> None:
-    catalog, (projection,), _ = _run_comparison(
-        tmp_path,
-        scenario="paired",
-        pairwise=True,
+def test_segment_assignment_resolves_factorial_ambiguity_lexicographically() -> None:
+    subject_axis = resolve_residue_axis(
+        _multi_segment_structure(
+            tuple(
+                (chain_id, "A", ((float(index), 0.0, 0.0),))
+                for index, chain_id in enumerate("ABCDEFGHI")
+            )
+        )
+    )
+    reference_axis = resolve_residue_axis(
+        _multi_segment_structure(
+            tuple(
+                (chain_id, "A", ((float(index), 0.0, 0.0),))
+                for index, chain_id in enumerate("123456789")
+            )
+        )
     )
 
-    assert projection["status"] == "succeeded"
-    outputs = _outputs_by_node(catalog, projection)
-    subjects = outputs[("source", "subjects")]
-    references = outputs[("source", "references")]
-    pairing = outputs[("source", "pairing")]
-    alignments = outputs[("alignment", "alignments")]
-    scores = outputs[("rmsd", "scores")]
-    assert isinstance(subjects, CandidateCollection)
-    assert isinstance(references, CandidateCollection)
-    assert isinstance(pairing, PairwiseCandidateMapping)
-    assert isinstance(alignments, tuple)
-    assert isinstance(scores, ScoreCollection)
-    assert len(alignments) == 2
+    alignment = align_resolved_axes(subject_axis, reference_axis)
+
     assert [
-        (
-            alignment.subject.candidate_id,
-            alignment.reference.candidate_id,
+        (entry.subject_segment_index, entry.reference_segment_index)
+        for entry in alignment.segment_map
+    ] == [(index, index) for index in range(9)]
+    assert {entry.cigar for entry in alignment.segment_map} == {"M"}
+
+
+def test_segment_assignment_lex_order_places_unmatched_after_references() -> None:
+    subject_axis = resolve_residue_axis(
+        _multi_segment_structure(
+            (
+                ("A", "A", ((0.0, 0.0, 0.0),)),
+                ("B", "A", ((1.0, 0.0, 0.0),)),
+                ("C", "A", ((2.0, 0.0, 0.0),)),
+            )
         )
-        for alignment in alignments
-    ] == [
-        (
-            entry.subject_candidate_id,
-            entry.reference_candidate_id,
+    )
+    reference_axis = resolve_residue_axis(
+        _multi_segment_structure(
+            (
+                ("R", "A", ((0.0, 0.0, 0.0),)),
+                ("S", "A", ((1.0, 0.0, 0.0),)),
+            )
         )
-        for entry in pairing.entries
+    )
+
+    alignment = align_resolved_axes(subject_axis, reference_axis)
+
+    assert [
+        (entry.subject_segment_index, entry.reference_segment_index)
+        for entry in alignment.segment_map
+    ] == [(0, 0), (1, 1)]
+
+
+def test_affine_alignment_handles_protein_scale_axes_without_recursion() -> None:
+    residue_count = 1152
+    coordinates = tuple(
+        (float(index), float(index % 7), float(index % 11))
+        for index in range(residue_count)
+    )
+    subject_axis = _axis("S", "A" * residue_count, coordinates)
+    reference_axis = _axis("R", "A" * residue_count, coordinates)
+
+    alignment = align_resolved_axes(subject_axis, reference_axis)
+
+    assert alignment.segment_map[0].paired_residue_count == residue_count
+    assert alignment.segment_map[0].cigar == "M" * residue_count
+    assert len(alignment.correspondence) == residue_count
+
+
+def test_axis_alignment_rejects_noncanonical_segment_indices() -> None:
+    axis = _axis("A", "A", ((0.0, 0.0, 0.0),))
+    invalid = replace(
+        axis,
+        segments=(replace(axis.segments[0], segment_index=1),),
+    )
+
+    with pytest.raises(ValueError, match="segment_index"):
+        align_resolved_axes(invalid, axis)
+
+
+def test_segment_assignment_ignores_chain_ids_unless_explicitly_pinned() -> None:
+    subject_axis = resolve_residue_axis(
+        _multi_segment_structure(
+            (
+                (
+                    "A",
+                    "AAAA",
+                    tuple((float(index), 0.0, 0.0) for index in range(4)),
+                ),
+                (
+                    "B",
+                    "GGGG",
+                    tuple((float(index), 1.0, 0.0) for index in range(4)),
+                ),
+            )
+        )
+    )
+    reference_axis = resolve_residue_axis(
+        _multi_segment_structure(
+            (
+                (
+                    "A",
+                    "GGGG",
+                    tuple((float(index), 1.0, 0.0) for index in range(4)),
+                ),
+                (
+                    "B",
+                    "AAAA",
+                    tuple((float(index), 0.0, 0.0) for index in range(4)),
+                ),
+            )
+        )
+    )
+
+    unpinned = align_resolved_axes(subject_axis, reference_axis)
+    pinned = align_resolved_axes(
+        subject_axis,
+        reference_axis,
+        pin_matching_chain_ids=True,
+    )
+
+    assert [
+        (entry.subject_segment_index, entry.reference_segment_index)
+        for entry in unpinned.segment_map
+    ] == [(0, 1), (1, 0)]
+    assert [
+        (entry.subject_segment_index, entry.reference_segment_index)
+        for entry in pinned.segment_map
+    ] == [(0, 0), (1, 1)]
+
+
+def test_explicit_chain_pinning_rejects_duplicate_chain_names() -> None:
+    axis = resolve_residue_axis(
+        _multi_segment_structure(
+            (
+                ("A", "A", ((0.0, 0.0, 0.0),)),
+                ("B", "G", ((1.0, 0.0, 0.0),)),
+            )
+        )
+    )
+    duplicated = replace(
+        axis,
+        segments=(
+            axis.segments[0],
+            replace(axis.segments[1], chain_id="A"),
+        ),
+    )
+
+    with pytest.raises(ValueError, match="duplicate chain_id"):
+        align_resolved_axes(
+            duplicated,
+            axis,
+            pin_matching_chain_ids=True,
+        )
+
+
+def test_alignment_consumes_normalized_mse_axis_without_reparsing_pdb() -> None:
+    subject_axis = resolve_residue_axis(mse_structure_axis_fixture())
+    reference_axis = _axis("R", "M", ((7.0, 8.0, 9.0),))
+
+    alignment = align_resolved_axes(subject_axis, reference_axis)
+
+    assert subject_axis.residue_names == ("MET",)
+    assert alignment.segment_map[0].cigar == "M"
+    assert alignment.correspondence[0].subject_coordinate == (7.0, 8.0, 9.0)
+    assert alignment.correspondence[0].subject_residue_id == "A:1"
+
+
+def test_structure_first_tm_align_uses_axis_values_and_no_seed_alignment(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    coordinates = ((0.0, 0.0, 0.0), (1.0, 0.0, 0.0), (2.0, 0.0, 0.0))
+    subject_axis = _axis("S", "AAA", coordinates)
+    reference_axis = _axis("R", "AAA", coordinates)
+    calls: list[tuple[tuple[object, ...], dict[str, object]]] = []
+
+    class Result:
+        seqxA = "AAA"
+        seqyA = "AAA"
+        u = np.eye(3)
+        t = np.zeros(3)
+
+    def fake_tm_align(*args: object, **kwargs: object) -> Result:
+        calls.append((args, kwargs))
+        return Result()
+
+    monkeypatch.setattr(
+        "modules.structure_comparison.alignment.tm_align",
+        fake_tm_align,
+    )
+
+    alignment = align_resolved_axes(
+        subject_axis,
+        reference_axis,
+        correspondence_method="structure_first_tm_align",
+    )
+
+    assert len(calls) == 1
+    args, kwargs = calls[0]
+    assert len(args) == 4
+    np.testing.assert_array_equal(args[0], np.asarray(coordinates))
+    np.testing.assert_array_equal(args[1], np.asarray(coordinates))
+    assert args[2:] == ("AAA", "AAA")
+    assert kwargs == {"alignment": None}
+    assert alignment.policy.kind == "structure_first_tm_align"
+
+
+def test_structure_first_tm_align_honors_explicit_single_segment_chain_pin(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    axis = _axis(
+        "A",
+        "AGS",
+        ((0.0, 0.0, 0.0), (1.0, 2.0, 0.0), (2.0, 0.0, 3.0)),
+    )
+
+    class Result:
+        seqxA = "AGS"
+        seqyA = "AGS"
+        u = np.eye(3)
+        t = np.zeros(3)
+
+    monkeypatch.setattr(
+        "modules.structure_comparison.alignment.tm_align",
+        lambda *args, **kwargs: Result(),
+    )
+
+    alignment = align_resolved_axes(
+        axis,
+        axis,
+        correspondence_method="structure_first_tm_align",
+        pin_matching_chain_ids=True,
+    )
+
+    assert alignment.policy.pin_matching_chain_ids is True
+
+
+def test_structure_first_tm_align_translates_documented_transform_direction(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    subject_coordinates = (
+        (1.0, 2.0, 0.0),
+        (3.0, 1.0, 1.0),
+        (-1.0, 4.0, 2.0),
+    )
+    reference_coordinates = (
+        (3.0, -1.0, 3.0),
+        (4.0, 1.0, 4.0),
+        (1.0, -3.0, 5.0),
+    )
+
+    class Result:
+        seqxA = "AGS"
+        seqyA = "AGS"
+        u = np.asarray(
+            (
+                (0.0, -1.0, 0.0),
+                (1.0, 0.0, 0.0),
+                (0.0, 0.0, 1.0),
+            )
+        )
+        t = np.asarray((5.0, -2.0, 3.0))
+
+    monkeypatch.setattr(
+        "modules.structure_comparison.alignment.tm_align",
+        lambda *args, **kwargs: Result(),
+    )
+
+    alignment = align_resolved_axes(
+        _axis("S", "AGS", subject_coordinates),
+        _axis("R", "AGS", reference_coordinates),
+        correspondence_method="structure_first_tm_align",
+    )
+
+    assert alignment.transform.maps_from_role == "subject"
+    assert alignment.transform.maps_to_role == "reference"
+    assert alignment.rmsd == pytest.approx(0.0, abs=1e-12)
+    np.testing.assert_allclose(
+        [entry.transformed_subject_coordinate for entry in alignment.correspondence],
+        reference_coordinates,
+        atol=1e-12,
+    )
+
+
+def test_structure_first_tm_align_propagates_engine_failure_without_fallback(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    axis = _axis("A", "AAA", ((0.0, 0.0, 0.0),) * 3)
+
+    def fail(*args: object, **kwargs: object) -> object:
+        raise RuntimeError("tm-align-failed")
+
+    monkeypatch.setattr(
+        "modules.structure_comparison.alignment.tm_align",
+        fail,
+    )
+
+    with pytest.raises(RuntimeError, match="tm-align-failed"):
+        align_resolved_axes(
+            axis,
+            axis,
+            correspondence_method="structure_first_tm_align",
+        )
+
+
+def test_v3_alignment_methods_publish_exact_nonfallback_algorithms() -> None:
+    sequence = SEQUENCE_PRIMARY_AFFINE_METHOD.algorithm_identity
+    tm_method = STRUCTURE_FIRST_TM_ALIGN_METHOD.algorithm_identity
+
+    assert sequence["residue_correspondence"]["integer_scale"] == 2
+    assert sequence["residue_correspondence"]["gap_open"] == -6
+    assert sequence["residue_correspondence"]["terminal_gap_open"] == -4
+    assert sequence["residue_correspondence"]["enumerates_alignments"] is False
+    assert sequence["segment_assignment"]["threshold"] is None
+    assert sequence["segment_assignment"]["enumerates_assignments"] is False
+    assert tm_method["seed_alignment"] is None
+    assert tm_method["fallback"] is None
+    assert "alignment=None" in tm_method["engine_call"]
+
+
+def test_v4_alignment_evidence_codec_carries_axis_provenance_and_counts() -> None:
+    subject_axis = _axis("S", "AA", ((1.0, 0.0, 0.0), (2.0, 0.0, 0.0)))
+    reference_axis = _axis("R", "AA", ((0.0, 0.0, 0.0), (1.0, 0.0, 0.0)))
+    resolved = align_resolved_axes(subject_axis, reference_axis)
+    evidence = StructureAlignmentEvidence(
+        subject=CandidateDataReference(
+            candidate_id="subject-a",
+            data_type_id="protein.structure",
+            content_digest=_SUBJECT_DIGEST,
+        ),
+        reference=CandidateDataReference(
+            candidate_id="reference-a",
+            data_type_id="protein.structure",
+            content_digest=_REFERENCE_DIGEST,
+        ),
+        subject_axis_content_digest="sha256:" + "3" * 64,
+        reference_axis_content_digest="sha256:" + "4" * 64,
+        segment_map=resolved.segment_map,
+        policy=resolved.policy,
+        correspondence=resolved.correspondence,
+        transform=resolved.transform,
+        normalization=resolved.normalization,
+        rmsd=resolved.rmsd,
+        coverage=resolved.coverage,
+        method=SEQUENCE_PRIMARY_AFFINE_METHOD_REFERENCE,
+    )
+
+    wire = alignment_evidence_to_wire(evidence)
+
+    assert wire["schema_version"] == "4.0.0"
+    assert wire["subject"] == {
+        "candidate_id": "subject-a",
+        "data_type_id": "protein.structure",
+        "content_digest": _SUBJECT_DIGEST,
+    }
+    assert wire["subject_axis_content_digest"] == "sha256:" + "3" * 64
+    assert wire["reference_axis_content_digest"] == "sha256:" + "4" * 64
+    assert wire["segment_map"][0]["cigar"] == "MM"
+    assert wire["policy"] == {
+        "kind": "sequence_primary_affine",
+        "pin_matching_chain_ids": False,
+    }
+    assert wire["normalization"] == {
+        "subject_axis_residue_count": 2,
+        "reference_axis_residue_count": 2,
+        "subject_ca_count": 2,
+        "reference_ca_count": 2,
+        "aligned_atom_count": 2,
+    }
+    assert alignment_evidence_from_wire(wire) == evidence
+
+    impossible = replace(
+        evidence,
+        segment_map=(
+            replace(
+                evidence.segment_map[0],
+                paired_residue_count=1,
+                cigar="MD",
+            ),
+        ),
+    )
+    with pytest.raises(ValueError, match="sequence-paired residue count"):
+        ALIGNMENT_EVIDENCE_PORT_TYPE.encode(impossible)
+
+
+def test_alignment_evidence_accepts_zero_pair_segment_with_global_ca_fit() -> None:
+    subject_axis = resolve_residue_axis(
+        _multi_segment_structure(
+            (
+                ("S", "WW", ((0.0, 0.0, 0.0), (1.0, 0.0, 0.0))),
+                ("T", "A", ((2.0, 0.0, 0.0),)),
+            )
+        )
+    )
+    reference_axis = resolve_residue_axis(
+        _multi_segment_structure(
+            (
+                ("R", "A", ((0.0, 1.0, 0.0),)),
+                ("Q", "A", ((2.0, 1.0, 0.0),)),
+            )
+        )
+    )
+    resolved = align_resolved_axes(subject_axis, reference_axis)
+    evidence = StructureAlignmentEvidence(
+        subject=CandidateDataReference(
+            candidate_id="subject-a",
+            data_type_id="protein.structure",
+            content_digest=_SUBJECT_DIGEST,
+        ),
+        reference=CandidateDataReference(
+            candidate_id="reference-a",
+            data_type_id="protein.structure",
+            content_digest=_REFERENCE_DIGEST,
+        ),
+        subject_axis_content_digest="sha256:" + "3" * 64,
+        reference_axis_content_digest="sha256:" + "4" * 64,
+        segment_map=resolved.segment_map,
+        policy=resolved.policy,
+        correspondence=resolved.correspondence,
+        transform=resolved.transform,
+        normalization=resolved.normalization,
+        rmsd=resolved.rmsd,
+        coverage=resolved.coverage,
+        method=SEQUENCE_PRIMARY_AFFINE_METHOD_REFERENCE,
+    )
+
+    encoded = ALIGNMENT_EVIDENCE_PORT_TYPE.encode(evidence)
+
+    assert [
+        (entry.cigar, entry.paired_residue_count)
+        for entry in evidence.segment_map
+    ] == [("DII", 0), ("M", 1)]
+    assert evidence.normalization.aligned_atom_count == 1
+    assert ALIGNMENT_EVIDENCE_PORT_TYPE.decode(encoded) == evidence
+
+
+class _RunResources:
+    @contextmanager
+    def engine_invocation(self, **details: object):
+        del details
+        yield "invocation"
+
+
+class _CountingRunResources:
+    def __init__(self) -> None:
+        self.invocations = 0
+
+    @contextmanager
+    def engine_invocation(self, **details: object):
+        del details
+        self.invocations += 1
+        yield "invocation"
+
+
+def _candidate_reference(
+    candidate_id: str,
+    structure: ProteinStructure,
+) -> CandidateDataReference:
+    port_type = builtin_frozen_catalog().require_port_type(
+        "protein.structure",
+        "4.0.0",
+    )
+    return CandidateDataReference(
+        candidate_id=candidate_id,
+        data_type_id="protein.structure",
+        content_digest=port_type.content_digest(structure),
+    )
+
+
+def test_alignment_rejects_stale_axis_reference_before_engine_start() -> None:
+    catalog = build_frozen_catalog((TRANSFORM_PACKAGE, MODULE_PACKAGE))
+    subject_structure = _multi_segment_structure(
+        (("S", "AG", ((1.0, 2.0, 0.0), (3.0, 1.0, 1.0))),)
+    )
+    reference_structure = _multi_segment_structure(
+        (("R", "AG", ((3.0, -1.0, 3.0), (4.0, 1.0, 4.0))),)
+    )
+    subject_reference = _candidate_reference("subject", subject_structure)
+    reference_reference = _candidate_reference("reference", reference_structure)
+    subjects = CandidateCollection(
+        collection_id="subjects",
+        item_type="protein.structure",
+        items=(Candidate("subject", subject_structure),),
+    )
+    references = CandidateCollection(
+        collection_id="references",
+        item_type="protein.structure",
+        items=(Candidate("reference", reference_structure),),
+    )
+    subject_axes = CandidateResolvedResidueAxisAssociations(
+        entries=(
+            CandidateResolvedResidueAxisAssociation(
+                subject=replace(
+                    subject_reference,
+                    content_digest="sha256:" + "9" * 64,
+                ),
+                residue_axis=resolve_residue_axis(subject_structure),
+            ),
+        )
+    )
+    reference_axes = CandidateResolvedResidueAxisAssociations(
+        entries=(
+            CandidateResolvedResidueAxisAssociation(
+                subject=reference_reference,
+                residue_axis=resolve_residue_axis(reference_structure),
+            ),
+        )
+    )
+    resources = _CountingRunResources()
+    binding_id = "structure_comparison.align_single.sequence_primary_affine"
+    build_operation(
+        catalog,
+        binding_id,
+        resources,
+        binding_version="4.0.0",
+    )
+    with pytest.raises(ValueError, match="structure content digest"):
+        operation_call(
+            catalog=catalog,
+            binding_id=binding_id,
+            binding_version="4.0.0",
+            inputs={
+                "subjects": subjects,
+                "subject_residue_axes": subject_axes,
+                "references": references,
+                "reference_residue_axes": reference_axes,
+            },
+            node_parameters={"pin_matching_chain_ids": False},
+            binding_parameters={},
+        )
+
+    assert resources.invocations == 0
+
+
+def test_v4_alignment_and_v5_metric_preserve_exact_candidate_references() -> None:
+    catalog = build_frozen_catalog((TRANSFORM_PACKAGE, MODULE_PACKAGE))
+    reference_structure = _multi_segment_structure(
+        (("R", "AA", ((0.0, 0.0, 0.0), (1.0, 0.0, 0.0))),)
+    )
+    alpha_structure = _multi_segment_structure(
+        (("A", "AA", ((2.0, 0.0, 0.0), (3.0, 0.0, 0.0))),)
+    )
+    zeta_structure = _multi_segment_structure(
+        (("Z", "AA", ((5.0, 0.0, 0.0), (6.0, 0.0, 0.0))),)
+    )
+    alpha_reference = _candidate_reference("alpha", alpha_structure)
+    zeta_reference = _candidate_reference("zeta", zeta_structure)
+    fixed_reference = _candidate_reference("fixed", reference_structure)
+    subjects = CandidateCollection(
+        collection_id="subjects",
+        item_type="protein.structure",
+        items=(
+            Candidate("zeta", zeta_structure),
+            Candidate("alpha", alpha_structure),
+        ),
+    )
+    references = CandidateCollection(
+        collection_id="references",
+        item_type="protein.structure",
+        items=(Candidate("fixed", reference_structure),),
+    )
+    subject_axes = CandidateResolvedResidueAxisAssociations(
+        entries=(
+            CandidateResolvedResidueAxisAssociation(
+                subject=zeta_reference,
+                residue_axis=resolve_residue_axis(zeta_structure),
+            ),
+            CandidateResolvedResidueAxisAssociation(
+                subject=alpha_reference,
+                residue_axis=resolve_residue_axis(alpha_structure),
+            ),
+        )
+    )
+    reference_axes = CandidateResolvedResidueAxisAssociations(
+        entries=(
+            CandidateResolvedResidueAxisAssociation(
+                subject=fixed_reference,
+                residue_axis=resolve_residue_axis(reference_structure),
+            ),
+        )
+    )
+    alignment_binding = (
+        "structure_comparison.align_fixed_reference.sequence_primary_affine"
+    )
+    aligner = build_operation(
+        catalog,
+        alignment_binding,
+        _RunResources(),
+        binding_version="4.0.0",
+    )
+
+    aligned = aligner.execute(
+        operation_call(
+            catalog=catalog,
+            binding_id=alignment_binding,
+            binding_version="4.0.0",
+            inputs={
+                "subjects": subjects,
+                "subject_residue_axes": subject_axes,
+                "references": references,
+                "reference_residue_axes": reference_axes,
+            },
+            node_parameters={"pin_matching_chain_ids": False},
+            binding_parameters={},
+        )
+    )["alignments"]
+
+    assert [entry.subject.candidate_id for entry in aligned] == [
+        "alpha",
+        "zeta",
     ]
-    assert pairing.entries[0].reference_candidate_id == (
-        references.items[0].candidate_id
-    )
-    assert pairing.entries[1].reference_candidate_id == (
-        references.items[1].candidate_id
-    )
-    assert pairing.entries[0].subject_candidate_id == subjects.items[1].candidate_id
-    assert pairing.entries[1].subject_candidate_id == subjects.items[0].candidate_id
-    assert {
-        (
-            observation.context.subject.candidate_id,
-            observation.context.reference.candidate_id,
+    assert all(entry.reference.candidate_id == "fixed" for entry in aligned)
+    assert all(
+        ALIGNMENT_EVIDENCE_PORT_TYPE.decode(
+            ALIGNMENT_EVIDENCE_PORT_TYPE.encode(entry)
         )
-        for observation in scores.entries
+        == entry
+        for entry in aligned
+    )
+
+    metric_binding = (
+        "structure_comparison.tm_score_fixed_reference."
+        "from_alignment_evidence"
+    )
+    scorer = build_operation(
+        catalog,
+        metric_binding,
+        _RunResources(),
+        binding_version="5.0.0",
+    )
+    observed = scorer.execute(
+        operation_call(
+            catalog=catalog,
+            binding_id=metric_binding,
+            binding_version="5.0.0",
+            inputs={
+                "alignments": aligned,
+                "subjects": subjects,
+                "references": references,
+            },
+            node_parameters={},
+            binding_parameters={},
+        )
+    )["scores"]
+
+    assert type(observed) is ScoreCollection
+    assert [entry.subject for entry in observed.entries] == [
+        alpha_reference,
+        zeta_reference,
+    ]
+    assert [entry.value for entry in observed.entries] == [1.0, 1.0]
+    assert all(entry.residue_axis is None for entry in observed.entries)
+    assert all(
+        entry.context.subject.candidate == entry.subject
+        and entry.context.reference.candidate == fixed_reference
+        for entry in observed.entries
+    )
+    assert all(
+        entry.context.evidence_method
+        == SEQUENCE_PRIMARY_AFFINE_METHOD_REFERENCE
+        for entry in observed.entries
+    )
+
+    metric_contract = catalog.require_contract(
+        "binding",
+        metric_binding,
+        "5.0.0",
+    )
+    metric_inputs = {
+        "alignments": aligned,
+        "subjects": subjects,
+        "references": references,
+    }
+    validate_produced_score_collection(
+        catalog=catalog,
+        binding=metric_contract,
+        output_port="scores",
+        collection=observed,
+        inputs=metric_inputs,
+        outputs={"scores": observed},
+    )
+
+    provenance_conflicts = (
+        {"evidence_content_digest": "sha256:" + "9" * 64},
+        {"subject_axis_content_digest": "sha256:" + "8" * 64},
+        {"reference_axis_content_digest": "sha256:" + "7" * 64},
+        {"evidence_method": STRUCTURE_FIRST_TM_ALIGN_METHOD_REFERENCE},
+        {"normalization_length": 3},
+        {"aligned_atom_count": 1},
+        {
+            "subject_axis_content_digest": None,
+            "reference_axis_content_digest": None,
+        },
+        {
+            "evidence_content_digest": None,
+            "evidence_method": None,
+            "subject_axis_content_digest": None,
+            "reference_axis_content_digest": None,
+            "normalization_length": None,
+            "aligned_atom_count": None,
+        },
+    )
+    for conflict in provenance_conflicts:
+        first = observed.entries[0]
+        tampered = replace(
+            observed,
+            entries=(
+                replace(first, context=replace(first.context, **conflict)),
+                *observed.entries[1:],
+            ),
+        )
+        with pytest.raises(
+            PortValueError,
+            match="alignment evidence provenance",
+        ):
+            validate_produced_score_collection(
+                catalog=catalog,
+                binding=metric_contract,
+                output_port="scores",
+                collection=tampered,
+                inputs=metric_inputs,
+                outputs={"scores": tampered},
+            )
+
+
+def test_structure_comparison_catalog_has_only_active_split_paths() -> None:
+    catalog = build_frozen_catalog((TRANSFORM_PACKAGE, MODULE_PACKAGE))
+    contracts = [
+        contract
+        for contract in catalog.contracts
+        if contract.contract_id.startswith("structure_comparison.")
+    ]
+
+    assert contracts
+    assert {
+        (contract.contract_id, contract.contract_version)
+        for contract in contracts
+        if contract.contract_kind == "node_type"
+    } == {
+        ("structure_comparison.align_single", "4.0.0"),
+        ("structure_comparison.align_fixed_reference", "4.0.0"),
+        ("structure_comparison.align_counterparts", "4.0.0"),
+        ("structure_comparison.rmsd_fixed_reference", "5.0.0"),
+        ("structure_comparison.rmsd_counterparts", "5.0.0"),
+        ("structure_comparison.tm_score_fixed_reference", "5.0.0"),
+        ("structure_comparison.tm_score_counterparts", "5.0.0"),
+    }
+    assert {
+        contract.contract_version
+        for contract in contracts
+        if contract.contract_kind in {"method", "metric", "utility_transform"}
+    } == {"3.0.0"}
+    assert {
+        (contract.contract_id, contract.contract_version)
+        for contract in contracts
+        if contract.contract_kind == "binding"
     } == {
         (
-            entry.subject_candidate_id,
-            entry.reference_candidate_id,
-        )
-        for entry in pairing.entries
+            "structure_comparison.align_single.sequence_primary_affine",
+            "4.0.0",
+        ),
+        (
+            "structure_comparison.align_single.structure_first_tm_align",
+            "4.0.0",
+        ),
+        (
+            "structure_comparison.align_fixed_reference."
+            "sequence_primary_affine",
+            "4.0.0",
+        ),
+        (
+            "structure_comparison.align_counterparts."
+            "sequence_primary_affine",
+            "4.0.0",
+        ),
+        (
+            "structure_comparison.rmsd_fixed_reference."
+            "from_alignment_evidence",
+            "5.0.0",
+        ),
+        (
+            "structure_comparison.rmsd_counterparts."
+            "from_alignment_evidence",
+            "5.0.0",
+        ),
+        (
+            "structure_comparison.tm_score_fixed_reference."
+            "from_alignment_evidence",
+            "5.0.0",
+        ),
+        (
+            "structure_comparison.tm_score_counterparts."
+            "from_alignment_evidence",
+            "5.0.0",
+        ),
     }
-
-
-def test_rmsd_contract_has_no_mutable_candidate_identity_parameter() -> None:
-    catalog = build_discovered_frozen_catalog()
-    node = catalog.require_contract(
-        "node_type",
-        "structure_comparison.rmsd",
-        MANY_ALIGNMENT_VERSION,
+    node_ids = {
+        contract.contract_id
+        for contract in contracts
+        if contract.contract_kind == "node_type"
+    }
+    assert node_ids == {
+        "structure_comparison.align_single",
+        "structure_comparison.align_fixed_reference",
+        "structure_comparison.align_counterparts",
+        "structure_comparison.rmsd_fixed_reference",
+        "structure_comparison.rmsd_counterparts",
+        "structure_comparison.tm_score_fixed_reference",
+        "structure_comparison.tm_score_counterparts",
+    }
+    for operation in ("align", "rmsd", "tm_score"):
+        operation_version = "4.0.0" if operation == "align" else "5.0.0"
+        fixed_name = (
+            "align_fixed_reference"
+            if operation == "align"
+            else f"{operation}_fixed_reference"
+        )
+        counterpart_name = (
+            "align_counterparts"
+            if operation == "align"
+            else f"{operation}_counterparts"
+        )
+        fixed = catalog.require_contract(
+            "node_type",
+            f"structure_comparison.{fixed_name}",
+            operation_version,
+        )
+        counterparts = catalog.require_contract(
+            "node_type",
+            f"structure_comparison.{counterpart_name}",
+            operation_version,
+        )
+        assert "pairing" not in {
+            item["name"] for item in fixed.descriptor["inputs"]
+        }
+        pairing = {
+            item["name"]: item
+            for item in counterparts.descriptor["inputs"]
+        }["pairing"]
+        assert pairing["required"] is True
+        if operation != "align":
+            for node in (fixed, counterparts):
+                scores = next(
+                    item
+                    for item in node.descriptor["outputs"]
+                    if item["name"] == "scores"
+                )
+                assert scores["port_type"]["contract_version"] == "4.0.0"
+    score_bindings = [
+        contract
+        for contract in contracts
+        if contract.contract_kind == "binding"
+        and contract.contract_version == "5.0.0"
+    ]
+    assert all(
+        declaration["axis_direction"] is None
+        and declaration["axis_port"] is None
+        and declaration["guaranteed_multiplicity"] == "one"
+        for binding in score_bindings
+        for declaration in binding.descriptor["produced_observations"]
     )
-    fixed = catalog.require_contract(
-        "binding",
-        "structure_comparison.rmsd.fixed_reference",
-        MANY_ALIGNMENT_VERSION,
+    assert not any(
+        contract.contract_id.endswith(".direct") for contract in contracts
     )
-    paired = catalog.require_contract(
-        "binding",
-        "structure_comparison.rmsd.per_subject_counterpart",
-        MANY_ALIGNMENT_VERSION,
+    assert not any(
+        "batch_tm_score" in contract.contract_id for contract in contracts
     )
-
-    assert node.descriptor["node_parameters"] == {}
-    assert fixed.descriptor["binding_parameters"] == {}
-    assert paired.descriptor["binding_parameters"] == {}
-    assert "candidate_id" not in node.descriptor_bytes.decode("utf-8")
-    assert fixed.descriptor["produced_observations"][0][
-        "context_profile"
-    ]["pairing_mode"] == "fixed_reference"
-    assert paired.descriptor["produced_observations"][0][
-        "pairing_port"
-    ] == "pairing"
 
 
 def _source_node(scenario: str) -> WorkflowNodeInstance:
     return WorkflowNodeInstance(
         node_id="source",
         node_type_id="contract_test.structure_comparison_source",
-        node_type_version=VERSION,
-        binding_id="contract_test.structure_comparison_source.direct",
-        binding_version=VERSION,
+        node_type_version="4.0.0",
+        binding_id="contract_test.structure_comparison_source.fixture",
+        binding_version="4.0.0",
         node_parameters={"scenario": scenario},
         binding_parameters={},
     )
 
 
-def _alignment_node(
-    pairwise: bool,
-    *,
-    fixed_reference: bool = False,
-) -> WorkflowNodeInstance:
-    operation = "align_pairwise" if pairwise else "align_single"
-    binding_suffix = (
-        "fixed_reference"
-        if pairwise and fixed_reference
-        else "direct"
-    )
-    operation_version = MANY_ALIGNMENT_VERSION if pairwise else VERSION
+def _axis_node(node_id: str) -> WorkflowNodeInstance:
     return WorkflowNodeInstance(
-        node_id="alignment-source",
-        node_type_id=f"structure_comparison.{operation}",
-        node_type_version=operation_version,
-        binding_id=f"structure_comparison.{operation}.{binding_suffix}",
-        binding_version=operation_version,
+        node_id=node_id,
+        node_type_id="structure_transform.resolve_candidate_residue_axes",
+        node_type_version="5.0.0",
+        binding_id="structure_transform.resolve_candidate_residue_axes.direct",
+        binding_version="5.0.0",
         node_parameters={},
         binding_parameters={},
     )
 
 
-def test_structure_comparison_passes_ctk_for_all_nodes_and_bindings(
-    tmp_path: object,
-) -> None:
-    single_source = _source_node("single")
-    paired_source = _source_node("paired")
-    fixed_source = _source_node("fixed_batch")
-    single_alignment = _alignment_node(False)
-    paired_alignment = _alignment_node(True)
-    fixed_alignment = _alignment_node(True, fixed_reference=True)
-    source_to_single = (
-        WorkflowEdge("source", "subjects", "contract-test-node", "subjects"),
+def _axis_edges() -> tuple[WorkflowEdge, ...]:
+    return (
+        WorkflowEdge(
+            "source",
+            "subjects",
+            "subject-axis",
+            "structure_candidates",
+        ),
         WorkflowEdge(
             "source",
             "references",
-            "contract-test-node",
-            "references",
+            "reference-axis",
+            "structure_candidates",
         ),
     )
-    source_to_paired = (
-        *source_to_single,
-        WorkflowEdge("source", "pairing", "contract-test-node", "pairing"),
+
+
+def _alignment_edges(target_node_id: str) -> tuple[WorkflowEdge, ...]:
+    return (
+        WorkflowEdge("source", "subjects", target_node_id, "subjects"),
+        WorkflowEdge(
+            "subject-axis",
+            "residue_axes",
+            target_node_id,
+            "subject_residue_axes",
+        ),
+        WorkflowEdge("source", "references", target_node_id, "references"),
+        WorkflowEdge(
+            "reference-axis",
+            "residue_axes",
+            target_node_id,
+            "reference_residue_axes",
+        ),
     )
-    source_to_fixed = source_to_single
+
+
+def _ctk_case(
+    *,
+    case_id: str,
+    operation: str,
+    binding_id: str,
+    pairing_mode: str | None,
+) -> ModulePackageContractCase:
+    contract_version = (
+        "4.0.0"
+        if operation in {"align_single", "align_pairwise"}
+        else "5.0.0"
+    )
+    scenario = (
+        "single"
+        if operation == "align_single"
+        else "fixed_reference"
+        if pairing_mode == "fixed_reference"
+        else "per_subject_counterpart"
+    )
+    source = _source_node(scenario)
+    axis_nodes = (_axis_node("subject-axis"), _axis_node("reference-axis"))
+    node_name = (
+        "align_single"
+        if operation == "align_single"
+        else "align_fixed_reference"
+        if operation == "align_pairwise" and pairing_mode == "fixed_reference"
+        else "align_counterparts"
+        if operation == "align_pairwise"
+        else f"{operation}_fixed_reference"
+        if pairing_mode == "fixed_reference"
+        else f"{operation}_counterparts"
+    )
+    if operation in {"align_single", "align_pairwise"}:
+        edges = (*_axis_edges(), *_alignment_edges("contract-test-node"))
+        if pairing_mode == "per_subject_counterpart":
+            edges = (
+                *edges,
+                WorkflowEdge(
+                    "source",
+                    "pairing",
+                    "contract-test-node",
+                    "pairing",
+                ),
+            )
+        workflow_nodes = (source, *axis_nodes)
+        expected_observations: dict[str, int] = {}
+        node_parameters = {"pin_matching_chain_ids": False}
+    else:
+        alignment_node_name = (
+            "align_fixed_reference"
+            if pairing_mode == "fixed_reference"
+            else "align_counterparts"
+        )
+        alignment_binding = (
+            f"structure_comparison.{alignment_node_name}."
+            "sequence_primary_affine"
+        )
+        alignment = WorkflowNodeInstance(
+            node_id="alignment",
+            node_type_id=f"structure_comparison.{alignment_node_name}",
+            node_type_version="4.0.0",
+            binding_id=alignment_binding,
+            binding_version="4.0.0",
+            node_parameters={"pin_matching_chain_ids": False},
+            binding_parameters={},
+        )
+        edges = (
+            *_axis_edges(),
+            *_alignment_edges("alignment"),
+            WorkflowEdge(
+                "alignment",
+                "alignments",
+                "contract-test-node",
+                "alignments",
+            ),
+            WorkflowEdge(
+                "source",
+                "subjects",
+                "contract-test-node",
+                "subjects",
+            ),
+            WorkflowEdge(
+                "source",
+                "references",
+                "contract-test-node",
+                "references",
+            ),
+        )
+        if pairing_mode == "per_subject_counterpart":
+            edges = (
+                *edges,
+                WorkflowEdge("source", "pairing", "alignment", "pairing"),
+                WorkflowEdge(
+                    "source",
+                    "pairing",
+                    "contract-test-node",
+                    "pairing",
+                ),
+            )
+        workflow_nodes = (source, *axis_nodes, alignment)
+        expected_observations = {"scores": 2}
+        node_parameters = {}
+    return ModulePackageContractCase(
+        case_id=case_id,
+        node_type_id=f"structure_comparison.{node_name}",
+        node_type_version=contract_version,
+        binding_id=binding_id,
+        binding_version=contract_version,
+        node_parameters=node_parameters,
+        binding_parameters={},
+        environment_values={},
+        safe_environment_fingerprint="provider-free",
+        invalidation_token=f"{case_id}-v1",
+        workflow_nodes=workflow_nodes,
+        workflow_edges=edges,
+        expected_observation_counts=expected_observations,
+    )
+
+
+def test_structure_comparison_contract_test_kit(
+    tmp_path: Path,
+) -> None:
+    axis = _axis("S", "AA", ((1.0, 0.0, 0.0), (2.0, 0.0, 0.0)))
+    reference_axis = _axis(
+        "R",
+        "AA",
+        ((0.0, 0.0, 0.0), (1.0, 0.0, 0.0)),
+    )
+    resolved = align_resolved_axes(axis, reference_axis)
+    evidence = StructureAlignmentEvidence(
+        subject=CandidateDataReference(
+            candidate_id="subject",
+            data_type_id="protein.structure",
+            content_digest="sha256:" + "1" * 64,
+        ),
+        reference=CandidateDataReference(
+            candidate_id="reference",
+            data_type_id="protein.structure",
+            content_digest="sha256:" + "2" * 64,
+        ),
+        subject_axis_content_digest="sha256:" + "3" * 64,
+        reference_axis_content_digest="sha256:" + "4" * 64,
+        segment_map=resolved.segment_map,
+        policy=resolved.policy,
+        correspondence=resolved.correspondence,
+        transform=resolved.transform,
+        normalization=resolved.normalization,
+        rmsd=resolved.rmsd,
+        coverage=resolved.coverage,
+        method=SEQUENCE_PRIMARY_AFFINE_METHOD_REFERENCE,
+    )
     cases = (
-        ModulePackageContractCase(
-            case_id="structure-comparison-align-single",
-            node_type_id="structure_comparison.align_single",
-            node_type_version=VERSION,
-            binding_id="structure_comparison.align_single.direct",
-            binding_version=VERSION,
-            node_parameters={},
-            binding_parameters={},
-            environment_values={},
-            safe_environment_fingerprint="provider-free",
-            invalidation_token="structure-comparison-ctk-v1",
-            workflow_nodes=(single_source,),
-            workflow_edges=source_to_single,
-        ),
-        ModulePackageContractCase(
-            case_id="structure-comparison-align-pairwise",
-            node_type_id="structure_comparison.align_pairwise",
-            node_type_version=MANY_ALIGNMENT_VERSION,
-            binding_id="structure_comparison.align_pairwise.direct",
-            binding_version=MANY_ALIGNMENT_VERSION,
-            node_parameters={},
-            binding_parameters={},
-            environment_values={},
-            safe_environment_fingerprint="provider-free",
-            invalidation_token="structure-comparison-ctk-v1",
-            workflow_nodes=(paired_source,),
-            workflow_edges=source_to_paired,
-        ),
-        ModulePackageContractCase(
-            case_id="structure-comparison-align-fixed-reference",
-            node_type_id="structure_comparison.align_pairwise",
-            node_type_version=MANY_ALIGNMENT_VERSION,
+        _ctk_case(
+            case_id="align-single-sequence",
+            operation="align_single",
             binding_id=(
-                "structure_comparison.align_pairwise.fixed_reference"
+                "structure_comparison.align_single.sequence_primary_affine"
             ),
-            binding_version=MANY_ALIGNMENT_VERSION,
-            node_parameters={},
-            binding_parameters={},
-            environment_values={},
-            safe_environment_fingerprint="provider-free",
-            invalidation_token="structure-comparison-ctk-v1",
-            workflow_nodes=(fixed_source,),
-            workflow_edges=source_to_fixed,
+            pairing_mode=None,
         ),
-        ModulePackageContractCase(
-            case_id="structure-comparison-rmsd-fixed",
-            node_type_id="structure_comparison.rmsd",
-            node_type_version=MANY_ALIGNMENT_VERSION,
-            binding_id="structure_comparison.rmsd.fixed_reference",
-            binding_version=MANY_ALIGNMENT_VERSION,
-            node_parameters={},
-            binding_parameters={},
-            environment_values={},
-            safe_environment_fingerprint="provider-free",
-            invalidation_token="structure-comparison-ctk-v1",
-            workflow_nodes=(single_source, single_alignment),
-            workflow_edges=(
-                WorkflowEdge(
-                    "source",
-                    "subjects",
-                    "alignment-source",
-                    "subjects",
-                ),
-                WorkflowEdge(
-                    "source",
-                    "references",
-                    "alignment-source",
-                    "references",
-                ),
-                WorkflowEdge(
-                    "alignment-source",
-                    "alignment",
-                    "contract-test-node",
-                    "alignment",
-                ),
-                *source_to_single,
-            ),
-            expected_observation_counts={"scores": 1},
-        ),
-        ModulePackageContractCase(
-            case_id="structure-comparison-rmsd-paired",
-            node_type_id="structure_comparison.rmsd",
-            node_type_version=MANY_ALIGNMENT_VERSION,
+        _ctk_case(
+            case_id="align-single-tm",
+            operation="align_single",
             binding_id=(
-                "structure_comparison.rmsd.per_subject_counterpart"
+                "structure_comparison.align_single.structure_first_tm_align"
             ),
-            binding_version=MANY_ALIGNMENT_VERSION,
-            node_parameters={},
-            binding_parameters={},
-            environment_values={},
-            safe_environment_fingerprint="provider-free",
-            invalidation_token="structure-comparison-ctk-v1",
-            workflow_nodes=(paired_source, paired_alignment),
-            workflow_edges=(
-                WorkflowEdge(
-                    "source",
-                    "subjects",
-                    "alignment-source",
-                    "subjects",
-                ),
-                WorkflowEdge(
-                    "source",
-                    "references",
-                    "alignment-source",
-                    "references",
-                ),
-                WorkflowEdge(
-                    "source",
-                    "pairing",
-                    "alignment-source",
-                    "pairing",
-                ),
-                WorkflowEdge(
-                    "alignment-source",
-                    "alignments",
-                    "contract-test-node",
-                    "alignments",
-                ),
-                *source_to_paired,
-            ),
-            expected_observation_counts={"scores": 2},
+            pairing_mode=None,
         ),
-        ModulePackageContractCase(
-            case_id="structure-comparison-tm-score-single",
-            node_type_id="structure_comparison.tm_score",
-            node_type_version=VERSION,
-            binding_id="structure_comparison.tm_score.fixed_reference",
-            binding_version=VERSION,
-            node_parameters={},
-            binding_parameters={},
-            environment_values={},
-            safe_environment_fingerprint="provider-free",
-            invalidation_token="structure-comparison-ctk-v1",
-            workflow_nodes=(single_source, single_alignment),
-            workflow_edges=(
-                WorkflowEdge(
-                    "source",
-                    "subjects",
-                    "alignment-source",
-                    "subjects",
-                ),
-                WorkflowEdge(
-                    "source",
-                    "references",
-                    "alignment-source",
-                    "references",
-                ),
-                WorkflowEdge(
-                    "alignment-source",
-                    "alignment",
-                    "contract-test-node",
-                    "alignment",
-                ),
-                *source_to_single,
-            ),
-            expected_observation_counts={"scores": 1},
-        ),
-        ModulePackageContractCase(
-            case_id="structure-comparison-batch-tm-score-fixed",
-            node_type_id="structure_comparison.batch_tm_score",
-            node_type_version=MANY_ALIGNMENT_VERSION,
+        _ctk_case(
+            case_id="align-pairwise-fixed",
+            operation="align_pairwise",
             binding_id=(
-                "structure_comparison.batch_tm_score.fixed_reference"
+                "structure_comparison.align_fixed_reference."
+                "sequence_primary_affine"
             ),
-            binding_version=MANY_ALIGNMENT_VERSION,
-            node_parameters={},
-            binding_parameters={},
-            environment_values={},
-            safe_environment_fingerprint="provider-free",
-            invalidation_token="structure-comparison-ctk-v1",
-            workflow_nodes=(fixed_source, fixed_alignment),
-            workflow_edges=(
-                WorkflowEdge(
-                    "source",
-                    "subjects",
-                    "alignment-source",
-                    "subjects",
-                ),
-                WorkflowEdge(
-                    "source",
-                    "references",
-                    "alignment-source",
-                    "references",
-                ),
-                WorkflowEdge(
-                    "alignment-source",
-                    "alignments",
-                    "contract-test-node",
-                    "alignments",
-                ),
-                *source_to_fixed,
-            ),
-            expected_observation_counts={"scores": 2},
+            pairing_mode="fixed_reference",
         ),
-        ModulePackageContractCase(
-            case_id="structure-comparison-batch-tm-score-paired",
-            node_type_id="structure_comparison.batch_tm_score",
-            node_type_version=MANY_ALIGNMENT_VERSION,
+        _ctk_case(
+            case_id="align-pairwise-counterpart",
+            operation="align_pairwise",
             binding_id=(
-                "structure_comparison.batch_tm_score."
-                "per_subject_counterpart"
+                "structure_comparison.align_counterparts."
+                "sequence_primary_affine"
             ),
-            binding_version=MANY_ALIGNMENT_VERSION,
-            node_parameters={},
-            binding_parameters={},
-            environment_values={},
-            safe_environment_fingerprint="provider-free",
-            invalidation_token="structure-comparison-ctk-v1",
-            workflow_nodes=(paired_source, paired_alignment),
-            workflow_edges=(
-                WorkflowEdge(
-                    "source",
-                    "subjects",
-                    "alignment-source",
-                    "subjects",
+            pairing_mode="per_subject_counterpart",
+        ),
+        *tuple(
+            _ctk_case(
+                case_id=f"{operation}-{pairing_mode}",
+                operation=operation,
+                binding_id=(
+                    f"structure_comparison.{operation}_{node_suffix}."
+                    "from_alignment_evidence"
                 ),
-                WorkflowEdge(
-                    "source",
-                    "references",
-                    "alignment-source",
-                    "references",
-                ),
-                WorkflowEdge(
-                    "source",
-                    "pairing",
-                    "alignment-source",
-                    "pairing",
-                ),
-                WorkflowEdge(
-                    "alignment-source",
-                    "alignments",
-                    "contract-test-node",
-                    "alignments",
-                ),
-                *source_to_paired,
-            ),
-            expected_observation_counts={"scores": 2},
+                pairing_mode=pairing_mode,
+            )
+            for operation in ("rmsd", "tm_score")
+            for pairing_mode, node_suffix in (
+                ("fixed_reference", "fixed_reference"),
+                ("per_subject_counterpart", "counterparts"),
+            )
         ),
     )
-    alignment = _alignment()
+
     report = verify_module_package_contract(
-        STRUCTURE_COMPARISON_PACKAGE,
+        MODULE_PACKAGE,
         execution_cases=cases,
         port_cases=(
             ModulePackagePortCase(
-                type_id="structure_comparison.alignment",
-                version=VERSION,
-                valid_value=alignment,
-                invalid_values=(replace(alignment, correspondence=()),),
+                "structure_comparison.alignment_evidence",
+                "4.0.0",
+                evidence,
+                (object(), replace(evidence, correspondence=())),
             ),
         ),
-        supporting_registrations=(SOURCE_PACKAGE,),
+        supporting_registrations=(TRANSFORM_PACKAGE, SOURCE_PACKAGE),
         work_root=tmp_path,
     )
 
-    assert report.package_id == "structure_comparison"
-    assert [case.status for case in report.case_reports] == [
-        "succeeded",
-        "succeeded",
-        "succeeded",
-        "succeeded",
-        "succeeded",
-        "succeeded",
-        "succeeded",
-        "succeeded",
-    ]
-    assert report.verified_port_types == (
-        "structure_comparison.alignment@2.1.0",
-    )
-
-
-def test_conflicting_pairing_fails_at_source_admission_before_alignment(
-    tmp_path: object,
-) -> None:
-    _, (projection,), (events,) = _run_comparison(
-        tmp_path,
-        scenario="conflicting_pairing",
-        pairwise=True,
-    )
-
-    assert projection["status"] == "failed"
-    assert not any(
-        output["node_id"] in {"alignment", "rmsd"}
-        for output in projection["outputs"]
-    )
-    assert not any(
-        event["event"]["type"] == "node_attempt_started"
-        and event["event"]["node_id"] == "alignment"
-        for event in events
-    )
-
-
-def test_structure_comparison_cache_replay_preserves_exact_evidence(
-    tmp_path: object,
-) -> None:
-    catalog, projections, event_groups = _run_comparison(
-        tmp_path,
-        scenario="paired",
-        pairwise=True,
-        replay=True,
-    )
-
-    first, replayed = projections
-    assert first["status"] == replayed["status"] == "succeeded"
-    first_outputs = _outputs_by_node(catalog, first)
-    replayed_outputs = _outputs_by_node(catalog, replayed)
-    assert (
-        first_outputs[("alignment", "alignments")]
-        == replayed_outputs[("alignment", "alignments")]
-    )
-    assert (
-        first_outputs[("rmsd", "scores")]
-        == replayed_outputs[("rmsd", "scores")]
-    )
-    assert {
-        item["resolution"] for item in replayed["node_dispositions"]
-    } == {"cache_replayed"}
-    assert not any(
-        event["event"]["type"] == "engine_invocation_started"
-        for event in event_groups[1]
-    )
-
-
-def test_pairwise_failure_publishes_no_partial_alignment_or_rmsd(
-    tmp_path: object,
-) -> None:
-    _, (projection,), (events,) = _run_comparison(
-        tmp_path,
-        scenario="failing_pair",
-        pairwise=True,
-    )
-
-    assert projection["status"] == "failed"
-    assert not any(
-        output["node_id"] in {"alignment", "rmsd"}
-        for output in projection["outputs"]
-    )
-    alignment_attempt = next(
-        event["event"]["node_attempt_id"]
-        for event in events
-        if event["event"]["type"] == "node_attempt_started"
-        and event["event"]["node_id"] == "alignment"
-    )
-    operation_id = next(
-        event["event"]["operation_attempt_id"]
-        for event in events
-        if event["event"]["type"] == "operation_attempt_started"
-        and event["event"]["node_attempt_id"] == alignment_attempt
-    )
-    invocations = [
-        event["event"]
-        for event in events
-        if event["event"]["type"] == "engine_invocation_started"
-        and event["event"]["operation_attempt_id"] == operation_id
-    ]
-    assert [event["engine_role"] for event in invocations] == [
-        "sequence_alignment",
-        "bounded_correspondence_selection",
-        "rigid_superposition",
-    ]
-    invocation_ids = {
-        event["invocation_id"] for event in invocations
-    }
-    alignment_terminals = [
-        event["event"]["status"]
-        for event in events
-        if event["event"]["type"] == "engine_invocation_terminal"
-        and event["event"]["invocation_id"] in invocation_ids
-    ]
-    assert alignment_terminals == [
-        "succeeded",
-        "succeeded",
-        "succeeded",
-    ]
+    assert len(report.case_reports) == 8
+    assert {case.status for case in report.case_reports} == {"succeeded"}

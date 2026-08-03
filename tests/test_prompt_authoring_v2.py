@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from contextlib import nullcontext
 from pathlib import Path
 
 import pytest
@@ -21,13 +20,16 @@ from datatypes import (
     FunctionAnnotation,
     FunctionAnnotations,
     ProteinPrompt,
-    ProteinStructure,
     ResidueLayout,
     ResidueMap,
     ResidueTrack,
 )
 from modules.prompt_authoring.domain import AlignedResidueTrack
+from modules.prompt_authoring import domain as prompt_domain
 from modules.prompt_authoring.package import MODULE_PACKAGE
+from modules.structure_transform.package import (
+    MODULE_PACKAGE as STRUCTURE_TRANSFORM_PACKAGE,
+)
 from tests.fixtures.prompt_authoring_sources.package import (
     MODULE_PACKAGE as SOURCE_PACKAGE,
 )
@@ -38,7 +40,21 @@ from tests.fixtures.prompt_authoring_v2 import (
     VERSION,
     wire_value,
 )
-from tests.fixtures.scientific_operation import build_operation, operation_call
+
+
+def test_prompt_residue_map_retains_its_supported_layout_bound(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(prompt_domain, "_MAX_RESIDUES", 1)
+    layout = ResidueLayout("A", 2, ["A:1", "A:2"])
+    residue_map = ResidueMap(
+        layout,
+        layout,
+        [(0, 0, "match"), (1, 1, "match")],
+    )
+
+    with pytest.raises(ValueError, match="supported range"):
+        prompt_domain.validate_residue_map(residue_map)
 
 
 def test_prompt_authoring_is_one_package_with_twelve_independent_nodes() -> None:
@@ -83,11 +99,88 @@ def test_prompt_authoring_is_one_package_with_twelve_independent_nodes() -> None
         ("prompt_authoring.map_residue_track", VERSION),
         ("prompt_authoring.override_residue_track", VERSION),
         ("prompt_authoring.override_protein_prompt_track", VERSION),
-        ("prompt_authoring.prompt_from_structure", "3.0.0"),
+        ("prompt_authoring.prompt_from_structure", "5.0.0"),
         ("prompt_authoring.random_insert_masked", VERSION),
         ("prompt_authoring.random_mask", VERSION),
         ("prompt_authoring.update_prompt_sequence", VERSION),
     }
+
+
+def test_prompt_from_structure_uses_a_fresh_exact_method_identity() -> None:
+    catalog = build_frozen_catalog(
+        (MODULE_PACKAGE, STRUCTURE_TRANSFORM_PACKAGE)
+    )
+
+    method = catalog.require_contract(
+        "method",
+        "prompt_authoring.prompt_from_structure.method",
+        "3.0.0",
+    )
+    assert method.descriptor["algorithm_identity"] == {
+        "name": "canonical-resolved-axis-to-protein-prompt",
+        "residue_identity": "resolved-axis-layout-order",
+        "coordinates": "resolved-axis-selected-named-atoms",
+        "visibility": "resolved-axis-coordinate-bearing-residues",
+        "component_policy": "consume-resolver-admitted-polymer-axis",
+    }
+
+    binding = catalog.require_contract(
+        "binding",
+        "prompt_authoring.prompt_from_structure.direct",
+        "5.0.0",
+    )
+    assert binding.descriptor["method"]["contract_version"] == "3.0.0"
+
+    assert catalog.get_contract(
+        "method",
+        "prompt_authoring.prompt_from_structure.method",
+        "2.1.0",
+    ) is None
+    assert catalog.get_contract(
+        "node_type",
+        "prompt_authoring.prompt_from_structure",
+        "4.0.0",
+    ) is None
+    assert catalog.get_contract(
+        "binding",
+        "prompt_authoring.prompt_from_structure.direct",
+        "4.0.0",
+    ) is None
+
+
+def test_prompt_sasa_nominal_ports_fix_absolute_square_angstrom_semantics() -> None:
+    catalog = build_frozen_catalog((STRUCTURE_TRANSFORM_PACKAGE, MODULE_PACKAGE))
+    quantity_contract = {
+        "quantity": "solvent_accessible_surface_area",
+        "measure": "absolute",
+        "unit": "angstrom_squared",
+        "granularity": "per_residue",
+        "normalization": "none",
+    }
+
+    sasa_track = catalog.require_port_type(
+        "prompt_authoring.track.sasa",
+        VERSION,
+    )
+    assert sasa_track.validator.parameters["quantity_contract"] == (
+        quantity_contract
+    )
+
+    protein_prompt = catalog.require_port_type("protein.prompt", VERSION)
+    assert protein_prompt.validator.parameters["track_contracts"] == {
+        "sasa_track": quantity_contract,
+    }
+    assemble = catalog.require_contract(
+        "node_type",
+        "prompt_authoring.assemble_protein_prompt",
+        VERSION,
+    )
+    assemble_sasa_input = next(
+        port
+        for port in assemble.descriptor["inputs"]
+        if port["name"] == "sasa_track"
+    )
+    assert assemble_sasa_input["port_type"] == sasa_track.reference()
 
 
 _SOURCE = WorkflowNodeInstance(
@@ -177,7 +270,7 @@ _TRACK_PORT_CASES = (
     ),
     ModulePackagePortCase(
         "function.annotations",
-        "2.1.0",
+        "3.0.0",
         _ANNOTATIONS,
         (
             FunctionAnnotations([
@@ -195,7 +288,7 @@ _TRACK_PORT_CASES = (
     ),
     ModulePackagePortCase(
         "protein.prompt",
-        "2.1.0",
+        VERSION,
         _PROTEIN_PROMPT,
         (
             ProteinPrompt(
@@ -491,11 +584,11 @@ def test_all_twelve_nodes_execute_through_shared_contract_kit(
             ModulePackageContractCase(
                 case_id="prompt-authoring-prompt-from-structure",
                 node_type_id="prompt_authoring.prompt_from_structure",
-                node_type_version="3.0.0",
+                node_type_version="5.0.0",
                 binding_id=(
                     "prompt_authoring.prompt_from_structure.direct"
                 ),
-                binding_version="3.0.0",
+                binding_version="5.0.0",
                 node_parameters={},
                 binding_parameters={},
                 environment_values={},
@@ -505,9 +598,9 @@ def test_all_twelve_nodes_execute_through_shared_contract_kit(
                 workflow_edges=(
                     WorkflowEdge(
                         "source",
-                        "structure",
+                        "resolved_residue_axis",
                         "contract-test-node",
-                        "structure",
+                        "residue_axis",
                     ),
                 ),
             ),
@@ -603,7 +696,7 @@ def test_all_twelve_nodes_execute_through_shared_contract_kit(
             ),
         ),
         port_cases=_TRACK_PORT_CASES,
-        supporting_registrations=(SOURCE_PACKAGE,),
+        supporting_registrations=(SOURCE_PACKAGE, STRUCTURE_TRANSFORM_PACKAGE),
         work_root=tmp_path,
     )
 
@@ -628,75 +721,24 @@ def test_all_twelve_nodes_execute_through_shared_contract_kit(
     }
 
 
-def test_prompt_from_structure_rejects_multiple_coordinate_models() -> None:
-    class RunResources:
-        @staticmethod
-        def engine_invocation(**kwargs):
-            del kwargs
-            return nullcontext()
-
-    atom = (
-        "ATOM      1  CA  ALA A   1       1.000   0.000   "
-        "0.000  1.00 20.00           C\n"
+def test_prompt_from_structure_consumes_only_the_resolved_residue_axis() -> None:
+    catalog = build_frozen_catalog(
+        (MODULE_PACKAGE, STRUCTURE_TRANSFORM_PACKAGE)
     )
-    structure = ProteinStructure(
-        "MODEL        1\n"
-        + atom
-        + "ENDMDL\n"
-        + "MODEL        2\n"
-        + atom
-        + "ENDMDL\n"
+    definition = catalog.require_contract(
+        "node_type",
+        "prompt_authoring.prompt_from_structure",
+        "5.0.0",
     )
 
-    catalog = build_frozen_catalog((MODULE_PACKAGE,))
-    implementation = build_operation(
-        catalog,
-        "prompt_authoring.prompt_from_structure.direct",
-        RunResources(),
-        binding_version="3.0.0",
-    )
-    with pytest.raises(ValueError, match="exactly one coordinate model"):
-        implementation.execute(operation_call(
-            catalog=catalog,
-            binding_id="prompt_authoring.prompt_from_structure.direct",
-            binding_version="3.0.0",
-            inputs={"structure": structure},
-            node_parameters={},
-            binding_parameters={},
-        ))
-
-
-def test_prompt_from_structure_retains_altloc_b_only_residue() -> None:
-    class RunResources:
-        @staticmethod
-        def engine_invocation(**kwargs):
-            del kwargs
-            return nullcontext()
-
-    structure = ProteinStructure(
-        "ATOM      1  CA BALA A   7       1.250   2.500   "
-        "3.750  0.75 20.00           C\n"
-        "TER\nEND\n"
-    )
-
-    catalog = build_frozen_catalog((MODULE_PACKAGE,))
-    outputs = build_operation(
-        catalog,
-        "prompt_authoring.prompt_from_structure.direct",
-        RunResources(),
-        binding_version="3.0.0",
-    ).execute(operation_call(
-        catalog=catalog,
-        binding_id="prompt_authoring.prompt_from_structure.direct",
-        binding_version="3.0.0",
-        inputs={"structure": structure},
-        node_parameters={},
-        binding_parameters={},
-    ))
-
-    assert outputs["layout"] == ResidueLayout("A", 1, ["A:7"])
-    prompt = outputs["protein_prompt"]
-    assert prompt.sequence_track.values == ("A",)
-    assert prompt.structure_track.values == (
-        {"CA": (1.25, 2.5, 3.75)},
-    )
+    inputs = definition.descriptor["inputs"]
+    assert len(inputs) == 1
+    assert inputs[0]["name"] == "residue_axis"
+    assert {
+        key: inputs[0]["port_type"][key]
+        for key in ("contract_kind", "contract_id", "contract_version")
+    } == {
+        "contract_kind": "port_type",
+        "contract_id": "structure_transform.resolved_residue_axis",
+        "contract_version": "4.0.0",
+    }

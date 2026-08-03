@@ -45,7 +45,15 @@ def verify_repository_examples() -> dict[str, object]:
         raise ValueError("capability inventory package set is stale")
 
     contract_references = [
-        contract.reference() for contract in catalog.contracts
+        contract.reference()
+        for contract in sorted(
+            catalog.contracts,
+            key=lambda item: (
+                item.contract_kind,
+                item.contract_id,
+                item.contract_version,
+            ),
+        )
     ]
     if inventory.get("contracts") != contract_references:
         raise ValueError("capability inventory contract identities are stale")
@@ -64,9 +72,9 @@ def verify_repository_examples() -> dict[str, object]:
         if relock_workflow(workflow, catalog) != workflow:
             raise ValueError(f"{path.name} has a stale Contract Lock")
         try:
-            compile_workflow(
+            compiled = compile_workflow(
                 workflow,
-                workflow_revision=1,
+                workflow_commit_revision=1,
                 catalog=catalog,
             )
         except WorkflowCompileError as error:
@@ -75,6 +83,15 @@ def verify_repository_examples() -> dict[str, object]:
             # selected provider, but the verifier must never choose another.
             if error.code != "binding_unavailable":
                 raise
+        else:
+            plan = compiled.execution_plan
+            if (
+                plan.workflow_commit_revision != 1
+                or plan.workflow_digest != workflow.digest
+            ):
+                raise ValueError(
+                    f"{path.name} compiled to inconsistent Execution Plan facts"
+                )
 
     return {
         "catalog_contract_digest": catalog.contract_digest,

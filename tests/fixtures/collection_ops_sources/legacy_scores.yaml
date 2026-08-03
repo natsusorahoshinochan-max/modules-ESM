@@ -1,6 +1,6 @@
 schema_version: "2.1.0"
 node_type_id: contract_test.collection_ops_legacy_scores
-version: "2.1.0"
+version: "4.0.0"
 title: Legacy score source
 summary: Emits one subject-free legacy score solely to prove collection merge rejection.
 category: contract_test
@@ -8,7 +8,7 @@ inputs: []
 outputs:
   - name: scores
     port_type_id: score.collection
-    port_type_version: "2.1.0"
+    port_type_version: "4.0.0"
     required: true
     multiplicity: one
     scientific_meaning: One intentionally legacy subject-free score.

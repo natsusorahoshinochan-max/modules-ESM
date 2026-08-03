@@ -1,10 +1,10 @@
 # 模块化蛋白质设计与评价工作台：当前架构
 
-- **文档版本**：0.3
-- **日期**：2026-08-01
+- **文档版本**：0.5
+- **日期**：2026-08-03
 - **使用场景**：可信、单用户、仅本机使用
 - **规范词汇**：以 [`CONTEXT.md`](../CONTEXT.md) 为准
-- **核心决策**：ADR-0022、ADR-0028、ADR-0030、ADR-0031、ADR-0033、ADR-0034
+- **核心决策**：ADR-0022、ADR-0028、ADR-0030、ADR-0033、ADR-0034、ADR-0035、ADR-0036、ADR-0037、ADR-0038
 
 ## 1. 目标与优先级
 
@@ -124,17 +124,21 @@ Workflow 是由 Node Instances 和 compatible Ports 组成的有向无环图。�
 
 Binding 不按当前机器、Provider 可用性或性能自动选择。环境变化只能影响 Availability 和 Readiness，不能改变 Workflow 的科学路线。
 
-### 4.2 Commit
+### 4.2 Workflow Draft 与 Workflow Commit
 
-UI 中一次“保存并准备运行”的操作由一个深的 commit interface 完成：
+`Workflow Draft` 是 unlocked authoring revision，可以不完整或暂时无效，不能执行。
+`Workflow Commit` 是针对一个 active `FrozenCatalog` 解析完成的 immutable runnable
+publication。UI 中一次“保存并准备运行”的操作由一个深的 commit interface 完成：
 
 1. 保存 Workflow draft；
 2. 针对当前 `FrozenCatalog` 产生 exact Contract Lock；
 3. 检查 DAG、Port exact nominal compatibility 和参数；
 4. 解析 immutable `Execution Plan`；
-5. 返回一个可运行 revision 或明确错误。
+5. 原子发布带 `workflow_commit_id` 的 Workflow Commit，或返回明确错误。
 
-调用者不应自己串接 save、snapshot、relock、validate 和 compile，也不应在 Run 开始后重新解释 Workflow。
+失败的 commit 保留用户提交的 Draft，且不替换此前 active Commit。调用者不应自己串接
+save、snapshot、relock、validate 和 compile，也不应在 Run 开始后重新解释 Workflow。
+Run 只提交 active `workflow_commit_id`，不提交可独立组合的 revision 与 compile ID。
 
 ### 4.3 Execution Plan
 
@@ -250,18 +254,21 @@ Biohub 的官方规范是权威。对符合请求的响应按规范翻译，不�
 - `ProteinPrompt`；
 - `ResidueIdentity`、`ResidueLayout`、`ResidueMap`、`ResidueTrack`；
 - `Candidate`、`Candidate Collection` 和 pairwise mapping；
-- `Structure Alignment`；
+- package-owned `Structure Alignment Evidence`；
+- `Prediction Residue Axis` 和 subjectless `Prediction Confidence Fact`；
 - `Metric Definition`、`Method`、`Observation Context`；
 - `Score Observation` 和 `Score Collection`。
 
 这些值在 contract-owning seam 接纳后不可变。in-process caller 直接传递 admitted values，不在每条 Port edge 上重复 encode/decode，也不重复验证同一 invariant。
 
 `ProteinStructure` 只表示 canonical PDB 科学内容。当前唯一的
-`protein.structure@3.0.0` wire 只有 `pdb_string`；Provider、模型、checkpoint、
+`protein.structure@4.0.0` wire 只有 `pdb_string`；Provider、模型、checkpoint、
 Project Input、文件或来源标签不是结构内容，不得参与 content digest。拥有这些事实的
 Method、Execution Binding、Candidate lineage 或 Run Evidence 负责记录 provenance。
+坐标记录遵守当前固定列 PDB contract；occupancy、temperature factor 与 element 等必需字段
+在该 Port seam 一次接纳，不由下游 parser 各自猜测。
 
-`structure_transform.backbone_structure@3.0.0` 同样只编码 canonical PDB
+`structure_transform.backbone_structure@4.0.0` 同样只编码 canonical PDB
 内容。其 nominal 科学含义由允许的 backbone atoms、每个残基的原子完整性与顺序、
 chain break、serial 和 PDB serialization invariants 决定，不由 producer/source
 字符串决定。两个结构 Port Type 都只有当前 closed wire 的单一 decoder；旧的
@@ -279,7 +286,9 @@ active Catalog 解析，不形成第二个历史 codec registry。
 | --- | --- |
 | Project Input / public protocol | schema、exact nominal Port identity、用户提供的科学字段 |
 | Scientific value construction | residue identity、layout、shape、unit、mask、lineage 等 canonical invariants |
+| Prediction confidence Port | Prediction Key、structure digest、prediction axis、pLDDT/PAE shape、exact provider Method |
 | Explicit scientific transformation | 该变换声明的科学前置和后置条件 |
+| Confidence materialization | admitted Candidate references 与 subjectless facts 的完整一一闭合 |
 | Provider Adapter | 按权威规范完成翻译并构造 canonical output 与 provenance |
 | Persistence admission | schema namespace、digest、exact Contract references |
 | Durable write | 路径归属、原子发布、冲突和意外数据损失 |
@@ -298,6 +307,23 @@ Workbench 只监听 loopback，项目内部 Module 互相信任。架构不包�
 
 Workbench 中的残基引用使用 identity-complete `ResidueLayout` 中的稳定身份。Provider position 不是 ResidueIdentity，数组顺序也不是科学对应关系。
 
+`structure_transform.resolve_residue_axis` 是结构 component disposition、parent sequence、
+segment topology、named-atom coordinates、CA/backbone mask 与 modified-residue provenance 的
+唯一 owner。下游 DSSP、Prompt authoring 与 structure comparison 消费 admitted resolved
+axis，不重新过滤 `ATOM`/`HETATM` 或解析第二套 CA residue list。Candidate Collection 的
+derived axis/annotation 使用完整 `CandidateDataReference` 关联；parallel list position 不建立
+科学对应。
+
+需要 chain-native 结构输入的 Provider Adapter 必须按 resolved axis 的 ordered segment
+topology 投影：每个 segment 使用独立 provider-safe chain，one-based local position 在每段
+重新从一开始；同一 Workbench chain 的多个 segment 不得因 chain label 相同而合并。
+
+结构预测置信度使用另一条明确的 `Prediction Residue Axis`。它固定 prediction input 的精确
+Candidate 或 ProteinPrompt Port-value source、identity-complete layout 和实际 prediction
+sequence。它描述 provider request/prediction population，而不是 admitted output structure 的
+component disposition；folding/ESM Adapter 不得通过解析 output PDB 构造或修复这条轴。输出结构
+需要参与 DSSP、comparison 等结构方法时，再独立进入 resolved-structure axis seam。
+
 显式变换通过 `ResidueMap` 记录 source/target identity。插入、删除、替换、mask、chain selection 和 CSH normalization 都必须保存完整映射并遵守各自 ADR 的前置条件。
 
 ### 8.2 ProteinPrompt
@@ -310,7 +336,8 @@ sequence track
 structure coordinate track
 structure visibility mask
 secondary-structure track
-SASA track
+SASA track (nullable absolute per-residue solvent-accessible surface area in Å²,
+without relative-accessibility normalization)
 function annotations
 ResidueMap provenance
 ```
@@ -334,6 +361,12 @@ sample、track slot 派生。Candidate ID、Result Identity、Run ID、调度顺
 `effective_seed`。若官方 provider route 不支持 seed control，则 Adapter 不发送 seed，记录
 `control=provider_uncontrolled`，Candidate 与 Invocation 都不得声称存在 effective seed。
 configured base seed 仍是 Node 参数，但不是远程 provider 已执行的 seed。
+
+Result Identity 只按 Binding 的显式 randomness declaration 投影随机性。没有 declaration
+时，configured base seed 留在 normalized Node parameters，`effective_randomness` 为空；runtime
+不得依据 `seed`、`random_seed` 或 `effective_seed` 这样的参数名猜测随机性。具有 exact seed
+control 的 Binding 则必须显式声明 resolver，把解析后的 seed 放入 Result Identity 的
+`effective_randomness`；每个实际派生 call seed 仍由对应 Engine Invocation 单独记录。
 
 Invocation provenance 是一个封闭的正交事实对象，而不是互斥的单标签记录。随机性事实位于
 `effective_randomness`，provider residue mapping 位于 `provider_residue_projection`；因此
@@ -361,7 +394,15 @@ bias_by_residue
 tied_residue_groups
 ```
 
-只有 Adapter 可以把 stable ResidueIdentity 转换为 provider chain-local one-based positions，并在 provider 调用前把完整 identity-to-position mapping 写入 typed Engine Invocation evidence。Candidate 只保留 canonical Workbench residue identities、科学参数和 lineage，不承载 provider-native positions 或 model metadata。旧 positional contract 不进入 active Catalog，不保留第二套 decoder、operation 或 Adapter。
+只有 Adapter 可以把 stable ResidueIdentity 转换为 provider segment-chain-local one-based
+positions。同一 Workbench chain 的 design/fixed chain-level constraint 必须扩展到该 chain 的
+全部 resolved segments；fixed/designable/tied/bias/reference 与 provider output 恢复只使用
+exact residue-to-segment-local mapping。Provider 调用前，Adapter 把 unique Workbench chain
+order、ordered provider structure-segment chain order、实际 designed-first featurization chain
+order，以及每个 residue 的 segment index/provider chain/local position 写入 typed Engine
+Invocation evidence。Candidate 只保留 canonical Workbench residue identities、科学参数和
+lineage，不承载 provider-native positions 或 model metadata。旧 positional contract 不进入
+active Catalog，不保留第二套 decoder、operation 或 Adapter。
 
 ProteinMPNN geometric validity mask 不是 sequence layout mask。缺少完整 backbone 的 fixed residue 从 provider input 恢复到完整 output layout；请求在该位置 design 则 fail closed。
 
@@ -375,9 +416,66 @@ ProteinMPNN geometric validity mask 不是 sequence layout mask。缺少完整 b
 - 一个 Candidate；
 - 合同声明的 value shape、unit、direction、range 和 granularity。
 
-TM-score、RMSD、DSSP、confidence 和 solubility 不能退化为自由字符串 key/value。结构比较共享明确的 `Structure Alignment` 和 role-labelled participants。
+TM-score、RMSD、DSSP、confidence 和 solubility 不能退化为自由字符串 key/value。结构比较共享明确的 package-owned `Structure Alignment Evidence` 和 role-labelled participants；active Catalog 不注册旧的 builtin `structure.alignment`。
 
-评分和选择分离。Selection Objective 显式选择 Observation，固定 Utility Transform、weight 和 missing-value policy；改变排序策略不重新执行评分 Method。
+### 10.1 结构预测置信度的两阶段 seam
+
+`structure_prediction@1.0.0` Module Package 拥有共享的
+`structure_prediction.prediction_residue_axis@1.0.0`、
+`structure_prediction.confidence_facts@1.0.0` 与
+`structure_prediction.materialize_confidence@1.0.0`。materializer 的输入是
+`structure_candidates: candidate.collection@3.0.0` 和
+`confidence_facts: structure_prediction.confidence_facts@1.0.0`，输出是
+`observations: score.collection@4.0.0`。它通过
+`structure_prediction.materialize_confidence.direct@1.0.0` Binding 绑定
+`structure_prediction.materialize_confidence.exact_reference_join@1.0.0`
+Method，且没有科学或部署参数。
+
+`folding.fold@6.0.0`、`esm3.generate_sequence@6.0.0`、
+`esm3.generate_structure@6.0.0` 和 `esm3.generate_paired@6.0.0` 不在产生 Candidate
+的同一次操作中预造 Score subject。这些 Node 的 Execution Bindings 为 `6.0.0`，其 exact
+provider Methods 为 `4.0.0`。每个 confidence-bearing structure 或 coordinate-conditioned
+reconstruction output 同时产生：
+
+1. `candidate.collection@3.0.0`，其中 Candidate metadata 携带 content-derived
+   Prediction Key；
+2. `structure_prediction.confidence_facts@1.0.0`，其中 subjectless fact 携带同一 key、
+   exact structure digest、`structure_prediction.prediction_residue_axis@1.0.0`、provider
+   Method 与 canonical confidence values。
+
+纯 sequence output 没有 structure-confidence fact 或 Prediction Key。PAE 与 pTM 位于同一
+fact；不再通过独立 Score Port 与 Candidate collection 做 positional correspondence。
+
+```mermaid
+flowchart LR
+    GEN["Folding or ESM generation"] --> CAND["Unadmitted structure Candidates"]
+    GEN --> FACTS["Subjectless confidence facts"]
+    CAND --> ADMIT["Candidate output admission"]
+    ADMIT --> MAT["structure_prediction.materialize_confidence@1.0.0"]
+    FACTS --> MAT
+    MAT --> SCORE["score.collection@4.0.0"]
+```
+
+producer 自己根据 exact output role/slot、structure content digest 和 prediction-axis digest
+生成 Prediction Key，并把它写入 Candidate metadata 与 fact；该 key 不包含 future Candidate
+ID。Candidate admission 不猜测跨 Port 关联。后续 materializer 从自身 admitted input facts
+取得完整 `CandidateDataReference`，按 key 和 structure digest 验证两个集合 exact full-set
+closure，之后才创建 Candidate-associated Score Observations。这使 generation 与
+materialization 之间不存在 future CDR。
+
+Confidence-facts Port 的 `scientific_axis_projection` 动态提供 prediction-axis references，
+`observation_method_projection` 动态提供 exact provider Method。materializer Binding 的
+Produced Observation Interface 将这两个 Port projection 声明为 axis 与 Method source；因此
+`structure_prediction.materialize_confidence.exact_reference_join@1.0.0` 只代表确定性的
+关联/物化算法，不能冒充 folding/ESM provider Method。
+
+per-residue pLDDT 的长度精确等于 prediction axis，null 位置显式保留；mean-residue pLDDT 是
+同一 population 上 valid protein-residue values 的等权算术平均，且仍携带该 axis；PAE 是
+同一 axis × axis 的方阵。pTM 是 candidate-global scalar，不附 residue axis。
+
+评分和选择分离。Selection Objective 显式选择 Observation，固定 Utility Transform、weight 和 missing-value policy；改变排序策略不重新执行评分 Method。每个 Objective 或 Selector
+必须由声明该 consumption contract 的显式 Node 消费；不存在 Run 结束时的隐式 weighted
+selection fallback。
 
 ## 11. Module Package
 
@@ -398,7 +496,7 @@ modules/<package>/package.py:MODULE_PACKAGE
 - Availability 和 Readiness declarations；
 - direct implementations 或 required Adapters。
 
-当前 production Catalog 发现 11 个 Module Packages：
+当前 production Catalog 发现 12 个 Module Packages：
 
 - `collection_ops`
 - `esm3`
@@ -410,6 +508,7 @@ modules/<package>/package.py:MODULE_PACKAGE
 - `solubility`
 - `structure_annotation`
 - `structure_comparison`
+- `structure_prediction`
 - `structure_transform`
 
 不使用 import side effect、per-node registration call、recursive plugin discovery 或公共 dict-based `run()`。Module Package 的 public descriptors 和 runtime implementation index 在 Catalog build 时一次绑定；科学 operation 通过 resolved call 使用，不重新查询 package。
@@ -428,10 +527,11 @@ Provider 临时格式不成为公共 Port Type。只有当结果具有独立科�
 
 ### 13.1 Result Identity
 
-Result Identity 由以下 admitted facts 规范化派生：
+compiler 为每个 Node 生成唯一 immutable `ResultIdentityPlanFacts` projection。Result
+Identity 由该静态 projection 与以下 run-scoped admitted facts规范化派生：
 
 ```text
-resolved exact contracts
+only this Node's resolved exact result-affecting contracts
 result-affecting implementation / Method identity
 canonical input identities
 normalized Node and Binding parameters
@@ -439,7 +539,10 @@ declared randomness contract and any actually applied effective seed
 declared external resource identity
 ```
 
-UI 位置、颜色、注释、Run ID、Node Instance ID 和调度时序不进入 Result Identity。
+UI 位置、颜色、注释、Run ID、Node Instance ID、Workflow edge locator、Objective label、
+无关下游 Utility contract 和调度时序不进入 Result Identity。Execution Plan digest 仍对
+Workflow topology 敏感。Result Identity hash、Cache metadata 与 Ledger 中的 plan-facts
+digest 使用同一个 compiler-owned canonical projection。
 
 ### 13.2 Cache
 
@@ -461,14 +564,38 @@ Artifact bytes、media contract 和 digest 必须与公开事实一致。
 
 `protein_workbench_public/resources/v2/bundle.json` 是当前唯一公共 payload contract。运行中的 backend 提供同一 canonical bundle；UI 不维护 v1 route 或 payload fallback。
 
-Project metadata、Workflow、Execution Plan references、Result Cache 和 Run Ledger 使用 closed current schemas。public/persistence seam 接纳 wire value 后立即转换为 immutable canonical value；内部不反复通过 JSON roundtrip。
+Project provisioning 也属于这个唯一合同：`POST /api/v2/projects` 创建一个
+Project，`POST /api/v2/projects/{project_id}/inputs` 发布一个 immutable Project
+Input。后者使用 closed JSON request，保留 `filename` 作为来源标签，并将 opaque bytes
+表示为带标准 padding 的 canonical RFC 4648 `content_base64`；解码后上限为 64 MiB。
+`filename`、`project_input_ref`、byte size 与 content digest 作为一个 closed immutable
+descriptor 和 payload 原子发布；重启后通过
+`GET /api/v2/projects/{project_id}/inputs/{project_input_ref}` 从该 durable descriptor
+恢复来源标签，并重新验证 payload size 与 digest。
+不存在未版本化的 `/api/projects` 或 multipart publication seam。Project ID 与
+`project_input_ref` 使用 storage owner 的 exact identifier domain。
+
+`filename` 是 provenance label，不是科学内容：它不进入 Project Input content digest、
+Resolved Resource Identity 或 Result Identity。消费 Project Input 的 import operation 在
+既有 Engine Invocation provenance seam 投影该 label，使 Run Evidence 保留来源名称；相同
+bytes 仅重命名 filename 或 opaque reference 时，Result Identity 保持不变。
+
+Project metadata、Workflow Draft、Workflow Commit、Result Cache 和 Run Ledger 使用 closed
+current schemas。public/persistence seam 接纳 wire value 后立即转换为 immutable canonical
+value；内部不反复通过 JSON roundtrip。持久化 Commit 只能在所有 digest 与 active Catalog
+exact references 一致时 hydrate Execution Plan，否则 fail closed。
 
 推荐 Project 组织：
 
 ```text
 project/
-├── workflow documents and revisions
+├── workflow-v2/
+│   ├── drafts/
+│   └── commits/
 ├── inputs/
+│   └── <project_input_ref>/
+│       ├── descriptor.json
+│       └── payload
 ├── outputs/
 ├── cache/
 └── run-ledger/
@@ -505,6 +632,10 @@ datatypes/
 modules/<package>/
   cohesive Node Types, Methods and canonical scientific operations
   Provider translation only in concrete Adapters
+
+modules/structure_prediction/
+  provider-independent prediction axis and confidence facts
+  shared deterministic confidence materialization
 
 protein_workbench_public/
   current versioned protocol bundle and wire validation
@@ -549,9 +680,13 @@ flowchart LR
     ESMSTRUCT --> MPNN["ProteinMPNN Design"]
     MPNN --> SF["SimpleFold"]
     MPNN --> EF["ESMFold2"]
+    SF --> CONF["Materialize Prediction Confidence"]
+    EF --> CONF
+    ESMSTRUCT --> CONF
     SF --> CMP["Structure Metrics"]
     EF --> CMP
     ESMSTRUCT --> CMP
+    CONF --> SELECT
     CMP --> SELECT["Explicit Selection Objectives"]
 ```
 
@@ -569,6 +704,8 @@ flowchart LR
 - 根据环境自动选择 Binding、fallback Provider 或隐式 retry；
 - 在每条内部 edge 重复 encode/decode/validate；
 - free-form score、隐式 unit conversion 或集合顺序对应；
+- 在 generation 操作中预造 future Candidate Data Reference 或直接输出 Candidate-associated confidence Score；
+- 从 output PDB 重建 Prediction Residue Axis，或把 materializer Method 冒充为 provider observation Method；
 - 与本地可信使用无关的认证、权限、沙箱和公共服务 hardening。
 
 ## 20. 架构结论

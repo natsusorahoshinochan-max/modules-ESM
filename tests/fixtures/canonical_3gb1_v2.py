@@ -21,8 +21,8 @@ from datatypes import ProteinSequence
 
 
 VERSION = "2.1.0"
-REMOTE_BINDING_VERSION = "3.0.0"
-PROTEINMPNN_BINDING_VERSION = "4.0.0"
+REMOTE_BINDING_VERSION = "7.0.0"
+PROTEINMPNN_BINDING_VERSION = "9.0.0"
 PROVIDER_BINDINGS = frozenset({
     "esm3.generate_paired.biohub_medium",
     "folding.fold.esmfold2_remote",
@@ -82,11 +82,12 @@ def pdb_for_sequence(
             ("O", 1.8),
         ):
             lines.append(
-                f"ATOM  {serial:5d}  {atom_name:<3s} "
-                f"{_AA3[amino_acid]} A{index:4d}    "
+                f"ATOM  {serial:5d} {atom_name:^4s} "
+                f"{_AA3[amino_acid]:>3s} A{index:4d}    "
                 f"{center_x + atom_offset:8.3f}"
                 f"{center_y:8.3f}{center_z:8.3f}"
-                f"  1.00 20.00           {atom_name[0]:>1s}"
+                f"{1.0:6.2f}{20.0:6.2f}"
+                f"{'':10}{atom_name[0]:>2s}  "
             )
             serial += 1
     lines.extend(("TER", "END"))
@@ -157,9 +158,9 @@ class ControlledESM3Client:
 class ControlledFoldResponse:
     sequence: str
     pdb_string: str
-    ptm: float
-    plddt: list[float]
-    pae: list[list[float]]
+    ptm: torch.Tensor
+    plddt: torch.Tensor
+    pae: torch.Tensor
 
     def to_protein_chain(self) -> "ControlledFoldResponse":
         return self
@@ -200,15 +201,17 @@ class ControlledFoldingClient:
                 bend=bend,
                 z_offset=(call_index - 10) * 0.001,
             ),
-            ptm=0.95 - call_index * 0.001,
-            plddt=[0.90 - call_index * 0.001] * residue_count,
-            pae=[
+            ptm=torch.tensor(0.95 - call_index * 0.001),
+            plddt=torch.tensor(
+                [0.90 - call_index * 0.001] * residue_count
+            ),
+            pae=torch.tensor([
                 [
                     min(float(abs(left - right)), 31.75)
                     for right in range(residue_count)
                 ]
                 for left in range(residue_count)
-            ],
+            ]),
         )
 
 
@@ -236,7 +239,7 @@ class ControlledProteinMPNNProvider:
     def design(
         self,
         request: Any,
-    ) -> tuple[list[ProteinSequence], list[float]]:
+    ) -> list[ProteinSequence]:
         seed_offset = request.seed % len(_ALPHABET)
         self.requests.append(request)
         sequences = [
@@ -255,10 +258,7 @@ class ControlledProteinMPNNProvider:
             )
             for sample_index in range(request.num_sequences)
         ]
-        return sequences, [
-            -float(seed_offset + 1) - sample_index / 10
-            for sample_index in range(request.num_sequences)
-        ]
+        return sequences
 
 
 def controlled_catalog() -> Any:

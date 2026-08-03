@@ -9,8 +9,10 @@ artifact without a selected provider must reach the compiler's explicit
 `binding_unavailable` conclusion; no sibling Binding is selected.
 
 `capability-inventory.json` records every accepted production Node Type,
-Execution Binding, Method, and Metric identity from the eleven cohesive Module
-Packages. Run:
+Execution Binding, Method, and Metric identity from the twelve cohesive Module
+Packages. Prediction and folding Nodes publish subjectless confidence facts;
+the Workflows join those facts to admitted structure Candidates only through
+`structure_prediction.materialize_confidence`. Run:
 
 ```bash
 uv run --no-sync python -m examples.v2_suite

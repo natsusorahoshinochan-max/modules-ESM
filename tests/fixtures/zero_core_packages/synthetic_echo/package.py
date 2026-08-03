@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 import base64
 
 from core import (
@@ -25,9 +25,21 @@ from core import (
     UtilityTransformDefinition,
 )
 
-from .implementation import SyntheticEchoImplementation
+from .implementation import (
+    SyntheticCandidateSourceImplementation,
+    SyntheticEchoScorerImplementation,
+)
 
 
+_SOURCE_NODE_TYPE_ID = "contract_test.synthetic_candidate_source"
+_SOURCE_VERSION = "1.0.0"
+_SCORER_NODE_TYPE_ID = "contract_test.synthetic_echo"
+_SCORER_VERSION = "4.0.0"
+_SOURCE_METHOD = ContractIdentity(
+    "method",
+    "contract_test.synthetic_candidate_source.method",
+    "1.0.0",
+)
 _METHOD = ContractIdentity(
     "method",
     "contract_test.synthetic_echo.method",
@@ -97,13 +109,110 @@ def _ready(check_input: ReadinessCheckInput) -> ReadinessResult:
     )
 
 
-def _build(context: OperationContext) -> SyntheticEchoImplementation:
+def _source_ready(check_input: ReadinessCheckInput) -> ReadinessResult:
+    del check_input
+    return ReadinessResult(True)
+
+
+def _build_source(
+    context: OperationContext,
+) -> SyntheticCandidateSourceImplementation:
+    if context.produced_observations:
+        raise ValueError("synthetic Candidate source declares no Observations")
+    return SyntheticCandidateSourceImplementation(
+        run_resources=context.resources,
+        environment=context.environment,
+    )
+
+
+def _build_scorer(
+    context: OperationContext,
+) -> SyntheticEchoScorerImplementation:
     observation = context.produced_observations[0]
-    return SyntheticEchoImplementation(
+    return SyntheticEchoScorerImplementation(
         run_resources=context.resources,
         environment=context.environment,
         metric=observation.metric,
         method=context.method,
+    )
+
+
+def _binding(
+    binding_id: str,
+    *,
+    version: str,
+    node_type_id: str,
+    method: ContractIdentity,
+    build: Callable[
+        [OperationContext],
+        SyntheticCandidateSourceImplementation
+        | SyntheticEchoScorerImplementation,
+    ],
+    produced_observations: tuple[ProducedObservationDefinition, ...],
+    requires_fixture_ready: bool,
+) -> ExecutionBindingDefinition:
+    behavior_prefix = binding_id.replace(".", "/")
+    return ExecutionBindingDefinition(
+        binding_id=binding_id,
+        version=version,
+        node_type=ContractIdentity(
+            "node_type",
+            node_type_id,
+            version,
+        ),
+        method=method,
+        binding_parameters={
+            "repeat_count": {
+                "parameter_scope": "scientific",
+                "scientific_meaning": (
+                    "Exact number of deterministic echo repetitions."
+                ),
+                "required": True,
+                "value_contract": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 3,
+                },
+            }
+        },
+        execution_route="direct",
+        factory=ScientificOperationFactory(
+            behavior=BehaviorReference(
+                f"{behavior_prefix}/factory",
+                version,
+                {"execution_route": "direct"},
+            ),
+            build=build,
+        ),
+        availability=AvailabilityDeclaration(
+            behavior=BehaviorReference(
+                f"{behavior_prefix}/availability",
+                version,
+                {"observation": "startup"},
+            ),
+            prerequisites={},
+            check=_available,
+        ),
+        readiness=ReadinessDeclaration(
+            behavior=BehaviorReference(
+                f"{behavior_prefix}/readiness",
+                version,
+                {"observation": "per-run"},
+            ),
+            prerequisites=(
+                {"fixture_ready": "required"}
+                if requires_fixture_ready
+                else {}
+            ),
+            check=_ready if requires_fixture_ready else _source_ready,
+        ),
+        deterministic=True,
+        cacheable=False,
+        implementation_identity={
+            "name": binding_id,
+            "source": "repository-contract-fixture",
+        },
+        produced_observations=produced_observations,
     )
 
 
@@ -112,11 +221,24 @@ MODULE_PACKAGE = ModulePackageRegistration(
     package_id="contract_test.synthetic_echo",
     package_version="2.1.0",
     package_module=__package__,
-    node_definitions=(DefinitionResource("definitions/echo.yaml"),),
+    node_definitions=(
+        DefinitionResource("definitions/candidate_source.yaml"),
+        DefinitionResource("definitions/echo.yaml"),
+    ),
     metric_definitions=(
         DefinitionResource("definitions/identity_metric.yaml"),
     ),
     methods=(
+        MethodDefinition(
+            method_id="contract_test.synthetic_candidate_source.method",
+            version="1.0.0",
+            algorithm_identity={"name": "deterministic-candidate-source"},
+            model_identity={"kind": "none"},
+            checkpoint_identity={"kind": "none"},
+            featurization_identity={"kind": "identity"},
+            source_identity={"kind": "contract-test-fixture"},
+            scale_contract={"kind": "none"},
+        ),
         MethodDefinition(
             method_id="contract_test.synthetic_echo.method",
             version="2.1.0",
@@ -129,62 +251,21 @@ MODULE_PACKAGE = ModulePackageRegistration(
         ),
     ),
     bindings=(
-        ExecutionBindingDefinition(
-            binding_id="contract_test.synthetic_echo.direct",
-            version="2.1.0",
-            node_type=ContractIdentity(
-                "node_type",
-                "contract_test.synthetic_echo",
-                "2.1.0",
-            ),
+        _binding(
+            "contract_test.synthetic_candidate_source.direct",
+            version=_SOURCE_VERSION,
+            node_type_id=_SOURCE_NODE_TYPE_ID,
+            method=_SOURCE_METHOD,
+            build=_build_source,
+            produced_observations=(),
+            requires_fixture_ready=False,
+        ),
+        _binding(
+            "contract_test.synthetic_echo.direct",
+            version=_SCORER_VERSION,
+            node_type_id=_SCORER_NODE_TYPE_ID,
             method=_METHOD,
-            binding_parameters={
-                "repeat_count": {
-                    "parameter_scope": "scientific",
-                    "scientific_meaning": (
-                        "Exact number of deterministic echo repetitions."
-                    ),
-                    "required": True,
-                    "value_contract": {
-                        "type": "integer",
-                        "minimum": 1,
-                        "maximum": 3,
-                    },
-                }
-            },
-            execution_route="direct",
-            factory=ScientificOperationFactory(
-                behavior=BehaviorReference(
-                    "contract_test.synthetic_echo/factory",
-                    "2.1.0",
-                    {"execution_route": "direct"},
-                ),
-                build=_build,
-            ),
-            availability=AvailabilityDeclaration(
-                behavior=BehaviorReference(
-                    "contract_test.synthetic_echo/availability",
-                    "2.1.0",
-                    {"observation": "startup"},
-                ),
-                prerequisites={},
-                check=_available,
-            ),
-            readiness=ReadinessDeclaration(
-                behavior=BehaviorReference(
-                    "contract_test.synthetic_echo/readiness",
-                    "2.1.0",
-                    {"observation": "per-run"},
-                ),
-                prerequisites={"fixture_ready": "required"},
-                check=_ready,
-            ),
-            deterministic=True,
-            cacheable=False,
-            implementation_identity={
-                "name": "contract_test.synthetic_echo.direct",
-                "source": "repository-contract-fixture",
-            },
+            build=_build_scorer,
             produced_observations=(
                 ProducedObservationDefinition(
                     output_port="scores",
@@ -192,11 +273,12 @@ MODULE_PACKAGE = ModulePackageRegistration(
                     context_profile={"kind": "intrinsic"},
                     subject_grain="candidate",
                     source_role="subject",
-                    subject_direction="output",
-                    subject_port="candidates",
+                    subject_direction="input",
+                    subject_port="candidate_input",
                     guaranteed_multiplicity="one",
                 ),
             ),
+            requires_fixture_ready=True,
         ),
     ),
     port_types=(

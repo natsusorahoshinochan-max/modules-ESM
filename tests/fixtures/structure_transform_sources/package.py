@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Any
 
 from core import (
@@ -22,6 +23,9 @@ from core import (
 from datatypes import Candidate, CandidateCollection, ProteinStructure
 
 
+_PROJECT_ROOT = Path(__file__).resolve().parents[3]
+
+
 def _atom(
     serial: int,
     atom_name: str,
@@ -33,13 +37,14 @@ def _atom(
     altloc: str = " ",
     occupancy: float = 1.0,
     record: str = "ATOM",
+    element: str | None = None,
 ) -> str:
-    element = atom_name[0]
+    element_symbol = element or atom_name[0]
     return (
         f"{record:<6}{serial:5d} {atom_name:^4}{altloc}"
         f"{residue_name:>3} {chain_id}{residue_number:4d}    "
         f"{x:8.3f}{2.0:8.3f}{3.0:8.3f}"
-        f"{occupancy:6.2f}{20.0:6.2f}          {element:>2}"
+        f"{occupancy:6.2f}{20.0:6.2f}          {element_symbol:>2}  "
     )
 
 
@@ -171,18 +176,20 @@ def _residue_name_conflict() -> str:
 
 def _sequence_edge_cases() -> str:
     first, serial = _residue(1, "ALA", "A", 1, sidechain=False)
-    unknown, serial = _residue(serial, "UNK", "A", 2, sidechain=False)
-    non_protein, serial = _residue(
-        serial,
-        "MSE",
-        "A",
-        3,
-        sidechain=False,
-    )
+    second, serial = _residue(serial, "VAL", "A", 2, sidechain=False)
     non_protein = [
-        line.replace("ATOM  ", "HETATM", 1)
-        for line in non_protein
+        _atom(
+            serial,
+            "C1",
+            "LIG",
+            "A",
+            3,
+            x=float(serial),
+            record="HETATM",
+            element="C",
+        )
     ]
+    serial += 1
     second_chain, _ = _residue(
         serial,
         "GLY",
@@ -193,7 +200,7 @@ def _sequence_edge_cases() -> str:
     return "\n".join(
         [
             *first,
-            *unknown,
+            *second,
             *non_protein,
             "TER",
             *second_chain,
@@ -202,6 +209,114 @@ def _sequence_edge_cases() -> str:
             "",
         ]
     )
+
+
+def _mse_ligand_water() -> str:
+    header = [" "] * 80
+    header[0:6] = "MODRES"
+    header[7:11] = "TEST"
+    header[12:15] = "MSE"
+    header[16] = "A"
+    header[18:22] = f"{2:4d}"
+    header[24:27] = "MET"
+    header[29:45] = "SELENOMETHIONINE"
+
+    first, serial = _residue(1, "ALA", "A", 1, sidechain=False)
+    mse_atoms = ("N", "CA", "C", "O", "CB", "CG", "SE", "CE")
+    mse = [
+        _atom(
+            serial + index,
+            atom_name,
+            "MSE",
+            "A",
+            2,
+            x=float(serial + index),
+            record="HETATM",
+            element="SE" if atom_name == "SE" else None,
+        )
+        for index, atom_name in enumerate(mse_atoms)
+    ]
+    serial += len(mse)
+    third, serial = _residue(serial, "GLY", "A", 3, sidechain=False)
+    ligand = _atom(
+        serial,
+        "C1",
+        "LIG",
+        "Z",
+        900,
+        x=float(serial),
+        record="HETATM",
+        element="C",
+    )
+    water = _atom(
+        serial + 1,
+        "O",
+        "HOH",
+        "Z",
+        901,
+        x=float(serial + 1),
+        record="HETATM",
+        element="O",
+    )
+    return "\n".join([
+        "SEQRES   1 A    3  ALA MSE GLY",
+        "".join(header).rstrip(),
+        *first,
+        *mse,
+        *third,
+        "TER",
+        ligand,
+        water,
+        "END",
+        "",
+    ])
+
+
+def _unknown_modified_polymer() -> str:
+    header = [" "] * 80
+    header[0:6] = "MODRES"
+    header[7:11] = "TEST"
+    header[12:15] = "MLY"
+    header[16] = "A"
+    header[18:22] = f"{2:4d}"
+    header[24:27] = "LYS"
+    header[29:45] = "METHYLLYSINE"
+    first, serial = _residue(1, "ALA", "A", 1, sidechain=False)
+    modified, serial = _residue(
+        serial,
+        "MLY",
+        "A",
+        2,
+        sidechain=False,
+    )
+    modified = [
+        line.replace("ATOM  ", "HETATM", 1)
+        for line in modified
+    ]
+    ligand = _atom(
+        serial,
+        "C1",
+        "LIG",
+        "Z",
+        900,
+        x=float(serial),
+        record="HETATM",
+    )
+    return "\n".join([
+        "SEQRES   1 A    2  ALA MLY",
+        "".join(header).rstrip(),
+        *first,
+        *modified,
+        "TER",
+        ligand,
+        "END",
+        "",
+    ])
+
+
+def _unknown_atom_polymer() -> str:
+    unknown, _ = _residue(1, "UNK", "A", 1, sidechain=False)
+    return "\n".join([*unknown, "TER", "END", ""])
 
 
 def _csh() -> str:
@@ -245,6 +360,14 @@ def _csh() -> str:
     ])
 
 
+def _2emo() -> str:
+    return (_PROJECT_ROOT / "pdbs" / "2EMO.pdb").read_text()
+
+
+def _5g53() -> str:
+    return (_PROJECT_ROOT / "pdbs" / "5G53.pdb").read_text()
+
+
 _FIXTURES = {
     "canonical": _canonical,
     "alternate_locations": _alternate_locations,
@@ -252,7 +375,12 @@ _FIXTURES = {
     "multi_model": _multi_model,
     "residue_name_conflict": _residue_name_conflict,
     "sequence_edge_cases": _sequence_edge_cases,
+    "mse_ligand_water": _mse_ligand_water,
+    "unknown_modified_polymer": _unknown_modified_polymer,
+    "unknown_atom_polymer": _unknown_atom_polymer,
     "csh": _csh,
+    "2emo": _2emo,
+    "5g53": _5g53,
 }
 
 
@@ -325,10 +453,11 @@ def _binding(operation: str) -> ExecutionBindingDefinition:
         if operation == "source"
         else "contract_test.backbone_sink"
     )
+    node_version = "5.0.0" if operation == "source" else "4.0.0"
     return ExecutionBindingDefinition(
         binding_id=f"{node_id}.direct",
-        version="3.0.0",
-        node_type=ContractIdentity("node_type", node_id, "3.0.0"),
+        version=node_version,
+        node_type=ContractIdentity("node_type", node_id, node_version),
         method=ContractIdentity(
             "method",
             f"contract_test.structure_transform.{operation}.method",

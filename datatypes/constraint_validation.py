@@ -4,16 +4,16 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from math import isfinite
-import re
 from typing import Any
 
-from datatypes.protein import ProteinMPNNConstraints, ResidueLayout
+from datatypes.protein import (
+    ProteinMPNNConstraints,
+    ResidueLayout,
+    residue_identity_chain,
+)
 
 
 PROTEINMPNN_ALPHABET = frozenset("ACDEFGHIKLMNPQRSTVWY")
-_RESIDUE_ID = re.compile(
-    r"^[A-Za-z0-9]:[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$"
-)
 
 
 def _residue_ids(value: Any, name: str) -> tuple[str, ...]:
@@ -21,12 +21,11 @@ def _residue_ids(value: Any, name: str) -> tuple[str, ...]:
         return ()
     if not isinstance(value, tuple):
         raise ValueError(f"{name} must be an immutable residue sequence")
-    if any(
-        not isinstance(residue_id, str)
-        or _RESIDUE_ID.fullmatch(residue_id) is None
-        for residue_id in value
-    ):
-        raise ValueError(f"{name} entries must be stable residue identities")
+    for residue_id in value:
+        residue_identity_chain(
+            residue_id,
+            subject=f"{name} entry",
+        )
     if len(set(value)) != len(value):
         raise ValueError(f"{name} cannot contain duplicate residue identities")
     return value
@@ -82,13 +81,10 @@ def _biases(value: Any) -> Mapping[str, Mapping[str, float]]:
             "bias_by_residue must map residue identities to amino-acid biases"
         )
     for residue_id, amino_acid_biases in value.items():
-        if (
-            not isinstance(residue_id, str)
-            or _RESIDUE_ID.fullmatch(residue_id) is None
-        ):
-            raise ValueError(
-                "bias_by_residue keys must be stable residue identities"
-            )
+        residue_identity_chain(
+            residue_id,
+            subject="bias_by_residue key",
+        )
         if not isinstance(amino_acid_biases, Mapping) or not amino_acid_biases:
             raise ValueError(
                 f"bias_by_residue {residue_id} must map amino acids to biases"

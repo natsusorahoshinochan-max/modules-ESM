@@ -1,59 +1,17 @@
 schema_version: "2.1.0"
 node_type_id: contract_test.collection_ops_source
-version: "2.1.0"
+version: "3.0.0"
 title: Collection operations source
-summary: Emits one independently partitioned Candidate and Observation collection fixture.
+summary: Emits one independently partitioned Candidate collection fixture for downstream admission.
 category: contract_test
 inputs: []
 outputs:
   - name: candidates
     port_type_id: candidate.collection
-    port_type_version: "2.1.0"
+    port_type_version: "3.0.0"
     required: true
     multiplicity: one
     scientific_meaning: Exact generated fixture Candidates.
-  - name: scores
-    port_type_id: score.collection
-    port_type_version: "2.1.0"
-    required: true
-    multiplicity: one
-    scientific_meaning: One intrinsic Observation per generated fixture Candidate.
-  - name: children
-    port_type_id: candidate.collection
-    port_type_version: "2.1.0"
-    required: true
-    multiplicity: one
-    scientific_meaning: One exact child per generated fixture Candidate.
-  - name: pairing
-    port_type_id: candidate.pairing
-    port_type_version: "2.1.0"
-    required: true
-    multiplicity: one
-    scientific_meaning: Exact pairing from this partition's Candidates to the matching partition-b Candidates.
-  - name: rebind_parents
-    port_type_id: candidate.collection
-    port_type_version: "2.1.0"
-    required: true
-    multiplicity: one
-    scientific_meaning: Exact parents for pairing-composition conformance.
-  - name: rebind_references
-    port_type_id: candidate.collection
-    port_type_version: "2.1.0"
-    required: true
-    multiplicity: one
-    scientific_meaning: Exact references for pairing-composition conformance.
-  - name: rebind_subjects
-    port_type_id: candidate.collection
-    port_type_version: "2.1.0"
-    required: true
-    multiplicity: one
-    scientific_meaning: Exact children for pairing-composition conformance.
-  - name: rebind_pairing
-    port_type_id: candidate.pairing
-    port_type_version: "2.1.0"
-    required: true
-    multiplicity: one
-    scientific_meaning: Exact parent-to-reference pairing for composition.
 parameter_groups:
   - id: fixture
     title: Fixture

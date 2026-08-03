@@ -15,20 +15,23 @@ from core import (
     WorkflowDocument,
     WorkflowNodeInstance,
     build_frozen_catalog,
-    parse_workflow_document,
 )
 from core.port_types import canonical_json_bytes
 from core.workflow_v2 import WorkflowEdge
 from datatypes import ResidueLayout
 from modules.prompt_authoring.package import MODULE_PACKAGE
+from modules.structure_transform.package import (
+    MODULE_PACKAGE as STRUCTURE_TRANSFORM_PACKAGE,
+)
 from tests.fixtures.public_v2 import wait_for_service_run_terminal_events
 from tests.fixtures.prompt_authoring_sources.package import (
     MODULE_PACKAGE as SOURCE_PACKAGE,
 )
 
 
-VERSION = "2.1.0"
-SOURCE_VERSION = "3.0.0"
+WORKFLOW_SCHEMA_VERSION = "2.1.0"
+VERSION = "3.0.0"
+SOURCE_VERSION = "4.0.0"
 SOURCE_LAYOUT = ResidueLayout(
     chain_id="A,B",
     length=3,
@@ -43,9 +46,16 @@ TARGET_LAYOUT = ResidueLayout(
 
 def wire_value(type_id: str, value: object) -> object:
     """Encode one expected value through its exact public Port codec."""
-    encoded = build_frozen_catalog((MODULE_PACKAGE,)).require_port_type(
+    port_version = {
+        "function.annotations": "3.0.0",
+        "protein.structure": "4.0.0",
+        "structure_transform.resolved_residue_axis": "4.0.0",
+    }.get(type_id, VERSION)
+    encoded = build_frozen_catalog(
+        (MODULE_PACKAGE, STRUCTURE_TRANSFORM_PACKAGE)
+    ).require_port_type(
         type_id,
-        VERSION,
+        port_version,
     ).encode(value)
     return json.loads(encoded)["value"]
 
@@ -76,8 +86,7 @@ class PreparedPromptOperation:
     catalog: Any
     service: V2RunService
     project_id: str
-    workflow_revision: int
-    compile_id: str
+    workflow_commit_id: str
 
     def start(
         self,
@@ -85,8 +94,7 @@ class PreparedPromptOperation:
     ) -> tuple[dict[str, Any], tuple[dict[str, Any], ...]]:
         receipt = self.service.start_background(
             self.project_id,
-            workflow_revision=self.workflow_revision,
-            compile_id=self.compile_id,
+            workflow_commit_id=self.workflow_commit_id,
             client_request_id=client_request_id,
         )
         wait_for_service_run_terminal_events(
@@ -115,7 +123,9 @@ def prepare_operation(
     environment_label: str = "one",
 ) -> PreparedPromptOperation:
     """Compile one production Node through the real reusable v2 services."""
-    catalog = build_frozen_catalog((MODULE_PACKAGE, SOURCE_PACKAGE))
+    catalog = build_frozen_catalog(
+        (MODULE_PACKAGE, SOURCE_PACKAGE, STRUCTURE_TRANSFORM_PACKAGE)
+    )
     projects = ProjectManager(
         tmp_path / "projects",
         cache_root=tmp_path / "cache",
@@ -133,9 +143,9 @@ def prepare_operation(
         binding_parameters={},
     )
     binding_id = f"prompt_authoring.{operation}.direct"
-    operation_version = "3.0.0" if operation == "prompt_from_structure" else VERSION
+    operation_version = "5.0.0" if operation == "prompt_from_structure" else VERSION
     workflow = WorkflowDocument(
-        schema_version=VERSION,
+        schema_version=WORKFLOW_SCHEMA_VERSION,
         workflow_id=project.id,
         nodes=(
             *((source,) if source_edges else ()),
@@ -153,19 +163,10 @@ def prepare_operation(
         contract_lock=(),
     )
     authoring = WorkflowAuthoringService(projects, catalog)
-    saved = authoring.save(
+    committed = authoring.commit(
         project.id,
-        expected_workflow_revision=0,
+        expected_draft_revision=0,
         workflow=workflow,
-    )
-    relocked = authoring.relock(
-        project.id,
-        workflow_revision=saved["workflow_revision"],
-    )
-    compiled = authoring.compile(
-        project.id,
-        workflow_revision=relocked["workflow_revision"],
-        workflow=parse_workflow_document(relocked["workflow"]),
     )
     service = V2RunService(
         projects,
@@ -189,8 +190,7 @@ def prepare_operation(
         catalog=catalog,
         service=service,
         project_id=project.id,
-        workflow_revision=relocked["workflow_revision"],
-        compile_id=compiled.public_receipt()["compile_id"],
+        workflow_commit_id=committed.workflow_commit_id,
     )
 
 

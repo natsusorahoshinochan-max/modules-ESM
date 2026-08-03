@@ -28,8 +28,9 @@ import core.run_execution_v2 as run_execution_v2
 from datatypes import Candidate, CandidateCollection, ProteinSequence
 from tests.fixtures.public_v2 import wait_for_testclient_run_terminal
 from tests.test_run_execution_v2 import (
-    _compile_one_node,
-    _compile_pipeline,
+    _commit_one_node,
+    _commit_pipeline,
+    _commit_public_workflow,
     _contract,
     _direct_catalog,
     _pipeline_catalog,
@@ -45,8 +46,7 @@ def _start_run(
     started = client.post(
         f"/api/v2/projects/{project_id}/runs",
         json={
-            "workflow_revision": compiled["workflow_revision"],
-            "compile_id": compiled["compile_id"],
+            "workflow_commit_id": compiled["workflow_commit_id"],
             "client_request_id": request_id,
         },
     )
@@ -60,6 +60,106 @@ def _start_run(
     return projection, events
 
 
+def test_one_plan_facts_projection_drives_identity_cache_and_ledger(
+    tmp_path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    for name in ("PROJECT", "CACHE", "OUTPUT", "RUN"):
+        monkeypatch.setenv(
+            f"PROTEIN_WORKBENCH_{name}_ROOT",
+            str(tmp_path / name.lower()),
+        )
+    app = create_app(frozen_catalog_override=_direct_catalog([]))
+
+    with TestClient(app) as client:
+        project_id, committed = _commit_one_node(client)
+        compiled = app.state.workflow_authoring_v2.require_compiled(
+            project_id,
+            workflow_commit_id=committed["workflow_commit_id"],
+        )
+        plan = compiled.execution_plan
+        node = plan.nodes[0]
+        plan_facts = node.result_identity_plan_facts
+        facts_type = type(plan_facts)
+        original_projection = facts_type.canonical_projection
+        expected_projection = {
+            **original_projection(plan_facts),
+            "projection_probe": "shared-compiler-owned-projection",
+        }
+        observed_calls: list[object] = []
+
+        def canonical_projection(self) -> dict[str, Any]:
+            if self is plan_facts:
+                observed_calls.append(self)
+                return expected_projection
+            return original_projection(self)
+
+        monkeypatch.setattr(
+            facts_type,
+            "canonical_projection",
+            canonical_projection,
+        )
+        descriptor = run_execution_v2._result_identity_descriptor(
+            node,
+            {},
+            input_content_digests={},
+        )
+        cache_metadata = run_execution_v2._result_contract_metadata(node)
+        ledger_plan_facts = app.state.run_execution_v2._plan_evidence(plan)[0]
+
+    assert descriptor["result_identity_plan_facts"] == expected_projection
+    assert cache_metadata == {
+        "result_identity_plan_facts": expected_projection,
+    }
+    assert ledger_plan_facts.result_identity_plan_facts_digest == (
+        run_execution_v2.canonical_sha256(expected_projection)
+    )
+    assert observed_calls == [plan_facts, plan_facts, plan_facts]
+
+
+@pytest.mark.parametrize(
+    "parameter_name",
+    ("seed", "random_seed", "effective_seed"),
+)
+def test_undeclared_seed_like_parameter_remains_a_normalized_parameter(
+    tmp_path,
+    monkeypatch: pytest.MonkeyPatch,
+    parameter_name: str,
+) -> None:
+    for name in ("PROJECT", "CACHE", "OUTPUT", "RUN"):
+        monkeypatch.setenv(
+            f"PROTEIN_WORKBENCH_{name}_ROOT",
+            str(tmp_path / name.lower()),
+        )
+    catalog = _direct_catalog(
+        [],
+        node_parameter_declarations={
+            parameter_name: {
+                "parameter_scope": "scientific",
+                "scientific_meaning": "Ordinary configured parameter.",
+                "value_contract": {"type": "integer"},
+                "default": 17,
+            }
+        },
+    )
+    app = create_app(frozen_catalog_override=catalog)
+
+    with TestClient(app) as client:
+        project_id, committed = _commit_one_node(client)
+        compiled = app.state.workflow_authoring_v2.require_compiled(
+            project_id,
+            workflow_commit_id=committed["workflow_commit_id"],
+        )
+        descriptor = run_execution_v2._result_identity_descriptor(
+            compiled.execution_plan.nodes[0],
+            {},
+            input_content_digests={},
+        )
+
+    assert descriptor["node_parameters"] == {parameter_name: 17}
+    assert descriptor["determinism"]["effective_randomness"] == {}
+
+
 def _candidate_catalog(
     calls: list[str],
     *,
@@ -67,7 +167,7 @@ def _candidate_catalog(
     declare_root_node_as_parent: bool = False,
 ) -> FrozenCatalog:
     builtin = builtin_frozen_catalog()
-    candidates = builtin.require_port_type("candidate.collection", "2.1.0")
+    candidates = builtin.require_port_type("candidate.collection", "3.0.0")
     method = _contract(
         "method",
         "test.candidate.method",
@@ -217,11 +317,11 @@ def _candidate_catalog(
     )
 
 
-def _compile_candidate_node(
+def _commit_candidate_node(
     client: TestClient,
 ) -> tuple[str, dict[str, Any]]:
     project_id = client.post(
-        "/api/projects",
+        "/api/v2/projects",
         json={"name": "v2 Candidate identity"},
     ).json()["id"]
     workflow = {
@@ -241,23 +341,7 @@ def _compile_candidate_node(
         "edges": [],
         "contract_lock": [],
     }
-    assert client.put(
-        f"/api/v2/projects/{project_id}/workflow",
-        json={"expected_workflow_revision": 0, "workflow": workflow},
-    ).status_code == 200
-    relocked = client.post(
-        f"/api/v2/projects/{project_id}/workflow:relock",
-        json={"workflow_revision": 1},
-    )
-    compiled = client.post(
-        f"/api/v2/projects/{project_id}/workflow:compile",
-        json={
-            "workflow_revision": 2,
-            "workflow": relocked.json()["workflow"],
-        },
-    )
-    assert compiled.status_code == 200
-    return project_id, compiled.json()
+    return project_id, _commit_public_workflow(client, project_id, workflow)
 
 
 def _candidate_id(projection: dict[str, Any]) -> str:
@@ -291,7 +375,7 @@ def test_deterministic_result_replays_from_project_cache_after_readiness(
     )
 
     with TestClient(app) as client:
-        project_id, compiled = _compile_one_node(client)
+        project_id, compiled = _commit_one_node(client)
         first, _ = _start_run(client, project_id, compiled, "first")
         second, second_events = _start_run(
             client,
@@ -356,7 +440,7 @@ def test_project_cache_reuses_admitted_canonical_bytes_without_reencoding(
     )
 
     with TestClient(app) as client:
-        project_id, compiled = _compile_pipeline(client)
+        project_id, compiled = _commit_pipeline(client)
         first, _ = _start_run(client, project_id, compiled, "admission-a")
         second, _ = _start_run(client, project_id, compiled, "admission-b")
 
@@ -402,7 +486,7 @@ def test_replay_without_identity_bound_producer_provenance_is_rejected(
     )
 
     with TestClient(app) as client:
-        project_id, compiled = _compile_one_node(client)
+        project_id, compiled = _commit_one_node(client)
         projection, events = _start_run(
             client,
             project_id,
@@ -456,7 +540,7 @@ def test_publication_conflict_closes_node_and_run_as_failed(
     )
 
     with TestClient(app) as client:
-        project_id, compiled = _compile_one_node(client)
+        project_id, compiled = _commit_one_node(client)
         projection, events = _start_run(
             client,
             project_id,
@@ -547,18 +631,17 @@ def test_stale_manifest_cannot_unlock_provisional_cache_entry(
     )
 
     with TestClient(app) as client:
-        project_id, compiled = _compile_one_node(client)
+        project_id, compiled = _commit_one_node(client)
         failed = client.post(
             f"/api/v2/projects/{project_id}/runs",
             json={
-                "workflow_revision": compiled["workflow_revision"],
-                "compile_id": compiled["compile_id"],
+                "workflow_commit_id": compiled["workflow_commit_id"],
                 "client_request_id": "provisional-cache",
             },
         )
         assert failed.status_code == 503
         provisional = next(
-            (cache_root / project_id / "v2").rglob("*.json")
+            (cache_root / project_id / "v3").rglob("*.json")
         )
         failed_run_dir = next((run_root / project_id).iterdir())
         manifest_path = failed_run_dir / "manifest.json"
@@ -609,13 +692,12 @@ def test_candidate_identity_is_run_independent_and_preserved_on_replay(
     app = create_app(frozen_catalog_override=_candidate_catalog(calls))
 
     with TestClient(app) as client:
-        project_id, compiled = _compile_candidate_node(client)
+        project_id, compiled = _commit_candidate_node(client)
         source, _ = _start_run(client, project_id, compiled, "candidate-a")
         forced = client.post(
             f"/api/v2/projects/{project_id}/runs:derive",
             json={
                 "source_run_id": source["run_id"],
-                "compile_id": compiled["compile_id"],
                 "policy": "force_selected",
                 "node_ids": ["candidate-producer"],
                 "client_request_id": "candidate-force",
@@ -673,7 +755,7 @@ def test_duplicate_candidate_producer_identity_fails_closed(
     )
 
     with TestClient(app) as client:
-        project_id, compiled = _compile_candidate_node(client)
+        project_id, compiled = _commit_candidate_node(client)
         projection, events = _start_run(
             client,
             project_id,
@@ -717,7 +799,7 @@ def test_root_candidate_cannot_declare_node_id_as_pseudo_parent(
     )
 
     with TestClient(app) as client:
-        project_id, compiled = _compile_candidate_node(client)
+        project_id, compiled = _commit_candidate_node(client)
         projection, events = _start_run(
             client,
             project_id,
@@ -764,8 +846,8 @@ def test_same_result_identity_is_physically_isolated_between_projects(
     )
 
     with TestClient(app) as client:
-        first_project, first_compiled = _compile_one_node(client)
-        second_project, second_compiled = _compile_one_node(client)
+        first_project, first_compiled = _commit_one_node(client)
+        second_project, second_compiled = _commit_one_node(client)
         first, _ = _start_run(
             client,
             first_project,
@@ -793,11 +875,11 @@ def test_same_result_identity_is_physically_isolated_between_projects(
         "execute:test.direct.local",
     ]
     assert (
-        len(list((cache_root / first_project / "v2").rglob("*.json")))
+        len(list((cache_root / first_project / "v3").rglob("*.json")))
         == 1
     )
     assert (
-        len(list((cache_root / second_project / "v2").rglob("*.json")))
+        len(list((cache_root / second_project / "v3").rglob("*.json")))
         == 1
     )
 
@@ -840,7 +922,7 @@ def test_runtime_credentials_paths_and_performance_choices_do_not_change_identit
             },
         )
     ) as first_client:
-        project_id, compiled = _compile_one_node(first_client)
+        project_id, compiled = _commit_one_node(first_client)
         first, _ = _start_run(
             first_client,
             project_id,
@@ -868,20 +950,14 @@ def test_runtime_credentials_paths_and_performance_choices_do_not_change_identit
             },
         )
     ) as second_client:
-        loaded = second_client.get(
-            f"/api/v2/projects/{project_id}/workflow"
-        ).json()
-        compiled_again = second_client.post(
-            f"/api/v2/projects/{project_id}/workflow:compile",
-            json={
-                "workflow_revision": loaded["workflow_revision"],
-                "workflow": loaded["workflow"],
-            },
-        ).json()
+        committed_again = second_client.get(
+            f"/api/v2/projects/{project_id}/workflow/active-commit"
+        )
+        assert committed_again.status_code == 200
         second, _ = _start_run(
             second_client,
             project_id,
-            compiled_again,
+            committed_again.json(),
             "environment-b",
         )
 
@@ -926,7 +1002,7 @@ def test_presentation_only_contract_change_cannot_replay_from_old_generation(
             v2_environment_configuration=environment,
         )
     ) as first_client:
-        project_id, compiled = _compile_one_node(first_client)
+        project_id, compiled = _commit_one_node(first_client)
         first, _ = _start_run(
             first_client,
             project_id,
@@ -954,8 +1030,12 @@ def test_presentation_only_contract_change_cannot_replay_from_old_generation(
             v2_environment_configuration=environment,
         )
     ) as second_client:
-        rejected = second_client.get(
-            f"/api/v2/projects/{project_id}/workflow"
+        rejected = second_client.post(
+            f"/api/v2/projects/{project_id}/runs",
+            json={
+                "workflow_commit_id": compiled["workflow_commit_id"],
+                "client_request_id": "presentation-contract-change",
+            },
         )
 
     assert rejected.status_code == 409
@@ -1004,7 +1084,7 @@ def test_changed_implementation_identity_rejects_the_old_workflow_generation(
             v2_environment_configuration=environment,
         )
     ) as first_client:
-        project_id, compiled = _compile_one_node(first_client)
+        project_id, compiled = _commit_one_node(first_client)
         first, _ = _start_run(
             first_client,
             project_id,
@@ -1025,8 +1105,12 @@ def test_changed_implementation_identity_rejects_the_old_workflow_generation(
             v2_environment_configuration=environment,
         )
     ) as second_client:
-        rejected = second_client.get(
-            f"/api/v2/projects/{project_id}/workflow"
+        rejected = second_client.post(
+            f"/api/v2/projects/{project_id}/runs",
+            json={
+                "workflow_commit_id": compiled["workflow_commit_id"],
+                "client_request_id": "implementation-identity-change",
+            },
         )
 
     assert first["outputs"][0]["values"] == ["READY"]
@@ -1077,27 +1161,20 @@ def test_changed_scientific_parameter_changes_result_identity_and_misses(
     )
 
     with TestClient(app) as client:
-        project_id, compiled = _compile_one_node(client)
+        project_id, compiled = _commit_one_node(client)
         first, _ = _start_run(client, project_id, compiled, "parameter-alpha")
         loaded = client.get(
-            f"/api/v2/projects/{project_id}/workflow"
+            f"/api/v2/projects/{project_id}/workflow/draft"
         ).json()
         changed = loaded["workflow"]
         changed["nodes"][0]["node_parameters"] = {
             "scientific_label": "beta"
         }
-        saved = client.put(
-            f"/api/v2/projects/{project_id}/workflow",
-            json={
-                "expected_workflow_revision": loaded["workflow_revision"],
-                "workflow": changed,
-            },
-        ).json()
         compiled_beta = client.post(
-            f"/api/v2/projects/{project_id}/workflow:compile",
+            f"/api/v2/projects/{project_id}/workflow:commit",
             json={
-                "workflow_revision": saved["workflow_revision"],
-                "workflow": saved["workflow"],
+                "expected_draft_revision": loaded["draft_revision"],
+                "workflow": changed,
             },
         ).json()
         second, _ = _start_run(
@@ -1114,7 +1191,7 @@ def test_changed_scientific_parameter_changes_result_identity_and_misses(
     assert second["node_dispositions"][0]["resolution"] == "executed"
     assert "parameters:{'scientific_label': 'alpha'}" in calls
     assert "parameters:{'scientific_label': 'beta'}" in calls
-    assert len(list((cache_root / project_id / "v2").rglob("*.json"))) == 2
+    assert len(list((cache_root / project_id / "v3").rglob("*.json"))) == 2
 
 
 def test_typed_codec_corruption_never_replays_or_overwrites(
@@ -1141,10 +1218,10 @@ def test_typed_codec_corruption_never_replays_or_overwrites(
     )
 
     with TestClient(app) as client:
-        project_id, compiled = _compile_one_node(client)
+        project_id, compiled = _commit_one_node(client)
         _start_run(client, project_id, compiled, "populate")
         entry = next(
-            (cache_root / project_id / "v2").rglob("*.json")
+            (cache_root / project_id / "v3").rglob("*.json")
         )
         entry.write_bytes(b'{"not":"a typed codec entry"}')
         second, _ = _start_run(client, project_id, compiled, "corrupt")
@@ -1208,7 +1285,7 @@ def test_unsuccessful_or_unknown_outcomes_never_populate_cache(
     )
 
     with TestClient(app) as client:
-        project_id, compiled = _compile_one_node(client)
+        project_id, compiled = _commit_one_node(client)
         failed, _ = _start_run(
             client,
             project_id,
@@ -1259,7 +1336,7 @@ def test_uncontrolled_stochastic_binding_never_looks_up_or_publishes(
     )
 
     with TestClient(app) as client:
-        project_id, compiled = _compile_one_node(client)
+        project_id, compiled = _commit_one_node(client)
         first, _ = _start_run(client, project_id, compiled, "stochastic-a")
         second, _ = _start_run(client, project_id, compiled, "stochastic-b")
 
@@ -1304,7 +1381,7 @@ def test_unresolved_result_affecting_identity_disables_cross_run_cache(
     )
 
     with TestClient(app) as client:
-        project_id, compiled = _compile_one_node(client)
+        project_id, compiled = _commit_one_node(client)
         first, _ = _start_run(client, project_id, compiled, "unresolved-a")
         second, _ = _start_run(client, project_id, compiled, "unresolved-b")
 
@@ -1366,7 +1443,7 @@ def test_unresolvable_declared_effective_seed_disables_cross_run_cache(
     )
 
     with TestClient(app) as client:
-        project_id, compiled = _compile_one_node(client)
+        project_id, compiled = _commit_one_node(client)
         first, _ = _start_run(client, project_id, compiled, "randomness-a")
         second, _ = _start_run(client, project_id, compiled, "randomness-b")
 
@@ -1425,7 +1502,7 @@ def test_null_declared_effective_seed_disables_cross_run_cache(
     )
 
     with TestClient(app) as client:
-        project_id, compiled = _compile_one_node(client)
+        project_id, compiled = _commit_one_node(client)
         first, _ = _start_run(client, project_id, compiled, "randomness-null-a")
         second, _ = _start_run(client, project_id, compiled, "randomness-null-b")
 
@@ -1506,7 +1583,7 @@ def test_effective_randomness_is_resolved_once_and_drives_execution(
     )
 
     with TestClient(app) as client:
-        project_id, compiled = _compile_one_node(client)
+        project_id, compiled = _commit_one_node(client)
         first, _ = _start_run(client, project_id, compiled, "resolved-once-a")
         second, _ = _start_run(client, project_id, compiled, "resolved-once-b")
 
@@ -1547,7 +1624,7 @@ def test_unresolved_port_behavior_identity_disables_cross_run_cache(
     )
 
     with TestClient(app) as client:
-        project_id, compiled = _compile_pipeline(client)
+        project_id, compiled = _commit_pipeline(client)
         first, _ = _start_run(client, project_id, compiled, "port-unresolved-a")
         second, _ = _start_run(
             client,
@@ -1593,7 +1670,7 @@ def test_legacy_pickle_cache_is_never_loaded_or_rewritten(
     )
 
     with TestClient(app) as client:
-        project_id, compiled = _compile_one_node(client)
+        project_id, compiled = _commit_one_node(client)
         legacy_entry = cache_root / project_id / "legacy-result.pkl"
         legacy_entry.parent.mkdir(parents=True)
         legacy_entry.write_bytes(b"legacy-pickle-must-not-be-read")
@@ -1603,6 +1680,62 @@ def test_legacy_pickle_cache_is_never_loaded_or_rewritten(
     assert first["status"] == second["status"] == "succeeded"
     assert calls.count("execute:test.direct.local") == 1
     assert legacy_entry.read_bytes() == b"legacy-pickle-must-not-be-read"
+
+
+def test_v2_json_cache_is_not_loaded_or_migrated(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    calls: list[str] = []
+    cache_root = tmp_path / "cache"
+    monkeypatch.setenv(
+        "PROTEIN_WORKBENCH_PROJECT_ROOT",
+        str(tmp_path / "projects"),
+    )
+    monkeypatch.setenv("PROTEIN_WORKBENCH_CACHE_ROOT", str(cache_root))
+    monkeypatch.setenv("PROTEIN_WORKBENCH_RUN_ROOT", str(tmp_path / "runs"))
+    monkeypatch.setenv(
+        "PROTEIN_WORKBENCH_OUTPUT_ROOT",
+        str(tmp_path / "outputs"),
+    )
+    app = create_app(
+        frozen_catalog_override=_direct_catalog(calls, cacheable=True),
+        v2_environment_configuration={
+            ("test.direct.local", "2.1.0"): {
+                "values": {"credential": "credential-value"},
+            }
+        },
+    )
+
+    with TestClient(app) as client:
+        project_id, compiled = _commit_one_node(client)
+        _start_run(client, project_id, compiled, "populate-v3")
+        current_entry = next(
+            (cache_root / project_id / "v3").rglob("*.json")
+        )
+        legacy_entry = (
+            cache_root
+            / project_id
+            / "v2"
+            / "results"
+            / current_entry.name
+        )
+        legacy_entry.parent.mkdir(parents=True)
+        legacy_bytes = current_entry.read_bytes()
+        legacy_entry.write_bytes(legacy_bytes)
+        current_entry.unlink()
+
+        replay_attempt, _events = _start_run(
+            client,
+            project_id,
+            compiled,
+            "ignore-v2-entry",
+        )
+
+    assert replay_attempt["node_dispositions"][0]["resolution"] == "executed"
+    assert calls.count("execute:test.direct.local") == 2
+    assert legacy_entry.read_bytes() == legacy_bytes
+    assert next((cache_root / project_id / "v3").rglob("*.json")).is_file()
 
 
 def test_conflicting_output_for_one_result_identity_fails_without_overwrite(
@@ -1633,10 +1766,10 @@ def test_conflicting_output_for_one_result_identity_fails_without_overwrite(
     )
 
     with TestClient(app) as client:
-        project_id, compiled = _compile_one_node(client)
+        project_id, compiled = _commit_one_node(client)
         source, _ = _start_run(client, project_id, compiled, "source")
         original_entry = next(
-            (cache_root / project_id / "v2").rglob("*.json")
+            (cache_root / project_id / "v3").rglob("*.json")
         )
         original_bytes = original_entry.read_bytes()
         state["value"] = "CONFLICT"
@@ -1644,7 +1777,6 @@ def test_conflicting_output_for_one_result_identity_fails_without_overwrite(
             f"/api/v2/projects/{project_id}/runs:derive",
             json={
                 "source_run_id": source["run_id"],
-                "compile_id": compiled["compile_id"],
                 "policy": "force_selected",
                 "node_ids": ["direct"],
                 "client_request_id": "force-conflict",

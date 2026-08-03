@@ -10,14 +10,21 @@ from core import OperationCall, RunResources
 from datatypes import (
     Candidate,
     CandidateCollection,
+    CandidateDataReference,
     ExactContractReference,
     IntrinsicObservationContext,
     ProteinMPNNConstraints,
     ProteinSequence,
     ProteinStructure,
+    ResidueAxisReference,
+    ResolvedStructureResidueAxis,
     ScoreCollection,
     ScoreObservation,
 )
+from modules.structure_transform.domain import (
+    CandidateResolvedResidueAxisAssociations,
+)
+from modules.structure_transform.port_types import RESOLVED_AXIS_PORT_TYPE
 
 from .adapter import LocalProteinMPNNAdapter
 from .domain import (
@@ -25,6 +32,114 @@ from .domain import (
     normalize_design_parameters,
     random_fixed_positions,
 )
+
+
+def _reference_key(
+    reference: CandidateDataReference,
+) -> tuple[str, str, str]:
+    return (
+        reference.candidate_id,
+        reference.data_type_id,
+        reference.content_digest,
+    )
+
+
+def _structure_candidates_with_axes(
+    call: OperationCall,
+) -> tuple[
+    tuple[
+        Candidate,
+        CandidateDataReference,
+        ResolvedStructureResidueAxis,
+    ],
+    ...,
+]:
+    collection = call.inputs.get("structure_candidates")
+    associations = call.inputs.get("structure_residue_axes")
+    admitted = call.input_content_digests.get("structure_candidates")
+    if (
+        type(collection) is not CandidateCollection
+        or collection.item_type != "protein.structure"
+        or not collection.items
+        or type(associations)
+        is not CandidateResolvedResidueAxisAssociations
+        or admitted is None
+        or admitted.port_type_id != "candidate.collection"
+    ):
+        raise ValueError(
+            "ProteinMPNN requires exact structure Candidates and resolved axes"
+        )
+
+    candidates_by_id: dict[str, Candidate] = {}
+    for candidate in collection.items:
+        if (
+            type(candidate) is not Candidate
+            or type(candidate.data) is not ProteinStructure
+            or candidate.candidate_id in candidates_by_id
+        ):
+            raise ValueError(
+                "ProteinMPNN structure Candidates are incomplete or duplicate"
+            )
+        candidates_by_id[candidate.candidate_id] = candidate
+
+    references_by_id: dict[str, CandidateDataReference] = {}
+    for reference in admitted.candidate_data:
+        if (
+            type(reference) is not CandidateDataReference
+            or reference.data_type_id != "protein.structure"
+            or reference.candidate_id in references_by_id
+        ):
+            raise ValueError(
+                "ProteinMPNN lacks complete exact structure references"
+            )
+        references_by_id[reference.candidate_id] = reference
+    if set(references_by_id) != set(candidates_by_id):
+        raise ValueError(
+            "ProteinMPNN lacks complete exact structure references"
+        )
+
+    axes_by_reference = {
+        entry.subject: entry.residue_axis
+        for entry in associations.entries
+    }
+    references = tuple(
+        sorted(references_by_id.values(), key=_reference_key)
+    )
+    if set(axes_by_reference) != set(references):
+        raise ValueError(
+            "ProteinMPNN resolved axes must cover exact structure references"
+        )
+
+    result = []
+    for candidate in collection.items:
+        reference = references_by_id[candidate.candidate_id]
+        residue_axis = axes_by_reference[reference]
+        if residue_axis.structure != candidate.data:
+            raise ValueError(
+                "ProteinMPNN resolved axis contradicts its structure Candidate"
+            )
+        result.append((candidate, reference, residue_axis))
+    return tuple(result)
+
+
+def _resolved_axis_reference(
+    subject: CandidateDataReference,
+    residue_axis: ResolvedStructureResidueAxis,
+) -> ResidueAxisReference:
+    return ResidueAxisReference(
+        axis_kind="resolved_structure",
+        axis_contract=ExactContractReference(
+            contract_kind="port_type",
+            contract_id=RESOLVED_AXIS_PORT_TYPE.type_id,
+            contract_version=RESOLVED_AXIS_PORT_TYPE.version,
+            contract_digest=RESOLVED_AXIS_PORT_TYPE.contract_digest,
+        ),
+        axis_content_digest=RESOLVED_AXIS_PORT_TYPE.content_digest(
+            residue_axis
+        ),
+        source=subject,
+        layout=residue_axis.layout,
+    )
 
 
 class ProteinMPNNConstraintsImplementation:
@@ -82,53 +197,22 @@ class ProteinMPNNDesignImplementation:
         self._resources = resources
         self._adapter = adapter
 
-    def _parents(
-        self,
-        inputs: Mapping[str, Any],
-    ) -> list[tuple[ProteinStructure, tuple[str, ...]]]:
+    @staticmethod
+    def _validate_inputs(inputs: Mapping[str, Any]) -> None:
         allowed = {
-            "structure",
             "structure_candidates",
+            "structure_residue_axes",
             "sequence",
             "constraints",
         }
-        if not set(inputs) <= allowed:
-            raise ValueError("ProteinMPNN design received undeclared inputs")
-        has_structure = "structure" in inputs
-        has_collection = "structure_candidates" in inputs
-        if has_structure == has_collection:
-            raise ValueError(
-                "ProteinMPNN design requires exactly one structure input mode"
-            )
-        if has_structure:
-            structure = inputs["structure"]
-            if type(structure) is not ProteinStructure:
-                raise ValueError("structure input is incomplete")
-            return [(structure, ())]
-        collection = inputs["structure_candidates"]
         if (
-            type(collection) is not CandidateCollection
-            or collection.item_type != "protein.structure"
-            or not collection.items
+            not set(inputs) <= allowed
+            or not {
+                "structure_candidates",
+                "structure_residue_axes",
+            } <= set(inputs)
         ):
-            raise ValueError(
-                "structure_candidates must be non-empty protein structures"
-            )
-        parent_ids: set[str] = set()
-        parents: list[tuple[ProteinStructure, tuple[str, ...]]] = []
-        for candidate in collection.items:
-            if (
-                type(candidate) is not Candidate
-                or type(candidate.data) is not ProteinStructure
-                or not candidate.candidate_id
-                or candidate.candidate_id in parent_ids
-            ):
-                raise ValueError(
-                    "structure_candidates contain incomplete or duplicate parents"
-                )
-            parent_ids.add(candidate.candidate_id)
-            parents.append((candidate.data, (candidate.candidate_id,)))
-        return parents
+            raise ValueError("ProteinMPNN design received undeclared inputs")
 
     @staticmethod
     def _parameters(
@@ -162,61 +246,6 @@ class ProteinMPNNDesignImplementation:
         return int.from_bytes(digest[:7], "big") % 9_007_199_254_740_992
 
     @staticmethod
-    def _parent_content_digests(
-        call: OperationCall,
-        parents: list[tuple[ProteinStructure, tuple[str, ...]]],
-    ) -> tuple[str, ...]:
-        if "structure" in call.inputs:
-            admitted = call.input_content_digests.get("structure")
-            if (
-                admitted is None
-                or admitted.port_type_id != "protein.structure"
-                or len(admitted.value_content_digests) != 1
-                or admitted.candidate_data
-            ):
-                raise ValueError(
-                    "ProteinMPNN design requires the admitted structure "
-                    "content identity"
-                )
-            return admitted.value_content_digests
-
-        admitted = call.input_content_digests.get("structure_candidates")
-        if (
-            admitted is None
-            or admitted.port_type_id != "candidate.collection"
-        ):
-            raise ValueError(
-                "ProteinMPNN design requires admitted structure Candidate "
-                "content identities"
-            )
-        by_candidate_id = {
-            item.candidate_id: item
-            for item in admitted.candidate_data
-        }
-        expected_ids = {
-            parent_ids[0]
-            for _, parent_ids in parents
-            if len(parent_ids) == 1
-        }
-        if (
-            len(by_candidate_id) != len(admitted.candidate_data)
-            or len(expected_ids) != len(parents)
-            or set(by_candidate_id) != expected_ids
-            or any(
-                item.data_type_id != "protein.structure"
-                for item in by_candidate_id.values()
-            )
-        ):
-            raise ValueError(
-                "ProteinMPNN structure Candidate content identities are "
-                "incomplete"
-            )
-        return tuple(
-            by_candidate_id[parent_ids[0]].content_digest
-            for _, parent_ids in parents
-        )
-
-    @staticmethod
     def _constraint_digest(call: OperationCall) -> str | None:
         admitted = call.input_content_digests.get("constraints")
         if admitted is None:
@@ -228,8 +257,8 @@ class ProteinMPNNDesignImplementation:
         return admitted.value_content_digests[0]
 
     def execute(self, call: OperationCall) -> dict[str, Any]:
-        parents = self._parents(call.inputs)
-        parent_content_digests = self._parent_content_digests(call, parents)
+        self._validate_inputs(call.inputs)
+        parents = _structure_candidates_with_axes(call)
         seed, count, temperature, noise = self._parameters(call)
         reference = call.inputs.get("sequence")
         if reference is not None and type(reference) is not ProteinSequence:
@@ -244,14 +273,19 @@ class ProteinMPNNDesignImplementation:
             )
         constraint_digest = self._constraint_digest(call)
         candidates: list[Candidate] = []
-        for parent_index, (structure, parent_ids) in enumerate(parents):
+        for parent_index, (
+            parent_candidate,
+            parent_reference,
+            residue_axis,
+        ) in enumerate(parents):
+            parent_ids = (parent_candidate.candidate_id,)
             call_seed = self._call_seed(
                 seed,
-                parent_content_digests[parent_index],
+                parent_reference.content_digest,
                 parent_index,
             )
             sequences = self._adapter.design(
-                structure=structure,
+                residue_axis=residue_axis,
                 num_sequences=count,
                 temperature=temperature,
                 backbone_noise=noise,
@@ -287,7 +321,8 @@ class ProteinMPNNDesignImplementation:
                 )
         if len(candidates) != len(parents) * count:
             raise RuntimeError("ProteinMPNN design children are incomplete")
-        for _, parent_ids in parents:
+        for parent_candidate, _, _ in parents:
+            parent_ids = (parent_candidate.candidate_id,)
             children = [
                 candidate
                 for candidate in candidates
@@ -322,22 +357,27 @@ class ProteinMPNNScoreImplementation:
 
     @staticmethod
     def _subject(
-        inputs: Mapping[str, Any],
-    ) -> tuple[Candidate, Candidate]:
-        if set(inputs) != {
+        call: OperationCall,
+    ) -> tuple[
+        Candidate,
+        Candidate,
+        CandidateDataReference,
+        CandidateDataReference,
+        ResolvedStructureResidueAxis,
+    ]:
+        if set(call.inputs) != {
             "structure_candidates",
             "sequence_candidates",
+            "structure_residue_axes",
         }:
             raise ValueError(
                 "ProteinMPNN scoring requires exact structure and sequence "
-                "Candidate inputs"
+                "Candidate inputs with resolved axes"
             )
-        structures = inputs["structure_candidates"]
-        sequences = inputs["sequence_candidates"]
+        parents = _structure_candidates_with_axes(call)
+        sequences = call.inputs["sequence_candidates"]
         if (
-            type(structures) is not CandidateCollection
-            or structures.item_type != "protein.structure"
-            or len(structures.items) != 1
+            len(parents) != 1
             or type(sequences) is not CandidateCollection
             or sequences.item_type != "protein.sequence"
             or len(sequences.items) != 1
@@ -346,8 +386,11 @@ class ProteinMPNNScoreImplementation:
                 "ProteinMPNN scoring requires one structure Candidate and "
                 "one sequence Candidate"
             )
-        structure = structures.items[0]
+        structure, structure_reference, residue_axis = parents[0]
         sequence = sequences.items[0]
+        admitted_sequences = call.input_content_digests.get(
+            "sequence_candidates"
+        )
         if (
             type(structure) is not Candidate
             or not structure.candidate_id
@@ -356,33 +399,59 @@ class ProteinMPNNScoreImplementation:
             or not sequence.candidate_id
             or type(sequence.data) is not ProteinSequence
             or sequence.parent_ids != (structure.candidate_id,)
+            or admitted_sequences is None
+            or admitted_sequences.port_type_id != "candidate.collection"
+            or len(admitted_sequences.candidate_data) != 1
         ):
             raise ValueError(
                 "ProteinMPNN scoring inputs do not identify one sequence "
                 "Candidate and its exact parent structure"
             )
-        return structure, sequence
+        sequence_reference = admitted_sequences.candidate_data[0]
+        if (
+            type(sequence_reference) is not CandidateDataReference
+            or sequence_reference.data_type_id != "protein.sequence"
+            or sequence_reference.candidate_id != sequence.candidate_id
+        ):
+            raise ValueError(
+                "ProteinMPNN scoring lacks the exact sequence reference"
+            )
+        return (
+            structure,
+            sequence,
+            structure_reference,
+            sequence_reference,
+            residue_axis,
+        )
 
     def execute(self, call: OperationCall) -> dict[str, Any]:
         if call.node_parameters or call.binding_parameters:
             raise ValueError(
                 "ProteinMPNN scoring accepts no Workflow parameters"
             )
-        structure_candidate, sequence_candidate = self._subject(call.inputs)
-        structure = structure_candidate.data
+        (
+            structure_candidate,
+            sequence_candidate,
+            structure_reference,
+            sequence_reference,
+            residue_axis,
+        ) = self._subject(call)
         sequence = sequence_candidate.data
-        assert type(structure) is ProteinStructure
         assert type(sequence) is ProteinSequence
         score = self._adapter.score(
-            structure=structure,
+            residue_axis=residue_axis,
             sequence=sequence,
         )
         observation = ScoreObservation(
-            candidate_id=sequence_candidate.candidate_id,
+            subject=sequence_reference,
             metric=self._metric,
             method=self._method,
             context=IntrinsicObservationContext(),
             value=score,
+            residue_axis=_resolved_axis_reference(
+                structure_reference,
+                residue_axis,
+            ),
         )
         return {
             "scores": ScoreCollection(

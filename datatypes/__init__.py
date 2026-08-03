@@ -3,6 +3,7 @@ from datatypes.protein import (
     Candidate,
     CandidateCollection,
     ExactContractReference,
+    ExactPortValueReference,
     FunctionAnnotations,
     IntrinsicObservationContext,
     ModifiedResidueAtomMapping,
@@ -17,27 +18,38 @@ from datatypes.protein import (
     ProteinSequence,
     ProteinStructure,
     ResidueLayout,
+    ResidueAxisReference,
     ResidueMap,
     ResidueTrack,
     ScoreCollection,
     ScoreObservation,
-    StructureAlignment,
 )
 from datatypes.constraint_validation import (
     PROTEINMPNN_ALPHABET,
     validate_proteinmpnn_constraints,
 )
+from datatypes.candidate_reference import CandidateDataReference
+from datatypes.identifiers import validate_canonical_identifier
 from datatypes.function_annotations import (
     FunctionAnnotation,
     validate_canonical_function_annotations,
 )
 from datatypes.i_json import freeze_i_json, thaw_i_json
+from datatypes.structure_axis import (
+    ResolvedStructureResidueAxis,
+    StructureAtomCoordinate,
+    StructureAxisSegment,
+    StructureComponentDisposition,
+    StructureResidueCoordinates,
+)
 
 __all__ = [
     "CalibrationObservationContext",
     "Candidate",
     "CandidateCollection",
+    "CandidateDataReference",
     "ExactContractReference",
+    "ExactPortValueReference",
     "FunctionAnnotations",
     "FunctionAnnotation",
     "IntrinsicObservationContext",
@@ -52,15 +64,21 @@ __all__ = [
     "ProteinSequence",
     "ProteinStructure",
     "ResidueLayout",
+    "ResidueAxisReference",
     "ResidueMap",
     "ResidueTrack",
+    "ResolvedStructureResidueAxis",
     "ScoreCollection",
     "ScoreObservation",
-    "StructureAlignment",
+    "StructureAtomCoordinate",
+    "StructureAxisSegment",
+    "StructureComponentDisposition",
+    "StructureResidueCoordinates",
     "ProteinMPNNConstraints",
     "PROTEINMPNN_ALPHABET",
     "validate_proteinmpnn_constraints",
     "validate_canonical_function_annotations",
+    "validate_canonical_identifier",
     "freeze_i_json",
     "thaw_i_json",
 ]

@@ -5,6 +5,7 @@ from __future__ import annotations
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field
 import math
+import re
 import struct
 from types import MappingProxyType
 from typing import Any
@@ -22,6 +23,7 @@ from core.port_types import (
 )
 from datatypes import (
     CalibrationObservationContext,
+    CandidateDataReference,
     CandidateCollection,
     ExactContractReference,
     IntrinsicObservationContext,
@@ -29,10 +31,12 @@ from datatypes import (
     PairwiseCandidateMapping,
     ProteinSequence,
     ProteinStructure,
+    ResidueAxisReference,
     ScoreCollection,
     ScoreObservation,
 )
 from datatypes.i_json import freeze_i_json, thaw_i_json
+from datatypes.protein import validate_residue_layout
 
 
 class SelectionError(ValueError):
@@ -382,6 +386,22 @@ class ResolvedMetricFacts:
     allow_null: bool
     require_finite: bool
     exact_binary32: bool
+    requires_residue_axis: bool
+    structure_alignment_evidence: Mapping[str, Any] | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class StructureAlignmentEvidenceAdmissionFacts:
+    """Exact facts projected from one admitted alignment-evidence value."""
+
+    subject: CandidateDataReference
+    reference: CandidateDataReference
+    evidence_content_digest: str
+    subject_axis_content_digest: str
+    reference_axis_content_digest: str
+    evidence_method: ExactContractReference
+    reference_axis_residue_count: int
+    aligned_atom_count: int
 
 
 @dataclass(frozen=True, slots=True)
@@ -606,7 +626,44 @@ def _resolved_metric_facts(
     validation = descriptor.get("validation_contract")
     if not isinstance(validation, Mapping):
         raise SelectionError("Metric validation contract is malformed")
+    alignment_evidence = validation.get("structure_alignment_evidence")
+    required_alignment_context_fields = (
+        "evidence_content_digest",
+        "evidence_method",
+        "subject_axis_content_digest",
+        "reference_axis_content_digest",
+        "normalization_length",
+        "aligned_atom_count",
+    )
+    if alignment_evidence is not None and (
+        not isinstance(alignment_evidence, Mapping)
+        or set(alignment_evidence)
+        != {
+            "source_direction",
+            "source_port",
+            "normalization_length_source",
+            "required_context_fields",
+        }
+        or alignment_evidence.get("source_direction") != "input"
+        or not isinstance(alignment_evidence.get("source_port"), str)
+        or not alignment_evidence.get("source_port")
+        or alignment_evidence.get("normalization_length_source")
+        not in {"aligned_atom_count", "reference_axis_residue_count"}
+        or tuple(alignment_evidence.get("required_context_fields", ()))
+        != required_alignment_context_fields
+    ):
+        raise SelectionError(
+            "Metric structure-alignment evidence contract is malformed"
+        )
     masking = validation.get("masking")
+    aggregation = descriptor.get("aggregation_semantics")
+    aggregated_residue_population = (
+        value_shape == "scalar"
+        and isinstance(aggregation, Mapping)
+        and aggregation.get("kind") not in (None, "none")
+        and type(aggregation.get("source_metric")) is str
+        and bool(aggregation.get("source_metric"))
+    )
     return ResolvedMetricFacts(
         reference=reference,
         value_shape=value_shape,
@@ -620,6 +677,16 @@ def _resolved_metric_facts(
         exact_binary32=(
             validation.get("numeric_format") == "binary32"
             and validation.get("exact_round_trip") is True
+        ),
+        requires_residue_axis=(
+            value_shape
+            in {"per_residue", "residue_vector", "residue_pair_matrix"}
+            or aggregated_residue_population
+        ),
+        structure_alignment_evidence=(
+            None
+            if alignment_evidence is None
+            else freeze_i_json(alignment_evidence)
         ),
     )
 
@@ -663,28 +730,11 @@ def resolve_metric_facts(
     return _resolved_metric_facts(reference, metric)
 
 
-def _subject_residue_count(subject: Any) -> int:
-    data = subject.data
-    if isinstance(data, ProteinSequence):
-        return len(data.sequence)
-    if isinstance(data, ProteinStructure):
-        residue_keys = {
-            (line[21:22], line[22:26], line[26:27])
-            for line in data.pdb_string.splitlines()
-            if line.startswith("ATOM  ") and len(line) >= 27
-        }
-        if residue_keys:
-            return len(residue_keys)
-    raise SelectionError(
-        "Per-residue Metric requires an exact subject residue layout"
-    )
-
-
 def _validate_metric_value(
     metric: Any,
     value: object,
     *,
-    subject: Any | None = None,
+    residue_axis: ResidueAxisReference | None = None,
 ) -> None:
     reference = metric.reference()
     _validate_resolved_metric_value(
@@ -698,7 +748,7 @@ def _validate_metric_value(
             metric,
         ),
         value,
-        subject=subject,
+        residue_axis=residue_axis,
     )
 
 
@@ -706,8 +756,25 @@ def _validate_resolved_metric_value(
     metric: ResolvedMetricFacts,
     value: object,
     *,
-    subject: Any | None = None,
+    residue_axis: ResidueAxisReference | None = None,
 ) -> None:
+    if metric.requires_residue_axis:
+        if residue_axis is None:
+            raise SelectionError(
+                "Metric requires an exact scientific residue axis"
+            )
+        try:
+            validate_residue_layout(
+                residue_axis.layout,
+                subject="Observation residue layout",
+            )
+        except (TypeError, ValueError) as error:
+            raise SelectionError(str(error)) from error
+    elif residue_axis is not None:
+        raise SelectionError(
+            "Metric does not declare a scientific residue-axis population"
+        )
+
     if metric.value_shape == "scalar":
         values = (value,)
     elif metric.value_shape in {"per_residue", "residue_vector"}:
@@ -716,10 +783,10 @@ def _validate_resolved_metric_value(
                 "Per-residue Metric value must be an ordered array"
             )
         values = tuple(value)
-        if subject is None or len(values) != _subject_residue_count(subject):
+        if residue_axis is None or len(values) != residue_axis.layout.length:
             raise SelectionError(
                 "Per-residue Metric value does not align with its exact "
-                "subject residue layout"
+                "residue layout"
             )
     elif metric.value_shape == "residue_pair_matrix":
         if not isinstance(value, (list, tuple)):
@@ -727,9 +794,7 @@ def _validate_resolved_metric_value(
                 "Residue-pair Metric value must be an ordered matrix"
             )
         residue_count = (
-            _subject_residue_count(subject)
-            if subject is not None
-            else None
+            residue_axis.layout.length if residue_axis is not None else None
         )
         if residue_count is None or len(value) != residue_count:
             raise SelectionError(
@@ -946,13 +1011,10 @@ def _candidate_content_digest(
     catalog: FrozenCatalog,
     candidate: Any,
 ) -> str:
-    if isinstance(candidate.data, ProteinSequence):
-        type_id = "protein.sequence"
-    elif isinstance(candidate.data, ProteinStructure):
-        type_id = "protein.structure"
-    else:
+    type_id = _candidate_data_type_id(candidate.data)
+    if type_id is None:
         raise SelectionError(
-            "Pairwise subject must carry a canonical protein value"
+            "Candidate subject must carry a canonical scientific value"
         )
     matches = tuple(
         port_type
@@ -964,6 +1026,32 @@ def _candidate_content_digest(
             f"Active Port Type {type_id!r} does not resolve exactly once"
         )
     return matches[0].content_digest(candidate.data)
+
+
+def _candidate_data_type_id(value: object) -> str | None:
+    return {
+        ProteinSequence: "protein.sequence",
+        ProteinStructure: "protein.structure",
+    }.get(type(value))
+
+
+def _candidate_data_reference(
+    candidate: Any,
+    content_digest: str,
+) -> CandidateDataReference:
+    type_id = _candidate_data_type_id(candidate.data)
+    if type_id is None:
+        raise SelectionError(
+            "Candidate subject has no canonical data type identity"
+        )
+    try:
+        return CandidateDataReference(
+            candidate_id=candidate.candidate_id,
+            data_type_id=type_id,
+            content_digest=content_digest,
+        )
+    except (TypeError, ValueError) as error:
+        raise SelectionError(str(error)) from error
 
 
 def _candidate_values(value: object) -> tuple[Any, ...]:
@@ -1217,6 +1305,67 @@ def selection_objective_provenance_from_facts(
     return thaw_i_json(freeze_i_json({"objectives": provenance}))
 
 
+def _result_identity_reference(
+    reference: ExactContractReference,
+) -> dict[str, str]:
+    return {
+        "contract_kind": reference.contract_kind,
+        "contract_id": reference.contract_id,
+        "contract_version": reference.contract_version,
+    }
+
+
+def selection_objective_identity_facts_from_facts(
+    objectives: Sequence[ResolvedSelectionObjective],
+    *,
+    candidate_input_port: str,
+    score_collection_input_port: str,
+) -> tuple[dict[str, Any], ...]:
+    """Project locator-free scientific facts for Result/output identity."""
+    _, _, resolved, provenance = _resolved_objective_contracts(objectives)
+    return tuple(
+        {
+            "candidate_input_port": candidate_input_port,
+            "score_collection_input_port": score_collection_input_port,
+            "source_partition": item.objective.source_partition,
+            "metric": _result_identity_reference(item.objective.metric),
+            "method": _result_identity_reference(item.objective.method),
+            "context_selector": item.objective.context_selector.to_public(),
+            "utility_transform": _result_identity_reference(
+                item.objective.utility_transform
+            ),
+            "utility_parameters": fact["utility_parameters"],
+            "declared_weight": fact["declared_weight"],
+            "effective_weight": fact["effective_weight"],
+            "match_cardinality": item.objective.match_cardinality,
+            "missing_policy": item.objective.missing_policy,
+        }
+        for item, fact in zip(resolved, provenance, strict=True)
+    )
+
+
+def observation_selector_identity_facts_from_facts(
+    selectors: Sequence[ResolvedObservationSelector],
+    *,
+    candidate_input_port: str,
+    score_collection_input_port: str,
+) -> tuple[dict[str, Any], ...]:
+    """Project locator-free raw-observation facts for Result identity."""
+    return tuple(
+        {
+            "candidate_input_port": candidate_input_port,
+            "score_collection_input_port": score_collection_input_port,
+            "source_partition": item.selector.source_partition,
+            "metric": _result_identity_reference(item.selector.metric),
+            "method": _result_identity_reference(item.selector.method),
+            "context_selector": item.selector.context_selector.to_public(),
+            "match_cardinality": item.selector.match_cardinality,
+            "missing_policy": item.selector.missing_policy,
+        }
+        for item in selectors
+    )
+
+
 def resolve_candidate_utilities(
     *,
     candidate_inputs: Mapping[SelectionInput, CandidateCollection],
@@ -1229,40 +1378,32 @@ def resolve_candidate_utilities(
         resolve_selection_objective_facts(objective, catalog)
         for objective in objectives
     )
-    candidate_content_digests: dict[str, str] = {}
-    if any(
-        isinstance(
-            item.objective.context_selector,
-            PairwiseContextSelector,
+    candidate_references = {
+        item.objective.candidate_input for item in resolved
+    }
+    if len(candidate_references) != 1:
+        raise SelectionError(
+            "Weighted objectives must use one exact Candidate input"
         )
-        for item in resolved
-    ):
-        candidate_references = {
-            item.objective.candidate_input for item in resolved
-        }
-        if len(candidate_references) != 1:
-            raise SelectionError(
-                "Weighted objectives must use one exact Candidate input"
-            )
-        candidate_reference = next(iter(candidate_references))
-        try:
-            selected_candidates = candidate_inputs[candidate_reference]
-        except KeyError as error:
-            raise SelectionError(
-                "Selection Candidate input is missing"
-            ) from error
-        candidate_content_digests = {
-            candidate.candidate_id: _candidate_content_digest(
-                catalog,
-                candidate,
-            )
-            for candidate in selected_candidates.items
-        }
+    candidate_reference = next(iter(candidate_references))
+    try:
+        selected_candidates = candidate_inputs[candidate_reference]
+    except KeyError as error:
+        raise SelectionError(
+            "Selection Candidate input is missing"
+        ) from error
+    candidate_data_references = {
+        candidate.candidate_id: _candidate_data_reference(
+            candidate,
+            _candidate_content_digest(catalog, candidate),
+        )
+        for candidate in selected_candidates.items
+    }
     return resolve_candidate_utilities_from_facts(
         candidate_inputs=candidate_inputs,
         score_collection_inputs=score_collection_inputs,
         objectives=resolved,
-        candidate_content_digests=candidate_content_digests,
+        candidate_data_references=candidate_data_references,
     )
 
 
@@ -1271,7 +1412,7 @@ def resolve_candidate_utilities_from_facts(
     candidate_inputs: Mapping[SelectionInput, CandidateCollection],
     score_collection_inputs: Mapping[SelectionInput, ScoreCollection],
     objectives: Sequence[ResolvedSelectionObjective],
-    candidate_content_digests: Mapping[str, str],
+    candidate_data_references: Mapping[str, CandidateDataReference],
 ) -> CandidateUtilityProfile:
     """Compute Utilities from pre-resolved scientific facts only."""
     (
@@ -1295,10 +1436,6 @@ def resolve_candidate_utilities_from_facts(
     candidate_ids = [candidate.candidate_id for candidate in candidates.items]
     if len(candidate_ids) != len(set(candidate_ids)):
         raise SelectionError("Selection Candidate input has duplicate identities")
-    candidates_by_id = {
-        candidate.candidate_id: candidate
-        for candidate in candidates.items
-    }
     utility_values = {
         candidate_id: [] for candidate_id in candidate_ids
     }
@@ -1324,6 +1461,16 @@ def resolve_candidate_utilities_from_facts(
         )
         for candidate_id in candidate_ids:
             observation = observations[candidate_id]
+            expected_subject = candidate_data_references.get(candidate_id)
+            if expected_subject is None:
+                raise SelectionError(
+                    "Selection lacks exact Candidate content identity"
+                )
+            if observation.subject != expected_subject:
+                raise SelectionError(
+                    "Observation subject does not match the exact Candidate "
+                    "input"
+                )
             if isinstance(
                 objective.context_selector,
                 PairwiseContextSelector,
@@ -1333,21 +1480,13 @@ def resolve_candidate_utilities_from_facts(
                     raise SelectionError(
                         "Pairwise objective matched a non-pairwise Context"
                     )
-                subject = candidates_by_id[candidate_id]
                 if (
-                    context.subject.candidate_id != candidate_id
-                    or context.subject.content_digest
-                    != candidate_content_digests.get(candidate_id)
+                    context.subject.candidate != expected_subject
                 ):
                     raise SelectionError(
                         "Pairwise Context subject identity or content digest "
                         "does not match the exact Candidate input"
                     )
-            _validate_resolved_metric_value(
-                item.metric,
-                observation.value,
-                subject=candidates_by_id[candidate_id],
-            )
             try:
                 output = item.utility_transform(
                     observation.value,
@@ -1441,26 +1580,6 @@ def select_candidates(
     return _selection_result(profile, limit)
 
 
-def select_candidates_from_facts(
-    *,
-    candidate_inputs: Mapping[SelectionInput, CandidateCollection],
-    score_collection_inputs: Mapping[SelectionInput, ScoreCollection],
-    objectives: Sequence[ResolvedSelectionObjective],
-    candidate_content_digests: Mapping[str, str],
-    limit: int,
-) -> SelectionResult:
-    """Rank Candidates using only compile-resolved scientific facts."""
-    if type(limit) is not int or limit < 1:
-        raise SelectionError("Selection limit must be a positive integer")
-    profile = resolve_candidate_utilities_from_facts(
-        candidate_inputs=candidate_inputs,
-        score_collection_inputs=score_collection_inputs,
-        objectives=objectives,
-        candidate_content_digests=candidate_content_digests,
-    )
-    return _selection_result(profile, limit)
-
-
 def _selection_result(
     profile: CandidateUtilityProfile,
     limit: int,
@@ -1477,6 +1596,164 @@ def _selection_result(
     )
 
 
+def resolve_structure_alignment_evidence_admission_facts(
+    values: Sequence[object],
+    value_content_digests: Sequence[str],
+) -> tuple[StructureAlignmentEvidenceAdmissionFacts, ...]:
+    """Project the exact cross-value facts required by score admission."""
+    if len(values) != len(value_content_digests) or not values:
+        raise PortValueError(
+            "structure-alignment evidence admission is incomplete"
+        )
+    projected: list[StructureAlignmentEvidenceAdmissionFacts] = []
+    pairs: set[tuple[CandidateDataReference, CandidateDataReference]] = set()
+    digest_pattern = re.compile(r"^sha256:[0-9a-f]{64}$")
+    for value, evidence_content_digest in zip(
+        values,
+        value_content_digests,
+        strict=True,
+    ):
+        subject = getattr(value, "subject", None)
+        reference = getattr(value, "reference", None)
+        subject_axis_content_digest = getattr(
+            value,
+            "subject_axis_content_digest",
+            None,
+        )
+        reference_axis_content_digest = getattr(
+            value,
+            "reference_axis_content_digest",
+            None,
+        )
+        evidence_method = getattr(value, "method", None)
+        normalization = getattr(value, "normalization", None)
+        reference_axis_residue_count = getattr(
+            normalization,
+            "reference_axis_residue_count",
+            None,
+        )
+        aligned_atom_count = getattr(
+            normalization,
+            "aligned_atom_count",
+            None,
+        )
+        if (
+            type(subject) is not CandidateDataReference
+            or subject.data_type_id != "protein.structure"
+            or type(reference) is not CandidateDataReference
+            or reference.data_type_id != "protein.structure"
+            or type(evidence_method) is not ExactContractReference
+            or evidence_method.contract_kind != "method"
+            or type(evidence_content_digest) is not str
+            or digest_pattern.fullmatch(evidence_content_digest) is None
+            or type(subject_axis_content_digest) is not str
+            or digest_pattern.fullmatch(subject_axis_content_digest) is None
+            or type(reference_axis_content_digest) is not str
+            or digest_pattern.fullmatch(reference_axis_content_digest) is None
+            or type(reference_axis_residue_count) is not int
+            or reference_axis_residue_count < 1
+            or type(aligned_atom_count) is not int
+            or aligned_atom_count < 1
+            or aligned_atom_count > reference_axis_residue_count
+        ):
+            raise PortValueError(
+                "structure-alignment evidence admission facts are invalid"
+            )
+        pair = (subject, reference)
+        if pair in pairs:
+            raise PortValueError(
+                "structure-alignment evidence repeats one exact Candidate pair"
+            )
+        pairs.add(pair)
+        projected.append(
+            StructureAlignmentEvidenceAdmissionFacts(
+                subject=subject,
+                reference=reference,
+                evidence_content_digest=evidence_content_digest,
+                subject_axis_content_digest=subject_axis_content_digest,
+                reference_axis_content_digest=reference_axis_content_digest,
+                evidence_method=evidence_method,
+                reference_axis_residue_count=reference_axis_residue_count,
+                aligned_atom_count=aligned_atom_count,
+            )
+        )
+    return tuple(projected)
+
+
+def _validate_structure_alignment_evidence_provenance(
+    *,
+    metric: ResolvedMetricFacts,
+    observations: Sequence[ScoreObservation],
+    evidence_references: Mapping[
+        tuple[str, str],
+        tuple[StructureAlignmentEvidenceAdmissionFacts, ...],
+    ],
+) -> None:
+    contract = metric.structure_alignment_evidence
+    if contract is None:
+        return
+    source = (
+        contract["source_direction"],
+        contract["source_port"],
+    )
+    evidence = evidence_references.get(source, ())
+    if len(evidence) != len(observations):
+        raise PortValueError(
+            "Produced Observation alignment evidence provenance is incomplete"
+        )
+    by_pair = {
+        (entry.subject, entry.reference): entry for entry in evidence
+    }
+    if len(by_pair) != len(evidence):
+        raise PortValueError(
+            "Produced Observation alignment evidence provenance is ambiguous"
+        )
+    observed_pairs: set[
+        tuple[CandidateDataReference, CandidateDataReference]
+    ] = set()
+    normalization_source = contract["normalization_length_source"]
+    for observation in observations:
+        context = observation.context
+        if type(context) is not PairwiseObservationContext:
+            raise PortValueError(
+                "Produced Observation alignment evidence provenance requires "
+                "a pairwise Context"
+            )
+        pair = (context.subject.candidate, context.reference.candidate)
+        admitted = by_pair.get(pair)
+        if admitted is None or pair in observed_pairs:
+            raise PortValueError(
+                "Produced Observation alignment evidence provenance does not "
+                "resolve exactly once"
+            )
+        observed_pairs.add(pair)
+        expected_normalization_length = (
+            admitted.aligned_atom_count
+            if normalization_source == "aligned_atom_count"
+            else admitted.reference_axis_residue_count
+        )
+        if (
+            context.evidence_content_digest
+            != admitted.evidence_content_digest
+            or context.evidence_method != admitted.evidence_method
+            or context.subject_axis_content_digest
+            != admitted.subject_axis_content_digest
+            or context.reference_axis_content_digest
+            != admitted.reference_axis_content_digest
+            or context.normalization_length
+            != expected_normalization_length
+            or context.aligned_atom_count != admitted.aligned_atom_count
+        ):
+            raise PortValueError(
+                "Produced Observation alignment evidence provenance "
+                "contradicts its admitted alignment"
+            )
+    if observed_pairs != set(by_pair):
+        raise PortValueError(
+            "Produced Observation alignment evidence provenance is not closed"
+        )
+
+
 def validate_produced_score_collection_from_facts(
     *,
     binding_descriptor: Mapping[str, Any],
@@ -1488,7 +1765,22 @@ def validate_produced_score_collection_from_facts(
         tuple[str, str, str, str],
         ResolvedMetricFacts,
     ],
-    candidate_content_digest: Callable[[Any], str],
+    axis_references: Mapping[
+        tuple[str, str],
+        tuple[ResidueAxisReference, ...],
+    ],
+    method_references: Mapping[
+        tuple[str, str],
+        tuple[ExactContractReference, ...],
+    ],
+    candidate_references: Mapping[
+        tuple[str, str],
+        tuple[CandidateDataReference, ...],
+    ],
+    alignment_evidence_references: Mapping[
+        tuple[str, str],
+        tuple[StructureAlignmentEvidenceAdmissionFacts, ...],
+    ] = MappingProxyType({}),
 ) -> None:
     """Validate scoring output using only compile-resolved scientific facts."""
     declarations = [
@@ -1528,10 +1820,6 @@ def validate_produced_score_collection_from_facts(
             )
         except SelectionError as error:
             raise PortValueError(str(error)) from error
-        if observed_method != method_reference:
-            raise PortValueError(
-                "Binding emitted an Observation with an undeclared Method"
-            )
         try:
             observed_metric = _reference_public(
                 "metric",
@@ -1555,6 +1843,29 @@ def validate_produced_score_collection_from_facts(
                 "Binding emitted an Observation outside its closed Produced "
                 "Observation Interface"
             )
+        declaration = matches[0]
+        method_direction = declaration.get("method_direction")
+        method_port = declaration.get("method_port")
+        if method_direction is None and method_port is None:
+            allowed_methods = (method_reference,)
+        elif method_direction in {"input", "output"} and isinstance(
+            method_port, str
+        ):
+            allowed_methods = tuple(
+                _reference_public("method", reference)
+                for reference in method_references.get(
+                    (method_direction, method_port),
+                    (),
+                )
+            )
+        else:
+            raise PortValueError(
+                "Produced Observation Method source declaration is incomplete"
+            )
+        if observed_method not in allowed_methods:
+            raise PortValueError(
+                "Binding emitted an Observation with an undeclared Method"
+            )
     for declaration in declarations:
         source = (
             inputs
@@ -1576,6 +1887,26 @@ def validate_produced_score_collection_from_facts(
             raise PortValueError(
                 "Binding Produced Observation subject source has duplicates"
             )
+        subject_direction = declaration.get("subject_direction")
+        subject_port = declaration.get("subject_port")
+        admitted_subjects = candidate_references.get(
+            (subject_direction, subject_port),
+            (),
+        )
+        if (
+            len(admitted_subjects) != len(subjects)
+            or len({item.candidate_id for item in admitted_subjects})
+            != len(admitted_subjects)
+            or {item.candidate_id for item in admitted_subjects}
+            != set(subject_ids)
+        ):
+            raise PortValueError(
+                "Binding Produced Observation subject identity evidence is "
+                "incomplete or contradictory"
+            )
+        exact_subjects = {
+            item.candidate_id: item for item in admitted_subjects
+        }
         declared_metric = declaration.get("metric")
         declared_context = declaration.get("context_profile")
         declared_partition = declaration.get("output_partition", "default")
@@ -1587,6 +1918,63 @@ def validate_produced_score_collection_from_facts(
             and _context_profile(observation.context) == declared_context
             and observation.source_partition == declared_partition
         ]
+        metric_key = (
+            "metric",
+            declared_metric["contract_id"],
+            declared_metric["contract_version"],
+            declared_metric["contract_digest"],
+        )
+        resolved_metric = metric_facts.get(metric_key)
+        if resolved_metric is None:
+            raise PortValueError(
+                "Produced Observation Metric facts are unavailable"
+            )
+        _validate_structure_alignment_evidence_provenance(
+            metric=resolved_metric,
+            observations=matching_observations,
+            evidence_references=alignment_evidence_references,
+        )
+        axis_direction = declaration.get("axis_direction")
+        axis_port = declaration.get("axis_port")
+        if resolved_metric.requires_residue_axis:
+            if axis_direction not in {"input", "output"} or not isinstance(
+                axis_port, str
+            ):
+                raise PortValueError(
+                    "Axis-requiring Metric lacks a declared exact axis Port"
+                )
+            projected_axes = axis_references.get(
+                (axis_direction, axis_port),
+                (),
+            )
+            if not projected_axes:
+                raise PortValueError(
+                    "Declared scientific axis Port projected no exact axes"
+                )
+            for observation in matching_observations:
+                axis = observation.residue_axis
+                if axis is None or sum(
+                    candidate_axis == axis for candidate_axis in projected_axes
+                ) != 1:
+                    raise PortValueError(
+                        "Observation residue axis does not resolve exactly once "
+                        "from its declared scientific axis Port"
+                    )
+        elif axis_direction is not None or axis_port is not None:
+            raise PortValueError(
+                "Metric without an axis population declares an axis Port"
+            )
+        mismatched_subjects = [
+            observation.candidate_id
+            for observation in matching_observations
+            if observation.subject
+            != exact_subjects.get(observation.candidate_id)
+        ]
+        if mismatched_subjects:
+            raise PortValueError(
+                "Binding emitted an Observation whose exact subject does not "
+                "match its declared Candidate source"
+            )
         ghost_subjects = sorted(
             {
                 observation.candidate_id
@@ -1604,10 +1992,7 @@ def validate_produced_score_collection_from_facts(
             and declared_context.get("kind") == "pairwise"
         ):
             reference_identities = {
-                (
-                    observation.context.reference.candidate_id,
-                    observation.context.reference.content_digest,
-                )
+                observation.context.reference.candidate
                 for observation in matching_observations
                 if isinstance(
                     observation.context,
@@ -1634,10 +2019,11 @@ def validate_produced_score_collection_from_facts(
                     "counterpart per subject"
                 )
         for candidate_id in subject_ids:
+            expected_subject = exact_subjects[candidate_id]
             matches = [
                 observation
                 for observation in matching_observations
-                if observation.candidate_id == candidate_id
+                if observation.subject == expected_subject
             ]
             multiplicity = declaration.get("guaranteed_multiplicity")
             if multiplicity == "one" and len(matches) != 1:
@@ -1658,27 +2044,17 @@ def validate_produced_score_collection_from_facts(
                             observation.metric.contract_digest,
                         )
                     ]
-                    subject = next(
-                        candidate
-                        for candidate in subjects
-                        if candidate.candidate_id == candidate_id
-                    )
                     _validate_resolved_metric_value(
                         metric,
                         observation.value,
-                        subject=subject,
+                        residue_axis=observation.residue_axis,
                     )
                     if isinstance(
                         observation.context,
                         PairwiseObservationContext,
                     ):
                         context = observation.context
-                        if (
-                            context.subject.candidate_id
-                            != subject.candidate_id
-                            or context.subject.content_digest
-                            != candidate_content_digest(subject)
-                        ):
+                        if context.subject.candidate != expected_subject:
                             raise SelectionError(
                                 "Pairwise Context subject source does not "
                                 "match the exact Candidate"
@@ -1699,13 +2075,22 @@ def validate_produced_score_collection_from_facts(
                             if reference_source is not None
                             else None
                         )
+                        admitted_references = candidate_references.get(
+                            (
+                                declaration.get("reference_direction"),
+                                declaration.get("reference_port"),
+                            ),
+                            (),
+                        )
+                        if len(admitted_references) != len(references):
+                            raise SelectionError(
+                                "Pairwise reference identity evidence is "
+                                "incomplete"
+                            )
                         reference_matches = [
-                            candidate
-                            for candidate in references
-                            if candidate.candidate_id
-                            == context.reference.candidate_id
-                            and candidate_content_digest(candidate)
-                            == context.reference.content_digest
+                            reference
+                            for reference in admitted_references
+                            if reference == context.reference.candidate
                         ]
                         if len(reference_matches) != 1:
                             raise SelectionError(
@@ -1744,14 +2129,10 @@ def validate_produced_score_collection_from_facts(
                                 entry
                                 for entry in pairing.entries
                                 if (
-                                    entry.subject_candidate_id
-                                    == context.subject.candidate_id
-                                    and entry.subject_content_digest
-                                    == context.subject.content_digest
-                                    and entry.reference_candidate_id
-                                    == context.reference.candidate_id
-                                    and entry.reference_content_digest
-                                    == context.reference.content_digest
+                                    entry.subject
+                                    == context.subject.candidate
+                                    and entry.reference
+                                    == context.reference.candidate
                                 )
                             ]
                             if len(mapping_matches) != 1:
@@ -1789,6 +2170,252 @@ def validate_produced_score_collection(
             reference.contract_digest,
         )
         metric_facts[key] = resolve_metric_facts(reference, catalog)
+    axis_references: dict[
+        tuple[str, str],
+        tuple[ResidueAxisReference, ...],
+    ] = {}
+    method_references: dict[
+        tuple[str, str],
+        tuple[ExactContractReference, ...],
+    ] = {}
+    alignment_evidence_references: dict[
+        tuple[str, str],
+        tuple[StructureAlignmentEvidenceAdmissionFacts, ...],
+    ] = {}
+    candidate_references: dict[
+        tuple[str, str],
+        tuple[CandidateDataReference, ...],
+    ] = {}
+    node_reference = binding.descriptor.get("node_type")
+    if not isinstance(node_reference, Mapping):
+        raise PortValueError("Binding Node Type reference is unavailable")
+    try:
+        node_type = catalog.require_contract(
+            node_reference["contract_kind"],
+            node_reference["contract_id"],
+            node_reference["contract_version"],
+        )
+    except (KeyError, ContractResolutionError) as error:
+        raise PortValueError(
+            "Binding Node Type cannot resolve for axis admission"
+        ) from error
+    node_descriptor = node_type.descriptor
+    for resolved_metric in metric_facts.values():
+        evidence_contract = resolved_metric.structure_alignment_evidence
+        if evidence_contract is None:
+            continue
+        direction = evidence_contract["source_direction"]
+        port_name = evidence_contract["source_port"]
+        key = (direction, port_name)
+        if key in alignment_evidence_references:
+            continue
+        port_declarations = node_descriptor[
+            "inputs" if direction == "input" else "outputs"
+        ]
+        port_declaration = next(
+            (
+                item
+                for item in port_declarations
+                if item.get("name") == port_name
+            ),
+            None,
+        )
+        if not isinstance(port_declaration, Mapping):
+            raise PortValueError(
+                "Produced Observation alignment evidence Port declaration "
+                "is unavailable"
+            )
+        port_reference = port_declaration.get("port_type")
+        if not isinstance(port_reference, Mapping):
+            raise PortValueError(
+                "Produced Observation alignment evidence Port Type is "
+                "unavailable"
+            )
+        try:
+            port_type = catalog.require_port_type(
+                port_reference["contract_id"],
+                port_reference["contract_version"],
+            )
+        except (KeyError, LookupError) as error:
+            raise PortValueError(
+                "Produced Observation alignment evidence Port Type cannot "
+                "resolve"
+            ) from error
+        if port_type.reference() != dict(port_reference):
+            raise PortValueError(
+                "Produced Observation alignment evidence Port Type identity "
+                "is not exact"
+            )
+        source = inputs if direction == "input" else outputs
+        raw_value = source.get(port_name)
+        if raw_value is None:
+            alignment_evidence_references[key] = ()
+            continue
+        values = (
+            tuple(raw_value)
+            if port_declaration.get("multiplicity") == "many"
+            else (raw_value,)
+        )
+        alignment_evidence_references[key] = (
+            resolve_structure_alignment_evidence_admission_facts(
+                values,
+                tuple(port_type.content_digest(value) for value in values),
+            )
+        )
+    for declaration in binding.descriptor.get("produced_observations", ()):
+        direction = declaration.get("axis_direction")
+        port_name = declaration.get("axis_port")
+        if direction not in {"input", "output"} or not isinstance(
+            port_name, str
+        ):
+            continue
+        key = (direction, port_name)
+        if key in axis_references:
+            continue
+        port_declarations = node_descriptor[
+            "inputs" if direction == "input" else "outputs"
+        ]
+        port_declaration = next(
+            (
+                item
+                for item in port_declarations
+                if item.get("name") == port_name
+            ),
+            None,
+        )
+        if not isinstance(port_declaration, Mapping):
+            raise PortValueError(
+                "Produced Observation axis Port declaration is unavailable"
+            )
+        port_reference = port_declaration.get("port_type")
+        if not isinstance(port_reference, Mapping):
+            raise PortValueError(
+                "Produced Observation axis Port Type is unavailable"
+            )
+        try:
+            port_type = catalog.require_port_type(
+                port_reference["contract_id"],
+                port_reference["contract_version"],
+            )
+        except (KeyError, LookupError) as error:
+            raise PortValueError(
+                "Produced Observation axis Port Type cannot resolve"
+            ) from error
+        if port_type.reference() != dict(port_reference):
+            raise PortValueError(
+                "Produced Observation axis Port Type identity is not exact"
+            )
+        source = inputs if direction == "input" else outputs
+        raw_value = source.get(port_name)
+        if raw_value is None:
+            axis_references[key] = ()
+            continue
+        values = (
+            tuple(raw_value)
+            if port_declaration.get("multiplicity") == "many"
+            else (raw_value,)
+        )
+        projected_axes = tuple(
+            axis
+            for value in values
+            for axis in port_type.scientific_axis_references(value)
+        )
+        if len(projected_axes) != len(set(projected_axes)):
+            raise PortValueError(
+                "Produced Observation axis Port projected duplicate exact axes"
+            )
+        axis_references[key] = projected_axes
+    for declaration in binding.descriptor.get("produced_observations", ()):
+        direction = declaration.get("method_direction")
+        port_name = declaration.get("method_port")
+        if direction not in {"input", "output"} or not isinstance(
+            port_name, str
+        ):
+            continue
+        key = (direction, port_name)
+        if key in method_references:
+            continue
+        port_declarations = node_descriptor[
+            "inputs" if direction == "input" else "outputs"
+        ]
+        port_declaration = next(
+            (
+                item
+                for item in port_declarations
+                if item.get("name") == port_name
+            ),
+            None,
+        )
+        if not isinstance(port_declaration, Mapping):
+            raise PortValueError(
+                "Produced Observation Method Port declaration is unavailable"
+            )
+        port_reference = port_declaration.get("port_type")
+        if not isinstance(port_reference, Mapping):
+            raise PortValueError(
+                "Produced Observation Method Port Type is unavailable"
+            )
+        try:
+            port_type = catalog.require_port_type(
+                port_reference["contract_id"],
+                port_reference["contract_version"],
+            )
+        except (KeyError, LookupError) as error:
+            raise PortValueError(
+                "Produced Observation Method Port Type cannot resolve"
+            ) from error
+        if port_type.reference() != dict(port_reference):
+            raise PortValueError(
+                "Produced Observation Method Port Type identity is not exact"
+            )
+        source = inputs if direction == "input" else outputs
+        raw_value = source.get(port_name)
+        if raw_value is None:
+            method_references[key] = ()
+            continue
+        values = (
+            tuple(raw_value)
+            if port_declaration.get("multiplicity") == "many"
+            else (raw_value,)
+        )
+        projected_methods = tuple(
+            method
+            for value in values
+            for method in port_type.observation_method_references(value)
+        )
+        if len(projected_methods) != len(set(projected_methods)):
+            raise PortValueError(
+                "Produced Observation Method Port projected duplicate exact "
+                "Methods"
+            )
+        method_references[key] = projected_methods
+    for declaration in binding.descriptor.get("produced_observations", ()):
+        for direction_name, port_name_key in (
+            ("subject_direction", "subject_port"),
+            ("reference_direction", "reference_port"),
+        ):
+            direction = declaration.get(direction_name)
+            port_name = declaration.get(port_name_key)
+            if direction not in {"input", "output"} or not isinstance(
+                port_name, str
+            ):
+                continue
+            key = (direction, port_name)
+            if key in candidate_references:
+                continue
+            source = inputs if direction == "input" else outputs
+            raw_value = source.get(port_name)
+            if raw_value is None:
+                candidate_references[key] = ()
+                continue
+            candidates = _candidate_values(raw_value)
+            candidate_references[key] = tuple(
+                _candidate_data_reference(
+                    candidate,
+                    _candidate_content_digest(catalog, candidate),
+                )
+                for candidate in candidates
+            )
     validate_produced_score_collection_from_facts(
         binding_descriptor=binding.descriptor,
         output_port=output_port,
@@ -1796,8 +2423,8 @@ def validate_produced_score_collection(
         inputs=inputs,
         outputs=outputs,
         metric_facts=metric_facts,
-        candidate_content_digest=lambda candidate: _candidate_content_digest(
-            catalog,
-            candidate,
-        ),
+        axis_references=axis_references,
+        method_references=method_references,
+        candidate_references=candidate_references,
+        alignment_evidence_references=alignment_evidence_references,
     )

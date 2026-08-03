@@ -1,8 +1,8 @@
 schema_version: "2.1.0"
 metric_id: structure_comparison.tm_score
-version: "2.1.0"
+version: "3.0.0"
 title: Template modelling score
-description: Standard pairwise TM-score optimized over one explicit residue correspondence and normalized by the exact reference residue count.
+description: TM-score projected from exact v4 alignment residuals and normalized by the full reference resolved-axis residue count.
 value_shape: scalar
 unit: dimensionless
 direction: higher_is_better
@@ -24,11 +24,15 @@ observation_context_schema:
     pairing_mode:
       enum: [fixed_reference, per_subject_counterpart]
     normalization:
-      const: standard-reference-residue-count
+      const: reference-axis-residue-count
     evidence_content_digest:
       type: string
     evidence_method:
       type: object
+    subject_axis_content_digest:
+      type: string
+    reference_axis_content_digest:
+      type: string
     normalization_length:
       type: integer
     aligned_atom_count:
@@ -44,3 +48,14 @@ validation_contract:
   finite: true
   minimum: 0
   maximum: 1
+  structure_alignment_evidence:
+    source_direction: input
+    source_port: alignments
+    normalization_length_source: reference_axis_residue_count
+    required_context_fields:
+      - evidence_content_digest
+      - evidence_method
+      - subject_axis_content_digest
+      - reference_axis_content_digest
+      - normalization_length
+      - aligned_atom_count

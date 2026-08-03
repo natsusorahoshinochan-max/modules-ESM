@@ -1,0 +1,38 @@
+schema_version: "2.1.0"
+metric_id: contract_test.multi_objective_selection_score
+version: "3.0.0"
+title: Literal multi-objective selection score
+description: Contract-test-only unit-interval value used to exercise pairwise multi-objective selection without claiming a structure-comparison measurement.
+value_shape: scalar
+unit: dimensionless
+direction: higher_is_better
+canonical_range:
+  minimum: 0
+  maximum: 1
+granularity: candidate
+aggregation_semantics:
+  kind: none
+observation_context_schema:
+  type: object
+  properties:
+    kind:
+      const: pairwise
+    subject_role:
+      const: subject
+    reference_role:
+      const: reference
+    pairing_mode:
+      enum: [fixed_reference, per_subject_counterpart]
+    normalization:
+      const: literal-unit-interval
+  required:
+    - kind
+    - subject_role
+    - reference_role
+    - pairing_mode
+    - normalization
+  additionalProperties: false
+validation_contract:
+  finite: true
+  minimum: 0
+  maximum: 1

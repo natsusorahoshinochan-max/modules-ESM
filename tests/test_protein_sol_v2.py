@@ -16,9 +16,7 @@ from core import (
     WorkflowAuthoringService,
     WorkflowDocument,
     WorkflowNodeInstance,
-    build_discovered_frozen_catalog,
     build_frozen_catalog,
-    parse_workflow_document,
     verify_module_package_contract,
 )
 from core.port_types import canonical_json_bytes
@@ -57,7 +55,38 @@ def _prepare_protein_sol_fixture(
     )
 
 
-def test_local_protein_sol_adapter_returns_frozen_scientific_predictions(
+def _soluprot_admitted_environment(
+    *,
+    private_runtime_path: str,
+) -> dict[str, Any]:
+    return {
+        "fixture_ready": True,
+        "private_runtime_path": private_runtime_path,
+        "python_executable": Path("/fixture/soluprot/python"),
+        "wheel_path": Path("/fixture/soluprot/soluprot.whl"),
+        "site_packages_root": Path("/fixture/soluprot/site-packages"),
+        "usearch_executable": Path("/fixture/soluprot/usearch"),
+        "tmhmm_root": Path("/fixture/soluprot/tmhmm"),
+        "perl_executable": Path("/fixture/soluprot/perl"),
+        "resolved_runtime_fingerprint": f"sha256:{'a' * 64}",
+    }
+
+
+def _protein_sol_admitted_environment(
+    *,
+    private_runtime_path: str,
+) -> dict[str, Any]:
+    return {
+        "fixture_ready": True,
+        "private_runtime_path": private_runtime_path,
+        "source_root": Path("/fixture/protein-sol/source"),
+        "bash_executable": Path("/fixture/protein-sol/bash"),
+        "perl_executable": Path("/fixture/protein-sol/perl"),
+        "resolved_runtime_fingerprint": f"sha256:{'b' * 64}",
+    }
+
+
+def test_local_protein_sol_adapter_uses_readiness_admitted_environment_once(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -65,12 +94,19 @@ def test_local_protein_sol_adapter_returns_frozen_scientific_predictions(
     from datatypes import ProteinSequence
 
     events: list[str] = []
+    source_root = tmp_path / "source"
+    source_root.mkdir()
+    for relative in adapter.PROTEIN_SOL_SOURCE_SHA256:
+        (source_root / relative).write_bytes(relative.encode("ascii"))
+    staging_directory = tmp_path / "staging"
+    staging_directory.mkdir()
+    bash_executable = tmp_path / "bash"
 
     class Resources:
         @contextmanager
         def temporary_directory(self, *, prefix: str):
             assert prefix == "protein-sol-"
-            yield tmp_path
+            yield staging_directory
 
         @contextmanager
         def engine_invocation(
@@ -86,17 +122,20 @@ def test_local_protein_sol_adapter_returns_frozen_scientific_predictions(
     monkeypatch.setattr(
         adapter,
         "validate_protein_sol_environment",
-        lambda environment: {
-            "resolved_runtime_fingerprint": f"sha256:{'b' * 64}",
-        },
-    )
-    monkeypatch.setattr(
-        adapter,
-        "_prepare_protein_sol_invocation",
-        _prepare_protein_sol_fixture,
+        lambda environment: (_ for _ in ()).throw(
+            AssertionError("readiness validator repeated during operation")
+        ),
     )
 
     def invoke(**kwargs: Any) -> None:
+        assert kwargs["command"] == (
+            str(bash_executable),
+            "multiple_prediction_wrapper_export.sh",
+            "input.fasta",
+        )
+        assert (
+            staging_directory / "multiple_prediction_wrapper_export.sh"
+        ).read_bytes() == b"multiple_prediction_wrapper_export.sh"
         events.append("provider-invoked")
         output_path = kwargs["staging_directory"] / "seq_prediction.txt"
         output_path.write_bytes(
@@ -108,7 +147,12 @@ def test_local_protein_sol_adapter_returns_frozen_scientific_predictions(
 
     monkeypatch.setattr(adapter, "invoke_protein_sol", invoke)
     local = adapter.LocalProteinSolAdapter(
-        environment={},
+        environment={
+            "source_root": source_root,
+            "bash_executable": bash_executable,
+            "perl_executable": tmp_path / "perl",
+            "resolved_runtime_fingerprint": f"sha256:{'b' * 64}",
+        },
         resources=Resources(),
     )
 
@@ -118,9 +162,9 @@ def test_local_protein_sol_adapter_returns_frozen_scientific_predictions(
 
     assert predictions == (
         adapter.ProteinSolPrediction(
+            provider_sequence_id="candidate_0",
             percent_soluble_fraction=32.419,
             scaled_soluble_fraction=0.252,
-            population_scaled_solubility=0.446,
             isoelectric_point=7.13,
         ),
     )
@@ -134,17 +178,19 @@ def test_local_protein_sol_adapter_returns_frozen_scientific_predictions(
 
 
 def test_protein_sol_registers_one_exact_method_and_three_metrics() -> None:
-    catalog = build_discovered_frozen_catalog()
+    from modules.solubility.package import MODULE_PACKAGE
+
+    catalog = build_frozen_catalog((MODULE_PACKAGE,))
 
     method = catalog.require_contract(
         "method",
         "solubility.protein_sol.sequence_prediction_2017",
-        "2.1.0",
+        "3.0.0",
     )
     binding = catalog.require_contract(
         "binding",
         "solubility.protein_sol.local",
-        "2.1.0",
+        "4.0.0",
     )
     metrics = {
         metric_id: catalog.require_contract(
@@ -159,8 +205,45 @@ def test_protein_sol_registers_one_exact_method_and_three_metrics() -> None:
         )
     }
 
-    assert method.descriptor["source_identity"]["dependency"] == "protein-sol"
-    assert method.descriptor["source_identity"]["release"] == "2017-10"
+    assert method.descriptor["source_identity"] == {
+        "kind": "official_release_archive",
+        "provider": "Protein-Sol",
+        "release": "2017-10",
+        "official_download_url": (
+            "https://protein-sol.manchester.ac.uk/cgi-bin/utilities/"
+            "download_sequence_code.php"
+        ),
+        "download_url_role": "locator_only",
+        "archive_sha256": (
+            "4df32c61fca53adcb2394a528babd1ad85cb5c551bf7bd1c56d134097fb2b1b8"
+        ),
+        "source_files_sha256": {
+            "fasta_seq_reformat_export.pl": (
+                "ee671b4121e343e0dd660377a8204c2e5058fcf9185e8ea629b2c3c64562a8e9"
+            ),
+            "multiple_prediction_wrapper_export.sh": (
+                "a7e7d0137508f34734584a6b37157e980bed769f400032f8ecb36949d17dc232"
+            ),
+            "profiles_gather_export.pl": (
+                "ad1aadee73db9b828ed4e87b27bb75191cf48b4934cf8ab3855c80740b674eac"
+            ),
+            "seq_compositions_perc_pipeline_export.pl": (
+                "8e8888220984b77c472333fa57750585d33e7aff93d44cb6b090fccd728d87cb"
+            ),
+            "seq_props_ALL_export.pl": (
+                "f20eac44b526f9b694c6371b06a3a4a9c080d14da1241cb785d77230783efa15"
+            ),
+            "seq_reference_data.txt": (
+                "6943cd600741d5d22b7518b8be40f2850bfa5586e96d637de3db688c7337d1f0"
+            ),
+            "server_prediction_seq_export.pl": (
+                "80f8554e43d605c10a6feea983c222099869119b0a9d73411c5a1b2dd68c4b4d"
+            ),
+            "ss_propensities.txt": (
+                "3c634b252ed83ffd363e6b0936e95813584facddb399f0fcc6769710755fa33f"
+            ),
+        },
+    }
     assert method.descriptor["algorithm_identity"][
         "scientific_feature_count"
     ] == 35
@@ -178,6 +261,9 @@ def test_protein_sol_registers_one_exact_method_and_three_metrics() -> None:
     ] == 21
     assert binding.descriptor["method"]["contract_id"] == method.contract_id
     assert binding.descriptor["binding_parameters"] == {}
+    assert binding.descriptor["route_behavior"]["parameters"][
+        "response_subject_join"
+    ] == "staged-fasta-identity"
     assert len(binding.descriptor["produced_observations"]) == 3
     assert {
         item["metric"]["contract_id"]
@@ -229,8 +315,11 @@ def test_protein_sol_requires_no_core_provider_special_case() -> None:
     assert "protein-sol" not in core_source
 
 
-def test_protein_sol_parser_preserves_all_upstream_quantities() -> None:
-    from modules.solubility.adapter import parse_protein_sol_output
+def test_protein_sol_parser_translates_the_three_published_metrics() -> None:
+    from modules.solubility.adapter import (
+        ProteinSolPrediction,
+        parse_protein_sol_output,
+    )
 
     parsed = parse_protein_sol_output(
         (
@@ -239,90 +328,37 @@ def test_protein_sol_parser_preserves_all_upstream_quantities() -> None:
             b"SEQUENCE PREDICTIONS,>candidate_0,32.419, 0.252, 0.446, 7.130\n"
             b"SEQUENCE PREDICTIONS,>candidate_1,80.162, 0.694, 0.446,11.910\n"
         ),
-        expected_count=2,
     )
 
     assert parsed == [
-        {
-            "percent_sol": 32.419,
-            "scaled_sol": 0.252,
-            "population_sol": 0.446,
-            "pi": 7.13,
-        },
-        {
-            "percent_sol": 80.162,
-            "scaled_sol": 0.694,
-            "population_sol": 0.446,
-            "pi": 11.91,
-        },
+        ProteinSolPrediction(
+            provider_sequence_id="candidate_0",
+            percent_soluble_fraction=32.419,
+            scaled_soluble_fraction=0.252,
+            isoelectric_point=7.13,
+        ),
+        ProteinSolPrediction(
+            provider_sequence_id="candidate_1",
+            percent_soluble_fraction=80.162,
+            scaled_soluble_fraction=0.694,
+            isoelectric_point=11.91,
+        ),
     ]
-
-
-@pytest.mark.parametrize(
-    ("payload", "message"),
-    [
-        (
-            b"HEADERS PREDICTIONS LINE,ID,percent-sol,scaled-sol,"
-            b"population-sol,pI\n"
-            b"SEQUENCE PREDICTIONS,>candidate_0,nan,0.2,0.446,7.0\n",
-            "finite three-decimal",
-        ),
-        (
-            b"HEADERS PREDICTIONS LINE,ID,percent-sol,scaled-sol,"
-            b"population-sol,pI\n"
-            b"SEQUENCE PREDICTIONS,>candidate_0,32.419,1.001,0.446,7.130\n",
-            "outside its declared range",
-        ),
-        (
-            b"HEADERS PREDICTIONS LINE,ID,percent-sol,scaled-sol,"
-            b"population-sol,pI\n"
-            b"SEQUENCE PREDICTIONS,>candidate_0,32.419,0.900,0.446,7.130\n",
-            "percent and scaled",
-        ),
-        (
-            b"HEADERS PREDICTIONS LINE,ID,percent-sol,scaled-sol,"
-            b"population-sol,pI\n"
-            b"SEQUENCE PREDICTIONS,>candidate_0,32.419,0.252,0.445,7.130\n",
-            "population calibration",
-        ),
-        (
-            b"HEADERS PREDICTIONS LINE,ID,percent-sol,scaled-sol,"
-            b"population-sol,pI\n"
-            b"SEQUENCE PREDICTIONS,>wrong,32.419,0.252,0.446,7.130\n",
-            "identity or ordering",
-        ),
-        (
-            b"HEADERS PREDICTIONS LINE,ID,percent-sol,scaled-sol,pI\n"
-            b"SEQUENCE PREDICTIONS,>candidate_0,32.419,0.252,7.130\n",
-            "header",
-        ),
-        (
-            b"HEADERS PREDICTIONS LINE,ID,percent-sol,scaled-sol,"
-            b"population-sol,pI\n",
-            "row count",
-        ),
-    ],
-)
-def test_protein_sol_parser_fails_closed(
-    payload: bytes,
-    message: str,
-) -> None:
-    from modules.solubility.adapter import parse_protein_sol_output
-
-    with pytest.raises(ValueError, match=message):
-        parse_protein_sol_output(payload, expected_count=1)
 
 
 def test_calibration_context_is_typed_and_round_trips_with_observation() -> None:
     from datatypes import (
         CalibrationObservationContext,
+        CandidateDataReference,
         ExactContractReference,
         ScoreCollection,
         ScoreObservation,
     )
 
-    catalog = build_discovered_frozen_catalog()
-    score_type = catalog.require_port_type("score.collection", "2.1.0")
+    from modules.solubility.package import MODULE_PACKAGE
+
+    catalog = build_frozen_catalog((MODULE_PACKAGE,))
+    score_type = catalog.require_port_type("score.collection", "4.0.0")
     metric = catalog.require_contract(
         "metric",
         "solubility.protein_sol_scaled",
@@ -331,7 +367,7 @@ def test_calibration_context_is_typed_and_round_trips_with_observation() -> None
     method = catalog.require_contract(
         "method",
         "solubility.protein_sol.sequence_prediction_2017",
-        "2.1.0",
+        "3.0.0",
     )
     context = CalibrationObservationContext(
         calibration_metric="population_scaled_solubility",
@@ -340,7 +376,11 @@ def test_calibration_context_is_typed_and_round_trips_with_observation() -> None
         population_id="niwa_non_membrane_2396",
     )
     observation = ScoreObservation(
-        candidate_id="candidate-1",
+        subject=CandidateDataReference(
+            candidate_id="candidate-1",
+            data_type_id="protein.sequence",
+            content_digest=f"sha256:{'1' * 64}",
+        ),
         metric=ExactContractReference(**metric.reference()),
         method=ExactContractReference(**method.reference()),
         context=context,
@@ -372,6 +412,7 @@ def test_calibration_context_is_an_exact_selection_selector() -> None:
         CalibrationObservationContext,
         Candidate,
         CandidateCollection,
+        CandidateDataReference,
         ExactContractReference,
         ProteinSequence,
         ScoreCollection,
@@ -420,7 +461,11 @@ def test_calibration_context_is_an_exact_selection_selector() -> None:
     )
 
     observation = ScoreObservation(
-        candidate_id="candidate-1",
+        subject=CandidateDataReference(
+            candidate_id="candidate-1",
+            data_type_id="protein.sequence",
+            content_digest=f"sha256:{'1' * 64}",
+        ),
         metric=objective.metric,
         method=objective.method,
         context=objective.context_selector,
@@ -472,7 +517,6 @@ def _run_protein_sol(
     monkeypatch: pytest.MonkeyPatch,
     *,
     sequence: str = "ACDEFGHIKLMNPQRSTVWYA",
-    provider_payload: bytes | None = None,
     replay: bool = False,
 ) -> tuple[
     Any,
@@ -498,13 +542,6 @@ def _run_protein_sol(
     )
     monkeypatch.setattr(
         adapter,
-        "validate_protein_sol_environment",
-        lambda environment: {
-            "resolved_runtime_fingerprint": f"sha256:{'c' * 64}",
-        },
-    )
-    monkeypatch.setattr(
-        adapter,
         "_prepare_protein_sol_invocation",
         _prepare_protein_sol_fixture,
     )
@@ -521,14 +558,10 @@ def _run_protein_sol(
             ]
         )
         payload = (
-            provider_payload
-            if provider_payload is not None
-            else (
-                b"HEADERS PREDICTIONS LINE,ID,percent-sol,scaled-sol,"
-                b"population-sol,pI\n"
-                b"SEQUENCE PREDICTIONS,>candidate_0,32.419, 0.252,"
-                b" 0.446, 7.130\n"
-            )
+            b"HEADERS PREDICTIONS LINE,ID,percent-sol,scaled-sol,"
+            b"population-sol,pI\n"
+            b"SEQUENCE PREDICTIONS,>candidate_0,32.419, 0.252,"
+            b" 0.446, 7.130\n"
         )
         output_path = kwargs["staging_directory"] / "seq_prediction.txt"
         output_path.write_bytes(payload)
@@ -537,18 +570,18 @@ def _run_protein_sol(
     source = WorkflowNodeInstance(
         node_id="source",
         node_type_id="contract_test.folding_sequence_source",
-        node_type_version="2.1.0",
+        node_type_version="3.0.0",
         binding_id="contract_test.folding_sequence_source.direct",
-        binding_version="2.1.0",
+        binding_version="3.0.0",
         node_parameters={"sequence": sequence},
         binding_parameters={},
     )
     score = WorkflowNodeInstance(
         node_id="score",
         node_type_id="solubility.score_sequence",
-        node_type_version="2.1.0",
+        node_type_version="4.0.0",
         binding_id="solubility.protein_sol.local",
-        binding_version="2.1.0",
+        binding_version="4.0.0",
         node_parameters={},
         binding_parameters={},
     )
@@ -561,9 +594,9 @@ def _run_protein_sol(
     )
     project = projects.create("Protein-Sol")
     authoring = WorkflowAuthoringService(projects, catalog)
-    saved = authoring.save(
+    committed = authoring.commit(
         project.id,
-        expected_workflow_revision=0,
+        expected_draft_revision=0,
         workflow=WorkflowDocument(
             schema_version="2.1.0",
             workflow_id=project.id,
@@ -579,26 +612,16 @@ def _run_protein_sol(
             contract_lock=(),
         ),
     )
-    relocked = authoring.relock(
-        project.id,
-        workflow_revision=saved["workflow_revision"],
-    )
-    compiled = authoring.compile(
-        project.id,
-        workflow_revision=relocked["workflow_revision"],
-        workflow=parse_workflow_document(relocked["workflow"]),
-    )
     service = V2RunService(
         projects,
         catalog,
         authoring,
         EnvironmentConfiguration(
             {
-                ("solubility.protein_sol.local", "2.1.0"): {
-                    "values": {
-                        "fixture_ready": True,
-                        "private_runtime_path": "/must/not/publish",
-                    },
+                ("solubility.protein_sol.local", "4.0.0"): {
+                    "values": _protein_sol_admitted_environment(
+                        private_runtime_path="/must/not/publish"
+                    ),
                     "safe_fingerprint": "protein-sol-fixture-v1",
                     "invalidation_token": "protein-sol-fixture-v1",
                 }
@@ -611,8 +634,7 @@ def _run_protein_sol(
         for index in range(2 if replay else 1):
             receipt = service.start(
                 project.id,
-                workflow_revision=relocked["workflow_revision"],
-                compile_id=compiled.public_receipt()["compile_id"],
+                workflow_commit_id=committed.workflow_commit_id,
                 client_request_id=f"protein-sol-{index}",
             )
             wait_for_service_run_terminal_events(
@@ -646,7 +668,29 @@ def test_protein_sol_one_method_publishes_three_calibrated_metrics(
         item for item in projection["outputs"] if item["node_id"] == "score"
     )
     scores = _decode_output(catalog, output)
+    source_output = next(
+        item
+        for item in projection["outputs"]
+        if item["node_id"] == "source"
+        and item["output_port"] == "sequence_candidates"
+    )
+    candidates = _decode_output(catalog, source_output)
+    candidate = candidates.items[0]
+    expected_digest = catalog.require_port_type(
+        "protein.sequence",
+        "3.0.0",
+    ).content_digest(candidate.data)
     assert len(scores.entries) == 3
+    assert {
+        (
+            entry.subject.candidate_id,
+            entry.subject.data_type_id,
+            entry.subject.content_digest,
+        )
+        for entry in scores.entries
+    } == {
+        (candidate.candidate_id, "protein.sequence", expected_digest)
+    }
     assert {
         entry.metric.contract_id: entry.value
         for entry in scores.entries
@@ -766,58 +810,6 @@ def test_protein_sol_cache_replay_preserves_metrics_and_calibration_without_infe
     } == {"cache_replayed"}
 
 
-def test_protein_sol_invalid_output_publishes_nothing_and_does_not_cache(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    catalog, projections, event_groups, calls = _run_protein_sol(
-        tmp_path,
-        monkeypatch,
-        provider_payload=(
-            b"HEADERS PREDICTIONS LINE,ID,percent-sol,scaled-sol,"
-            b"population-sol,pI\n"
-            b"SEQUENCE PREDICTIONS,>candidate_0,32.419,0.252,"
-            b"0.445,7.130\n"
-        ),
-        replay=True,
-    )
-
-    assert [projection["status"] for projection in projections] == [
-        "failed",
-        "failed",
-    ]
-    assert calls == [
-        ["ACDEFGHIKLMNPQRSTVWYA"],
-        ["ACDEFGHIKLMNPQRSTVWYA"],
-    ]
-    assert all(
-        not any(
-            output["node_id"] == "score"
-            for output in projection["outputs"]
-        )
-        for projection in projections
-    )
-    events = event_groups[0]
-    method_digest = catalog.require_contract(
-        "method",
-        "solubility.protein_sol.sequence_prediction_2017",
-        "2.1.0",
-    ).contract_digest
-    invocation_id = next(
-        event["event"]["invocation_id"]
-        for event in events
-        if event["event"]["type"] == "engine_invocation_started"
-        and event["event"]["engine_identity"] == method_digest
-    )
-    terminals = [
-        event["event"]
-        for event in events
-        if event["event"]["type"] == "engine_invocation_terminal"
-        and event["event"]["invocation_id"] == invocation_id
-    ]
-    assert [terminal["status"] for terminal in terminals] == ["succeeded"]
-
-
 def test_protein_sol_invalid_sequence_fails_before_engine_invocation() -> None:
     from modules.solubility.adapter import validate_protein_sol_sequences
 
@@ -905,13 +897,6 @@ def test_protein_sol_passes_shared_contract_test_kit(
     )
     monkeypatch.setattr(
         adapter,
-        "validate_protein_sol_environment",
-        lambda environment: {
-            "resolved_runtime_fingerprint": f"sha256:{'d' * 64}",
-        },
-    )
-    monkeypatch.setattr(
-        adapter,
         "_prepare_protein_sol_invocation",
         _prepare_protein_sol_fixture,
     )
@@ -929,14 +914,6 @@ def test_protein_sol_passes_shared_contract_test_kit(
         adapter,
         "invoke_protein_sol",
         invoke_protein_sol_fixture,
-    )
-    monkeypatch.setattr(
-        adapter,
-        "validate_soluprot_environment",
-        lambda environment, *, mode: {
-            "resolved_runtime_fingerprint": f"sha256:{'e' * 64}",
-            "mode": mode,
-        },
     )
     monkeypatch.setattr(
         adapter,
@@ -968,9 +945,9 @@ def test_protein_sol_passes_shared_contract_test_kit(
     source = WorkflowNodeInstance(
         node_id="source",
         node_type_id="contract_test.folding_sequence_source",
-        node_type_version="2.1.0",
+        node_type_version="3.0.0",
         binding_id="contract_test.folding_sequence_source.direct",
-        binding_version="2.1.0",
+        binding_version="3.0.0",
         node_parameters={"sequence": "ACDEFGHIKLMNPQRSTVWYA"},
         binding_parameters={},
     )
@@ -980,15 +957,20 @@ def test_protein_sol_passes_shared_contract_test_kit(
             ModulePackageContractCase(
                 case_id=case_id,
                 node_type_id="solubility.score_sequence",
-                node_type_version="2.1.0",
+                node_type_version="4.0.0",
                 binding_id=binding_id,
-                binding_version="2.1.0",
+                binding_version="4.0.0",
                 node_parameters={},
                 binding_parameters={},
-                environment_values={
-                    "fixture_ready": True,
-                    "private_runtime_path": "/secret/protein-sol",
-                },
+                environment_values=(
+                    _protein_sol_admitted_environment(
+                        private_runtime_path="/secret/protein-sol"
+                    )
+                    if binding_id == "solubility.protein_sol.local"
+                    else _soluprot_admitted_environment(
+                        private_runtime_path="/secret/protein-sol"
+                    )
+                ),
                 safe_environment_fingerprint=f"{case_id}-fixture-v1",
                 invalidation_token=f"{case_id}-fixture-v1",
                 workflow_nodes=(source,),

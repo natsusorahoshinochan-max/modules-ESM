@@ -21,6 +21,16 @@ _Avoid_: Node Type, block, step, task
 A directed acyclic graph of Node Instances connected through compatible Ports.
 _Avoid_: Pipeline, recipe, protocol
 
+**Workflow Draft**:
+One unlocked immutable authoring revision, which may be incomplete or invalid
+and cannot be executed.
+_Avoid_: Workflow Commit, Execution Plan, runnable revision
+
+**Workflow Commit**:
+One immutable runnable publication of a Workflow Draft, with an exact Contract
+Lock and Execution Plan resolved against one FrozenCatalog generation.
+_Avoid_: Workflow Draft, compile ID, mutable active Workflow
+
 **Run**:
 A single admitted execution of a Workflow, with its own evidence and terminal
 outcome.
@@ -106,7 +116,9 @@ _Avoid_: Package-specific smoke tests, manual checklist
 
 **ProteinPrompt**:
 A residue-aligned, multi-track specification containing sequence, structure,
-secondary-structure, accessibility, function, and masking information.
+secondary-structure, accessibility, function, and masking information. Its SASA
+track means nullable absolute per-residue solvent-accessible surface area in
+square angstroms, with no relative-accessibility normalization.
 _Avoid_: Prompt object, ESM input, multi-track input
 
 **Candidate**:
@@ -118,6 +130,13 @@ _Avoid_: Result, output sample, generation
 An ordered collection of Candidates that flow together through evaluation and
 selection operations.
 _Avoid_: Batch, result list, candidate set
+
+**Candidate Data Reference**:
+The exact association key comprising a Candidate identity, its nominal data
+type, and the canonical content digest of that Candidate's data. Derived
+scientific values use it to name their subject without relying on collection
+position.
+_Avoid_: Candidate, list index, Node Instance locator
 
 **Metric Definition**:
 The canonical scientific meaning of a measured quantity, including its value
@@ -155,10 +174,53 @@ A Workflow-owned preference that identifies exact Score Observations and fixes
 their Utility Transform, weight, and missing-value policy.
 _Avoid_: Metric Definition, implicit ranking rule, display preference
 
-**Structure Alignment**:
-A residue-mapped structural superposition whose provenance and aligned residues
-are shared by downstream structural Metrics.
-_Avoid_: Superimposition result, structural match
+**Structure Alignment Evidence**:
+The exact Candidate-associated structural superposition, residue-axis
+provenance, correspondence, normalization, transform, and Method identity
+shared by downstream structural Metrics.
+_Avoid_: Built-in StructureAlignment, superimposition result, structural match
+
+**Resolved Structure Residue Axis**:
+The canonical, immutable interpretation of one admitted ProteinStructure,
+including its parent residue sequence, identity-complete layout, segment
+topology, selected named-atom coordinates, masks, component dispositions, and
+modified-residue normalization provenance.
+_Avoid_: ATOM-only view, reparsed CA list, implicit chain sequence
+
+**Prediction Residue Axis**:
+The exact residue population used by one structure prediction, binding its exact
+input source to an identity-complete layout and the actual prediction sequence.
+It is independent of any later interpretation of the output structure.
+_Avoid_: Provider token positions, output-PDB residue list, Resolved Structure
+Residue Axis
+
+**Prediction Key**:
+A content-derived association key shared by one predicted structure output and
+its subjectless Prediction Confidence Fact before Candidate identity exists. It
+does not identify a Candidate.
+_Avoid_: Candidate ID, Candidate Data Reference, collection index
+
+**Prediction Confidence Fact**:
+A subjectless provider observation for one predicted structure, carrying its
+Prediction Key, exact structure-content digest, Prediction Residue Axis, and
+confidence values until an admitted Candidate can become the subject.
+_Avoid_: Score Observation, Candidate annotation, unlabeled confidence array
+
+**Confidence Materialization**:
+The exact association of Prediction Confidence Facts with admitted structure
+Candidates to create Candidate-associated Score Observations.
+_Avoid_: Structure prediction, confidence recomputation, positional zip
+
+**Component Disposition**:
+The resolved decision that includes, excludes, or requires normalization of one
+observed structure component, together with the exact reason and residue
+identity known at the residue-axis seam.
+_Avoid_: PDB record name, HETATM-is-ligand rule, downstream guess
+
+**Candidate-associated Scientific Value**:
+A derived scientific value that carries an exact Candidate Data Reference for
+its subject. Collection order never establishes the association.
+_Avoid_: Parallel list, positional zip, unlabeled annotation
 
 **Residue Track**:
 A value series aligned to the protein residue layout, with explicit validity and

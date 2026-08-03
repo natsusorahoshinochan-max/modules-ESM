@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import base64
 import copy
 from collections.abc import Mapping
 from dataclasses import dataclass
@@ -20,6 +21,13 @@ import rfc8785
 PUBLIC_PROTOCOL_NAMESPACE = "protein-workbench-public/v2"
 _RESOURCE_PACKAGE = "protein_workbench_public.resources.v2"
 _RESOURCE_NAME = "bundle.json"
+REST_BODY_ABSENT = object()
+_CANONICAL_BASE64 = re.compile(
+    r"(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?\Z"
+)
+_BASE64_ALPHABET = (
+    "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/"
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -92,6 +100,76 @@ def bundle_bytes() -> bytes:
 def bundle_digest() -> str:
     """Return the public SHA-256 identity of the canonical bundle."""
     return f"sha256:{hashlib.sha256(bundle_bytes()).hexdigest()}"
+
+
+def _project_input_max_decoded_bytes() -> int:
+    contract = _source_bundle().get("project_input_publication")
+    if (
+        not isinstance(contract, dict)
+        or type(contract.get("max_decoded_bytes")) is not int
+    ):
+        raise ValueError(
+            "Public protocol has no Project Input publication limit"
+        )
+    return contract["max_decoded_bytes"]
+
+
+def encode_project_input_content(content: bytes) -> str:
+    """Encode opaque Project Input bytes in the bundle's exact JSON form."""
+    if type(content) is not bytes:
+        raise ProtocolValidationError("$.content", "must be bytes")
+    limit = _project_input_max_decoded_bytes()
+    if len(content) > limit:
+        raise ProtocolValidationError(
+            "$.content",
+            f"must contain at most {limit} bytes",
+        )
+    return base64.b64encode(content).decode("ascii")
+
+
+def _validate_project_input_content(
+    content_base64: str,
+    *,
+    path: str,
+) -> None:
+    if not isinstance(content_base64, str):
+        raise ProtocolValidationError(
+            path,
+            "must be canonical base64 text",
+        )
+    if _CANONICAL_BASE64.fullmatch(content_base64) is None:
+        raise ProtocolValidationError(
+            path,
+            "must be canonical base64 text",
+        )
+    padding = len(content_base64) - len(content_base64.rstrip("="))
+    if (
+        padding == 2
+        and (_BASE64_ALPHABET.index(content_base64[-3]) & 0b1111) != 0
+    ) or (
+        padding == 1
+        and (_BASE64_ALPHABET.index(content_base64[-2]) & 0b11) != 0
+    ):
+        raise ProtocolValidationError(
+            path,
+            "must be canonical base64 text",
+        )
+    decoded_size = (len(content_base64) // 4) * 3 - padding
+    limit = _project_input_max_decoded_bytes()
+    if decoded_size > limit:
+        raise ProtocolValidationError(
+            path,
+            f"must decode to at most {limit} bytes",
+        )
+
+
+def decode_project_input_content(content_base64: str) -> bytes:
+    """Decode only canonical RFC 4648 Project Input content."""
+    _validate_project_input_content(
+        content_base64,
+        path="$.content_base64",
+    )
+    return base64.b64decode(content_base64)
 
 
 def _resolve_schema(reference: str) -> dict[str, Any]:
@@ -219,6 +297,10 @@ def _validate(
         if item_schema is not None:
             for index, item in enumerate(value):
                 _validate(item, item_schema, path=f"{path}[{index}]")
+        if schema.get("uniqueItems") is True:
+            canonical_items = [rfc8785.dumps(item) for item in value]
+            if len(canonical_items) != len(set(canonical_items)):
+                raise ProtocolValidationError(path, "must contain unique items")
 
     if expected_type == "string":
         minimum = schema.get("minLength")
@@ -243,6 +325,8 @@ def _validate(
                 ) from error
             if parsed.tzinfo is None:
                 raise ProtocolValidationError(path, "date-time must include a timezone")
+        elif schema.get("format") == "canonical-base64":
+            _validate_project_input_content(value, path=path)
 
     if expected_type in {"integer", "number"}:
         minimum = schema.get("minimum")
@@ -291,23 +375,113 @@ def prepare_rest_request(
     """Validate and map a combined request model to its declared wire shape."""
     validate_request(operation_id, payload)
     operation = _rest_operation(operation_id)
-    route = operation["route"]
-    path_fields = re.findall(r"{([A-Za-z0-9_]+)}", route)
-    for field in path_fields:
-        route = route.replace(
-            f"{{{field}}}",
-            quote(str(payload[field]), safe=""),
-        )
+    path_template, separator, query_template = operation["route"].partition("?")
+    path_fields = re.findall(r"{([A-Za-z0-9_]+)}", path_template)
+    query_fields = re.findall(r"{([A-Za-z0-9_]+)}", query_template)
+
+    def render(template: str) -> str:
+        rendered = template
+        for field in re.findall(r"{([A-Za-z0-9_]+)}", template):
+            rendered = rendered.replace(
+                f"{{{field}}}",
+                quote(str(payload[field]), safe=""),
+            )
+        return rendered
+
+    route = render(path_template)
+    if separator:
+        query_parts = []
+        for part in query_template.split("&"):
+            fields = re.findall(r"{([A-Za-z0-9_]+)}", part)
+            if any(field not in payload for field in fields):
+                continue
+            query_parts.append(render(part))
+        if query_parts:
+            route = f"{route}?{'&'.join(query_parts)}"
     body = {
         name: copy.deepcopy(value)
         for name, value in payload.items()
-        if name not in path_fields
+        if name not in {*path_fields, *query_fields}
     }
     return PreparedRestRequest(
         method=operation["method"],
         route=route,
         json_body=body or None,
     )
+
+
+def decode_rest_request(
+    operation_id: str,
+    *,
+    path_parameters: Mapping[str, Any] | None = None,
+    query_parameters: Mapping[str, Any] | None = None,
+    json_body: Any = REST_BODY_ABSENT,
+) -> dict[str, Any]:
+    """Admit one REST request; omitted body differs from explicit JSON null."""
+    operation = _rest_operation(operation_id)
+    request_schema = _resolve_schema(operation["request_schema"])
+    path_template, _, query_template = operation["route"].partition("?")
+    path_fields = set(re.findall(r"{([A-Za-z0-9_]+)}", path_template))
+    query_fields = set(re.findall(r"{([A-Za-z0-9_]+)}", query_template))
+    body_fields = (
+        set(request_schema.get("properties", {})) - path_fields - query_fields
+    )
+    path_payload = dict(path_parameters or {})
+    query_payload = dict(query_parameters or {})
+    body_was_supplied = json_body is not REST_BODY_ABSENT
+    if not body_was_supplied:
+        body_payload: dict[str, Any] = {}
+    elif isinstance(json_body, Mapping):
+        body_payload = dict(json_body)
+    elif not body_fields:
+        raise ProtocolValidationError("$", "operation does not declare a body")
+    else:
+        raise ProtocolValidationError("$", "request body must be an object")
+
+    collisions = (
+        set(path_payload).intersection(query_payload)
+        | set(path_payload).intersection(body_payload)
+        | set(query_payload).intersection(body_payload)
+    )
+    if collisions:
+        field = sorted(collisions)[0]
+        raise ProtocolValidationError(
+            f"$.{field}",
+            "field must not appear in multiple request sources",
+        )
+
+    unexpected_path_fields = set(path_payload) - path_fields
+    if unexpected_path_fields:
+        raise ProtocolValidationError(
+            "$",
+            (
+                "path parameters must match declared route fields; unexpected "
+                f"{sorted(unexpected_path_fields)!r}"
+            ),
+        )
+    unexpected_query_fields = set(query_payload) - query_fields
+    if unexpected_query_fields:
+        field = sorted(unexpected_query_fields)[0]
+        raise ProtocolValidationError(
+            f"$.{field}",
+            "query parameter is not declared by the operation route",
+        )
+    if body_was_supplied and not body_fields:
+        raise ProtocolValidationError("$", "operation does not declare a body")
+    source_owned_body_fields = (path_fields | query_fields).intersection(body_payload)
+    if source_owned_body_fields:
+        field = sorted(source_owned_body_fields)[0]
+        raise ProtocolValidationError(
+            f"$.{field}",
+            "path/query-owned field must not appear in the request body",
+        )
+    combined = {
+        **copy.deepcopy(path_payload),
+        **copy.deepcopy(query_payload),
+        **copy.deepcopy(body_payload),
+    }
+    validate_request(operation_id, combined)
+    return combined
 
 
 def prepare_run_event_stream_request(
@@ -344,6 +518,51 @@ def prepare_run_event_stream_request(
         route=route,
         message_schema=stream["message_schema"],
     )
+
+
+def decode_run_event_stream_request(
+    *,
+    path_parameters: Mapping[str, Any],
+    query_parameters: Mapping[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Admit one Run Event Stream request through bundle-owned field sources."""
+    stream = _source_bundle().get("run_event_stream")
+    if not isinstance(stream, dict):
+        raise ValueError("Public protocol has no Run Event Stream contract")
+    path_template, _, query_template = stream["route"].partition("?")
+    path_fields = set(re.findall(r"{([A-Za-z0-9_]+)}", path_template))
+    query_fields = set(re.findall(r"{([A-Za-z0-9_]+)}", query_template))
+    path_payload = dict(path_parameters)
+    query_payload = dict(query_parameters or {})
+    unexpected_path_fields = set(path_payload) - path_fields
+    if unexpected_path_fields:
+        raise ProtocolValidationError(
+            "$",
+            (
+                "path parameters must match declared route fields; unexpected "
+                f"{sorted(unexpected_path_fields)!r}"
+            ),
+        )
+    collisions = path_fields.intersection(query_payload)
+    if collisions:
+        field = sorted(collisions)[0]
+        raise ProtocolValidationError(
+            f"$.{field}",
+            "route-owned field must not appear in query parameters",
+        )
+    unexpected_query_fields = set(query_payload) - query_fields
+    if unexpected_query_fields:
+        field = sorted(unexpected_query_fields)[0]
+        raise ProtocolValidationError(
+            f"$.{field}",
+            "query parameter is not declared by the event-stream route",
+        )
+    combined = {
+        **copy.deepcopy(path_payload),
+        **copy.deepcopy(query_payload),
+    }
+    validate_schema(stream["request_schema"], combined)
+    return combined
 
 
 def validate_request(operation_id: str, payload: Any) -> None:

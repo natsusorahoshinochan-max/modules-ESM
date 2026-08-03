@@ -9,10 +9,9 @@ import importlib.util
 import os
 from pathlib import Path
 import shutil
-import stat
 import tempfile
 from types import FunctionType
-from typing import Any
+from typing import Any, cast
 import weakref
 
 from core import ReadinessResult, RunResources, canonical_sha256
@@ -23,6 +22,7 @@ from modules.provider_contract import (
 )
 
 from .adapter import (
+    ESM3Confidence,
     ESM_SDK_REVISION,
     _BaseESM3Adapter,
     require_provider_protein,
@@ -64,43 +64,13 @@ def local_runtime_structurally_available() -> bool:
 
 
 def _regular_file_sha256(path: Path) -> str:
-    descriptor: int | None = None
     try:
-        descriptor = os.open(
-            path,
-            os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0),
-        )
-        opened = os.fstat(descriptor)
-        if not stat.S_ISREG(opened.st_mode):
-            raise RuntimeError(
-                "required local ESM-3 model artifact is not regular"
-            )
-        digest = hashlib.sha256()
-        while chunk := os.read(descriptor, 1024 * 1024):
-            digest.update(chunk)
-        after = os.fstat(descriptor)
-        if (
-            after.st_dev,
-            after.st_ino,
-            after.st_size,
-            after.st_mtime_ns,
-        ) != (
-            opened.st_dev,
-            opened.st_ino,
-            opened.st_size,
-            opened.st_mtime_ns,
-        ):
-            raise RuntimeError(
-                "local ESM-3 model artifact changed during validation"
-            )
-        return digest.hexdigest()
+        with path.open("rb") as artifact:
+            return hashlib.file_digest(artifact, "sha256").hexdigest()
     except OSError as error:
         raise RuntimeError(
             "local ESM-3 model artifact could not be validated"
         ) from error
-    finally:
-        if descriptor is not None:
-            os.close(descriptor)
 
 
 def _snapshot_artifact_source(
@@ -108,48 +78,7 @@ def _snapshot_artifact_source(
     relative_path: str,
     expected_digest: str,
 ) -> Path:
-    relative = Path(relative_path)
-    if relative.is_absolute() or not relative.parts or ".." in relative.parts:
-        raise RuntimeError("local ESM-3 model artifact path is invalid")
-    try:
-        parent = snapshot_path
-        for component in relative.parts[:-1]:
-            parent = parent / component
-            metadata = parent.lstat()
-            if stat.S_ISLNK(metadata.st_mode) or not stat.S_ISDIR(
-                metadata.st_mode
-            ):
-                raise RuntimeError(
-                    "local ESM-3 snapshot directory is not regular"
-                )
-        entry = parent / relative.parts[-1]
-        metadata = entry.lstat()
-        if stat.S_ISLNK(metadata.st_mode):
-            target_value = os.readlink(entry)
-            if Path(target_value).is_absolute():
-                raise RuntimeError(
-                    "local ESM-3 snapshot link is not repository-contained"
-                )
-            target = (entry.parent / target_value).resolve(strict=True)
-            repository_root = snapshot_path.parent.parent.resolve(strict=True)
-            expected_blob_root = repository_root / "blobs"
-            if (
-                target.parent != expected_blob_root
-                or target.name != expected_digest
-            ):
-                raise RuntimeError(
-                    "local ESM-3 snapshot link is not repository-contained"
-                )
-        elif stat.S_ISREG(metadata.st_mode):
-            target = entry
-        else:
-            raise RuntimeError(
-                "required local ESM-3 model artifact is not regular"
-            )
-    except OSError as error:
-        raise RuntimeError(
-            "local ESM-3 model artifact could not be validated"
-        ) from error
+    target = snapshot_path / relative_path
     if _regular_file_sha256(target) != expected_digest:
         raise RuntimeError("local ESM-3 model artifact identity mismatch")
     return target
@@ -159,14 +88,13 @@ def _configured_path(environment: Mapping[str, Any], key: str) -> Path:
     value = environment.get(key)
     if not isinstance(value, (str, os.PathLike)):
         raise RuntimeError(f"local ESM-3 {key} is not configured")
-    path = Path(value)
     try:
-        metadata = path.lstat()
+        path = Path(value).resolve(strict=True)
     except OSError as error:
         raise RuntimeError(f"local ESM-3 {key} is unavailable") from error
-    if stat.S_ISLNK(metadata.st_mode) or not stat.S_ISDIR(metadata.st_mode):
-        raise RuntimeError(f"local ESM-3 {key} is not a regular directory")
-    return path.resolve(strict=True)
+    if not path.is_dir():
+        raise RuntimeError(f"local ESM-3 {key} is not a directory")
+    return path
 
 
 def _validated_performance_settings(
@@ -256,6 +184,24 @@ def resolve_local_runtime(
     )
 
 
+def _trusted_local_runtime(
+    environment: Mapping[str, Any],
+) -> LocalESM3Runtime:
+    """Read runtime facts already admitted by per-run Binding readiness."""
+    snapshot_path = Path(environment["model_snapshot_path"])
+    return LocalESM3Runtime(
+        snapshot_path=snapshot_path,
+        runtime_directory=Path(environment["runtime_directory"]),
+        device=LOCAL_ESM3_DEVICE,
+        performance_settings=dict(LOCAL_ESM3_PERFORMANCE_SETTINGS),
+        safe_fingerprint=str(environment["resolved_runtime_fingerprint"]),
+        artifact_sources={
+            relative_path: snapshot_path / relative_path
+            for relative_path in LOCAL_ESM3_WEIGHT_SHA256
+        },
+    )
+
+
 def local_readiness(environment: Mapping[str, Any]) -> ReadinessResult:
     """Return one bounded, redacted conclusion for the selected local Binding."""
     try:
@@ -269,70 +215,8 @@ def local_readiness(environment: Mapping[str, Any]) -> ReadinessResult:
     return ReadinessResult(True, proof_source="direct-observation")
 
 
-def _copy_verified_artifact(
-    source: Path,
-    destination: Path,
-    expected_digest: str,
-) -> None:
-    """Copy one already-resolved artifact without following a replacement."""
-    source_descriptor: int | None = None
-    destination_descriptor: int | None = None
-    try:
-        source_descriptor = os.open(
-            source,
-            os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0),
-        )
-        opened = os.fstat(source_descriptor)
-        if not stat.S_ISREG(opened.st_mode):
-            raise RuntimeError(
-                "required local ESM-3 model artifact is not regular"
-            )
-        destination_descriptor = os.open(
-            destination,
-            os.O_WRONLY
-            | os.O_CREAT
-            | os.O_EXCL
-            | getattr(os, "O_NOFOLLOW", 0),
-            0o600,
-        )
-        digest = hashlib.sha256()
-        while chunk := os.read(source_descriptor, 1024 * 1024):
-            digest.update(chunk)
-            view = memoryview(chunk)
-            while view:
-                written = os.write(destination_descriptor, view)
-                view = view[written:]
-        os.fsync(destination_descriptor)
-        after = os.fstat(source_descriptor)
-        if (
-            after.st_dev,
-            after.st_ino,
-            after.st_size,
-            after.st_mtime_ns,
-        ) != (
-            opened.st_dev,
-            opened.st_ino,
-            opened.st_size,
-            opened.st_mtime_ns,
-        ):
-            raise RuntimeError(
-                "local ESM-3 model artifact changed during staging"
-            )
-        if digest.hexdigest() != expected_digest:
-            raise RuntimeError("local ESM-3 model artifact identity mismatch")
-    except OSError as error:
-        raise RuntimeError(
-            "local ESM-3 model artifact could not be staged"
-        ) from error
-    finally:
-        if destination_descriptor is not None:
-            os.close(destination_descriptor)
-        if source_descriptor is not None:
-            os.close(source_descriptor)
-
-
 def stage_local_runtime(runtime: LocalESM3Runtime) -> Path:
-    """Stage validated weights as private regular files for provider loading."""
+    """Stage the model artifacts already admitted by Binding readiness."""
     staged_root = Path(
         tempfile.mkdtemp(
             prefix="esm3-sm-open-v1-",
@@ -341,25 +225,15 @@ def stage_local_runtime(runtime: LocalESM3Runtime) -> Path:
     )
     staged_root.chmod(0o700)
     try:
-        for relative_path, expected_digest in (
-            LOCAL_ESM3_WEIGHT_SHA256.items()
-        ):
-            source = runtime.artifact_sources.get(relative_path)
-            if not isinstance(source, Path):
-                raise RuntimeError(
-                    "local ESM-3 validated artifact source is unavailable"
-                )
+        for relative_path in LOCAL_ESM3_WEIGHT_SHA256:
+            source = runtime.artifact_sources[relative_path]
             destination = staged_root / relative_path
             destination.parent.mkdir(
                 mode=0o700,
                 parents=True,
                 exist_ok=True,
             )
-            _copy_verified_artifact(
-                source,
-                destination,
-                expected_digest,
-            )
+            shutil.copyfile(source, destination)
         return staged_root
     except BaseException:
         shutil.rmtree(staged_root)
@@ -367,12 +241,10 @@ def stage_local_runtime(runtime: LocalESM3Runtime) -> Path:
 
 
 def _bind_builder_to_staged_root(
-    builder: Any,
+    builder: FunctionType,
     staged_root: Path,
 ) -> FunctionType:
-    """Clone an SDK builder with a private, immutable data-root binding."""
-    if not isinstance(builder, FunctionType):
-        raise RuntimeError("local ESM-3 provider builder has an unsafe type")
+    """Clone an SDK builder with a private data-root binding."""
     builder_globals = dict(builder.__globals__)
     builder_globals["data_root"] = lambda model: staged_root
     bound = FunctionType(
@@ -398,14 +270,13 @@ def load_local_esm3_client(
     if runtime is None:
         runtime = resolve_local_runtime(environment)
     import torch
-    from esm.models.esm3 import ESM3
     import esm.pretrained as esm_pretrained
 
     staged_root = stage_local_runtime(runtime)
     try:
         builders = esm_pretrained.LOCAL_MODEL_REGISTRY
-        required_builders = {
-            name: builders.get(name)
+        required_builders: dict[str, FunctionType] = {
+            name: cast(FunctionType, builders[name])
             for name in (
                 LOCAL_ESM3_MODEL,
                 "esm3_structure_encoder_v0",
@@ -413,15 +284,11 @@ def load_local_esm3_client(
                 "esm3_function_decoder_v0",
             )
         }
-        if any(not callable(builder) for builder in required_builders.values()):
-            raise RuntimeError("local ESM-3 provider builders are incomplete")
         bound = {
             name: _bind_builder_to_staged_root(builder, staged_root)
             for name, builder in required_builders.items()
         }
         client = bound[LOCAL_ESM3_MODEL](torch.device(runtime.device))
-        if not isinstance(client, ESM3):
-            raise RuntimeError("local ESM-3 provider returned the wrong client")
         client.structure_encoder_fn = bound["esm3_structure_encoder_v0"]
         client.structure_decoder_fn = bound["esm3_structure_decoder_v0"]
         client.function_decoder_fn = bound["esm3_function_decoder_v0"]
@@ -509,7 +376,7 @@ class LocalESM3Adapter(_BaseESM3Adapter):
     def _client(self) -> Any:
         if self._resolved_client is not None:
             return self._resolved_client
-        runtime = resolve_local_runtime(self._environment)
+        runtime = _trusted_local_runtime(self._environment)
         client = self._environment.get("provider_client")
         if callable(getattr(client, "generate", None)):
             self._resolved_client = client
@@ -551,6 +418,30 @@ class LocalESM3Adapter(_BaseESM3Adapter):
             config,
             provider_operation,
             effective_seed=effective_call_seed,
+        )
+
+    def _admit_confidence(self, result: Any) -> ESM3Confidence:
+        """Translate pinned local decoder tensors after BOS/EOS removal."""
+        ptm = float(result.ptm[0].detach().cpu().item())
+        plddt = tuple(
+            float(value) * 100.0
+            for value in result.plddt.detach().cpu().tolist()
+        )
+        pae = (
+            None
+            if result.pae is None
+            else tuple(
+                tuple(float(value) for value in row)
+                for row in result.pae[0, 1:-1, 1:-1]
+                .detach()
+                .cpu()
+                .tolist()
+            )
+        )
+        return ESM3Confidence(
+            ptm=ptm,
+            plddt_per_residue=plddt,
+            pae=pae,
         )
 
     def __exit__(

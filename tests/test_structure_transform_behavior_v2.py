@@ -13,15 +13,14 @@ from core import (
     V2RunService,
     WorkflowAuthoringService,
     WorkflowAuthoringError,
-    WorkflowCompileError,
     WorkflowDocument,
     WorkflowNodeInstance,
     build_frozen_catalog,
-    parse_workflow_document,
 )
 from core.port_types import canonical_json_bytes
 from core.workflow_v2 import WorkflowEdge
 from datatypes import CandidateCollection, ProteinSequence, ProteinStructure
+from modules.structure_transform import CandidateResolvedResidueAxisAssociations
 from modules.structure_transform.package import MODULE_PACKAGE
 from tests.fixtures.proteinmpnn_model_sources.package import (
     MODULE_PACKAGE as CANDIDATE_SOURCE_PACKAGE,
@@ -32,7 +31,12 @@ from tests.fixtures.structure_transform_sources.package import (
 
 
 VERSION = "2.1.0"
-STRUCTURE_VERSION = "3.0.0"
+CANDIDATE_SOURCE_VERSION = "3.0.0"
+CANDIDATE_NODE_VERSION = "3.0.0"
+STRUCTURE_VERSION = "4.0.0"
+CANDIDATE_AXIS_VERSION = "5.0.0"
+SOURCE_VERSION = "5.0.0"
+BACKBONE_PORT_VERSION = "4.0.0"
 
 
 def _run_transform(
@@ -53,47 +57,75 @@ def _run_transform(
     project = projects.create(f"structure transform {operation}")
     operation_version = STRUCTURE_VERSION
     authoring = WorkflowAuthoringService(projects, catalog)
+    needs_resolved_axis = operation in {"extract_backbone", "extract_sequence"}
+    nodes = [
+        WorkflowNodeInstance(
+            node_id="source",
+            node_type_id="contract_test.structure_transform_source",
+            node_type_version=SOURCE_VERSION,
+            binding_id="contract_test.structure_transform_source.direct",
+            binding_version=SOURCE_VERSION,
+            node_parameters={"fixture": fixture},
+            binding_parameters={},
+        )
+    ]
+    edges: list[WorkflowEdge] = []
+    if needs_resolved_axis:
+        nodes.append(
+            WorkflowNodeInstance(
+                node_id="resolve-axis",
+                node_type_id="structure_transform.resolve_residue_axis",
+                node_type_version=STRUCTURE_VERSION,
+                binding_id=(
+                    "structure_transform.resolve_residue_axis.direct"
+                ),
+                binding_version=STRUCTURE_VERSION,
+                node_parameters={},
+                binding_parameters={},
+            )
+        )
+        edges.extend(
+            (
+                WorkflowEdge(
+                    "source",
+                    "structure",
+                    "resolve-axis",
+                    "structure",
+                ),
+                WorkflowEdge(
+                    "resolve-axis",
+                    "residue_axis",
+                    "transform",
+                    "residue_axis",
+                ),
+            )
+        )
+    else:
+        edges.append(
+            WorkflowEdge("source", "structure", "transform", "structure")
+        )
+    nodes.append(
+        WorkflowNodeInstance(
+            node_id="transform",
+            node_type_id=f"structure_transform.{operation}",
+            node_type_version=operation_version,
+            binding_id=f"structure_transform.{operation}.direct",
+            binding_version=operation_version,
+            node_parameters=node_parameters or {},
+            binding_parameters={},
+        )
+    )
     workflow = WorkflowDocument(
         schema_version=VERSION,
         workflow_id=project.id,
-        nodes=(
-            WorkflowNodeInstance(
-                node_id="source",
-                node_type_id="contract_test.structure_transform_source",
-                node_type_version=STRUCTURE_VERSION,
-                binding_id="contract_test.structure_transform_source.direct",
-                binding_version=STRUCTURE_VERSION,
-                node_parameters={"fixture": fixture},
-                binding_parameters={},
-            ),
-            WorkflowNodeInstance(
-                node_id="transform",
-                node_type_id=f"structure_transform.{operation}",
-                node_type_version=operation_version,
-                binding_id=f"structure_transform.{operation}.direct",
-                binding_version=operation_version,
-                node_parameters=node_parameters or {},
-                binding_parameters={},
-            ),
-        ),
-        edges=(
-            WorkflowEdge("source", "structure", "transform", "structure"),
-        ),
+        nodes=tuple(nodes),
+        edges=tuple(edges),
         contract_lock=(),
     )
-    saved = authoring.save(
+    committed = authoring.commit(
         project.id,
-        expected_workflow_revision=0,
+        expected_draft_revision=0,
         workflow=workflow,
-    )
-    relocked = authoring.relock(
-        project.id,
-        workflow_revision=saved["workflow_revision"],
-    )
-    compiled = authoring.compile(
-        project.id,
-        workflow_revision=relocked["workflow_revision"],
-        workflow=parse_workflow_document(relocked["workflow"]),
     )
     service = V2RunService(
         projects,
@@ -122,8 +154,7 @@ def _run_transform(
     )
     receipt = service.start(
         project.id,
-        workflow_revision=relocked["workflow_revision"],
-        compile_id=compiled.public_receipt()["compile_id"],
+        workflow_commit_id=committed.workflow_commit_id,
         client_request_id=f"structure-transform-{operation}-{environment_label}",
     )
     projection = service.projection(project.id, receipt["run_id"])
@@ -173,55 +204,86 @@ def _run_candidate_transform(
     )
     project = projects.create(f"candidate transform {operation}")
     authoring = WorkflowAuthoringService(projects, catalog)
-    saved = authoring.save(
-        project.id,
-        expected_workflow_revision=0,
-        workflow=WorkflowDocument(
-            schema_version=VERSION,
-            workflow_id=project.id,
-            nodes=(
-                WorkflowNodeInstance(
-                    node_id="source",
-                    node_type_id=(
-                        "contract_test.proteinmpnn_3gb1_structure"
-                    ),
-                    node_type_version=VERSION,
-                    binding_id=(
-                        "contract_test.proteinmpnn_3gb1_structure.direct"
-                    ),
-                    binding_version=VERSION,
-                    node_parameters={},
-                    binding_parameters={},
-                ),
-                WorkflowNodeInstance(
-                    node_id="transform",
-                    node_type_id=f"structure_transform.{operation}",
-                    node_type_version=VERSION,
-                    binding_id=f"structure_transform.{operation}.direct",
-                    binding_version=VERSION,
-                    node_parameters=node_parameters or {},
-                    binding_parameters={},
-                ),
+    operation_version = (
+        CANDIDATE_AXIS_VERSION
+        if operation == "resolve_candidate_residue_axes"
+        else CANDIDATE_NODE_VERSION
+    )
+    needs_resolved_axes = operation == "extract_sequence_candidates"
+    nodes = [
+        WorkflowNodeInstance(
+            node_id="source",
+            node_type_id=("contract_test.proteinmpnn_3gb1_structure"),
+            node_type_version=CANDIDATE_SOURCE_VERSION,
+            binding_id=(
+                "contract_test.proteinmpnn_3gb1_structure.direct"
             ),
-            edges=(
+            binding_version=CANDIDATE_SOURCE_VERSION,
+            node_parameters={},
+            binding_parameters={},
+        )
+    ]
+    edges = [
+        WorkflowEdge(
+            "source",
+            "structure_candidates",
+            "transform",
+            "structure_candidates",
+        )
+    ]
+    if needs_resolved_axes:
+        nodes.append(
+            WorkflowNodeInstance(
+                node_id="resolve-axes",
+                node_type_id=(
+                    "structure_transform.resolve_candidate_residue_axes"
+                ),
+                node_type_version=CANDIDATE_AXIS_VERSION,
+                binding_id=(
+                    "structure_transform.resolve_candidate_residue_axes.direct"
+                ),
+                binding_version=CANDIDATE_AXIS_VERSION,
+                node_parameters={},
+                binding_parameters={},
+            )
+        )
+        edges.extend(
+            (
                 WorkflowEdge(
                     "source",
                     "structure_candidates",
-                    "transform",
+                    "resolve-axes",
                     "structure_candidates",
                 ),
-            ),
+                WorkflowEdge(
+                    "resolve-axes",
+                    "residue_axes",
+                    "transform",
+                    "residue_axes",
+                ),
+            )
+        )
+    nodes.append(
+        WorkflowNodeInstance(
+            node_id="transform",
+            node_type_id=f"structure_transform.{operation}",
+            node_type_version=operation_version,
+            binding_id=f"structure_transform.{operation}.direct",
+            binding_version=operation_version,
+            node_parameters=node_parameters or {},
+            binding_parameters={},
+        )
+    )
+    committed = authoring.commit(
+        project.id,
+        expected_draft_revision=0,
+        workflow=WorkflowDocument(
+            schema_version=VERSION,
+            workflow_id=project.id,
+            nodes=tuple(nodes),
+            edges=tuple(edges),
             contract_lock=(),
         ),
-    )
-    relocked = authoring.relock(
-        project.id,
-        workflow_revision=saved["workflow_revision"],
-    )
-    compiled = authoring.compile(
-        project.id,
-        workflow_revision=relocked["workflow_revision"],
-        workflow=parse_workflow_document(relocked["workflow"]),
     )
     service = V2RunService(
         projects,
@@ -231,8 +293,7 @@ def _run_candidate_transform(
     )
     receipt = service.start(
         project.id,
-        workflow_revision=relocked["workflow_revision"],
-        compile_id=compiled.public_receipt()["compile_id"],
+        workflow_commit_id=committed.workflow_commit_id,
         client_request_id=f"candidate-transform-{operation}",
     )
     projection = service.projection(project.id, receipt["run_id"])
@@ -381,7 +442,7 @@ def test_backbone_retains_exact_atoms_chain_breaks_and_canonical_digest(
     assert backbone == ProteinStructure(backbone.pdb_string)
     port_type = catalog.require_port_type(
         "structure_transform.backbone_structure",
-        STRUCTURE_VERSION,
+        BACKBONE_PORT_VERSION,
     )
     assert output["content_digest"] == port_type.content_digest(backbone)
     assert output["result_identity"].startswith("sha256:")
@@ -439,7 +500,7 @@ def test_backbone_rejects_conflicting_names_within_one_residue(
     )
 
 
-def test_sequence_ignores_non_protein_maps_unknown_and_keeps_correspondence(
+def test_sequence_excludes_non_protein_and_keeps_authored_correspondence(
     tmp_path: Path,
 ) -> None:
     catalog, projection, _ = _run_transform(
@@ -450,8 +511,124 @@ def test_sequence_ignores_non_protein_maps_unknown_and_keeps_correspondence(
 
     sequence = _decode(catalog, _transform_output(projection))
     assert sequence == ProteinSequence(
-        sequence="AXG",
+        sequence="AVG",
         residue_ids=["A:1", "A:2", "B:5"],
+    )
+
+
+def test_resolved_axis_normalizes_mse_and_excludes_ligand_and_water(
+    tmp_path: Path,
+) -> None:
+    catalog, projection, _ = _run_transform(
+        tmp_path,
+        operation="resolve_residue_axis",
+        fixture="mse_ligand_water",
+    )
+
+    assert projection["status"] == "succeeded"
+    source = _decode(
+        catalog,
+        next(
+            output
+            for output in projection["outputs"]
+            if output["node_id"] == "source"
+            and output["output_port"] == "structure"
+        ),
+    )
+    axis = _decode(catalog, _transform_output(projection))
+    assert axis.structure == source
+    assert axis.layout.chain_id == "A"
+    assert axis.layout.residue_ids == ("A:1", "A:2", "A:3")
+    assert axis.sequence == "AMG"
+    assert axis.residue_names == ("ALA", "MET", "GLY")
+    assert [
+        (segment.segment_index, segment.chain_id, segment.residue_ids)
+        for segment in axis.segments
+    ] == [(0, "A", ("A:1", "A:2", "A:3"))]
+    assert axis.ca_coordinate_mask == (True, True, True)
+    assert axis.complete_backbone_mask == (True, True, True)
+    assert axis.coordinate_for("A:2", "CA") == (6.0, 2.0, 3.0)
+    assert axis.backbone_coordinates_for("A:2") == {
+        "N": (5.0, 2.0, 3.0),
+        "CA": (6.0, 2.0, 3.0),
+        "C": (7.0, 2.0, 3.0),
+        "O": (8.0, 2.0, 3.0),
+    }
+    with pytest.raises(KeyError, match="Z:900"):
+        axis.coordinate_for("Z:900", "C1")
+    assert [
+        (
+            item.component_id,
+            item.observed_residue_id,
+            item.component_role,
+            item.disposition,
+            item.parent_residue_ids,
+            item.parent_sequence,
+            item.normalization_source,
+        )
+        for item in axis.component_dispositions
+    ] == [
+        ("ALA", "A:1", "polymer", "included", ("A:1",), "A", None),
+        (
+            "MSE",
+            "A:2",
+            "modified_polymer",
+            "normalized",
+            ("A:2",),
+            "M",
+            "pdb_modres",
+        ),
+        ("GLY", "A:3", "polymer", "included", ("A:3",), "G", None),
+        ("LIG", "Z:900", "ligand", "excluded", (), "", None),
+        ("HOH", "Z:901", "water", "excluded", (), "", None),
+    ]
+    normalization = axis.modified_residue_normalizations.entries
+    assert len(normalization) == 1
+    assert normalization[0].component_id == "MSE"
+    assert normalization[0].observed_residue_id == "A:2"
+    assert normalization[0].parent_residue_ids == ("A:2",)
+    assert normalization[0].parent_sequence == "M"
+    assert any(
+        mapping.source_atom_name == "SE"
+        and mapping.parent_atom_name == "SD"
+        for mapping in normalization[0].atom_mappings
+    )
+    assert "HETATM" in axis.structure.pdb_string
+    assert all(
+        component in axis.structure.pdb_string
+        for component in ("MSE", "LIG", "HOH")
+    )
+
+
+def test_resolved_axis_rejects_unknown_modified_polymer(
+    tmp_path: Path,
+) -> None:
+    _, projection, _ = _run_transform(
+        tmp_path,
+        operation="resolve_residue_axis",
+        fixture="unknown_modified_polymer",
+    )
+
+    assert projection["status"] == "failed"
+    assert not any(
+        output["node_id"] == "transform"
+        for output in projection["outputs"]
+    )
+
+
+def test_resolved_axis_rejects_unknown_atom_polymer(
+    tmp_path: Path,
+) -> None:
+    _, projection, _ = _run_transform(
+        tmp_path,
+        operation="resolve_residue_axis",
+        fixture="unknown_atom_polymer",
+    )
+
+    assert projection["status"] == "failed"
+    assert not any(
+        output["node_id"] == "transform"
+        for output in projection["outputs"]
     )
 
 
@@ -515,6 +692,40 @@ def test_candidate_chain_selection_preserves_parent_lineage(
         if line.startswith(("ATOM  ", "HETATM"))
     } == {"A"}
     assert child.parent_ids == (source.items[0].candidate_id,)
+
+
+def test_candidate_residue_axes_bind_exact_structure_candidate_reference(
+    tmp_path: Path,
+) -> None:
+    catalog, projection = _run_candidate_transform(
+        tmp_path,
+        operation="resolve_candidate_residue_axes",
+    )
+
+    assert projection["status"] == "succeeded"
+    source = _decode(
+        catalog,
+        next(
+            output
+            for output in projection["outputs"]
+            if output["node_id"] == "source"
+        ),
+    )
+    transformed = _decode(catalog, _transform_output(projection))
+    assert type(source) is CandidateCollection
+    assert type(transformed) is CandidateResolvedResidueAxisAssociations
+    assert len(transformed.entries) == 1
+    association = transformed.entries[0]
+    assert association.subject.candidate_id == source.items[0].candidate_id
+    assert association.subject.data_type_id == "protein.structure"
+    structure_type = catalog.require_port_type(
+        "protein.structure",
+        STRUCTURE_VERSION,
+    )
+    assert association.subject.content_digest == structure_type.content_digest(
+        source.items[0].data
+    )
+    assert association.residue_axis.structure == source.items[0].data
 
 
 def test_provider_free_transform_identity_is_stable_across_environments(

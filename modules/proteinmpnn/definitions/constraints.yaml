@@ -1,20 +1,20 @@
 schema_version: "2.1.0"
 node_type_id: proteinmpnn.constraints
-version: "3.0.0"
+version: "4.0.0"
 title: Author ProteinMPNN constraints
 summary: Authors one complete ProteinMPNN constraint value against an explicit identity-complete residue layout.
 category: protein_design
 inputs:
   - name: layout
     port_type_id: residue.layout
-    port_type_version: "2.1.0"
+    port_type_version: "3.0.0"
     required: true
     multiplicity: one
     scientific_meaning: Exact ordered residue and chain layout against which every position and chain constraint is validated.
 outputs:
   - name: constraints
     port_type_id: proteinmpnn.constraints
-    port_type_version: "3.0.0"
+    port_type_version: "4.0.0"
     required: true
     multiplicity: one
     scientific_meaning: Complete validated identity-addressed ProteinMPNN constraint value on the supplied layout.
@@ -44,7 +44,7 @@ node_parameters:
       uniqueItems: true
       items:
         type: string
-        pattern: "^[A-Za-z0-9]:[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$"
+        pattern: &residue_identity_pattern "^[A-Za-z0-9]:(?:[A-Za-z0-9][A-Za-z0-9_.-]{0,63}|[+-][0-9]{1,3}[A-Za-z]?)$"
     default: []
   fixed_residue_ids:
     parameter_scope: scientific
@@ -54,7 +54,7 @@ node_parameters:
       uniqueItems: true
       items:
         type: string
-        pattern: "^[A-Za-z0-9]:[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$"
+        pattern: *residue_identity_pattern
     default: []
   designed_chains:
     parameter_scope: scientific
@@ -97,7 +97,7 @@ node_parameters:
         uniqueItems: true
         items:
           type: string
-          pattern: "^[A-Za-z0-9]:[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$"
+          pattern: *residue_identity_pattern
     default: []
   bias_by_residue:
     parameter_scope: scientific
@@ -113,7 +113,7 @@ node_parameters:
             field_scope: scientific
             scientific_meaning: Stable target-layout residue identity receiving this bias.
             type: string
-            pattern: "^[A-Za-z0-9]:[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$"
+            pattern: *residue_identity_pattern
           amino_acid:
             field_scope: scientific
             scientific_meaning: Canonical ProteinMPNN amino-acid symbol receiving this bias.

@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from dataclasses import FrozenInstanceError, replace
 from datetime import datetime, timezone
-import json
 
 import pytest
 from fastapi.testclient import TestClient
@@ -64,6 +63,7 @@ def _workflow_catalog(
     include_unreachable: bool = False,
     source_algorithm: str = "source",
     sink_port_type_id: str = "text",
+    sink_port_type_version: str = "2.1.0",
     source_output_multiplicity: str = "one",
     sink_input_multiplicity: str = "one",
     factory_calls: list[str] | None = None,
@@ -73,7 +73,7 @@ def _workflow_catalog(
     text = builtin.require_port_type("text", "2.1.0")
     sink_port_type = builtin.require_port_type(
         sink_port_type_id,
-        "2.1.0",
+        sink_port_type_version,
     )
     source_method = _catalog_contract(
         "method",
@@ -128,6 +128,10 @@ def _workflow_catalog(
                     "port_type": text.reference(),
                     "required": True,
                     "multiplicity": source_output_multiplicity,
+                    "scientific_meaning": (
+                        "Synthetic textual scientific value emitted by the "
+                        "source"
+                    ),
                 }
             ],
             "node_parameters": {
@@ -162,6 +166,10 @@ def _workflow_catalog(
                     "port_type": sink_port_type.reference(),
                     "required": True,
                     "multiplicity": sink_input_multiplicity,
+                    "scientific_meaning": (
+                        "Synthetic textual scientific value consumed by the "
+                        "sink"
+                    ),
                 }
             ],
             "outputs": [
@@ -170,6 +178,10 @@ def _workflow_catalog(
                     "port_type": sink_port_type.reference(),
                     "required": True,
                     "multiplicity": "one",
+                    "scientific_meaning": (
+                        "Synthetic textual scientific value emitted by the "
+                        "sink"
+                    ),
                 }
             ],
             "node_parameters": {},
@@ -406,7 +418,11 @@ def test_workflow_exact_resolution_reports_inactive_generation_at_version(
         elif seam == "relock":
             relock_workflow(stale, catalog)
         else:
-            compile_workflow(stale, workflow_revision=1, catalog=catalog)
+            compile_workflow(
+                stale,
+                workflow_commit_revision=1,
+                catalog=catalog,
+            )
 
     assert captured.value.code == "inactive_generation"
     assert captured.value.field_path == ("nodes", 0, version_field)
@@ -507,7 +523,11 @@ def test_workflow_reference_reports_inactive_generation_at_version(
         elif seam == "relock":
             relock_workflow(stale, catalog)
         else:
-            compile_workflow(stale, workflow_revision=1, catalog=catalog)
+            compile_workflow(
+                stale,
+                workflow_commit_revision=1,
+                catalog=catalog,
+            )
 
     assert captured.value.code == "inactive_generation"
     assert captured.value.field_path == (
@@ -552,7 +572,11 @@ def test_unknown_workflow_reference_reports_the_contract_id_field(
         elif seam == "relock":
             relock_workflow(unknown, catalog)
         else:
-            compile_workflow(unknown, workflow_revision=1, catalog=catalog)
+            compile_workflow(
+                unknown,
+                workflow_commit_revision=1,
+                catalog=catalog,
+            )
 
     assert captured.value.code == "unknown_contract"
     assert captured.value.field_path == (
@@ -601,7 +625,7 @@ def test_workflow_reference_rejects_a_mismatched_contract_kind_at_kind_field(
         else:
             compile_workflow(
                 mismatched,
-                workflow_revision=1,
+                workflow_commit_revision=1,
                 catalog=catalog,
             )
 
@@ -644,7 +668,11 @@ def test_compile_reports_workflow_reference_digest_drift_at_digest(
     drifted = parse_workflow_document(locked)
 
     with pytest.raises(WorkflowCompileError) as captured:
-        compile_workflow(drifted, workflow_revision=1, catalog=catalog)
+        compile_workflow(
+            drifted,
+            workflow_commit_revision=1,
+            catalog=catalog,
+        )
 
     assert captured.value.code == "contract_digest_mismatch"
     assert captured.value.field_path == (
@@ -655,46 +683,33 @@ def test_compile_reports_workflow_reference_digest_drift_at_digest(
     )
 
 
-def test_compile_returns_an_immutable_private_plan_and_compact_receipt() -> None:
+def test_compile_returns_only_an_immutable_private_plan() -> None:
     catalog = _workflow_catalog()
     workflow = relock_workflow(_unlocked_workflow(), catalog)
 
-    compiled = compile_workflow(workflow, workflow_revision=2, catalog=catalog)
+    compiled = compile_workflow(
+        workflow,
+        workflow_commit_revision=2,
+        catalog=catalog,
+    )
 
     assert isinstance(compiled, CompiledWorkflow)
     assert compiled.execution_plan.node_order == ("source", "sink")
-    assert compiled.execution_plan.workflow_revision == 2
+    assert compiled.execution_plan.workflow_commit_revision == 2
     assert compiled.execution_plan.resolved_contracts == workflow.contract_lock
     assert compiled.execution_plan.nodes[0].node_parameters == {
         "uppercase": True,
         "label": "default-label",
     }
-    assert set(compiled.receipt) == {
-        "accepted",
-        "compile_id",
-        "workflow_revision",
-        "workflow_digest",
-        "catalog_contract_digest",
-        "contract_lock_digest",
-        "execution_plan_digest",
-        "issues",
-    }
-    assert compiled.receipt["accepted"] is True
-    assert compiled.receipt["issues"] == ()
-    validate_response(
-        "workflow_compile",
-        200,
-        compiled.public_receipt(),
-    )
+    assert not hasattr(compiled, "receipt")
+    assert not hasattr(compiled, "public_receipt")
     with pytest.raises(FrozenInstanceError):
-        compiled.execution_plan.workflow_revision = 3  # type: ignore[misc]
+        compiled.execution_plan.workflow_commit_revision = 3  # type: ignore[misc]
     with pytest.raises(TypeError):
         compiled.execution_plan.nodes[0].node_parameters["uppercase"] = False
-    with pytest.raises(TypeError):
-        compiled.receipt["accepted"] = False
 
 
-def test_compile_receipt_and_digest_exclude_runtime_handles() -> None:
+def test_execution_plan_identity_excludes_runtime_handles() -> None:
     first_catalog = _workflow_catalog(factory_calls=[])
     second_catalog = _workflow_catalog(factory_calls=[])
     first_workflow = relock_workflow(
@@ -708,12 +723,12 @@ def test_compile_receipt_and_digest_exclude_runtime_handles() -> None:
 
     first = compile_workflow(
         first_workflow,
-        workflow_revision=2,
+        workflow_commit_revision=2,
         catalog=first_catalog,
     )
     second = compile_workflow(
         second_workflow,
-        workflow_revision=2,
+        workflow_commit_revision=2,
         catalog=second_catalog,
     )
 
@@ -727,7 +742,7 @@ def test_compile_receipt_and_digest_exclude_runtime_handles() -> None:
     ] is not second_catalog.readiness_declarations[
         ("synthetic.source.direct", "2.1.0")
     ]
-    assert first.public_receipt() == second.public_receipt()
+    assert first.execution_plan == second.execution_plan
     assert (
         first.execution_plan.execution_plan_digest
         == second.execution_plan.execution_plan_digest
@@ -738,7 +753,7 @@ def test_execution_plan_copies_all_public_sequences_at_its_boundary() -> None:
     catalog = _workflow_catalog()
     compiled = compile_workflow(
         relock_workflow(_unlocked_workflow(), catalog),
-        workflow_revision=2,
+        workflow_commit_revision=2,
         catalog=catalog,
     )
     plan = compiled.execution_plan
@@ -804,7 +819,11 @@ def test_contract_lock_mismatch_fails_before_runtime_activity(
     mismatched = replace(locked, contract_lock=tuple(entries))
 
     with pytest.raises(WorkflowCompileError) as captured:
-        compile_workflow(mismatched, workflow_revision=2, catalog=catalog)
+        compile_workflow(
+            mismatched,
+            workflow_commit_revision=2,
+            catalog=catalog,
+        )
 
     assert captured.value.code == "contract_digest_mismatch"
     assert captured.value.field_path == ("contract_lock",)
@@ -818,14 +837,14 @@ def test_unreachable_catalog_change_does_not_invalidate_the_lock() -> None:
 
     compiled = compile_workflow(
         workflow,
-        workflow_revision=2,
+        workflow_commit_revision=2,
         catalog=catalog_b,
     )
 
     assert compiled.execution_plan.resolved_contracts == workflow.contract_lock
     assert catalog_a.contract_digest != catalog_b.contract_digest
     assert (
-        compiled.receipt["catalog_contract_digest"]
+        compiled.execution_plan.catalog_contract_digest
         == catalog_b.contract_digest
     )
 
@@ -836,7 +855,11 @@ def test_reachable_contract_change_with_the_same_id_and_version_is_rejected() ->
     workflow = relock_workflow(_unlocked_workflow(), catalog_a)
 
     with pytest.raises(WorkflowCompileError) as captured:
-        compile_workflow(workflow, workflow_revision=2, catalog=catalog_b)
+        compile_workflow(
+            workflow,
+            workflow_commit_revision=2,
+            catalog=catalog_b,
+        )
 
     assert captured.value.code == "contract_digest_mismatch"
 
@@ -871,7 +894,11 @@ def test_unknown_selected_catalog_contract_reports_the_identity_field(
         elif seam == "relock":
             relock_workflow(unresolved, catalog)
         else:
-            compile_workflow(unresolved, workflow_revision=1, catalog=catalog)
+            compile_workflow(
+                unresolved,
+                workflow_commit_revision=1,
+                catalog=catalog,
+            )
 
     assert captured.value.code == "unknown_contract"
     assert captured.value.field_path == ("nodes", 0, field_name)
@@ -983,7 +1010,11 @@ def test_environment_and_model_identity_cannot_enter_workflow_parameters(
     )
 
     with pytest.raises(WorkflowCompileError) as captured:
-        compile_workflow(locked, workflow_revision=2, catalog=catalog)
+        compile_workflow(
+            locked,
+            workflow_commit_revision=2,
+            catalog=catalog,
+        )
 
     assert captured.value.code == "environment_parameter_forbidden"
 
@@ -1044,7 +1075,10 @@ def test_compile_validates_dag_binding_ownership_parameters_ports_and_availabili
         ),
         (
             "port_type_mismatch",
-            _workflow_catalog(sink_port_type_id="protein.sequence"),
+            _workflow_catalog(
+                sink_port_type_id="protein.sequence",
+                sink_port_type_version="3.0.0",
+            ),
             base,
         ),
         (
@@ -1070,7 +1104,11 @@ def test_compile_validates_dag_binding_ownership_parameters_ports_and_availabili
     for expected_code, catalog, workflow in cases:
         locked = relock_workflow(workflow, catalog)
         with pytest.raises(WorkflowCompileError) as captured:
-            compile_workflow(locked, workflow_revision=2, catalog=catalog)
+            compile_workflow(
+                locked,
+                workflow_commit_revision=2,
+                catalog=catalog,
+            )
         assert captured.value.code == expected_code
 
 
@@ -1079,7 +1117,11 @@ def test_compile_rejects_many_output_connected_to_one_input() -> None:
     workflow = relock_workflow(_unlocked_workflow(), catalog)
 
     with pytest.raises(WorkflowCompileError) as captured:
-        compile_workflow(workflow, workflow_revision=2, catalog=catalog)
+        compile_workflow(
+            workflow,
+            workflow_commit_revision=2,
+            catalog=catalog,
+        )
 
     assert captured.value.code == "port_multiplicity_mismatch"
     assert captured.value.field_path == ("edges", 0)
@@ -1101,7 +1143,7 @@ def test_compile_accepts_connections_that_preserve_all_output_values(
 
     compiled = compile_workflow(
         workflow,
-        workflow_revision=2,
+        workflow_commit_revision=2,
         catalog=catalog,
     )
 
@@ -1126,7 +1168,7 @@ def test_compile_rejects_multiple_scalar_edges_to_one_input() -> None:
     with pytest.raises(WorkflowCompileError) as captured:
         compile_workflow(
             relock_workflow(workflow, catalog),
-            workflow_revision=2,
+            workflow_commit_revision=2,
             catalog=catalog,
         )
 
@@ -1195,7 +1237,7 @@ def test_compile_enforces_complete_nested_parameter_value_contract(
     with pytest.raises(WorkflowCompileError) as captured:
         compile_workflow(
             relock_workflow(workflow, catalog),
-            workflow_revision=2,
+            workflow_commit_revision=2,
             catalog=catalog,
         )
 
@@ -1274,7 +1316,7 @@ def test_compile_rejects_nested_environment_configuration_fields(
     with pytest.raises(WorkflowCompileError) as captured:
         compile_workflow(
             relock_workflow(workflow, catalog),
-            workflow_revision=2,
+            workflow_commit_revision=2,
             catalog=catalog,
         )
 
@@ -1528,7 +1570,7 @@ def test_compile_accepts_object_values_delegated_by_value_contract(
 
     compiled = compile_workflow(
         relock_workflow(workflow, catalog),
-        workflow_revision=2,
+        workflow_commit_revision=2,
         catalog=catalog,
     )
 
@@ -1589,7 +1631,7 @@ def test_required_parameter_metadata_is_not_object_schema(
 
     compiled = compile_workflow(
         relock_workflow(workflow, catalog),
-        workflow_revision=2,
+        workflow_commit_revision=2,
         catalog=catalog,
     )
 
@@ -1612,34 +1654,26 @@ def test_public_v2_mutation_failures_use_the_structured_error_vocabulary(
     with TestClient(app) as client:
         protected_workflow = _unlocked_workflow().to_public()
         protected_workflow["workflow_id"] = "canonical-3gb1"
-        protected = client.put(
-            "/api/v2/projects/canonical-3gb1/workflow",
+        protected = client.post(
+            "/api/v2/projects/canonical-3gb1/workflow:commit",
             json={
-                "expected_workflow_revision": 0,
+                "expected_draft_revision": 0,
                 "workflow": protected_workflow,
             },
         )
         project_id = client.post(
-            "/api/projects",
-            json={"name": "origin policy"},
+            "/api/v2/projects",
+            json={"name": "mutation errors"},
         ).json()["id"]
         workflow = _unlocked_workflow().to_public()
         workflow["workflow_id"] = project_id
-        untrusted = client.put(
-            f"/api/v2/projects/{project_id}/workflow",
-            json={
-                "expected_workflow_revision": 0,
-                "workflow": workflow,
-            },
-            headers={"Origin": "https://untrusted.example"},
-        )
         workflow["nodes"][0]["node_parameters"]["nested"] = {
             "password": "must-not-persist",
         }
-        credential = client.put(
-            f"/api/v2/projects/{project_id}/workflow",
+        credential = client.post(
+            f"/api/v2/projects/{project_id}/workflow:commit",
             json={
-                "expected_workflow_revision": 0,
+                "expected_draft_revision": 0,
                 "workflow": workflow,
             },
         )
@@ -1648,27 +1682,26 @@ def test_public_v2_mutation_failures_use_the_structured_error_vocabulary(
         alias_workflow["nodes"][0]["node_parameters"]["nested"] = {
             "sessionCookie": "must-not-persist",
         }
-        credential_alias = client.put(
-            f"/api/v2/projects/{project_id}/workflow",
+        credential_alias = client.post(
+            f"/api/v2/projects/{project_id}/workflow:commit",
             json={
-                "expected_workflow_revision": 0,
+                "expected_draft_revision": 0,
                 "workflow": alias_workflow,
             },
         )
-        after_credential = client.get(
-            f"/api/v2/projects/{project_id}/workflow",
+        persisted_draft = client.get(
+            f"/api/v2/projects/{project_id}/workflow/draft",
+        )
+        active_commit = client.get(
+            f"/api/v2/projects/{project_id}/workflow/active-commit",
         )
         missing_body = client.post(
-            f"/api/v2/projects/{project_id}/workflow:relock",
+            f"/api/v2/projects/{project_id}/workflow:commit",
         )
 
-    for response in (protected, untrusted):
-        assert response.status_code == 404
-        validate_error(response.json(), status=404)
-        assert (
-            response.json()["error"]["code"]
-            == "cross_scope_access_denied"
-        )
+    assert protected.status_code == 404
+    validate_error(protected.json(), status=404)
+    assert protected.json()["error"]["code"] == "project_not_found"
     assert missing_body.status_code == 400
     validate_error(missing_body.json(), status=400)
     assert missing_body.json()["error"]["code"] == "malformed_request"
@@ -1678,11 +1711,23 @@ def test_public_v2_mutation_failures_use_the_structured_error_vocabulary(
     assert credential_alias.status_code == 422
     validate_error(credential_alias.json(), status=422)
     assert credential_alias.json()["error"]["code"] == "compile_rejected"
-    assert after_credential.status_code == 404
-    validate_error(after_credential.json(), status=404)
+    assert persisted_draft.status_code == 200
+    validate_response(
+        "project_workflow_draft",
+        200,
+        persisted_draft.json(),
+    )
+    assert persisted_draft.json()["draft_revision"] == 1
+    assert persisted_draft.json()["workflow"] == alias_workflow
+    assert active_commit.status_code == 404
+    validate_error(active_commit.json(), status=404)
+    assert (
+        active_commit.json()["error"]["code"]
+        == "workflow_commit_not_found"
+    )
 
 
-def test_public_save_reports_an_inactive_exact_contract_generation(
+def test_public_commit_reports_an_inactive_exact_contract_generation(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path,
 ) -> None:
@@ -1695,22 +1740,25 @@ def test_public_save_reports_an_inactive_exact_contract_generation(
 
     with TestClient(app) as client:
         project_id = client.post(
-            "/api/projects",
+            "/api/v2/projects",
             json={"name": "inactive generation"},
         ).json()["id"]
         workflow = _unlocked_workflow().to_public()
         workflow["workflow_id"] = project_id
         workflow["nodes"][0]["node_type_version"] = "2.0.0"
 
-        response = client.put(
-            f"/api/v2/projects/{project_id}/workflow",
+        response = client.post(
+            f"/api/v2/projects/{project_id}/workflow:commit",
             json={
-                "expected_workflow_revision": 0,
+                "expected_draft_revision": 0,
                 "workflow": workflow,
             },
         )
-        persisted = client.get(
-            f"/api/v2/projects/{project_id}/workflow"
+        persisted_draft = client.get(
+            f"/api/v2/projects/{project_id}/workflow/draft"
+        )
+        active_commit = client.get(
+            f"/api/v2/projects/{project_id}/workflow/active-commit"
         )
 
     assert response.status_code == 409
@@ -1719,10 +1767,13 @@ def test_public_save_reports_an_inactive_exact_contract_generation(
     assert response.json()["error"]["details"]["issues"][0][
         "field_path"
     ] == ["nodes", 0, "node_type_version"]
-    assert persisted.status_code == 404
+    assert persisted_draft.status_code == 200
+    assert persisted_draft.json()["draft_revision"] == 1
+    assert persisted_draft.json()["workflow"] == workflow
+    assert active_commit.status_code == 404
 
 
-def test_public_save_rejects_a_stale_exact_reference_in_an_unlocked_workflow(
+def test_public_commit_rejects_invalid_selector_scientific_inputs(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path,
 ) -> None:
@@ -1736,7 +1787,7 @@ def test_public_save_rejects_a_stale_exact_reference_in_an_unlocked_workflow(
 
     with TestClient(app) as client:
         project_id = client.post(
-            "/api/projects",
+            "/api/v2/projects",
             json={"name": "stale unlocked reference"},
         ).json()["id"]
         workflow = _workflow_with_reference_generation(
@@ -1746,33 +1797,38 @@ def test_public_save_rejects_a_stale_exact_reference_in_an_unlocked_workflow(
             contract_version="2.1.0",
         ).to_public()
         workflow["workflow_id"] = project_id
-        workflow["observation_selectors"][0]["metric"][
-            "contract_digest"
-        ] = "sha256:" + ("f" * 64)
-
-        response = client.put(
-            f"/api/v2/projects/{project_id}/workflow",
+        response = client.post(
+            f"/api/v2/projects/{project_id}/workflow:commit",
             json={
-                "expected_workflow_revision": 0,
+                "expected_draft_revision": 0,
                 "workflow": workflow,
             },
         )
-        persisted = client.get(
-            f"/api/v2/projects/{project_id}/workflow"
+        persisted_draft = client.get(
+            f"/api/v2/projects/{project_id}/workflow/draft"
+        )
+        active_commit = client.get(
+            f"/api/v2/projects/{project_id}/workflow/active-commit"
         )
 
-    assert response.status_code == 409
-    validate_error(response.json(), status=409)
-    assert response.json()["error"]["code"] == "contract_digest_mismatch"
+    assert response.status_code == 422
+    validate_error(response.json(), status=422)
+    assert response.json()["error"]["code"] == "compile_rejected"
+    assert response.json()["error"]["details"]["issues"][0][
+        "code"
+    ] == "invalid_observation_selector"
     assert response.json()["error"]["details"]["issues"][0][
         "field_path"
     ] == [
         "observation_selectors",
         0,
-        "metric",
-        "contract_digest",
+        "candidate_input",
+        "output_port",
     ]
-    assert persisted.status_code == 404
+    assert persisted_draft.status_code == 200
+    assert persisted_draft.json()["draft_revision"] == 1
+    assert persisted_draft.json()["workflow"] == workflow
+    assert active_commit.status_code == 404
 
 
 @pytest.mark.parametrize(
@@ -1782,57 +1838,59 @@ def test_public_save_rejects_a_stale_exact_reference_in_an_unlocked_workflow(
         ("binding_version", ["nodes", 0, "binding_version"]),
     ],
 )
-def test_public_load_rejects_a_persisted_inactive_exact_generation(
+def test_public_draft_preserves_an_inactive_generation_until_commit(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path,
     version_field: str,
     expected_path: list[object],
 ) -> None:
-    project_root = tmp_path / "project"
-    for name in ("CACHE", "OUTPUT", "RUN"):
+    for name in ("PROJECT", "CACHE", "OUTPUT", "RUN"):
         monkeypatch.setenv(
             f"PROTEIN_WORKBENCH_{name}_ROOT",
             str(tmp_path / name.lower()),
         )
-    monkeypatch.setenv("PROTEIN_WORKBENCH_PROJECT_ROOT", str(project_root))
     catalog = _workflow_catalog()
 
     with TestClient(create_app(frozen_catalog_override=catalog)) as client:
         project_id = client.post(
-            "/api/projects",
+            "/api/v2/projects",
             json={"name": f"inactive persisted {version_field}"},
         ).json()["id"]
         workflow = _unlocked_workflow().to_public()
         workflow["workflow_id"] = project_id
+        workflow["nodes"][0][version_field] = "2.0.0"
         saved = client.put(
-            f"/api/v2/projects/{project_id}/workflow",
+            f"/api/v2/projects/{project_id}/workflow/draft",
             json={
-                "expected_workflow_revision": 0,
+                "expected_draft_revision": 0,
                 "workflow": workflow,
             },
         )
-        assert saved.status_code == 200
+        loaded = client.get(
+            f"/api/v2/projects/{project_id}/workflow/draft"
+        )
+        committed = client.post(
+            f"/api/v2/projects/{project_id}/workflow:commit",
+            json={
+                "expected_draft_revision": 0,
+                "workflow": workflow,
+            },
+        )
 
-    path = project_root / project_id / "workflow-v2.json"
-    descriptor = json.loads(path.read_text(encoding="utf-8"))
-    descriptor["workflow"]["nodes"][0][version_field] = "2.0.0"
-    path.write_text(
-        json.dumps(descriptor, separators=(",", ":"), sort_keys=True),
-        encoding="utf-8",
-    )
-
-    with TestClient(create_app(frozen_catalog_override=catalog)) as client:
-        response = client.get(f"/api/v2/projects/{project_id}/workflow")
-
-    assert response.status_code == 409
-    validate_error(response.json(), status=409)
-    assert response.json()["error"]["code"] == "inactive_generation"
-    assert response.json()["error"]["details"]["issues"][0][
+    assert saved.status_code == 200
+    validate_response("save_project_workflow_draft", 200, saved.json())
+    assert saved.json()["draft_revision"] == 1
+    assert loaded.status_code == 200
+    assert loaded.json() == saved.json()
+    assert committed.status_code == 409
+    validate_error(committed.json(), status=409)
+    assert committed.json()["error"]["code"] == "inactive_generation"
+    assert committed.json()["error"]["details"]["issues"][0][
         "field_path"
     ] == expected_path
 
 
-def test_persisted_lock_cannot_be_loaded_relocked_or_cleared_after_generation_change(
+def test_persisted_commit_cannot_start_after_catalog_generation_change(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path,
 ) -> None:
@@ -1844,66 +1902,58 @@ def test_persisted_lock_cannot_be_loaded_relocked_or_cleared_after_generation_ch
     original_catalog = _workflow_catalog(source_algorithm="generation-a")
     active_catalog = _workflow_catalog(source_algorithm="generation-b")
     assert original_catalog.contract_digest != active_catalog.contract_digest
-    project_ids: list[str] = []
 
     with TestClient(
         create_app(frozen_catalog_override=original_catalog)
     ) as client:
-        for transition in ("load", "relock", "clear"):
-            project_id = client.post(
-                "/api/projects",
-                json={"name": f"stale persisted lock {transition}"},
-            ).json()["id"]
-            unlocked = _unlocked_workflow().to_public()
-            unlocked["workflow_id"] = project_id
-            saved = client.put(
-                f"/api/v2/projects/{project_id}/workflow",
-                json={
-                    "expected_workflow_revision": 0,
-                    "workflow": unlocked,
-                },
-            )
-            assert saved.status_code == 200
-            relocked = client.post(
-                f"/api/v2/projects/{project_id}/workflow:relock",
-                json={"workflow_revision": 1},
-            )
-            assert relocked.status_code == 200
-            project_ids.append(project_id)
+        project_id = client.post(
+            "/api/v2/projects",
+            json={"name": "persisted immutable commit"},
+        ).json()["id"]
+        unlocked = _unlocked_workflow().to_public()
+        unlocked["workflow_id"] = project_id
+        committed_response = client.post(
+            f"/api/v2/projects/{project_id}/workflow:commit",
+            json={
+                "expected_draft_revision": 0,
+                "workflow": unlocked,
+            },
+        )
+
+    assert committed_response.status_code == 200
+    committed = committed_response.json()
+    validate_response("commit_project_workflow", 200, committed)
 
     with TestClient(
         create_app(frozen_catalog_override=active_catalog)
     ) as client:
         loaded = client.get(
-            f"/api/v2/projects/{project_ids[0]}/workflow"
+            f"/api/v2/projects/{project_id}/workflow/active-commit"
         )
-        relocked = client.post(
-            f"/api/v2/projects/{project_ids[1]}/workflow:relock",
-            json={"workflow_revision": 2},
-        )
-        cleared_workflow = _unlocked_workflow().to_public()
-        cleared_workflow["workflow_id"] = project_ids[2]
-        cleared = client.put(
-            f"/api/v2/projects/{project_ids[2]}/workflow",
+        started = client.post(
+            f"/api/v2/projects/{project_id}/runs",
             json={
-                "expected_workflow_revision": 2,
-                "workflow": cleared_workflow,
+                "workflow_commit_id": committed["workflow_commit_id"],
+                "client_request_id": "catalog-drift-start",
             },
         )
 
-    for response in (loaded, relocked, cleared):
-        assert response.status_code == 409
-        validate_error(response.json(), status=409)
-        assert (
-            response.json()["error"]["code"]
-            == "contract_digest_mismatch"
-        )
-        assert response.json()["error"]["details"]["issues"][0][
-            "field_path"
-        ] == ["contract_lock"]
+    assert loaded.status_code == 200
+    validate_response(
+        "project_active_workflow_commit",
+        200,
+        loaded.json(),
+    )
+    assert loaded.json() == committed
+    assert started.status_code == 409
+    validate_error(started.json(), status=409)
+    assert started.json()["error"]["code"] == "contract_digest_mismatch"
+    assert started.json()["error"]["details"]["issues"][0][
+        "field_path"
+    ] == ["contract_lock"]
 
 
-def test_public_save_load_relock_compile_journey_is_revisioned_and_exact(
+def test_public_draft_commit_journey_is_revisioned_and_exact(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path,
 ) -> None:
@@ -1916,63 +1966,89 @@ def test_public_save_load_relock_compile_journey_is_revisioned_and_exact(
 
     with TestClient(app) as client:
         project_id = client.post(
-            "/api/projects",
+            "/api/v2/projects",
             json={"name": "v2 authoring"},
         ).json()["id"]
         unlocked = _unlocked_workflow().to_public()
         unlocked["workflow_id"] = project_id
 
         saved_response = client.put(
-            f"/api/v2/projects/{project_id}/workflow",
+            f"/api/v2/projects/{project_id}/workflow/draft",
             json={
-                "expected_workflow_revision": 0,
+                "expected_draft_revision": 0,
                 "workflow": unlocked,
             },
         )
         loaded_response = client.get(
-            f"/api/v2/projects/{project_id}/workflow"
+            f"/api/v2/projects/{project_id}/workflow/draft"
         )
-        relocked_response = client.post(
-            f"/api/v2/projects/{project_id}/workflow:relock",
-            json={"workflow_revision": 1},
-        )
-        relocked = relocked_response.json()
-        compiled_response = client.post(
-            f"/api/v2/projects/{project_id}/workflow:compile",
+        committed_response = client.post(
+            f"/api/v2/projects/{project_id}/workflow:commit",
             json={
-                "workflow_revision": relocked["workflow_revision"],
-                "workflow": relocked["workflow"],
+                "expected_draft_revision": 0,
+                "workflow": unlocked,
             },
+        )
+        active_response = client.get(
+            f"/api/v2/projects/{project_id}/workflow/active-commit"
+        )
+        receipt = committed_response.json()
+        owner = app.state.workflow_authoring_v2
+        committed = owner.load_active_commit(project_id)
+        compiled = owner.require_compiled(
+            project_id,
+            workflow_commit_id=receipt["workflow_commit_id"],
         )
 
     assert saved_response.status_code == 200
     saved = saved_response.json()
-    validate_response("save_project_workflow", 200, saved)
-    assert saved["workflow_revision"] == 1
+    validate_response("save_project_workflow_draft", 200, saved)
+    assert saved["draft_revision"] == 1
     assert saved["workflow"]["contract_lock"] == []
     assert loaded_response.json() == saved
     validate_response(
-        "project_workflow_snapshot",
+        "project_workflow_draft",
         200,
         loaded_response.json(),
     )
-    assert relocked_response.status_code == 200
+    assert committed_response.status_code == 200
     validate_response(
-        "relock_project_workflow",
+        "commit_project_workflow",
         200,
-        relocked,
+        receipt,
     )
-    assert relocked["workflow_revision"] == 2
-    assert relocked["workflow"]["contract_lock"]
-    assert compiled_response.status_code == 200
-    receipt = compiled_response.json()
-    validate_response("workflow_compile", 200, receipt)
-    assert receipt["workflow_revision"] == 2
+    assert receipt["workflow_commit_revision"] == 1
+    assert receipt["source_draft_revision"] == 1
+    assert receipt["source_draft_digest"] == saved["draft_digest"]
+    assert receipt["workflow_commit_id"] == receipt[
+        "execution_plan_digest"
+    ].replace("sha256:", "workflow-commit-")
     assert "execution_plan" not in receipt
     assert "nodes" not in receipt
+    assert active_response.status_code == 200
+    validate_response(
+        "project_active_workflow_commit",
+        200,
+        active_response.json(),
+    )
+    assert active_response.json() == receipt
+    assert committed.to_public() == receipt
+    assert committed.locked_workflow.contract_lock
+    assert (
+        compiled.execution_plan.workflow_commit_revision
+        == committed.workflow_commit_revision
+    )
+    assert (
+        compiled.execution_plan.execution_plan_digest
+        == committed.execution_plan_digest
+    )
+    assert (
+        compiled.execution_plan.resolved_contracts
+        == committed.locked_workflow.contract_lock
+    )
 
 
-def test_public_save_rejects_a_stale_lock_without_repairing_persisted_revision(
+def test_failed_commit_preserves_active_commit_and_submitted_draft(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path,
 ) -> None:
@@ -1982,54 +2058,62 @@ def test_public_save_rejects_a_stale_lock_without_repairing_persisted_revision(
             str(tmp_path / name.lower()),
         )
     factory_calls: list[str] = []
-    app = create_app(
-        frozen_catalog_override=_workflow_catalog(
-            source_available=False,
-            factory_calls=factory_calls,
-        )
-    )
+    catalog = _workflow_catalog(factory_calls=factory_calls)
+    app = create_app(frozen_catalog_override=catalog)
 
     with TestClient(app) as client:
         project_id = client.post(
-            "/api/projects",
-            json={"name": "stale lock"},
+            "/api/v2/projects",
+            json={"name": "failed replacement commit"},
         ).json()["id"]
         unlocked = _unlocked_workflow().to_public()
         unlocked["workflow_id"] = project_id
-        client.put(
-            f"/api/v2/projects/{project_id}/workflow",
+        active_response = client.post(
+            f"/api/v2/projects/{project_id}/workflow:commit",
             json={
-                "expected_workflow_revision": 0,
+                "expected_draft_revision": 0,
                 "workflow": unlocked,
             },
         )
-        relocked = client.post(
-            f"/api/v2/projects/{project_id}/workflow:relock",
-            json={"workflow_revision": 1},
-        ).json()
-        stale = json.loads(json.dumps(relocked["workflow"]))
-        stale["contract_lock"][0]["contract_digest"] = (
-            "sha256:" + ("e" * 64)
-        )
-        saved_response = client.put(
-            f"/api/v2/projects/{project_id}/workflow",
+        assert active_response.status_code == 200
+        active = active_response.json()
+        invalid = _unlocked_workflow().to_public()
+        invalid["workflow_id"] = project_id
+        invalid["edges"] = []
+        failed_response = client.post(
+            f"/api/v2/projects/{project_id}/workflow:commit",
             json={
-                "expected_workflow_revision": 2,
-                "workflow": stale,
+                "expected_draft_revision": 1,
+                "workflow": invalid,
             },
         )
-        loaded_response = client.get(
-            f"/api/v2/projects/{project_id}/workflow"
+        loaded_draft = client.get(
+            f"/api/v2/projects/{project_id}/workflow/draft"
+        )
+        loaded_active = client.get(
+            f"/api/v2/projects/{project_id}/workflow/active-commit"
+        )
+        compiled = app.state.workflow_authoring_v2.require_compiled(
+            project_id,
+            workflow_commit_id=active["workflow_commit_id"],
         )
 
-    assert saved_response.status_code == 409
-    validate_error(saved_response.json(), status=409)
+    assert failed_response.status_code == 422
+    validate_error(failed_response.json(), status=422)
+    assert failed_response.json()["error"]["code"] == "compile_rejected"
+    assert failed_response.json()["error"]["details"]["issues"][0][
+        "code"
+    ] == "required_input_missing"
+    assert failed_response.json()["error"]["details"]["issues"][0][
+        "field_path"
+    ] == ["nodes", 1]
+    assert loaded_draft.status_code == 200
+    assert loaded_draft.json()["draft_revision"] == 2
+    assert loaded_draft.json()["workflow"] == invalid
+    assert loaded_active.status_code == 200
+    assert loaded_active.json() == active
     assert (
-        saved_response.json()["error"]["code"]
-        == "contract_digest_mismatch"
+        compiled.execution_plan.execution_plan_digest
+        == active["execution_plan_digest"]
     )
-    assert loaded_response.status_code == 200
-    loaded = loaded_response.json()
-    assert loaded["workflow_revision"] == 2
-    assert loaded["workflow"] == relocked["workflow"]
     assert factory_calls == []

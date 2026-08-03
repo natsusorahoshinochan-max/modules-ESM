@@ -6,7 +6,6 @@ from collections.abc import Mapping, Sequence
 from typing import Any
 
 from core import (
-    CandidateDataDigest,
     FrozenCatalog,
     InputContentDigests,
     ObservationSelector,
@@ -22,10 +21,10 @@ from core.scoring_v2 import (
 from datatypes import (
     Candidate,
     CandidateCollection,
+    CandidateDataReference,
     ExactContractReference,
     ProteinSequence,
     ProteinStructure,
-    StructureAlignment,
 )
 
 
@@ -70,6 +69,10 @@ def operation_context(
             reference_port=declaration.get("reference_port"),
             pairing_direction=declaration.get("pairing_direction"),
             pairing_port=declaration.get("pairing_port"),
+            axis_direction=declaration.get("axis_direction"),
+            axis_port=declaration.get("axis_port"),
+            method_direction=declaration.get("method_direction"),
+            method_port=declaration.get("method_port"),
         )
         for declaration in descriptor.get("produced_observations", ())
     )
@@ -134,7 +137,7 @@ def operation_call(
                 if declaration["multiplicity"] == "many"
                 else (supplied,)
             )
-            candidate_digests: list[CandidateDataDigest] = []
+            candidate_digests: list[CandidateDataReference] = []
             for value in values:
                 if type(value) is Candidate:
                     candidates = (value,)
@@ -146,7 +149,6 @@ def operation_call(
                     data_type_id = {
                         ProteinSequence: "protein.sequence",
                         ProteinStructure: "protein.structure",
-                        StructureAlignment: "structure.alignment",
                     }.get(type(candidate.data))
                     if data_type_id is None:
                         raise AssertionError(
@@ -163,7 +165,7 @@ def operation_call(
                             "resolve exactly once"
                         )
                     candidate_digests.append(
-                        CandidateDataDigest(
+                        CandidateDataReference(
                             candidate_id=candidate.candidate_id,
                             data_type_id=data_type_id,
                             content_digest=data_types[0].content_digest(

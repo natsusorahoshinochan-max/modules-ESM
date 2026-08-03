@@ -42,10 +42,16 @@ def _fold_outputs(
         for output in projection["outputs"]
         if output["node_id"] == "fold"
     }
+    materialized = next(
+        output
+        for output in projection["outputs"]
+        if output["node_id"] == "materialize-confidence"
+        and output["output_port"] == "observations"
+    )
     return (
         _decode_output(catalog, outputs["structure_candidates"]),
-        _decode_output(catalog, outputs["confidence_observations"]),
-        _decode_output(catalog, outputs["pae_observations"]),
+        _decode_output(catalog, materialized),
+        _decode_output(catalog, outputs["confidence_facts"]),
     )
 
 
@@ -65,19 +71,63 @@ def test_remote_esmfold2_v2_folds_3gb1_through_exact_binding(
     from esm.sdk.forge import SequenceStructureForgeInferenceClient
     from modules.folding.adapter import REMOTE_ESMFOLD2_MODEL
 
-    client = SequenceStructureForgeInferenceClient(
+    delegate = SequenceStructureForgeInferenceClient(
         model=REMOTE_ESMFOLD2_MODEL,
         token=read_biohub_token(str(PROJECT_ROOT)),
     )
+    provider_calls: list[dict[str, Any]] = []
+
+    class RecordingClient:
+        def fold(
+            self,
+            *,
+            sequence: str,
+            model_name: str,
+            config: Any,
+        ) -> Any:
+            provider_calls.append({
+                "sequence": sequence,
+                "model_name": model_name,
+                "config_type": (
+                    f"{type(config).__module__}.{type(config).__qualname__}"
+                ),
+                "include_pae": config.include_pae,
+                "include_embeddings": config.include_embeddings,
+                "num_sampling_steps": config.num_sampling_steps,
+                "num_loops": config.num_loops,
+                "lm_dropout": config.lm_dropout,
+                "lm_mask_pct": config.lm_mask_pct,
+                "msa_max_depth": config.msa_max_depth,
+                "msa_column_mask_rate": config.msa_column_mask_rate,
+            })
+            return delegate.fold(
+                sequence=sequence,
+                model_name=model_name,
+                config=config,
+            )
+
     catalog, projection, events = _run_fold(
         tmp_path,
         route="remote",
-        client=client,
+        client=RecordingClient(),
         source_sequence=SEQUENCE_3GB1,
     )
 
     assert projection["status"] == "succeeded"
-    structures, confidence, pae = _fold_outputs(catalog, projection)
+    assert provider_calls == [{
+        "sequence": SEQUENCE_3GB1,
+        "model_name": REMOTE_ESMFOLD2_MODEL,
+        "config_type": "esm.sdk.api.FoldingConfig",
+        "include_pae": True,
+        "include_embeddings": False,
+        "num_sampling_steps": 100,
+        "num_loops": 20,
+        "lm_dropout": 0.3,
+        "lm_mask_pct": 0.1,
+        "msa_max_depth": 1024,
+        "msa_column_mask_rate": 0.1,
+    }]
+    structures, observations, facts = _fold_outputs(catalog, projection)
     assert len(structures.items) == 1
     candidate = structures.items[0]
     assert {
@@ -94,12 +144,13 @@ def test_remote_esmfold2_v2_folds_3gb1_through_exact_binding(
     assert len(candidate.data.pdb_string) > 0
     values = {
         observation.metric.contract_id: observation.value
-        for observation in confidence.entries
+        for observation in observations.entries
     }
     assert set(values) == {
         "structure.ptm",
         "structure.plddt.per_residue",
         "structure.plddt.mean_residue",
+        "structure.pae",
     }
     assert 0.0 <= values["structure.ptm"] <= 1.0
     assert len(values["structure.plddt.per_residue"]) == len(SEQUENCE_3GB1)
@@ -110,17 +161,32 @@ def test_remote_esmfold2_v2_folds_3gb1_through_exact_binding(
     assert values["structure.plddt.mean_residue"] == pytest.approx(
         sum(values["structure.plddt.per_residue"]) / len(SEQUENCE_3GB1)
     )
-    assert len(pae.entries) == 1
-    assert len(pae.entries[0].value) == len(SEQUENCE_3GB1)
+    pae = values["structure.pae"]
+    assert len(pae) == len(SEQUENCE_3GB1)
     assert all(
         len(row) == len(SEQUENCE_3GB1)
         and all(value >= 0.0 for value in row)
-        for row in pae.entries[0].value
+        for row in pae
+    )
+    assert len(facts.entries) == 1
+    assert facts.entries[0].prediction_key == candidate.metadata[
+        "prediction_key"
+    ]
+    assert all(
+        observation.subject.candidate_id == candidate.candidate_id
+        for observation in observations.entries
+    )
+    assert all(
+        observation.residue_axis is None
+        if observation.metric.contract_id == "structure.ptm"
+        else observation.residue_axis is not None
+        and observation.residue_axis.layout.length == len(SEQUENCE_3GB1)
+        for observation in observations.entries
     )
     binding = catalog.require_contract(
         "binding",
         "folding.fold.esmfold2_remote",
-        "3.0.0",
+        "7.0.0",
     )
     method_ref = binding.descriptor["method"]
     method = catalog.require_contract(
@@ -216,7 +282,7 @@ def test_local_esmfold2_v2_source_contract_and_native_result(
     )
 
     assert projection["status"] == "succeeded"
-    structures, confidence, pae = _fold_outputs(catalog, projection)
+    structures, observations, facts = _fold_outputs(catalog, projection)
     assert len(client.calls) == 1
     assert client.calls[0][0] == "AG"
     metadata = structures.items[0].metadata
@@ -232,27 +298,28 @@ def test_local_esmfold2_v2_source_contract_and_native_result(
     assert metadata["effective_call_seed"] == client.calls[0][1]
     values = {
         observation.metric.contract_id: observation.value
-        for observation in confidence.entries
+        for observation in observations.entries
     }
     assert values["structure.plddt.per_residue"] == pytest.approx(
         [70.0, 80.0]
     )
     assert values["structure.plddt.mean_residue"] == pytest.approx(75.0)
     assert values["structure.ptm"] == 0.625
-    assert pae.entries[0].value == ((0.0, 1.0), (1.0, 0.0))
+    assert values["structure.pae"] == ((0.0, 1.0), (1.0, 0.0))
+    assert len(facts.entries) == 1
     readiness_index = next(
         index
         for index, event in enumerate(events)
         if event["event"]["type"] == "readiness_attested"
         and event["event"]["binding"]["contract_id"]
         == "folding.fold.esmfold2_local"
-        and event["event"]["binding"]["contract_version"] == "3.0.0"
+        and event["event"]["binding"]["contract_version"] == "6.0.0"
         and event["event"]["conclusion"] == "passing"
     )
     binding = catalog.require_contract(
         "binding",
         "folding.fold.esmfold2_local",
-        "3.0.0",
+        "6.0.0",
     )
     method_ref = binding.descriptor["method"]
     method = catalog.require_contract(
@@ -290,7 +357,7 @@ def test_local_esmfold2_v2_source_contract_and_native_result(
     assert readiness_index < invocation_index
     assert {
         observation.method.contract_id
-        for observation in (*confidence.entries, *pae.entries)
+        for observation in observations.entries
     } == {"folding.fold.esmfold2_hf_1ebf0e3"}
     assert [
         event["event"]["status"]
@@ -304,14 +371,58 @@ def test_local_esmfold2_v2_source_contract_and_native_result(
 @pytest.mark.slow
 def test_local_esmfold2_v2_invokes_exact_source_bound_assets(
     tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Invoke the real local Engine; a fixture cannot satisfy this gate."""
+    from modules.folding import adapter as folding_adapter
     from modules.folding.adapter import (
         LOCAL_ESMC_ARTIFACT_SHA256,
         LOCAL_ESMC_REVISION,
         LOCAL_ESMFOLD2_ARTIFACT_SHA256,
         LOCAL_ESMFOLD2_REVISION,
         configured_local_runtime_fingerprint,
+    )
+
+    real_local_input_builder = folding_adapter._local_input_builder
+    provider_calls: list[dict[str, Any]] = []
+
+    def recording_local_input_builder(
+        builder_type: type,
+        runtime: Any,
+    ) -> Any:
+        delegate = real_local_input_builder(builder_type, runtime)
+
+        class RecordingBuilder:
+            def fold(
+                self,
+                model: Any,
+                provider_input: Any,
+                **kwargs: Any,
+            ) -> Any:
+                provider_calls.append({
+                    "model_type": (
+                        f"{type(model).__module__}."
+                        f"{type(model).__qualname__}"
+                    ),
+                    "model_name_or_path": model.config._name_or_path,
+                    "input_type": (
+                        f"{type(provider_input).__module__}."
+                        f"{type(provider_input).__qualname__}"
+                    ),
+                    "sequences": tuple(
+                        (item.id, item.sequence)
+                        for item in provider_input.sequences
+                    ),
+                    "fold_parameters": dict(kwargs),
+                })
+                return delegate.fold(model, provider_input, **kwargs)
+
+        return RecordingBuilder()
+
+    monkeypatch.setattr(
+        folding_adapter,
+        "_local_input_builder",
+        recording_local_input_builder,
     )
 
     model_snapshot = Path(
@@ -350,7 +461,7 @@ def test_local_esmfold2_v2_invokes_exact_source_bound_assets(
     )
 
     assert projection["status"] == "succeeded", projection
-    structures, confidence, pae = _fold_outputs(catalog, projection)
+    structures, observations, facts = _fold_outputs(catalog, projection)
     assert len(structures.items) == 1
     metadata = structures.items[0].metadata
     assert {
@@ -363,24 +474,49 @@ def test_local_esmfold2_v2_invokes_exact_source_bound_assets(
     }.isdisjoint(metadata)
     assert metadata["configured_base_seed"] == 1603
     assert type(metadata["effective_call_seed"]) is int
+    assert len(provider_calls) == 1
+    provider_call = provider_calls[0]
+    assert provider_call["model_type"] == (
+        "transformers.models.esmfold2.modeling_esmfold2.ESMFold2Model"
+    )
+    assert Path(provider_call["model_name_or_path"]).resolve() == (
+        model_snapshot.resolve()
+    )
+    assert provider_call["input_type"] == (
+        "esm.models.esmfold2."
+        "StructurePredictionInput"
+    )
+    assert provider_call["sequences"] == (("A", "AG"),)
+    assert provider_call["fold_parameters"] == {
+        "num_loops": 20,
+        "num_sampling_steps": 100,
+        "num_diffusion_samples": 1,
+        "seed": metadata["effective_call_seed"],
+        "lm_dropout": 0.3,
+        "lm_mask_pct": 0.1,
+        "msa_max_depth": 1024,
+        "msa_column_mask_rate": 0.1,
+        "complex_id": "protein-workbench-fold",
+    }
     assert structures.items[0].data.pdb_string
     assert {
         observation.method.contract_id
-        for observation in (*confidence.entries, *pae.entries)
+        for observation in observations.entries
     } == {"folding.fold.esmfold2_hf_1ebf0e3"}
+    assert len(facts.entries) == 1
     readiness_index = next(
         index
         for index, event in enumerate(events)
         if event["event"]["type"] == "readiness_attested"
         and event["event"]["binding"]["contract_id"]
         == "folding.fold.esmfold2_local"
-        and event["event"]["binding"]["contract_version"] == "3.0.0"
+        and event["event"]["binding"]["contract_version"] == "6.0.0"
         and event["event"]["conclusion"] == "passing"
     )
     binding = catalog.require_contract(
         "binding",
         "folding.fold.esmfold2_local",
-        "3.0.0",
+        "6.0.0",
     )
     method_ref = binding.descriptor["method"]
     method = catalog.require_contract(

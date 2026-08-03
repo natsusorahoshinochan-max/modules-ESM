@@ -2,26 +2,66 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
 from typing import Any, Mapping, Protocol
 
 from core import OperationCall, ResolvedProducedObservation, RunResources
 from datatypes import (
+    Candidate,
     CandidateCollection,
+    CandidateDataReference,
     ExactContractReference,
     PairwiseObservationContext,
     PairwiseParticipant,
+    ProteinPrompt,
     ProteinStructure,
+    ResidueAxisReference,
+    ResolvedStructureResidueAxis,
+    ResidueTrack,
     ScoreCollection,
     ScoreObservation,
 )
+from modules.structure_transform import (
+    CandidateResolvedResidueAxisAssociations,
+)
+from modules.structure_transform.port_types import RESOLVED_AXIS_PORT_TYPE
 
 from .domain import DSSPAnnotation, StructureAnnotationTrack
+
+
+_ANNOTATION_TO_PROMPT_SS = {
+    "G": "G",
+    "H": "H",
+    "I": "I",
+    "T": "T",
+    "E": "E",
+    "B": "B",
+    "S": "S",
+    "C": "-",
+    "_": None,
+}
+_PROMPT_TO_ANNOTATION_SS = {
+    "G": "G",
+    "H": "H",
+    "I": "I",
+    "T": "T",
+    "E": "E",
+    "B": "B",
+    "S": "S",
+    "-": "C",
+    None: "_",
+}
 
 
 class _DSSPAdapter(Protocol):
     """Canonical-only internal seam used by the DSSP Operation."""
 
-    def annotate(self, structure: ProteinStructure) -> DSSPAnnotation: ...
+    def annotate(
+        self,
+        residue_axis: ResolvedStructureResidueAxis,
+        *,
+        subject: CandidateDataReference,
+    ) -> DSSPAnnotation: ...
 
 
 def _reject_parameters(call: OperationCall) -> None:
@@ -40,6 +80,39 @@ def _annotation_input(inputs: Mapping[str, Any]) -> DSSPAnnotation:
     return annotation
 
 
+def _singleton_candidate_reference(
+    call: OperationCall,
+    *,
+    port_name: str,
+    expected_data_type_id: str | None = None,
+) -> tuple[Candidate, CandidateDataReference]:
+    collection = call.inputs[port_name]
+    if type(collection) is not CandidateCollection or len(collection.items) != 1:
+        raise ValueError(f"{port_name} must contain exactly one Candidate")
+    candidate = collection.items[0]
+    if (
+        expected_data_type_id is not None
+        and collection.item_type != expected_data_type_id
+    ):
+        raise ValueError(
+            f"{port_name} must contain {expected_data_type_id} Candidates"
+        )
+    digest_record = call.input_content_digests.get(port_name)
+    if digest_record is None or len(digest_record.candidate_data) != 1:
+        raise ValueError(
+            f"{port_name} lacks one exact Candidate content identity"
+        )
+    reference = digest_record.candidate_data[0]
+    if (
+        reference.candidate_id != candidate.candidate_id
+        or reference.data_type_id != collection.item_type
+    ):
+        raise ValueError(
+            f"{port_name} lacks one exact Candidate content identity"
+        )
+    return candidate, reference
+
+
 class DSSPComputeOperation:
     """Expose mkdssp annotation through canonical scientific values only."""
 
@@ -48,16 +121,35 @@ class DSSPComputeOperation:
 
     def execute(self, call: OperationCall) -> dict[str, Any]:
         _reject_parameters(call)
-        if set(call.inputs) != {"structure"}:
+        if set(call.inputs) != {"structure_candidates", "residue_axes"}:
             raise ValueError(
-                "DSSP computation requires exactly one structure input"
+                "DSSP computation requires exactly one structure Candidate "
+                "and its resolved residue axis"
             )
-        structure = call.inputs["structure"]
-        if type(structure) is not ProteinStructure:
-            raise ValueError("DSSP computation requires one ProteinStructure")
-        annotation = self._adapter.annotate(structure)
-        if type(annotation) is not DSSPAnnotation:
-            raise RuntimeError("mkdssp Adapter returned a non-canonical value")
+        candidate, subject = _singleton_candidate_reference(
+            call,
+            port_name="structure_candidates",
+            expected_data_type_id="protein.structure",
+        )
+        if type(candidate.data) is not ProteinStructure:
+            raise ValueError(
+                "structure_candidates must contain one ProteinStructure Candidate"
+            )
+        associations = call.inputs["residue_axes"]
+        if (
+            type(associations) is not CandidateResolvedResidueAxisAssociations
+            or len(associations.entries) != 1
+            or associations.entries[0].subject != subject
+        ):
+            raise ValueError(
+                "residue_axes must contain one exact resolved residue-axis "
+                "association for the admitted structure Candidate"
+            )
+        residue_axis = associations.entries[0].residue_axis
+        annotation = self._adapter.annotate(
+            residue_axis,
+            subject=subject,
+        )
         return {"annotations": annotation}
 
 
@@ -72,6 +164,7 @@ class SecondaryStructureExtractOperation:
         annotation = _annotation_input(call.inputs)
         with self._resources.engine_invocation():
             track = StructureAnnotationTrack(
+                subject=annotation.subject,
                 layout=annotation.layout,
                 values=tuple(
                     "C" if value == "P" else value
@@ -92,10 +185,127 @@ class SASAComputeOperation:
         annotation = _annotation_input(call.inputs)
         with self._resources.engine_invocation():
             track = StructureAnnotationTrack(
+                subject=annotation.subject,
                 layout=annotation.layout,
                 values=annotation.sasa,
             )
         return {"sasa_track": track}
+
+
+class ApplySecondaryStructureToPromptOperation:
+    """Apply one exact annotation SS8 track to a ProteinPrompt."""
+
+    def __init__(self, resources: RunResources) -> None:
+        self._resources = resources
+
+    def execute(self, call: OperationCall) -> dict[str, Any]:
+        _reject_parameters(call)
+        if set(call.inputs) != {
+            "protein_prompt",
+            "secondary_structure_track",
+        }:
+            raise ValueError(
+                "secondary-structure Prompt conversion requires one Prompt "
+                "and one annotation track"
+            )
+        prompt = call.inputs["protein_prompt"]
+        track = call.inputs["secondary_structure_track"]
+        if type(prompt) is not ProteinPrompt:
+            raise ValueError("protein_prompt must be a ProteinPrompt")
+        if type(track) is not StructureAnnotationTrack:
+            raise ValueError(
+                "secondary_structure_track must be a structure-annotation track"
+            )
+        if prompt.target_layout != track.layout:
+            raise ValueError(
+                "Prompt and secondary-structure track layouts must be exactly equal"
+            )
+        with self._resources.engine_invocation():
+            values: list[str | None] = []
+            for value in track.values:
+                if value not in _ANNOTATION_TO_PROMPT_SS:
+                    raise ValueError(
+                        "annotation secondary structure uses an unsupported symbol"
+                    )
+                values.append(_ANNOTATION_TO_PROMPT_SS[value])
+            updated = replace(
+                prompt,
+                secondary_structure_track=ResidueTrack(values, None),
+            )
+        return {"protein_prompt": updated}
+
+
+class ApplySASAToPromptOperation:
+    """Apply exact DSSP solvent accessibility to a ProteinPrompt."""
+
+    def __init__(self, resources: RunResources) -> None:
+        self._resources = resources
+
+    def execute(self, call: OperationCall) -> dict[str, Any]:
+        _reject_parameters(call)
+        if set(call.inputs) != {"protein_prompt", "sasa_track"}:
+            raise ValueError(
+                "SASA Prompt conversion requires one Prompt and one "
+                "annotation track"
+            )
+        prompt = call.inputs["protein_prompt"]
+        track = call.inputs["sasa_track"]
+        if type(prompt) is not ProteinPrompt:
+            raise ValueError("protein_prompt must be a ProteinPrompt")
+        if type(track) is not StructureAnnotationTrack:
+            raise ValueError("sasa_track must be a structure-annotation track")
+        if prompt.target_layout != track.layout:
+            raise ValueError(
+                "Prompt and SASA track layouts must be exactly equal"
+            )
+        with self._resources.engine_invocation():
+            updated = replace(
+                prompt,
+                sasa_track=ResidueTrack(track.values, None),
+            )
+        return {"protein_prompt": updated}
+
+
+class ExpectedSecondaryStructureFromPromptOperation:
+    """Project Prompt conditioning as an expected annotation SS8 track."""
+
+    def __init__(self, resources: RunResources) -> None:
+        self._resources = resources
+
+    def execute(self, call: OperationCall) -> dict[str, Any]:
+        _reject_parameters(call)
+        if set(call.inputs) != {"protein_prompt", "references"}:
+            raise ValueError(
+                "expected secondary structure requires exactly one Prompt "
+                "and one reference"
+            )
+        prompt = call.inputs["protein_prompt"]
+        if type(prompt) is not ProteinPrompt:
+            raise ValueError("protein_prompt must be a ProteinPrompt")
+        if prompt.target_layout is None:
+            raise ValueError("ProteinPrompt must carry an exact target layout")
+        if prompt.secondary_structure_track is None:
+            raise ValueError(
+                "ProteinPrompt must carry a secondary-structure track"
+            )
+        _, reference = _singleton_candidate_reference(
+            call,
+            port_name="references",
+        )
+        with self._resources.engine_invocation():
+            values: list[str] = []
+            for value in prompt.secondary_structure_track.values:
+                if value not in _PROMPT_TO_ANNOTATION_SS:
+                    raise ValueError(
+                        "Prompt secondary structure uses an unsupported symbol"
+                    )
+                values.append(_PROMPT_TO_ANNOTATION_SS[value])
+            track = StructureAnnotationTrack(
+                subject=reference,
+                layout=prompt.target_layout,
+                values=tuple(values),
+            )
+        return {"secondary_structure_track": track}
 
 
 class SecondaryStructureAgreementOperation:
@@ -124,25 +334,6 @@ class SecondaryStructureAgreementOperation:
             )
         return matches[0]
 
-    @staticmethod
-    def _candidate_digest(
-        call: OperationCall,
-        *,
-        port_name: str,
-        candidate_id: str,
-    ) -> str:
-        digest_record = call.input_content_digests[port_name]
-        matches = tuple(
-            candidate.content_digest
-            for candidate in digest_record.candidate_data
-            if candidate.candidate_id == candidate_id
-        )
-        if len(matches) != 1:
-            raise ValueError(
-                f"{port_name} lacks one exact Candidate content identity"
-            )
-        return matches[0]
-
     def execute(self, call: OperationCall) -> dict[str, Any]:
         _reject_parameters(call)
         inputs = call.inputs
@@ -151,33 +342,33 @@ class SecondaryStructureAgreementOperation:
             "references",
             "expected",
             "observed",
+            "subject_residue_axes",
         }:
             raise ValueError(
                 "secondary-structure agreement requires subjects, references, "
-                "expected, and observed"
+                "expected, observed, and the subject residue axis"
             )
-        subjects = inputs["subjects"]
-        references = inputs["references"]
         expected = inputs["expected"]
         observed = inputs["observed"]
+        _, subject_reference = _singleton_candidate_reference(
+            call,
+            port_name="subjects",
+        )
+        _, reference_reference = _singleton_candidate_reference(
+            call,
+            port_name="references",
+        )
+        associations = inputs["subject_residue_axes"]
         if (
-            type(subjects) is not CandidateCollection
-            or len(subjects.items) != 1
-            or not subjects.items[0].candidate_id
+            type(associations) is not CandidateResolvedResidueAxisAssociations
+            or len(associations.entries) != 1
+            or associations.entries[0].subject != subject_reference
         ):
             raise ValueError(
-                "secondary-structure agreement requires exactly one "
-                "identified Candidate"
+                "subject_residue_axes must contain one exact resolved "
+                "residue-axis association for the admitted subject Candidate"
             )
-        if (
-            type(references) is not CandidateCollection
-            or len(references.items) != 1
-            or not references.items[0].candidate_id
-        ):
-            raise ValueError(
-                "secondary-structure agreement requires exactly one "
-                "identified reference Candidate"
-            )
+        residue_axis = associations.entries[0].residue_axis
         if (
             type(expected) is not StructureAnnotationTrack
             or type(observed) is not StructureAnnotationTrack
@@ -185,9 +376,22 @@ class SecondaryStructureAgreementOperation:
             raise ValueError(
                 "agreement inputs must be exact structure-annotation tracks"
             )
+        if observed.subject != subject_reference:
+            raise ValueError(
+                "observed track subject must equal the admitted subject Candidate"
+            )
+        if expected.subject != reference_reference:
+            raise ValueError(
+                "expected track subject must equal the admitted reference Candidate"
+            )
         if expected.layout != observed.layout:
             raise ValueError(
                 "agreement tracks must carry one identical exact layout"
+            )
+        if residue_axis.layout != observed.layout:
+            raise ValueError(
+                "agreement tracks must equal the authoritative subject "
+                "residue-axis layout"
             )
         if (
             len(expected.values) != expected.layout.length
@@ -212,39 +416,41 @@ class SecondaryStructureAgreementOperation:
                 expected_value == observed_value
                 for expected_value, observed_value in compared
             ) / len(compared)
-            subject = subjects.items[0]
-            reference = references.items[0]
-            subject_digest = self._candidate_digest(
-                call,
-                port_name="subjects",
-                candidate_id=subject.candidate_id,
-            )
-            reference_digest = self._candidate_digest(
-                call,
-                port_name="references",
-                candidate_id=reference.candidate_id,
-            )
             produced = self._produced_observation()
             profile = produced.context_profile
             observation = ScoreObservation(
-                candidate_id=subject.candidate_id,
+                subject=subject_reference,
                 metric=produced.metric,
                 method=self._method,
                 context=PairwiseObservationContext(
                     subject=PairwiseParticipant(
                         role="subject",
-                        candidate_id=subject.candidate_id,
-                        content_digest=subject_digest,
+                        candidate=subject_reference,
                     ),
                     reference=PairwiseParticipant(
                         role="reference",
-                        candidate_id=reference.candidate_id,
-                        content_digest=reference_digest,
+                        candidate=reference_reference,
                     ),
                     pairing_mode=str(profile["pairing_mode"]),
                     normalization=str(profile["normalization"]),
                 ),
                 value=agreement,
+                residue_axis=ResidueAxisReference(
+                    axis_kind="resolved_structure",
+                    axis_contract=ExactContractReference(
+                        contract_kind="port_type",
+                        contract_id=RESOLVED_AXIS_PORT_TYPE.type_id,
+                        contract_version=RESOLVED_AXIS_PORT_TYPE.version,
+                        contract_digest=(
+                            RESOLVED_AXIS_PORT_TYPE.contract_digest
+                        ),
+                    ),
+                    axis_content_digest=(
+                        RESOLVED_AXIS_PORT_TYPE.content_digest(residue_axis)
+                    ),
+                    source=subject_reference,
+                    layout=residue_axis.layout,
+                ),
                 source_partition=produced.output_partition,
             )
         return {

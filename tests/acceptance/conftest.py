@@ -36,7 +36,7 @@ from modules.folding.simplefold_confidence_adapter import (
 # Project root is three levels up from this file
 PROJECT_ROOT = Path(__file__).parent.parent.parent
 PDB_3GB1_SHA256 = (
-    "1d061dc4998f18fe9a7cd8ada15b4b4bcf9d117ca9bb9ee139a79713857cccdf"
+    "ee623d3d9fd77a131895dc367c31ac8d7266b1d4f241b56325170e5f62ed7811"
 )
 SEQUENCE_3GB1_SHA256 = (
     "7e859d82171047700fd3e9632f7a47eab4a39baedc8c3316d2fc62d3ce2260bb"

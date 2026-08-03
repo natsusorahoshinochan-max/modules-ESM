@@ -1,7 +1,7 @@
 # Protein Workbench 理论 Workflow 可用性调试任务与测试合同
 
 日期：2026-07-31  
-状态：测试合同已闭合；待按本文执行
+状态：历史调试基线；测试合同已经执行，本文件中的版本矩阵保留为当时快照
 
 ## 1. 文档地位
 
@@ -185,7 +185,7 @@ Workflow 不证明荧光、光谱性质、成熟效率或实验稳定性。
 → 声明 chromophore/关键位置固定约束
 → ProteinMPNN 生成 sequence Candidate Collection
 → 通过准确 folding Binding 独立折叠
-→ 与 2EMO reference 做 residue-mapped Structure Alignment
+→ 与 2EMO reference 产生 residue-mapped Structure Alignment Evidence
 → 产生 TM-score、RMSD、folding confidence 和 solubility Observations
 → 通过显式阈值或注册 Utility 选择
 → 导出 Candidate 和完整 Run Evidence
@@ -288,7 +288,7 @@ Workflow 不证明荧光、光谱性质、成熟效率或实验稳定性。
 
 ### 7.8 结构比较与 Evidence 要求
 
-Structure Alignment 和下游 Metric 必须明确：
+Structure Alignment Evidence 和下游 Metric 必须明确：
 
 - subject/reference Candidate；
 - 实际参与 alignment 的 residue correspondence；
@@ -562,7 +562,7 @@ SimpleFold structure → input structure reference
 
 每一路至少产生：
 
-- 明确的 Structure Alignment；
+- 明确的 Structure Alignment Evidence；
 - reference-normalized TM-score；
 - RMSD；
 - subject/reference Candidate identity；

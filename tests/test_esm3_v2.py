@@ -28,7 +28,6 @@ from core import (
     build_discovered_frozen_catalog,
     build_frozen_catalog,
     discover_module_packages,
-    parse_workflow_document,
     verify_module_package_contract,
 )
 from core.port_types import canonical_json_bytes
@@ -61,6 +60,7 @@ def test_esm_package_owns_generation_and_direct_esmc_representation_nodes() -> N
         "definitions/generate_paired.yaml",
         "definitions/represent_sequence.yaml",
     }
+    assert registration.metric_definitions == ()
 
     catalog = build_discovered_frozen_catalog()
     owned_nodes = {
@@ -70,16 +70,16 @@ def test_esm_package_owns_generation_and_direct_esmc_representation_nodes() -> N
         and "esm3" in catalog.owners[(kind, contract_id, version)]
     }
     assert owned_nodes == {
-        ("esm3.generate_sequence", "3.0.0"),
-        ("esm3.generate_structure", "3.0.0"),
-        ("esm3.generate_paired", "3.0.0"),
-        ("esm3.represent_sequence", "2.1.0"),
+        ("esm3.generate_sequence", "7.0.0"),
+        ("esm3.generate_structure", "7.0.0"),
+        ("esm3.generate_paired", "7.0.0"),
+        ("esm3.represent_sequence", "5.0.0"),
     }
 
     representation = catalog.require_contract(
         "node_type",
         "esm3.represent_sequence",
-        "2.1.0",
+        "5.0.0",
     )
     assert representation.descriptor["inputs"][0]["port_type"][
         "contract_id"
@@ -93,7 +93,7 @@ def test_esm_package_owns_generation_and_direct_esmc_representation_nodes() -> N
     binding = catalog.require_contract(
         "binding",
         "esm3.represent_sequence.biohub_esmc_600m_2024_12",
-        "2.2.0",
+        "5.0.0",
     )
     assert binding.descriptor["method"]["contract_id"] == (
         "esm3.represent_sequence.esmc_600m_2024_12"
@@ -113,7 +113,9 @@ def test_esm_package_owns_generation_and_direct_esmc_representation_nodes() -> N
         "source": "Biohub",
         "provider_operations": ("encode", "logits"),
         "output_contract": (
-            "provider mean embedding plus validated sequence-logits shape"
+            "locked-SDK-normalized mean embedding with 1152 values plus "
+            "exact (L + 2, 64) sequence-logits shape on the encoded "
+            "token axis"
         ),
     }
     assert binding.descriptor["readiness_declaration"]["prerequisites"] == {
@@ -130,6 +132,53 @@ def test_esm_package_owns_generation_and_direct_esmc_representation_nodes() -> N
                 "917af90b624535eed1e072d343c717e3ec11fef4"
             ),
         },
+    }
+
+    sequence_generation = catalog.require_contract(
+        "node_type", "esm3.generate_sequence", "7.0.0"
+    )
+    assert sequence_generation.descriptor["node_parameters"]["num_steps"][
+        "scientific_meaning"
+    ].startswith("Requested upper bound")
+    generation_method = catalog.require_contract(
+        "method", "esm3.generate_sequence.esm3_medium_2024_08", "5.0.0"
+    )
+    assert generation_method.descriptor["algorithm_identity"][
+        "step_count_contract"
+    ] == {
+        "requested": "num_steps is an upper bound",
+        "effective": (
+            "official Forge clamps the request to the encoded sequence length"
+        ),
+        "evidence": "requested and effective num_steps recorded per call",
+    }
+    assert generation_method.descriptor["scale_contract"][
+        "provider_tensor_shapes"
+    ] == {
+        "ptm": "scalar",
+        "plddt": "L",
+        "pae": "L_by_L_or_none",
+    }
+    local_generation_method = catalog.require_contract(
+        "method", "esm3.generate_sequence.esm3_sm_open_v1_local", "5.0.0"
+    )
+    assert local_generation_method.descriptor["algorithm_identity"][
+        "step_count_contract"
+    ] == {
+        "requested": "num_steps is an upper bound",
+        "effective": (
+            "official local generation clamps the request to the number of "
+            "sampled positions for the selected track"
+        ),
+        "evidence": "requested and effective num_steps recorded per call",
+    }
+    assert local_generation_method.descriptor["scale_contract"][
+        "provider_tensor_shapes"
+    ] == {
+        "ptm": "singleton_1",
+        "plddt": "L_after_SDK_BOS_EOS_removal",
+        "pae": "1_by_L_plus_2_by_L_plus_2_or_none",
+        "pae_translation": "select_batch_0_then_remove_BOS_and_EOS",
     }
 
     models = (
@@ -152,7 +201,7 @@ def test_esm_package_owns_generation_and_direct_esmc_representation_nodes() -> N
         node = catalog.require_contract(
             "node_type",
             f"esm3.{operation}",
-            "3.0.0",
+            "7.0.0",
         )
         assert "model_name" not in node.descriptor["node_parameters"]
         if operation in {"generate_sequence", "generate_paired"}:
@@ -166,15 +215,26 @@ def test_esm_package_owns_generation_and_direct_esmc_representation_nodes() -> N
             binding = catalog.require_contract(
                 "binding",
                 f"esm3.{operation}.{route}",
-                "3.0.0",
+                "7.0.0",
             )
             assert "model_name" not in (
                 binding.descriptor["binding_parameters"]
             )
             assert binding.descriptor["execution_route"] == "adapter"
+            assert binding.descriptor["implementation_identity"]["adapter"][
+                "parameters"
+            ]["track_translation"] == "documented-provider-output"
             assert binding.descriptor["method"]["contract_id"] == (
                 f"esm3.{operation}.esm3_{method_suffix}"
             )
+            assert binding.descriptor["method"]["contract_version"] == (
+                "5.0.0"
+            )
+            assert "effective_randomness_parameters" not in binding.descriptor
+            assert "effective_randomness_resolver" not in (
+                binding.descriptor["implementation_identity"]
+            )
+            assert binding.descriptor["produced_observations"] == ()
             assert (
                 binding.descriptor["implementation_identity"]["model"]
                 == model_name
@@ -214,6 +274,12 @@ def test_direct_esmc_representation_crosses_public_run_and_engine_seams(
         MODULE_PACKAGE as PROMPT_AUTHORING_PACKAGE,
     )
     from modules.protein_io.package import MODULE_PACKAGE as PROTEIN_IO_PACKAGE
+    from modules.structure_prediction.package import (
+        MODULE_PACKAGE as STRUCTURE_PREDICTION_PACKAGE,
+    )
+    from modules.structure_transform.package import (
+        MODULE_PACKAGE as STRUCTURE_TRANSFORM_PACKAGE,
+    )
 
     class ESMCClient:
         def __init__(self) -> None:
@@ -239,6 +305,8 @@ def test_direct_esmc_representation_crosses_public_run_and_engine_seams(
         ESM3_PACKAGE,
         PROMPT_AUTHORING_PACKAGE,
         PROTEIN_IO_PACKAGE,
+        STRUCTURE_PREDICTION_PACKAGE,
+        STRUCTURE_TRANSFORM_PACKAGE,
     ))
     projects = ProjectManager(
         tmp_path / "projects",
@@ -247,7 +315,12 @@ def test_direct_esmc_representation_crosses_public_run_and_engine_seams(
         run_root=tmp_path / "runs",
     )
     project = projects.create("direct ESMC representation")
-    projects.publish_input(project.id, "sequence.fasta", b">3GB1\nACD\n")
+    projects.publish_input(
+        project.id,
+        "sequence.fasta",
+        b">3GB1\nACD\n",
+        filename="sequence.fasta",
+    )
     authoring = WorkflowAuthoringService(projects, catalog)
     workflow = WorkflowDocument(
         schema_version="2.1.0",
@@ -256,20 +329,20 @@ def test_direct_esmc_representation_crosses_public_run_and_engine_seams(
             WorkflowNodeInstance(
                 node_id="import",
                 node_type_id="protein_io.import_sequence",
-                node_type_version="3.0.0",
+                node_type_version="5.0.0",
                 binding_id="protein_io.import_sequence.direct",
-                binding_version="3.0.0",
+                binding_version="5.0.0",
                 node_parameters={"project_input_ref": "sequence.fasta"},
                 binding_parameters={},
             ),
             WorkflowNodeInstance(
                 node_id="represent",
                 node_type_id="esm3.represent_sequence",
-                node_type_version="2.1.0",
+                node_type_version="5.0.0",
                 binding_id=(
                     "esm3.represent_sequence.biohub_esmc_600m_2024_12"
                 ),
-                binding_version="2.2.0",
+                binding_version="5.0.0",
                 node_parameters={},
                 binding_parameters={},
             ),
@@ -279,25 +352,16 @@ def test_direct_esmc_representation_crosses_public_run_and_engine_seams(
         ),
         contract_lock=(),
     )
-    saved = authoring.save(
+    committed = authoring.commit(
         project.id,
-        expected_workflow_revision=0,
+        expected_draft_revision=0,
         workflow=workflow,
-    )
-    relocked = authoring.relock(
-        project.id,
-        workflow_revision=saved["workflow_revision"],
-    )
-    compiled = authoring.compile(
-        project.id,
-        workflow_revision=relocked["workflow_revision"],
-        workflow=parse_workflow_document(relocked["workflow"]),
     )
     client = ESMCClient()
     environment = EnvironmentConfiguration({
         (
             "esm3.represent_sequence.biohub_esmc_600m_2024_12",
-            "2.2.0",
+            "5.0.0",
         ): {
             "values": {
                 "endpoint_id": "biohub",
@@ -312,8 +376,7 @@ def test_direct_esmc_representation_crosses_public_run_and_engine_seams(
     try:
         receipt = service.start_background(
             project.id,
-            workflow_revision=relocked["workflow_revision"],
-            compile_id=compiled.public_receipt()["compile_id"],
+            workflow_commit_id=committed.workflow_commit_id,
             client_request_id="direct-esmc",
         )
         service.shutdown()
@@ -346,7 +409,7 @@ def test_direct_esmc_representation_crosses_public_run_and_engine_seams(
     method = catalog.require_contract(
         "method",
         "esm3.represent_sequence.esmc_600m_2024_12",
-        "2.1.0",
+        "3.0.0",
     )
     assert {event["engine_identity"] for event in started} == {
         method.contract_digest
@@ -372,13 +435,13 @@ def test_direct_esmc_representation_crosses_public_run_and_engine_seams(
 
     port_type = catalog.require_port_type(
         "esm3.esmc_sequence_representation",
-        "2.1.0",
+        "4.0.0",
     )
     assert port_type.decode(port_type.encode(representation)) == representation
     integer_form_embedding = ESMCSequenceRepresentation(
         sequence="ACD",
         residue_ids=None,
-        mean_embedding=(0.0, 1.0),
+        mean_embedding=(0.0, 1.0) + (0.0,) * 1150,
         sequence_logits_shape=(5, 64),
     )
     assert (
@@ -389,61 +452,52 @@ def test_direct_esmc_representation_crosses_public_run_and_engine_seams(
         ESMCSequenceRepresentation(
             sequence="ACD",
             residue_ids=("A:1", "A:2", "A:3"),
-            mean_embedding=(float("nan"),),
+            mean_embedding=(float("nan"),) + (0.0,) * 1151,
             sequence_logits_shape=(5, 64),
         )
     with pytest.raises(ValueError, match="binary32"):
         ESMCSequenceRepresentation(
             sequence="ACD",
             residue_ids=None,
-            mean_embedding=(1e300,),
+            mean_embedding=(1e300,) + (0.0,) * 1151,
             sequence_logits_shape=(5, 64),
         )
     with pytest.raises(ValueError, match="negative zero"):
         ESMCSequenceRepresentation(
             sequence="ACD",
             residue_ids=None,
-            mean_embedding=(-0.0,),
+            mean_embedding=(-0.0,) + (0.0,) * 1151,
             sequence_logits_shape=(5, 64),
         )
-
-
-def test_exact_esmc_rejects_contract_mismatched_feature_dimensions() -> None:
-    import torch
-
-    from modules.esm3.esmc_adapter import normalize_representation
-
-    sequence = ProteinSequence("ACD")
-
-    def result(
-        embedding_dimension: int,
-        logits_dimension: int,
-    ) -> SimpleNamespace:
-        return SimpleNamespace(
-            logits=SimpleNamespace(
-                sequence=torch.zeros(
-                    (5, logits_dimension),
-                    dtype=torch.float32,
-                )
-            ),
-            mean_embedding=torch.zeros(
-                (1, 1, embedding_dimension),
-                dtype=torch.float32,
-            ),
+    with pytest.raises(ValueError, match="1152"):
+        ESMCSequenceRepresentation(
+            sequence="ACD",
+            residue_ids=None,
+            mean_embedding=(0.0,),
+            sequence_logits_shape=(5, 64),
         )
-
-    with pytest.raises(ValueError, match="embedding dimension"):
-        normalize_representation(
-            sequence,
-            result(1151, 64),
-            model_name="esmc-600m-2024-12",
+    with pytest.raises(ValueError, match=r"\(L \+ 2, 64\)"):
+        ESMCSequenceRepresentation(
+            sequence="ACD",
+            residue_ids=None,
+            mean_embedding=(0.0,) * 1152,
+            sequence_logits_shape=(1, 5, 64),
         )
-    with pytest.raises(ValueError, match="logits dimension"):
-        normalize_representation(
-            sequence,
-            result(1152, 63),
-            model_name="esmc-600m-2024-12",
+    with pytest.raises(ValueError, match="exact integer"):
+        ESMCSequenceRepresentation(
+            sequence="ACD",
+            residue_ids=None,
+            mean_embedding=(0.0,) * 1152,
+            sequence_logits_shape=(True, 64),
         )
+    encoded = port_type.encode(representation)
+    boolean_shape = encoded.replace(
+        b'"sequence_logits_shape":[5,64]',
+        b'"sequence_logits_shape":[true,64]',
+    )
+    assert boolean_shape != encoded
+    with pytest.raises(ValueError, match="exact integer"):
+        port_type.decode(boolean_shape)
 
 
 def test_biohub_esmc_adapter_owns_both_sdk_calls_and_result_admission() -> None:
@@ -468,7 +522,10 @@ def test_biohub_esmc_adapter_owns_both_sdk_calls_and_result_admission() -> None:
             self.calls.append("logits")
             return SimpleNamespace(
                 logits=SimpleNamespace(sequence=torch.zeros((5, 64))),
-                mean_embedding=torch.zeros((1152,)),
+                mean_embedding=torch.cat((
+                    torch.tensor([-0.0]),
+                    torch.zeros(1151),
+                )).reshape(1, 1, 1152),
             )
 
     class InvocationResources:
@@ -719,6 +776,12 @@ def test_biohub_adapter_preserves_paired_engine_causality_and_confidence(
             yield f"invocation-{len(self.invocations)}"
 
     sequence_response = _ProviderResponse("ACD")
+    provider_pdb = (
+        _three_residue_pdb()
+        .replace("ALA", "GLY")
+        .replace("CYS", "GLY")
+        .replace("ASP", "GLY")
+    )
     structure_response = _ProviderResponse(
         "ACD",
         coordinates=torch.zeros((3, 37, 3)),
@@ -731,7 +794,7 @@ def test_biohub_adapter_preserves_paired_engine_causality_and_confidence(
                 [2.0, 1.0, 0.0],
             ]
         ),
-        pdb_string=_three_residue_pdb(),
+        pdb_string=provider_pdb.removesuffix("END\n"),
     )
     resources = InvocationResources()
     adapter = BiohubESM3Adapter(
@@ -775,8 +838,12 @@ def test_biohub_adapter_preserves_paired_engine_causality_and_confidence(
         effective_call_seed=None,
     )
     assert type(result.structure) is ESM3StructureResult
+    assert result.structure.sequence == ProteinSequence(
+        "ACD",
+        ["A:1", "A:2", "A:3"],
+    )
     assert result.structure.structure == ProteinStructure(
-        _three_residue_pdb(),
+        provider_pdb,
     )
     assert type(result.structure.confidence) is ESM3Confidence
     confidence = result.structure.confidence
@@ -855,10 +922,9 @@ def test_esm3_call_seed_uses_prompt_content_and_stable_sample_track_slot() -> No
             method=ExactContractReference(
                 "method",
                 "esm3.generate_sequence.fixture",
-                "3.0.0",
+                "4.0.0",
                 "sha256:" + "3" * 64,
             ),
-            produced_observations=(),
         )
         operation.execute(
             OperationCall(
@@ -965,21 +1031,32 @@ def _run_generation(
     sequence_mask_residue_ids: tuple[str, ...] = (),
     safe_environment_fingerprint: str | None = None,
     invalidation_token: str | None = None,
+    materialize_confidence: bool = False,
 ) -> tuple[Any, dict[str, Any], tuple[dict[str, Any], ...]]:
     from modules.esm3.package import MODULE_PACKAGE as ESM3_PACKAGE
     from modules.prompt_authoring.package import (
         MODULE_PACKAGE as PROMPT_AUTHORING_PACKAGE,
     )
     from modules.protein_io.package import MODULE_PACKAGE as PROTEIN_IO_PACKAGE
+    from modules.structure_transform.package import (
+        MODULE_PACKAGE as STRUCTURE_TRANSFORM_PACKAGE,
+    )
+    from modules.structure_prediction.package import (
+        MODULE_PACKAGE as STRUCTURE_PREDICTION_PACKAGE,
+    )
 
-    supporting = [PROMPT_AUTHORING_PACKAGE]
+    supporting = [
+        PROMPT_AUTHORING_PACKAGE,
+        STRUCTURE_PREDICTION_PACKAGE,
+        STRUCTURE_TRANSFORM_PACKAGE,
+    ]
     nodes = [
         WorkflowNodeInstance(
             node_id="layout",
             node_type_id="prompt_authoring.build_residue_layout",
-            node_type_version="2.1.0",
+            node_type_version="3.0.0",
             binding_id="prompt_authoring.build_residue_layout.direct",
-            binding_version="2.1.0",
+            binding_version="3.0.0",
             node_parameters={
                 "chains": [
                     {
@@ -993,9 +1070,9 @@ def _run_generation(
         WorkflowNodeInstance(
             node_id="assemble",
             node_type_id="prompt_authoring.assemble_protein_prompt",
-            node_type_version="2.1.0",
+            node_type_version="3.0.0",
             binding_id="prompt_authoring.assemble_protein_prompt.direct",
-            binding_version="2.1.0",
+            binding_version="3.0.0",
             node_parameters={},
             binding_parameters={},
         ),
@@ -1013,18 +1090,18 @@ def _run_generation(
                 WorkflowNodeInstance(
                     node_id="import_sequence",
                     node_type_id="protein_io.import_sequence",
-                    node_type_version="3.0.0",
+                    node_type_version="5.0.0",
                     binding_id="protein_io.import_sequence.direct",
-                    binding_version="3.0.0",
+                    binding_version="5.0.0",
                     node_parameters={"project_input_ref": "sequence-input"},
                     binding_parameters={},
                 ),
                 WorkflowNodeInstance(
                     node_id="update_sequence",
                     node_type_id="prompt_authoring.update_prompt_sequence",
-                    node_type_version="2.1.0",
+                    node_type_version="3.0.0",
                     binding_id="prompt_authoring.update_prompt_sequence.direct",
-                    binding_version="2.1.0",
+                    binding_version="3.0.0",
                     node_parameters={},
                     binding_parameters={},
                 ),
@@ -1052,9 +1129,9 @@ def _run_generation(
                 WorkflowNodeInstance(
                     node_id="mask_sequence",
                     node_type_id="prompt_authoring.random_mask",
-                    node_type_version="2.1.0",
+                    node_type_version="3.0.0",
                     binding_id="prompt_authoring.random_mask.direct",
-                    binding_version="2.1.0",
+                    binding_version="3.0.0",
                     node_parameters={
                         "effective_seed": 1603,
                         "count": len(sequence_mask_residue_ids),
@@ -1084,9 +1161,9 @@ def _run_generation(
         WorkflowNodeInstance(
             node_id="generate",
             node_type_id=f"esm3.{operation}",
-            node_type_version="3.0.0",
+            node_type_version="7.0.0",
             binding_id=f"esm3.{operation}.{binding_route}",
-            binding_version="3.0.0",
+            binding_version="7.0.0",
             node_parameters=resolved_generation_parameters,
             binding_parameters={},
         )
@@ -1099,6 +1176,42 @@ def _run_generation(
             "protein_prompt",
         )
     )
+    if materialize_confidence:
+        if operation != "generate_structure":
+            raise ValueError(
+                "confidence materialization fixture requires structure generation"
+            )
+        nodes.append(
+            WorkflowNodeInstance(
+                node_id="materialize-confidence",
+                node_type_id=(
+                    "structure_prediction.materialize_confidence"
+                ),
+                node_type_version="1.0.0",
+                binding_id=(
+                    "structure_prediction.materialize_confidence.direct"
+                ),
+                binding_version="1.0.0",
+                node_parameters={},
+                binding_parameters={},
+            )
+        )
+        edges.extend(
+            (
+                WorkflowEdge(
+                    "generate",
+                    "structure_candidates",
+                    "materialize-confidence",
+                    "structure_candidates",
+                ),
+                WorkflowEdge(
+                    "generate",
+                    "confidence_facts",
+                    "materialize-confidence",
+                    "confidence_facts",
+                ),
+            )
+        )
 
     catalog = build_frozen_catalog((ESM3_PACKAGE, *supporting))
     projects = ProjectManager(
@@ -1109,7 +1222,12 @@ def _run_generation(
     )
     project = projects.create(f"ESM3 {operation}")
     for reference, payload in project_inputs.items():
-        projects.publish_input(project.id, reference, payload)
+        projects.publish_input(
+            project.id,
+            reference,
+            payload,
+            filename=reference,
+        )
     authoring = WorkflowAuthoringService(projects, catalog)
     workflow = WorkflowDocument(
         schema_version="2.1.0",
@@ -1118,19 +1236,10 @@ def _run_generation(
         edges=tuple(edges),
         contract_lock=(),
     )
-    saved = authoring.save(
+    committed = authoring.commit(
         project.id,
-        expected_workflow_revision=0,
+        expected_draft_revision=0,
         workflow=workflow,
-    )
-    relocked = authoring.relock(
-        project.id,
-        workflow_revision=saved["workflow_revision"],
-    )
-    compiled = authoring.compile(
-        project.id,
-        workflow_revision=relocked["workflow_revision"],
-        workflow=parse_workflow_document(relocked["workflow"]),
     )
     environment_values = {
         "endpoint_id": "biohub",
@@ -1142,7 +1251,7 @@ def _run_generation(
     environment_values.update(environment_overrides or {})
     environment = EnvironmentConfiguration(
         {
-            (f"esm3.{operation}.{binding_route}", "3.0.0"): {
+            (f"esm3.{operation}.{binding_route}", "7.0.0"): {
                 "values": environment_values,
                 "safe_fingerprint": (
                     safe_environment_fingerprint
@@ -1164,8 +1273,7 @@ def _run_generation(
     try:
         receipt = service.start_background(
             project.id,
-            workflow_revision=relocked["workflow_revision"],
-            compile_id=compiled.public_receipt()["compile_id"],
+            workflow_commit_id=committed.workflow_commit_id,
             client_request_id=f"esm3-{operation}",
         )
         service.shutdown()
@@ -1308,7 +1416,7 @@ def test_open_binding_factory_receives_its_exact_model(
     binding = catalog.require_contract(
         "binding",
         "esm3.generate_sequence.biohub_open",
-        "3.0.0",
+        "7.0.0",
     )
     method = catalog.require_contract(
         "method",
@@ -1343,12 +1451,24 @@ def _run_generation_from_prompt_fixture(
     from modules.prompt_authoring.package import (
         MODULE_PACKAGE as PROMPT_AUTHORING_PACKAGE,
     )
+    from modules.structure_transform.package import (
+        MODULE_PACKAGE as STRUCTURE_TRANSFORM_PACKAGE,
+    )
+    from modules.structure_prediction.package import (
+        MODULE_PACKAGE as STRUCTURE_PREDICTION_PACKAGE,
+    )
     from tests.fixtures.esm3_sources.package import (
         MODULE_PACKAGE as SOURCE_PACKAGE,
     )
 
     catalog = build_frozen_catalog(
-        (ESM3_PACKAGE, PROMPT_AUTHORING_PACKAGE, SOURCE_PACKAGE)
+        (
+            ESM3_PACKAGE,
+            PROMPT_AUTHORING_PACKAGE,
+            SOURCE_PACKAGE,
+            STRUCTURE_PREDICTION_PACKAGE,
+            STRUCTURE_TRANSFORM_PACKAGE,
+        )
     )
     projects = ProjectManager(
         tmp_path / "projects",
@@ -1365,18 +1485,18 @@ def _run_generation_from_prompt_fixture(
             WorkflowNodeInstance(
                 node_id="source",
                 node_type_id="contract_test.esm3_prompt_source",
-                node_type_version="2.1.0",
+                node_type_version="3.0.0",
                 binding_id="contract_test.esm3_prompt_source.direct",
-                binding_version="2.1.0",
+                binding_version="3.0.0",
                 node_parameters={"mode": mode},
                 binding_parameters={},
             ),
             WorkflowNodeInstance(
                 node_id="generate",
                 node_type_id=f"esm3.{operation}",
-                node_type_version="3.0.0",
+                node_type_version="7.0.0",
                 binding_id=f"esm3.{operation}.{binding_route}",
-                binding_version="3.0.0",
+                binding_version="7.0.0",
                 node_parameters={
                     "effective_seed": 1603,
                     "num_samples": num_samples,
@@ -1394,23 +1514,14 @@ def _run_generation_from_prompt_fixture(
         ),
         contract_lock=(),
     )
-    saved = authoring.save(
+    committed = authoring.commit(
         project.id,
-        expected_workflow_revision=0,
+        expected_draft_revision=0,
         workflow=workflow,
-    )
-    relocked = authoring.relock(
-        project.id,
-        workflow_revision=saved["workflow_revision"],
-    )
-    compiled = authoring.compile(
-        project.id,
-        workflow_revision=relocked["workflow_revision"],
-        workflow=parse_workflow_document(relocked["workflow"]),
     )
     environment = EnvironmentConfiguration(
         {
-            (f"esm3.{operation}.{binding_route}", "3.0.0"): {
+            (f"esm3.{operation}.{binding_route}", "7.0.0"): {
                 "values": {
                     "endpoint_id": "biohub",
                     "credential_handle": object(),
@@ -1425,8 +1536,7 @@ def _run_generation_from_prompt_fixture(
     try:
         receipt = service.start_background(
             project.id,
-            workflow_revision=relocked["workflow_revision"],
-            compile_id=compiled.public_receipt()["compile_id"],
+            workflow_commit_id=committed.workflow_commit_id,
             client_request_id=f"esm3-{operation}-{mode}",
         )
         service.shutdown()
@@ -1472,9 +1582,9 @@ def test_coordinate_conditioned_sequence_returns_prompt_reconstruction(
         catalog,
         outputs["sequence_reconstruction_candidates"],
     )
-    confidence = _decode_output(
+    confidence_facts = _decode_output(
         catalog,
-        outputs["confidence_observations"],
+        outputs["confidence_facts"],
     )
     assert len(sequences.items) == len(structures.items) == 1
     assert structures.items[0].parent_ids == (
@@ -1483,7 +1593,13 @@ def test_coordinate_conditioned_sequence_returns_prompt_reconstruction(
     assert structures.items[0].metadata["classification"] == (
         "prompt_reconstruction"
     )
-    assert len(confidence.entries) == 3
+    assert len(confidence_facts.entries) == 1
+    assert structures.items[0].metadata["prediction_key"] == (
+        confidence_facts.entries[0].prediction_key
+    )
+    assert confidence_facts.entries[0].prediction_axis.source.port_type.contract_id == (
+        "protein.prompt"
+    )
 
 
 def test_coordinate_conditioned_paired_generation_retains_reconstruction(
@@ -1522,9 +1638,7 @@ def test_coordinate_conditioned_paired_generation_retains_reconstruction(
     )
     reconstruction_confidence = _decode_output(
         catalog,
-        outputs[
-            "sequence_reconstruction_confidence_observations"
-        ],
+        outputs["sequence_reconstruction_confidence_facts"],
     )
     assert len(sequences.items) == 1
     assert len(reconstructions.items) == 1
@@ -1538,7 +1652,10 @@ def test_coordinate_conditioned_paired_generation_retains_reconstruction(
     assert counterparts.items[0].metadata["classification"] == (
         "sampled_structure"
     )
-    assert len(reconstruction_confidence.entries) == 3
+    assert len(reconstruction_confidence.entries) == 1
+    assert reconstructions.items[0].metadata["prediction_key"] == (
+        reconstruction_confidence.entries[0].prediction_key
+    )
 
 
 def test_sequence_generation_publishes_ordered_complete_candidates(
@@ -1671,6 +1788,103 @@ def test_generation_records_requested_and_sdk_effective_steps_per_call(
         ]["sequence"]["num_steps"] == 1
 
 
+def test_remote_configured_seed_remains_an_ordinary_result_identity_parameter(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import core.run_execution_v2 as run_execution_v2
+
+    descriptors: list[dict[str, Any]] = []
+    result_identity_descriptor = (
+        run_execution_v2._result_identity_descriptor
+    )
+
+    def capture_result_identity(*args: Any, **kwargs: Any) -> dict[str, Any]:
+        descriptor = result_identity_descriptor(*args, **kwargs)
+        if args[0].node_id == "generate":
+            descriptors.append(descriptor)
+        return descriptor
+
+    monkeypatch.setattr(
+        run_execution_v2,
+        "_result_identity_descriptor",
+        capture_result_identity,
+    )
+    _, projection, events = _run_generation(
+        tmp_path,
+        operation="generate_sequence",
+        client=_ProviderClient([_ProviderResponse("ACD")]),
+        num_samples=1,
+    )
+
+    assert projection["status"] == "succeeded"
+    assert descriptors
+    assert all(
+        descriptor["node_parameters"]["effective_seed"] == 1603
+        and descriptor["determinism"]["effective_randomness"] == {}
+        for descriptor in descriptors
+    )
+    invocation = next(
+        event["event"]
+        for event in events
+        if event["event"]["type"] == "engine_invocation_started"
+        and event["event"]["engine_role"] == "sequence_sample"
+    )
+    assert invocation["invocation_provenance"] == {
+        "effective_randomness": {"control": "provider_uncontrolled"}
+    }
+
+
+def test_paired_generation_records_track_specific_sdk_effective_steps(
+    tmp_path: Path,
+) -> None:
+    import torch
+
+    class TrackShorteningClient(_ProviderClient):
+        def generate(self, protein: Any, config: Any) -> _ProviderResponse:
+            config.num_steps = {"sequence": 1, "structure": 2}[config.track]
+            return super().generate(protein, config)
+
+    client = TrackShorteningClient(
+        [
+            _ProviderResponse("ACD"),
+            _ProviderResponse(
+                "ACD",
+                coordinates=torch.zeros((3, 37, 3)),
+                ptm=torch.tensor(0.75),
+                plddt=torch.tensor([0.7, 0.8, 0.9]),
+                pdb_string=_three_residue_pdb(),
+            ),
+        ]
+    )
+
+    catalog, projection, _ = _run_generation(
+        tmp_path,
+        operation="generate_paired",
+        client=client,
+        num_samples=1,
+        generation_parameters={"num_steps": 20},
+    )
+
+    assert projection["status"] == "succeeded"
+    structure_output = next(
+        output
+        for output in projection["outputs"]
+        if output["node_id"] == "generate"
+        and output["output_port"] == "structure_candidates"
+    )
+    structure = _decode_output(catalog, structure_output).items[0]
+    assert structure.metadata["requested_generation_parameters"][
+        "num_steps"
+    ] == 20
+    assert {
+        track: values["num_steps"]
+        for track, values in structure.metadata[
+            "effective_generation_parameters"
+        ].items()
+    } == {"sequence": 1, "structure": 2}
+
+
 def _three_residue_pdb(sequence: str = "ACD") -> str:
     residue_names = {
         "A": "ALA",
@@ -1691,7 +1905,7 @@ def _three_residue_pdb(sequence: str = "ACD") -> str:
                 f"ATOM  {serial:5d} {atom_name:^4s} "
                 f"{residue_names[symbol]:>3s} A{residue_index:4d}    "
                 f"{x:8.3f}{1.0:8.3f}{2.0:8.3f}"
-                "  1.00 20.00           C"
+                f"  1.00 20.00{'':10}{atom_name[0]:>2s}  "
             )
             serial += 1
     return "\n".join([*lines, "TER", "END", ""])
@@ -1708,7 +1922,7 @@ def test_structure_generation_normalizes_exact_confidence_before_publication(
             _ProviderResponse(
                 "ACD",
                 coordinates=coordinates,
-                ptm=torch.tensor([0.8]),
+                ptm=torch.tensor(0.8),
                 plddt=torch.tensor([0.8, 0.9, 1.0]),
                 pdb_string=_three_residue_pdb(),
             )
@@ -1721,6 +1935,7 @@ def test_structure_generation_normalizes_exact_confidence_before_publication(
         client=client,
         num_samples=1,
         sequence="ACD",
+        materialize_confidence=True,
     )
 
     assert projection["status"] == "succeeded"
@@ -1733,25 +1948,53 @@ def test_structure_generation_normalizes_exact_confidence_before_publication(
     assert len(structures.items) == 1
     assert structures.items[0].data.pdb_string == _three_residue_pdb()
     assert structures.items[0].metadata["classification"] == "sampled_structure"
-    observations = _decode_output(
+    confidence_facts = _decode_output(
         catalog,
-        outputs["confidence_observations"],
+        outputs["confidence_facts"],
     )
-    by_metric = {
-        observation.metric.contract_id: observation
-        for observation in observations.entries
-    }
-    assert by_metric["structure.ptm"].value == pytest.approx(0.8)
-    per_residue_plddt = by_metric["structure.plddt.per_residue"].value
+    assert len(confidence_facts.entries) == 1
+    fact = confidence_facts.entries[0]
+    assert fact.ptm == pytest.approx(0.8)
+    per_residue_plddt = fact.plddt_per_residue
     assert isinstance(per_residue_plddt, tuple)
     assert per_residue_plddt == pytest.approx(
         (80.0, 90.0, 100.0)
     )
+    assert structures.items[0].metadata["prediction_key"] == (
+        fact.prediction_key
+    )
+    assert fact.prediction_axis.layout == ResidueLayout(
+        "A",
+        3,
+        ("A:1", "A:2", "A:3"),
+    )
+    assert fact.prediction_axis.sequence == ProteinSequence(
+        "ACD",
+        ("A:1", "A:2", "A:3"),
+    )
+    assert fact.prediction_axis.source.port_type.contract_id == (
+        "protein.prompt"
+    )
+    materialized_output = next(
+        item
+        for item in projection["outputs"]
+        if item["node_id"] == "materialize-confidence"
+        and item["output_port"] == "observations"
+    )
+    observations = _decode_output(catalog, materialized_output)
+    by_metric = {
+        observation.metric.contract_id: observation
+        for observation in observations.entries
+    }
     assert by_metric["structure.plddt.mean_residue"].value == pytest.approx(
         90.0
     )
     assert {
-        observation.candidate_id
+        observation.method.contract_id
+        for observation in observations.entries
+    } == {"esm3.generate_structure.esm3_medium_2024_08"}
+    assert {
+        observation.subject.candidate_id
         for observation in observations.entries
     } == {structures.items[0].candidate_id}
     assert [call[1].track for call in client.calls] == ["structure"]
@@ -1801,61 +2044,15 @@ def test_structure_generation_publishes_exact_provider_pae_matrix(
         item
         for item in projection["outputs"]
         if item["node_id"] == "generate"
-        and item["output_port"] == "pae_observations"
+        and item["output_port"] == "confidence_facts"
     )
-    observations = _decode_output(catalog, output)
-    assert len(observations.entries) == 1
-    assert observations.entries[0].value == (
+    confidence_facts = _decode_output(catalog, output)
+    assert len(confidence_facts.entries) == 1
+    assert confidence_facts.entries[0].pae == (
         (0.0, 31.75, 2.0),
         (3.0, 4.0, 5.0),
         (6.0, 7.0, 8.0),
     )
-
-
-def test_invalid_confidence_fails_after_call_without_publication(
-    tmp_path: Path,
-) -> None:
-    import torch
-
-    client = _ProviderClient(
-        [
-            _ProviderResponse(
-                "ACD",
-                coordinates=torch.zeros((3, 37, 3)),
-                ptm=torch.tensor(0.75),
-                plddt=torch.tensor([0.7, 0.8]),
-                pdb_string=_three_residue_pdb(),
-            )
-        ]
-    )
-
-    _, projection, events = _run_generation(
-        tmp_path,
-        operation="generate_structure",
-        client=client,
-        num_samples=1,
-        sequence="ACD",
-    )
-
-    assert projection["status"] == "failed"
-    assert not [
-        output
-        for output in projection["outputs"]
-        if output["node_id"] == "generate"
-    ]
-    invocation_ids = {
-        event["event"]["invocation_id"]
-        for event in events
-        if event["event"]["type"] == "engine_invocation_started"
-        and event["event"]["engine_role"] == "structure_sample"
-    }
-    terminals = [
-        event["event"]
-        for event in events
-        if event["event"]["type"] == "engine_invocation_terminal"
-        and event["event"]["invocation_id"] in invocation_ids
-    ]
-    assert [event["status"] for event in terminals] == ["succeeded"]
 
 
 def test_paired_generation_publishes_ten_exact_counterparts_and_real_calls(
@@ -1895,21 +2092,28 @@ def test_paired_generation_publishes_ten_exact_counterparts_and_real_calls(
     sequences = _decode_output(catalog, outputs["sequence_candidates"])
     structures = _decode_output(catalog, outputs["structure_candidates"])
     pairing = _decode_output(catalog, outputs["counterpart_pairs"])
-    confidence = _decode_output(
+    confidence_facts = _decode_output(
         catalog,
-        outputs["confidence_observations"],
+        outputs["confidence_facts"],
     )
     assert len(sequences.items) == len(structures.items) == 10
     assert len(pairing.entries) == 10
-    assert len(confidence.entries) == 30
+    assert len(confidence_facts.entries) == 10
+    assert {
+        candidate.metadata["prediction_key"]
+        for candidate in structures.items
+    } == {
+        fact.prediction_key for fact in confidence_facts.entries
+    }
+    assert all("prediction_key" not in item.metadata for item in sequences.items)
     assert [
         structure.parent_ids
         for structure in structures.items
     ] == [(sequence.candidate_id,) for sequence in sequences.items]
     assert [
         (
-            entry.subject_candidate_id,
-            entry.reference_candidate_id,
+            entry.subject.candidate_id,
+            entry.reference.candidate_id,
         )
         for entry in pairing.entries
     ] == [
@@ -1979,6 +2183,12 @@ def test_esm3_generation_and_direct_esmc_pass_the_shared_ctk(
         MODULE_PACKAGE as PROMPT_AUTHORING_PACKAGE,
     )
     from modules.protein_io.package import MODULE_PACKAGE as PROTEIN_IO_PACKAGE
+    from modules.structure_transform.package import (
+        MODULE_PACKAGE as STRUCTURE_TRANSFORM_PACKAGE,
+    )
+    from modules.structure_prediction.package import (
+        MODULE_PACKAGE as STRUCTURE_PREDICTION_PACKAGE,
+    )
     from tests.fixtures.esm3_sources.package import (
         MODULE_PACKAGE as SOURCE_PACKAGE,
     )
@@ -1987,9 +2197,9 @@ def test_esm3_generation_and_direct_esmc_pass_the_shared_ctk(
         return WorkflowNodeInstance(
             node_id="source",
             node_type_id="contract_test.esm3_prompt_source",
-            node_type_version="2.1.0",
+            node_type_version="3.0.0",
             binding_id="contract_test.esm3_prompt_source.direct",
-            binding_version="2.1.0",
+            binding_version="3.0.0",
             node_parameters={"mode": mode},
             binding_parameters={},
         )
@@ -2053,14 +2263,21 @@ def test_esm3_generation_and_direct_esmc_pass_the_shared_ctk(
         plddt=torch.tensor([0.7, 0.8, 0.9]),
         pdb_string=_three_residue_pdb(),
     )
+    local_structure_response = lambda: _ProviderResponse(
+        "ACD",
+        coordinates=torch.zeros((3, 37, 3)),
+        ptm=torch.tensor([0.75]),
+        plddt=torch.tensor([0.7, 0.8, 0.9]),
+        pdb_string=_three_residue_pdb(),
+    )
     paired_responses = [
         response
         for _ in range(10)
         for response in (_ProviderResponse("ACD"), structure_response())
     ]
     generation_common = {
-        "node_type_version": "3.0.0",
-        "binding_version": "3.0.0",
+        "node_type_version": "7.0.0",
+        "binding_version": "7.0.0",
         "binding_parameters": {},
         "safe_environment_fingerprint": "esm3-ctk-fixture-v1",
         "invalidation_token": "esm3-ctk-fixture-v1",
@@ -2070,8 +2287,8 @@ def test_esm3_generation_and_direct_esmc_pass_the_shared_ctk(
     }
     esmc_common = {
         **generation_common,
-        "node_type_version": "2.1.0",
-        "binding_version": "2.2.0",
+        "node_type_version": "5.0.0",
+        "binding_version": "5.0.0",
     }
 
     class ESMCClient:
@@ -2130,7 +2347,6 @@ def test_esm3_generation_and_direct_esmc_pass_the_shared_ctk(
                 ),
             ),
             expected_candidate_counts={"structure_candidates": 1},
-            expected_observation_counts={"confidence_observations": 3},
             **generation_common,
         ),
         ModulePackageContractCase(
@@ -2154,7 +2370,6 @@ def test_esm3_generation_and_direct_esmc_pass_the_shared_ctk(
                 "sequence_candidates": 10,
                 "structure_candidates": 10,
             },
-            expected_observation_counts={"confidence_observations": 30},
             **generation_common,
         ),
         ModulePackageContractCase(
@@ -2195,7 +2410,6 @@ def test_esm3_generation_and_direct_esmc_pass_the_shared_ctk(
                 ),
             ),
             expected_candidate_counts={"structure_candidates": 1},
-            expected_observation_counts={"confidence_observations": 3},
             **generation_common,
         ),
         ModulePackageContractCase(
@@ -2221,7 +2435,6 @@ def test_esm3_generation_and_direct_esmc_pass_the_shared_ctk(
                 "sequence_candidates": 1,
                 "structure_candidates": 1,
             },
-            expected_observation_counts={"confidence_observations": 3},
             **generation_common,
         ),
         ModulePackageContractCase(
@@ -2250,7 +2463,7 @@ def test_esm3_generation_and_direct_esmc_pass_the_shared_ctk(
             binding_id="esm3.generate_structure.local_open",
             node_parameters={"effective_seed": 1603, "num_samples": 1},
             environment_values=local_environment(
-                _ProviderClient([structure_response()])
+                _ProviderClient([local_structure_response()])
             ),
             workflow_nodes=(source_node("assigned_sequence"),),
             workflow_edges=(
@@ -2262,7 +2475,6 @@ def test_esm3_generation_and_direct_esmc_pass_the_shared_ctk(
                 ),
             ),
             expected_candidate_counts={"structure_candidates": 1},
-            expected_observation_counts={"confidence_observations": 3},
             **generation_common,
         ),
         ModulePackageContractCase(
@@ -2272,7 +2484,7 @@ def test_esm3_generation_and_direct_esmc_pass_the_shared_ctk(
             node_parameters={"effective_seed": 1603, "num_samples": 1},
             environment_values=local_environment(
                 _ProviderClient(
-                    [_ProviderResponse("ACD"), structure_response()]
+                    [_ProviderResponse("ACD"), local_structure_response()]
                 )
             ),
             workflow_nodes=(source_node("unassigned"),),
@@ -2288,7 +2500,6 @@ def test_esm3_generation_and_direct_esmc_pass_the_shared_ctk(
                 "sequence_candidates": 1,
                 "structure_candidates": 1,
             },
-            expected_observation_counts={"confidence_observations": 3},
             **generation_common,
         ),
         ModulePackageContractCase(
@@ -2308,9 +2519,9 @@ def test_esm3_generation_and_direct_esmc_pass_the_shared_ctk(
                 WorkflowNodeInstance(
                     node_id="sequence-source",
                     node_type_id="protein_io.import_sequence",
-                    node_type_version="3.0.0",
+                    node_type_version="5.0.0",
                     binding_id="protein_io.import_sequence.direct",
-                    binding_version="3.0.0",
+                    binding_version="5.0.0",
                     node_parameters={
                         "project_input_ref": "sequence-input",
                     },
@@ -2336,11 +2547,11 @@ def test_esm3_generation_and_direct_esmc_pass_the_shared_ctk(
         port_cases=(
             ModulePackagePortCase(
                 type_id="esm3.esmc_sequence_representation",
-                version="2.1.0",
+                version="4.0.0",
                 valid_value=ESMCSequenceRepresentation(
                     sequence="ACD",
                     residue_ids=None,
-                    mean_embedding=(0.125, -0.25, 0.5),
+                    mean_embedding=(0.125, -0.25, 0.5) + (0.0,) * 1149,
                     sequence_logits_shape=(5, 64),
                 ),
                 invalid_values=(ProteinSequence("ACD"),),
@@ -2350,6 +2561,8 @@ def test_esm3_generation_and_direct_esmc_pass_the_shared_ctk(
             PROMPT_AUTHORING_PACKAGE,
             PROTEIN_IO_PACKAGE,
             SOURCE_PACKAGE,
+            STRUCTURE_PREDICTION_PACKAGE,
+            STRUCTURE_TRANSFORM_PACKAGE,
         ),
         work_root=tmp_path / "ctk",
     )
@@ -2367,5 +2580,5 @@ def test_esm3_generation_and_direct_esmc_pass_the_shared_ctk(
         "succeeded",
     ]
     assert report.verified_port_types == (
-        "esm3.esmc_sequence_representation@2.1.0",
+        "esm3.esmc_sequence_representation@4.0.0",
     )

@@ -1,8 +1,8 @@
 schema_version: "2.1.0"
 metric_id: structure_annotation.secondary_structure_agreement
-version: "2.1.0"
+version: "3.0.0"
 title: Secondary-structure agreement
-description: Fraction of residues with identical present SS8 annotations for one exact subject-reference comparison on one residue layout.
+description: Equal-weight fraction of residues with identical present SS8 annotations after exact observed-track-to-subject and expected-track-to-reference Candidate identity binding on the exact resolved subject structure residue axis.
 value_shape: scalar
 unit: dimensionless
 direction: higher_is_better
@@ -11,7 +11,9 @@ canonical_range:
   maximum: 1
 granularity: candidate
 aggregation_semantics:
-  kind: none
+  kind: equal_weight_fraction
+  source_metric: structure_annotation.secondary_structure.position_agreement@3.0.0
+  included_values: residues_with_present_exact_SS8_on_both_tracks
 observation_context_schema:
   type: object
   properties:

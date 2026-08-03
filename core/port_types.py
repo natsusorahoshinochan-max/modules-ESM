@@ -25,7 +25,9 @@ from datatypes import (
     CalibrationObservationContext,
     Candidate,
     CandidateCollection,
+    CandidateDataReference,
     ExactContractReference,
+    ExactPortValueReference,
     FunctionAnnotations,
     IntrinsicObservationContext,
     PairwiseCandidateMapping,
@@ -36,22 +38,45 @@ from datatypes import (
     ProteinSequence,
     ProteinStructure,
     ResidueLayout,
+    ResidueAxisReference,
     ResidueMap,
     ResidueTrack,
     ScoreCollection,
     ScoreObservation,
-    StructureAlignment,
+    validate_canonical_identifier,
 )
 from datatypes.i_json import FrozenList, freeze_i_json, thaw_i_json
+from datatypes.protein import (
+    validate_candidate_lineage_graph,
+    validate_candidate_parent_ids,
+    validate_protein_sequence,
+    validate_protein_structure,
+    validate_residue_layout,
+    validate_residue_map,
+)
 
 
 CONTRACT_NAMESPACE = "protein-workbench-contract/v2"
 CATALOG_NAMESPACE = "protein-workbench-catalog/v2"
 PORT_VALUE_NAMESPACE = "protein-workbench-port-value/v2"
 PORT_TYPE_VERSION = "2.1.0"
-PROTEIN_STRUCTURE_PORT_TYPE_VERSION = "3.0.0"
+CANDIDATE_COLLECTION_PORT_TYPE_VERSION = "3.0.0"
+CANDIDATE_PAIRING_PORT_TYPE_VERSION = "3.0.0"
+SCORE_COLLECTION_PORT_TYPE_VERSION = "4.0.0"
+PROTEIN_SEQUENCE_PORT_TYPE_VERSION = "3.0.0"
+PROTEIN_STRUCTURE_PORT_TYPE_VERSION = "4.0.0"
+RESIDUE_LAYOUT_PORT_TYPE_VERSION = "3.0.0"
+RESIDUE_MAP_PORT_TYPE_VERSION = "3.0.0"
+_BUILTIN_PORT_TYPE_VERSIONS = {
+    "candidate.collection": CANDIDATE_COLLECTION_PORT_TYPE_VERSION,
+    "candidate.pairing": CANDIDATE_PAIRING_PORT_TYPE_VERSION,
+    "protein.sequence": PROTEIN_SEQUENCE_PORT_TYPE_VERSION,
+    "protein.structure": PROTEIN_STRUCTURE_PORT_TYPE_VERSION,
+    "residue.layout": RESIDUE_LAYOUT_PORT_TYPE_VERSION,
+    "residue.map": RESIDUE_MAP_PORT_TYPE_VERSION,
+    "score.collection": SCORE_COLLECTION_PORT_TYPE_VERSION,
+}
 _I_JSON_INTEGER_LIMIT = 9_007_199_254_740_991
-_IDENTIFIER = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.:/+-]*$")
 _SEMANTIC_VERSION = re.compile(
     r"^[0-9]+\.[0-9]+\.[0-9]+(?:-[0-9A-Za-z.-]+)?$"
 )
@@ -129,8 +154,19 @@ def _require_single_active_contract_version(
 
 
 def _validate_identifier(value: str, field_name: str) -> None:
-    if not isinstance(value, str) or _IDENTIFIER.fullmatch(value) is None:
-        raise CatalogBuildError(f"{field_name} must be a versioned identifier")
+    try:
+        validate_canonical_identifier(value, field_name)
+    except ValueError as error:
+        raise CatalogBuildError(
+            f"{field_name} must be a versioned identifier"
+        ) from error
+
+
+def _validate_runtime_identifier(value: object, *, path: str) -> None:
+    try:
+        validate_canonical_identifier(value, path)
+    except ValueError as error:
+        raise PortValueError(f"{path} must be a canonical identifier") from error
 
 
 def _validate_version(value: str, field_name: str) -> None:
@@ -197,7 +233,9 @@ _DATACLASS_BY_TAG = {
     "calibration_observation_context": CalibrationObservationContext,
     "candidate": Candidate,
     "candidate_collection": CandidateCollection,
+    "candidate_data_reference": CandidateDataReference,
     "exact_contract_reference": ExactContractReference,
+    "exact_port_value_reference": ExactPortValueReference,
     "function_annotations": FunctionAnnotations,
     "intrinsic_observation_context": IntrinsicObservationContext,
     "pairwise_candidate_mapping": PairwiseCandidateMapping,
@@ -208,11 +246,11 @@ _DATACLASS_BY_TAG = {
     "protein_sequence": ProteinSequence,
     "protein_structure": ProteinStructure,
     "residue_layout": ResidueLayout,
+    "residue_axis_reference": ResidueAxisReference,
     "residue_map": ResidueMap,
     "residue_track": ResidueTrack,
     "score_collection": ScoreCollection,
     "score_observation": ScoreObservation,
-    "structure_alignment": StructureAlignment,
 }
 _TAG_BY_DATACLASS = {
     value_type: tag for tag, value_type in _DATACLASS_BY_TAG.items()
@@ -230,7 +268,6 @@ _VALUE_TYPE_BY_KIND = {
     "sasa_residue_track": ResidueTrack,
     "secondary_structure_residue_track": ResidueTrack,
     "score_collection": ScoreCollection,
-    "structure_alignment": StructureAlignment,
     "text": str,
 }
 
@@ -360,63 +397,101 @@ def _validate_dataclass_value(value: Any, *, path: str) -> None:
 
 
 def _validate_domain_value(value: Any, *, path: str) -> None:
-    if type(value) is ProteinSequence:
-        if not value.sequence:
-            raise PortValueError(f"{path}.sequence must not be empty")
-        if value.residue_ids is not None and len(value.residue_ids) != len(
-            value.sequence
+    if type(value) is CandidateDataReference:
+        for field_name in ("candidate_id", "data_type_id"):
+            _validate_runtime_identifier(
+                getattr(value, field_name),
+                path=f"{path}.{field_name}",
+            )
+        if re.fullmatch(
+            r"sha256:[0-9a-f]{64}",
+            value.content_digest,
+        ) is None:
+            raise PortValueError(
+                f"{path}.content_digest must be an exact SHA-256 digest"
+            )
+        return
+
+    if type(value) is ExactPortValueReference:
+        _validate_domain_value(value.port_type, path=f"{path}.port_type")
+        if value.port_type.contract_kind != "port_type":
+            raise PortValueError(
+                f"{path}.port_type must be an exact Port Type reference"
+            )
+        if re.fullmatch(
+            r"sha256:[0-9a-f]{64}", value.content_digest
+        ) is None:
+            raise PortValueError(
+                f"{path}.content_digest must be an exact SHA-256 digest"
+            )
+        return
+
+    if type(value) is ResidueAxisReference:
+        if value.axis_kind not in {"resolved_structure", "prediction_input"}:
+            raise PortValueError(f"{path}.axis_kind is not a closed axis kind")
+        _validate_domain_value(
+            value.axis_contract,
+            path=f"{path}.axis_contract",
+        )
+        if value.axis_contract.contract_kind != "port_type":
+            raise PortValueError(
+                f"{path}.axis_contract must be an exact Port Type reference"
+            )
+        if re.fullmatch(
+            r"sha256:[0-9a-f]{64}", value.axis_content_digest
+        ) is None:
+            raise PortValueError(
+                f"{path}.axis_content_digest must be an exact SHA-256 digest"
+            )
+        _validate_domain_value(value.source, path=f"{path}.source")
+        _validate_domain_value(value.layout, path=f"{path}.layout")
+        if (
+            value.axis_kind == "resolved_structure"
+            and (
+                type(value.source) is not CandidateDataReference
+                or value.source.data_type_id != "protein.structure"
+            )
         ):
             raise PortValueError(
-                f"{path}.residue_ids length must match sequence length"
+                f"{path}.source must be an exact structure Candidate reference"
             )
-        if any(character.isspace() for character in value.sequence):
-            raise PortValueError(f"{path}.sequence must not contain whitespace")
+        if (
+            value.axis_kind == "prediction_input"
+            and type(value.source)
+            not in {CandidateDataReference, ExactPortValueReference}
+        ):
+            raise PortValueError(
+                f"{path}.source must be an exact Candidate or input Port "
+                "value reference"
+            )
+        return
+
+    if type(value) is ProteinSequence:
+        try:
+            validate_protein_sequence(value, subject=path)
+        except (TypeError, ValueError) as error:
+            raise PortValueError(str(error)) from error
         return
 
     if type(value) is ProteinStructure:
-        if not value.pdb_string:
-            raise PortValueError(f"{path}.pdb_string must not be empty")
+        try:
+            validate_protein_structure(value, subject=path)
+        except (TypeError, ValueError) as error:
+            raise PortValueError(str(error)) from error
         return
 
     if type(value) is ResidueLayout:
-        if not value.chain_id:
-            raise PortValueError(f"{path}.chain_id must not be empty")
-        if value.length < 0:
-            raise PortValueError(f"{path}.length must be non-negative")
-        if value.residue_ids is not None and len(value.residue_ids) != value.length:
-            raise PortValueError(
-                f"{path}.residue_ids length must match layout length"
-            )
+        try:
+            validate_residue_layout(value, subject=path)
+        except (TypeError, ValueError) as error:
+            raise PortValueError(str(error)) from error
         return
 
     if type(value) is ResidueMap:
-        _validate_domain_value(value.source_layout, path=f"{path}.source_layout")
-        _validate_domain_value(value.target_layout, path=f"{path}.target_layout")
-        for index, (source, target, operation) in enumerate(value.mappings):
-            mapping_path = f"{path}.mappings[{index}]"
-            if operation == "match":
-                valid = (
-                    0 <= source < value.source_layout.length
-                    and 0 <= target < value.target_layout.length
-                )
-            elif operation == "insert":
-                valid = (
-                    source == -1
-                    and 0 <= target < value.target_layout.length
-                )
-            elif operation == "delete":
-                valid = (
-                    0 <= source < value.source_layout.length
-                    and target == -1
-                )
-            else:
-                raise PortValueError(
-                    f"{mapping_path} operation must be match, insert, or delete"
-                )
-            if not valid:
-                raise PortValueError(
-                    f"{mapping_path} indices do not match {operation} layouts"
-                )
+        try:
+            validate_residue_map(value, subject=path)
+        except (TypeError, ValueError) as error:
+            raise PortValueError(str(error)) from error
         return
 
     if type(value) is FunctionAnnotations:
@@ -501,57 +576,68 @@ def _validate_domain_value(value: Any, *, path: str) -> None:
         return
 
     if type(value) is Candidate:
-        if not value.candidate_id:
-            raise PortValueError(f"{path}.candidate_id must not be empty")
-        if type(value.data) not in (
-            ProteinSequence,
-            ProteinStructure,
-            StructureAlignment,
-        ):
+        _validate_runtime_identifier(
+            value.candidate_id,
+            path=f"{path}.candidate_id",
+        )
+        if type(value.data) not in (ProteinSequence, ProteinStructure):
             raise PortValueError(f"{path}.data must be a registered Candidate value")
         _validate_domain_value(value.data, path=f"{path}.data")
+        try:
+            validate_candidate_parent_ids(value, subject=path)
+        except ValueError as error:
+            raise PortValueError(str(error)) from error
         return
 
     if type(value) is CandidateCollection:
-        if not value.collection_id:
-            raise PortValueError(f"{path}.collection_id must not be empty")
+        _validate_runtime_identifier(
+            value.collection_id,
+            path=f"{path}.collection_id",
+        )
         expected_candidate_types = {
             "protein.sequence": ProteinSequence,
             "protein.structure": ProteinStructure,
-            "structure.alignment": StructureAlignment,
         }
         expected_candidate_type = expected_candidate_types.get(value.item_type)
         if expected_candidate_type is None:
             raise PortValueError(
                 f"{path}.item_type must name a supported Candidate data type"
             )
-        candidate_ids: set[str] = set()
         for index, candidate in enumerate(value.items):
             _validate_domain_value(candidate, path=f"{path}.items[{index}]")
-            if candidate.candidate_id in candidate_ids:
-                raise PortValueError(
-                    f"{path}.items contains duplicate Candidate identities"
-                )
-            candidate_ids.add(candidate.candidate_id)
             if type(candidate.data) is not expected_candidate_type:
                 raise PortValueError(
                     f"{path}.items[{index}].data mismatches "
                     f"item_type {value.item_type}"
                 )
+        try:
+            validate_candidate_lineage_graph(
+                tuple(value.items),
+                subject=path,
+            )
+        except ValueError as error:
+            raise PortValueError(str(error)) from error
         return
 
     if type(value) is ExactContractReference:
         if value.contract_kind not in {
             "metric",
             "method",
+            "port_type",
             "utility_transform",
         }:
             raise PortValueError(
                 f"{path}.contract_kind is not a scientific value contract"
             )
-        if _IDENTIFIER.fullmatch(value.contract_id) is None:
-            raise PortValueError(f"{path}.contract_id is not a valid identity")
-        if _SEMANTIC_VERSION.fullmatch(value.contract_version) is None:
+        _validate_runtime_identifier(
+            value.contract_id,
+            path=f"{path}.contract_id",
+        )
+        if (
+            type(value.contract_version) is not str
+            or not 5 <= len(value.contract_version) <= 64
+            or _SEMANTIC_VERSION.fullmatch(value.contract_version) is None
+        ):
             raise PortValueError(
                 f"{path}.contract_version must be an exact semantic version"
             )
@@ -578,11 +664,10 @@ def _validate_domain_value(value: Any, *, path: str) -> None:
             "calibration_unit",
             "population_id",
         ):
-            item = getattr(value, name)
-            if not isinstance(item, str) or _IDENTIFIER.fullmatch(item) is None:
-                raise PortValueError(
-                    f"{path}.{name} must be an exact identifier"
-                )
+            _validate_runtime_identifier(
+                getattr(value, name),
+                path=f"{path}.{name}",
+            )
         if (
             isinstance(value.calibration_value, bool)
             or not isinstance(value.calibration_value, (int, float))
@@ -602,72 +687,46 @@ def _validate_domain_value(value: Any, *, path: str) -> None:
             raise PortValueError(
                 f"{path}.role must be subject or reference"
             )
-        if not value.candidate_id:
-            raise PortValueError(
-                f"{path}.candidate_id must not be empty"
-            )
-        if re.fullmatch(r"sha256:[0-9a-f]{64}", value.content_digest) is None:
-            raise PortValueError(
-                f"{path}.content_digest must be an exact SHA-256 digest"
-            )
+        _validate_domain_value(value.candidate, path=f"{path}.candidate")
         return
 
     if type(value) is PairwiseCandidateMatch:
-        for name, candidate_id in (
-            ("subject_candidate_id", value.subject_candidate_id),
-            ("reference_candidate_id", value.reference_candidate_id),
-        ):
-            if not candidate_id:
-                raise PortValueError(f"{path}.{name} must not be empty")
-        for name, digest in (
-            ("subject_content_digest", value.subject_content_digest),
-            ("reference_content_digest", value.reference_content_digest),
-        ):
-            if re.fullmatch(r"sha256:[0-9a-f]{64}", digest) is None:
-                raise PortValueError(
-                    f"{path}.{name} must be an exact SHA-256 digest"
-                )
+        _validate_domain_value(value.subject, path=f"{path}.subject")
+        _validate_domain_value(value.reference, path=f"{path}.reference")
         return
 
     if type(value) is PairwiseCandidateMapping:
-        subject_ids: set[str] = set()
-        reference_ids: set[str] = set()
-        candidate_digests: dict[str, str] = {}
+        subjects: set[CandidateDataReference] = set()
+        references: set[CandidateDataReference] = set()
+        candidate_references: dict[str, CandidateDataReference] = {}
         for index, entry in enumerate(value.entries):
             _validate_domain_value(
                 entry,
                 path=f"{path}.entries[{index}]",
             )
-            for candidate_id, content_digest in (
-                (
-                    entry.subject_candidate_id,
-                    entry.subject_content_digest,
-                ),
-                (
-                    entry.reference_candidate_id,
-                    entry.reference_content_digest,
-                ),
-            ):
-                known_digest = candidate_digests.get(candidate_id)
+            for participant in (entry.subject, entry.reference):
+                known_reference = candidate_references.get(
+                    participant.candidate_id
+                )
                 if (
-                    known_digest is not None
-                    and known_digest != content_digest
+                    known_reference is not None
+                    and known_reference != participant
                 ):
                     raise PortValueError(
                         f"{path} reuses one Candidate identity with "
-                        "conflicting content"
+                        "conflicting exact data reference"
                     )
-                candidate_digests[candidate_id] = content_digest
-            if entry.subject_candidate_id in subject_ids:
+                candidate_references[participant.candidate_id] = participant
+            if entry.subject in subjects:
                 raise PortValueError(
                     f"{path} contains multiple counterparts for one subject"
                 )
-            subject_ids.add(entry.subject_candidate_id)
-            if entry.reference_candidate_id in reference_ids:
+            subjects.add(entry.subject)
+            if entry.reference in references:
                 raise PortValueError(
                     f"{path} reuses one counterpart for multiple subjects"
                 )
-            reference_ids.add(entry.reference_candidate_id)
+            references.add(entry.reference)
         return
 
     if type(value) is PairwiseObservationContext:
@@ -694,15 +753,19 @@ def _validate_domain_value(value: Any, *, path: str) -> None:
             raise PortValueError(
                 f"{path}.pairing_mode is not a controlled pairing mode"
             )
-        if not value.normalization:
-            raise PortValueError(
-                f"{path}.normalization must identify the exact normalization"
+        _validate_runtime_identifier(
+            value.normalization,
+            path=f"{path}.normalization",
+        )
+        if value.evidence_method is not None:
+            _validate_domain_value(
+                value.evidence_method,
+                path=f"{path}.evidence_method",
             )
         return
 
     if type(value) is ScoreObservation:
-        if not value.candidate_id:
-            raise PortValueError(f"{path}.candidate_id must not be empty")
+        _validate_domain_value(value.subject, path=f"{path}.subject")
         if value.metric.contract_kind != "metric":
             raise PortValueError(
                 f"{path}.metric must be an exact metric reference"
@@ -714,22 +777,29 @@ def _validate_domain_value(value: Any, *, path: str) -> None:
         _validate_domain_value(value.metric, path=f"{path}.metric")
         _validate_domain_value(value.method, path=f"{path}.method")
         _validate_domain_value(value.context, path=f"{path}.context")
-        if not value.source_partition:
-            raise PortValueError(
-                f"{path}.source_partition must identify an exact partition"
+        if value.residue_axis is not None:
+            _validate_domain_value(
+                value.residue_axis,
+                path=f"{path}.residue_axis",
             )
+        _validate_runtime_identifier(
+            value.source_partition,
+            path=f"{path}.source_partition",
+        )
         if (
             type(value.context) is PairwiseObservationContext
-            and value.context.subject.candidate_id != value.candidate_id
+            and value.context.subject.candidate != value.subject
         ):
             raise PortValueError(
-                f"{path}.context subject identity must match candidate_id"
+                f"{path}.context subject identity must match exact subject"
             )
         return
 
     if type(value) is ScoreCollection:
-        if not value.collection_id:
-            raise PortValueError(f"{path}.collection_id must not be empty")
+        _validate_runtime_identifier(
+            value.collection_id,
+            path=f"{path}.collection_id",
+        )
         for index, score in enumerate(value.entries):
             if type(score) is not ScoreObservation:
                 raise PortValueError(
@@ -738,63 +808,6 @@ def _validate_domain_value(value: Any, *, path: str) -> None:
             _validate_domain_value(score, path=f"{path}.entries[{index}]")
         _deduplicated_score_entries(value, path=path)
         return
-
-    if type(value) is StructureAlignment:
-        if (
-            len(value.rotation) != 3
-            or any(len(row) != 3 for row in value.rotation)
-        ):
-            raise PortValueError(f"{path}.rotation must be a 3x3 matrix")
-        if len(value.translation) != 3:
-            raise PortValueError(f"{path}.translation must be a 3-vector")
-        if value.rmsd < 0:
-            raise PortValueError(f"{path}.rmsd must be non-negative")
-        if not 0 <= value.coverage <= 1:
-            raise PortValueError(f"{path}.coverage must be within [0, 1]")
-        if value.reference_length < 0 or value.mobile_length < 0:
-            raise PortValueError(f"{path} sequence lengths must be non-negative")
-        if len(value.reference_sequence) != value.reference_length:
-            raise PortValueError(
-                f"{path}.reference_sequence length must match reference_length"
-            )
-        if len(value.mobile_sequence) != value.mobile_length:
-            raise PortValueError(
-                f"{path}.mobile_sequence length must match mobile_length"
-            )
-        aligned_count = len(value.residue_map)
-        aligned_fields = (
-            value.aligned_reference_indices,
-            value.aligned_mobile_indices,
-            value.aligned_reference_coordinates,
-            value.aligned_mobile_coordinates,
-            value.aligned_distances,
-        )
-        if any(len(items) != aligned_count for items in aligned_fields):
-            raise PortValueError(
-                f"{path} aligned fields must match residue_map cardinality"
-            )
-        for name, vectors in (
-            ("aligned_reference_coordinates", value.aligned_reference_coordinates),
-            ("aligned_mobile_coordinates", value.aligned_mobile_coordinates),
-        ):
-            if any(len(vector) != 3 for vector in vectors):
-                raise PortValueError(f"{path}.{name} must contain 3-vectors")
-        for index in value.aligned_reference_indices:
-            if not 0 <= index < value.reference_length:
-                raise PortValueError(
-                    f"{path}.aligned_reference_indices exceed reference_length"
-                )
-        for index in value.aligned_mobile_indices:
-            if not 0 <= index < value.mobile_length:
-                raise PortValueError(
-                    f"{path}.aligned_mobile_indices exceed mobile_length"
-                )
-        if any(distance < 0 for distance in value.aligned_distances):
-            raise PortValueError(
-                f"{path}.aligned_distances must be non-negative"
-            )
-        return
-
 
 def _validate_builtin_semantics(value_kind: str, value: Any) -> None:
     if is_dataclass(value):
@@ -1083,15 +1096,45 @@ class PortTypeDefinition:
         repr=False,
         compare=False,
     )
+    scientific_axis_projection: BehaviorReference | None = None
+    runtime_scientific_axis_projection: Callable[
+        [Any], tuple[ResidueAxisReference, ...]
+    ] | None = field(
+        default=None,
+        repr=False,
+        compare=False,
+    )
+    observation_method_projection: BehaviorReference | None = None
+    runtime_observation_method_projection: Callable[
+        [Any], tuple[ExactContractReference, ...]
+    ] | None = field(
+        default=None,
+        repr=False,
+        compare=False,
+    )
 
     def __post_init__(self) -> None:
         _validate_identifier(self.type_id, "type_id")
         _validate_version(self.version, "version")
+        if (self.scientific_axis_projection is None) != (
+            self.runtime_scientific_axis_projection is None
+        ):
+            raise CatalogBuildError(
+                "scientific_axis_projection declaration and runtime must be "
+                "provided together"
+            )
+        if (self.observation_method_projection is None) != (
+            self.runtime_observation_method_projection is None
+        ):
+            raise CatalogBuildError(
+                "observation_method_projection declaration and runtime must "
+                "be provided together"
+            )
         canonical_json_bytes(self.descriptor())
 
     def descriptor(self) -> dict[str, Any]:
         """Return the canonical closed descriptor used for contract identity."""
-        return {
+        descriptor = {
             "schema_namespace": CONTRACT_NAMESPACE,
             "contract_kind": "port_type",
             "contract_id": self.type_id,
@@ -1100,6 +1143,15 @@ class PortTypeDefinition:
             "codec": self.codec.descriptor(),
             "content_identity": self.content_identity.descriptor(),
         }
+        if self.scientific_axis_projection is not None:
+            descriptor["scientific_axis_projection"] = (
+                self.scientific_axis_projection.descriptor()
+            )
+        if self.observation_method_projection is not None:
+            descriptor["observation_method_projection"] = (
+                self.observation_method_projection.descriptor()
+            )
+        return descriptor
 
     @property
     def artifact_media_types(self) -> tuple[str, ...] | None:
@@ -1155,6 +1207,54 @@ class PortTypeDefinition:
             "reference": self.reference(),
             "descriptor": self.descriptor(),
         }
+
+    def scientific_axis_references(
+        self,
+        value: Any,
+    ) -> tuple[ResidueAxisReference, ...]:
+        """Project nested scalar axes using the nominal Port owner's codec."""
+        projector = self.runtime_scientific_axis_projection
+        if projector is None:
+            raise PortValueError(
+                f"Port Type {self.type_id}@{self.version} does not own a "
+                "scientific-axis projection"
+            )
+        references = tuple(projector(value))
+        if any(type(item) is not ResidueAxisReference for item in references):
+            raise PortValueError(
+                "scientific-axis projection returned a non-axis reference"
+            )
+        if len(references) != len(set(references)):
+            raise PortValueError(
+                "scientific-axis projection returned duplicate exact axes"
+            )
+        return references
+
+    def observation_method_references(
+        self,
+        value: Any,
+    ) -> tuple[ExactContractReference, ...]:
+        """Project exact provider Methods using the nominal Port owner."""
+        projector = self.runtime_observation_method_projection
+        if projector is None:
+            raise PortValueError(
+                f"Port Type {self.type_id}@{self.version} does not own an "
+                "Observation Method projection"
+            )
+        references = tuple(projector(value))
+        if any(
+            type(item) is not ExactContractReference
+            or item.contract_kind != "method"
+            for item in references
+        ):
+            raise PortValueError(
+                "Observation Method projection returned a non-Method reference"
+            )
+        if len(references) != len(set(references)):
+            raise PortValueError(
+                "Observation Method projection returned duplicate exact Methods"
+            )
+        return references
 
     @property
     def value_kind(self) -> str:
@@ -1690,7 +1790,6 @@ _BUILTIN_VALUE_KINDS = (
         "secondary_structure_residue_track",
     ),
     ("score.collection", "score_collection"),
-    ("structure.alignment", "structure_alignment"),
     ("text", "text"),
 )
 
@@ -1702,26 +1801,69 @@ def _builtin_port_type(
     version: str = PORT_TYPE_VERSION,
 ) -> PortTypeDefinition:
     behavior_prefix = f"protein-workbench.port-type/{type_id}"
+    validator_parameters: dict[str, Any] = {
+        "accepted_value_kind": value_kind,
+        "complete_values_only": True,
+    }
+    codec_parameters: dict[str, Any] = {
+        "canonicalization": "RFC 8785",
+        "character_encoding": "UTF-8",
+        "envelope_namespace": PORT_VALUE_NAMESPACE,
+        "value_kind": value_kind,
+    }
+    if type_id == "protein.sequence":
+        validator_parameters["sequence_invariants"] = {
+            "alphabet": "ACDEFGHIKLMNPQRSTVWYBXZJUO",
+            "nonempty": True,
+            "residue_ids": {
+                "cardinality": "absent-or-sequence-length",
+                "chain_boundary_constraint": "none",
+                "item_contract": "canonical-residue-identity",
+                "unique": True,
+            },
+        }
+    if type_id == "candidate.collection":
+        validator_parameters["candidate_invariants"] = {
+            "candidate_id": "canonical-identifier",
+            "parent_ids": {
+                "item_contract": "canonical-identifier",
+                "ordered": True,
+                "unique": True,
+            },
+            "internal_lineage": {
+                "acyclic": True,
+                "external_parents": "allowed",
+                "self_parent": "rejected",
+            },
+        }
+    if type_id == "candidate.pairing":
+        participant_fields = [
+            "candidate_id",
+            "data_type_id",
+            "content_digest",
+        ]
+        validator_parameters["association_contract"] = {
+            "entry_fields": ["subject", "reference"],
+            "participant": "CandidateDataReference",
+            "participant_fields": participant_fields,
+            "cardinality": "one-to-one",
+        }
+        codec_parameters["entry_wire_shape"] = {
+            "subject": participant_fields,
+            "reference": participant_fields,
+        }
     return PortTypeDefinition(
         type_id=type_id,
         version=version,
         validator=BehaviorReference(
             behavior_id=f"{behavior_prefix}/validate",
             behavior_version=version,
-            parameters={
-                "accepted_value_kind": value_kind,
-                "complete_values_only": True,
-            },
+            parameters=validator_parameters,
         ),
         codec=BehaviorReference(
             behavior_id=f"{behavior_prefix}/canonical-json-codec",
             behavior_version=version,
-            parameters={
-                "canonicalization": "RFC 8785",
-                "character_encoding": "UTF-8",
-                "envelope_namespace": PORT_VALUE_NAMESPACE,
-                "value_kind": value_kind,
-            },
+            parameters=codec_parameters,
         ),
         content_identity=BehaviorReference(
             behavior_id=f"{behavior_prefix}/content-sha256",
@@ -1745,10 +1887,9 @@ def builtin_frozen_catalog() -> FrozenCatalog:
             _builtin_port_type(
                 type_id,
                 value_kind,
-                version=(
-                    PROTEIN_STRUCTURE_PORT_TYPE_VERSION
-                    if type_id == "protein.structure"
-                    else PORT_TYPE_VERSION
+                version=_BUILTIN_PORT_TYPE_VERSIONS.get(
+                    type_id,
+                    PORT_TYPE_VERSION,
                 ),
             )
             for type_id, value_kind in _BUILTIN_VALUE_KINDS

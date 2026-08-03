@@ -14,11 +14,9 @@ from core import (
     ScientificOperationFactory,
 )
 from datatypes import (
-    Candidate,
     CandidateCollection,
     ExactContractReference,
     IntrinsicObservationContext,
-    ProteinSequence,
     ScoreCollection,
     ScoreObservation,
 )
@@ -33,44 +31,45 @@ class _IncompleteProvenanceImplementation:
         self._method = method
 
     def execute(self, call: OperationCall):
-        if call.inputs:
-            raise ValueError("invalid fixture does not accept inputs")
+        if set(call.inputs) != {"candidate_input"}:
+            raise ValueError("invalid fixture requires Candidate input")
         echoed = (
             call.node_parameters["message"]
             * call.binding_parameters["repeat_count"]
         )
         with self._run_resources.engine_invocation():
             pass
-        candidate = Candidate(
-            candidate_id="invalid-provenance-candidate",
-            data=ProteinSequence(sequence="M"),
-            parent_ids=[],
-        )
-        return {
+        candidates = call.inputs["candidate_input"]
+        if type(candidates) is not CandidateCollection:
+            raise ValueError(
+                "invalid fixture candidate_input must be a Candidate collection"
+            )
+        outputs = {
             "text": echoed,
-            "candidates": CandidateCollection(
-                collection_id="invalid-provenance-candidates",
-                item_type="protein.sequence",
-                items=[candidate],
-            ),
-            "scores": ScoreCollection(
-                collection_id="invalid-provenance-scores",
-                entries=[
-                    ScoreObservation(
-                        candidate_id=candidate.candidate_id,
-                        metric=self._metric,
-                        method=self._method,
-                        context=IntrinsicObservationContext(),
-                        value=1.0,
-                    )
-                ],
-            ),
+            "candidates": candidates,
             "artifact": ArtifactPayload(
                 body=echoed.encode("utf-8"),
                 media_type="text/plain",
                 filename="result.txt",
             ),
         }
+        references = call.input_content_digests[
+            "candidate_input"
+        ].candidate_data
+        outputs["scores"] = ScoreCollection(
+            collection_id="invalid-provenance-scores",
+            entries=[
+                ScoreObservation(
+                    subject=reference,
+                    metric=self._metric,
+                    method=self._method,
+                    context=IntrinsicObservationContext(),
+                    value=1.0,
+                )
+                for reference in references
+            ],
+        )
+        return outputs
 
 
 def _build_incomplete_provenance(context: OperationContext):
@@ -88,7 +87,12 @@ def _build_incomplete_provenance(context: OperationContext):
     )
 
 
-_BINDING = MODULE_PACKAGE.bindings[0]
+_BINDINGS = MODULE_PACKAGE.bindings
+_SCORER_BINDING = next(
+    binding
+    for binding in _BINDINGS
+    if binding.binding_id == "contract_test.synthetic_echo.direct"
+)
 
 
 def _not_ready(environment) -> ReadinessResult:
@@ -98,30 +102,34 @@ def _not_ready(environment) -> ReadinessResult:
 
 FALSE_READINESS_PACKAGE = replace(
     MODULE_PACKAGE,
-    bindings=(
+    bindings=tuple(
         replace(
-            _BINDING,
+            binding,
             readiness=ReadinessDeclaration(
-                behavior=_BINDING.readiness.behavior,
-                prerequisites=_BINDING.readiness.prerequisites,
+                behavior=binding.readiness.behavior,
+                prerequisites=binding.readiness.prerequisites,
                 check=_not_ready,
             ),
-        ),
+        )
+        for binding in _BINDINGS
     ),
 )
 INCOMPLETE_PROVENANCE_PACKAGE = replace(
     MODULE_PACKAGE,
-    bindings=(
+    bindings=tuple(
         replace(
-            _BINDING,
+            binding,
             factory=ScientificOperationFactory(
                 behavior=BehaviorReference(
                     "contract_test.incomplete_provenance/factory",
-                    "2.1.0",
+                    _SCORER_BINDING.version,
                     {},
                 ),
                 build=_build_incomplete_provenance,
             ),
-        ),
+        )
+        if binding is _SCORER_BINDING
+        else binding
+        for binding in _BINDINGS
     ),
 )

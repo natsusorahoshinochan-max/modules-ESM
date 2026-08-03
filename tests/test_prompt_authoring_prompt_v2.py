@@ -29,8 +29,9 @@ from tests.fixtures.prompt_authoring_v2 import (
 )
 
 
-VERSION = "2.1.0"
-PROMPT_PORT_VERSION = "2.1.0"
+VERSION = "3.0.0"
+PROMPT_PORT_VERSION = "3.0.0"
+FUNCTION_ANNOTATION_PORT_VERSION = "3.0.0"
 
 
 def canonical_annotations(
@@ -649,7 +650,7 @@ def test_function_annotation_port_declares_canonical_provenance_shape() -> None:
     catalog = build_discovered_frozen_catalog()
     definition = catalog.require_port_type(
         "function.annotations",
-        PROMPT_PORT_VERSION,
+        FUNCTION_ANNOTATION_PORT_VERSION,
     )
 
     assert definition.validator.parameters[
@@ -667,6 +668,7 @@ def test_function_annotation_port_declares_canonical_provenance_shape() -> None:
         "indexing": "one-based-inclusive",
         "ordering": "start,end,label,chain-and-residue-provenance",
         "overlap_policy": ("allow", "reject"),
+        "residue_identity_contract": "residue.layout@3.0.0",
     }
     prompt_definition = catalog.require_port_type(
         "protein.prompt",
@@ -674,7 +676,7 @@ def test_function_annotation_port_declares_canonical_provenance_shape() -> None:
     )
     assert prompt_definition.codec.parameters["embedded_contracts"][
         "function_annotations"
-    ] == "function.annotations@2.1.0"
+    ] == "function.annotations@3.0.0"
 
 
 @pytest.mark.parametrize(
@@ -727,7 +729,7 @@ def test_function_annotation_port_rejects_noncanonical_collections(
 ) -> None:
     definition = build_discovered_frozen_catalog().require_port_type(
         "function.annotations",
-        PROMPT_PORT_VERSION,
+        FUNCTION_ANNOTATION_PORT_VERSION,
     )
 
     with pytest.raises(PortValueError):

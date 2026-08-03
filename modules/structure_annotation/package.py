@@ -5,7 +5,6 @@ from __future__ import annotations
 from collections.abc import Mapping
 import json
 import math
-import re
 from typing import Any
 
 from core import (
@@ -28,7 +27,8 @@ from core import (
     builtin_frozen_catalog,
 )
 from core.port_types import canonical_json_bytes
-from datatypes import ResidueLayout, ResidueTrack
+from datatypes import CandidateDataReference, ResidueLayout, ResidueTrack
+from datatypes.protein import validate_residue_layout
 
 from .adapter import (
     MKDSSP_BINARY,
@@ -42,7 +42,10 @@ from .adapter import (
 )
 from .domain import DSSPAnnotation, StructureAnnotationTrack
 from .implementation import (
+    ApplySASAToPromptOperation,
+    ApplySecondaryStructureToPromptOperation,
     DSSPComputeOperation,
+    ExpectedSecondaryStructureFromPromptOperation,
     SASAComputeOperation,
     SecondaryStructureAgreementOperation,
     SecondaryStructureExtractOperation,
@@ -51,26 +54,49 @@ from .implementation import (
 
 _VERSION = "2.1.0"
 _METHOD_VERSION = "2.2.0"
-_DIRECT_BINDING_VERSION = "2.2.0"
-_DSSP_NODE_VERSION = "3.0.0"
-_DSSP_BINDING_VERSION = "3.0.0"
-_FACTORY_BEHAVIOR_VERSION = "2.2.0"
+_PORT_VERSION = "4.0.0"
+_METRIC_VERSION = "3.0.0"
+_NODE_BINDING_VERSIONS = {
+    "dssp_compute": "6.0.0",
+    "secondary_structure_extract": "4.0.0",
+    "sasa_compute": "4.0.0",
+    "secondary_structure_agreement": "5.0.0",
+    "apply_secondary_structure_to_prompt": "5.0.0",
+    "apply_sasa_to_prompt": "5.0.0",
+    "expected_secondary_structure_from_prompt": "5.0.0",
+}
+_METHOD_VERSIONS = {
+    "dssp_compute": "3.0.0",
+    "secondary_structure_extract": "3.0.0",
+    "sasa_compute": "3.0.0",
+    "secondary_structure_agreement": "3.0.0",
+    "apply_secondary_structure_to_prompt": _METHOD_VERSION,
+    "apply_sasa_to_prompt": _METHOD_VERSION,
+    "expected_secondary_structure_from_prompt": "3.0.0",
+}
 _DSSP_READINESS_BEHAVIOR_VERSION = "2.2.0"
 _OPERATIONS = (
     "dssp_compute",
     "secondary_structure_extract",
     "sasa_compute",
     "secondary_structure_agreement",
+    "apply_secondary_structure_to_prompt",
+    "apply_sasa_to_prompt",
+    "expected_secondary_structure_from_prompt",
 )
 _DSSP_OPERATION = "dssp_compute"
 _ANNOTATION_SECONDARY_SYMBOLS = frozenset("GHITEBSPC_")
 _SECONDARY_SYMBOLS = frozenset("GHITEBSC_")
-_RESIDUE_ID = re.compile(
-    r"^(?P<chain>[A-Za-z0-9]):[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$"
-)
 _BUILTINS = builtin_frozen_catalog()
-_LAYOUT_CODEC = _BUILTINS.require_port_type("residue.layout", _VERSION)
+_LAYOUT_CODEC = _BUILTINS.require_port_type("residue.layout", "3.0.0")
 _TRACK_CODEC = _BUILTINS.require_port_type("residue.track", _VERSION)
+_ABSOLUTE_SASA_QUANTITY_CONTRACT = {
+    "quantity": "solvent_accessible_surface_area",
+    "measure": "absolute",
+    "unit": "angstrom_squared",
+    "granularity": "per_residue",
+    "normalization": "none",
+}
 
 
 def _wire_value(codec: PortTypeDefinition, value: object) -> object:
@@ -91,40 +117,15 @@ def _decode_value(codec: PortTypeDefinition, value: object) -> object:
 
 
 def _validate_layout(layout: object) -> ResidueLayout:
-    if type(layout) is not ResidueLayout:
-        raise ValueError("annotation layout must be a ResidueLayout")
-    if (
-        type(layout.length) is not int
-        or layout.length <= 0
-        or layout.residue_ids is None
-        or len(layout.residue_ids) != layout.length
-        or len(set(layout.residue_ids)) != layout.length
-    ):
-        raise ValueError("annotation layout must identify every residue")
-    chains: list[str] = []
-    closed: set[str] = set()
-    previous: str | None = None
-    for residue_id in layout.residue_ids:
-        match = (
-            _RESIDUE_ID.fullmatch(residue_id)
-            if isinstance(residue_id, str)
-            else None
+    return validate_residue_layout(layout, subject="annotation layout")
+
+
+def _validate_subject(subject: object) -> CandidateDataReference:
+    if type(subject) is not CandidateDataReference:
+        raise ValueError(
+            "annotation subject must be a CandidateDataReference"
         )
-        if match is None:
-            raise ValueError("annotation residue identities are malformed")
-        chain = match.group("chain")
-        if chain != previous:
-            if chain in closed:
-                raise ValueError(
-                    "annotation chain boundaries must be contiguous"
-                )
-            if previous is not None:
-                closed.add(previous)
-            chains.append(chain)
-            previous = chain
-    if layout.chain_id != ",".join(chains):
-        raise ValueError("annotation layout chain order is inconsistent")
-    return layout
+    return subject
 
 
 def _validate_secondary(
@@ -172,6 +173,7 @@ def _validate_sasa(
 def _validate_annotation(value: object) -> None:
     if type(value) is not DSSPAnnotation:
         raise ValueError("DSSP annotation has the wrong runtime type")
+    _validate_subject(value.subject)
     layout = _validate_layout(value.layout)
     _validate_secondary(
         value.secondary_structure,
@@ -185,6 +187,7 @@ def _annotation_to_wire(value: object) -> object:
     assert type(value) is DSSPAnnotation
     _validate_annotation(value)
     return {
+        "subject": value.subject.to_public(),
         "layout": _wire_value(_LAYOUT_CODEC, value.layout),
         "secondary_structure": list(value.secondary_structure),
         "sasa": list(value.sasa),
@@ -194,13 +197,15 @@ def _annotation_to_wire(value: object) -> object:
 def _annotation_from_wire(value: object) -> object:
     if (
         not isinstance(value, dict)
-        or set(value) != {"layout", "secondary_structure", "sasa"}
+        or set(value)
+        != {"subject", "layout", "secondary_structure", "sasa"}
         or not isinstance(value["secondary_structure"], list)
         or not isinstance(value["sasa"], list)
     ):
         raise ValueError("DSSP annotation wire value is not closed")
     layout = _decode_value(_LAYOUT_CODEC, value["layout"])
     annotation = DSSPAnnotation(
+        subject=CandidateDataReference.from_public(value["subject"]),
         layout=layout,
         secondary_structure=tuple(value["secondary_structure"]),
         sasa=_validate_sasa(tuple(value["sasa"]), length=layout.length),
@@ -212,6 +217,7 @@ def _annotation_from_wire(value: object) -> object:
 def _validate_secondary_track(value: object) -> None:
     if type(value) is not StructureAnnotationTrack:
         raise ValueError("secondary-structure track has the wrong runtime type")
+    _validate_subject(value.subject)
     layout = _validate_layout(value.layout)
     _validate_secondary(value.values, length=layout.length)
 
@@ -219,6 +225,7 @@ def _validate_secondary_track(value: object) -> None:
 def _validate_sasa_track(value: object) -> None:
     if type(value) is not StructureAnnotationTrack:
         raise ValueError("SASA track has the wrong runtime type")
+    _validate_subject(value.subject)
     layout = _validate_layout(value.layout)
     _validate_sasa(value.values, length=layout.length)
 
@@ -231,6 +238,7 @@ def _track_to_wire(kind: str):
             _validate_sasa_track(value)
         assert type(value) is StructureAnnotationTrack
         return {
+            "subject": value.subject.to_public(),
             "layout": _wire_value(_LAYOUT_CODEC, value.layout),
             "track": _wire_value(
                 _TRACK_CODEC,
@@ -243,7 +251,10 @@ def _track_to_wire(kind: str):
 
 def _track_from_wire(kind: str):
     def decode(value: object) -> object:
-        if not isinstance(value, dict) or set(value) != {"layout", "track"}:
+        if (
+            not isinstance(value, dict)
+            or set(value) != {"subject", "layout", "track"}
+        ):
             raise ValueError("annotation track wire value is not closed")
         track = _decode_value(_TRACK_CODEC, value["track"])
         if type(track) is not ResidueTrack or track.sentinel is not None:
@@ -253,6 +264,7 @@ def _track_from_wire(kind: str):
         if kind == "sasa":
             values = _validate_sasa(values, length=layout.length)
         annotation_track = StructureAnnotationTrack(
+            subject=CandidateDataReference.from_public(value["subject"]),
             layout=layout,
             values=values,
         )
@@ -297,6 +309,14 @@ def _build(operation: str):
                 method=context.method,
                 produced_observations=context.produced_observations,
             )
+        if operation == "apply_secondary_structure_to_prompt":
+            return ApplySecondaryStructureToPromptOperation(context.resources)
+        if operation == "apply_sasa_to_prompt":
+            return ApplySASAToPromptOperation(context.resources)
+        if operation == "expected_secondary_structure_from_prompt":
+            return ExpectedSecondaryStructureFromPromptOperation(
+                context.resources
+            )
         raise RuntimeError("unknown structure annotation operation")
 
     return factory
@@ -311,12 +331,13 @@ def _method(operation: str) -> MethodDefinition:
                 "version": MKDSSP_VERSION,
             },
             "residue_correspondence": (
-                "chain-residue-name-CA-coordinate-to-exact-PDB-layout"
+                "dssp-summary-label-pair-via-atom-site-authored-chain-"
+                "signed-residue-and-insertion-code-to-authoritative-axis"
             ),
             "missing_value": "_",
             "coil_conversion": "mkdssp mmCIF '.' to SS8 C",
             "secondary_absent_marker": "?",
-            "accessibility_absent_markers": [".", "?", "_"],
+            "accessibility_absent_markers": [".", "?"],
         },
         "secondary_structure_extract": {
             "name": "exact-DSSP-SS8-track-extraction",
@@ -335,43 +356,126 @@ def _method(operation: str) -> MethodDefinition:
             "absent_policy": "exclude",
             "coarse_conversion": "none",
         },
+        "apply_secondary_structure_to_prompt": {
+            "name": "exact-annotation-SS8-to-ProteinPrompt-conditioning",
+            "source_alphabet": "GHITEBSC_",
+            "target_alphabet": "GHITEBS-",
+            "symbol_mapping": {
+                "C": "-",
+                "GHITEBS": "identity",
+                "_": "null",
+            },
+            "source_missing_role": "annotation_unavailable",
+            "target_missing_role": "prompt_unspecified",
+            "layout": "exact_identity",
+            "unaffected_prompt_fields": "byte-equivalent-canonical-values",
+            "provenance_transition": (
+                "observed_annotation_to_prompt_conditioning"
+            ),
+        },
+        "apply_sasa_to_prompt": {
+            "name": "exact-DSSP-SASA-to-ProteinPrompt-conditioning",
+            "unit": "angstrom_squared",
+            "numeric_mapping": "identity",
+            "source_missing_role": "annotation_unavailable",
+            "target_missing_role": "prompt_unspecified",
+            "layout": "exact_identity",
+            "unaffected_prompt_fields": "byte-equivalent-canonical-values",
+            "provenance_transition": (
+                "observed_annotation_to_prompt_conditioning"
+            ),
+        },
+        "expected_secondary_structure_from_prompt": {
+            "name": (
+                "exact-ProteinPrompt-conditioning-to-expected-annotation-SS8"
+            ),
+            "source_alphabet": "GHITEBS-",
+            "target_alphabet": "GHITEBSC_",
+            "symbol_mapping": {
+                "-": "C",
+                "GHITEBS": "identity",
+                "null": "_",
+            },
+            "source_missing_role": "prompt_unspecified",
+            "target_missing_role": "expected_comparison_excluded",
+            "layout": "exact_identity",
+            "provenance_transition": (
+                "prompt_conditioning_to_expected_annotation"
+            ),
+        },
     }
     return MethodDefinition(
         method_id=f"structure_annotation.{operation}.method",
-        version=_METHOD_VERSION,
+        version=_METHOD_VERSIONS[operation],
         algorithm_identity=algorithms[operation],
         model_identity={"kind": "none"},
         checkpoint_identity={"kind": "none"},
         featurization_identity={
             "dssp_compute": {
-                "input": "protein.structure@3.0.0",
+                "input": (
+                    "singleton ProteinStructure Candidate and authoritative "
+                    "resolved residue axis joined by exact admitted "
+                    "CandidateDataReference"
+                ),
                 "structure_format": "PDB-v3.3-fixed-columns",
                 "provider_output_format": "mkdssp-4.6.1-mmCIF",
                 "residue_mapping": (
-                    "chain-residue-name-CA-coordinate"
+                    "dssp_struct_summary-label-asym-and-seq-joined-through-"
+                    "atom_site-auth-asym-auth-seq-and-PDB-ins-code-to-"
+                    "exact-authoritative-axis-identity"
                 ),
             },
             "secondary_structure_extract": {
-                "input": (
-                    "structure_annotation.dssp_annotations@2.1.0"
-                ),
+                "input": "candidate-associated DSSP annotation",
                 "projection": "secondary_structure",
                 "P_conversion": "C",
+                "subject": "preserve exact CandidateDataReference",
             },
             "sasa_compute": {
-                "input": (
-                    "structure_annotation.dssp_annotations@2.1.0"
-                ),
+                "input": "candidate-associated DSSP annotation",
                 "projection": "sasa",
                 "unit": "angstrom_squared",
+                "subject": "preserve exact CandidateDataReference",
             },
             "secondary_structure_agreement": {
-                "inputs": (
-                    "two structure_annotation."
-                    "secondary_structure_track@2.1.0 values"
-                ),
+                "inputs": "expected and observed candidate-associated SS8 tracks",
+                "participant_binding": {
+                    "observed": "exact admitted subject Candidate reference",
+                    "expected": "exact admitted reference Candidate reference",
+                },
                 "layout": "exact_identity",
                 "presence_mask": "both-values-not-underscore",
+            },
+            "apply_secondary_structure_to_prompt": {
+                "inputs": [
+                    "ProteinPrompt",
+                    "candidate-associated secondary-structure track",
+                ],
+                "output": "ProteinPrompt",
+                "track": "secondary_structure",
+                "layout": "exact_identity",
+                "candidate_attribution": "not copied into ProteinPrompt",
+            },
+            "apply_sasa_to_prompt": {
+                "inputs": [
+                    "ProteinPrompt",
+                    "candidate-associated SASA track",
+                ],
+                "output": "ProteinPrompt",
+                "track": "sasa",
+                "unit": "angstrom_squared",
+                "layout": "exact_identity",
+                "candidate_attribution": "not copied into ProteinPrompt",
+            },
+            "expected_secondary_structure_from_prompt": {
+                "inputs": ["ProteinPrompt", "singleton reference Candidate"],
+                "output": "candidate-associated secondary-structure track",
+                "track": "secondary_structure",
+                "layout": "exact_identity",
+                "output_role": "expected_comparison",
+                "participant_binding": (
+                    "exact admitted reference Candidate reference"
+                ),
             },
         }[operation],
         source_identity=(
@@ -387,7 +491,7 @@ def _binding(operation: str) -> ExecutionBindingDefinition:
     method = ContractIdentity(
         "method",
         f"structure_annotation.{operation}.method",
-        _METHOD_VERSION,
+        _METHOD_VERSIONS[operation],
     )
     produced = ()
     if operation == "secondary_structure_agreement":
@@ -397,7 +501,7 @@ def _binding(operation: str) -> ExecutionBindingDefinition:
                 metric=ContractIdentity(
                     "metric",
                     "structure_annotation.secondary_structure_agreement",
-                    _VERSION,
+                    _METRIC_VERSION,
                 ),
                 context_profile={
                     "kind": "pairwise",
@@ -412,22 +516,22 @@ def _binding(operation: str) -> ExecutionBindingDefinition:
                 subject_port="subjects",
                 reference_direction="input",
                 reference_port="references",
+                axis_direction="input",
+                axis_port="subject_residue_axes",
                 guaranteed_multiplicity="one",
             ),
         )
     is_dssp = operation == _DSSP_OPERATION
     route = "mkdssp_local" if is_dssp else "direct"
     execution_route = "adapter" if is_dssp else "direct"
-    binding_version = (
-        _DSSP_BINDING_VERSION if is_dssp else _DIRECT_BINDING_VERSION
-    )
+    binding_version = _NODE_BINDING_VERSIONS[operation]
     return ExecutionBindingDefinition(
         binding_id=f"structure_annotation.{operation}.{route}",
         version=binding_version,
         node_type=ContractIdentity(
             "node_type",
             f"structure_annotation.{operation}",
-            _DSSP_NODE_VERSION if is_dssp else _VERSION,
+            binding_version,
         ),
         method=method,
         binding_parameters={},
@@ -435,7 +539,7 @@ def _binding(operation: str) -> ExecutionBindingDefinition:
         factory=ScientificOperationFactory(
             behavior=BehaviorReference(
                 f"structure_annotation.{operation}/factory",
-                _FACTORY_BEHAVIOR_VERSION,
+                binding_version,
                 {"execution_route": execution_route, "route": route},
             ),
             build=_build(operation),
@@ -443,7 +547,7 @@ def _binding(operation: str) -> ExecutionBindingDefinition:
         adapter_behavior=(
             BehaviorReference(
                 "structure_annotation.mkdssp_local/adapter",
-                _VERSION,
+                binding_version,
                 {
                     "provider_contract": (
                         f"{MKDSSP_SOURCE_REPOSITORY}@"
@@ -454,8 +558,13 @@ def _binding(operation: str) -> ExecutionBindingDefinition:
                     "binary_version": MKDSSP_VERSION,
                     "request_format": "PDB-v3.3-fixed-columns",
                     "response_format": "mkdssp-4.6.1-mmCIF",
+                    "axis_source": (
+                        "exact-candidate-associated-authoritative-"
+                        "resolved-residue-axis"
+                    ),
                     "residue_reconciliation": (
-                        "chain-residue-name-CA-coordinate"
+                        "dssp-summary-label-pair-via-atom-site-auth-fields-"
+                        "to-authoritative-axis-exact-identity"
                     ),
                 },
             )
@@ -541,35 +650,49 @@ def _port_type(
     validator: Any,
     to_wire: Any,
     from_wire: Any,
+    quantity_contract: Mapping[str, str] | None = None,
 ) -> PortTypeDefinition:
     return PortTypeDefinition(
         type_id=type_id,
-        version=_VERSION,
+        version=_PORT_VERSION,
         validator=BehaviorReference(
             f"{type_id}/validate",
-            _VERSION,
+            _PORT_VERSION,
             {
                 "accepted_value_kind": kind,
+                "subject_reference_required": True,
                 "layout_identity_required": True,
                 "nullable_semantics": (
                     "underscore_absent"
                     if kind == "secondary_structure_track"
                     else "JSON null means unavailable"
                 ),
+                **(
+                    {"quantity_contract": quantity_contract}
+                    if quantity_contract is not None
+                    else {}
+                ),
             },
         ),
         codec=BehaviorReference(
             f"{type_id}/codec",
-            _VERSION,
+            _PORT_VERSION,
             {
                 "canonicalization": "RFC 8785",
-                "embedded_layout_contract": "residue.layout@2.1.0",
+                "embedded_layout_contract": "residue.layout@3.0.0",
+                "subject_wire": (
+                    "exact CandidateDataReference candidate_id, "
+                    "data_type_id, content_digest"
+                ),
             },
         ),
         content_identity=BehaviorReference(
             f"{type_id}/content",
-            _VERSION,
-            {"digest": "SHA-256"},
+            _PORT_VERSION,
+            {
+                "digest": "SHA-256",
+                "includes_subject_reference": True,
+            },
         ),
         runtime_validator=validator,
         runtime_to_wire=to_wire,
@@ -589,11 +712,17 @@ MODULE_PACKAGE = ModulePackageRegistration(
             "secondary_structure_extract",
             "sasa_compute",
             "secondary_structure_agreement",
+            "apply_secondary_structure_to_prompt",
+            "apply_sasa_to_prompt",
+            "expected_secondary_structure_from_prompt",
         )
     ),
     metric_definitions=(
         DefinitionResource(
             "definitions/secondary_structure_agreement_metric.yaml"
+        ),
+        DefinitionResource(
+            "definitions/secondary_structure_position_agreement_metric.yaml"
         ),
     ),
     methods=tuple(_method(operation) for operation in _OPERATIONS),
@@ -619,6 +748,7 @@ MODULE_PACKAGE = ModulePackageRegistration(
             validator=_validate_sasa_track,
             to_wire=_track_to_wire("sasa"),
             from_wire=_track_from_wire("sasa"),
+            quantity_contract=_ABSOLUTE_SASA_QUANTITY_CONTRACT,
         ),
     ),
 )

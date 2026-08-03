@@ -1,28 +1,28 @@
 schema_version: "2.1.0"
 node_type_id: prompt_authoring.prompt_from_structure
-version: "3.0.0"
+version: "5.0.0"
 title: Build a ProteinPrompt from a structure
-summary: Converts one exact PDB structure into residue-identified sequence, coordinate, and visibility tracks without provider-specific values.
+summary: Converts one admitted resolved residue axis into residue-identified sequence, coordinate, and visibility tracks without rebuilding structure semantics.
 category: prompt_authoring
 inputs:
-  - name: structure
-    port_type_id: protein.structure
-    port_type_version: "3.0.0"
+  - name: residue_axis
+    port_type_id: structure_transform.resolved_residue_axis
+    port_type_version: "4.0.0"
     required: true
     multiplicity: one
-    scientific_meaning: Single-model PDB structure whose ordered canonical residues define the prompt.
+    scientific_meaning: Canonical resolver-owned protein axis, selected coordinates, topology, and component provenance.
 outputs:
   - name: layout
     port_type_id: residue.layout
-    port_type_version: "2.1.0"
+    port_type_version: "3.0.0"
     required: true
     multiplicity: one
-    scientific_meaning: Exact ordered chain-qualified residue identities parsed from the PDB structure.
+    scientific_meaning: Exact ordered chain-qualified residue identities copied from the admitted axis.
   - name: protein_prompt
     port_type_id: protein.prompt
-    port_type_version: "2.1.0"
+    port_type_version: "3.0.0"
     required: true
     multiplicity: one
-    scientific_meaning: ProteinPrompt carrying exact sequence, named-atom coordinate, and visibility tracks from the structure.
+    scientific_meaning: ProteinPrompt carrying exact sequence, selected named-atom coordinates, and visibility from the admitted axis.
 parameter_groups: []
 node_parameters: {}

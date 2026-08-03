@@ -11,13 +11,14 @@ import json
 import math
 import os
 from pathlib import Path
-import stat
-import threading
-from typing import Any, Iterable, Protocol
+from typing import Any, cast, Iterable, Protocol, TYPE_CHECKING
 
 from core import ReadinessResult, RunResources, canonical_sha256
 from modules.provider_contract import validate_installed_provider_checkout
 from datatypes import ProteinSequence, ProteinStructure
+
+if TYPE_CHECKING:
+    import torch
 
 
 ESM_SDK_REVISION = "917af90b624535eed1e072d343c717e3ec11fef4"
@@ -77,10 +78,6 @@ LOCAL_ESMC_ARTIFACT_SHA256 = {
         "e8d8e40c9f92b334f0272e80bb65ed4043cb9836523cbae899e9859e8cbb8833"
     ),
 }
-_PROTEIN_ALPHABET = frozenset("ACDEFGHIKLMNPQRSTVWY")
-_LOCAL_CCD_LOCK = threading.Lock()
-_LOCAL_CCD_DIGEST: str | None = None
-_LOCAL_CCD_OBJECT: object | None = None
 _PDB_RESIDUE_TO_ONE = {
     "ALA": "A",
     "ARG": "R",
@@ -141,26 +138,14 @@ def transformers_esmfold2_runtime_is_exact() -> bool:
             or vcs_info.get("commit_id") != TRANSFORMERS_REVISION
         ):
             return False
-        package_root_entry = Path(
+        package_root = Path(
             distribution.locate_file("transformers")
-        )
-        if (
-            package_root_entry.is_symlink()
-            or not package_root_entry.is_dir()
-        ):
-            return False
-        package_root = package_root_entry.resolve(strict=True)
+        ).resolve(strict=True)
         for relative_path, expected_digest in (
             TRANSFORMERS_ESMFOLD2_SOURCE_SHA256.items()
         ):
             source = package_root / relative_path
-            if (
-                source.is_symlink()
-                or not source.is_file()
-                or source.resolve(strict=True).parent
-                != (package_root / relative_path).parent.resolve(strict=True)
-                or _regular_file_sha256(source) != expected_digest
-            ):
+            if _regular_file_sha256(source) != expected_digest:
                 return False
     except (
         ImportError,
@@ -223,43 +208,8 @@ def _local_input_builder(
     builder_type: type,
     runtime: LocalESMFold2Runtime,
 ) -> object:
-    """Initialize the ESMFold2 CCD once from the validated local snapshot."""
-    from esm.models.esmfold2 import conformers
-
-    return _initialize_local_ccd(conformers, builder_type, runtime)
-
-
-def _initialize_local_ccd(
-    conformers: object,
-    builder_type: type,
-    runtime: LocalESMFold2Runtime,
-) -> object:
-    """Reject pre-existing CCD state not initialized by this adapter."""
-    expected_digest = LOCAL_ESMFOLD2_ARTIFACT_SHA256["ccd.pkl"]
-    global _LOCAL_CCD_DIGEST, _LOCAL_CCD_OBJECT
-    with _LOCAL_CCD_LOCK:
-        loaded = getattr(conformers, "_CCD_MOLECULES", None)
-        if _LOCAL_CCD_DIGEST is None:
-            if loaded is not None:
-                raise RuntimeError(
-                    "ESMFold2 CCD was initialized outside this adapter"
-                )
-            builder = builder_type(ccd_cache=runtime.model_snapshot_path)
-            if getattr(conformers, "_CCD_MOLECULES", None) is None:
-                raise RuntimeError("ESMFold2 CCD initialization did not complete")
-            _LOCAL_CCD_DIGEST = expected_digest
-            _LOCAL_CCD_OBJECT = getattr(conformers, "_CCD_MOLECULES")
-            return builder
-        if (
-            _LOCAL_CCD_DIGEST != expected_digest
-            or loaded is None
-            or loaded is not _LOCAL_CCD_OBJECT
-        ):
-            raise RuntimeError("ESMFold2 CCD global identity changed")
-        builder = builder_type(ccd_cache=runtime.model_snapshot_path)
-        if getattr(conformers, "_CCD_MOLECULES", None) is not _LOCAL_CCD_OBJECT:
-            raise RuntimeError("ESMFold2 CCD global identity changed")
-        return builder
+    """Build the official input translator against the exact CCD snapshot."""
+    return builder_type(ccd_cache=runtime.model_snapshot_path)
 
 
 def configured_local_runtime_fingerprint() -> str:
@@ -295,58 +245,30 @@ def _configured_directory(
     raw = environment.get(key)
     if not isinstance(raw, (str, os.PathLike)):
         raise RuntimeError(f"local ESMFold2 {key} is not configured")
-    path = Path(raw)
     try:
-        metadata = path.lstat()
+        path = Path(raw).resolve(strict=True)
     except OSError as error:
         raise RuntimeError(
             f"local ESMFold2 {key} is unavailable"
         ) from error
-    if stat.S_ISLNK(metadata.st_mode) or not stat.S_ISDIR(metadata.st_mode):
+    if not path.is_dir():
         raise RuntimeError(
-            f"local ESMFold2 {key} is not a regular directory"
+            f"local ESMFold2 {key} is not a directory"
         )
-    return path.resolve(strict=True)
+    return path
 
 
 def _regular_file_sha256(path: Path) -> str:
-    descriptor: int | None = None
+    digest = hashlib.sha256()
     try:
-        descriptor = os.open(
-            path,
-            os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0),
-        )
-        opened = os.fstat(descriptor)
-        if not stat.S_ISREG(opened.st_mode):
-            raise RuntimeError(
-                "required local ESMFold2 artifact is not regular"
-            )
-        digest = hashlib.sha256()
-        while chunk := os.read(descriptor, 1024 * 1024):
-            digest.update(chunk)
-        after = os.fstat(descriptor)
-        if (
-            after.st_dev,
-            after.st_ino,
-            after.st_size,
-            after.st_mtime_ns,
-        ) != (
-            opened.st_dev,
-            opened.st_ino,
-            opened.st_size,
-            opened.st_mtime_ns,
-        ):
-            raise RuntimeError(
-                "local ESMFold2 artifact changed during validation"
-            )
-        return digest.hexdigest()
+        with path.open("rb") as handle:
+            while chunk := handle.read(1024 * 1024):
+                digest.update(chunk)
     except OSError as error:
         raise RuntimeError(
             "local ESMFold2 artifact could not be validated"
         ) from error
-    finally:
-        if descriptor is not None:
-            os.close(descriptor)
+    return digest.hexdigest()
 
 
 def _artifact_source(
@@ -354,43 +276,8 @@ def _artifact_source(
     relative_path: str,
     expected_digest: str,
 ) -> Path:
-    relative = Path(relative_path)
-    if relative.is_absolute() or not relative.parts or ".." in relative.parts:
-        raise RuntimeError("local ESMFold2 artifact path is invalid")
     try:
-        parent = snapshot_path
-        for component in relative.parts[:-1]:
-            parent = parent / component
-            metadata = parent.lstat()
-            if stat.S_ISLNK(metadata.st_mode) or not stat.S_ISDIR(
-                metadata.st_mode
-            ):
-                raise RuntimeError(
-                    "local ESMFold2 snapshot directory is not regular"
-                )
-        entry = parent / relative.parts[-1]
-        metadata = entry.lstat()
-        if stat.S_ISLNK(metadata.st_mode):
-            target_value = os.readlink(entry)
-            if Path(target_value).is_absolute():
-                raise RuntimeError(
-                    "local ESMFold2 snapshot link is not repository-contained"
-                )
-            target = (entry.parent / target_value).resolve(strict=True)
-            repository_root = snapshot_path.parent.parent.resolve(strict=True)
-            if (
-                target.parent != repository_root / "blobs"
-                or target.name != expected_digest
-            ):
-                raise RuntimeError(
-                    "local ESMFold2 snapshot link is not repository-contained"
-                )
-        elif stat.S_ISREG(metadata.st_mode):
-            target = entry
-        else:
-            raise RuntimeError(
-                "required local ESMFold2 artifact is not regular"
-            )
+        target = (snapshot_path / relative_path).resolve(strict=True)
     except OSError as error:
         raise RuntimeError(
             "local ESMFold2 artifact could not be validated"
@@ -437,6 +324,21 @@ def resolve_local_runtime(
         runtime_directory=runtime_directory,
         device=LOCAL_DEVICE,
         safe_fingerprint=safe_fingerprint,
+    )
+
+
+def _trusted_local_runtime(
+    environment: Mapping[str, object],
+) -> LocalESMFold2Runtime:
+    """Read the runtime values already admitted by Binding readiness."""
+    return LocalESMFold2Runtime(
+        model_snapshot_path=Path(environment["model_snapshot_path"]),
+        language_model_snapshot_path=Path(
+            environment["language_model_snapshot_path"]
+        ),
+        runtime_directory=Path(environment["runtime_directory"]),
+        device=LOCAL_DEVICE,
+        safe_fingerprint=configured_local_runtime_fingerprint(),
     )
 
 
@@ -497,105 +399,50 @@ class ESMFold2Adapter(Protocol):
     ) -> ESMFold2AdapterResult: ...
 
 
-def _flat_values(value: object, field: str) -> tuple[object, ...]:
-    if value is None:
-        raise ValueError(f"{field} is required")
-    if callable(getattr(value, "detach", None)):
-        value = value.detach()
-    if callable(getattr(value, "cpu", None)):
-        value = value.cpu()
-    if callable(getattr(value, "flatten", None)):
-        value = value.flatten()
-    if callable(getattr(value, "tolist", None)):
-        value = value.tolist()
-    if not isinstance(value, (list, tuple)):
-        value = (value,)
-    return tuple(value)
+class _RenderedProtein(Protocol):
+    def infer_oxygen(self) -> _RenderedProtein: ...
+
+    def to_pdb_string(self) -> str: ...
 
 
-def _matrix_values(value: object, field: str) -> tuple[tuple[object, ...], ...]:
-    if value is None:
-        raise ValueError(f"{field} is required")
-    if callable(getattr(value, "detach", None)):
-        value = value.detach()
-    if callable(getattr(value, "cpu", None)):
-        value = value.cpu()
-    if callable(getattr(value, "tolist", None)):
-        value = value.tolist()
-    if not isinstance(value, (list, tuple)):
-        raise ValueError(f"{field} must be a residue matrix")
-    rows: list[tuple[object, ...]] = []
-    for row in value:
-        if not isinstance(row, (list, tuple)):
-            raise ValueError(f"{field} must be a residue matrix")
-        rows.append(tuple(row))
-    return tuple(rows)
+class _RemoteFoldResult(Protocol):
+    plddt: torch.Tensor
+    ptm: torch.Tensor
+    pae: torch.Tensor
+
+    def to_protein_chain(self) -> _RenderedProtein: ...
 
 
-def _pdb_sequence(pdb_string: str) -> str:
-    seen: set[tuple[str, str, str]] = set()
-    residues: list[str] = []
-    for line in pdb_string.splitlines():
-        if not line.startswith("ATOM  ") or len(line) < 27:
-            continue
-        residue_name = line[17:20].strip().upper()
-        residue = _PDB_RESIDUE_TO_ONE.get(residue_name)
-        if residue is None:
-            raise ValueError(
-                "ESMFold2 PDB contains a non-protein ATOM residue"
-            )
-        key = (line[21:22], line[22:26], line[26:27])
-        if key in seen:
-            continue
-        seen.add(key)
-        residues.append(residue)
-    if not residues:
-        raise ValueError("ESMFold2 PDB contains no complete protein residues")
-    return "".join(residues)
+class _LocalComplex(Protocol):
+    sequence: Iterable[str]
+
+    def to_protein_complex(self) -> _RenderedProtein: ...
 
 
-def _validated_input_sequence(sequence: ProteinSequence) -> str:
-    if type(sequence) is not ProteinSequence:
-        raise ValueError("folding input must be a ProteinSequence")
-    value = sequence.sequence
-    if (
-        not value
-        or any(symbol not in _PROTEIN_ALPHABET for symbol in value)
-        or (
-            sequence.residue_ids is not None
-            and len(sequence.residue_ids) != len(value)
-        )
-    ):
-        raise ValueError(
-            "ESMFold2 requires one complete canonical protein sequence"
-        )
-    return value
+class _LocalFoldResult(Protocol):
+    complex: _LocalComplex
+    plddt: torch.Tensor
+    ptm: float
+    pae: torch.Tensor
 
 
-def _provider_pdb_string(result: object, *, local: bool) -> str:
-    if local:
-        complex_value = getattr(result, "complex", None)
-        if complex_value is None:
-            raise ValueError("local ESMFold2 result lacks a structure")
-        to_protein = getattr(complex_value, "to_protein_complex", None)
-        if not callable(to_protein):
-            raise ValueError("local ESMFold2 result cannot render PDB")
-        protein = to_protein()
-    else:
-        to_chain = getattr(result, "to_protein_chain", None)
-        if not callable(to_chain):
-            raise ValueError("remote ESMFold2 result cannot render PDB")
-        protein = to_chain()
-    infer_oxygen = getattr(protein, "infer_oxygen", None)
-    if not callable(infer_oxygen):
-        raise ValueError("ESMFold2 result cannot infer oxygen")
-    protein = infer_oxygen()
-    render = getattr(protein, "to_pdb_string", None)
-    if not callable(render):
-        raise ValueError("ESMFold2 result cannot render PDB")
-    rendered = render()
-    if not isinstance(rendered, str):
-        raise ValueError("ESMFold2 PDB rendering returned the wrong type")
+def _vector_values(value: torch.Tensor) -> tuple[float, ...]:
+    return tuple(float(item) for item in value.detach().cpu().tolist())
+
+
+def _matrix_values(value: torch.Tensor) -> tuple[tuple[float, ...], ...]:
+    return tuple(
+        tuple(float(item) for item in row)
+        for row in value.detach().cpu().tolist()
+    )
+
+
+def _provider_pdb_string(protein: _RenderedProtein) -> str:
+    rendered = protein.infer_oxygen().to_pdb_string()
+    if not rendered.endswith("\n"):
+        rendered = f"{rendered}\n"
+    if rendered.splitlines()[-1][:6].strip() != "END":
+        rendered = f"{rendered}END\n"
     return rendered
 
 
@@ -604,27 +451,17 @@ def decode_remote_fold_result(
     sequence: ProteinSequence,
 ) -> DecodedFoldResult:
     """Decode one provider-native Biohub ESMProtein result."""
-    expected = _validated_input_sequence(sequence)
-    try:
-        from esm.sdk.api import ESMProteinError
-    except ImportError:
-        ESMProteinError = ()  # type: ignore[assignment]
+    from esm.sdk.api import ESMProteinError
+
     if isinstance(result, ESMProteinError):
         raise RuntimeError("remote ESMFold2 provider returned an error")
-    observed = getattr(result, "sequence", None)
-    if observed != expected:
-        raise ValueError("remote ESMFold2 result sequence is incomplete")
-    pdb_string = _provider_pdb_string(result, local=False)
-    if _pdb_sequence(pdb_string) != expected:
-        raise ValueError("remote ESMFold2 PDB sequence is incomplete")
+    result = cast(_RemoteFoldResult, result)
+    pdb_string = _provider_pdb_string(result.to_protein_chain())
     confidence = normalize_native_confidence(
-        native_plddt=_flat_values(
-            getattr(result, "plddt", None),
-            "native pLDDT",
-        ),
-        valid_protein_residues=(True,) * len(expected),
-        ptm=getattr(result, "ptm", None),
-        pae=_matrix_values(getattr(result, "pae", None), "native PAE"),
+        native_plddt=_vector_values(result.plddt),
+        valid_protein_residues=(True,) * len(sequence.sequence),
+        ptm=float(result.ptm.detach().cpu().item()),
+        pae=_matrix_values(result.pae),
     )
     return DecodedFoldResult(
         ProteinStructure(pdb_string),
@@ -633,37 +470,20 @@ def decode_remote_fold_result(
 
 
 def decode_local_fold_result(
-    result: object,
-    sequence: ProteinSequence,
+    result: _LocalFoldResult,
 ) -> DecodedFoldResult:
     """Decode one provider-native local MolecularComplexResult."""
-    expected = _validated_input_sequence(sequence)
-    complex_value = getattr(result, "complex", None)
-    tokens = getattr(complex_value, "sequence", None)
-    if not isinstance(tokens, (list, tuple)) or not tokens:
-        raise ValueError("local ESMFold2 result lacks residue identities")
+    tokens = result.complex.sequence
     mask = tuple(
-        isinstance(token, str) and token.upper() in _PDB_RESIDUE_TO_ONE
+        token.upper() in _PDB_RESIDUE_TO_ONE
         for token in tokens
     )
-    observed = "".join(
-        _PDB_RESIDUE_TO_ONE[token.upper()]
-        for token, valid in zip(tokens, mask, strict=True)
-        if valid
-    )
-    if observed != expected:
-        raise ValueError("local ESMFold2 result sequence is incomplete")
-    pdb_string = _provider_pdb_string(result, local=True)
-    if _pdb_sequence(pdb_string) != expected:
-        raise ValueError("local ESMFold2 PDB sequence is incomplete")
+    pdb_string = _provider_pdb_string(result.complex.to_protein_complex())
     confidence = normalize_native_confidence(
-        native_plddt=_flat_values(
-            getattr(result, "plddt", None),
-            "native pLDDT",
-        ),
+        native_plddt=_vector_values(result.plddt),
         valid_protein_residues=mask,
-        ptm=getattr(result, "ptm", None),
-        pae=_matrix_values(getattr(result, "pae", None), "native PAE"),
+        ptm=result.ptm,
+        pae=_matrix_values(result.pae),
     )
     return DecodedFoldResult(
         ProteinStructure(pdb_string),
@@ -769,27 +589,6 @@ def load_local_engine(
     return LocalEngine()
 
 
-def _finite_number(value: object, field: str) -> float:
-    if callable(getattr(value, "detach", None)):
-        value = value.detach()
-    if callable(getattr(value, "cpu", None)):
-        value = value.cpu()
-    if callable(getattr(value, "flatten", None)):
-        value = value.flatten()
-    if callable(getattr(value, "tolist", None)):
-        value = value.tolist()
-    if isinstance(value, (list, tuple)):
-        if len(value) != 1:
-            raise ValueError(f"{field} must be scalar")
-        value = value[0]
-    if (
-        type(value) not in {int, float}
-        or not math.isfinite(float(value))
-    ):
-        raise ValueError(f"{field} must be finite")
-    return float(value)
-
-
 def normalize_residue_plddt(
     *,
     native_plddt: Iterable[object],
@@ -800,35 +599,17 @@ def normalize_residue_plddt(
     """Normalize pLDDT while preserving the declared subject residue axis."""
     native = tuple(native_plddt)
     mask = tuple(valid_residues)
-    if len(native) != len(mask) or not native:
-        raise ValueError("native pLDDT and residue validity are inconsistent")
-    if any(type(valid) is not bool for valid in mask):
-        raise ValueError("protein-residue validity must be boolean")
-    if native_maximum <= 0 or not math.isfinite(native_maximum):
-        raise ValueError("native pLDDT maximum is invalid")
-
     selected_indices: list[int] = []
     canonical: list[float | None] = []
     for index, (value, valid) in enumerate(zip(native, mask, strict=True)):
         if project_to_valid_residues and not valid:
             continue
         selected_indices.append(index)
-        if (
-            not valid
-            or type(value) not in {int, float}
-            or not math.isfinite(float(value))
-        ):
+        if not valid:
             canonical.append(None)
             continue
-        native_value = float(value)
-        if native_value < 0.0 or native_value > native_maximum:
-            raise ValueError(
-                f"native pLDDT must remain in [0,{native_maximum:g}]"
-            )
-        canonical.append(native_value * (100.0 / native_maximum))
+        canonical.append(float(value) * (100.0 / native_maximum))
     finite_plddt = [value for value in canonical if value is not None]
-    if not finite_plddt:
-        raise ValueError("native pLDDT has no valid protein residues")
     return (
         tuple(canonical),
         math.fsum(finite_plddt) / len(finite_plddt),
@@ -840,8 +621,8 @@ def normalize_native_confidence(
     *,
     native_plddt: Iterable[object],
     valid_protein_residues: Iterable[object],
-    ptm: object,
-    pae: Iterable[Iterable[object]],
+    ptm: float,
+    pae: Iterable[Iterable[float]],
 ) -> NormalizedConfidence:
     """Convert exact native `[0,1]` ESMFold2 confidence without range guessing."""
     native = tuple(native_plddt)
@@ -853,27 +634,13 @@ def normalize_native_confidence(
         project_to_valid_residues=True,
     )
 
-    ptm_value = _finite_number(ptm, "native pTM")
-    if ptm_value < 0.0 or ptm_value > 1.0:
-        raise ValueError("native pTM must remain in [0,1]")
-
+    ptm_value = float(ptm)
     pae_rows = tuple(tuple(row) for row in pae)
-    if (
-        len(pae_rows) != len(native)
-        or any(len(row) != len(native) for row in pae_rows)
-    ):
-        raise ValueError("native PAE must be a square residue matrix")
     normalized_pae: list[tuple[float, ...]] = []
     for row_index in selected_indices:
         row: list[float] = []
         for column_index in selected_indices:
-            value = _finite_number(
-                pae_rows[row_index][column_index],
-                "native PAE",
-            )
-            if value < 0.0:
-                raise ValueError("native PAE must remain in angstroms")
-            row.append(value)
+            row.append(float(pae_rows[row_index][column_index]))
         normalized_pae.append(tuple(row))
 
     return NormalizedConfidence(
@@ -910,7 +677,7 @@ class BiohubESMFold2Adapter:
     ) -> ESMFold2AdapterResult:
         """Invoke Biohub once, then admit its raw result outside Invocation."""
         del derived_call_seed
-        provider_sequence = _validated_input_sequence(sequence)
+        provider_sequence = sequence.sequence
         client = self._provider_client()
         config = fixed_folding_config()
         with self._resources.engine_invocation(
@@ -952,7 +719,7 @@ class LocalESMFold2Adapter:
         self,
     ) -> tuple[LocalESMFold2Runtime, Any]:
         if self._runtime is None:
-            self._runtime = resolve_local_runtime(self._environment)
+            self._runtime = _trusted_local_runtime(self._environment)
         if self._engine is None:
             self._engine = load_local_engine(
                 self._environment,
@@ -968,7 +735,7 @@ class LocalESMFold2Adapter:
         engine_role: str,
     ) -> ESMFold2AdapterResult:
         """Invoke the local model once, then admit its raw result."""
-        provider_sequence = _validated_input_sequence(sequence)
+        provider_sequence = sequence.sequence
         _, engine = self._provider_engine()
         with self._resources.engine_invocation(
             engine_role=engine_role,
@@ -983,7 +750,7 @@ class LocalESMFold2Adapter:
                 sequence=provider_sequence,
                 effective_seed=derived_call_seed,
             )
-        decoded = decode_local_fold_result(raw_result, sequence)
+        decoded = decode_local_fold_result(cast(_LocalFoldResult, raw_result))
         return ESMFold2AdapterResult(
             structure=decoded.structure,
             confidence=decoded.confidence,

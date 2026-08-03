@@ -1,0 +1,46 @@
+schema_version: "2.1.0"
+node_type_id: contract_test.collection_ops_lineage_source
+version: "3.0.0"
+title: Collection operations lineage source
+summary: Emits closed Candidate lineage and exact parent-to-reference pairing fixtures.
+category: contract_test
+inputs: []
+outputs:
+  - name: parents
+    port_type_id: candidate.collection
+    port_type_version: "3.0.0"
+    required: true
+    multiplicity: one
+    scientific_meaning: Exact parents for pairing-composition conformance.
+  - name: references
+    port_type_id: candidate.collection
+    port_type_version: "3.0.0"
+    required: true
+    multiplicity: one
+    scientific_meaning: Exact references for pairing-composition conformance.
+  - name: subjects
+    port_type_id: candidate.collection
+    port_type_version: "3.0.0"
+    required: true
+    multiplicity: one
+    scientific_meaning: Exact children for pairing-composition conformance.
+  - name: parent_pairing
+    port_type_id: candidate.pairing
+    port_type_version: "3.0.0"
+    required: true
+    multiplicity: one
+    scientific_meaning: Exact parent-to-reference pairing for composition.
+parameter_groups:
+  - id: fixture
+    title: Fixture
+    parameters:
+      - candidate_count
+node_parameters:
+  candidate_count:
+    parameter_scope: scientific
+    scientific_meaning: Exact number of closed lineage triples to emit.
+    value_contract:
+      type: integer
+      minimum: 1
+      maximum: 3
+    required: true

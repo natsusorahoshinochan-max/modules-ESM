@@ -34,19 +34,18 @@ from .implementation import (
 
 _PACKAGE_VERSION = "2.1.0"
 _OPERATION_VERSIONS = {
-    "import_sequence": "3.0.0",
-    "import_structure": "3.0.0",
-    "export_sequence": "2.1.0",
-    "export_structure": "3.0.0",
+    "import_sequence": "5.0.0",
+    "import_structure": "5.0.0",
+    "export_sequence": "3.0.0",
+    "export_structure": "5.0.0",
 }
 _METHOD_VERSIONS = {
-    "import_sequence": "3.0.0",
+    "import_sequence": "4.0.0",
     "import_structure": "2.1.0",
     "export_sequence": "2.1.0",
     "export_structure": "2.1.0",
 }
 _SAFE_NAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$")
-_SAFE_CANDIDATE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$")
 
 
 def _available() -> AvailabilityResult:
@@ -66,10 +65,6 @@ def _validate_artifact_payload(value: object) -> None:
     if (
         value.media_type not in {"text/x-fasta", "chemical/x-pdb"}
         or _SAFE_NAME.fullmatch(value.filename) is None
-        or (
-            value.candidate_id is not None
-            and _SAFE_CANDIDATE.fullmatch(value.candidate_id) is None
-        )
     ):
         raise ValueError("artifact metadata is invalid")
 

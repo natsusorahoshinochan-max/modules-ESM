@@ -5,7 +5,6 @@ from __future__ import annotations
 from collections.abc import Mapping, Sequence
 import hashlib
 import math
-import re
 from typing import Any
 
 from datatypes import (
@@ -13,12 +12,9 @@ from datatypes import (
     ResidueLayout,
     validate_proteinmpnn_constraints,
 )
+from datatypes.protein import validate_residue_layout
 
 
-_RESIDUE_ID = re.compile(
-    r"^(?P<chain>[A-Za-z0-9]):"
-    r"(?P<label>[A-Za-z0-9][A-Za-z0-9_.-]{0,63})$"
-)
 _MAX_SEED = 9_007_199_254_740_991
 _CANONICAL_AMINO_ACIDS = frozenset("ACDEFGHIKLMNPQRSTVWY")
 
@@ -72,46 +68,13 @@ def validate_layout(
     subject: str = "layout",
 ) -> tuple[ResidueLayout, tuple[str, ...], tuple[str, ...]]:
     """Validate an identity-complete contiguous-chain layout."""
-    if type(value) is not ResidueLayout:
-        raise ValueError(f"{subject} must be a ResidueLayout")
-    layout = value
-    if type(layout.length) is not int or layout.length <= 0:
-        raise ValueError(f"{subject} length must be positive")
-    residue_ids = layout.residue_ids
-    if residue_ids is None or len(residue_ids) != layout.length:
-        raise ValueError(
-            f"{subject} requires one identity for every residue"
-        )
-    if len(set(residue_ids)) != len(residue_ids):
-        raise ValueError(f"{subject} contains duplicate residue identities")
-    chain_order: list[str] = []
-    closed_chains: set[str] = set()
-    residue_chains: list[str] = []
-    previous: str | None = None
-    for residue_id in residue_ids:
-        if not isinstance(residue_id, str):
-            raise ValueError(f"{subject} residue identities must be text")
-        match = _RESIDUE_ID.fullmatch(residue_id)
-        if match is None:
-            raise ValueError(
-                f"{subject} residue identity {residue_id!r} is invalid"
-            )
-        chain = match.group("chain")
-        residue_chains.append(chain)
-        if chain != previous:
-            if chain in closed_chains:
-                raise ValueError(
-                    f"{subject} chain {chain!r} is not contiguous"
-                )
-            if previous is not None:
-                closed_chains.add(previous)
-            chain_order.append(chain)
-            previous = chain
-    if layout.chain_id != ",".join(chain_order):
-        raise ValueError(
-            f"{subject} chain_id does not match residue chain order"
-        )
-    return layout, tuple(chain_order), tuple(residue_chains)
+    layout = validate_residue_layout(value, subject=subject)
+    assert layout.residue_ids is not None
+    return (
+        layout,
+        tuple(layout.chain_id.split(",")),
+        tuple(residue_id.split(":", 1)[0] for residue_id in layout.residue_ids),
+    )
 
 
 def _optional_list(value: object, name: str) -> list[Any] | None:

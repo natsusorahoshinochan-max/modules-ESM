@@ -1,0 +1,28 @@
+schema_version: "2.1.0"
+node_type_id: structure_prediction.materialize_confidence
+version: "1.0.0"
+title: Materialize structure-prediction confidence
+summary: Joins complete subjectless prediction-confidence facts to admitted structure Candidate references without changing their values, Methods, or prediction-input residue axes.
+category: evaluation
+inputs:
+  - name: structure_candidates
+    port_type_id: candidate.collection
+    port_type_version: "3.0.0"
+    required: true
+    multiplicity: one
+    scientific_meaning: Nonempty admitted protein-structure Candidates whose exact data references and producer metadata close every subjectless confidence fact.
+  - name: confidence_facts
+    port_type_id: structure_prediction.confidence_facts
+    port_type_version: "1.0.0"
+    required: true
+    multiplicity: one
+    scientific_meaning: Canonical subjectless facts from one exact observation Method, keyed by producer output role and slot, exact structure content, and exact prediction-input residue axis.
+outputs:
+  - name: observations
+    port_type_id: score.collection
+    port_type_version: "4.0.0"
+    required: true
+    multiplicity: one
+    scientific_meaning: Intrinsic confidence Observations bound to exact admitted structure Candidate references; pLDDT and PAE retain their prediction-input residue axes and pTM has no residue axis.
+parameter_groups: []
+node_parameters: {}

@@ -1,6 +1,6 @@
 schema_version: "2.1.0"
 node_type_id: contract_test.multi_objective_selection_source
-version: "2.1.0"
+version: "3.0.0"
 title: Canonical multi-objective selection source
 summary: Emits four folded Candidates and isolated fixed-3GB1 and paired-ESM3 TM-score Observations.
 category: contract_test
@@ -8,27 +8,21 @@ inputs: []
 outputs:
   - name: candidates
     port_type_id: candidate.collection
-    port_type_version: "2.1.0"
+    port_type_version: "3.0.0"
     required: true
     multiplicity: one
     scientific_meaning: Four exact folded Candidate subjects.
   - name: references
     port_type_id: candidate.collection
-    port_type_version: "2.1.0"
+    port_type_version: "3.0.0"
     required: true
     multiplicity: one
     scientific_meaning: One fixed 3GB1 reference and one exact ESM3 counterpart per subject.
   - name: pairing
     port_type_id: candidate.pairing
-    port_type_version: "2.1.0"
+    port_type_version: "3.0.0"
     required: true
     multiplicity: one
     scientific_meaning: Exact subject-to-paired-ESM3 counterpart mapping.
-  - name: scores
-    port_type_id: score.collection
-    port_type_version: "2.1.0"
-    required: true
-    multiplicity: one
-    scientific_meaning: Isolated fixed-reference and per-subject counterpart TM-score Observations.
 parameter_groups: []
 node_parameters: {}

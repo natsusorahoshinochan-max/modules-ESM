@@ -9,6 +9,8 @@ import pytest
 
 from core import (
     BehaviorReference,
+    CandidatePairingIntent,
+    CandidatePairingIntentEntry,
     CatalogContract,
     CatalogBuildError,
     FrozenCatalog,
@@ -25,6 +27,7 @@ from core import (
     WorkflowCompileError,
     WorkflowDocument,
     WorkflowNodeInstance,
+    build_frozen_catalog,
     compile_workflow,
     relock_workflow,
     builtin_frozen_catalog,
@@ -36,6 +39,7 @@ from core.run_execution_v2 import V2RunService
 from core.workflow_v2 import WorkflowEdge as V2WorkflowEdge
 from datatypes import (
     Candidate,
+    CandidateDataReference,
     CandidateCollection,
     ExactContractReference,
     PairwiseObservationContext,
@@ -46,10 +50,18 @@ from datatypes import (
     ScoreCollection,
     ScoreObservation,
 )
+from modules.selection.package import MODULE_PACKAGE as SELECTION_PACKAGE
 from protein_workbench_public import (
     ProtocolValidationError,
     validate_schema,
 )
+
+
+CONTRACT_VERSION = "2.1.0"
+PORT_VERSION = "3.0.0"
+SCORE_PORT_VERSION = "4.0.0"
+NODE_BINDING_VERSION = "3.0.0"
+SELECTION_NODE_BINDING_VERSION = "4.0.0"
 
 
 def _reference(kind: str, contract_id: str) -> ExactContractReference:
@@ -65,16 +77,18 @@ def _contract(
     kind: str,
     contract_id: str,
     descriptor: dict,
+    *,
+    version: str = CONTRACT_VERSION,
 ) -> CatalogContract:
     return CatalogContract(
         contract_kind=kind,  # type: ignore[arg-type]
         contract_id=contract_id,
-        contract_version="2.1.0",
+        contract_version=version,
         descriptor={
             "schema_namespace": "protein-workbench-contract/v2",
             "contract_kind": kind,
             "contract_id": contract_id,
-            "contract_version": "2.1.0",
+            "contract_version": version,
             **descriptor,
         },
     )
@@ -92,6 +106,15 @@ def _pairwise_catalog() -> tuple[FrozenCatalog, dict[str, CatalogContract]]:
         },
     )
     method = _contract("method", "tm-align", {})
+    pairwise_node = _contract(
+        "node_type",
+        "score.test.pairwise",
+        {
+            "inputs": [],
+            "outputs": [],
+            "node_parameters": {},
+        },
+    )
     selector_profile = PairwiseContextSelector(
         pairing_mode="fixed_reference",
         normalization="tm-score/reference-length",
@@ -125,7 +148,13 @@ def _pairwise_catalog() -> tuple[FrozenCatalog, dict[str, CatalogContract]]:
     )
     contracts = {
         item.contract_id: item
-        for item in (metric, method, fixed_utility, paired_utility)
+        for item in (
+            metric,
+            method,
+            pairwise_node,
+            fixed_utility,
+            paired_utility,
+        )
     }
     return (
         FrozenCatalog(
@@ -151,16 +180,24 @@ def _pairwise_context(
     subject_id: str = "subject-a",
     reference_id: str = "reference-a",
 ) -> PairwiseObservationContext:
+    subject = CandidateDataReference(
+        candidate_id=subject_id,
+        data_type_id="protein.sequence",
+        content_digest="sha256:" + "2" * 64,
+    )
+    reference = CandidateDataReference(
+        candidate_id=reference_id,
+        data_type_id="protein.sequence",
+        content_digest="sha256:" + "3" * 64,
+    )
     return PairwiseObservationContext(
         subject=PairwiseParticipant(
             role="subject",
-            candidate_id=subject_id,
-            content_digest="sha256:" + "2" * 64,
+            candidate=subject,
         ),
         reference=PairwiseParticipant(
             role="reference",
-            candidate_id=reference_id,
-            content_digest="sha256:" + "3" * 64,
+            candidate=reference,
         ),
         pairing_mode="fixed_reference",
         normalization="tm-score/reference-length",
@@ -170,11 +207,11 @@ def _pairwise_context(
 def test_pairwise_context_is_typed_canonical_and_part_of_observation_identity() -> None:
     score_type = builtin_frozen_catalog().require_port_type(
         "score.collection",
-        "2.1.0",
+        SCORE_PORT_VERSION,
     )
     context = _pairwise_context()
     observation = ScoreObservation(
-        candidate_id="subject-a",
+        subject=context.subject.candidate,
         metric=_reference("metric", "structure.tm_score"),
         method=_reference("method", "tm-align"),
         context=context,
@@ -191,13 +228,19 @@ def test_pairwise_context_is_typed_canonical_and_part_of_observation_identity() 
         "kind": "pairwise",
         "subject": {
             "role": "subject",
-            "candidate_id": "subject-a",
-            "content_digest": "sha256:" + "2" * 64,
+            "candidate": {
+                "candidate_id": "subject-a",
+                "data_type_id": "protein.sequence",
+                "content_digest": "sha256:" + "2" * 64,
+            },
         },
         "reference": {
             "role": "reference",
-            "candidate_id": "reference-a",
-            "content_digest": "sha256:" + "3" * 64,
+            "candidate": {
+                "candidate_id": "reference-a",
+                "data_type_id": "protein.sequence",
+                "content_digest": "sha256:" + "3" * 64,
+            },
         },
         "pairing_mode": "fixed_reference",
         "normalization": "tm-score/reference-length",
@@ -220,8 +263,7 @@ def test_pairwise_context_is_typed_canonical_and_part_of_observation_identity() 
                 _pairwise_context(),
                 subject=PairwiseParticipant(
                     role="reference",
-                    candidate_id="subject-a",
-                    content_digest="sha256:" + "2" * 64,
+                    candidate=_pairwise_context().subject.candidate,
                 ),
             ),
             "subject role",
@@ -231,11 +273,10 @@ def test_pairwise_context_is_typed_canonical_and_part_of_observation_identity() 
                 _pairwise_context(),
                 reference=PairwiseParticipant(
                     role="reference",
-                    candidate_id="reference-a",
-                    content_digest="not-a-digest",
+                    candidate=_pairwise_context().subject.candidate,
                 ),
             ),
-            "content_digest",
+            "identities must differ",
         ),
     ],
 )
@@ -245,10 +286,10 @@ def test_pairwise_context_fails_closed_on_invalid_roles_or_identity(
 ) -> None:
     score_type = builtin_frozen_catalog().require_port_type(
         "score.collection",
-        "2.1.0",
+        SCORE_PORT_VERSION,
     )
     observation = ScoreObservation(
-        candidate_id="subject-a",
+        subject=context.subject.candidate,
         metric=_reference("metric", "structure.tm_score"),
         method=_reference("method", "tm-align"),
         context=context,
@@ -270,22 +311,30 @@ def _pairwise_observation(
     source_partition: str,
     value: float,
 ) -> ScoreObservation:
-    candidate_type = catalog.require_port_type("protein.sequence", "2.1.0")
-    reference_type = catalog.require_port_type("protein.sequence", "2.1.0")
-    return ScoreObservation(
+    candidate_type = catalog.require_port_type("protein.sequence", "3.0.0")
+    reference_type = catalog.require_port_type("protein.sequence", "3.0.0")
+    subject_reference = CandidateDataReference(
         candidate_id=subject.candidate_id,
+        data_type_id="protein.sequence",
+        content_digest=candidate_type.content_digest(subject.data),
+    )
+    counterpart_reference = CandidateDataReference(
+        candidate_id=reference.candidate_id,
+        data_type_id="protein.sequence",
+        content_digest=reference_type.content_digest(reference.data),
+    )
+    return ScoreObservation(
+        subject=subject_reference,
         metric=_reference_from_contract(contracts["structure.tm_score"]),
         method=_reference_from_contract(contracts["tm-align"]),
         context=PairwiseObservationContext(
             subject=PairwiseParticipant(
                 role="subject",
-                candidate_id=subject.candidate_id,
-                content_digest=candidate_type.content_digest(subject.data),
+                candidate=subject_reference,
             ),
             reference=PairwiseParticipant(
                 role="reference",
-                candidate_id=reference.candidate_id,
-                content_digest=reference_type.content_digest(reference.data),
+                candidate=counterpart_reference,
             ),
             pairing_mode=pairing_mode,
             normalization="tm-score/reference-length",
@@ -299,17 +348,21 @@ def _pairing_map(
     catalog: FrozenCatalog,
     pairs: list[tuple[Candidate, Candidate]],
 ) -> PairwiseCandidateMapping:
-    candidate_type = catalog.require_port_type("protein.sequence", "2.1.0")
+    candidate_type = catalog.require_port_type("protein.sequence", "3.0.0")
     return PairwiseCandidateMapping(
         entries=[
             PairwiseCandidateMatch(
-                subject_candidate_id=subject.candidate_id,
-                subject_content_digest=candidate_type.content_digest(
-                    subject.data
+                subject=CandidateDataReference(
+                    candidate_id=subject.candidate_id,
+                    data_type_id="protein.sequence",
+                    content_digest=candidate_type.content_digest(subject.data),
                 ),
-                reference_candidate_id=reference.candidate_id,
-                reference_content_digest=candidate_type.content_digest(
-                    reference.data
+                reference=CandidateDataReference(
+                    candidate_id=reference.candidate_id,
+                    data_type_id="protein.sequence",
+                    content_digest=candidate_type.content_digest(
+                        reference.data
+                    ),
                 ),
             )
             for subject, reference in pairs
@@ -321,7 +374,7 @@ def test_candidate_pairing_port_is_canonical_and_one_to_one() -> None:
     catalog, _ = _pairwise_catalog()
     subject = Candidate("subject-a", ProteinSequence("AA"))
     reference = Candidate("reference-a", ProteinSequence("AT"))
-    pairing_type = catalog.require_port_type("candidate.pairing", "2.1.0")
+    pairing_type = catalog.require_port_type("candidate.pairing", PORT_VERSION)
     mapping = _pairing_map(catalog, [(subject, reference)])
 
     assert pairing_type.decode(pairing_type.encode(mapping)) == mapping
@@ -335,7 +388,7 @@ def test_candidate_pairing_port_is_canonical_and_one_to_one() -> None:
 
     subject_b = Candidate("subject-b", ProteinSequence("GG"))
     conflicting_reference = Candidate("reference-a", ProteinSequence("AG"))
-    with pytest.raises(PortValueError, match="conflicting content"):
+    with pytest.raises(PortValueError, match="conflicting exact data reference"):
         pairing_type.encode(
             _pairing_map(
                 catalog,
@@ -582,6 +635,7 @@ def _pairwise_binding(
         "binding",
         "score.tm.pairwise",
         {
+            "node_type": contracts["score.test.pairwise"].reference(),
             "method": contracts["tm-align"].reference(),
             "produced_observations": [
                 {
@@ -794,6 +848,7 @@ def test_controlled_union_preserves_partitions_and_rejects_invented_entries() ->
         "binding",
         "score.union",
         {
+            "node_type": contracts["score.test.pairwise"].reference(),
             "method": contracts["tm-align"].reference(),
             "produced_observations": [],
             "observation_propagation": {
@@ -850,6 +905,7 @@ def test_controlled_pass_through_requires_the_exact_source_collection() -> None:
         "binding",
         "score.pass-through",
         {
+            "node_type": contracts["score.test.pairwise"].reference(),
             "method": contracts["tm-align"].reference(),
             "produced_observations": [],
             "observation_propagation": {
@@ -909,6 +965,7 @@ def test_controlled_filter_publishes_every_exact_matching_observation() -> None:
         "binding",
         "score.filter",
         {
+            "node_type": contracts["score.test.pairwise"].reference(),
             "method": contracts["tm-align"].reference(),
             "produced_observations": [],
             "observation_propagation": {
@@ -1023,9 +1080,13 @@ def test_produced_pairwise_and_propagation_contracts_are_closed_descriptors() ->
 
 def _compiler_catalog() -> tuple[FrozenCatalog, dict[str, CatalogContract]]:
     base, scoring = _pairwise_catalog()
-    candidate_type = base.require_port_type("candidate.collection", "2.1.0")
-    pairing_type = base.require_port_type("candidate.pairing", "2.1.0")
-    score_type = base.require_port_type("score.collection", "2.1.0")
+    selection_catalog = build_frozen_catalog((SELECTION_PACKAGE,))
+    candidate_type = base.require_port_type("candidate.collection", PORT_VERSION)
+    pairing_type = base.require_port_type("candidate.pairing", PORT_VERSION)
+    score_type = base.require_port_type(
+        "score.collection",
+        SCORE_PORT_VERSION,
+    )
     producer_node = _contract(
         "node_type",
         "score.pairwise.producer",
@@ -1037,28 +1098,33 @@ def _compiler_catalog() -> tuple[FrozenCatalog, dict[str, CatalogContract]]:
                     "port_type": candidate_type.reference(),
                     "required": True,
                     "multiplicity": "one",
+                    "scientific_meaning": "Pairwise subject Candidates.",
                 },
                 {
                     "name": "references",
                     "port_type": candidate_type.reference(),
                     "required": True,
                     "multiplicity": "one",
+                    "scientific_meaning": "Pairwise reference Candidates.",
                 },
                 {
                     "name": "scores",
                     "port_type": score_type.reference(),
                     "required": True,
                     "multiplicity": "one",
+                    "scientific_meaning": "Pairwise score Observations.",
                 },
                 {
                     "name": "pairings",
                     "port_type": pairing_type.reference(),
                     "required": True,
                     "multiplicity": "one",
+                    "scientific_meaning": "Exact subject-reference pairing.",
                 },
             ],
             "node_parameters": {},
         },
+        version=NODE_BINDING_VERSION,
     )
     union_node = _contract(
         "node_type",
@@ -1070,12 +1136,14 @@ def _compiler_catalog() -> tuple[FrozenCatalog, dict[str, CatalogContract]]:
                     "port_type": score_type.reference(),
                     "required": True,
                     "multiplicity": "one",
+                    "scientific_meaning": "Left score partition.",
                 },
                 {
                     "name": "right",
                     "port_type": score_type.reference(),
                     "required": True,
                     "multiplicity": "one",
+                    "scientific_meaning": "Right score partition.",
                 },
             ],
             "outputs": [
@@ -1084,10 +1152,12 @@ def _compiler_catalog() -> tuple[FrozenCatalog, dict[str, CatalogContract]]:
                     "port_type": score_type.reference(),
                     "required": True,
                     "multiplicity": "one",
+                    "scientific_meaning": "Union of exact score partitions.",
                 }
             ],
             "node_parameters": {},
         },
+        version=NODE_BINDING_VERSION,
     )
     producer_binding = _contract(
         "binding",
@@ -1134,6 +1204,7 @@ def _compiler_catalog() -> tuple[FrozenCatalog, dict[str, CatalogContract]]:
             ],
             "observation_propagation": None,
         },
+        version=NODE_BINDING_VERSION,
     )
     union_binding = _contract(
         "binding",
@@ -1151,6 +1222,7 @@ def _compiler_catalog() -> tuple[FrozenCatalog, dict[str, CatalogContract]]:
                 "filter": None,
             },
         },
+        version=NODE_BINDING_VERSION,
     )
     contracts = {
         **scoring,
@@ -1201,10 +1273,23 @@ def _compiler_catalog() -> tuple[FrozenCatalog, dict[str, CatalogContract]]:
     return (
         replace(
             base,
-            contracts=tuple(contracts.values()),
-            availability=availability,
-            factories=factories,
-            readiness_declarations=readiness,
+            contracts=(
+                *contracts.values(),
+                *selection_catalog.contracts,
+            ),
+            availability=(
+                *availability,
+                *selection_catalog.availability,
+            ),
+            factories={
+                **selection_catalog.factories,
+                **factories,
+            },
+            readiness_declarations={
+                **selection_catalog.readiness_declarations,
+                **readiness,
+            },
+            owners=selection_catalog.owners,
         ),
         contracts,
     )
@@ -1222,25 +1307,41 @@ def _compiler_workflow(
             WorkflowNodeInstance(
                 node_id="producer",
                 node_type_id="score.pairwise.producer",
-                node_type_version="2.1.0",
+                node_type_version=NODE_BINDING_VERSION,
                 binding_id="score.pairwise.producer.direct",
-                binding_version="2.1.0",
+                binding_version=NODE_BINDING_VERSION,
                 node_parameters={},
                 binding_parameters={},
             ),
             WorkflowNodeInstance(
                 node_id="union",
                 node_type_id="score.partition.union",
-                node_type_version="2.1.0",
+                node_type_version=NODE_BINDING_VERSION,
                 binding_id="score.partition.union.direct",
-                binding_version="2.1.0",
+                binding_version=NODE_BINDING_VERSION,
                 node_parameters={},
+                binding_parameters={},
+            ),
+            WorkflowNodeInstance(
+                node_id="select",
+                node_type_id="selection.sort",
+                node_type_version=SELECTION_NODE_BINDING_VERSION,
+                binding_id="selection.sort.direct",
+                binding_version=SELECTION_NODE_BINDING_VERSION,
+                node_parameters={"objective_id": "fixed"},
                 binding_parameters={},
             ),
         ),
         edges=(
             V2WorkflowEdge("producer", "scores", "union", "left"),
             V2WorkflowEdge("producer", "scores", "union", "right"),
+            V2WorkflowEdge(
+                "producer",
+                "candidates",
+                "select",
+                "candidates",
+            ),
+            V2WorkflowEdge("union", "scores", "select", "scores"),
         ),
         contract_lock=(),
         selection_objectives=(
@@ -1265,10 +1366,11 @@ def test_compiler_derives_exact_capability_through_controlled_union() -> None:
 
     compiled = compile_workflow(
         relock_workflow(workflow, catalog),
-        workflow_revision=1,
+        workflow_commit_revision=1,
         catalog=catalog,
     )
 
+    assert compiled.execution_plan.workflow_commit_revision == 1
     assert compiled.execution_plan.selection_objectives[0].source_partition == (
         "fixed-reference"
     )
@@ -1287,17 +1389,17 @@ def test_compiler_rejects_unknown_partition_before_any_provider_invocation() -> 
     ):
         compile_workflow(
             relock_workflow(workflow, catalog),
-            workflow_revision=1,
+            workflow_commit_revision=1,
             catalog=catalog,
         )
 
 
-def test_output_pairwise_relation_is_normalized_as_one_atomic_identity() -> None:
+def test_output_score_cannot_claim_a_future_candidate_reference() -> None:
     catalog, contracts = _compiler_catalog()
     workflow = _compiler_workflow(contracts)
     compiled = compile_workflow(
         relock_workflow(workflow, catalog),
-        workflow_revision=1,
+        workflow_commit_revision=1,
         catalog=catalog,
     )
     node = next(
@@ -1336,91 +1438,37 @@ def test_output_pairwise_relation_is_normalized_as_one_atomic_identity() -> None
             "protein.sequence",
             [reference],
         ),
-        "pairings": _pairing_map(catalog, [(subject, reference)]),
+        "pairings": CandidatePairingIntent(
+            (
+                CandidatePairingIntentEntry(
+                    subject_candidate_id=subject.candidate_id,
+                    reference_candidate_id=reference.candidate_id,
+                ),
+            )
+        ),
         "scores": ScoreCollection("raw-scores", [fixed, paired]),
     }
     service = object.__new__(V2RunService)
     service._catalog = catalog
 
-    normalized = service._normalize_candidate_outputs(
-        plan=compiled.execution_plan,
-        node=node,
-        result_identity="sha256:" + "a" * 64,
-        inputs={},
-        outputs=outputs,
-    )
-
-    assert normalized is not outputs
-    assert outputs["candidates"].collection_id == "raw-subjects"
-    assert outputs["references"].collection_id == "raw-references"
-    assert outputs["scores"].collection_id == "raw-scores"
-    assert subject.candidate_id == "raw-subject"
-    assert reference.candidate_id == "raw-reference"
-    assert outputs["pairings"].entries[0].subject_candidate_id == (
-        "raw-subject"
-    )
-    assert outputs["pairings"].entries[0].reference_candidate_id == (
-        "raw-reference"
-    )
-    assert [score.candidate_id for score in outputs["scores"].entries] == [
-        "raw-subject",
-        "raw-subject",
-    ]
-
-    normalized_subject = normalized["candidates"].items[0]
-    normalized_reference = normalized["references"].items[0]
-    assert normalized_subject is not subject
-    assert normalized_reference is not reference
-    assert normalized_subject.candidate_id != "raw-subject"
-    assert normalized_reference.candidate_id != "raw-reference"
-    for observation in normalized["scores"].entries:
-        assert observation.candidate_id == normalized_subject.candidate_id
-        assert (
-            observation.context.subject.candidate_id
-            == normalized_subject.candidate_id
+    with pytest.raises(
+        PortValueError,
+        match="cannot reference a same-operation output Candidate",
+    ):
+        service._normalize_candidate_outputs(
+            plan=compiled.execution_plan,
+            node=node,
+            result_identity="sha256:" + "a" * 64,
+            inputs={},
+            outputs=outputs,
         )
-        assert (
-            observation.context.reference.candidate_id
-            == normalized_reference.candidate_id
-        )
-    pairing = normalized["pairings"].entries[0]
-    assert pairing.subject_candidate_id == normalized_subject.candidate_id
-    assert (
-        pairing.reference_candidate_id
-        == normalized_reference.candidate_id
-    )
-
-    catalog.require_port_type("candidate.collection", "2.1.0").encode(
-        normalized["candidates"]
-    )
-    catalog.require_port_type("candidate.collection", "2.1.0").encode(
-        normalized["references"]
-    )
-    catalog.require_port_type("candidate.pairing", "2.1.0").encode(
-        normalized["pairings"]
-    )
-    catalog.require_port_type("score.collection", "2.1.0").encode(
-        normalized["scores"]
-    )
-    validate_produced_score_collection(
-        catalog=catalog,
-        binding=catalog.require_contract(
-            "binding",
-            "score.pairwise.producer.direct",
-            "2.1.0",
-        ),
-        output_port="scores",
-        collection=normalized["scores"],
-        inputs={},
-        outputs=normalized,
-    )
 
 
 def test_one_raw_candidate_cannot_claim_two_output_slots() -> None:
     catalog, contracts = _compiler_catalog()
     compiled = compile_workflow(
         relock_workflow(_compiler_workflow(contracts), catalog),
-        workflow_revision=1,
+        workflow_commit_revision=1,
         catalog=catalog,
     )
     node = next(

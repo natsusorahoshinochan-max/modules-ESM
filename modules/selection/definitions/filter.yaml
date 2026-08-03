@@ -1,26 +1,26 @@
 schema_version: "2.1.0"
 node_type_id: selection.filter
-version: "2.1.0"
+version: "4.0.0"
 title: Filter Candidates by one exact Observation selector
 summary: Retains original Candidates whose one exact scoped canonical Metric value satisfies a declared comparison.
 category: selection
 inputs:
   - name: candidates
     port_type_id: candidate.collection
-    port_type_version: "2.1.0"
+    port_type_version: "3.0.0"
     required: true
     multiplicity: one
     scientific_meaning: Exact Candidate subjects named by the selected Workflow objective.
   - name: scores
     port_type_id: score.collection
-    port_type_version: "2.1.0"
+    port_type_version: "4.0.0"
     required: true
     multiplicity: one
     scientific_meaning: Exact partitioned Observation source named by the selected Workflow objective.
 outputs:
   - name: candidates
     port_type_id: candidate.collection
-    port_type_version: "2.1.0"
+    port_type_version: "3.0.0"
     required: true
     multiplicity: one
     scientific_meaning: Original Candidate identities that satisfy the declared exact scalar condition in original relative order.

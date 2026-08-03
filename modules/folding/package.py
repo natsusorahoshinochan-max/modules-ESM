@@ -72,16 +72,18 @@ from .simplefold_confidence_adapter import (
 )
 
 
-_PACKAGE_VERSION = "3.0.0"
-_FOLD_VERSION = "3.0.0"
-_CONFIDENCE_VERSION = "2.1.0"
-_CONFIDENCE_BINDING_VERSION = "2.2.0"
-_METRIC_VERSION = "2.1.0"
-_METRICS = (
-    "structure.ptm",
-    "structure.plddt.per_residue",
-    "structure.plddt.mean_residue",
-)
+_PACKAGE_VERSION = "5.0.0"
+_FOLD_METHOD_VERSION = "4.0.0"
+_FOLD_NODE_BINDING_VERSION = "6.0.0"
+_REMOTE_FOLD_BINDING_VERSION = "7.0.0"
+_CONFIDENCE_METHOD_VERSION = "3.0.0"
+_CONFIDENCE_NODE_BINDING_VERSION = "4.0.0"
+_METRIC_VERSIONS = {
+    "structure.ptm": "2.1.0",
+    "structure.plddt.per_residue": "3.0.0",
+    "structure.plddt.mean_residue": "3.0.0",
+    "structure.pae": "3.0.0",
+}
 
 
 def _remote_ready(check_input: ReadinessCheckInput) -> ReadinessResult:
@@ -201,7 +203,6 @@ def _build_remote(context: OperationContext) -> ScientificOperation:
             resources=context.resources,
         ),
         method=context.method,
-        produced_observations=context.produced_observations,
     )
 
 
@@ -214,7 +215,6 @@ def _build_local(context: OperationContext) -> ScientificOperation:
             resources=context.resources,
         ),
         method=context.method,
-        produced_observations=context.produced_observations,
     )
 
 
@@ -227,7 +227,6 @@ def _build_simplefold(context: OperationContext) -> ScientificOperation:
             resources=context.resources,
         ),
         method=context.method,
-        produced_observations=context.produced_observations,
     )
 
 
@@ -250,7 +249,7 @@ def _method(route: str) -> MethodDefinition:
     if route == "remote":
         return MethodDefinition(
             method_id="folding.fold.esmfold2_fast_biohub_2026_05",
-            version=_FOLD_VERSION,
+            version=_FOLD_METHOD_VERSION,
             algorithm_identity={
                 "name": "ESMFold2 sequence-to-structure diffusion",
                 "num_loops": 20,
@@ -277,6 +276,11 @@ def _method(route: str) -> MethodDefinition:
             featurization_identity={
                 "input": "single-chain canonical protein sequence",
                 "output": "provider atom37 PDB",
+                "prediction_residue_axis": {
+                    "supplied_residue_ids": "preserve_exact_order",
+                    "absent_residue_ids": "ordinal_A:1..N",
+                    "source": "admitted_input_ProteinSequence",
+                },
             },
             source_identity={
                 "sdk": "esm",
@@ -291,7 +295,7 @@ def _method(route: str) -> MethodDefinition:
         )
     return MethodDefinition(
         method_id="folding.fold.esmfold2_hf_1ebf0e3",
-        version=_FOLD_VERSION,
+        version=_FOLD_METHOD_VERSION,
         algorithm_identity={
             "name": "ESMFold2 sequence-to-structure diffusion",
             "num_loops": 20,
@@ -325,6 +329,11 @@ def _method(route: str) -> MethodDefinition:
         featurization_identity={
             "input": "ESMFold2 StructurePredictionInput single protein",
             "output": "MolecularComplex protein-only PDB",
+            "prediction_residue_axis": {
+                "supplied_residue_ids": "preserve_exact_order",
+                "absent_residue_ids": "ordinal_A:1..N",
+                "source": "admitted_input_ProteinSequence",
+            },
         },
         source_identity={
             "sdk": "esm",
@@ -343,7 +352,7 @@ def _method(route: str) -> MethodDefinition:
 def _simplefold_method() -> MethodDefinition:
     return MethodDefinition(
         method_id="folding.fold.simplefold_100m_c7a5570",
-        version=_FOLD_VERSION,
+        version=_FOLD_METHOD_VERSION,
         algorithm_identity={
             "name": "SimpleFold Euler-Maruyama sequence folding",
             "sampler": "Euler-Maruyama",
@@ -378,6 +387,11 @@ def _simplefold_method() -> MethodDefinition:
             "ccd_sha256": SIMPLEFOLD_ARTIFACT_SHA256["ccd.pkl"],
             "processor_scale": 16.0,
             "processor_reference_scale": 5.0,
+            "prediction_residue_axis": {
+                "supplied_residue_ids": "preserve_exact_order",
+                "absent_residue_ids": "ordinal_A:1..N",
+                "source": "admitted_input_ProteinSequence",
+            },
         },
         source_identity={
             "provider": "ml-simplefold",
@@ -397,7 +411,7 @@ def _simplefold_confidence_method() -> MethodDefinition:
             "folding.simplefold_confidence."
             "existing_structure_1_6b_c7a5570"
         ),
-        version=_CONFIDENCE_VERSION,
+        version=_CONFIDENCE_METHOD_VERSION,
         algorithm_identity={
             "name": "SimpleFold direct existing-structure confidence",
             "operation": "confidence_only_no_coordinate_generation",
@@ -421,7 +435,15 @@ def _simplefold_confidence_method() -> MethodDefinition:
         },
         featurization_identity={
             "contract": SIMPLEFOLD_CONFIDENCE_FEATURIZATION,
-            "input": "existing protein-only PDB coordinates",
+            "input": "resolved structure residue axis",
+            "axis_contract": (
+                "structure_transform.resolved_residue_axis@4.0.0"
+            ),
+            "association_key": "exact-CandidateDataReference",
+            "provider_features": (
+                "segments_sequence_named_coordinates_and_masks"
+            ),
+            "raw_pdb_reparse": "forbidden",
             "ccd_sha256": SIMPLEFOLD_ARTIFACT_SHA256["ccd.pkl"],
             "processor_scale": 16.0,
             "processor_reference_scale": 5.0,
@@ -439,50 +461,16 @@ def _simplefold_confidence_method() -> MethodDefinition:
     )
 
 
-def _produced_observations() -> tuple[ProducedObservationDefinition, ...]:
-    observations = [
-        ProducedObservationDefinition(
-            output_port="confidence_observations",
-            metric=ContractIdentity("metric", metric, _METRIC_VERSION),
-            context_profile={"kind": "intrinsic"},
-            subject_grain="candidate",
-            source_role="subject",
-            subject_direction="output",
-            subject_port="structure_candidates",
-            guaranteed_multiplicity="one",
-            output_partition="folding_confidence",
-        )
-        for metric in _METRICS
-    ]
-    observations.append(
-        ProducedObservationDefinition(
-            output_port="pae_observations",
-            metric=ContractIdentity(
-                "metric",
-                "structure.pae",
-                _METRIC_VERSION,
-            ),
-            context_profile={"kind": "intrinsic"},
-            subject_grain="candidate",
-            source_role="subject",
-            subject_direction="output",
-            subject_port="structure_candidates",
-            guaranteed_multiplicity="one",
-            output_partition="folding_confidence",
-        )
-    )
-    return tuple(observations)
-
-
 def _binding(route: str) -> ExecutionBindingDefinition:
     if route == "remote":
+        binding_version = _REMOTE_FOLD_BINDING_VERSION
         binding_id = "folding.fold.esmfold2_remote"
         method_id = "folding.fold.esmfold2_fast_biohub_2026_05"
         model = REMOTE_ESMFOLD2_MODEL
         availability = AvailabilityDeclaration(
             behavior=BehaviorReference(
                 "folding.esmfold2_remote/availability",
-                _FOLD_VERSION,
+                binding_version,
                 {"observation": "startup"},
             ),
             prerequisites={
@@ -496,7 +484,7 @@ def _binding(route: str) -> ExecutionBindingDefinition:
         readiness = ReadinessDeclaration(
             behavior=BehaviorReference(
                 "folding.esmfold2_remote/readiness",
-                _FOLD_VERSION,
+                binding_version,
                 {
                     "observation": "per-run",
                     "cache_order": "before-cache-lookup",
@@ -532,16 +520,15 @@ def _binding(route: str) -> ExecutionBindingDefinition:
             "engine_identity": "exact_method_contract_digest",
             "randomness_evidence": "provider_uncontrolled",
         }
-        seed_control = "unsupported_by_provider"
-        seed_scope = "provider-uncontrolled-no-effective-seed"
     else:
+        binding_version = _FOLD_NODE_BINDING_VERSION
         binding_id = "folding.fold.esmfold2_local"
         method_id = "folding.fold.esmfold2_hf_1ebf0e3"
         model = LOCAL_ESMFOLD2_MODEL
         availability = AvailabilityDeclaration(
             behavior=BehaviorReference(
                 "folding.esmfold2_local/availability",
-                _FOLD_VERSION,
+                binding_version,
                 {"observation": "startup", "model_load": "forbidden"},
             ),
             prerequisites={
@@ -559,7 +546,7 @@ def _binding(route: str) -> ExecutionBindingDefinition:
         readiness = ReadinessDeclaration(
             behavior=BehaviorReference(
                 "folding.esmfold2_local/readiness",
-                _FOLD_VERSION,
+                binding_version,
                 {
                     "observation": "per-run",
                     "cache_order": "before-cache-lookup",
@@ -620,26 +607,26 @@ def _binding(route: str) -> ExecutionBindingDefinition:
         seed_scope = "scientific-input-content-and-parent-sample-slot"
     return ExecutionBindingDefinition(
         binding_id=binding_id,
-        version=_FOLD_VERSION,
+        version=binding_version,
         node_type=ContractIdentity(
             "node_type",
             "folding.fold",
-            _FOLD_VERSION,
+            _FOLD_NODE_BINDING_VERSION,
         ),
-        method=ContractIdentity("method", method_id, _FOLD_VERSION),
+        method=ContractIdentity("method", method_id, _FOLD_METHOD_VERSION),
         binding_parameters={},
         execution_route="adapter",
         factory=ScientificOperationFactory(
             behavior=BehaviorReference(
                 "folding.fold/factory",
-                _FOLD_VERSION,
+                binding_version,
                 {"route": route, "model": model},
             ),
             build=_build_remote if route == "remote" else _build_local,
         ),
         adapter_behavior=BehaviorReference(
             f"folding.esmfold2_{route}/adapter",
-            _FOLD_VERSION,
+            binding_version,
             adapter_details,
         ),
         availability=availability,
@@ -647,19 +634,24 @@ def _binding(route: str) -> ExecutionBindingDefinition:
         deterministic=False,
         cacheable=False,
         implementation_identity=implementation_identity,
-        produced_observations=_produced_observations(),
-        effective_randomness_parameters=("effective_seed",),
-        effective_randomness_resolver=EffectiveRandomnessResolver(
-            behavior=BehaviorReference(
-                f"folding.esmfold2_{route}/effective-randomness",
-                _FOLD_VERSION,
-                {
-                    "provider_seed_control": seed_control,
-                    "seed_scope": seed_scope,
-                    "sample_order": "parent-then-zero-based-sample",
-                },
-            ),
-            resolve=_resolve_effective_randomness,
+        effective_randomness_parameters=(
+            () if route == "remote" else ("effective_seed",)
+        ),
+        effective_randomness_resolver=(
+            None
+            if route == "remote"
+            else EffectiveRandomnessResolver(
+                behavior=BehaviorReference(
+                    f"folding.esmfold2_{route}/effective-randomness",
+                    binding_version,
+                    {
+                        "provider_seed_control": seed_control,
+                        "seed_scope": seed_scope,
+                        "sample_order": "parent-then-zero-based-sample",
+                    },
+                ),
+                resolve=_resolve_effective_randomness,
+            )
         ),
     )
 
@@ -668,13 +660,13 @@ def _simplefold_binding() -> ExecutionBindingDefinition:
     method_id = "folding.fold.simplefold_100m_c7a5570"
     return ExecutionBindingDefinition(
         binding_id="folding.fold.simplefold_local",
-        version=_FOLD_VERSION,
+        version=_FOLD_NODE_BINDING_VERSION,
         node_type=ContractIdentity(
             "node_type",
             "folding.fold",
-            _FOLD_VERSION,
+            _FOLD_NODE_BINDING_VERSION,
         ),
-        method=ContractIdentity("method", method_id, _FOLD_VERSION),
+        method=ContractIdentity("method", method_id, _FOLD_METHOD_VERSION),
         binding_parameters={
             "num_steps": {
                 "parameter_scope": "scientific",
@@ -693,14 +685,14 @@ def _simplefold_binding() -> ExecutionBindingDefinition:
         factory=ScientificOperationFactory(
             behavior=BehaviorReference(
                 "folding.fold/factory",
-                _FOLD_VERSION,
+                _FOLD_NODE_BINDING_VERSION,
                 {"route": "simplefold_local", "model": SIMPLEFOLD_MODEL},
             ),
             build=_build_simplefold,
         ),
         adapter_behavior=BehaviorReference(
             "folding.simplefold_local/adapter",
-            _FOLD_VERSION,
+            _FOLD_NODE_BINDING_VERSION,
             {
                 "provider_contract": (
                     f"ml-simplefold@{SIMPLEFOLD_REVISION}"
@@ -714,7 +706,7 @@ def _simplefold_binding() -> ExecutionBindingDefinition:
         availability=AvailabilityDeclaration(
             behavior=BehaviorReference(
                 "folding.simplefold_local/availability",
-                _FOLD_VERSION,
+                _FOLD_NODE_BINDING_VERSION,
                 {"observation": "startup", "model_load": "forbidden"},
             ),
             prerequisites={
@@ -729,7 +721,7 @@ def _simplefold_binding() -> ExecutionBindingDefinition:
         readiness=ReadinessDeclaration(
             behavior=BehaviorReference(
                 "folding.simplefold_local/readiness",
-                _FOLD_VERSION,
+                _FOLD_NODE_BINDING_VERSION,
                 {
                     "observation": "per-run",
                     "cache_order": "before-cache-lookup",
@@ -784,16 +776,11 @@ def _simplefold_binding() -> ExecutionBindingDefinition:
             ),
             "staging_policy": "private-per-engine-invocation-cleaned",
         },
-        produced_observations=tuple(
-            observation
-            for observation in _produced_observations()
-            if observation.metric.contract_id.startswith("structure.plddt.")
-        ),
         effective_randomness_parameters=("effective_seed",),
         effective_randomness_resolver=EffectiveRandomnessResolver(
             behavior=BehaviorReference(
                 "folding.simplefold_local/effective-randomness",
-                _FOLD_VERSION,
+                _FOLD_NODE_BINDING_VERSION,
                 {
                     "provider_seed_control": "torch_local",
                     "seed_scope": (
@@ -814,23 +801,23 @@ def _simplefold_confidence_binding() -> ExecutionBindingDefinition:
     )
     return ExecutionBindingDefinition(
         binding_id="folding.simplefold_confidence.simplefold_local",
-        version=_CONFIDENCE_BINDING_VERSION,
+        version=_CONFIDENCE_NODE_BINDING_VERSION,
         node_type=ContractIdentity(
             "node_type",
             "folding.simplefold_confidence",
-            _CONFIDENCE_VERSION,
+            _CONFIDENCE_NODE_BINDING_VERSION,
         ),
         method=ContractIdentity(
             "method",
             method_id,
-            _CONFIDENCE_VERSION,
+            _CONFIDENCE_METHOD_VERSION,
         ),
         binding_parameters={},
         execution_route="adapter",
         factory=ScientificOperationFactory(
             behavior=BehaviorReference(
                 "folding.simplefold_confidence/factory",
-                _CONFIDENCE_BINDING_VERSION,
+                _CONFIDENCE_NODE_BINDING_VERSION,
                 {
                     "route": "simplefold_local",
                     "operation": "existing_structure_confidence",
@@ -841,7 +828,7 @@ def _simplefold_confidence_binding() -> ExecutionBindingDefinition:
         ),
         adapter_behavior=BehaviorReference(
             "folding.simplefold_confidence/adapter",
-            _CONFIDENCE_BINDING_VERSION,
+            _CONFIDENCE_NODE_BINDING_VERSION,
             {
                 "adapter_identity": SIMPLEFOLD_CONFIDENCE_ADAPTER,
                 "provider_contract": (
@@ -857,7 +844,7 @@ def _simplefold_confidence_binding() -> ExecutionBindingDefinition:
         availability=AvailabilityDeclaration(
             behavior=BehaviorReference(
                 "folding.simplefold_confidence/availability",
-                _CONFIDENCE_VERSION,
+                _CONFIDENCE_NODE_BINDING_VERSION,
                 {"observation": "startup", "model_load": "forbidden"},
             ),
             prerequisites={
@@ -872,7 +859,7 @@ def _simplefold_confidence_binding() -> ExecutionBindingDefinition:
         readiness=ReadinessDeclaration(
             behavior=BehaviorReference(
                 "folding.simplefold_confidence/readiness",
-                _CONFIDENCE_VERSION,
+                _CONFIDENCE_NODE_BINDING_VERSION,
                 {
                     "observation": "per-run",
                     "cache_order": "before-cache-lookup",
@@ -936,13 +923,15 @@ def _simplefold_confidence_binding() -> ExecutionBindingDefinition:
                 metric=ContractIdentity(
                     "metric",
                     metric,
-                    _METRIC_VERSION,
+                    _METRIC_VERSIONS[metric],
                 ),
                 context_profile={"kind": "intrinsic"},
                 subject_grain="candidate",
                 source_role="subject",
                 subject_direction="input",
                 subject_port="structure_candidates",
+                axis_direction="input",
+                axis_port="structure_residue_axes",
                 guaranteed_multiplicity="one",
                 output_partition="existing_structure_confidence",
             )
@@ -962,12 +951,6 @@ MODULE_PACKAGE = ModulePackageRegistration(
     node_definitions=(
         DefinitionResource("definitions/fold.yaml"),
         DefinitionResource("definitions/simplefold_confidence.yaml"),
-    ),
-    metric_definitions=(
-        DefinitionResource("definitions/plddt_per_residue_metric.yaml"),
-        DefinitionResource("definitions/plddt_mean_residue_metric.yaml"),
-        DefinitionResource("definitions/ptm_metric.yaml"),
-        DefinitionResource("definitions/pae_metric.yaml"),
     ),
     methods=(
         _method("remote"),

@@ -48,20 +48,21 @@ from .domain import (
 )
 
 
-_PACKAGE_VERSION = "2.1.0"
-_CONSTRAINTS_VERSION = "3.0.0"
+_PACKAGE_VERSION = "5.0.0"
+_CONSTRAINTS_VERSION = "4.0.0"
+_SCORE_METRIC_VERSION = "3.0.0"
 _OPERATIONS = ("constraints", "random_fixed_positions", "design", "score")
 _NODE_BINDING_VERSIONS = {
-    "constraints": "3.0.0",
-    "random_fixed_positions": "3.0.0",
-    "design": "4.0.0",
-    "score": "2.1.0",
+    "constraints": "4.0.0",
+    "random_fixed_positions": "4.0.0",
+    "design": "9.0.0",
+    "score": "6.0.0",
 }
 _METHOD_VERSIONS = {
     "constraints": "3.0.0",
     "random_fixed_positions": "3.0.0",
-    "design": "3.0.0",
-    "score": "2.1.0",
+    "design": "5.0.0",
+    "score": "5.0.0",
 }
 
 
@@ -189,6 +190,7 @@ def _constraints_port_type() -> PortTypeDefinition:
                 "character_encoding": "UTF-8",
                 "envelope_namespace": "protein-workbench-port-value/v2",
                 "value_kind": "proteinmpnn_constraints",
+                "embedded_layout_contract": "residue.layout@3.0.0",
             },
         ),
         content_identity=BehaviorReference(
@@ -300,12 +302,25 @@ def _method(operation: str) -> MethodDefinition:
                 "sha256": PROTEINMPNN_V_48_020_SHA256,
             },
             featurization_identity={
-                "structure": "ProteinMPNN parse_PDB",
+                "structure": (
+                    "resolved-axis deterministic N-CA-C-O provider PDB "
+                    "then ProteinMPNN parse_PDB"
+                ),
+                "residue_projection": (
+                    "resolved-axis-segment-to-provider-safe-chain;"
+                    "canonical-identity-to-segment-local-continuous-"
+                    "one-based-position"
+                ),
+                "missing_backbone": (
+                    "axis-selected-coordinate-or-provider-NaN-mask"
+                ),
                 "sequence": "canonical-20-amino-acid exact target layout",
                 "tensorization": (
                     "ProteinMPNN tied_featurize all chains designed"
                 ),
-                "mask": "provider mask multiplied by chain_M",
+                "mask": (
+                    "provider mask multiplied by chain_M and chain_M_pos"
+                ),
                 "reduction": "provider _scores masked mean",
                 "decoding_order_seed": 42,
             },
@@ -332,7 +347,8 @@ def _method(operation: str) -> MethodDefinition:
                 "sampling": "autoregressive decoding",
                 "children_order": "parent-then-zero-based-sample",
                 "constraint_indexing": (
-                    "workbench-residue-identity-to-one-based-chain-qualified-provider"
+                    "canonical-residue-identity-to-provider-segment-chain-"
+                    "and-segment-local-continuous-one-based-position"
                 ),
                 "call_seed": (
                     "sha256-effective-seed-parent-structure-content-parent-slot"
@@ -348,11 +364,20 @@ def _method(operation: str) -> MethodDefinition:
                 "sha256": PROTEINMPNN_V_48_020_SHA256,
             },
             featurization_identity={
-                "structure": "ProteinMPNN parse_PDB",
+                "structure": (
+                    "resolved-axis deterministic N-CA-C-O provider PDB "
+                    "then ProteinMPNN parse_PDB"
+                ),
+                "residue_projection": (
+                    "resolved-axis-segment-to-provider-safe-chain;"
+                    "canonical-identity-to-segment-local-continuous-"
+                    "one-based-position"
+                ),
                 "constraints": "ProteinMPNN tied_featurize",
                 "reference_sequence": "exact-chain-layout",
                 "sequence_decoding": "complete-parsed-target-layout",
                 "incomplete_backbone": (
+                    "axis-selected-coordinate-or-provider-NaN-mask;"
                     "fixed-residue-preserved-designable-residue-rejected"
                 ),
             },
@@ -463,13 +488,15 @@ def _binding(operation: str) -> ExecutionBindingDefinition:
                 metric=ContractIdentity(
                     "metric",
                     "proteinmpnn.native_sequence_nll",
-                    version,
+                    _SCORE_METRIC_VERSION,
                 ),
                 context_profile={"kind": "intrinsic"},
                 subject_grain="candidate",
                 source_role="subject",
                 subject_direction="input",
                 subject_port="sequence_candidates",
+                axis_direction="input",
+                axis_port="structure_residue_axes",
                 guaranteed_multiplicity="one",
             ),
         )
@@ -513,6 +540,9 @@ def _binding(operation: str) -> ExecutionBindingDefinition:
                     "model": PROTEINMPNN_MODEL,
                     "checkpoint_sha256": PROTEINMPNN_V_48_020_SHA256,
                     "device": PROTEINMPNN_DEVICE,
+                    "structure_projection": (
+                        "resolved-axis-segment-provider-native-staging-v2"
+                    ),
                 },
             )
             if is_model
@@ -605,6 +635,9 @@ def _binding(operation: str) -> ExecutionBindingDefinition:
                     if is_design
                     else "private-per-score-engine-invocation"
                 ),
+                "structure_projection": (
+                    "resolved-axis-segment-provider-native-staging-v2"
+                ),
             }
             if is_model
             else {
@@ -652,6 +685,7 @@ MODULE_PACKAGE = ModulePackageRegistration(
     ),
     metric_definitions=(
         DefinitionResource("definitions/native_sequence_nll_metric.yaml"),
+        DefinitionResource("definitions/native_residue_nll_metric.yaml"),
     ),
     methods=tuple(_method(operation) for operation in _OPERATIONS),
     bindings=tuple(_binding(operation) for operation in _OPERATIONS),

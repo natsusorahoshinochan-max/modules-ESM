@@ -1,0 +1,42 @@
+schema_version: "2.1.0"
+node_type_id: contract_test.synthetic_candidate_source
+version: "1.0.0"
+title: Synthetic Candidate source
+summary: Emits one deterministic Candidate for Module Package conformance.
+category: contract_test
+inputs: []
+outputs:
+  - name: text
+    port_type_id: contract_test.synthetic_text
+    port_type_version: "2.1.0"
+    required: true
+    multiplicity: one
+    scientific_meaning: Deterministically repeated contract-test text.
+  - name: candidates
+    port_type_id: candidate.collection
+    port_type_version: "3.0.0"
+    required: true
+    multiplicity: one
+    scientific_meaning: One deterministic protein Candidate.
+  - name: artifact
+    port_type_id: contract_test.synthetic_artifact
+    port_type_version: "2.1.0"
+    required: true
+    multiplicity: one
+    scientific_meaning: Standalone text artifact with the echoed bytes.
+    artifact_kind: standalone
+    artifact_media_type: text/plain
+parameter_groups:
+  - id: source
+    title: Candidate source contract
+    parameters:
+      - message
+node_parameters:
+  message:
+    parameter_scope: scientific
+    scientific_meaning: Exact text repeated by the synthetic source.
+    value_contract:
+      type: string
+      minLength: 1
+      maxLength: 16
+    required: true

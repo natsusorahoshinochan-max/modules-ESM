@@ -6,6 +6,13 @@ where each position holds either a concrete value or a sentinel meaning unspecif
 structure visibility, secondary structure status, and SASA status each have their
 own array.
 
+The SASA array is not an arbitrary non-negative conditioning scale. Every
+present value is absolute per-residue solvent-accessible surface area in square
+angstroms, without normalization. This quantity contract belongs to the exact
+nominal `protein.prompt` and `prompt_authoring.track.sasa` Port Types. A Method
+may record that it preserves or produces this unit, but Method metadata does not
+define the meaning of a value accepted by either Port.
+
 The alternative was a compressed representation: one bitmask per track indicating
 which positions are specified, plus a packed array of only the specified values.
 Rejected because insertions and deletions would require shifting both the bitmask

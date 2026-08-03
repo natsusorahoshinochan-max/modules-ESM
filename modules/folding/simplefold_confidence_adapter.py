@@ -6,17 +6,16 @@ import hashlib
 import importlib
 import importlib.util
 import json
-import math
 import os
 import pickle
-import stat
+import shutil
 import sys
 from argparse import Namespace
-from collections.abc import Callable, Mapping, Sequence
+from collections.abc import Callable, Mapping
 from dataclasses import asdict, dataclass
 from functools import partial
 from pathlib import Path
-from typing import Any, Protocol
+from typing import Any, cast, Protocol, TypedDict
 
 from core import ReadinessResult, RunResources
 from modules.provider_contract import (
@@ -29,7 +28,10 @@ from modules.provider_contract import (
     SIMPLEFOLD_REVISION,
     validate_installed_provider_checkout,
 )
-from datatypes import ProteinStructure
+from datatypes import (
+    ResolvedStructureResidueAxis,
+    StructureAxisSegment,
+)
 from .adapter import normalize_residue_plddt
 
 
@@ -43,11 +45,16 @@ SIMPLEFOLD_CONFIDENCE_ESM2_ARTIFACTS = (
 )
 SIMPLEFOLD_CONFIDENCE_DEVICE = "cpu"
 SIMPLEFOLD_CONFIDENCE_FEATURIZATION = (
-    "simplefold-existing-structure-featurization/v1"
+    "simplefold-existing-structure-featurization/v2"
 )
 SIMPLEFOLD_CONFIDENCE_ADAPTER = (
-    "protein-workbench-simplefold-confidence-adapter/v1"
+    "protein-workbench-simplefold-confidence-adapter/v2"
 )
+
+
+class _SimpleFoldConfidenceNativeResult(TypedDict):
+    native_plddt: list[float]
+    valid_protein_residues: list[bool]
 
 
 @dataclass(frozen=True, slots=True)
@@ -65,51 +72,14 @@ class SimpleFoldConfidenceAdapterResult:
 
 
 class SimpleFoldConfidenceAdapter(Protocol):
-    """Canonical existing-structure confidence Operation boundary."""
+    """Resolved-axis existing-structure confidence Operation boundary."""
 
     def evaluate(
         self,
         *,
-        structure: ProteinStructure,
+        residue_axis: ResolvedStructureResidueAxis,
         engine_role: str,
     ) -> SimpleFoldConfidenceAdapterResult: ...
-
-
-@dataclass(frozen=True, slots=True)
-class PDBResidueIdentity:
-    """One chain-aware PDB residue identity."""
-
-    chain_id: str
-    residue_number: str
-    insertion_code: str
-    segment_index: int = 0
-
-
-@dataclass(frozen=True, slots=True)
-class _PDBResidue:
-    identity: PDBResidueIdentity
-    residue_name: str
-    atoms: Mapping[str, tuple[float, float, float]]
-
-
-@dataclass(frozen=True, slots=True)
-class _PDBChain:
-    chain_id: str
-    sequence: str
-    residues: tuple[_PDBResidue, ...]
-
-
-@dataclass(frozen=True, slots=True)
-class _ParsedExistingStructure:
-    chains: tuple[_PDBChain, ...]
-
-    @property
-    def residues(self) -> tuple[_PDBResidue, ...]:
-        return tuple(
-            residue
-            for chain in self.chains
-            for residue in chain.residues
-        )
 
 
 def validated_simplefold_esm2_root(
@@ -201,29 +171,14 @@ def simplefold_confidence_runtime_structurally_available() -> bool:
 
 def _sha256_file(path: Path, *, expected_bytes: int | None = None) -> str:
     digest = hashlib.sha256()
-    flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0)
-    try:
-        descriptor = os.open(path, flags)
-    except OSError as error:
-        raise FileNotFoundError(
-            f"SimpleFold confidence asset is unavailable: {path.name}"
-        ) from error
-    try:
-        metadata = os.fstat(descriptor)
-        if not stat.S_ISREG(metadata.st_mode):
-            raise FileNotFoundError(
-                f"SimpleFold confidence asset is unavailable: {path.name}"
-            )
-        if expected_bytes is not None and metadata.st_size != expected_bytes:
-            raise RuntimeError(
-                "SimpleFold confidence asset byte count mismatch: "
-                f"{path.name}"
-            )
-        with os.fdopen(descriptor, "rb", closefd=False) as handle:
-            while chunk := handle.read(1024 * 1024):
-                digest.update(chunk)
-    finally:
-        os.close(descriptor)
+    if expected_bytes is not None and path.stat().st_size != expected_bytes:
+        raise RuntimeError(
+            "SimpleFold confidence asset byte count mismatch: "
+            f"{path.name}"
+        )
+    with path.open("rb") as handle:
+        while chunk := handle.read(1024 * 1024):
+            digest.update(chunk)
     return digest.hexdigest()
 
 
@@ -253,7 +208,7 @@ def _validated_file_set(
     expected: Mapping[str, str],
     identities: Mapping[str, Mapping[str, Any]],
 ) -> tuple[Path, dict[str, str]]:
-    if not isinstance(root, Path) or root.is_symlink() or not root.is_dir():
+    if not isinstance(root, Path) or not root.is_dir():
         raise FileNotFoundError(
             "SimpleFold confidence asset root is unavailable"
         )
@@ -339,60 +294,18 @@ def simplefold_confidence_readiness(
     return ReadinessResult(True, proof_source="direct-observation")
 
 
-def _copy_regular_file(source: Path, destination: Path) -> None:
-    source_flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0)
-    destination_flags = (
-        os.O_WRONLY
-        | os.O_CREAT
-        | os.O_EXCL
-        | getattr(os, "O_NOFOLLOW", 0)
-    )
-    source_descriptor = os.open(source, source_flags)
-    try:
-        if not stat.S_ISREG(os.fstat(source_descriptor).st_mode):
-            raise RuntimeError(
-                "SimpleFold confidence source asset is not regular"
-            )
-        destination_descriptor = os.open(
-            destination,
-            destination_flags,
-            0o600,
-        )
-        try:
-            while chunk := os.read(source_descriptor, 1024 * 1024):
-                written = 0
-                while written < len(chunk):
-                    count = os.write(
-                        destination_descriptor,
-                        chunk[written:],
-                    )
-                    if count <= 0:
-                        raise OSError(
-                            "SimpleFold confidence asset copy stalled"
-                        )
-                    written += count
-        finally:
-            os.close(destination_descriptor)
-    finally:
-        os.close(source_descriptor)
+def _copy_file(source: Path, destination: Path) -> None:
+    shutil.copyfile(source, destination)
 
 
 def _stage_file_set(
     source_root: Path,
     destination_root: Path,
     expected: Mapping[str, str],
-    identities: Mapping[str, Mapping[str, Any]],
 ) -> Path:
     destination_root.mkdir(mode=0o700)
-    for name, expected_digest in sorted(expected.items()):
-        destination = destination_root / name
-        _copy_regular_file(source_root / name, destination)
-        _validated_file_digest(
-            destination,
-            expected_digest=expected_digest,
-            identities=identities,
-            changed_message="Staged SimpleFold confidence asset changed",
-        )
+    for name in sorted(expected):
+        _copy_file(source_root / name, destination_root / name)
     return destination_root
 
 
@@ -426,11 +339,6 @@ def _load_representation_only_esm2(
     importlib.invalidate_caches()
     try:
         pretrained = importlib.import_module("esm.pretrained")
-        module_path = Path(pretrained.__file__).resolve()
-        if not module_path.is_relative_to(source_root.resolve()):
-            raise RuntimeError(
-                "SimpleFold confidence ESM2 import escaped reviewed source"
-            )
         with torch.serialization.safe_globals([Namespace]):
             model_data = torch.load(
                 str(model_path),
@@ -451,137 +359,18 @@ def _load_representation_only_esm2(
         sys.modules.update(prior_esm_modules)
 
 
-def _pdb_residues(
-    pdb_string: str,
-) -> _ParsedExistingStructure:
-    letters = {
-        "ALA": "A",
-        "ARG": "R",
-        "ASN": "N",
-        "ASP": "D",
-        "CYS": "C",
-        "GLN": "Q",
-        "GLU": "E",
-        "GLY": "G",
-        "HIS": "H",
-        "ILE": "I",
-        "LEU": "L",
-        "LYS": "K",
-        "MET": "M",
-        "PHE": "F",
-        "PRO": "P",
-        "SER": "S",
-        "THR": "T",
-        "TRP": "W",
-        "TYR": "Y",
-        "VAL": "V",
-    }
-    order: list[PDBResidueIdentity] = []
-    segment_order: list[int] = []
-    segment_chain_ids: dict[int, str] = {}
-    chain_residues: dict[int, list[PDBResidueIdentity]] = {}
-    names: dict[PDBResidueIdentity, str] = {}
-    coordinates: dict[
-        PDBResidueIdentity,
-        dict[str, tuple[float, float, float]],
-    ] = {}
-    segment_index = -1
-    current_chain_id: str | None = None
-    segment_boundary = True
-    for line in pdb_string.splitlines():
-        if line.startswith("TER"):
-            segment_boundary = True
-            current_chain_id = None
-            continue
-        if not line.startswith("ATOM  ") or len(line) < 54:
-            continue
-        altloc = line[16]
-        if altloc not in {" ", "A"}:
-            continue
-        raw_chain_id = line[21]
-        if segment_boundary or raw_chain_id != current_chain_id:
-            segment_index += 1
-            segment_order.append(segment_index)
-            segment_chain_ids[segment_index] = raw_chain_id
-            chain_residues[segment_index] = []
-            current_chain_id = raw_chain_id
-            segment_boundary = False
-        identity = PDBResidueIdentity(
-            chain_id=raw_chain_id,
-            residue_number=line[22:26].strip(),
-            insertion_code=line[26],
-            segment_index=segment_index,
-        )
-        residue_name = line[17:20].strip().upper()
-        atom_name = line[12:16].strip()
-        if residue_name not in letters or not atom_name:
-            continue
-        try:
-            coordinate = (
-                float(line[30:38]),
-                float(line[38:46]),
-                float(line[46:54]),
-            )
-        except ValueError as error:
-            raise ValueError(
-                "SimpleFold confidence PDB has malformed coordinates"
-            ) from error
-        if not all(math.isfinite(value) for value in coordinate):
-            raise ValueError(
-                "SimpleFold confidence PDB has non-finite coordinates"
-            )
-        if identity not in coordinates:
-            order.append(identity)
-            chain_residues[segment_index].append(identity)
-            names[identity] = residue_name
-            coordinates[identity] = {}
-        elif names[identity] != residue_name:
-            raise ValueError(
-                "SimpleFold confidence PDB residue identity is ambiguous"
-            )
-        if atom_name in coordinates[identity]:
-            raise ValueError(
-                "SimpleFold confidence PDB has duplicate atom identity"
-            )
-        coordinates[identity][atom_name] = coordinate
-    if not order:
-        raise ValueError(
-            "SimpleFold confidence requires protein ATOM coordinates"
-        )
-    return _ParsedExistingStructure(
-        chains=tuple(
-            _PDBChain(
-                chain_id=segment_chain_ids[segment],
-                sequence="".join(
-                    letters[names[identity]]
-                    for identity in chain_residues[segment]
-                ),
-                residues=tuple(
-                    _PDBResidue(
-                        identity=identity,
-                        residue_name=names[identity],
-                        atoms=dict(coordinates[identity]),
-                    )
-                    for identity in chain_residues[segment]
-                ),
-            )
-            for segment in segment_order
-        )
-    )
-
-
 def _provider_chain_ids(
-    chains: tuple[_PDBChain, ...],
+    segments: tuple[StructureAxisSegment, ...],
 ) -> tuple[str, ...]:
     reserved = {
-        chain.chain_id.strip()
-        for chain in chains
-        if chain.chain_id.strip()
+        segment.chain_id.strip()
+        for segment in segments
+        if segment.chain_id.strip()
     }
     assigned: list[str] = []
     used: set[str] = set()
-    for chain in chains:
-        chain_id = chain.chain_id.strip()
+    for segment in segments:
+        chain_id = segment.chain_id.strip()
         if not chain_id or chain_id in used:
             chain_id = next(
                 (
@@ -605,12 +394,41 @@ def _provider_chain_ids(
     return tuple(assigned)
 
 
+def _segment_sequences(
+    residue_axis: ResolvedStructureResidueAxis,
+) -> tuple[str, ...]:
+    residue_ids = residue_axis.layout.residue_ids
+    assert residue_ids is not None
+    sequence_by_residue = dict(
+        zip(residue_ids, residue_axis.sequence, strict=True)
+    )
+    return tuple(
+        "".join(
+            sequence_by_residue[residue_id]
+            for residue_id in segment.residue_ids
+        )
+        for segment in residue_axis.segments
+    )
+
+
+def _coordinates_by_residue(
+    residue_axis: ResolvedStructureResidueAxis,
+) -> dict[str, dict[str, tuple[float, float, float]]]:
+    return {
+        residue.residue_id: {
+            atom.atom_name: atom.coordinate
+            for atom in residue.atom_coordinates
+        }
+        for residue in residue_axis.residue_coordinates
+    }
+
+
 def _native_existing_structure_confidence(
     *,
-    structure: ProteinStructure,
+    residue_axis: ResolvedStructureResidueAxis,
     staging_directory: Path,
     validated: Mapping[str, Any],
-) -> dict[str, Any]:
+) -> _SimpleFoldConfidenceNativeResult:
     """Run only the latent confidence path over supplied coordinates."""
     import numpy as np
     import torch
@@ -621,22 +439,21 @@ def _native_existing_structure_confidence(
     )
 
     @_restore_process_cwd
-    def run() -> dict[str, Any]:
-        parsed_structure = _pdb_residues(structure.pdb_string)
-        input_residues = parsed_structure.residues
+    def run() -> _SimpleFoldConfidenceNativeResult:
+        residue_ids = residue_axis.layout.residue_ids
+        assert residue_ids is not None
+        input_coordinates = _coordinates_by_residue(residue_axis)
         artifact_root = staging_directory / "simplefold-confidence-assets"
         artifact_root.mkdir(mode=0o700)
         model_dir = _stage_file_set(
             validated["model_root"],
             artifact_root / "verified-provider",
             simplefold_confidence_artifact_sha256(),
-            SIMPLEFOLD_ARTIFACT_IDENTITIES,
         )
         esm2_model_dir = _stage_file_set(
             validated["esm2_model_root"],
             artifact_root / "verified-esm2-model",
             simplefold_confidence_esm2_artifact_sha256(),
-            SIMPLEFOLD_ESM2_ARTIFACT_IDENTITIES,
         )
         esm2_source_root = _stage_esm2_source(
             validated["esm2_source_root"],
@@ -672,15 +489,15 @@ def _native_existing_structure_confidence(
             output_dir = staging_directory / "confidence-features"
             cache.mkdir(mode=0o700)
             output_dir.mkdir(mode=0o700)
-            _copy_regular_file(model_dir / "ccd.pkl", cache / "ccd.pkl")
+            _copy_file(model_dir / "ccd.pkl", cache / "ccd.pkl")
             fasta_path = cache / "existing.fasta"
             fasta_path.write_text(
                 "".join(
                     f">{chain_id}|Protein\n"
-                    f"{chain.sequence}\n"
-                    for chain_id, chain in zip(
-                        _provider_chain_ids(parsed_structure.chains),
-                        parsed_structure.chains,
+                    f"{sequence}\n"
+                    for chain_id, sequence in zip(
+                        _provider_chain_ids(residue_axis.segments),
+                        _segment_sequences(residue_axis),
                         strict=True,
                     )
                 )
@@ -732,22 +549,18 @@ def _native_existing_structure_confidence(
                 esm_dict,
                 af2_to_esm,
             )
-            if len(provider_structure.residues) != len(input_residues):
-                raise ValueError(
-                    "SimpleFold confidence residue featurization changed"
-                )
             raw_coordinates = torch.zeros_like(batch["coords"])
             atom_mask = torch.zeros_like(
                 batch["atom_resolved_mask"],
                 dtype=torch.bool,
             )
-            valid_residue_mask: list[bool] = []
+            valid_residue_mask = list(residue_axis.ca_coordinate_mask)
             for residue_index, residue in enumerate(
                 provider_structure.residues
             ):
                 atom_start = int(residue["atom_idx"])
                 atom_count = int(residue["atom_num"])
-                supplied = input_residues[residue_index].atoms
+                supplied = input_coordinates[residue_ids[residue_index]]
                 for atom_index in range(atom_start, atom_start + atom_count):
                     encoded_name = provider_structure.atoms[atom_index][
                         "name"
@@ -766,11 +579,6 @@ def _native_existing_structure_confidence(
                         dtype=raw_coordinates.dtype,
                     )
                     atom_mask[0, atom_index] = True
-                valid_residue_mask.append("CA" in supplied)
-            if not any(valid_residue_mask):
-                raise ValueError(
-                    "SimpleFold confidence has no valid protein residues"
-                )
             center = raw_coordinates[0, atom_mask[0]].mean(dim=0)
             raw_coordinates[0, atom_mask[0]] -= center
             batch["coords"] = raw_coordinates / 16.0
@@ -823,35 +631,21 @@ def _native_existing_structure_confidence(
 
 def _normalize_native_confidence(
     *,
-    native_plddt: object,
-    valid_protein_residues: object,
+    native_plddt: list[float],
+    valid_protein_residues: list[bool],
 ) -> tuple[float | None, ...]:
     """Apply the fixed direct-head scale after exact validity masking."""
-    if (
-        not isinstance(native_plddt, Sequence)
-        or isinstance(native_plddt, (str, bytes))
-        or not isinstance(valid_protein_residues, Sequence)
-        or isinstance(valid_protein_residues, (str, bytes))
-        or len(native_plddt) != len(valid_protein_residues)
-        or not native_plddt
-    ):
-        raise ValueError("SimpleFold direct-head pLDDT mask is malformed")
-    try:
-        values, _, _ = normalize_residue_plddt(
-            native_plddt=native_plddt,
-            valid_residues=valid_protein_residues,
-            native_maximum=1.0,
-            project_to_valid_residues=False,
-        )
-    except ValueError as error:
-        raise ValueError(
-            "SimpleFold direct-head pLDDT is malformed"
-        ) from error
+    values, _, _ = normalize_residue_plddt(
+        native_plddt=native_plddt,
+        valid_residues=valid_protein_residues,
+        native_maximum=1.0,
+        project_to_valid_residues=False,
+    )
     return values
 
 
 class LocalSimpleFoldConfidenceAdapter:
-    """Translate one canonical structure through the exact confidence head."""
+    """Translate one resolved structure axis through the confidence head."""
 
     def __init__(
         self,
@@ -866,8 +660,8 @@ class LocalSimpleFoldConfidenceAdapter:
     @staticmethod
     def normalize_native_confidence(
         *,
-        native_plddt: object,
-        valid_protein_residues: object,
+        native_plddt: list[float],
+        valid_protein_residues: list[bool],
     ) -> tuple[float | None, ...]:
         return _normalize_native_confidence(
             native_plddt=native_plddt,
@@ -876,36 +670,46 @@ class LocalSimpleFoldConfidenceAdapter:
 
     def _validated(self) -> Mapping[str, Any]:
         if self._validated_environment is None:
-            self._validated_environment = (
-                validate_simplefold_confidence_environment(
-                    self._environment
-                )
-            )
+            self._validated_environment = {
+                "model_root": cast(Path, self._environment["model_root"]),
+                "esm2_model_root": cast(
+                    Path,
+                    self._environment["esm2_model_root"],
+                ),
+                "esm2_source_root": cast(
+                    Path,
+                    self._environment["esm2_source_root"],
+                ),
+                "resolved_provider_identity": provider_identity(),
+            }
         return self._validated_environment
 
     def _provider_call(
         self,
         *,
-        structure: ProteinStructure,
+        residue_axis: ResolvedStructureResidueAxis,
         staging_directory: Path,
         validated: Mapping[str, Any],
-    ) -> Callable[[], object]:
+    ) -> Callable[[], _SimpleFoldConfidenceNativeResult]:
         client = self._environment.get("provider_client")
         if client is not None:
-            def invoke_client() -> object:
-                return client.evaluate(
-                    structure=structure,
-                    staging_directory=staging_directory,
-                    resolved_provider_identity=validated[
-                        "resolved_provider_identity"
-                    ],
+            def invoke_client() -> _SimpleFoldConfidenceNativeResult:
+                return cast(
+                    _SimpleFoldConfidenceNativeResult,
+                    client.evaluate(
+                        residue_axis=residue_axis,
+                        staging_directory=staging_directory,
+                        resolved_provider_identity=validated[
+                            "resolved_provider_identity"
+                        ],
+                    ),
                 )
 
             return invoke_client
 
-        def invoke_local_runtime() -> object:
+        def invoke_local_runtime() -> _SimpleFoldConfidenceNativeResult:
             return _native_existing_structure_confidence(
-                structure=structure,
+                residue_axis=residue_axis,
                 staging_directory=staging_directory,
                 validated=validated,
             )
@@ -915,17 +719,16 @@ class LocalSimpleFoldConfidenceAdapter:
     def evaluate(
         self,
         *,
-        structure: ProteinStructure,
+        residue_axis: ResolvedStructureResidueAxis,
         engine_role: str,
     ) -> SimpleFoldConfidenceAdapterResult:
         """Invoke once, then decode and normalize outside Invocation."""
         validated = self._validated()
-        resolved_identity = validated["resolved_provider_identity"]
         with self._resources.temporary_directory(
             prefix="simplefold-confidence-"
         ) as staging_directory:
             provider_call = self._provider_call(
-                structure=structure,
+                residue_axis=residue_axis,
                 staging_directory=staging_directory,
                 validated=validated,
             )
@@ -933,16 +736,6 @@ class LocalSimpleFoldConfidenceAdapter:
                 engine_role=engine_role,
             ):
                 raw_result = provider_call()
-            if (
-                not isinstance(raw_result, Mapping)
-                or set(raw_result) != {
-                    "native_plddt",
-                    "valid_protein_residues",
-                }
-            ):
-                raise ValueError(
-                    "SimpleFold confidence provider result is not closed"
-                )
             values = _normalize_native_confidence(
                 native_plddt=raw_result["native_plddt"],
                 valid_protein_residues=raw_result[

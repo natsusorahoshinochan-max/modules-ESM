@@ -64,7 +64,14 @@ residue mapping, and call-seed derivation do not belong in the Adapter.
 Call seeds are derived from the configured base seed, canonical scientific
 input content, and stable parent, sample, and track slots. Candidate IDs,
 Result IDs, Run IDs, scheduling order, and temporary paths never enter that
-derivation. An Adapter that actually applies the derived seed records closed
+derivation. The configured base seed is first normalized as an ordinary Node
+parameter. A Binding without an explicit effective-randomness declaration
+keeps it in the Result Identity's normalized Node parameters and contributes
+an empty `effective_randomness` object; the runtime never infers randomness
+from parameter names such as `seed`, `random_seed`, or `effective_seed`. A
+Binding with exact seed control explicitly declares and resolves that parameter
+into Result Identity randomness. An Adapter that actually applies the derived
+seed records closed
 invocation provenance under `effective_randomness` with `control=exact_seed`
 and the applied `effective_seed`. An official provider route without seed
 control records `control=provider_uncontrolled`, does not send a seed, and does
@@ -84,12 +91,12 @@ handling, speculative fallbacks, and compatibility shims are outside the
 trusted single-user deployment model.
 
 `ProteinStructure` owns canonical PDB scientific content and nothing else. The
-active `protein.structure@3.0.0` wire contains exactly one field,
+active `protein.structure@4.0.0` wire contains exactly one field,
 `pdb_string`; provider, project-input, file, and source labels are provenance,
 not scientific content, and therefore cannot change its content digest. That
 provenance is owned by Method, Execution Binding, Candidate lineage, or Run
 Evidence at the seam where the fact is known. The active
-`structure_transform.backbone_structure@3.0.0` wire likewise contains only
+`structure_transform.backbone_structure@4.0.0` wire likewise contains only
 canonical PDB content. Its nominal distinction is established by its closed
 backbone atom, ordering, chain-break, and serialization invariants, never by a
 producer string. Both Port Types have one decoder for their current closed
@@ -97,9 +104,11 @@ wire shape; the removed source-bearing shapes are not accepted.
 
 Every Node Type and Execution Binding that directly declares either changed
 Port Type moves atomically to its current incompatible generation. A Method
-keeps its exact identity when its scientific definition is unchanged. This is
-why the DSSP Node and Binding change while its four annotation Methods remain
-at `2.2.0`, and why ProteinMPNN design changes its Node and Binding while its
+keeps its exact identity only while its complete scientific definition is
+unchanged. The secondary-structure and SASA projection Methods therefore move
+to `3.0.0` when their input and output gain exact CandidateDataReference
+association, while the semantically unchanged prompt-conversion Methods remain
+at `2.2.0`. ProteinMPNN design changes its Node and Binding while its
 identity-based constraints value and design Method keep their already-current
 scientific contracts. Candidate collections resolve their declared item type
 through the one active Catalog; they do not carry a compatibility registry or

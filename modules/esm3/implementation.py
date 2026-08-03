@@ -4,29 +4,45 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 import hashlib
-import math
-from typing import Any
+from typing import Any, cast
 
 from core import (
     CandidatePairingIntent,
     CandidatePairingIntentEntry,
     OperationCall,
-    ResolvedProducedObservation,
+    builtin_frozen_catalog,
 )
 from datatypes import (
     Candidate,
     CandidateCollection,
     ExactContractReference,
-    IntrinsicObservationContext,
+    ExactPortValueReference,
     ProteinPrompt,
-    ScoreCollection,
-    ScoreObservation,
+    ProteinSequence,
+    ProteinStructure,
 )
+from modules.structure_prediction.domain import (
+    ConfidenceFact,
+    ConfidenceFactCollection,
+    PredictionResidueAxis,
+    prediction_key,
+)
+from modules.structure_prediction.port_types import (
+    PREDICTION_RESIDUE_AXIS_PORT_TYPE,
+)
+from modules.prompt_authoring.prompt_types import PROTEIN_PROMPT_PORT_TYPE
 
 from .adapter import (
     ESM3CallParameters,
     ESM3Confidence,
     ESM3GenerationAdapter,
+)
+
+
+_BUILTINS = builtin_frozen_catalog()
+_STRUCTURE_PORT_TYPE = _BUILTINS.require_port_type(
+    "protein.structure",
+    "4.0.0",
 )
 
 
@@ -55,7 +71,6 @@ class ESM3GenerationOperation:
         adapter: ESM3GenerationAdapter,
         operation: str,
         method: ExactContractReference,
-        produced_observations: tuple[ResolvedProducedObservation, ...],
     ) -> None:
         if operation not in {
             "generate_sequence",
@@ -66,12 +81,6 @@ class ESM3GenerationOperation:
         self._adapter = adapter
         self._operation = operation
         self._method = method
-        self._produced_observations = {
-            (observation.output_port, observation.metric.contract_id): (
-                observation
-            )
-            for observation in produced_observations
-        }
 
     @staticmethod
     def _parameters(
@@ -132,6 +141,7 @@ class ESM3GenerationOperation:
         effective_call_seed: int | None,
         effective_num_steps: int,
         effective_num_steps_by_track: Mapping[str, int] | None = None,
+        prediction_key: str | None = None,
     ) -> dict[str, Any]:
         requested = cls._requested_parameters(parameters)
         steps_by_track = (
@@ -162,6 +172,8 @@ class ESM3GenerationOperation:
                     ),
                 }
             )
+        if prediction_key is not None:
+            metadata["prediction_key"] = prediction_key
         return metadata
 
     @staticmethod
@@ -217,82 +229,53 @@ class ESM3GenerationOperation:
                 parameters=parameters,
             )
 
-    def _produced_observation(
-        self,
-        metric_id: str,
-        *,
-        output_port: str,
-    ) -> ResolvedProducedObservation:
-        return self._produced_observations[(output_port, metric_id)]
-
-    def _confidence_outputs(
-        self,
-        sources: list[tuple[Candidate, ESM3Confidence]],
-        *,
-        confidence_output_port: str = "confidence_observations",
-        pae_output_port: str = "pae_observations",
-    ) -> tuple[ScoreCollection, ScoreCollection | None]:
-        produced_observations = {
-            metric_id: self._produced_observation(
-                metric_id,
-                output_port=(
-                    pae_output_port
-                    if metric_id == "structure.pae"
-                    else confidence_output_port
-                ),
-            )
-            for metric_id in (
-                "structure.ptm",
-                "structure.plddt.per_residue",
-                "structure.plddt.mean_residue",
-                "structure.pae",
-            )
-        }
-        confidence_observations: list[ScoreObservation] = []
-        pae_observations: list[ScoreObservation] = []
-        for candidate, confidence in sources:
-            for metric_id, value in (
-                ("structure.ptm", confidence.ptm),
-                (
-                    "structure.plddt.per_residue",
-                    confidence.plddt_per_residue,
-                ),
-                (
-                    "structure.plddt.mean_residue",
-                    math.fsum(confidence.plddt_per_residue)
-                    / len(confidence.plddt_per_residue),
-                ),
-            ):
-                produced = produced_observations[metric_id]
-                confidence_observations.append(
-                    ScoreObservation(
-                        candidate_id=candidate.candidate_id,
-                        metric=produced.metric,
-                        method=self._method,
-                        context=IntrinsicObservationContext(),
-                        value=value,
-                        source_partition=produced.output_partition,
-                    )
-                )
-            if confidence.pae is not None:
-                produced = produced_observations["structure.pae"]
-                pae_observations.append(
-                    ScoreObservation(
-                        candidate_id=candidate.candidate_id,
-                        metric=produced.metric,
-                        method=self._method,
-                        context=IntrinsicObservationContext(),
-                        value=confidence.pae,
-                        source_partition=produced.output_partition,
-                    )
-                )
-        return (
-            ScoreCollection("esm3-confidence", confidence_observations),
-            (
-                ScoreCollection("esm3-pae", pae_observations)
-                if pae_observations
-                else None
+    @staticmethod
+    def _prompt_reference(prompt_content_digest: str) -> ExactPortValueReference:
+        return ExactPortValueReference(
+            port_type=ExactContractReference(
+                contract_kind="port_type",
+                contract_id=PROTEIN_PROMPT_PORT_TYPE.type_id,
+                contract_version=PROTEIN_PROMPT_PORT_TYPE.version,
+                contract_digest=PROTEIN_PROMPT_PORT_TYPE.contract_digest,
             ),
+            content_digest=prompt_content_digest,
+        )
+
+    @staticmethod
+    def _confidence_fact(
+        *,
+        output_role: str,
+        output_slot: int,
+        structure: ProteinStructure,
+        prompt: ProteinPrompt,
+        prompt_reference: ExactPortValueReference,
+        sequence: ProteinSequence,
+        confidence: ESM3Confidence,
+    ) -> tuple[str, ConfidenceFact]:
+        prediction_axis = PredictionResidueAxis(
+            source=prompt_reference,
+            layout=prompt.target_layout,
+            sequence=sequence,
+        )
+        structure_content_digest = _STRUCTURE_PORT_TYPE.content_digest(
+            structure
+        )
+        prediction_axis_content_digest = (
+            PREDICTION_RESIDUE_AXIS_PORT_TYPE.content_digest(prediction_axis)
+        )
+        key = prediction_key(
+            output_role=output_role,
+            output_slot=output_slot,
+            structure_content_digest=structure_content_digest,
+            prediction_axis_content_digest=prediction_axis_content_digest,
+        )
+        return key, ConfidenceFact(
+            prediction_key=key,
+            structure_content_digest=structure_content_digest,
+            prediction_axis=prediction_axis,
+            plddt_per_residue=confidence.plddt_per_residue,
+            ptm=confidence.ptm,
+            pae=confidence.pae,
         )
 
     @staticmethod
@@ -322,7 +305,8 @@ class ESM3GenerationOperation:
     ) -> dict[str, Any]:
         candidates: list[Candidate] = []
         reconstructions: list[Candidate] = []
-        reconstruction_confidence: list[tuple[Candidate, ESM3Confidence]] = []
+        reconstruction_facts: list[ConfidenceFact] = []
+        prompt_reference = self._prompt_reference(prompt_content_digest)
         for sample_index in range(num_samples):
             call_seed = _derived_call_seed(
                 effective_seed,
@@ -352,10 +336,15 @@ class ESM3GenerationOperation:
             )
             candidates.append(candidate)
             if result.reconstruction is not None:
-                if result.confidence is None:
-                    raise RuntimeError(
-                        "ESM-3 reconstruction confidence is incomplete"
-                    )
+                key, fact = self._confidence_fact(
+                    output_role="sequence_reconstruction_candidates",
+                    output_slot=len(reconstructions),
+                    structure=result.reconstruction,
+                    prompt=prompt,
+                    prompt_reference=prompt_reference,
+                    sequence=result.sequence,
+                    confidence=cast(ESM3Confidence, result.confidence),
+                )
                 reconstruction = Candidate(
                     f"reconstructed-structure-{sample_index}",
                     result.reconstruction,
@@ -369,12 +358,11 @@ class ESM3GenerationOperation:
                         call_track="sequence",
                         effective_call_seed=result.effective_call_seed,
                         effective_num_steps=result.effective_num_steps,
+                        prediction_key=key,
                     ),
                 )
                 reconstructions.append(reconstruction)
-                reconstruction_confidence.append(
-                    (reconstruction, result.confidence)
-                )
+                reconstruction_facts.append(fact)
         outputs: dict[str, Any] = {
             "sequence_candidates": CandidateCollection(
                 "esm3-sequence-candidates",
@@ -383,9 +371,6 @@ class ESM3GenerationOperation:
             )
         }
         if reconstructions:
-            confidence, pae = self._confidence_outputs(
-                reconstruction_confidence
-            )
             outputs["sequence_reconstruction_candidates"] = (
                 CandidateCollection(
                     "esm3-reconstructed-structures",
@@ -393,9 +378,10 @@ class ESM3GenerationOperation:
                     reconstructions,
                 )
             )
-            outputs["confidence_observations"] = confidence
-            if pae is not None:
-                outputs["pae_observations"] = pae
+            outputs["confidence_facts"] = ConfidenceFactCollection(
+                observation_method=self._method,
+                entries=tuple(reconstruction_facts),
+            )
         return outputs
 
     def _generate_structure(
@@ -407,13 +393,13 @@ class ESM3GenerationOperation:
         num_samples: int,
         parameters: ESM3CallParameters,
     ) -> dict[str, Any]:
-        expected_sequence = self._assigned_prompt_sequence(prompt)
+        self._assigned_prompt_sequence(prompt)
         candidates: list[Candidate] = []
-        confidence_sources: list[tuple[Candidate, ESM3Confidence]] = []
+        confidence_facts: list[ConfidenceFact] = []
+        prompt_reference = self._prompt_reference(prompt_content_digest)
         for sample_index in range(num_samples):
             result = self._adapter.generate_structure(
                 prompt,
-                expected_sequence=expected_sequence,
                 parameters=parameters,
                 derived_call_seed=_derived_call_seed(
                     effective_seed,
@@ -421,6 +407,15 @@ class ESM3GenerationOperation:
                     sample_index,
                     "structure",
                 ),
+            )
+            key, fact = self._confidence_fact(
+                output_role="structure_candidates",
+                output_slot=len(candidates),
+                structure=result.structure,
+                prompt=prompt,
+                prompt_reference=prompt_reference,
+                sequence=result.sequence,
+                confidence=result.confidence,
             )
             candidate = Candidate(
                 f"structure-{sample_index}",
@@ -435,22 +430,22 @@ class ESM3GenerationOperation:
                     call_track="structure",
                     effective_call_seed=result.effective_call_seed,
                     effective_num_steps=result.effective_num_steps,
+                    prediction_key=key,
                 ),
             )
             candidates.append(candidate)
-            confidence_sources.append((candidate, result.confidence))
-        confidence, pae = self._confidence_outputs(confidence_sources)
-        outputs: dict[str, Any] = {
+            confidence_facts.append(fact)
+        return {
             "structure_candidates": CandidateCollection(
                 "esm3-structure-candidates",
                 "protein.structure",
                 candidates,
             ),
-            "confidence_observations": confidence,
+            "confidence_facts": ConfidenceFactCollection(
+                observation_method=self._method,
+                entries=tuple(confidence_facts),
+            ),
         }
-        if pae is not None:
-            outputs["pae_observations"] = pae
-        return outputs
 
     def _generate_paired(
         self,
@@ -464,9 +459,10 @@ class ESM3GenerationOperation:
         sequence_candidates: list[Candidate] = []
         structure_candidates: list[Candidate] = []
         pairing_entries: list[CandidatePairingIntentEntry] = []
-        confidence_sources: list[tuple[Candidate, ESM3Confidence]] = []
+        confidence_facts: list[ConfidenceFact] = []
         reconstruction_candidates: list[Candidate] = []
-        reconstruction_confidence: list[tuple[Candidate, ESM3Confidence]] = []
+        reconstruction_facts: list[ConfidenceFact] = []
+        prompt_reference = self._prompt_reference(prompt_content_digest)
         for sample_index in range(num_samples):
             result = self._adapter.generate_pair(
                 prompt,
@@ -502,10 +498,20 @@ class ESM3GenerationOperation:
                 ),
             )
             if result.sequence.reconstruction is not None:
-                if result.sequence.confidence is None:
-                    raise RuntimeError(
-                        "ESM-3 reconstruction confidence is incomplete"
+                reconstruction_key, reconstruction_fact = (
+                    self._confidence_fact(
+                        output_role="sequence_reconstruction_candidates",
+                        output_slot=len(reconstruction_candidates),
+                        structure=result.sequence.reconstruction,
+                        prompt=prompt,
+                        prompt_reference=prompt_reference,
+                        sequence=result.sequence.sequence,
+                        confidence=cast(
+                            ESM3Confidence,
+                            result.sequence.confidence,
+                        ),
                     )
+                )
                 reconstruction = Candidate(
                     f"reconstructed-structure-{sample_index}",
                     result.sequence.reconstruction,
@@ -523,12 +529,20 @@ class ESM3GenerationOperation:
                         effective_num_steps=(
                             result.sequence.effective_num_steps
                         ),
+                        prediction_key=reconstruction_key,
                     ),
                 )
                 reconstruction_candidates.append(reconstruction)
-                reconstruction_confidence.append(
-                    (reconstruction, result.sequence.confidence)
-                )
+                reconstruction_facts.append(reconstruction_fact)
+            structure_key, structure_fact = self._confidence_fact(
+                output_role="structure_candidates",
+                output_slot=len(structure_candidates),
+                structure=result.structure.structure,
+                prompt=prompt,
+                prompt_reference=prompt_reference,
+                sequence=result.structure.sequence,
+                confidence=result.structure.confidence,
+            )
             structure_candidate = Candidate(
                 f"structure-{sample_index}",
                 result.structure.structure,
@@ -550,6 +564,7 @@ class ESM3GenerationOperation:
                         "sequence": result.sequence.effective_num_steps,
                         "structure": result.structure.effective_num_steps,
                     },
+                    prediction_key=structure_key,
                 ),
             )
             sequence_candidates.append(sequence_candidate)
@@ -560,10 +575,7 @@ class ESM3GenerationOperation:
                     reference_candidate_id=structure_candidate.candidate_id,
                 )
             )
-            confidence_sources.append(
-                (structure_candidate, result.structure.confidence)
-            )
-        confidence, pae = self._confidence_outputs(confidence_sources)
+            confidence_facts.append(structure_fact)
         outputs: dict[str, Any] = {
             "sequence_candidates": CandidateCollection(
                 "esm3-paired-sequences",
@@ -576,22 +588,12 @@ class ESM3GenerationOperation:
                 structure_candidates,
             ),
             "counterpart_pairs": CandidatePairingIntent(pairing_entries),
-            "confidence_observations": confidence,
+            "confidence_facts": ConfidenceFactCollection(
+                observation_method=self._method,
+                entries=tuple(confidence_facts),
+            ),
         }
-        if pae is not None:
-            outputs["pae_observations"] = pae
         if reconstruction_candidates:
-            reconstruction_scores, reconstruction_pae = (
-                self._confidence_outputs(
-                    reconstruction_confidence,
-                    confidence_output_port=(
-                        "sequence_reconstruction_confidence_observations"
-                    ),
-                    pae_output_port=(
-                        "sequence_reconstruction_pae_observations"
-                    ),
-                )
-            )
             outputs["sequence_reconstruction_candidates"] = (
                 CandidateCollection(
                     "esm3-paired-sequence-reconstructions",
@@ -600,10 +602,9 @@ class ESM3GenerationOperation:
                 )
             )
             outputs[
-                "sequence_reconstruction_confidence_observations"
-            ] = reconstruction_scores
-            if reconstruction_pae is not None:
-                outputs[
-                    "sequence_reconstruction_pae_observations"
-                ] = reconstruction_pae
+                "sequence_reconstruction_confidence_facts"
+            ] = ConfidenceFactCollection(
+                observation_method=self._method,
+                entries=tuple(reconstruction_facts),
+            )
         return outputs

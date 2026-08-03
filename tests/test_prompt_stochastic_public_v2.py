@@ -10,15 +10,18 @@ from fastapi.testclient import TestClient
 from core import build_frozen_catalog
 from core.server import create_app
 from modules.prompt_authoring.package import MODULE_PACKAGE
+from modules.structure_transform.package import (
+    MODULE_PACKAGE as STRUCTURE_TRANSFORM_PACKAGE,
+)
 from protein_workbench_public import validate_response
 from tests.fixtures.public_v2 import wait_for_testclient_run_terminal
 from tests.fixtures.prompt_authoring_sources.package import (
     MODULE_PACKAGE as SOURCE_PACKAGE,
 )
-from tests.fixtures.prompt_authoring_v2 import VERSION
+from tests.fixtures.prompt_authoring_v2 import VERSION, WORKFLOW_SCHEMA_VERSION
 
 
-STRUCTURE_SOURCE_VERSION = "3.0.0"
+STRUCTURE_SOURCE_VERSION = "4.0.0"
 
 
 def test_stochastic_prompt_authoring_executes_through_public_rest(
@@ -29,15 +32,17 @@ def test_stochastic_prompt_authoring_executes_through_public_rest(
         root = tmp_path / name.lower()
         root.mkdir()
         monkeypatch.setenv(f"PROTEIN_WORKBENCH_{name}_ROOT", str(root))
-    catalog = build_frozen_catalog((MODULE_PACKAGE, SOURCE_PACKAGE))
+    catalog = build_frozen_catalog(
+        (MODULE_PACKAGE, SOURCE_PACKAGE, STRUCTURE_TRANSFORM_PACKAGE)
+    )
 
     with TestClient(create_app(frozen_catalog_override=catalog)) as client:
         project_id = client.post(
-            "/api/projects",
+            "/api/v2/projects",
             json={"name": "stochastic prompt public journey"},
         ).json()["id"]
         workflow = {
-            "schema_version": VERSION,
+            "schema_version": WORKFLOW_SCHEMA_VERSION,
             "workflow_id": project_id,
             "nodes": [
                 {
@@ -76,32 +81,25 @@ def test_stochastic_prompt_authoring_executes_through_public_rest(
             ],
             "contract_lock": [],
         }
-        saved = client.put(
-            f"/api/v2/projects/{project_id}/workflow",
+        committed = client.post(
+            f"/api/v2/projects/{project_id}/workflow:commit",
             json={
-                "expected_workflow_revision": 0,
+                "expected_draft_revision": 0,
                 "workflow": workflow,
             },
         )
-        assert saved.status_code == 200
-        relocked = client.post(
-            f"/api/v2/projects/{project_id}/workflow:relock",
-            json={"workflow_revision": saved.json()["workflow_revision"]},
+        assert committed.status_code == 200
+        validate_response(
+            "commit_project_workflow",
+            200,
+            committed.json(),
         )
-        assert relocked.status_code == 200
-        compiled = client.post(
-            f"/api/v2/projects/{project_id}/workflow:compile",
-            json={
-                "workflow_revision": relocked.json()["workflow_revision"],
-                "workflow": relocked.json()["workflow"],
-            },
-        )
-        assert compiled.status_code == 200
         started = client.post(
             f"/api/v2/projects/{project_id}/runs",
             json={
-                "workflow_revision": relocked.json()["workflow_revision"],
-                "compile_id": compiled.json()["compile_id"],
+                "workflow_commit_id": committed.json()[
+                    "workflow_commit_id"
+                ],
                 "client_request_id": "stochastic-public-run",
             },
         )

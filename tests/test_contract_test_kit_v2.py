@@ -35,6 +35,7 @@ from tests.fixtures.zero_core_packages.synthetic_echo.tests.cases import (
     ARTIFACT_PORT_CASE,
     EXECUTION_CASE,
     PORT_CASE,
+    SOURCE_EXECUTION_CASE,
 )
 from tests.fixtures.public_v2 import wait_for_testclient_run_terminal
 from tests.fixtures.zero_core_packages.synthetic_echo.tests.invalid_registrations import (
@@ -44,6 +45,7 @@ from tests.fixtures.zero_core_packages.synthetic_echo.tests.invalid_registration
 
 
 FIXTURE_ROOT = "tests.fixtures.zero_core_packages"
+EXECUTION_CASES = (SOURCE_EXECUTION_CASE, EXECUTION_CASE)
 
 
 def _forget_packages(root_name: str) -> None:
@@ -61,23 +63,32 @@ def test_contract_test_kit_executes_the_discovered_production_registration(
 
     report = verify_module_package_contract(
         registration,
-        execution_cases=(EXECUTION_CASE,),
+        execution_cases=EXECUTION_CASES,
         port_cases=(PORT_CASE, ARTIFACT_PORT_CASE),
         work_root=tmp_path,
     )
 
     assert report.catalog_contract_digest == discovered.contract_digest
     assert report.package_id == registration.package_id
-    assert report.case_reports[0].status == "succeeded"
-    assert report.case_reports[0].output_ports == (
+    case_reports = {
+        case_report.case_id: case_report
+        for case_report in report.case_reports
+    }
+    source_report = case_reports[SOURCE_EXECUTION_CASE.case_id]
+    scorer_report = case_reports[EXECUTION_CASE.case_id]
+    assert source_report.status == "succeeded"
+    assert source_report.output_ports == ("candidates", "text")
+    assert source_report.artifact_ports == ("artifact",)
+    assert scorer_report.status == "succeeded"
+    assert scorer_report.output_ports == (
         "candidates",
         "scores",
         "text",
     )
-    assert report.case_reports[0].artifact_ports == ("artifact",)
-    assert report.case_reports[0].event_types[-1] == "run_terminal"
-    assert len(report.case_reports[0].event_sequences) == len(
-        set(report.case_reports[0].event_sequences)
+    assert scorer_report.artifact_ports == ("artifact",)
+    assert scorer_report.event_types[-1] == "run_terminal"
+    assert len(scorer_report.event_sequences) == len(
+        set(scorer_report.event_sequences)
     )
     assert build_frozen_catalog((registration,)).contract_digest == (
         report.catalog_contract_digest
@@ -106,7 +117,7 @@ def test_contract_test_kit_requires_cases_for_every_owned_port_type(
     ):
         verify_module_package_contract(
             registration,
-            execution_cases=(EXECUTION_CASE,),
+            execution_cases=EXECUTION_CASES,
             port_cases=(),
             work_root=tmp_path,
         )
@@ -124,6 +135,7 @@ def test_cases_and_fixtures_are_not_part_of_production_registration() -> None:
     }
 
     assert registered_resources == {
+        "definitions/candidate_source.yaml",
         "definitions/echo.yaml",
         "definitions/identity_metric.yaml",
     }
@@ -141,6 +153,59 @@ def test_cases_and_fixtures_are_not_part_of_production_registration() -> None:
     )
 
 
+def test_source_and_scorer_publish_distinct_exact_contracts() -> None:
+    catalog = build_discovered_frozen_catalog(FIXTURE_ROOT)
+    source_node = catalog.require_contract(
+        "node_type",
+        SOURCE_EXECUTION_CASE.node_type_id,
+        SOURCE_EXECUTION_CASE.node_type_version,
+    )
+    scorer_node = catalog.require_contract(
+        "node_type",
+        EXECUTION_CASE.node_type_id,
+        EXECUTION_CASE.node_type_version,
+    )
+    source_binding = catalog.require_contract(
+        "binding",
+        SOURCE_EXECUTION_CASE.binding_id,
+        SOURCE_EXECUTION_CASE.binding_version,
+    )
+    scorer_binding = catalog.require_contract(
+        "binding",
+        EXECUTION_CASE.binding_id,
+        EXECUTION_CASE.binding_version,
+    )
+
+    assert source_node.descriptor["inputs"] == ()
+    assert scorer_node.descriptor["inputs"] == (
+        {
+            "name": "candidate_input",
+            "port_type": catalog.require_contract(
+                "port_type",
+                "candidate.collection",
+                "3.0.0",
+            ).reference(),
+            "required": True,
+            "multiplicity": "one",
+            "scientific_meaning": (
+                "Admitted Candidate collection echoed as the scored subject."
+            ),
+        },
+    )
+    assert source_binding.descriptor["node_type"] == source_node.reference()
+    assert scorer_binding.descriptor["node_type"] == scorer_node.reference()
+    assert catalog.get_contract(
+        "binding",
+        "contract_test.synthetic_echo.source",
+        "3.0.0",
+    ) is None
+    assert catalog.get_contract(
+        "node_type",
+        "contract_test.synthetic_echo",
+        "3.0.0",
+    ) is None
+
+
 def test_source_public_journey_discovers_compiles_executes_replays_and_retrieves(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -152,16 +217,12 @@ def test_source_public_journey_discovers_compiles_executes_replays_and_retrieves
     app = create_app(
         module_packages_package=FIXTURE_ROOT,
         v2_environment_configuration={
-            (
-                EXECUTION_CASE.binding_id,
-                EXECUTION_CASE.binding_version,
-            ): {
-                "values": dict(EXECUTION_CASE.environment_values),
-                "safe_fingerprint": (
-                    EXECUTION_CASE.safe_environment_fingerprint
-                ),
-                "invalidation_token": EXECUTION_CASE.invalidation_token,
+            (case.binding_id, case.binding_version): {
+                "values": dict(case.environment_values),
+                "safe_fingerprint": case.safe_environment_fingerprint,
+                "invalidation_token": case.invalidation_token,
             }
+            for case in EXECUTION_CASES
         },
     )
 
@@ -191,60 +252,51 @@ def test_source_public_journey_discovers_compiles_executes_replays_and_retrieves
             build_discovered_frozen_catalog(FIXTURE_ROOT).contract_digest
         )
         project = client.post(
-            "/api/projects",
+            "/api/v2/projects",
             json={"name": "source zero-Core extension"},
         ).json()
         project_id = project["id"]
         workflow = {
             "schema_version": "2.1.0",
             "workflow_id": project_id,
-            "nodes": [{
-                "node_id": "synthetic-echo",
-                "node_type_id": EXECUTION_CASE.node_type_id,
-                "node_type_version": EXECUTION_CASE.node_type_version,
-                "binding_id": EXECUTION_CASE.binding_id,
-                "binding_version": EXECUTION_CASE.binding_version,
-                "node_parameters": dict(EXECUTION_CASE.node_parameters),
-                "binding_parameters": dict(
-                    EXECUTION_CASE.binding_parameters
-                ),
-            }],
-            "edges": [],
+            "nodes": [
+                {
+                    "node_id": "candidate-source",
+                    "node_type_id": SOURCE_EXECUTION_CASE.node_type_id,
+                    "node_type_version": SOURCE_EXECUTION_CASE.node_type_version,
+                    "binding_id": SOURCE_EXECUTION_CASE.binding_id,
+                    "binding_version": SOURCE_EXECUTION_CASE.binding_version,
+                    "node_parameters": {"message": "SOURCE"},
+                    "binding_parameters": {"repeat_count": 1},
+                },
+                {
+                    "node_id": "synthetic-echo",
+                    "node_type_id": EXECUTION_CASE.node_type_id,
+                    "node_type_version": EXECUTION_CASE.node_type_version,
+                    "binding_id": EXECUTION_CASE.binding_id,
+                    "binding_version": EXECUTION_CASE.binding_version,
+                    "node_parameters": dict(EXECUTION_CASE.node_parameters),
+                    "binding_parameters": dict(
+                        EXECUTION_CASE.binding_parameters
+                    ),
+                },
+            ],
+            "edges": [
+                {
+                    "source_node_id": "candidate-source",
+                    "source_port": "candidates",
+                    "target_node_id": "synthetic-echo",
+                    "target_port": "candidate_input",
+                }
+            ],
             "contract_lock": [],
         }
-        saved = public_request(
-            "save_project_workflow",
+        committed = public_request(
+            "commit_project_workflow",
             {
                 "project_id": project_id,
-                "expected_workflow_revision": 0,
+                "expected_draft_revision": 0,
                 "workflow": workflow,
-            },
-            expected_status=200,
-        )
-        relocked = public_request(
-            "relock_project_workflow",
-            {
-                "project_id": project_id,
-                "workflow_revision": 1,
-            },
-            expected_status=200,
-        )
-        rejected = public_request(
-            "workflow_compile",
-            {
-                "project_id": project_id,
-                "workflow_revision": 1,
-                "workflow": relocked.json()["workflow"],
-            },
-            expected_status=422,
-        )
-        assert rejected.json()["error"]["code"] == "compile_rejected"
-        compiled = public_request(
-            "workflow_compile",
-            {
-                "project_id": project_id,
-                "workflow_revision": 2,
-                "workflow": relocked.json()["workflow"],
             },
             expected_status=200,
         )
@@ -252,8 +304,9 @@ def test_source_public_journey_discovers_compiles_executes_replays_and_retrieves
             "start_run",
             {
                 "project_id": project_id,
-                "workflow_revision": 2,
-                "compile_id": compiled.json()["compile_id"],
+                "workflow_commit_id": committed.json()[
+                    "workflow_commit_id"
+                ],
                 "client_request_id": "source-zero-core",
             },
             expected_status=202,
@@ -268,10 +321,15 @@ def test_source_public_journey_discovers_compiles_executes_replays_and_retrieves
         assert {
             output["output_port"]: output["values"]
             for output in payload["outputs"]
-            if output["output_port"] == "text"
+            if output["node_id"] == "synthetic-echo"
+            and output["output_port"] == "text"
         } == {"text": ["ECHOECHO"]}
-        assert len(payload["artifact_index"]) == 1
-        artifact = payload["artifact_index"][0]
+        assert len(payload["artifact_index"]) == 2
+        artifact = next(
+            item
+            for item in payload["artifact_index"]
+            if item["node_id"] == "synthetic-echo"
+        )
         artifact_request = prepare_rest_request(
             "artifact_retrieval",
             {
@@ -301,7 +359,6 @@ def test_source_public_journey_discovers_compiles_executes_replays_and_retrieves
             {
                 "project_id": project_id,
                 "source_run_id": run_id,
-                "compile_id": compiled.json()["compile_id"],
                 "policy": "force_selected",
                 "node_ids": ["synthetic-echo"],
                 "client_request_id": "source-zero-core-derived",
@@ -358,7 +415,7 @@ def test_contract_test_kit_rejects_a_false_readiness_attestation(
     ):
         verify_module_package_contract(
             FALSE_READINESS_PACKAGE,
-            execution_cases=(EXECUTION_CASE,),
+            execution_cases=EXECUTION_CASES,
             port_cases=(PORT_CASE, ARTIFACT_PORT_CASE),
             work_root=tmp_path,
         )
@@ -392,7 +449,7 @@ def test_contract_test_kit_rejects_an_invalid_package_codec(
                     registration.port_types[1],
                 ),
             ),
-            execution_cases=(EXECUTION_CASE,),
+            execution_cases=EXECUTION_CASES,
             port_cases=(PORT_CASE, ARTIFACT_PORT_CASE),
             work_root=tmp_path,
         )
@@ -407,7 +464,7 @@ def test_contract_test_kit_rejects_incomplete_observation_provenance(
     ):
         verify_module_package_contract(
             INCOMPLETE_PROVENANCE_PACKAGE,
-            execution_cases=(EXECUTION_CASE,),
+            execution_cases=EXECUTION_CASES,
             port_cases=(PORT_CASE, ARTIFACT_PORT_CASE),
             work_root=tmp_path,
         )

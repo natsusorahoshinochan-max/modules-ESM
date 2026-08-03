@@ -22,7 +22,11 @@ from core.operation import OperationContext
 from .implementation import CollectionOpsImplementation
 
 
-_VERSION = "2.1.0"
+_PACKAGE_VERSION = "3.0.0"
+_METHOD_VERSION = "2.1.0"
+_PAIRING_METHOD_VERSION = "3.0.0"
+_CANDIDATE_NODE_BINDING_VERSION = "3.0.0"
+_SCORE_NODE_BINDING_VERSION = "4.0.0"
 _OPERATIONS = (
     "concat_candidates",
     "merge_scores",
@@ -73,15 +77,30 @@ def _method(operation: str) -> MethodDefinition:
         "rebind_candidate_pairing": "complete-one-to-one-parent-composition",
         "take_candidates": "preserve-exact-ordered-prefix",
     }[operation]
+    algorithm_identity: dict[str, object] = {
+        "name": operation,
+        "input_partition_order": input_partition_order,
+        "identity_policy": "exact-input-identity",
+        "duplicate_policy": duplicate_policy,
+    }
+    if operation in {
+        "pair_siblings_by_parent",
+        "rebind_candidate_pairing",
+    }:
+        algorithm_identity["pairing_contract"] = {
+            "participant_identity": "CandidateDataReference",
+            "join": "complete-reference-equality",
+            "cardinality": "one-to-one",
+        }
     return MethodDefinition(
         method_id=f"collection_ops.{operation}.method",
-        version=_VERSION,
-        algorithm_identity={
-            "name": operation,
-            "input_partition_order": input_partition_order,
-            "identity_policy": "exact-input-identity",
-            "duplicate_policy": duplicate_policy,
-        },
+        version=(
+            _PAIRING_METHOD_VERSION
+            if operation
+            in {"pair_siblings_by_parent", "rebind_candidate_pairing"}
+            else _METHOD_VERSION
+        ),
+        algorithm_identity=algorithm_identity,
         model_identity={"kind": "none"},
         checkpoint_identity={"kind": "none"},
         featurization_identity={"kind": "identity"},
@@ -91,6 +110,11 @@ def _method(operation: str) -> MethodDefinition:
 
 
 def _binding(operation: str) -> ExecutionBindingDefinition:
+    node_binding_version = (
+        _SCORE_NODE_BINDING_VERSION
+        if operation == "merge_scores"
+        else _CANDIDATE_NODE_BINDING_VERSION
+    )
     propagation = (
         ObservationPropagationDefinition(
             mode="union",
@@ -103,23 +127,28 @@ def _binding(operation: str) -> ExecutionBindingDefinition:
     )
     return ExecutionBindingDefinition(
         binding_id=f"collection_ops.{operation}.direct",
-        version=_VERSION,
+        version=node_binding_version,
         node_type=ContractIdentity(
             "node_type",
             f"collection_ops.{operation}",
-            _VERSION,
+            node_binding_version,
         ),
         method=ContractIdentity(
             "method",
             f"collection_ops.{operation}.method",
-            _VERSION,
+            (
+                _PAIRING_METHOD_VERSION
+                if operation
+                in {"pair_siblings_by_parent", "rebind_candidate_pairing"}
+                else _METHOD_VERSION
+            ),
         ),
         binding_parameters={},
         execution_route="direct",
         factory=ScientificOperationFactory(
             behavior=BehaviorReference(
                 f"collection_ops.{operation}/factory",
-                _VERSION,
+                node_binding_version,
                 {"execution_route": "direct"},
             ),
             build=_build(operation),
@@ -127,7 +156,7 @@ def _binding(operation: str) -> ExecutionBindingDefinition:
         availability=AvailabilityDeclaration(
             behavior=BehaviorReference(
                 f"collection_ops.{operation}/availability",
-                _VERSION,
+                node_binding_version,
                 {"observation": "startup"},
             ),
             prerequisites={},
@@ -136,7 +165,7 @@ def _binding(operation: str) -> ExecutionBindingDefinition:
         readiness=ReadinessDeclaration(
             behavior=BehaviorReference(
                 f"collection_ops.{operation}/readiness",
-                _VERSION,
+                node_binding_version,
                 {"observation": "per-run"},
             ),
             prerequisites={},
@@ -155,7 +184,7 @@ def _binding(operation: str) -> ExecutionBindingDefinition:
 MODULE_PACKAGE = ModulePackageRegistration(
     schema_version="2.1.0",
     package_id="collection_ops",
-    package_version=_VERSION,
+    package_version=_PACKAGE_VERSION,
     package_module=__package__,
     node_definitions=(
         DefinitionResource("definitions/concat_candidates.yaml"),

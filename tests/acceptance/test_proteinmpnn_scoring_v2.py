@@ -17,7 +17,6 @@ from core import (
     WorkflowDocument,
     WorkflowNodeInstance,
     build_frozen_catalog,
-    parse_workflow_document,
 )
 from core.port_types import canonical_json_bytes
 from core.workflow_v2 import WorkflowEdge
@@ -35,11 +34,11 @@ def _source_node() -> WorkflowNodeInstance:
     return WorkflowNodeInstance(
         node_id="source",
         node_type_id="contract_test.proteinmpnn_3gb1_structure",
-        node_type_version="2.1.0",
+        node_type_version="3.0.0",
         binding_id=(
             "contract_test.proteinmpnn_3gb1_structure.direct"
         ),
-        binding_version="2.1.0",
+        binding_version="3.0.0",
         node_parameters={},
         binding_parameters={},
     )
@@ -76,12 +75,19 @@ def _run(
     from modules.proteinmpnn.package import (
         MODULE_PACKAGE as PROTEINMPNN_PACKAGE,
     )
+    from modules.structure_transform.package import (
+        MODULE_PACKAGE as STRUCTURE_TRANSFORM_PACKAGE,
+    )
     from tests.fixtures.proteinmpnn_model_sources.package import (
         MODULE_PACKAGE as SOURCE_PACKAGE,
     )
 
     catalog = build_frozen_catalog(
-        (PROTEINMPNN_PACKAGE, SOURCE_PACKAGE)
+        (
+            PROTEINMPNN_PACKAGE,
+            SOURCE_PACKAGE,
+            STRUCTURE_TRANSFORM_PACKAGE,
+        )
     )
     projects = ProjectManager(
         tmp_path / "projects",
@@ -91,9 +97,9 @@ def _run(
     )
     project = projects.create("ProteinMPNN v2 real-model gate")
     authoring = WorkflowAuthoringService(projects, catalog)
-    saved = authoring.save(
+    committed = authoring.commit(
         project.id,
-        expected_workflow_revision=0,
+        expected_draft_revision=0,
         workflow=WorkflowDocument(
             schema_version="2.1.0",
             workflow_id=project.id,
@@ -101,15 +107,6 @@ def _run(
             edges=edges,
             contract_lock=(),
         ),
-    )
-    relocked = authoring.relock(
-        project.id,
-        workflow_revision=saved["workflow_revision"],
-    )
-    compiled = authoring.compile(
-        project.id,
-        workflow_revision=relocked["workflow_revision"],
-        workflow=parse_workflow_document(relocked["workflow"]),
     )
     service = V2RunService(
         projects,
@@ -119,8 +116,7 @@ def _run(
     )
     receipt = service.start_background(
         project.id,
-        workflow_revision=relocked["workflow_revision"],
-        compile_id=compiled.public_receipt()["compile_id"],
+        workflow_commit_id=committed.workflow_commit_id,
         client_request_id=f"proteinmpnn-v2-{binding_id}",
     )
     service.shutdown()
@@ -150,10 +146,12 @@ def _expected_3gb1_invocation_provenance() -> dict[str, Any]:
         "provider_residue_projection": {
             "position_semantics": "one_based_chain_local",
             "workbench_chain_order": ["A"],
+            "provider_structure_chain_order": ["A"],
             "provider_chain_order": ["A"],
             "entries": [
                 {
                     "residue_id": f"A:{position}",
+                    "segment_index": 0,
                     "provider_chain_id": "A",
                     "provider_position": position,
                 }
@@ -161,6 +159,22 @@ def _expected_3gb1_invocation_provenance() -> dict[str, Any]:
             ],
         }
     }
+
+
+def _axis_resolver() -> WorkflowNodeInstance:
+    return WorkflowNodeInstance(
+        node_id="resolve-axes",
+        node_type_id=(
+            "structure_transform.resolve_candidate_residue_axes"
+        ),
+        node_type_version="5.0.0",
+        binding_id=(
+            "structure_transform.resolve_candidate_residue_axes.direct"
+        ),
+        binding_version="5.0.0",
+        node_parameters={},
+        binding_parameters={},
+    )
 
 
 @pytest.mark.acceptance
@@ -173,23 +187,24 @@ def test_proteinmpnn_v2_scoring_publishes_exact_native_observation(
     require_ready("proteinmpnn", readiness)
     nodes = (
         _source_node(),
+        _axis_resolver(),
         WorkflowNodeInstance(
             node_id="sequence-source",
             node_type_id="contract_test.proteinmpnn_3gb1_sequence",
-            node_type_version="2.1.0",
+            node_type_version="3.0.0",
             binding_id=(
                 "contract_test.proteinmpnn_3gb1_sequence.direct"
             ),
-            binding_version="2.1.0",
+            binding_version="3.0.0",
             node_parameters={},
             binding_parameters={},
         ),
         WorkflowNodeInstance(
             node_id="score",
             node_type_id="proteinmpnn.score",
-            node_type_version="2.1.0",
+            node_type_version="6.0.0",
             binding_id="proteinmpnn.score.local",
-            binding_version="2.1.0",
+            binding_version="6.0.0",
             node_parameters={},
             binding_parameters={},
         ),
@@ -204,8 +219,20 @@ def test_proteinmpnn_v2_scoring_publishes_exact_native_observation(
         WorkflowEdge(
             "source",
             "structure_candidates",
+            "resolve-axes",
+            "structure_candidates",
+        ),
+        WorkflowEdge(
+            "source",
+            "structure_candidates",
             "score",
             "structure_candidates",
+        ),
+        WorkflowEdge(
+            "resolve-axes",
+            "residue_axes",
+            "score",
+            "structure_residue_axes",
         ),
         WorkflowEdge(
             "sequence-source",
@@ -219,7 +246,7 @@ def test_proteinmpnn_v2_scoring_publishes_exact_native_observation(
         nodes=nodes,
         edges=edges,
         binding_id="proteinmpnn.score.local",
-        binding_version="2.1.0",
+        binding_version="6.0.0",
     )
 
     assert projection["status"] == "succeeded", events
@@ -249,9 +276,13 @@ def test_proteinmpnn_v2_scoring_publishes_exact_native_observation(
         == observation.method.contract_digest
     )
     assert invocation["engine_role"] == "score_subject"
-    assert invocation["invocation_provenance"] == (
-        _expected_3gb1_invocation_provenance()
-    )
+    assert invocation["invocation_provenance"] == {
+        **_expected_3gb1_invocation_provenance(),
+        "effective_randomness": {
+            "control": "exact_seed",
+            "effective_seed": 42,
+        },
+    }
     assert any(
         item["event"]["type"] == "engine_invocation_terminal"
         and item["event"]["status"] == "succeeded"
@@ -270,12 +301,13 @@ def test_proteinmpnn_v2_sibling_design_remains_exact_and_complete(
     require_ready("proteinmpnn", readiness)
     nodes = (
         _source_node(),
+        _axis_resolver(),
         WorkflowNodeInstance(
             node_id="design",
             node_type_id="proteinmpnn.design",
-            node_type_version="4.0.0",
+            node_type_version="9.0.0",
             binding_id="proteinmpnn.design.local",
-            binding_version="4.0.0",
+            binding_version="9.0.0",
             node_parameters={
                 "effective_seed": 1603,
                 "num_sequences": 1,
@@ -289,8 +321,20 @@ def test_proteinmpnn_v2_sibling_design_remains_exact_and_complete(
         WorkflowEdge(
             "source",
             "structure_candidates",
+            "resolve-axes",
+            "structure_candidates",
+        ),
+        WorkflowEdge(
+            "source",
+            "structure_candidates",
             "design",
             "structure_candidates",
+        ),
+        WorkflowEdge(
+            "resolve-axes",
+            "residue_axes",
+            "design",
+            "structure_residue_axes",
         ),
     )
     catalog, projection, events = _run(
@@ -298,7 +342,7 @@ def test_proteinmpnn_v2_sibling_design_remains_exact_and_complete(
         nodes=nodes,
         edges=edges,
         binding_id="proteinmpnn.design.local",
-        binding_version="4.0.0",
+        binding_version="9.0.0",
     )
 
     assert projection["status"] == "succeeded", events
@@ -315,9 +359,9 @@ def test_proteinmpnn_v2_sibling_design_remains_exact_and_complete(
     assert hashlib.sha256(
         candidate.data.sequence.encode()
     ).hexdigest() == (
-        "e8a4ceb6e89880c52f6a39c28f55652d9967c36efef9cdc0497df738337bc2f6"
+        "e9203eb2d6df671486d3e451bf6eb05c4e1a6500e9580403b95828caa4f57b82"
     )
-    assert candidate.metadata["effective_call_seed"] == 3183836694577466
+    assert candidate.metadata["effective_call_seed"] == 4484333622234277
     assert "model" not in candidate.metadata
     assert "residue_identity_mapping" not in candidate.metadata
     assert candidate.data.residue_ids == tuple(

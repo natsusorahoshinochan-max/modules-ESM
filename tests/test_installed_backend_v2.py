@@ -45,26 +45,91 @@ SOURCE_CATALOG_BYTES = SOURCE_CATALOG.catalog_descriptor_bytes
 SOURCE_CATALOG_DIGEST = SOURCE_CATALOG.contract_digest
 SOURCE_PROTOCOL_BYTES = bundle_bytes()
 SOURCE_PROTOCOL_DIGEST = bundle_digest()
+BIOHUB_ESMC_GATE_VERSION = "5.0.0"
+BIOHUB_ESMC_METHOD_VERSION = "3.0.0"
 REQUIRED_PROVIDER_CASES = {
+    "biohub_esm3": (
+        (
+            "tests/acceptance/test_installed_provider_gates_v2.py::"
+            "test_biohub_esm3_all_remote_bindings_execute_exact_methods"
+        ),
+    ),
+    "biohub_esmfold2": (
+        (
+            "tests/acceptance/test_installed_provider_gates_v2.py::"
+            "test_biohub_esmfold2_executes_exact_method"
+        ),
+    ),
     "local_esm3": (
-        "tests/acceptance/test_local_esm3.py::"
-        "test_local_esm3_all_generation_modes"
+        (
+            "tests/acceptance/test_local_esm3.py::"
+            "test_local_esm3_all_generation_modes"
+        ),
+    ),
+    "local_esmfold2": (
+        (
+            "tests/acceptance/test_installed_provider_gates_v2.py::"
+            "test_local_esmfold2_executes_exact_method"
+        ),
+    ),
+    "proteinmpnn": (
+        (
+            "tests/acceptance/test_installed_provider_gates_v2.py::"
+            "test_proteinmpnn_design_and_score_execute_exact_methods"
+        ),
+        (
+            "tests/acceptance/test_proteinmpnn_scoring_v2.py::"
+            "test_proteinmpnn_v2_scoring_publishes_exact_native_observation"
+        ),
+        (
+            "tests/acceptance/test_proteinmpnn_scoring_v2.py::"
+            "test_proteinmpnn_v2_sibling_design_remains_exact_and_complete"
+        ),
+        (
+            "tests/acceptance/test_proteinmpnn_chain_order_v2.py::"
+            "test_real_proteinmpnn_reversed_axis_design_restores_b_then_a_"
+            "layout"
+        ),
+        (
+            "tests/acceptance/test_proteinmpnn_chain_order_v2.py::"
+            "test_real_proteinmpnn_preserves_fixed_csh_parent_with_missing_"
+            "backbone_atom"
+        ),
+        (
+            "tests/acceptance/test_proteinmpnn_chain_order_v2.py::"
+            "test_real_proteinmpnn_scores_signed_insertion_and_gap_axis"
+        ),
+    ),
+    "mkdssp": (
+        (
+            "tests/acceptance/test_installed_provider_gates_v2.py::"
+            "test_mkdssp_executes_exact_method_through_public_run"
+        ),
     ),
     "simplefold_folding": (
-        "tests/acceptance/test_simplefold_v2.py::"
-        "test_simplefold_v2_folds_3gb1_through_exact_binding"
+        (
+            "tests/acceptance/test_simplefold_v2.py::"
+            "test_simplefold_v2_folds_3gb1_through_exact_binding"
+        ),
     ),
     "simplefold_confidence": (
-        "tests/acceptance/test_simplefold_confidence_v2.py::"
-        "test_simplefold_confidence_v2_evaluates_3gb1_exact_assets_without_refold"
+        (
+            "tests/acceptance/test_simplefold_confidence_v2.py::"
+            "test_simplefold_confidence_v2_evaluates_3gb1_exact_assets_"
+            "without_refold"
+        ),
     ),
     "soluprot": (
-        "tests/acceptance/test_soluprot_v2.py::"
-        "test_model_backed_soluprot_golden_methods"
+        (
+            "tests/acceptance/test_soluprot_v2.py::"
+            "test_model_backed_soluprot_golden_methods"
+        ),
     ),
     "protein_sol": (
-        "tests/acceptance/test_protein_sol_v2.py::"
-        "test_local_protein_sol_golden_multiple_metrics"
+        (
+            "tests/acceptance/test_protein_sol_v2.py::"
+            "test_local_protein_sol_golden_multiple_metrics"
+        ),
     ),
 }
 
@@ -396,26 +461,19 @@ def test_installed_backend_completes_full_public_v2_journey(
         with PublicProtocolAcceptanceClient(base_url) as client:
             catalog = client.request("catalog_snapshot", {})
             assert catalog["catalog_contract_digest"] == SOURCE_CATALOG_DIGEST
-            provisioned = httpx.post(
-                f"{base_url}/api/projects",
-                json={"name": "installed public v2 acceptance"},
-                timeout=5,
+            project_id = client.create_project(
+                "installed public v2 acceptance"
+            )["id"]
+            uploaded = client.publish_project_input(
+                project_id,
+                filename="3GB1.pdb",
+                content=(PROJECT_ROOT / "pdbs" / "3GB1.pdb").read_bytes(),
             )
-            provisioned.raise_for_status()
-            project_id = provisioned.json()["id"]
-            uploaded = httpx.post(
-                f"{base_url}/api/projects/{project_id}/inputs",
-                files={
-                    "file": (
-                        "3GB1.pdb",
-                        (PROJECT_ROOT / "pdbs" / "3GB1.pdb").read_bytes(),
-                        "chemical/x-pdb",
-                    )
-                },
-                timeout=5,
-            )
-            uploaded.raise_for_status()
-            input_reference = uploaded.json()["project_input_ref"]
+            input_reference = uploaded["project_input_ref"]
+            assert client.project_input_metadata(
+                project_id,
+                input_reference,
+            ) == uploaded
             workflow = {
                 "schema_version": "2.1.0",
                 "workflow_id": project_id,
@@ -423,9 +481,9 @@ def test_installed_backend_completes_full_public_v2_journey(
                     {
                         "node_id": "import",
                         "node_type_id": "protein_io.import_structure",
-                        "node_type_version": "3.0.0",
+                        "node_type_version": "5.0.0",
                         "binding_id": "protein_io.import_structure.direct",
-                        "binding_version": "3.0.0",
+                        "binding_version": "5.0.0",
                         "node_parameters": {
                             "project_input_ref": input_reference
                         },
@@ -434,9 +492,9 @@ def test_installed_backend_completes_full_public_v2_journey(
                     {
                         "node_id": "export",
                         "node_type_id": "protein_io.export_structure",
-                        "node_type_version": "3.0.0",
+                        "node_type_version": "5.0.0",
                         "binding_id": "protein_io.export_structure.direct",
-                        "binding_version": "3.0.0",
+                        "binding_version": "5.0.0",
                         "node_parameters": {},
                         "binding_parameters": {},
                     },
@@ -444,11 +502,11 @@ def test_installed_backend_completes_full_public_v2_journey(
                         {
                             "node_id": f"export-{index}",
                             "node_type_id": "protein_io.export_structure",
-                            "node_type_version": "3.0.0",
+                            "node_type_version": "5.0.0",
                             "binding_id": (
                                 "protein_io.export_structure.direct"
                             ),
-                            "binding_version": "3.0.0",
+                            "binding_version": "5.0.0",
                             "node_parameters": {},
                             "binding_parameters": {},
                         }
@@ -476,39 +534,38 @@ def test_installed_backend_completes_full_public_v2_journey(
                 "contract_lock": [],
             }
             saved = client.request(
-                "save_project_workflow",
+                "save_project_workflow_draft",
                 {
                     "project_id": project_id,
-                    "expected_workflow_revision": 0,
+                    "expected_draft_revision": 0,
                     "workflow": workflow,
                 },
             )
-            snapshot = client.request(
-                "project_workflow_snapshot",
+            draft = client.request(
+                "project_workflow_draft",
                 {"project_id": project_id},
             )
-            assert snapshot == saved
-            relocked = client.request(
-                "relock_project_workflow",
+            assert draft == saved
+            committed = client.request(
+                "commit_project_workflow",
                 {
                     "project_id": project_id,
-                    "workflow_revision": saved["workflow_revision"],
+                    "expected_draft_revision": draft["draft_revision"],
+                    "workflow": workflow,
                 },
             )
-            compiled = client.request(
-                "workflow_compile",
-                {
-                    "project_id": project_id,
-                    "workflow_revision": relocked["workflow_revision"],
-                    "workflow": relocked["workflow"],
-                },
+            active = client.request(
+                "project_active_workflow_commit",
+                {"project_id": project_id},
             )
+            assert active == committed
             first = client.request(
                 "start_run",
                 {
                     "project_id": project_id,
-                    "workflow_revision": relocked["workflow_revision"],
-                    "compile_id": compiled["compile_id"],
+                    "workflow_commit_id": committed[
+                        "workflow_commit_id"
+                    ],
                     "client_request_id": "installed-first",
                 },
             )
@@ -596,8 +653,9 @@ def test_installed_backend_completes_full_public_v2_journey(
                 "start_run",
                 {
                     "project_id": project_id,
-                    "workflow_revision": relocked["workflow_revision"],
-                    "compile_id": compiled["compile_id"],
+                    "workflow_commit_id": committed[
+                        "workflow_commit_id"
+                    ],
                     "client_request_id": "installed-cache-replay",
                 },
             )
@@ -616,7 +674,6 @@ def test_installed_backend_completes_full_public_v2_journey(
                 {
                     "project_id": project_id,
                     "source_run_id": first["run_id"],
-                    "compile_id": compiled["compile_id"],
                     "policy": "force_selected",
                     "node_ids": [
                         "export",
@@ -681,21 +738,21 @@ def _run_installed_provider_case(
     env.pop("PYTHONPATH", None)
     env["PW_SOURCE_ROOT"] = str(PROJECT_ROOT)
     env["PROTEIN_WORKBENCH_REQUIRE_PROVIDER_CALL"] = "1"
-    env.setdefault(
-        "PROTEIN_WORKBENCH_SIMPLEFOLD_MODEL_ROOT",
-        "/Users/sorachan/Documents/ESM-workflow-NEXT/var/cache/models/simplefold",
-    )
-    env.setdefault(
-        "PROTEIN_WORKBENCH_SIMPLEFOLD_ESM2_ROOT",
-        (
-            "/Users/sorachan/.cache/protein-workbench/providers/"
-            "facebookresearch-esm-2b369911"
-        ),
-    )
-    env.setdefault(
-        "PROTEIN_WORKBENCH_SIMPLEFOLD_ESM2_MODEL_ROOT",
-        "/Users/sorachan/.cache/torch/hub/checkpoints",
-    )
+    if case in {"biohub_esm3", "biohub_esmfold2"}:
+        token_file = Path(
+            env.get(
+                "PROTEIN_WORKBENCH_BIOHUB_TOKEN_FILE",
+                PROJECT_ROOT / "keys" / "esmkey.txt",
+            )
+        )
+        assert (
+            token_file.is_absolute()
+            and not token_file.is_symlink()
+            and token_file.is_file()
+            and 0 < token_file.stat().st_size <= 16 * 1024
+            and stat.S_IMODE(token_file.stat().st_mode) & 0o077 == 0
+        )
+        env["PROTEIN_WORKBENCH_BIOHUB_TOKEN_FILE"] = str(token_file)
     if case == "simplefold_folding":
         env["PROTEIN_WORKBENCH_PROVIDER_IDENTITY_PROFILE"] = (
             "simplefold-v2-folding"
@@ -704,7 +761,10 @@ def _run_installed_provider_case(
         env["PROTEIN_WORKBENCH_PROVIDER_IDENTITY_PROFILE"] = (
             "simplefold-v2-confidence"
         )
-    target = tmp_path / "external-suite" / REQUIRED_PROVIDER_CASES[case]
+    targets = [
+        tmp_path / "external-suite" / selector
+        for selector in REQUIRED_PROVIDER_CASES[case]
+    ]
     bootstrap = """
 from pathlib import Path
 import os
@@ -739,7 +799,7 @@ raise SystemExit(pytest.main(sys.argv[1:]))
             "-q",
             "--junitxml",
             str(junit),
-            str(target),
+            *(str(target) for target in targets),
         ],
         cwd=copied_tests.parent,
         env=env,
@@ -747,7 +807,10 @@ raise SystemExit(pytest.main(sys.argv[1:]))
         stdout=subprocess.PIPE,
         stderr=subprocess.STDOUT,
         check=False,
-        timeout=30 * 60,
+        timeout={
+            "local_esmfold2": 90 * 60,
+            "proteinmpnn": 60 * 60,
+        }.get(case, 30 * 60),
     )
     assert completed.returncode == 0, completed.stdout
     root = ElementTree.parse(junit).getroot()
@@ -805,7 +868,7 @@ for package in (
     protein_workbench_public,
 ):
     assert not Path(package.__file__).resolve().is_relative_to(source)
-binding = ("esm3.represent_sequence.biohub_esmc_600m_2024_12", "2.2.0")
+binding = ("esm3.represent_sequence.biohub_esmc_600m_2024_12", "5.0.0")
 app = create_app(v2_environment_configuration={
     binding: {
         "values": {
@@ -872,11 +935,11 @@ def _assert_installed_esmc_catalog(
         for item in catalog["contracts"]
     }
     binding_id = "esm3.represent_sequence.biohub_esmc_600m_2024_12"
-    binding_key = ("binding", binding_id, "2.2.0")
+    binding_key = ("binding", binding_id, BIOHUB_ESMC_GATE_VERSION)
     method_key = (
         "method",
         "esm3.represent_sequence.esmc_600m_2024_12",
-        "2.1.0",
+        BIOHUB_ESMC_METHOD_VERSION,
     )
     assert contracts[binding_key]["descriptor"]["method"]["contract_id"] == (
         method_key[1]
@@ -889,28 +952,19 @@ def _assert_installed_esmc_catalog(
 
 def _start_installed_esmc_run(
     client: PublicProtocolAcceptanceClient,
-    base_url: str,
     binding_id: str,
 ) -> tuple[str, str]:
-    provisioned = httpx.post(
-        f"{base_url}/api/projects",
-        json={"name": "installed Biohub ESMC acceptance"},
-        timeout=5,
+    project_id = client.create_project(
+        "installed Biohub ESMC acceptance"
+    )["id"]
+    uploaded = client.publish_project_input(
+        project_id,
+        filename="3GB1.fasta",
+        content=(
+            b">3GB1\n"
+            b"MTYKLILNGKTLKGETTTEAVDAATAEKVFKQYANDNGVDGEWTYDDATKTFTVTE\n"
+        ),
     )
-    provisioned.raise_for_status()
-    project_id = provisioned.json()["id"]
-    uploaded = httpx.post(
-        f"{base_url}/api/projects/{project_id}/inputs",
-        files={
-            "file": (
-                "3GB1.fasta",
-                b">3GB1\nMTYKLILNGKTLKGETTTEAVDAATAEKVFKQYANDNGVDGEWTYDDATKTFTVTE\n",
-                "text/x-fasta",
-            )
-        },
-        timeout=5,
-    )
-    uploaded.raise_for_status()
     workflow = {
         "schema_version": "2.1.0",
         "workflow_id": project_id,
@@ -918,20 +972,20 @@ def _start_installed_esmc_run(
             {
                 "node_id": "import",
                 "node_type_id": "protein_io.import_sequence",
-                "node_type_version": "3.0.0",
+                "node_type_version": "5.0.0",
                 "binding_id": "protein_io.import_sequence.direct",
-                "binding_version": "3.0.0",
+                "binding_version": "5.0.0",
                 "node_parameters": {
-                    "project_input_ref": uploaded.json()["project_input_ref"]
+                    "project_input_ref": uploaded["project_input_ref"]
                 },
                 "binding_parameters": {},
             },
             {
                 "node_id": "represent",
                 "node_type_id": "esm3.represent_sequence",
-                "node_type_version": "2.1.0",
+                "node_type_version": BIOHUB_ESMC_GATE_VERSION,
                 "binding_id": binding_id,
-                "binding_version": "2.2.0",
+                "binding_version": BIOHUB_ESMC_GATE_VERSION,
                 "node_parameters": {},
                 "binding_parameters": {},
             },
@@ -948,34 +1002,26 @@ def _start_installed_esmc_run(
         "contract_lock": [],
     }
     saved = client.request(
-        "save_project_workflow",
+        "save_project_workflow_draft",
         {
             "project_id": project_id,
-            "expected_workflow_revision": 0,
+            "expected_draft_revision": 0,
             "workflow": workflow,
         },
     )
-    relocked = client.request(
-        "relock_project_workflow",
+    committed = client.request(
+        "commit_project_workflow",
         {
             "project_id": project_id,
-            "workflow_revision": saved["workflow_revision"],
-        },
-    )
-    compiled = client.request(
-        "workflow_compile",
-        {
-            "project_id": project_id,
-            "workflow_revision": relocked["workflow_revision"],
-            "workflow": relocked["workflow"],
+            "expected_draft_revision": saved["draft_revision"],
+            "workflow": workflow,
         },
     )
     started = client.request(
         "start_run",
         {
             "project_id": project_id,
-            "workflow_revision": relocked["workflow_revision"],
-            "compile_id": compiled["compile_id"],
+            "workflow_commit_id": committed["workflow_commit_id"],
             "client_request_id": "installed-biohub-esmc",
         },
     )
@@ -997,7 +1043,6 @@ def test_installed_biohub_esmc_gate(
             )
             project_id, run_id = _start_installed_esmc_run(
                 client,
-                base_url,
                 binding_id,
             )
             messages = _collect_run_events(port, project_id, run_id)
@@ -1008,7 +1053,7 @@ def test_installed_biohub_esmc_gate(
                 timeout=120,
             )
 
-    assert projection["status"] == "succeeded"
+    assert projection["status"] == "succeeded", projection
     representation = next(
         output
         for output in projection["outputs"]
@@ -1027,7 +1072,7 @@ def test_installed_biohub_esmc_gate(
         and abs(item) != float("inf")
         for item in value["mean_embedding"]
     )
-    assert value["sequence_logits_shape"][-2:] == [
+    assert value["sequence_logits_shape"] == [
         len(value["sequence"]) + 2,
         64,
     ]
@@ -1062,6 +1107,30 @@ def test_installed_biohub_esmc_gate(
     )
 
 
+@pytest.mark.live_provider
+def test_installed_biohub_esm3_gate(
+    installed_artifact: InstalledArtifact,
+    tmp_path: Path,
+) -> None:
+    _run_installed_provider_case(
+        installed_artifact,
+        tmp_path,
+        "biohub_esm3",
+    )
+
+
+@pytest.mark.live_provider
+def test_installed_biohub_esmfold2_gate(
+    installed_artifact: InstalledArtifact,
+    tmp_path: Path,
+) -> None:
+    _run_installed_provider_case(
+        installed_artifact,
+        tmp_path,
+        "biohub_esmfold2",
+    )
+
+
 @pytest.mark.local_provider
 @pytest.mark.slow
 def test_installed_local_esm3_gate(
@@ -1069,6 +1138,44 @@ def test_installed_local_esm3_gate(
     tmp_path: Path,
 ) -> None:
     _run_installed_provider_case(installed_artifact, tmp_path, "local_esm3")
+
+
+@pytest.mark.local_provider
+@pytest.mark.slow
+def test_installed_local_esmfold2_gate(
+    installed_artifact: InstalledArtifact,
+    tmp_path: Path,
+) -> None:
+    _run_installed_provider_case(
+        installed_artifact,
+        tmp_path,
+        "local_esmfold2",
+    )
+
+
+@pytest.mark.local_provider
+@pytest.mark.slow
+def test_installed_proteinmpnn_gate(
+    installed_artifact: InstalledArtifact,
+    tmp_path: Path,
+) -> None:
+    _run_installed_provider_case(
+        installed_artifact,
+        tmp_path,
+        "proteinmpnn",
+    )
+
+
+@pytest.mark.local_provider
+def test_installed_mkdssp_gate(
+    installed_artifact: InstalledArtifact,
+    tmp_path: Path,
+) -> None:
+    _run_installed_provider_case(
+        installed_artifact,
+        tmp_path,
+        "mkdssp",
+    )
 
 
 @pytest.mark.local_provider

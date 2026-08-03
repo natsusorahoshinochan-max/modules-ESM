@@ -1,8 +1,8 @@
 schema_version: "2.1.0"
 metric_id: structure_comparison.rmsd
-version: "2.1.0"
+version: "3.0.0"
 title: Root mean square deviation
-description: Root mean square CA residual distance after one exact subject-to-reference rigid alignment correspondence.
+description: Root mean square CA residual distance carried by one exact v4 subject-to-reference alignment evidence value.
 value_shape: scalar
 unit: angstrom
 direction: lower_is_better
@@ -24,7 +24,19 @@ observation_context_schema:
     pairing_mode:
       enum: [fixed_reference, per_subject_counterpart]
     normalization:
-      const: ca-correspondence-mean-square-angstrom
+      const: aligned-CA-mean-square-distance
+    evidence_content_digest:
+      type: string
+    evidence_method:
+      type: object
+    subject_axis_content_digest:
+      type: string
+    reference_axis_content_digest:
+      type: string
+    normalization_length:
+      type: integer
+    aligned_atom_count:
+      type: integer
   required:
     - kind
     - subject_role
@@ -35,3 +47,14 @@ observation_context_schema:
 validation_contract:
   finite: true
   minimum: 0
+  structure_alignment_evidence:
+    source_direction: input
+    source_port: alignments
+    normalization_length_source: aligned_atom_count
+    required_context_fields:
+      - evidence_content_digest
+      - evidence_method
+      - subject_axis_content_digest
+      - reference_axis_content_digest
+      - normalization_length
+      - aligned_atom_count

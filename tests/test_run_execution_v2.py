@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from contextlib import contextmanager
 from copy import deepcopy
+from dataclasses import replace
 from datetime import datetime, timedelta, timezone
 import hashlib
 import json
@@ -50,7 +51,12 @@ from core.workflow_v2 import (
     parse_workflow_document,
     relock_workflow,
 )
-from datatypes import Candidate, CandidateCollection, ProteinSequence
+from datatypes import (
+    Candidate,
+    CandidateCollection,
+    CandidateDataReference,
+    ProteinSequence,
+)
 from protein_workbench_public import (
     validate_error,
     validate_response,
@@ -99,16 +105,19 @@ def test_engine_invocation_provenance_is_validated_and_frozen_before_recording(
     )
     projection = {
         "position_semantics": "one_based_chain_local",
-        "workbench_chain_order": ["A", "B"],
+        "workbench_chain_order": ["X", "Y"],
+        "provider_structure_chain_order": ["A", "B"],
         "provider_chain_order": ["B", "A"],
         "entries": [
             {
-                "residue_id": "A:6",
+                "residue_id": "X:6",
+                "segment_index": 0,
                 "provider_chain_id": "A",
                 "provider_position": 1,
             },
             {
-                "residue_id": "B:20",
+                "residue_id": "Y:20",
+                "segment_index": 1,
                 "provider_chain_id": "B",
                 "provider_position": 1,
             },
@@ -122,7 +131,7 @@ def test_engine_invocation_provenance_is_validated_and_frozen_before_recording(
     frozen = recorded[0]["invocation_provenance"]
     frozen_projection = frozen["provider_residue_projection"]
     assert frozen_projection["entries"][0]["provider_position"] == 1
-    assert frozen_projection["workbench_chain_order"] == ("A", "B")
+    assert frozen_projection["workbench_chain_order"] == ("X", "Y")
     with pytest.raises(TypeError):
         frozen_projection["entries"][0]["provider_position"] = 9
 
@@ -133,7 +142,8 @@ def test_engine_invocation_provenance_is_validated_and_frozen_before_recording(
             "entries": [
                 projection["entries"][0],
                 {
-                    "residue_id": "A:7",
+                    "residue_id": "X:7",
+                    "segment_index": 0,
                     "provider_chain_id": "A",
                     "provider_position": 7,
                 },
@@ -156,6 +166,65 @@ def test_engine_invocation_provenance_is_validated_and_frozen_before_recording(
                 invocation_provenance=invalid_provenance
             ):
                 pass
+
+
+def test_engine_invocation_provenance_admits_exact_one_to_many_segments() -> None:
+    projection = {
+        "position_semantics": "one_based_chain_local",
+        "workbench_chain_order": ["A"],
+        "provider_structure_chain_order": ["A", "B"],
+        "provider_chain_order": ["B", "A"],
+        "entries": [
+            {
+                "residue_id": "A:1",
+                "segment_index": 0,
+                "provider_chain_id": "A",
+                "provider_position": 1,
+            },
+            {
+                "residue_id": "A:2",
+                "segment_index": 0,
+                "provider_chain_id": "A",
+                "provider_position": 2,
+            },
+            {
+                "residue_id": "A:8",
+                "segment_index": 1,
+                "provider_chain_id": "B",
+                "provider_position": 1,
+            },
+        ],
+    }
+
+    frozen = run_execution_v2._freeze_invocation_provenance(
+        {"provider_residue_projection": projection}
+    )["provider_residue_projection"]
+
+    assert frozen["workbench_chain_order"] == ("A",)
+    assert frozen["provider_structure_chain_order"] == ("A", "B")
+    assert frozen["provider_chain_order"] == ("B", "A")
+    assert frozen["entries"][2]["segment_index"] == 1
+    for malformed in (
+        {
+            **projection,
+            "entries": [
+                *projection["entries"][:2],
+                {**projection["entries"][2], "provider_position": 2},
+            ],
+        },
+        {
+            **projection,
+            "entries": [
+                projection["entries"][0],
+                {**projection["entries"][1], "segment_index": 1},
+                projection["entries"][2],
+            ],
+        },
+    ):
+        with pytest.raises(ValueError, match="invocation provenance"):
+            run_execution_v2._freeze_invocation_provenance(
+                {"provider_residue_projection": malformed}
+            )
 
 
 def test_engine_invocation_randomness_provenance_is_validated_and_frozen(
@@ -518,8 +587,28 @@ def _direct_catalog(
     )
 
 
-def _compile_one_node(client: TestClient) -> tuple[str, dict[str, Any]]:
-    project = client.post("/api/projects", json={"name": "v2 direct"}).json()
+def _commit_public_workflow(
+    client: TestClient,
+    project_id: str,
+    workflow: Mapping[str, Any],
+    *,
+    expected_draft_revision: int = 0,
+) -> dict[str, Any]:
+    committed = client.post(
+        f"/api/v2/projects/{project_id}/workflow:commit",
+        json={
+            "expected_draft_revision": expected_draft_revision,
+            "workflow": workflow,
+        },
+    )
+    assert committed.status_code == 200
+    return committed.json()
+
+
+def _commit_one_node(client: TestClient) -> tuple[str, dict[str, Any]]:
+    project = client.post(
+        "/api/v2/projects", json={"name": "v2 direct"}
+    ).json()
     project_id = project["id"]
     workflow = {
         "schema_version": "2.1.0",
@@ -538,32 +627,16 @@ def _compile_one_node(client: TestClient) -> tuple[str, dict[str, Any]]:
         "edges": [],
         "contract_lock": [],
     }
-    saved = client.put(
-        f"/api/v2/projects/{project_id}/workflow",
-        json={"expected_workflow_revision": 0, "workflow": workflow},
-    )
-    assert saved.status_code == 200
-    relocked = client.post(
-        f"/api/v2/projects/{project_id}/workflow:relock",
-        json={"workflow_revision": 1},
-    )
-    assert relocked.status_code == 200
-    compiled = client.post(
-        f"/api/v2/projects/{project_id}/workflow:compile",
-        json={
-            "workflow_revision": 2,
-            "workflow": relocked.json()["workflow"],
-        },
-    )
-    assert compiled.status_code == 200
-    return project_id, compiled.json()
+    return project_id, _commit_public_workflow(client, project_id, workflow)
 
 
-def _compile_independent_nodes(
+def _commit_independent_nodes(
     client: TestClient,
     binding_ids: tuple[str, ...],
 ) -> tuple[str, dict[str, Any]]:
-    project = client.post("/api/projects", json={"name": "v2 readiness"}).json()
+    project = client.post(
+        "/api/v2/projects", json={"name": "v2 readiness"}
+    ).json()
     project_id = project["id"]
     workflow = {
         "schema_version": "2.1.0",
@@ -583,23 +656,7 @@ def _compile_independent_nodes(
         "edges": [],
         "contract_lock": [],
     }
-    assert client.put(
-        f"/api/v2/projects/{project_id}/workflow",
-        json={"expected_workflow_revision": 0, "workflow": workflow},
-    ).status_code == 200
-    relocked = client.post(
-        f"/api/v2/projects/{project_id}/workflow:relock",
-        json={"workflow_revision": 1},
-    )
-    compiled = client.post(
-        f"/api/v2/projects/{project_id}/workflow:compile",
-        json={
-            "workflow_revision": 2,
-            "workflow": relocked.json()["workflow"],
-        },
-    )
-    assert compiled.status_code == 200
-    return project_id, compiled.json()
+    return project_id, _commit_public_workflow(client, project_id, workflow)
 
 
 def _pipeline_catalog(
@@ -613,18 +670,20 @@ def _pipeline_catalog(
     cacheable: bool = False,
     unresolved_port_identity: bool = False,
     candidate_digest_probe: bool = False,
+    candidate_conflict_probe: bool = False,
     execution_gates: (
         Mapping[str, tuple[threading.Event, threading.Event]] | None
     ) = None,
 ) -> FrozenCatalog:
+    include_candidate_data = candidate_digest_probe or candidate_conflict_probe
     builtin = builtin_frozen_catalog()
     candidate_collection_type = builtin.require_port_type(
         "candidate.collection",
-        "2.1.0",
+        "3.0.0",
     )
     candidate_data_type = builtin.require_port_type(
         "protein.sequence",
-        "2.1.0",
+        "3.0.0",
     )
     def validate_text(value: Any) -> None:
         calls.append(f"validate:{value!r}")
@@ -698,7 +757,7 @@ def _pipeline_catalog(
                             "scientific_meaning": "Candidate digest probe",
                         }
                     ]
-                    if candidate_digest_probe
+                    if include_candidate_data
                     else []
                 ),
             ],
@@ -727,11 +786,13 @@ def _pipeline_catalog(
                             "name": "candidates",
                             "port_type": candidate_collection_type.reference(),
                             "required": True,
-                            "multiplicity": "one",
+                            "multiplicity": (
+                                "many" if candidate_conflict_probe else "one"
+                            ),
                             "scientific_meaning": "Candidate digest probe",
                         }
                     ]
-                    if candidate_digest_probe
+                    if include_candidate_data
                     else []
                 ),
             ],
@@ -785,7 +846,7 @@ def _pipeline_catalog(
                 outputs: dict[str, Any] = {
                     "text": 17 if invalid_source_output else " READY "
                 }
-                if candidate_digest_probe:
+                if include_candidate_data:
                     outputs["candidates"] = CandidateCollection(
                         collection_id="digest-probe",
                         item_type="protein.sequence",
@@ -812,22 +873,37 @@ def _pipeline_catalog(
                 assert digest is not None
                 assert digest.port_type_id == "test.canonical_text"
                 assert len(digest.value_content_digests) == 1
-            if candidate_digest_probe:
+            if include_candidate_data:
                 candidates = call.inputs["candidates"]
                 candidate_digests = call.input_content_digests["candidates"]
+                candidate_values = (
+                    tuple(
+                        candidate
+                        for collection in candidates
+                        for candidate in collection.items
+                    )
+                    if candidate_conflict_probe
+                    else tuple(candidates.items)
+                )
                 assert candidate_digests.port_type_id == "candidate.collection"
-                assert len(candidate_digests.value_content_digests) == 1
+                assert len(candidate_digests.value_content_digests) == (
+                    2 if candidate_conflict_probe else 1
+                )
+                assert all(
+                    type(item) is CandidateDataReference
+                    for item in candidate_digests.candidate_data
+                )
                 assert [
                     item.candidate_id for item in candidate_digests.candidate_data
-                ] == [candidate.candidate_id for candidate in candidates.items]
+                ] == [candidate.candidate_id for candidate in candidate_values]
                 assert [
                     item.data_type_id for item in candidate_digests.candidate_data
-                ] == ["protein.sequence", "protein.sequence"]
+                ] == ["protein.sequence"] * len(candidate_values)
                 assert [
                     item.content_digest for item in candidate_digests.candidate_data
                 ] == [
                     candidate_data_type.content_digest(candidate.data)
-                    for candidate in candidates.items
+                    for candidate in candidate_values
                 ]
                 calls.append("candidate-digests:verified")
             with self._resources.engine_invocation():
@@ -883,6 +959,8 @@ def _pipeline_catalog(
             context: OperationContext,
             implementation=implementation,
         ) -> Any:
+            if candidate_conflict_probe:
+                calls.append(f"factory:{context.resources.node_id}")
             if implementation is SourceImplementation:
                 node_id = context.resources.node_id
                 if (
@@ -916,7 +994,7 @@ def _pipeline_catalog(
             canonical_text,
             *(
                 (candidate_collection_type, candidate_data_type)
-                if candidate_digest_probe
+                if include_candidate_data
                 else ()
             ),
         ),
@@ -984,7 +1062,7 @@ def test_runtime_rejects_multiple_admitted_values_for_one_input(
     )
     plan = compile_workflow(
         relock_workflow(workflow, catalog),
-        workflow_revision=1,
+        workflow_commit_revision=1,
         catalog=catalog,
     ).execution_plan
     target = next(node for node in plan.nodes if node.node_id == "sink")
@@ -1013,12 +1091,21 @@ def _artifact_catalog(
     calls: list[str],
     *,
     artifact_kind: str | None = "standalone",
+    artifact_candidate_id: str | None = None,
     collection: bool = False,
     artifact_payloads: tuple[bytes, ...] = (b"MODEL        1\nEND\n",),
     cacheable: bool = False,
 ) -> FrozenCatalog:
     builtin = builtin_frozen_catalog()
     artifact_port_type = PROTEIN_IO_PACKAGE.port_types[0]
+    if artifact_kind == "candidate":
+        # This fixture isolates the core publication seam. Candidate identity
+        # is metadata owned by that seam, not by a storage-path policy in a
+        # package-specific artifact codec.
+        artifact_port_type = replace(
+            artifact_port_type,
+            runtime_validator=lambda _value: None,
+        )
     method = _contract(
         "method",
         "test.artifact.method",
@@ -1117,6 +1204,7 @@ def _artifact_catalog(
                     body=payload,
                     media_type="chemical/x-pdb",
                     filename=f"result-{index}.pdb",
+                    candidate_id=artifact_candidate_id,
                 )
                 for index, payload in enumerate(artifact_payloads)
             ]
@@ -1157,11 +1245,11 @@ def _artifact_catalog(
     )
 
 
-def _compile_artifact_node(
+def _commit_artifact_node(
     client: TestClient,
 ) -> tuple[str, dict[str, Any]]:
     project_id = client.post(
-        "/api/projects",
+        "/api/v2/projects",
         json={"name": "v2 artifact"},
     ).json()["id"]
     workflow = {
@@ -1181,32 +1269,16 @@ def _compile_artifact_node(
         "edges": [],
         "contract_lock": [],
     }
-    assert client.put(
-        f"/api/v2/projects/{project_id}/workflow",
-        json={"expected_workflow_revision": 0, "workflow": workflow},
-    ).status_code == 200
-    relocked = client.post(
-        f"/api/v2/projects/{project_id}/workflow:relock",
-        json={"workflow_revision": 1},
-    )
-    compiled = client.post(
-        f"/api/v2/projects/{project_id}/workflow:compile",
-        json={
-            "workflow_revision": 2,
-            "workflow": relocked.json()["workflow"],
-        },
-    )
-    assert compiled.status_code == 200
-    return project_id, compiled.json()
+    return project_id, _commit_public_workflow(client, project_id, workflow)
 
 
-def _compile_pipeline(
+def _commit_pipeline(
     client: TestClient,
     *,
     candidate_digest_probe: bool = False,
 ) -> tuple[str, dict[str, Any]]:
     project_id = client.post(
-        "/api/projects",
+        "/api/v2/projects",
         json={"name": "v2 canonical boundary"},
     ).json()["id"]
     workflow = {
@@ -1254,30 +1326,14 @@ def _compile_pipeline(
         ],
         "contract_lock": [],
     }
-    assert client.put(
-        f"/api/v2/projects/{project_id}/workflow",
-        json={"expected_workflow_revision": 0, "workflow": workflow},
-    ).status_code == 200
-    relocked = client.post(
-        f"/api/v2/projects/{project_id}/workflow:relock",
-        json={"workflow_revision": 1},
-    )
-    compiled = client.post(
-        f"/api/v2/projects/{project_id}/workflow:compile",
-        json={
-            "workflow_revision": 2,
-            "workflow": relocked.json()["workflow"],
-        },
-    )
-    assert compiled.status_code == 200
-    return project_id, compiled.json()
+    return project_id, _commit_public_workflow(client, project_id, workflow)
 
 
-def _compile_branching_pipeline(
+def _commit_branching_pipeline(
     client: TestClient,
 ) -> tuple[str, dict[str, Any]]:
     project_id = client.post(
-        "/api/projects",
+        "/api/v2/projects",
         json={"name": "v2 branch failure"},
     ).json()["id"]
     nodes = [
@@ -1331,23 +1387,7 @@ def _compile_branching_pipeline(
         ],
         "contract_lock": [],
     }
-    assert client.put(
-        f"/api/v2/projects/{project_id}/workflow",
-        json={"expected_workflow_revision": 0, "workflow": workflow},
-    ).status_code == 200
-    relocked = client.post(
-        f"/api/v2/projects/{project_id}/workflow:relock",
-        json={"workflow_revision": 1},
-    )
-    compiled = client.post(
-        f"/api/v2/projects/{project_id}/workflow:compile",
-        json={
-            "workflow_revision": 2,
-            "workflow": relocked.json()["workflow"],
-        },
-    )
-    assert compiled.status_code == 200
-    return project_id, compiled.json()
+    return project_id, _commit_public_workflow(client, project_id, workflow)
 
 
 @pytest.mark.deterministic_acceptance
@@ -1369,12 +1409,11 @@ def test_branch_failure_closes_every_disposition_and_unrelated_work_continues(
     )
 
     with TestClient(app) as client:
-        project_id, compiled = _compile_branching_pipeline(client)
+        project_id, compiled = _commit_branching_pipeline(client)
         started = client.post(
             f"/api/v2/projects/{project_id}/runs",
             json={
-                "workflow_revision": 2,
-                "compile_id": compiled["compile_id"],
+                "workflow_commit_id": compiled["workflow_commit_id"],
                 "client_request_id": "branch-failure",
             },
         )
@@ -1475,12 +1514,11 @@ def test_failed_optional_input_does_not_block_a_node(
     )
 
     with TestClient(app) as client:
-        project_id, compiled = _compile_branching_pipeline(client)
+        project_id, compiled = _commit_branching_pipeline(client)
         started = client.post(
             f"/api/v2/projects/{project_id}/runs",
             json={
-                "workflow_revision": 2,
-                "compile_id": compiled["compile_id"],
+                "workflow_commit_id": compiled["workflow_commit_id"],
                 "client_request_id": "optional-input-failure",
             },
         )
@@ -1531,12 +1569,11 @@ def test_started_engine_terminal_statuses_are_causally_closed(
     )
 
     with TestClient(app) as client:
-        project_id, compiled = _compile_pipeline(client)
+        project_id, compiled = _commit_pipeline(client)
         started = client.post(
             f"/api/v2/projects/{project_id}/runs",
             json={
-                "workflow_revision": 2,
-                "compile_id": compiled["compile_id"],
+                "workflow_commit_id": compiled["workflow_commit_id"],
                 "client_request_id": f"terminal-{attempt_status}",
             },
         )
@@ -1600,12 +1637,11 @@ def test_pre_schedule_termination_has_disposition_without_false_attempt(
     )
 
     with TestClient(app) as client:
-        project_id, compiled = _compile_pipeline(client)
+        project_id, compiled = _commit_pipeline(client)
         started = client.post(
             f"/api/v2/projects/{project_id}/runs",
             json={
-                "workflow_revision": 2,
-                "compile_id": compiled["compile_id"],
+                "workflow_commit_id": compiled["workflow_commit_id"],
                 "client_request_id": f"pre-schedule-{outcome}",
             },
         )
@@ -1657,12 +1693,11 @@ def test_invalid_scientific_operation_factory_has_no_false_operation_attempt(
     )
 
     with TestClient(app) as client:
-        project_id, compiled = _compile_one_node(client)
+        project_id, compiled = _commit_one_node(client)
         started = client.post(
             f"/api/v2/projects/{project_id}/runs",
             json={
-                "workflow_revision": 2,
-                "compile_id": compiled["compile_id"],
+                "workflow_commit_id": compiled["workflow_commit_id"],
                 "client_request_id": "invalid-operation-factory",
             },
         )
@@ -1721,12 +1756,11 @@ def test_cache_replay_closes_only_the_scheduled_node_attempt(
     )
 
     with TestClient(app) as client:
-        project_id, compiled = _compile_one_node(client)
+        project_id, compiled = _commit_one_node(client)
         started = client.post(
             f"/api/v2/projects/{project_id}/runs",
             json={
-                "workflow_revision": 2,
-                "compile_id": compiled["compile_id"],
+                "workflow_commit_id": compiled["workflow_commit_id"],
                 "client_request_id": "cache-replayed",
             },
         )
@@ -1842,12 +1876,11 @@ def test_restart_does_not_publish_unclosed_cache_replay_output(
                 _v2_wait_for_workers_on_shutdown=False,
             )
         ) as first:
-            project_id, compiled = _compile_one_node(first)
+            project_id, compiled = _commit_one_node(first)
             started = first.post(
                 f"/api/v2/projects/{project_id}/runs",
                 json={
-                    "workflow_revision": 2,
-                    "compile_id": compiled["compile_id"],
+                    "workflow_commit_id": compiled["workflow_commit_id"],
                     "client_request_id": "cache-replay-restart",
                 },
             )
@@ -1923,12 +1956,11 @@ def test_cache_boundary_failure_does_not_execute_provider(
     )
 
     with TestClient(app) as client:
-        project_id, compiled = _compile_one_node(client)
+        project_id, compiled = _commit_one_node(client)
         started = client.post(
             f"/api/v2/projects/{project_id}/runs",
             json={
-                "workflow_revision": 2,
-                "compile_id": compiled["compile_id"],
+                "workflow_commit_id": compiled["workflow_commit_id"],
                 "client_request_id": f"cache-failure-{cache_failure}",
             },
         )
@@ -1975,12 +2007,11 @@ def test_public_terminal_wait_helper_never_returns_a_running_projection(
     )
 
     with TestClient(app) as client:
-        project_id, compiled = _compile_one_node(client)
+        project_id, compiled = _commit_one_node(client)
         started = client.post(
             f"/api/v2/projects/{project_id}/runs",
             json={
-                "workflow_revision": 2,
-                "compile_id": compiled["compile_id"],
+                "workflow_commit_id": compiled["workflow_commit_id"],
                 "client_request_id": "terminal-wait-regression",
             },
         )
@@ -2032,12 +2063,11 @@ def test_one_operation_can_record_zero_or_multiple_engine_invocations(
     )
 
     with TestClient(app) as client:
-        project_id, compiled = _compile_one_node(client)
+        project_id, compiled = _commit_one_node(client)
         started = client.post(
             f"/api/v2/projects/{project_id}/runs",
             json={
-                "workflow_revision": 2,
-                "compile_id": compiled["compile_id"],
+                "workflow_commit_id": compiled["workflow_commit_id"],
                 "client_request_id": f"invocations-{invocation_count}",
             },
         )
@@ -2066,7 +2096,7 @@ def test_one_operation_can_record_zero_or_multiple_engine_invocations(
     )
 
 
-def test_public_start_run_binds_the_exact_compile_before_direct_execution(
+def test_public_start_run_binds_the_exact_commit_before_direct_execution(
     tmp_path,
     monkeypatch,
 ) -> None:
@@ -2089,12 +2119,11 @@ def test_public_start_run_binds_the_exact_compile_before_direct_execution(
     )
 
     with TestClient(app) as client:
-        project_id, compiled = _compile_one_node(client)
+        project_id, compiled = _commit_one_node(client)
         started = client.post(
             f"/api/v2/projects/{project_id}/runs",
             json={
-                "workflow_revision": 2,
-                "compile_id": compiled["compile_id"],
+                "workflow_commit_id": compiled["workflow_commit_id"],
                 "client_request_id": "request-1",
             },
         )
@@ -2110,9 +2139,11 @@ def test_public_start_run_binds_the_exact_compile_before_direct_execution(
         assert projection == {
             "project_id": project_id,
             "run_id": receipt["run_id"],
-            "workflow_revision": 2,
+            "workflow_commit_id": compiled["workflow_commit_id"],
+            "workflow_commit_revision": compiled[
+                "workflow_commit_revision"
+            ],
             "workflow_digest": compiled["workflow_digest"],
-            "compile_id": compiled["compile_id"],
             "status": "succeeded",
             "terminal_sequence": projection["terminal_sequence"],
             "ledger_cursor": projection["ledger_cursor"],
@@ -2219,11 +2250,11 @@ def test_run_executes_only_the_resolved_plan_after_compilation(
     )
 
     with TestClient(app) as client:
-        project_id, compiled = _compile_one_node(client)
+        project_id, compiled = _commit_one_node(client)
 
         def forbid_execution_lookup(*_args: Any, **_kwargs: Any) -> Any:
             raise AssertionError(
-                "Run execution must use only compile-time resolved facts"
+                "Run execution must use only commit-time resolved facts"
             )
 
         for method_name in (
@@ -2243,8 +2274,7 @@ def test_run_executes_only_the_resolved_plan_after_compilation(
 
         receipt = app.state.run_execution_v2.start(
             project_id,
-            workflow_revision=2,
-            compile_id=compiled["compile_id"],
+            workflow_commit_id=compiled["workflow_commit_id"],
             client_request_id="resolved-plan-only",
         )
         projection = app.state.run_execution_v2.projection(
@@ -2274,7 +2304,7 @@ def test_run_rejects_a_resolved_plan_from_another_catalog_generation(
     app = create_app(frozen_catalog_override=compiled_catalog)
 
     with TestClient(app) as client:
-        project_id, compiled = _compile_one_node(client)
+        project_id, compiled = _commit_one_node(client)
         active_catalog = _direct_catalog(
             [],
             node_title="Scientifically distinct active generation",
@@ -2289,8 +2319,7 @@ def test_run_rejects_a_resolved_plan_from_another_catalog_generation(
             with pytest.raises(run_execution_v2.V2RunError) as captured:
                 service.start(
                     project_id,
-                    workflow_revision=2,
-                    compile_id=compiled["compile_id"],
+                    workflow_commit_id=compiled["workflow_commit_id"],
                     client_request_id="inactive-plan",
                 )
         finally:
@@ -2325,7 +2354,7 @@ def test_all_distinct_bindings_are_attested_before_any_factory_and_shared(
     )
 
     with TestClient(app) as client:
-        project_id, compiled = _compile_independent_nodes(
+        project_id, compiled = _commit_independent_nodes(
             client,
             (
                 "test.direct.local",
@@ -2336,8 +2365,7 @@ def test_all_distinct_bindings_are_attested_before_any_factory_and_shared(
         response = client.post(
             f"/api/v2/projects/{project_id}/runs",
             json={
-                "workflow_revision": 2,
-                "compile_id": compiled["compile_id"],
+                "workflow_commit_id": compiled["workflow_commit_id"],
                 "client_request_id": "distinct-binding-request",
             },
         )
@@ -2390,12 +2418,11 @@ def test_failed_readiness_rejects_before_factory_and_redacts_environment(
     )
 
     with TestClient(app) as client:
-        project_id, compiled = _compile_independent_nodes(client, bindings)
+        project_id, compiled = _commit_independent_nodes(client, bindings)
         response = client.post(
             f"/api/v2/projects/{project_id}/runs",
             json={
-                "workflow_revision": 2,
-                "compile_id": compiled["compile_id"],
+                "workflow_commit_id": compiled["workflow_commit_id"],
                 "client_request_id": "failed-readiness-request",
             },
         )
@@ -2450,12 +2477,11 @@ def test_changed_credential_is_reobserved_and_rejects_stale_green(
     )
 
     with TestClient(app) as client:
-        project_id, compiled = _compile_one_node(client)
+        project_id, compiled = _commit_one_node(client)
         first = client.post(
             f"/api/v2/projects/{project_id}/runs",
             json={
-                "workflow_revision": 2,
-                "compile_id": compiled["compile_id"],
+                "workflow_commit_id": compiled["workflow_commit_id"],
                 "client_request_id": "volatile-first",
             },
         )
@@ -2463,8 +2489,7 @@ def test_changed_credential_is_reobserved_and_rejects_stale_green(
         second = client.post(
             f"/api/v2/projects/{project_id}/runs",
             json={
-                "workflow_revision": 2,
-                "compile_id": compiled["compile_id"],
+                "workflow_commit_id": compiled["workflow_commit_id"],
                 "client_request_id": "volatile-second",
             },
         )
@@ -2502,12 +2527,11 @@ def test_invalid_public_readiness_metadata_fails_before_factory(
     )
 
     with TestClient(app) as client:
-        project_id, compiled = _compile_one_node(client)
+        project_id, compiled = _commit_one_node(client)
         response = client.post(
             f"/api/v2/projects/{project_id}/runs",
             json={
-                "workflow_revision": 2,
-                "compile_id": compiled["compile_id"],
+                "workflow_commit_id": compiled["workflow_commit_id"],
                 "client_request_id": "invalid-readiness-metadata",
             },
         )
@@ -2543,12 +2567,11 @@ def test_boolean_readiness_conclusion_is_a_contract_failure(
     )
 
     with TestClient(app) as client:
-        project_id, compiled = _compile_one_node(client)
+        project_id, compiled = _commit_one_node(client)
         response = client.post(
             f"/api/v2/projects/{project_id}/runs",
             json={
-                "workflow_revision": 2,
-                "compile_id": compiled["compile_id"],
+                "workflow_commit_id": compiled["workflow_commit_id"],
                 "client_request_id": "boolean-readiness-conclusion",
             },
         )
@@ -2617,14 +2640,13 @@ def test_reusable_readiness_proof_requires_identity_scope_age_fingerprint_and_in
     )
 
     with TestClient(app) as client:
-        project_id, compiled = _compile_one_node(client)
+        project_id, compiled = _commit_one_node(client)
 
         def start(request_id: str):
             return client.post(
                 f"/api/v2/projects/{project_id}/runs",
                 json={
-                    "workflow_revision": 2,
-                    "compile_id": compiled["compile_id"],
+                    "workflow_commit_id": compiled["workflow_commit_id"],
                     "client_request_id": request_id,
                 },
             )
@@ -2689,12 +2711,11 @@ def test_reusable_proof_rejects_implicit_environment_identities(
     )
 
     with TestClient(app) as client:
-        project_id, compiled = _compile_one_node(client)
+        project_id, compiled = _commit_one_node(client)
         response = client.post(
             f"/api/v2/projects/{project_id}/runs",
             json={
-                "workflow_revision": 2,
-                "compile_id": compiled["compile_id"],
+                "workflow_commit_id": compiled["workflow_commit_id"],
                 "client_request_id": "implicit-proof-identities",
             },
         )
@@ -2753,12 +2774,11 @@ def test_new_reusable_proof_rejects_stale_or_future_observation(
     )
 
     with TestClient(app) as client:
-        project_id, compiled = _compile_one_node(client)
+        project_id, compiled = _commit_one_node(client)
         response = client.post(
             f"/api/v2/projects/{project_id}/runs",
             json={
-                "workflow_revision": 2,
-                "compile_id": compiled["compile_id"],
+                "workflow_commit_id": compiled["workflow_commit_id"],
                 "client_request_id": "invalid-proof-age",
             },
         )
@@ -2847,14 +2867,13 @@ def test_reusable_proof_is_cached_only_after_durable_attestation(
     )
 
     with TestClient(app) as client:
-        project_id, compiled = _compile_one_node(client)
+        project_id, compiled = _commit_one_node(client)
 
         def start(request_id: str):
             return client.post(
                 f"/api/v2/projects/{project_id}/runs",
                 json={
-                    "workflow_revision": 2,
-                    "compile_id": compiled["compile_id"],
+                    "workflow_commit_id": compiled["workflow_commit_id"],
                     "client_request_id": request_id,
                 },
             )
@@ -2923,12 +2942,11 @@ def test_node_success_is_not_published_when_disposition_commit_fails(
     )
 
     with TestClient(app) as client:
-        project_id, compiled = _compile_one_node(client)
+        project_id, compiled = _commit_one_node(client)
         response = client.post(
             f"/api/v2/projects/{project_id}/runs",
             json={
-                "workflow_revision": 2,
-                "compile_id": compiled["compile_id"],
+                "workflow_commit_id": compiled["workflow_commit_id"],
                 "client_request_id": "disposition-commit-failure",
             },
         )
@@ -2975,12 +2993,11 @@ def test_cleanup_failure_is_bounded_and_does_not_rewrite_engine_success(
     )
 
     with TestClient(app) as client:
-        project_id, compiled = _compile_one_node(client)
+        project_id, compiled = _commit_one_node(client)
         response = client.post(
             f"/api/v2/projects/{project_id}/runs",
             json={
-                "workflow_revision": 2,
-                "compile_id": compiled["compile_id"],
+                "workflow_commit_id": compiled["workflow_commit_id"],
                 "client_request_id": "cleanup-failure",
             },
         )
@@ -3021,12 +3038,11 @@ def test_connected_ports_publish_and_consume_only_canonical_validated_values(
     app = create_app(frozen_catalog_override=_pipeline_catalog(calls))
 
     with TestClient(app) as client:
-        project_id, compiled = _compile_pipeline(client)
+        project_id, compiled = _commit_pipeline(client)
         started = client.post(
             f"/api/v2/projects/{project_id}/runs",
             json={
-                "workflow_revision": 2,
-                "compile_id": compiled["compile_id"],
+                "workflow_commit_id": compiled["workflow_commit_id"],
                 "client_request_id": "canonical-port-boundary",
             },
         )
@@ -3072,41 +3088,300 @@ def test_operation_call_reuses_admitted_scientific_values_without_copy() -> None
 
 def test_operation_call_exposes_ordered_candidate_data_content_digests(
     tmp_path,
-    monkeypatch,
 ) -> None:
     calls: list[str] = []
-    monkeypatch.setenv("PROTEIN_WORKBENCH_PROJECT_ROOT", str(tmp_path / "projects"))
-    monkeypatch.setenv("PROTEIN_WORKBENCH_RUN_ROOT", str(tmp_path / "runs"))
-    monkeypatch.setenv("PROTEIN_WORKBENCH_OUTPUT_ROOT", str(tmp_path / "outputs"))
-    app = create_app(
-        frozen_catalog_override=_pipeline_catalog(
-            calls,
-            candidate_digest_probe=True,
-        )
+    catalog = _pipeline_catalog(
+        calls,
+        candidate_digest_probe=True,
+    )
+    projects = ProjectManager(tmp_path / "projects")
+    project = projects.create("Candidate data reference runtime")
+    authoring = WorkflowAuthoringService(projects, catalog)
+    committed = authoring.commit(
+        project.id,
+        expected_draft_revision=0,
+        workflow=parse_workflow_document(
+            {
+                "schema_version": "2.1.0",
+                "workflow_id": project.id,
+                "nodes": [
+                    {
+                        "node_id": "source",
+                        "node_type_id": "test.pipeline.source",
+                        "node_type_version": "2.1.0",
+                        "binding_id": "test.pipeline.source.direct",
+                        "binding_version": "2.1.0",
+                        "node_parameters": {},
+                        "binding_parameters": {},
+                    },
+                    {
+                        "node_id": "sink",
+                        "node_type_id": "test.pipeline.sink",
+                        "node_type_version": "2.1.0",
+                        "binding_id": "test.pipeline.sink.direct",
+                        "binding_version": "2.1.0",
+                        "node_parameters": {},
+                        "binding_parameters": {},
+                    },
+                ],
+                "edges": [
+                    {
+                        "source_node_id": "source",
+                        "source_port": output_port,
+                        "target_node_id": "sink",
+                        "target_port": output_port,
+                    }
+                    for output_port in ("text", "candidates")
+                ],
+                "contract_lock": [],
+            }
+        ),
+    )
+    service = run_execution_v2.V2RunService(
+        projects,
+        catalog,
+        authoring,
+        run_execution_v2.EnvironmentConfiguration({}),
     )
 
-    with TestClient(app) as client:
-        project_id, compiled = _compile_pipeline(
-            client,
-            candidate_digest_probe=True,
+    try:
+        receipt = service.start(
+            project.id,
+            workflow_commit_id=committed.workflow_commit_id,
+            client_request_id="candidate-content-digest-interface",
         )
-        started = client.post(
-            f"/api/v2/projects/{project_id}/runs",
-            json={
-                "workflow_revision": 2,
-                "compile_id": compiled["compile_id"],
-                "client_request_id": "candidate-content-digest-interface",
-            },
+        projection = service.projection(
+            project.id,
+            receipt["run_id"],
         )
-        projection = wait_for_testclient_run_terminal(
-            client,
-            project_id,
-            started.json()["run_id"],
-        )
+    finally:
+        service.shutdown()
 
-    assert started.status_code == 202
     assert projection["status"] == "succeeded"
     assert calls.count("candidate-digests:verified") == 1
+
+
+@pytest.mark.parametrize(
+    "candidate_case",
+    ("data", "parent", "metadata", "metadata_json_type", "identical"),
+)
+def test_cross_input_candidate_identity_closes_runtime_before_sink_side_effects(
+    tmp_path,
+    candidate_case: str,
+) -> None:
+    calls: list[str] = []
+    cache_lookups: list[str] = []
+    catalog = _pipeline_catalog(
+        calls,
+        cacheable=True,
+        candidate_conflict_probe=True,
+    )
+
+    class ConflictingCandidateReplay(ResultReplaySource):
+        def lookup(self, **kwargs: Any) -> ResultReplayHit | None:
+            node = kwargs["node"]
+            cache_lookups.append(node.node_id)
+            if node.node_id == "sink":
+                if candidate_case == "identical":
+                    return None
+                raise AssertionError(
+                    "Candidate conflict must fail before sink cache lookup"
+                )
+            candidate_facts = {
+                "data": {
+                    "source-left": ("AA", (), {"partition": "shared"}),
+                    "source-right": ("CC", (), {"partition": "shared"}),
+                },
+                "parent": {
+                    "source-left": (
+                        "AA",
+                        ("candidate-parent-left",),
+                        {"partition": "shared"},
+                    ),
+                    "source-right": (
+                        "AA",
+                        ("candidate-parent-right",),
+                        {"partition": "shared"},
+                    ),
+                },
+                "metadata": {
+                    "source-left": ("AA", (), {"partition": "left"}),
+                    "source-right": ("AA", (), {"partition": "right"}),
+                },
+                "metadata_json_type": {
+                    "source-left": ("AA", (), {"flag": True}),
+                    "source-right": ("AA", (), {"flag": 1}),
+                },
+                "identical": {
+                    "source-left": (
+                        "AA",
+                        ("candidate-parent",),
+                        {"partition": "shared"},
+                    ),
+                    "source-right": (
+                        "AA",
+                        ("candidate-parent",),
+                        {"partition": "shared"},
+                    ),
+                },
+            }
+            sequence, parent_ids, metadata = candidate_facts[
+                candidate_case
+            ][node.node_id]
+            return ResultReplayHit(
+                result_identity=kwargs["result_identity"],
+                producer_run_id="fixture-producer",
+                admitted_outputs=admitted_replay_outputs(
+                    catalog=catalog,
+                    node=node,
+                    outputs={
+                        "text": node.node_id,
+                        "candidates": CandidateCollection(
+                            collection_id=f"collection-{node.node_id}",
+                            item_type="protein.sequence",
+                            items=(
+                                Candidate(
+                                    candidate_id="candidate-shared",
+                                    data=ProteinSequence(sequence),
+                                    parent_ids=parent_ids,
+                                    metadata=metadata,
+                                ),
+                            ),
+                        ),
+                    },
+                ),
+            )
+
+    projects = ProjectManager(tmp_path / "projects")
+    project = projects.create("cross-input Candidate conflict")
+    authoring = WorkflowAuthoringService(projects, catalog)
+    workflow = parse_workflow_document(
+        {
+            "schema_version": "2.1.0",
+            "workflow_id": project.id,
+            "nodes": [
+                {
+                    "node_id": node_id,
+                    "node_type_id": node_type_id,
+                    "node_type_version": "2.1.0",
+                    "binding_id": binding_id,
+                    "binding_version": "2.1.0",
+                    "node_parameters": {},
+                    "binding_parameters": {},
+                }
+                for node_id, node_type_id, binding_id in (
+                    (
+                        "source-left",
+                        "test.pipeline.source",
+                        "test.pipeline.source.direct",
+                    ),
+                    (
+                        "source-right",
+                        "test.pipeline.source",
+                        "test.pipeline.source.direct",
+                    ),
+                    (
+                        "sink",
+                        "test.pipeline.sink",
+                        "test.pipeline.sink.direct",
+                    ),
+                )
+            ],
+            "edges": [
+                {
+                    "source_node_id": "source-left",
+                    "source_port": "text",
+                    "target_node_id": "sink",
+                    "target_port": "text",
+                },
+                *(
+                    {
+                        "source_node_id": source_node_id,
+                        "source_port": "candidates",
+                        "target_node_id": "sink",
+                        "target_port": "candidates",
+                    }
+                    for source_node_id in (
+                        "source-left",
+                        "source-right",
+                    )
+                ),
+            ],
+            "contract_lock": [],
+        }
+    )
+    committed = authoring.commit(
+        project.id,
+        expected_draft_revision=0,
+        workflow=workflow,
+    )
+    service = run_execution_v2.V2RunService(
+        projects,
+        catalog,
+        authoring,
+        run_execution_v2.EnvironmentConfiguration({}),
+        ConflictingCandidateReplay(),
+    )
+
+    try:
+        receipt = service.start(
+            project.id,
+            workflow_commit_id=committed.workflow_commit_id,
+            client_request_id="candidate-conflict",
+        )
+        projection = service.projection(project.id, receipt["run_id"])
+        events = service.public_events(project.id, receipt["run_id"])
+    finally:
+        service.shutdown()
+
+    sink_started = next(
+        item["event"]
+        for item in events
+        if item["event"]["type"] == "node_attempt_started"
+        and item["event"]["node_id"] == "sink"
+    )
+    sink_terminal = next(
+        item["event"]
+        for item in events
+        if item["event"]["type"] == "node_attempt_terminal"
+        and item["event"]["node_attempt_id"]
+        == sink_started["node_attempt_id"]
+    )
+    sink_disposition = next(
+        item["event"]["disposition"]
+        for item in events
+        if item["event"]["type"] == "node_disposition"
+        and item["event"]["disposition"]["node_id"] == "sink"
+    )
+    run_terminal = next(
+        item["event"]
+        for item in events
+        if item["event"]["type"] == "run_terminal"
+    )
+
+    expected_status = "succeeded" if candidate_case == "identical" else "failed"
+    assert projection["status"] == expected_status
+    assert sink_terminal["status"] == expected_status
+    assert sink_disposition["outcome"] == expected_status
+    assert run_terminal["status"] == expected_status
+    assert cache_lookups == [
+        "source-left",
+        "source-right",
+        *(("sink",) if candidate_case == "identical" else ()),
+    ]
+    assert [call for call in calls if call.startswith("factory:")] == (
+        ["factory:sink"] if candidate_case == "identical" else []
+    )
+    assert not any(call.startswith("execute:") for call in calls)
+    assert [call for call in calls if call.startswith("sink-input:")] == (
+        ["sink-input:source-left"]
+        if candidate_case == "identical"
+        else []
+    )
+    assert sum(
+        item["event"]["type"] == "operation_attempt_started"
+        for item in events
+    ) == (1 if candidate_case == "identical" else 0)
 
 
 def test_invalid_output_never_publishes_success_or_a_public_result(
@@ -3125,12 +3400,11 @@ def test_invalid_output_never_publishes_success_or_a_public_result(
     )
 
     with TestClient(app) as client:
-        project_id, compiled = _compile_pipeline(client)
+        project_id, compiled = _commit_pipeline(client)
         started = client.post(
             f"/api/v2/projects/{project_id}/runs",
             json={
-                "workflow_revision": 2,
-                "compile_id": compiled["compile_id"],
+                "workflow_commit_id": compiled["workflow_commit_id"],
                 "client_request_id": "invalid-output",
             },
         )
@@ -3208,12 +3482,11 @@ def test_artifact_publication_requires_explicit_node_port_opt_in(
     )
 
     with TestClient(app) as client:
-        project_id, compiled = _compile_artifact_node(client)
+        project_id, compiled = _commit_artifact_node(client)
         response = client.post(
             f"/api/v2/projects/{project_id}/runs",
             json={
-                "workflow_revision": 2,
-                "compile_id": compiled["compile_id"],
+                "workflow_commit_id": compiled["workflow_commit_id"],
                 "client_request_id": "artifact-without-opt-in",
             },
         )
@@ -3248,12 +3521,11 @@ def test_standalone_file_collection_projects_each_opaque_artifact(
     )
 
     with TestClient(app) as client:
-        project_id, compiled = _compile_artifact_node(client)
+        project_id, compiled = _commit_artifact_node(client)
         started = client.post(
             f"/api/v2/projects/{project_id}/runs",
             json={
-                "workflow_revision": 2,
-                "compile_id": compiled["compile_id"],
+                "workflow_commit_id": compiled["workflow_commit_id"],
                 "client_request_id": "artifact-collection",
             },
         )
@@ -3271,6 +3543,93 @@ def test_standalone_file_collection_projects_each_opaque_artifact(
         ]
 
     assert downloaded == list(payloads)
+
+
+@pytest.mark.parametrize("candidate_id", ("a/b", "a:b", "a+b"))
+def test_candidate_artifact_identifier_is_metadata_not_a_storage_path(
+    tmp_path,
+    monkeypatch,
+    candidate_id: str,
+) -> None:
+    output_root = tmp_path / "outputs"
+    monkeypatch.setenv("PROTEIN_WORKBENCH_PROJECT_ROOT", str(tmp_path / "projects"))
+    monkeypatch.setenv("PROTEIN_WORKBENCH_RUN_ROOT", str(tmp_path / "runs"))
+    monkeypatch.setenv("PROTEIN_WORKBENCH_OUTPUT_ROOT", str(output_root))
+    app = create_app(
+        frozen_catalog_override=_artifact_catalog(
+            [],
+            artifact_kind="candidate",
+            artifact_candidate_id=candidate_id,
+        )
+    )
+
+    with TestClient(app) as client:
+        project_id, committed = _commit_artifact_node(client)
+        started = client.post(
+            f"/api/v2/projects/{project_id}/runs",
+            json={
+                "workflow_commit_id": committed["workflow_commit_id"],
+                "client_request_id": "candidate-artifact-identifier",
+            },
+        )
+        projection = wait_for_testclient_run_terminal(
+            client,
+            project_id,
+            started.json()["run_id"],
+        )
+
+    assert projection["status"] == "succeeded"
+    assert len(projection["artifact_index"]) == 1
+    descriptor = projection["artifact_index"][0]
+    assert descriptor["candidate_id"] == candidate_id
+    assert descriptor["artifact_reference"].startswith("artifact-")
+    assert candidate_id not in descriptor["artifact_reference"]
+    stored = list(output_root.rglob("published/*"))
+    assert len(stored) == 1
+    assert stored[0].name == descriptor["artifact_reference"]
+
+
+@pytest.mark.parametrize("candidate_id", ("候选", "a" * 129))
+def test_invalid_candidate_artifact_identifier_leaves_no_stored_payload(
+    tmp_path,
+    monkeypatch,
+    candidate_id: str,
+) -> None:
+    output_root = tmp_path / "outputs"
+    run_root = tmp_path / "runs"
+    monkeypatch.setenv("PROTEIN_WORKBENCH_PROJECT_ROOT", str(tmp_path / "projects"))
+    monkeypatch.setenv("PROTEIN_WORKBENCH_RUN_ROOT", str(run_root))
+    monkeypatch.setenv("PROTEIN_WORKBENCH_OUTPUT_ROOT", str(output_root))
+    app = create_app(
+        frozen_catalog_override=_artifact_catalog(
+            [],
+            artifact_kind="candidate",
+            artifact_candidate_id=candidate_id,
+        )
+    )
+
+    with TestClient(app) as client:
+        project_id, committed = _commit_artifact_node(client)
+        started = client.post(
+            f"/api/v2/projects/{project_id}/runs",
+            json={
+                "workflow_commit_id": committed["workflow_commit_id"],
+                "client_request_id": "invalid-candidate-artifact-identifier",
+            },
+        )
+        projection = wait_for_testclient_run_terminal(
+            client,
+            project_id,
+            started.json()["run_id"],
+        )
+
+    assert projection["status"] == "failed"
+    assert projection["artifact_index"] == []
+    assert list(output_root.rglob("published/*")) == []
+    assert not any(
+        json.loads(path.read_text())["fact_type"] == "artifact_published"
+        for path in run_root.rglob("ledger/*.json")
+    )
 
 
 def test_run_artifact_count_and_aggregate_size_are_bounded(
@@ -3291,12 +3650,11 @@ def test_run_artifact_count_and_aggregate_size_are_bounded(
     )
 
     with TestClient(count_limited) as client:
-        project_id, compiled = _compile_artifact_node(client)
+        project_id, compiled = _commit_artifact_node(client)
         count_response = client.post(
             f"/api/v2/projects/{project_id}/runs",
             json={
-                "workflow_revision": 2,
-                "compile_id": compiled["compile_id"],
+                "workflow_commit_id": compiled["workflow_commit_id"],
                 "client_request_id": "artifact-count-bound",
             },
         )
@@ -3326,12 +3684,11 @@ def test_run_artifact_count_and_aggregate_size_are_bounded(
     )
 
     with TestClient(aggregate_limited) as client:
-        project_id, compiled = _compile_artifact_node(client)
+        project_id, compiled = _commit_artifact_node(client)
         aggregate_response = client.post(
             f"/api/v2/projects/{project_id}/runs",
             json={
-                "workflow_revision": 2,
-                "compile_id": compiled["compile_id"],
+                "workflow_commit_id": compiled["workflow_commit_id"],
                 "client_request_id": "artifact-aggregate-bound",
             },
         )
@@ -3370,12 +3727,11 @@ def test_success_ledger_projects_validated_events_and_opaque_artifact(
         catalog = client.get("/api/v2/catalog")
         assert catalog.status_code == 200
         validate_response("catalog_snapshot", 200, catalog.json())
-        project_id, compiled = _compile_artifact_node(client)
+        project_id, compiled = _commit_artifact_node(client)
         started = client.post(
             f"/api/v2/projects/{project_id}/runs",
             json={
-                "workflow_revision": 2,
-                "compile_id": compiled["compile_id"],
+                "workflow_commit_id": compiled["workflow_commit_id"],
                 "client_request_id": "artifact-success",
             },
         )
@@ -3479,16 +3835,15 @@ def test_artifact_retrieval_rejects_cross_scope_tamper_and_symlink(
     app = create_app(frozen_catalog_override=_artifact_catalog([]))
 
     with TestClient(app) as client:
-        project_id, compiled = _compile_artifact_node(client)
+        project_id, compiled = _commit_artifact_node(client)
         other_project_id = client.post(
-            "/api/projects",
+            "/api/v2/projects",
             json={"name": "other scope"},
         ).json()["id"]
         started = client.post(
             f"/api/v2/projects/{project_id}/runs",
             json={
-                "workflow_revision": 2,
-                "compile_id": compiled["compile_id"],
+                "workflow_commit_id": compiled["workflow_commit_id"],
                 "client_request_id": "artifact-scope",
             },
         ).json()
@@ -3565,14 +3920,13 @@ def test_symlinked_run_workspace_fails_before_readiness_without_outside_write(
     )
 
     with TestClient(app) as client:
-        project_id, compiled = _compile_one_node(client)
+        project_id, compiled = _commit_one_node(client)
         run_root.mkdir(mode=0o700)
         (run_root / project_id).symlink_to(outside, target_is_directory=True)
         response = client.post(
             f"/api/v2/projects/{project_id}/runs",
             json={
-                "workflow_revision": 2,
-                "compile_id": compiled["compile_id"],
+                "workflow_commit_id": compiled["workflow_commit_id"],
                 "client_request_id": "poisoned-run-workspace",
             },
         )
@@ -3606,12 +3960,11 @@ def test_terminal_run_projection_and_events_rebuild_after_backend_restart(
             v2_environment_configuration=environment,
         )
     ) as client:
-        project_id, compiled = _compile_one_node(client)
+        project_id, compiled = _commit_one_node(client)
         started = client.post(
             f"/api/v2/projects/{project_id}/runs",
             json={
-                "workflow_revision": 2,
-                "compile_id": compiled["compile_id"],
+                "workflow_commit_id": compiled["workflow_commit_id"],
                 "client_request_id": "restart-terminal",
             },
         )
@@ -3702,12 +4055,11 @@ def test_restart_rejects_an_inactive_catalog_generation_without_rewriting_ledger
                 _v2_wait_for_workers_on_shutdown=False,
             )
         ) as first:
-            project_id, compiled = _compile_one_node(first)
+            project_id, compiled = _commit_one_node(first)
             started = first.post(
                 f"/api/v2/projects/{project_id}/runs",
                 json={
-                    "workflow_revision": 2,
-                    "compile_id": compiled["compile_id"],
+                    "workflow_commit_id": compiled["workflow_commit_id"],
                     "client_request_id": "inactive-generation-restart",
                 },
             )
@@ -3774,12 +4126,11 @@ def test_restart_isolates_an_active_generation_run_with_a_damaged_lock_digest(
             v2_environment_configuration=environment,
         )
     ) as first:
-        project_id, compiled = _compile_one_node(first)
+        project_id, compiled = _commit_one_node(first)
         started = first.post(
             f"/api/v2/projects/{project_id}/runs",
             json={
-                "workflow_revision": 2,
-                "compile_id": compiled["compile_id"],
+                "workflow_commit_id": compiled["workflow_commit_id"],
                 "client_request_id": "damaged-lock-digest",
             },
         )
@@ -3852,12 +4203,11 @@ def test_restart_isolates_active_generation_run_with_damaged_resolved_contracts(
             v2_environment_configuration=environment,
         )
     ) as first:
-        project_id, compiled = _compile_one_node(first)
+        project_id, compiled = _commit_one_node(first)
         started = first.post(
             f"/api/v2/projects/{project_id}/runs",
             json={
-                "workflow_revision": 2,
-                "compile_id": compiled["compile_id"],
+                "workflow_commit_id": compiled["workflow_commit_id"],
                 "client_request_id": f"damaged-resolved-{damage_kind}",
             },
         )
@@ -3947,21 +4297,19 @@ def test_restart_isolates_one_damaged_ledger_without_hiding_healthy_runs(
             v2_environment_configuration=environment,
         )
     ) as first:
-        healthy_project, healthy_compiled = _compile_one_node(first)
-        damaged_project, damaged_compiled = _compile_one_node(first)
+        healthy_project, healthy_compiled = _commit_one_node(first)
+        damaged_project, damaged_compiled = _commit_one_node(first)
         healthy = first.post(
             f"/api/v2/projects/{healthy_project}/runs",
             json={
-                "workflow_revision": 2,
-                "compile_id": healthy_compiled["compile_id"],
+                "workflow_commit_id": healthy_compiled["workflow_commit_id"],
                 "client_request_id": "healthy-ledger",
             },
         ).json()
         damaged = first.post(
             f"/api/v2/projects/{damaged_project}/runs",
             json={
-                "workflow_revision": 2,
-                "compile_id": damaged_compiled["compile_id"],
+                "workflow_commit_id": damaged_compiled["workflow_commit_id"],
                 "client_request_id": "damaged-ledger",
             },
         ).json()
@@ -4034,13 +4382,12 @@ def test_running_event_reconnect_switches_from_replay_to_live_without_loss(
     )
 
     with TestClient(app) as client:
-        project_id, compiled = _compile_one_node(client)
+        project_id, compiled = _commit_one_node(client)
         started_at = time.monotonic()
         started = client.post(
             f"/api/v2/projects/{project_id}/runs",
             json={
-                "workflow_revision": 2,
-                "compile_id": compiled["compile_id"],
+                "workflow_commit_id": compiled["workflow_commit_id"],
                 "client_request_id": "replay-live",
             },
         )
@@ -4142,35 +4489,34 @@ def test_background_runs_are_bounded_project_reserved_serial_and_joined(
     )
 
     with TestClient(app) as client:
-        project_a, compiled_a = _compile_one_node(client)
-        project_b, compiled_b = _compile_one_node(client)
-        project_c, compiled_c = _compile_one_node(client)
+        project_a, compiled_a = _commit_one_node(client)
+        project_b, compiled_b = _commit_one_node(client)
+        project_c, compiled_c = _commit_one_node(client)
 
-        def start(project_id: str, compile_id: str, request_id: str):
+        def start(project_id: str, workflow_commit_id: str, request_id: str):
             return client.post(
                 f"/api/v2/projects/{project_id}/runs",
                 json={
-                    "workflow_revision": 2,
-                    "compile_id": compile_id,
+                    "workflow_commit_id": workflow_commit_id,
                     "client_request_id": request_id,
                 },
             )
 
-        first = start(project_a, compiled_a["compile_id"], "serial-a")
+        first = start(project_a, compiled_a["workflow_commit_id"], "serial-a")
         assert first.status_code == 202
         assert entered.wait(timeout=1)
-        second = start(project_b, compiled_b["compile_id"], "serial-b")
+        second = start(project_b, compiled_b["workflow_commit_id"], "serial-b")
         assert second.status_code == 202
         assert calls.count("execute:test.direct.local") == 1
 
         same_project = start(
             project_a,
-            compiled_a["compile_id"],
+            compiled_a["workflow_commit_id"],
             "serial-a-conflict",
         )
         at_capacity = start(
             project_c,
-            compiled_c["compile_id"],
+            compiled_c["workflow_commit_id"],
             "serial-capacity",
         )
         assert same_project.status_code == 503
@@ -4200,7 +4546,7 @@ def test_background_runs_are_bounded_project_reserved_serial_and_joined(
         assert calls.count("execute:test.direct.local") == 2
         after_shutdown = start(
             project_c,
-            compiled_c["compile_id"],
+            compiled_c["workflow_commit_id"],
             "serial-closed",
         )
         assert after_shutdown.status_code == 503
@@ -4239,12 +4585,11 @@ def test_restart_reconciliation_closes_started_work_without_guessing_success(
                 _v2_wait_for_workers_on_shutdown=False,
             )
         ) as first:
-            project_id, compiled = _compile_one_node(first)
+            project_id, compiled = _commit_one_node(first)
             started = first.post(
                 f"/api/v2/projects/{project_id}/runs",
                 json={
-                    "workflow_revision": 2,
-                    "compile_id": compiled["compile_id"],
+                    "workflow_commit_id": compiled["workflow_commit_id"],
                     "client_request_id": "restart-incomplete",
                 },
             )
@@ -4379,21 +4724,19 @@ def test_run_event_stream_rejects_malformed_stale_and_cross_scope_cursors(
     )
 
     with TestClient(app) as client:
-        project_a, compiled_a = _compile_one_node(client)
+        project_a, compiled_a = _commit_one_node(client)
         started_a = client.post(
             f"/api/v2/projects/{project_a}/runs",
             json={
-                "workflow_revision": 2,
-                "compile_id": compiled_a["compile_id"],
+                "workflow_commit_id": compiled_a["workflow_commit_id"],
                 "client_request_id": "cursor-a",
             },
         ).json()
-        project_b, compiled_b = _compile_one_node(client)
+        project_b, compiled_b = _commit_one_node(client)
         started_b = client.post(
             f"/api/v2/projects/{project_b}/runs",
             json={
-                "workflow_revision": 2,
-                "compile_id": compiled_b["compile_id"],
+                "workflow_commit_id": compiled_b["workflow_commit_id"],
                 "client_request_id": "cursor-b",
             },
         ).json()
@@ -4480,12 +4823,11 @@ def test_projection_failure_leaves_facts_intact_and_restart_rebuilds_outputs(
             v2_environment_configuration=environment,
         )
     ) as client:
-        project_id, compiled = _compile_one_node(client)
+        project_id, compiled = _commit_one_node(client)
         started = client.post(
             f"/api/v2/projects/{project_id}/runs",
             json={
-                "workflow_revision": 2,
-                "compile_id": compiled["compile_id"],
+                "workflow_commit_id": compiled["workflow_commit_id"],
                 "client_request_id": "projection-failure",
             },
         ).json()
@@ -4640,12 +4982,11 @@ def test_restart_reconciliation_closes_each_started_outer_attempt(
                 _v2_wait_for_workers_on_shutdown=False,
             )
         ) as first:
-            project_id, compiled = _compile_one_node(first)
+            project_id, compiled = _commit_one_node(first)
             started = first.post(
                 f"/api/v2/projects/{project_id}/runs",
                 json={
-                    "workflow_revision": 2,
-                    "compile_id": compiled["compile_id"],
+                    "workflow_commit_id": compiled["workflow_commit_id"],
                     "client_request_id": blocked_fact_type,
                 },
             )
@@ -4716,12 +5057,11 @@ def test_restart_reconciliation_disposes_every_plan_node_by_direct_cause(
                 _v2_wait_for_workers_on_shutdown=False,
             )
         ) as first:
-            project_id, compiled = _compile_branching_pipeline(first)
+            project_id, compiled = _commit_branching_pipeline(first)
             started = first.post(
                 f"/api/v2/projects/{project_id}/runs",
                 json={
-                    "workflow_revision": 2,
-                    "compile_id": compiled["compile_id"],
+                    "workflow_commit_id": compiled["workflow_commit_id"],
                     "client_request_id": "restart-branching",
                 },
             )

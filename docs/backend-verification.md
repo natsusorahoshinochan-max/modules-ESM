@@ -29,15 +29,21 @@ use mode `0700` and files use mode `0600`.
 | Local ESMFold2 source contract | `.venv/bin/python scripts/verify_backend.py local-esmfold2-v2-contract` | Checks the exact source/native-result contract, static confidence normalization, no-fallback lineage, and shared folding CTK without claiming a real heavy-model invocation. |
 | Installed package | `.venv/bin/python scripts/verify_backend.py installed-package` | Reproducibly builds the wheel and sdist, installs the wheel outside the checkout, proves source/installed protocol and Catalog identity, and drives the installed server through the public v2 Workflow/Run journey. |
 | Installed Biohub ESMC | `.venv/bin/python scripts/verify_backend.py installed-biohub-esmc` | Launches only the installed artifact and invokes exact `esmc-600m-2024-12` encode plus logits through the public Workflow/Run protocol, proving Readiness, mean-embedding output, validated sequence-logits shape, and complete Engine Invocation evidence. |
+| Installed Biohub ESM-3 | `.venv/bin/python scripts/verify_backend.py installed-biohub-esm3` | Invokes all six exact medium/open sequence, structure, and paired Bindings through fresh Runs. It requires eight successful Engine Invocations and fixes SDK retries to one attempt per call. |
+| Installed Biohub ESMFold2 | `.venv/bin/python scripts/verify_backend.py installed-biohub-esmfold2` | Invokes the exact remote `esmfold2-fast-2026-05` Binding once through a fresh Run with one SDK attempt. |
 | Installed local ESM-3 | `.venv/bin/python scripts/verify_backend.py installed-local-esm3` | Invokes the installed locked local model for paired, sequence, and structure generation and requires complete invocation evidence. |
+| Installed local ESMFold2 | `.venv/bin/python scripts/verify_backend.py installed-local-esmfold2` | Invokes the exact locked ESMFold2 and ESMC snapshots through a fresh Run and requires exact-seed Method evidence. |
+| Installed ProteinMPNN | `.venv/bin/python scripts/verify_backend.py installed-proteinmpnn` | Invokes exact design and native-score Bindings through fresh Runs, then verifies designed-first multi-chain restoration and fixed-residue mapping against the same installed Provider. |
+| Installed mkdssp | `.venv/bin/python scripts/verify_backend.py installed-mkdssp` | Invokes exact mkdssp 4.6.1 through the public Run seam and verifies the canonical DSSP residue layout, secondary-structure track, SASA track, and complete Method evidence. |
 | Installed SimpleFold folding | `.venv/bin/python scripts/verify_backend.py installed-simplefold-folding` | Invokes the installed locked SimpleFold folding model with its exact model and ESM-2 assets. |
 | Installed SimpleFold confidence | `.venv/bin/python scripts/verify_backend.py installed-simplefold-confidence` | Invokes the installed exact confidence asset closure and proves direct-confidence output without refolding. |
 | Installed SoluProt | `.venv/bin/python scripts/verify_backend.py installed-soluprot` | Invokes both full and no-TM locked SoluProt methods and checks their exact observations and terminal evidence. |
 | Installed Protein-Sol | `.venv/bin/python scripts/verify_backend.py installed-protein-sol` | Invokes the source-bound Protein-Sol model for multiple sequences and all three declared Metrics. |
+| Fresh remote 3GB1 | `.venv/bin/python scripts/verify_backend.py fresh-remote-3gb1` | Runs the clean-source canonical scientific Workflow without historical Cache. Its baseline is 48 logical Engine Invocations, so it is release evidence rather than a substitute for the smaller exact-Binding gates. |
 | Provider route isolation | `.venv/bin/python scripts/verify_backend.py provider-isolation` | Exercises exact model/data identity, configuration invalidation, stale Readiness, reusable-proof identity, and isolation of actual Provider routes. |
 | Local integrity and failure closure | `.venv/bin/python scripts/verify_backend.py security-failure` | Exercises accidental path/data-loss prevention, credential redaction, process cleanup, Project/Run isolation, Cache conflict, and durable-evidence failure. This is not an attacker-hardening tier. |
 
-The six installed Provider tiers are zero-skip gates: a missing Provider,
+The eleven installed Provider tiers are zero-skip gates: a missing Provider,
 fixture-only collection, failed source-origin check, missing Engine Invocation,
 or skipped test fails the gate. The copied acceptance harness is outside the
 checkout, and its bootstrap first proves that `core`, `modules`, and
@@ -46,19 +52,42 @@ locked dependency locations to that isolated environment, but it cannot add
 the source checkout to Python's import path. Installed provider gates reject
 pytest target overrides so a smaller test cannot replace the required case.
 
-The required installed ESMC gate reads only the private Biohub credential file
-selected by `PROTEIN_WORKBENCH_BIOHUB_TOKEN_FILE`; it neither downloads nor
-requires local ESMC or ESMFold2 shards. The direct ESMC Node and Binding are
-scientifically distinct from the existing remote ESMFold2 folding Binding.
-Local ESMFold2 remains registered and fail-closed when its exact snapshots are
-absent, and its provider-free source contract remains available through
-`local-esmfold2-v2-contract`; it is not a required installed zero-skip gate.
+The installed Biohub gates read one private credential file selected by
+`PROTEIN_WORKBENCH_BIOHUB_TOKEN_FILE`, or the repository's private
+`keys/esmkey.txt` when that variable is absent. They do not download or require
+local model shards. The direct ESMC Node, the six remote ESM-3 generation
+Bindings, and remote ESMFold2 are scientifically distinct and have separate
+installed gates. Local ESMFold2 also has a real zero-skip gate; the
+provider-free `local-esmfold2-v2-contract` remains a separate source and
+translation contract and cannot replace that invocation.
 
 The verifier exposes no v1 provider-evidence, mocked-workflow,
-aggregate-provider, live-provider, or fresh-remote tier. A Provider gate
-consumes current Run Evidence Ledger facts; an Adapter-owned JSONL stream,
-readiness-only result, historical manifest, fixed call count, skip, or
-Cache-only replay cannot satisfy it.
+aggregate-provider, or generic live-provider tier. It does expose the exact
+clean-source `fresh-remote-3gb1` release tier. Every Provider gate consumes
+current Run Evidence Ledger facts; an Adapter-owned JSONL stream,
+readiness-only result, historical manifest, skip, or Cache-only replay cannot
+satisfy it. A fixed expected call count is useful only together with exact
+Binding, Method, `executed` disposition, and terminal Ledger evidence.
+
+## Trusted Provider environment configuration
+
+Provider filesystem locations and credentials are Environment Configuration,
+not Workflow parameters and not workstation-specific literals. Set the exact
+variables required by the selected gate:
+
+| Gate | Required trusted configuration |
+| --- | --- |
+| Biohub ESMC, ESM-3, ESMFold2 | Optional `PROTEIN_WORKBENCH_BIOHUB_TOKEN_FILE`, selecting one private regular credential file instead of `keys/esmkey.txt`. |
+| Local ESM-3 | `HF_HUB_CACHE` or `HF_HOME`, containing the locked snapshot. |
+| Local ESMFold2 | `PROTEIN_WORKBENCH_ESMFOLD2_MODEL_ROOT` and `PROTEIN_WORKBENCH_ESMFOLD2_ESMC_MODEL_ROOT`. |
+| ProteinMPNN | `PROTEIN_WORKBENCH_PROTEINMPNN_ROOT`. |
+| mkdssp | `PROTEIN_WORKBENCH_MKDSSP_BINARY`, selecting the exact 4.6.1 binary by absolute path. |
+| SimpleFold | `PROTEIN_WORKBENCH_SIMPLEFOLD_MODEL_ROOT`, `PROTEIN_WORKBENCH_SIMPLEFOLD_ESM2_ROOT`, and `PROTEIN_WORKBENCH_SIMPLEFOLD_ESM2_MODEL_ROOT`. |
+| SoluProt | `PROTEIN_WORKBENCH_SOLUPROT_ROOT`, selecting the trusted runtime and asset root. |
+| Protein-Sol | `PROTEIN_WORKBENCH_PROTEIN_SOL_ROOT`, selecting the trusted Protein-Sol source root. |
+
+Missing or relative required path configuration fails a zero-skip gate.
+Acceptance files do not infer Provider runtimes from another workspace.
 
 All declared pytest file targets are required to exist. A focused override after
 `--` accepts only repository-relative selectors beneath `tests/`; this keeps a
@@ -83,10 +112,10 @@ contract-owning interfaces:
   contract does not introduce a second positional or legacy implementation;
 - a concrete Provider Adapter is the only owner of provider-native translation
   and exact Provider/model/checkpoint/source provenance;
-- identical canonical PDB content has one `protein.structure@3.0.0` content
+- identical canonical PDB content has one `protein.structure@4.0.0` content
   digest independent of provider or project-source provenance, and the active
   structure wire admits no source-bearing historical shape;
-- `structure_transform.backbone_structure@3.0.0` is admitted by exact
+- `structure_transform.backbone_structure@4.0.0` is admitted by exact
   structural and atomic invariants, never by a producer/source label;
 - internal immutable values are trusted after admission, while scientific
   invariants, persistence admission, durable writes, and credential hygiene
@@ -143,10 +172,13 @@ source deployment's one active generation. Availability remains a separately
 observed startup value and is not part of the canonical Catalog descriptor.
 
 The installed public journey uses protocol-bundle operations for Catalog,
-Workflow save/snapshot/relock/compile, Start Run, Run Projection, Derived Run,
-Cancel Run, and Artifact Retrieval. Its WebSocket observes a bounded replay
-followed by live terminal evidence. The second Run must contain a Cache replay,
-and retrieved artifact bytes must match their declared digest.
+Workflow Draft authoring, one immutable Workflow Commit, Start Run by exact
+`workflow_commit_id`, Run Projection, Derived Run, Cancel Run, and Artifact
+Retrieval. The Commit atomically fixes the validated Workflow, Contract Lock,
+and Execution Plan; clients do not orchestrate separate relock or compile
+steps. Its WebSocket observes a bounded replay followed by live terminal
+evidence. The second Run must contain a Cache replay, and retrieved artifact
+bytes must match their declared digest.
 
 ## V2 public protocol and persistence
 
@@ -154,6 +186,13 @@ and retrieved artifact bytes must match their declared digest.
 contract. A running backend serves the same canonical bytes from
 `GET /api/v2/protocol`; clients use `protein_workbench_public` request and
 response validation and do not maintain v1 route or payload fallbacks.
+The same bundle owns Project creation and immutable input publication through
+`POST /api/v2/projects` and
+`POST /api/v2/projects/{project_id}/inputs`. Project Input bytes use canonical
+RFC 4648 base64 in a closed JSON request and are bounded to 64 MiB after
+decoding. `GET /api/v2/projects/{project_id}/inputs/{project_input_ref}`
+recovers the immutable filename provenance after restart from the same durable
+descriptor; there is no multipart or unversioned Project API seam.
 
 The startup-frozen `FrozenCatalog` is the only discovery and compilation
 contract source. It publishes one active exact version for each logical
@@ -179,10 +218,11 @@ are derived from that Ledger. There is no parallel provider-evidence writer.
 
 The deterministic tier uses
 `examples/v2/canonical-3gb1.workflow.json`. It exercises Catalog and Workflow
-snapshots, compile, Start Run, durable replay, Run Projection, Cache replay,
-selection, lineage, cancellation, and Artifact Retrieval. Providers are
-replaced only at their declared Adapter seams; the Frozen Catalog,
-compiler, execution engine, Cache, Ledger, and public routes remain real.
+Draft, immutable Workflow Commit, Start Run by exact `workflow_commit_id`,
+durable replay, Run Projection, Cache replay, selection, lineage,
+cancellation, and Artifact Retrieval. Providers are replaced only at their
+declared Adapter seams; the Frozen Catalog, compiler, execution engine, Cache,
+Ledger, and public routes remain real.
 
 The tier verifies the accepted ten paired ESM-3 Candidates, initial folds,
 isolated fixed-reference and paired-counterpart TM-score objectives, weighted

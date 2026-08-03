@@ -10,6 +10,7 @@ from core.port_types import CatalogBuildError, canonical_json_bytes
 from datatypes import (
     Candidate,
     CandidateCollection,
+    CandidateDataReference,
     PairwiseCandidateMapping,
     PairwiseCandidateMatch,
     ScoreCollection,
@@ -92,25 +93,28 @@ class CollectionOpsImplementation:
             items=list(candidates.items[:k]),
         )
 
-    def _candidate_digests(
+    def _candidate_references(
         self,
         call: OperationCall,
         value: object,
         *,
         port: str,
-    ) -> tuple[CandidateCollection, dict[str, tuple[Candidate, str]]]:
+    ) -> tuple[
+        CandidateCollection,
+        dict[str, tuple[Candidate, CandidateDataReference]],
+    ]:
         if type(value) is not CandidateCollection or not value.items:
             raise ValueError(f"{port} must be a non-empty Candidate Collection")
         admitted = call.input_content_digests.get(port)
         if admitted is None:
             raise ValueError(f"{port} has no admitted Candidate content identity")
         admitted_by_id = {
-            entry.candidate_id: entry.content_digest
+            entry.candidate_id: entry
             for entry in admitted.candidate_data
         }
         if len(admitted_by_id) != len(admitted.candidate_data):
             raise ValueError(f"{port} has duplicate admitted Candidate identities")
-        by_id: dict[str, tuple[Candidate, str]] = {}
+        by_id: dict[str, tuple[Candidate, CandidateDataReference]] = {}
         for candidate in value.items:
             if (
                 type(candidate) is not Candidate
@@ -120,14 +124,14 @@ class CollectionOpsImplementation:
                 raise ValueError(
                     f"{port} contains incomplete or duplicate Candidates"
                 )
-            content_digest = admitted_by_id.get(candidate.candidate_id)
-            if content_digest is None:
+            reference = admitted_by_id.get(candidate.candidate_id)
+            if reference is None:
                 raise ValueError(
                     f"{port} Candidate content identity was not admitted"
                 )
             by_id[candidate.candidate_id] = (
                 candidate,
-                content_digest,
+                reference,
             )
         if set(admitted_by_id) != set(by_id):
             raise ValueError(
@@ -150,17 +154,17 @@ class CollectionOpsImplementation:
                 "pairing rebinding requires exact subject, parent, reference, "
                 "and parent_pairing inputs"
             )
-        subjects, subjects_by_id = self._candidate_digests(
+        subjects, subjects_by_id = self._candidate_references(
             call,
             inputs["subjects"],
             port="subjects",
         )
-        parents, parents_by_id = self._candidate_digests(
+        parents, parents_by_id = self._candidate_references(
             call,
             inputs["parents"],
             port="parents",
         )
-        references, references_by_id = self._candidate_digests(
+        references, references_by_id = self._candidate_references(
             call,
             inputs["references"],
             port="references",
@@ -168,31 +172,32 @@ class CollectionOpsImplementation:
         pairing = inputs["parent_pairing"]
         if type(pairing) is not PairwiseCandidateMapping:
             raise ValueError("parent_pairing must be an exact Candidate pairing")
-        parent_to_reference: dict[str, tuple[str, str]] = {}
-        seen_references: set[str] = set()
+        parent_to_reference: dict[
+            str, CandidateDataReference
+        ] = {}
+        seen_references: set[CandidateDataReference] = set()
         for entry in pairing.entries:
-            parent = parents_by_id.get(entry.subject_candidate_id)
-            reference = references_by_id.get(entry.reference_candidate_id)
+            parent = parents_by_id.get(entry.subject.candidate_id)
+            reference = references_by_id.get(entry.reference.candidate_id)
             if (
                 parent is None
                 or reference is None
-                or parent[1] != entry.subject_content_digest
-                or reference[1] != entry.reference_content_digest
-                or entry.subject_candidate_id in parent_to_reference
-                or entry.reference_candidate_id in seen_references
+                or parent[1] != entry.subject
+                or reference[1] != entry.reference
+                or entry.subject.candidate_id in parent_to_reference
+                or entry.reference in seen_references
             ):
                 raise ValueError(
                     "parent_pairing contradicts exact Candidate identities "
                     "or content"
                 )
-            parent_to_reference[entry.subject_candidate_id] = (
-                entry.reference_candidate_id,
-                entry.reference_content_digest,
-            )
-            seen_references.add(entry.reference_candidate_id)
+            parent_to_reference[entry.subject.candidate_id] = entry.reference
+            seen_references.add(entry.reference)
         if set(parent_to_reference) != set(parents_by_id):
             raise ValueError("parent_pairing is not complete for all parents")
-        if seen_references != set(references_by_id):
+        if seen_references != {
+            reference for _, reference in references_by_id.values()
+        }:
             raise ValueError(
                 "parent_pairing is not complete for all references"
             )
@@ -214,20 +219,19 @@ class CollectionOpsImplementation:
                 raise ValueError(
                     "each subject must have exactly one total parent"
                 )
-            reference_id, reference_digest = parent_to_reference[parent_id]
-            if parent_id in used_parents or reference_id in used_references:
+            reference = parent_to_reference[parent_id]
+            if (
+                parent_id in used_parents
+                or reference.candidate_id in used_references
+            ):
                 raise ValueError(
                     "pairing rebinding requires one subject per exact parent"
                 )
             used_parents.add(parent_id)
-            used_references.add(reference_id)
+            used_references.add(reference.candidate_id)
             rebound.append(PairwiseCandidateMatch(
-                subject_candidate_id=subject.candidate_id,
-                subject_content_digest=subjects_by_id[
-                    subject.candidate_id
-                ][1],
-                reference_candidate_id=reference_id,
-                reference_content_digest=reference_digest,
+                subject=subjects_by_id[subject.candidate_id][1],
+                reference=reference,
             ))
         if used_parents != set(parents_by_id):
             raise ValueError("subjects do not cover every exact parent")
@@ -242,12 +246,12 @@ class CollectionOpsImplementation:
             raise ValueError(
                 "sibling pairing requires exact subject and reference inputs"
             )
-        subjects, subjects_by_id = self._candidate_digests(
+        subjects, subjects_by_id = self._candidate_references(
             call,
             inputs["subjects"],
             port="subjects",
         )
-        references, references_by_id = self._candidate_digests(
+        references, references_by_id = self._candidate_references(
             call,
             inputs["references"],
             port="references",
@@ -280,14 +284,8 @@ class CollectionOpsImplementation:
             )
         return PairwiseCandidateMapping([
             PairwiseCandidateMatch(
-                subject_candidate_id=subject.candidate_id,
-                subject_content_digest=subjects_by_id[
-                    subject.candidate_id
-                ][1],
-                reference_candidate_id=(
-                    references_by_parent[subject.parent_ids[0]].candidate_id
-                ),
-                reference_content_digest=references_by_id[
+                subject=subjects_by_id[subject.candidate_id][1],
+                reference=references_by_id[
                     references_by_parent[
                         subject.parent_ids[0]
                     ].candidate_id

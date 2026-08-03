@@ -1,23 +1,23 @@
 schema_version: "2.1.0"
 node_type_id: structure_transform.select_chains
-version: "3.0.0"
+version: "4.0.0"
 title: Select structure chains
-summary: Selects an ordered, nonempty set of chains from one single-model structure.
+summary: Selects an ordered, nonempty set of chains while preserving their MODRES and SEQRES polymer declarations.
 category: structure_transform
 inputs:
   - name: structure
     port_type_id: protein.structure
-    port_type_version: "3.0.0"
+    port_type_version: "4.0.0"
     required: true
     multiplicity: one
     scientific_meaning: Full-atom single-model structure whose chains will be selected.
 outputs:
   - name: structure
     port_type_id: protein.structure
-    port_type_version: "3.0.0"
+    port_type_version: "4.0.0"
     required: true
     multiplicity: one
-    scientific_meaning: Canonical structure containing exactly the requested chains in requested order.
+    scientific_meaning: Canonical structure containing exactly the requested coordinate chains and their polymer declarations in requested order.
 parameter_groups:
   - id: chain_selection
     title: Chain selection

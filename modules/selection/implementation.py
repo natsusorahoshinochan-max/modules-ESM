@@ -9,17 +9,20 @@ from typing import Any
 from core.operation import OperationCall
 from core.port_types import canonical_sha256
 from core.scoring_v2 import (
-    ResolvedMetricFacts,
     ResolvedObservationSelector,
     ResolvedSelectionObjective,
     SelectionError,
+    observation_selector_identity_facts_from_facts,
     rank_candidates_by_weighted_utility,
     resolve_candidate_utilities_from_facts,
     resolve_objective_observations,
+    selection_objective_identity_facts_from_facts,
     weighted_utility_totals,
 )
 from datatypes import (
     CandidateCollection,
+    CandidateDataReference,
+    PairwiseObservationContext,
     ScoreCollection,
     ScoreObservation,
 )
@@ -54,13 +57,16 @@ class SelectionImplementation:
             raise ValueError("selection requires one exact Candidate Collection")
         if type(scores) is not ScoreCollection:
             raise ValueError("selection requires one exact Score Collection")
-        candidate_content_digests = self._candidate_content_digests(call)
+        candidate_data_references = self._candidate_data_references(
+            call,
+            candidates,
+        )
         if self._operation in {"weighted_rank", "pareto", "diversity"}:
             return self._execute_multi_objective(
                 candidates=candidates,
                 scores=scores,
                 node_parameters=call.node_parameters,
-                candidate_content_digests=candidate_content_digests,
+                candidate_data_references=candidate_data_references,
             )
         if (
             call.node_parameters.get("tie_policy")
@@ -88,14 +94,23 @@ class SelectionImplementation:
                 out_of_scope_policy=out_of_scope_policy,
                 duplicate_policy="error",
             )
+            self._require_exact_observation_subjects(
+                matching,
+                candidate_data_references,
+            )
             selected = self._filter(
                 candidates=candidates,
                 matching=matching,
                 operator=call.node_parameters.get("operator"),
                 threshold=call.node_parameters.get("threshold"),
-                metric=selector_facts.metric,
             )
-            selection_contract = selector.to_public()
+            selection_contract = (
+                observation_selector_identity_facts_from_facts(
+                    (selector_facts,),
+                    candidate_input_port="candidates",
+                    score_collection_input_port="scores",
+                )[0]
+            )
         else:
             objective_id = call.node_parameters.get("objective_id")
             objective_facts = self._objectives.get(objective_id)
@@ -130,10 +145,16 @@ class SelectionImplementation:
                     objective.score_collection_input: scoped_scores
                 },
                 objectives=(objective_facts,),
-                candidate_content_digests=candidate_content_digests,
+                candidate_data_references=candidate_data_references,
             )
             ranked = rank_candidates_by_weighted_utility(profile)
-            selection_contract = objective.to_public()
+            selection_contract = (
+                selection_objective_identity_facts_from_facts(
+                    (objective_facts,),
+                    candidate_input_port="candidates",
+                    score_collection_input_port="scores",
+                )[0]
+            )
 
         if self._operation == "sort":
             selected = list(ranked)
@@ -153,11 +174,15 @@ class SelectionImplementation:
 
         collection_identity = canonical_sha256(
             {
-                "schema_namespace": "protein-workbench-selection-output/v2",
+                "schema_namespace": "protein-workbench-selection-output/v4",
                 "operation": self._operation,
                 "input_collection_id": candidates.collection_id,
                 "selection_contract": selection_contract,
-                "parameters": dict(call.node_parameters),
+                "parameters": {
+                    name: value
+                    for name, value in call.node_parameters.items()
+                    if name not in {"objective_id", "selector_id"}
+                },
                 "selected_candidate_ids": [
                     candidate.candidate_id for candidate in selected
                 ],
@@ -179,7 +204,10 @@ class SelectionImplementation:
         candidates: CandidateCollection,
         scores: ScoreCollection,
         node_parameters: Mapping[str, Any],
-        candidate_content_digests: Mapping[str, str],
+        candidate_data_references: Mapping[
+            str,
+            CandidateDataReference,
+        ],
     ) -> dict[str, CandidateCollection]:
         objective_ids = node_parameters.get("objective_ids")
         if (
@@ -219,7 +247,7 @@ class SelectionImplementation:
             candidate_inputs={next(iter(candidate_references)): candidates},
             score_collection_inputs={next(iter(score_references)): scores},
             objectives=typed_objectives,
-            candidate_content_digests=candidate_content_digests,
+            candidate_data_references=candidate_data_references,
         )
         aggregate = weighted_utility_totals(profile)
         if self._operation == "weighted_rank":
@@ -323,14 +351,21 @@ class SelectionImplementation:
         collection_identity = canonical_sha256(
             {
                 "schema_namespace": (
-                    "protein-workbench-multi-objective-selection-output/v2"
+                    "protein-workbench-multi-objective-selection-output/v4"
                 ),
                 "operation": self._operation,
                 "input_collection_id": candidates.collection_id,
-                "objectives": profile.public_provenance()["objectives"],
+                "objectives": list(
+                    selection_objective_identity_facts_from_facts(
+                        typed_objectives,
+                        candidate_input_port="candidates",
+                        score_collection_input_port="scores",
+                    )
+                ),
                 "parameters": {
                     name: list(value) if isinstance(value, tuple) else value
                     for name, value in node_parameters.items()
+                    if name != "objective_ids"
                 },
                 "selected_candidate_ids": [
                     candidate.candidate_id for candidate in selected
@@ -354,12 +389,7 @@ class SelectionImplementation:
         matching: Mapping[str, ScoreObservation],
         operator: object,
         threshold: object,
-        metric: ResolvedMetricFacts,
     ) -> list[Any]:
-        if metric.value_shape != "scalar":
-            raise SelectionError(
-                "filter requires a scalar exact Metric Definition"
-            )
         if (
             isinstance(threshold, bool)
             or not isinstance(threshold, (int, float))
@@ -383,20 +413,54 @@ class SelectionImplementation:
         ]
 
     @staticmethod
-    def _candidate_content_digests(
+    def _candidate_data_references(
         call: OperationCall,
-    ) -> Mapping[str, str]:
+        candidates: CandidateCollection,
+    ) -> Mapping[str, CandidateDataReference]:
         admitted = call.input_content_digests.get("candidates")
         if admitted is None:
             raise ValueError(
                 "selection Candidate content identities were not admitted"
             )
-        resolved = {
-            item.candidate_id: item.content_digest
-            for item in admitted.candidate_data
-        }
+        if len(admitted.candidate_data) != len(candidates.items):
+            raise ValueError(
+                "selection Candidate content identities are incomplete"
+            )
+        resolved: dict[str, CandidateDataReference] = {}
+        for candidate, reference in zip(
+            candidates.items,
+            admitted.candidate_data,
+            strict=True,
+        ):
+            if candidate.candidate_id != reference.candidate_id:
+                raise ValueError(
+                    "selection Candidate content identity names a different "
+                    "Candidate"
+                )
+            resolved[reference.candidate_id] = reference
         if len(resolved) != len(admitted.candidate_data):
             raise ValueError(
                 "selection has duplicate admitted Candidate identities"
             )
         return resolved
+
+    @staticmethod
+    def _require_exact_observation_subjects(
+        observations: Mapping[str, ScoreObservation],
+        candidates: Mapping[str, CandidateDataReference],
+    ) -> None:
+        for candidate_id, observation in observations.items():
+            expected = candidates.get(candidate_id)
+            if expected is None or observation.subject != expected:
+                raise SelectionError(
+                    "Observation subject does not match the exact Candidate "
+                    "Data Reference"
+                )
+            if (
+                isinstance(observation.context, PairwiseObservationContext)
+                and observation.context.subject.candidate != expected
+            ):
+                raise SelectionError(
+                    "Pairwise Context subject does not match the exact "
+                    "Candidate Data Reference"
+                )

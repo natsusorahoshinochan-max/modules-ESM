@@ -21,14 +21,17 @@ from core import (
 from .adapter import (
     LocalProteinSolAdapter,
     LocalSoluProtAdapter,
+    PROTEIN_SOL_ARCHIVE_SHA256,
     PROTEIN_SOL_BASH_SHA256,
     PROTEIN_SOL_BASH_VERSION,
     PROTEIN_SOL_CALIBRATION_CONTEXT,
+    PROTEIN_SOL_OFFICIAL_DOWNLOAD_URL,
     PROTEIN_SOL_PERL_SHA256,
     PROTEIN_SOL_PERL_VERSION,
     PROTEIN_SOL_RELEASE,
     PROTEIN_SOL_SOURCE_SHA256,
     SOLUPROT_DATABASE_SHA256,
+    SOLUPROT_CODE_SHA256,
     SOLUPROT_FEATURES_SHA256,
     SOLUPROT_MODEL_SHA256,
     SOLUPROT_MODEL_TREES_SHA256,
@@ -40,7 +43,7 @@ from .adapter import (
     SOLUPROT_SOURCE_SHA256,
     SOLUPROT_TMHMM_SHA256,
     SOLUPROT_USEARCH_SHA256,
-    SOLUPROT_VERSION,
+    SOLUPROT_PORT_VERSION,
     SoluProtMode,
     configured_protein_sol_runtime_fingerprint,
     configured_runtime_fingerprint,
@@ -49,7 +52,10 @@ from .adapter import (
 )
 
 
-_VERSION = "2.1.0"
+_PACKAGE_VERSION = "3.0.0"
+_METHOD_VERSION = "3.0.0"
+_METRIC_VERSION = "2.1.0"
+_NODE_BINDING_VERSION = "4.0.0"
 _MODES: tuple[SoluProtMode, ...] = ("full", "no_tm")
 
 
@@ -105,9 +111,12 @@ def _method(mode: SoluProtMode) -> MethodDefinition:
     model_variant = "grad_clf_v1_tc" if tm_feature else "grad_clf_v1_tc_notmhmm"
     return MethodDefinition(
         method_id=f"solubility.soluprot_{mode}.v1_1_0",
-        version=_VERSION,
+        version=_METHOD_VERSION,
         algorithm_identity={
-            "name": "SoluProt gradient-boosting soluble-expression predictor",
+            "name": (
+                "Protein Workbench project-maintained SoluProt "
+                "gradient-boosting port"
+            ),
             "variant": model_variant,
             "transmembrane_features": tm_feature,
             "provider_postprocessing": {
@@ -116,8 +125,9 @@ def _method(mode: SoluProtMode) -> MethodDefinition:
             },
         },
         model_identity={
-            "provider": "SoluProt",
-            "provider_version": SOLUPROT_VERSION,
+            "provider": "Protein Workbench project-maintained SoluProt port",
+            "port_artifact_version": SOLUPROT_PORT_VERSION,
+            "upstream_model_family": "SoluProt",
             "model_variant": model_variant,
         },
         checkpoint_identity={
@@ -137,9 +147,13 @@ def _method(mode: SoluProtMode) -> MethodDefinition:
             ),
         },
         source_identity={
-            "dependency": "soluprot",
-            "version": SOLUPROT_VERSION,
+            "kind": "project_maintained_locked_port",
+            "upstream_project": "SoluProt",
+            "port_distribution": "soluprot",
+            "port_artifact_version": SOLUPROT_PORT_VERSION,
             "wheel_sha256": SOLUPROT_SOURCE_SHA256,
+            "installed_code_sha256": SOLUPROT_CODE_SHA256,
+            "official_release_equivalence": "not_claimed",
         },
         scale_contract={
             "quantity": "soluble_expression_probability",
@@ -160,36 +174,44 @@ def _binding(mode: SoluProtMode) -> ExecutionBindingDefinition:
     tm_feature = mode == "full"
     return ExecutionBindingDefinition(
         binding_id=f"solubility.soluprot_{mode}.local",
-        version=_VERSION,
+        version=_NODE_BINDING_VERSION,
         node_type=ContractIdentity(
             "node_type",
             "solubility.score_sequence",
-            _VERSION,
+            _NODE_BINDING_VERSION,
         ),
-        method=ContractIdentity("method", method_id, _VERSION),
+        method=ContractIdentity(
+            "method",
+            method_id,
+            _METHOD_VERSION,
+        ),
         binding_parameters={},
         execution_route="adapter",
         factory=ScientificOperationFactory(
             behavior=BehaviorReference(
                 f"solubility.soluprot_{mode}/factory",
-                _VERSION,
+                _NODE_BINDING_VERSION,
                 {"mode": mode, "provider_import": "lazy"},
             ),
             build=_build(mode),
         ),
         adapter_behavior=BehaviorReference(
             f"solubility.soluprot_{mode}/adapter",
-            _VERSION,
+            _NODE_BINDING_VERSION,
             {
-                "provider": "soluprot",
-                "provider_version": SOLUPROT_VERSION,
+                "provider": "protein-workbench-soluprot-port",
+                "port_artifact_version": SOLUPROT_PORT_VERSION,
+                "official_release_equivalence": "not_claimed",
                 "mode": mode,
+                "request_subject_identity": "candidate_{zero_based_index}",
+                "parser": "documented-csv-provider-order",
+                "response_subject_join": "staged-fasta-identity",
             },
         ),
         availability=AvailabilityDeclaration(
             behavior=BehaviorReference(
                 f"solubility.soluprot_{mode}/availability",
-                _VERSION,
+                _NODE_BINDING_VERSION,
                 {
                     "observation": "startup",
                     "provider_import": "forbidden",
@@ -202,7 +224,7 @@ def _binding(mode: SoluProtMode) -> ExecutionBindingDefinition:
         readiness=ReadinessDeclaration(
             behavior=BehaviorReference(
                 f"solubility.soluprot_{mode}/readiness",
-                _VERSION,
+                _NODE_BINDING_VERSION,
                 {
                     "observation": "per-run",
                     "mode": mode,
@@ -257,9 +279,11 @@ def _binding(mode: SoluProtMode) -> ExecutionBindingDefinition:
         cacheable=True,
         implementation_identity={
             "name": f"solubility.soluprot_{mode}.local-adapter",
-            "provider": "soluprot",
-            "provider_version": SOLUPROT_VERSION,
-            "source_sha256": SOLUPROT_SOURCE_SHA256,
+            "provider": "protein-workbench-soluprot-port",
+            "port_artifact_version": SOLUPROT_PORT_VERSION,
+            "wheel_sha256": SOLUPROT_SOURCE_SHA256,
+            "installed_code_sha256": SOLUPROT_CODE_SHA256,
+            "official_release_equivalence": "not_claimed",
             "mode": mode,
             "model_json_sha256": SOLUPROT_MODEL_SHA256[mode],
             "model_arrays_sha256": SOLUPROT_MODEL_TREES_SHA256[mode],
@@ -292,7 +316,7 @@ def _binding(mode: SoluProtMode) -> ExecutionBindingDefinition:
                 metric=ContractIdentity(
                     "metric",
                     "solubility.soluprot_probability",
-                    _VERSION,
+                    _METRIC_VERSION,
                 ),
                 context_profile={"kind": "intrinsic"},
                 subject_grain="candidate",
@@ -308,7 +332,7 @@ def _binding(mode: SoluProtMode) -> ExecutionBindingDefinition:
 def _protein_sol_method() -> MethodDefinition:
     return MethodDefinition(
         method_id="solubility.protein_sol.sequence_prediction_2017",
-        version=_VERSION,
+        version=_METHOD_VERSION,
         algorithm_identity={
             "name": "Protein-Sol sequence-based soluble-fraction predictor",
             "training_population": "niwa_non_membrane_2396",
@@ -364,10 +388,12 @@ def _protein_sol_method() -> MethodDefinition:
             },
         },
         source_identity={
-            "dependency": "protein-sol",
+            "kind": "official_release_archive",
+            "provider": "Protein-Sol",
             "release": PROTEIN_SOL_RELEASE,
-            "workspace_repository": "ESM-workflow-NEXT",
-            "dependency_subpath": "vendor/protein-sol",
+            "official_download_url": PROTEIN_SOL_OFFICIAL_DOWNLOAD_URL,
+            "download_url_role": "locator_only",
+            "archive_sha256": PROTEIN_SOL_ARCHIVE_SHA256,
             "source_files_sha256": PROTEIN_SOL_SOURCE_SHA256,
         },
         scale_contract={
@@ -398,40 +424,46 @@ def _protein_sol_method() -> MethodDefinition:
 def _protein_sol_binding() -> ExecutionBindingDefinition:
     return ExecutionBindingDefinition(
         binding_id="solubility.protein_sol.local",
-        version=_VERSION,
+        version=_NODE_BINDING_VERSION,
         node_type=ContractIdentity(
             "node_type",
             "solubility.score_sequence",
-            _VERSION,
+            _NODE_BINDING_VERSION,
         ),
         method=ContractIdentity(
             "method",
             "solubility.protein_sol.sequence_prediction_2017",
-            _VERSION,
+            _METHOD_VERSION,
         ),
         binding_parameters={},
         execution_route="adapter",
         factory=ScientificOperationFactory(
             behavior=BehaviorReference(
                 "solubility.protein_sol/factory",
-                _VERSION,
-                {"provider_import": "not-applicable", "source_copy": "exact"},
+                _NODE_BINDING_VERSION,
+                {
+                    "provider_import": "not-applicable",
+                    "source_copy": "after-readiness-attestation",
+                },
             ),
             build=_build_protein_sol,
         ),
         adapter_behavior=BehaviorReference(
             "solubility.protein_sol/adapter",
-            _VERSION,
+            _NODE_BINDING_VERSION,
             {
                 "provider": "protein-sol",
                 "release": PROTEIN_SOL_RELEASE,
-                "parser": "closed-sequence-predictions-v1",
+                "official_archive_sha256": PROTEIN_SOL_ARCHIVE_SHA256,
+                "request_subject_identity": "candidate_{zero_based_index}",
+                "parser": "documented-predictions-provider-order",
+                "response_subject_join": "staged-fasta-identity",
             },
         ),
         availability=AvailabilityDeclaration(
             behavior=BehaviorReference(
                 "solubility.protein_sol/availability",
-                _VERSION,
+                _NODE_BINDING_VERSION,
                 {
                     "observation": "startup",
                     "source_probe": "forbidden",
@@ -443,7 +475,7 @@ def _protein_sol_binding() -> ExecutionBindingDefinition:
         readiness=ReadinessDeclaration(
             behavior=BehaviorReference(
                 "solubility.protein_sol/readiness",
-                _VERSION,
+                _NODE_BINDING_VERSION,
                 {
                     "observation": "per-run",
                     "cache_order": "before-cache-lookup",
@@ -451,6 +483,11 @@ def _protein_sol_binding() -> ExecutionBindingDefinition:
                 },
             ),
             prerequisites={
+                "official_archive": {
+                    "download_url": PROTEIN_SOL_OFFICIAL_DOWNLOAD_URL,
+                    "download_url_role": "locator_only",
+                    "sha256": PROTEIN_SOL_ARCHIVE_SHA256,
+                },
                 "source_files_sha256": PROTEIN_SOL_SOURCE_SHA256,
                 "bash": {
                     "version": PROTEIN_SOL_BASH_VERSION,
@@ -472,6 +509,8 @@ def _protein_sol_binding() -> ExecutionBindingDefinition:
             "name": "solubility.protein_sol.local-adapter",
             "provider": "protein-sol",
             "release": PROTEIN_SOL_RELEASE,
+            "official_download_url": PROTEIN_SOL_OFFICIAL_DOWNLOAD_URL,
+            "official_archive_sha256": PROTEIN_SOL_ARCHIVE_SHA256,
             "source_files_sha256": PROTEIN_SOL_SOURCE_SHA256,
             "bash_version": PROTEIN_SOL_BASH_VERSION,
             "bash_sha256": PROTEIN_SOL_BASH_SHA256,
@@ -486,7 +525,11 @@ def _protein_sol_binding() -> ExecutionBindingDefinition:
             ProducedObservationDefinition(
                 output_port="scores",
                 output_partition=partition,
-                metric=ContractIdentity("metric", metric_id, _VERSION),
+                metric=ContractIdentity(
+                    "metric",
+                    metric_id,
+                    _METRIC_VERSION,
+                ),
                 context_profile=context_profile,
                 subject_grain="candidate",
                 source_role="subject",
@@ -518,7 +561,7 @@ def _protein_sol_binding() -> ExecutionBindingDefinition:
 MODULE_PACKAGE = ModulePackageRegistration(
     schema_version="2.1.0",
     package_id="solubility",
-    package_version=_VERSION,
+    package_version=_PACKAGE_VERSION,
     package_module=__package__,
     node_definitions=(
         DefinitionResource("definitions/score_sequence.yaml"),

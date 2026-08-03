@@ -36,7 +36,6 @@ from core.workflow_v2 import (
     WorkflowDocument,
     WorkflowEdge,
     WorkflowNodeInstance,
-    parse_workflow_document,
 )
 from datatypes import CandidateCollection, ScoreCollection, ScoreObservation
 
@@ -346,7 +345,12 @@ def _verify_case(
     )
     project = project_manager.create(f"Contract Test Kit: {case.case_id}")
     for reference, payload in case.project_inputs.items():
-        project_manager.publish_input(project.id, reference, payload)
+        project_manager.publish_input(
+            project.id,
+            reference,
+            payload,
+            filename=reference,
+        )
     authoring = WorkflowAuthoringService(project_manager, catalog)
     workflow = WorkflowDocument(
         schema_version="2.1.0",
@@ -368,20 +372,10 @@ def _verify_case(
         observation_selectors=case.observation_selectors,
         selection_objectives=case.selection_objectives,
     )
-    saved = authoring.save(
+    committed = authoring.commit(
         project.id,
-        expected_workflow_revision=0,
+        expected_draft_revision=0,
         workflow=workflow,
-    )
-    relocked = authoring.relock(
-        project.id,
-        workflow_revision=saved["workflow_revision"],
-    )
-    locked_workflow = parse_workflow_document(relocked["workflow"])
-    compiled = authoring.compile(
-        project.id,
-        workflow_revision=relocked["workflow_revision"],
-        workflow=locked_workflow,
     )
     service = V2RunService(
         project_manager,
@@ -400,8 +394,7 @@ def _verify_case(
     try:
         receipt = service.start_background(
             project.id,
-            workflow_revision=relocked["workflow_revision"],
-            compile_id=compiled.public_receipt()["compile_id"],
+            workflow_commit_id=committed.workflow_commit_id,
             client_request_id=f"ctk-{case.case_id}",
         )
         service.shutdown()

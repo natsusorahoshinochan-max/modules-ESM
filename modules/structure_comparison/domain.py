@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from datatypes import ExactContractReference, PairwiseParticipant
+from datatypes import CandidateDataReference, ExactContractReference
 
 
 Vector3 = tuple[float, float, float]
@@ -37,24 +37,62 @@ class StructureAlignmentTransform:
 
 @dataclass(frozen=True, slots=True)
 class StructureAlignmentNormalization:
-    """Exact inputs used to interpret correspondence coverage and RMSD."""
+    """Exact resolved-axis and admitted-CA normalization counts."""
 
-    atom_selection: str
-    subject_residue_count: int
-    reference_residue_count: int
+    subject_axis_residue_count: int
+    reference_axis_residue_count: int
+    subject_ca_count: int
+    reference_ca_count: int
     aligned_atom_count: int
-    coverage_denominator: str
 
 
 @dataclass(frozen=True, slots=True)
 class StructureAlignmentEvidence:
-    """Complete evidence for one subject-to-reference superposition."""
+    """Candidate-associated v4 evidence for one exact superposition."""
 
-    subject: PairwiseParticipant
-    reference: PairwiseParticipant
+    subject: CandidateDataReference
+    reference: CandidateDataReference
+    subject_axis_content_digest: str
+    reference_axis_content_digest: str
+    segment_map: tuple[AlignmentSegmentMapEntry, ...]
+    policy: AlignmentCorrespondencePolicy
     correspondence: tuple[AlignmentAtomCorrespondence, ...]
     transform: StructureAlignmentTransform
     normalization: StructureAlignmentNormalization
     rmsd: float
     coverage: float
     method: ExactContractReference
+
+
+@dataclass(frozen=True, slots=True)
+class AlignmentSegmentMapEntry:
+    """One deterministic subject-to-reference segment assignment."""
+
+    subject_segment_index: int
+    reference_segment_index: int
+    subject_chain_id: str
+    reference_chain_id: str
+    sequence_score: int | None
+    paired_residue_count: int
+    cigar: str
+
+
+@dataclass(frozen=True, slots=True)
+class AlignmentCorrespondencePolicy:
+    """The exact residue-correspondence policy used before superposition."""
+
+    kind: str
+    pin_matching_chain_ids: bool
+
+
+@dataclass(frozen=True, slots=True)
+class ResolvedAxisAlignment:
+    """Pure alignment result before Candidate-associated evidence wrapping."""
+
+    segment_map: tuple[AlignmentSegmentMapEntry, ...]
+    policy: AlignmentCorrespondencePolicy
+    correspondence: tuple[AlignmentAtomCorrespondence, ...]
+    transform: StructureAlignmentTransform
+    normalization: StructureAlignmentNormalization
+    rmsd: float
+    coverage: float

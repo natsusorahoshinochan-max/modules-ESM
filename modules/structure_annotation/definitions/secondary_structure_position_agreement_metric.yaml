@@ -1,0 +1,38 @@
+schema_version: "2.1.0"
+metric_id: structure_annotation.secondary_structure.position_agreement
+version: "3.0.0"
+title: Per-residue secondary-structure agreement
+description: Per-residue binary exact-SS8 agreement for positions present on both candidate-associated tracks, on the exact resolved subject structure residue axis carried by every Observation.
+value_shape: per_residue
+unit: dimensionless
+direction: higher_is_better
+canonical_range:
+  minimum: 0
+  maximum: 1
+granularity: residue
+aggregation_semantics:
+  kind: none
+observation_context_schema:
+  type: object
+  properties:
+    kind:
+      const: pairwise
+    subject_role:
+      const: subject
+    reference_role:
+      const: reference
+    pairing_mode:
+      const: fixed_reference
+    normalization:
+      const: exact-SS8-present-residue
+  required:
+    - kind
+    - subject_role
+    - reference_role
+    - pairing_mode
+    - normalization
+  additionalProperties: false
+validation_contract:
+  finite: true
+  masking:
+    allow_null: true

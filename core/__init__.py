@@ -30,7 +30,7 @@ from core.module_package import (
     build_frozen_catalog,
     discover_module_packages,
 )
-from core.project import ProjectManager, ProjectMeta
+from core.project import ProjectInputIntegrityError, ProjectManager, ProjectMeta
 from core.port_types import (
     BehaviorReference,
     CatalogBuildError,
@@ -46,7 +46,6 @@ from core.port_types import (
     canonical_sha256,
 )
 from core.operation import (
-    CandidateDataDigest,
     CandidatePairingIntent,
     CandidatePairingIntentEntry,
     InputContentDigests,
@@ -87,6 +86,8 @@ from core.scoring_v2 import (
 from core.workflow_authoring_v2 import (
     WorkflowAuthoringError,
     WorkflowAuthoringService,
+    WorkflowCommit,
+    WorkflowDraft,
 )
 from core.workflow_v2 import (
     CompiledWorkflow,
@@ -109,7 +110,6 @@ __all__ = [
     "AvailabilityResult",
     "CatalogBuildError",
     "CatalogContract",
-    "CandidateDataDigest",
     "CandidatePairingIntent",
     "CandidatePairingIntentEntry",
     "ContractIdentity",
@@ -137,6 +137,7 @@ __all__ = [
     "PairwiseContextSelector",
     "ProducedObservationDefinition",
     "ResolvedProducedObservation",
+    "ProjectInputIntegrityError",
     "ProjectManager",
     "ProjectMeta",
     "RunContext",
@@ -169,6 +170,8 @@ __all__ = [
     "UtilityTransformDefinition",
     "WorkflowAuthoringError",
     "WorkflowAuthoringService",
+    "WorkflowCommit",
+    "WorkflowDraft",
     "WorkflowCompileError",
     "WorkflowDocument",
     "WorkflowDocumentError",

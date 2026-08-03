@@ -1,58 +1,40 @@
 """Sequence-aware CA alignment owned by structure comparison."""
 
-from collections.abc import Callable
-from contextlib import AbstractContextManager, nullcontext
 from dataclasses import dataclass
-from functools import lru_cache
-import math
 
 import numpy as np
-from Bio.Align import PairwiseAligner, substitution_matrices
+from Bio.Align import substitution_matrices
 from Bio.SVDSuperimposer import SVDSuperimposer
+from scipy.optimize import linear_sum_assignment
+from tmtools import tm_align
 
-from datatypes import ProteinStructure, StructureAlignment
+from datatypes import ResolvedStructureResidueAxis
 
-
-_AA_3TO1 = {
-    "ALA": "A",
-    "ARG": "R",
-    "ASN": "N",
-    "ASP": "D",
-    "CYS": "C",
-    "GLN": "Q",
-    "GLU": "E",
-    "GLY": "G",
-    "HIS": "H",
-    "ILE": "I",
-    "LEU": "L",
-    "LYS": "K",
-    "MET": "M",
-    "PHE": "F",
-    "PRO": "P",
-    "SER": "S",
-    "THR": "T",
-    "TRP": "W",
-    "TYR": "Y",
-    "VAL": "V",
-}
-_SEQUENCE_GAP_OPEN_SCORE = -3.0
-_SEQUENCE_GAP_EXTEND_SCORE = -0.5
-_SEQUENCE_END_GAP_OPEN_SCORE = -2.0
-_SEQUENCE_END_GAP_EXTEND_SCORE = -0.5
-_MAX_EXHAUSTIVE_SEQUENCE_ALIGNMENTS = 1024
+from .domain import (
+    AlignmentAtomCorrespondence,
+    AlignmentCorrespondencePolicy,
+    AlignmentSegmentMapEntry,
+    ResolvedAxisAlignment,
+    StructureAlignmentNormalization,
+    StructureAlignmentTransform,
+)
 
 
-@dataclass(frozen=True)
-class _ResidueCA:
-    amino_acid: str
-    chain: str
-    residue_number: str
-    insertion_code: str
-    coordinate: tuple[float, float, float]
+_BLOSUM62 = substitution_matrices.load("BLOSUM62")
+_SCALED_GAP_OPEN = -6
+_SCALED_GAP_EXTEND = -1
+_SCALED_TERMINAL_GAP_OPEN = -4
+_SCALED_TERMINAL_GAP_EXTEND = -1
+_NEGATIVE_OBJECTIVE = (-10**18, -1)
 
-    @property
-    def pdb_label(self) -> str:
-        return f"{self.chain}:{self.residue_number}{self.insertion_code}"
+
+@dataclass(frozen=True, slots=True)
+class _AffineAlignment:
+    score: int
+    paired_count: int
+    cigar: str
+    reference_indices: tuple[int, ...]
+    subject_indices: tuple[int, ...]
 
 
 def _superimpose(
@@ -65,481 +47,749 @@ def _superimpose(
     return superimposer
 
 
-def _parse_pdb_ca(pdb_string: str) -> list[_ResidueCA]:
-    """Extract one sequence-ordered CA record per PDB residue."""
-    residues: list[_ResidueCA] = []
-    seen: set[tuple[str, str, str]] = set()
-
-    for line in pdb_string.splitlines():
-        if not line.startswith("ATOM  "):
-            continue
-        if line[12:16].strip() != "CA":
-            continue
-        alternate_location = line[16:17]
-        if alternate_location not in {" ", "A"}:
-            continue
-
-        chain = line[21:22].strip()
-        residue_number = line[22:26].strip()
-        insertion_code = line[26:27].strip()
-        residue_key = (chain, residue_number, insertion_code)
-        if residue_key in seen:
-            continue
-
-        try:
-            coordinate = (
-                float(line[30:38]),
-                float(line[38:46]),
-                float(line[46:54]),
-            )
-        except ValueError:
-            continue
-
-        residues.append(
-            _ResidueCA(
-                amino_acid=_AA_3TO1.get(line[17:20].strip().upper(), "X"),
-                chain=chain,
-                residue_number=residue_number,
-                insertion_code=insertion_code,
-                coordinate=coordinate,
-            )
-        )
-        seen.add(residue_key)
-
-    return residues
+def _substitution_score(reference: str, subject: str) -> int:
+    try:
+        return int(round(float(_BLOSUM62[reference, subject]) * 2.0))
+    except (IndexError, KeyError) as error:
+        raise ValueError(
+            "resolved-axis sequence is outside the BLOSUM62 alphabet"
+        ) from error
 
 
-def count_structure_ca_residues(structure: ProteinStructure) -> int:
-    """Count residues using the exact CA parsing contract used by alignment."""
-    return len(_parse_pdb_ca(structure.pdb_string))
+def _affine_sequence_alignment(
+    reference: str,
+    subject: str,
+) -> _AffineAlignment:
+    """Solve exact affine global alignment with an iterative suffix table."""
 
-
-def _sequence_aligner() -> PairwiseAligner:
-    aligner = PairwiseAligner(mode="global")
-    aligner.substitution_matrix = substitution_matrices.load("BLOSUM62")
-    aligner.open_gap_score = _SEQUENCE_GAP_OPEN_SCORE
-    aligner.extend_gap_score = _SEQUENCE_GAP_EXTEND_SCORE
-    aligner.end_open_gap_score = _SEQUENCE_END_GAP_OPEN_SCORE
-    aligner.end_extend_gap_score = _SEQUENCE_END_GAP_EXTEND_SCORE
-    return aligner
-
-
-def _sequence_correspondence(
-    reference_sequence: str,
-    mobile_sequence: str,
-    reference_coordinates: np.ndarray,
-    mobile_coordinates: np.ndarray,
-    *,
-    engine_invocation: (
-        Callable[..., AbstractContextManager[str]] | None
-    ),
-) -> tuple[list[int], list[int], str | None]:
-    """Return sequence-optimal pairs with structure-aware tie resolution."""
-    sequence_context = (
-        engine_invocation(
-            engine_role="sequence_alignment",
-        )
-        if engine_invocation is not None
-        else nullcontext(None)
+    match_state, deletion_state, insertion_state = range(3)
+    reference_length = len(reference)
+    subject_length = len(subject)
+    negative_score = _NEGATIVE_OBJECTIVE[0]
+    scores = np.full(
+        (3, reference_length + 1, subject_length + 1),
+        negative_score,
+        dtype=np.int64,
     )
-    with sequence_context as sequence_invocation_id:
-        aligner = _sequence_aligner()
-        sequence_alignments = aligner.align(
-            reference_sequence,
-            mobile_sequence,
-        )
-
-        try:
-            alignment_count = len(sequence_alignments)
-        except OverflowError:
-            alignment_count = _MAX_EXHAUSTIVE_SEQUENCE_ALIGNMENTS + 1
-
-    selection_context = (
-        engine_invocation(
-            engine_role="bounded_correspondence_selection",
-            parent_invocation_id=sequence_invocation_id,
-        )
-        if engine_invocation is not None
-        else nullcontext(None)
+    paired_counts = np.full(
+        (3, reference_length + 1, subject_length + 1),
+        -1,
+        dtype=np.int32,
     )
-    with selection_context:
-        best_correspondence: tuple[list[int], list[int]] | None = None
-        best_key: tuple[int, float, tuple[int, ...], tuple[int, ...]] | None = None
-        alignment_limit = (
-            1
-            if alignment_count > _MAX_EXHAUSTIVE_SEQUENCE_ALIGNMENTS
-            else alignment_count
-        )
-        for alignment_index, alignment in enumerate(sequence_alignments):
-            if alignment_index >= alignment_limit:
-                break
-            paired_indices = [
-                (int(reference_index), int(mobile_index))
-                for reference_index, mobile_index in zip(*alignment.indices)
-                if reference_index >= 0 and mobile_index >= 0
-            ]
-            reference_indices = [
-                reference_index for reference_index, _ in paired_indices
-            ]
-            mobile_indices = [
-                mobile_index for _, mobile_index in paired_indices
-            ]
-            if reference_indices:
-                superimposer = _superimpose(
-                    reference_coordinates[reference_indices],
-                    mobile_coordinates[mobile_indices],
-                )
-                fit_rmsd = float(superimposer.get_rms())
-            else:
-                fit_rmsd = float("inf")
-            key = (
-                -len(reference_indices),
-                fit_rmsd,
-                tuple(reference_indices),
-                tuple(mobile_indices),
-            )
-            if best_key is None or key < best_key:
-                best_key = key
-                best_correspondence = (
-                    reference_indices,
-                    mobile_indices,
-                )
+    scores[:, reference_length, subject_length] = 0
+    paired_counts[:, reference_length, subject_length] = 0
 
-    if best_correspondence is None:
-        return [], [], sequence_invocation_id
-    return (*best_correspondence, sequence_invocation_id)
-
-
-def _residues_by_chain(
-    residues: list[_ResidueCA],
-) -> dict[str, tuple[int, ...]]:
-    chains: dict[str, list[int]] = {}
-    for index, residue in enumerate(residues):
-        chains.setdefault(residue.chain, []).append(index)
-    return {
-        chain: tuple(indices)
-        for chain, indices in chains.items()
-    }
-
-
-def _sequence_score(
-    residues: list[_ResidueCA],
-    indices: tuple[int, ...],
-    other_residues: list[_ResidueCA],
-    other_indices: tuple[int, ...],
-) -> float:
-    sequence = "".join(residues[index].amino_acid for index in indices)
-    other_sequence = "".join(
-        other_residues[index].amino_acid for index in other_indices
-    )
-    return float(_sequence_aligner().score(sequence, other_sequence))
-
-
-def _sequence_optimal_chain_maps(
-    reference_residues: list[_ResidueCA],
-    mobile_residues: list[_ResidueCA],
-) -> tuple[list[dict[str, str]], bool]:
-    """Return bounded, lexicographic sequence-optimal one-to-one chain maps."""
-    reference_chains = _residues_by_chain(reference_residues)
-    mobile_chains = _residues_by_chain(mobile_residues)
-    common = sorted(set(reference_chains) & set(mobile_chains))
-    fixed = {chain: chain for chain in common}
-    remaining_reference = sorted(set(reference_chains) - set(common))
-    remaining_mobile = sorted(set(mobile_chains) - set(common))
-    if not remaining_reference or not remaining_mobile:
-        return [fixed], False
-
-    inverse = len(remaining_reference) > len(remaining_mobile)
-    left = remaining_mobile if inverse else remaining_reference
-    right = remaining_reference if inverse else remaining_mobile
-
-    def pair_score(left_chain: str, right_chain: str) -> float:
-        reference_chain = right_chain if inverse else left_chain
-        mobile_chain = left_chain if inverse else right_chain
-        return _sequence_score(
-            reference_residues,
-            reference_chains[reference_chain],
-            mobile_residues,
-            mobile_chains[mobile_chain],
+    def extend(
+        state: int,
+        reference_index: int,
+        subject_index: int,
+        score: int,
+        paired_count: int,
+    ) -> tuple[int, int]:
+        tail_score = int(scores[state, reference_index, subject_index])
+        if tail_score == negative_score:
+            return _NEGATIVE_OBJECTIVE
+        return (
+            score + tail_score,
+            paired_count
+            + int(paired_counts[state, reference_index, subject_index]),
         )
 
-    scores = tuple(
-        tuple(pair_score(left_chain, right_chain) for right_chain in right)
-        for left_chain in left
-    )
-
-    @lru_cache(maxsize=None)
-    def best_score(left_index: int, used_mask: int) -> float:
-        if left_index == len(left):
-            return 0.0
-        return max(
-            scores[left_index][right_index]
-            + best_score(left_index + 1, used_mask | (1 << right_index))
-            for right_index in range(len(right))
-            if not used_mask & (1 << right_index)
-        )
-
-    assignments: list[tuple[int, ...]] = []
-
-    def collect(
-        left_index: int,
-        used_mask: int,
-        selected: tuple[int, ...],
-    ) -> None:
-        if len(assignments) > _MAX_EXHAUSTIVE_SEQUENCE_ALIGNMENTS:
-            return
-        if left_index == len(left):
-            assignments.append(selected)
-            return
-        optimum = best_score(left_index, used_mask)
-        for right_index in range(len(right)):
-            if used_mask & (1 << right_index):
-                continue
-            branch_score = (
-                scores[left_index][right_index]
-                + best_score(
-                    left_index + 1,
-                    used_mask | (1 << right_index),
-                )
-            )
-            if math.isclose(
-                branch_score,
-                optimum,
-                rel_tol=0.0,
-                abs_tol=1e-12,
+    for reference_index in range(reference_length, -1, -1):
+        for subject_index in range(subject_length, -1, -1):
+            if (
+                reference_index == reference_length
+                and subject_index == subject_length
             ):
-                collect(
-                    left_index + 1,
-                    used_mask | (1 << right_index),
-                    (*selected, right_index),
+                continue
+            matched = _NEGATIVE_OBJECTIVE
+            if (
+                reference_index < reference_length
+                and subject_index < subject_length
+            ):
+                matched = extend(
+                    match_state,
+                    reference_index + 1,
+                    subject_index + 1,
+                    _substitution_score(
+                        reference[reference_index],
+                        subject[subject_index],
+                    ),
+                    1,
+                )
+            deletion_open = _NEGATIVE_OBJECTIVE
+            deletion_extend = _NEGATIVE_OBJECTIVE
+            if reference_index < reference_length:
+                terminal = subject_index in {0, subject_length}
+                deletion_open = extend(
+                    deletion_state,
+                    reference_index + 1,
+                    subject_index,
+                    _SCALED_TERMINAL_GAP_OPEN
+                    if terminal
+                    else _SCALED_GAP_OPEN,
+                    0,
+                )
+                deletion_extend = extend(
+                    deletion_state,
+                    reference_index + 1,
+                    subject_index,
+                    _SCALED_TERMINAL_GAP_EXTEND
+                    if terminal
+                    else _SCALED_GAP_EXTEND,
+                    0,
+                )
+            insertion_open = _NEGATIVE_OBJECTIVE
+            insertion_extend = _NEGATIVE_OBJECTIVE
+            if subject_index < subject_length:
+                terminal = reference_index in {0, reference_length}
+                insertion_open = extend(
+                    insertion_state,
+                    reference_index,
+                    subject_index + 1,
+                    _SCALED_TERMINAL_GAP_OPEN
+                    if terminal
+                    else _SCALED_GAP_OPEN,
+                    0,
+                )
+                insertion_extend = extend(
+                    insertion_state,
+                    reference_index,
+                    subject_index + 1,
+                    _SCALED_TERMINAL_GAP_EXTEND
+                    if terminal
+                    else _SCALED_GAP_EXTEND,
+                    0,
+                )
+            objectives = (
+                max(matched, deletion_open, insertion_open),
+                max(matched, deletion_extend, insertion_open),
+                max(matched, deletion_open, insertion_extend),
+            )
+            for state, objective in enumerate(objectives):
+                scores[state, reference_index, subject_index] = objective[0]
+                paired_counts[state, reference_index, subject_index] = (
+                    objective[1]
                 )
 
-    collect(0, 0, ())
-    exceeded = len(assignments) > _MAX_EXHAUSTIVE_SEQUENCE_ALIGNMENTS
-    maps: list[dict[str, str]] = []
-    for assignment in assignments[: _MAX_EXHAUSTIVE_SEQUENCE_ALIGNMENTS + 1]:
-        chain_map = dict(fixed)
-        for left_index, right_index in enumerate(assignment):
-            if inverse:
-                chain_map[right[right_index]] = left[left_index]
+    objective = (
+        int(scores[match_state, 0, 0]),
+        int(paired_counts[match_state, 0, 0]),
+    )
+    if objective == _NEGATIVE_OBJECTIVE:
+        raise ValueError("resolved-axis sequences have no global alignment")
+    reference_index = 0
+    subject_index = 0
+    previous_state = match_state
+    cigar: list[str] = []
+    reference_indices: list[int] = []
+    subject_indices: list[int] = []
+    while (
+        reference_index != reference_length
+        or subject_index != subject_length
+    ):
+        current = (
+            int(scores[previous_state, reference_index, subject_index]),
+            int(
+                paired_counts[
+                    previous_state,
+                    reference_index,
+                    subject_index,
+                ]
+            ),
+        )
+        selected: tuple[str, int, int, int] | None = None
+        for operation in ("M", "D", "I"):
+            if operation == "M":
+                if (
+                    reference_index >= reference_length
+                    or subject_index >= subject_length
+                ):
+                    continue
+                candidate = extend(
+                    match_state,
+                    reference_index + 1,
+                    subject_index + 1,
+                    _substitution_score(
+                        reference[reference_index],
+                        subject[subject_index],
+                    ),
+                    1,
+                )
+                step = (1, 1, match_state)
+            elif operation == "D":
+                if reference_index >= reference_length:
+                    continue
+                terminal = subject_index in {0, subject_length}
+                candidate = extend(
+                    deletion_state,
+                    reference_index + 1,
+                    subject_index,
+                    (
+                        _SCALED_TERMINAL_GAP_EXTEND
+                        if previous_state == deletion_state and terminal
+                        else _SCALED_GAP_EXTEND
+                        if previous_state == deletion_state
+                        else _SCALED_TERMINAL_GAP_OPEN
+                        if terminal
+                        else _SCALED_GAP_OPEN
+                    ),
+                    0,
+                )
+                step = (1, 0, deletion_state)
             else:
-                chain_map[left[left_index]] = right[right_index]
-        maps.append(dict(sorted(chain_map.items())))
-    maps.sort(key=lambda mapping: tuple(mapping.items()))
-    return maps, exceeded
-
-
-def _correspondence_for_chain_map(
-    chain_map: dict[str, str],
-    reference_residues: list[_ResidueCA],
-    mobile_residues: list[_ResidueCA],
-    reference_coordinates: np.ndarray,
-    mobile_coordinates: np.ndarray,
-    *,
-    engine_invocation: (
-        Callable[..., AbstractContextManager[str]] | None
-    ),
-) -> tuple[list[int], list[int], str | None]:
-    reference_chains = _residues_by_chain(reference_residues)
-    mobile_chains = _residues_by_chain(mobile_residues)
-    pairs: list[tuple[int, int]] = []
-    parent_invocation_id: str | None = None
-    for reference_chain, mobile_chain in sorted(chain_map.items()):
-        reference_global = reference_chains[reference_chain]
-        mobile_global = mobile_chains[mobile_chain]
-        reference_sequence = "".join(
-            reference_residues[index].amino_acid
-            for index in reference_global
-        )
-        mobile_sequence = "".join(
-            mobile_residues[index].amino_acid for index in mobile_global
-        )
-        local_reference_coordinates = reference_coordinates[
-            list(reference_global)
-        ]
-        local_mobile_coordinates = mobile_coordinates[list(mobile_global)]
-        (
-            local_reference_indices,
-            local_mobile_indices,
-            invocation_id,
-        ) = _sequence_correspondence(
-            reference_sequence,
-            mobile_sequence,
-            local_reference_coordinates,
-            local_mobile_coordinates,
-            engine_invocation=engine_invocation,
-        )
-        if parent_invocation_id is None:
-            parent_invocation_id = invocation_id
-        pairs.extend(
-            (
-                reference_global[reference_index],
-                mobile_global[mobile_index],
-            )
-            for reference_index, mobile_index in zip(
-                local_reference_indices,
-                local_mobile_indices,
-            )
-        )
-    pairs.sort()
-    return (
-        [reference_index for reference_index, _ in pairs],
-        [mobile_index for _, mobile_index in pairs],
-        parent_invocation_id,
-    )
-
-
-def align_structures(
-    reference: ProteinStructure,
-    mobile: ProteinStructure,
-    *,
-    engine_invocation: (
-        Callable[..., AbstractContextManager[str]] | None
-    ) = None,
-) -> StructureAlignment:
-    """Build reproducible sequence correspondence and CA superposition evidence."""
-    reference_residues = _parse_pdb_ca(reference.pdb_string)
-    mobile_residues = _parse_pdb_ca(mobile.pdb_string)
-
-    if not reference_residues:
-        raise ValueError("No CA atoms found in reference structure")
-    if not mobile_residues:
-        raise ValueError("No CA atoms found in mobile structure")
-
-    reference_sequence = "".join(
-        residue.amino_acid for residue in reference_residues
-    )
-    mobile_sequence = "".join(residue.amino_acid for residue in mobile_residues)
-    all_reference_coordinates = np.asarray(
-        [residue.coordinate for residue in reference_residues],
-        dtype=np.float64,
-    )
-    all_mobile_coordinates = np.asarray(
-        [residue.coordinate for residue in mobile_residues],
-        dtype=np.float64,
-    )
-    chain_maps, chain_map_limit_exceeded = _sequence_optimal_chain_maps(
-        reference_residues,
-        mobile_residues,
-    )
-    if chain_map_limit_exceeded:
-        selected_chain_map = chain_maps[0]
-    else:
-        selected_chain_map: dict[str, str] | None = None
-        selected_key: tuple[float, tuple[tuple[str, str], ...]] | None = None
-        for chain_map in chain_maps:
-            trial_reference_indices, trial_mobile_indices, _ = (
-                _correspondence_for_chain_map(
-                    chain_map,
-                    reference_residues,
-                    mobile_residues,
-                    all_reference_coordinates,
-                    all_mobile_coordinates,
-                    engine_invocation=None,
+                if subject_index >= subject_length:
+                    continue
+                terminal = reference_index in {0, reference_length}
+                candidate = extend(
+                    insertion_state,
+                    reference_index,
+                    subject_index + 1,
+                    (
+                        _SCALED_TERMINAL_GAP_EXTEND
+                        if previous_state == insertion_state and terminal
+                        else _SCALED_GAP_EXTEND
+                        if previous_state == insertion_state
+                        else _SCALED_TERMINAL_GAP_OPEN
+                        if terminal
+                        else _SCALED_GAP_OPEN
+                    ),
+                    0,
                 )
-            )
-            if trial_reference_indices:
-                trial_rmsd = float(
-                    _superimpose(
-                        all_reference_coordinates[trial_reference_indices],
-                        all_mobile_coordinates[trial_mobile_indices],
-                    ).get_rms()
-                )
-            else:
-                trial_rmsd = float("inf")
-            key = (trial_rmsd, tuple(sorted(chain_map.items())))
-            if selected_key is None or key < selected_key:
-                selected_key = key
-                selected_chain_map = chain_map
-        assert selected_chain_map is not None
-    (
-        reference_indices,
-        mobile_indices,
-        sequence_invocation_id,
-    ) = _correspondence_for_chain_map(
-        selected_chain_map,
-        reference_residues,
-        mobile_residues,
-        all_reference_coordinates,
-        all_mobile_coordinates,
-        engine_invocation=engine_invocation,
+                step = (0, 1, insertion_state)
+            if candidate != current:
+                continue
+            selected = (operation, *step)
+            break
+        if selected is None:
+            raise RuntimeError("affine suffix table cannot be backtraced")
+        operation, reference_step, subject_step, previous_state = selected
+        cigar.append(operation)
+        if operation == "M":
+            reference_indices.append(reference_index)
+            subject_indices.append(subject_index)
+        reference_index += reference_step
+        subject_index += subject_step
+    return _AffineAlignment(
+        score=objective[0],
+        paired_count=objective[1],
+        cigar="".join(cigar),
+        reference_indices=tuple(reference_indices),
+        subject_indices=tuple(subject_indices),
     )
-    if not reference_indices:
-        return StructureAlignment(
-            rotation=[
-                [1.0, 0.0, 0.0],
-                [0.0, 1.0, 0.0],
-                [0.0, 0.0, 1.0],
-            ],
-            translation=[0.0, 0.0, 0.0],
-            reference_sequence=reference_sequence,
-            mobile_sequence=mobile_sequence,
-            reference_length=len(reference_residues),
-            mobile_length=len(mobile_residues),
+
+
+def _segment_sequence(
+    axis: ResolvedStructureResidueAxis,
+    segment_index: int,
+) -> tuple[str, tuple[str, ...]]:
+    segment = axis.segments[segment_index]
+    residue_ids = tuple(segment.residue_ids)
+    assert axis.layout.residue_ids is not None
+    sequence_by_id = dict(
+        zip(axis.layout.residue_ids, axis.sequence, strict=True)
+    )
+    return "".join(sequence_by_id[item] for item in residue_ids), residue_ids
+
+
+def _validate_segment_indices(
+    axis: ResolvedStructureResidueAxis,
+    *,
+    role: str,
+) -> None:
+    actual = tuple(segment.segment_index for segment in axis.segments)
+    expected = tuple(range(len(axis.segments)))
+    if actual != expected:
+        raise ValueError(
+            f"{role} axis segment_index values must equal tuple positions"
         )
 
-    reference_coordinates = np.asarray(
+
+def _assignment_score(
+    subject_indices: tuple[int, ...],
+    reference_indices: tuple[int, ...],
+    weights: dict[tuple[int, int], int],
+) -> int:
+    if not subject_indices or not reference_indices:
+        return 0
+    matrix = np.asarray(
         [
-            reference_residues[index].coordinate
-            for index in reference_indices
+            [
+                weights[(subject_index, reference_index)]
+                for reference_index in reference_indices
+            ]
+            for subject_index in subject_indices
         ],
-        dtype=np.float64,
+        dtype=np.int64,
     )
-    mobile_coordinates = np.asarray(
-        [mobile_residues[index].coordinate for index in mobile_indices],
-        dtype=np.float64,
-    )
+    rows, columns = linear_sum_assignment(matrix, maximize=True)
+    return sum(int(matrix[row, column]) for row, column in zip(rows, columns))
 
-    superposition_context = (
-        engine_invocation(
-            engine_role="rigid_superposition",
-            parent_invocation_id=sequence_invocation_id,
-        )
-        if engine_invocation is not None
-        else nullcontext(None)
+
+def _lexicographic_segment_assignment(
+    subject_indices: tuple[int, ...],
+    reference_indices: tuple[int, ...],
+    alignments: dict[tuple[int, int], _AffineAlignment],
+    *,
+    maximum_paired_count: int,
+) -> tuple[tuple[int, int], ...]:
+    """Select one polynomial-time optimum and its exact lexicographic map."""
+
+    score_scale = maximum_paired_count + 1
+    weights = {
+        pair: alignment.score * score_scale + alignment.paired_count
+        for pair, alignment in alignments.items()
+    }
+    remaining_subjects = subject_indices
+    remaining_references = reference_indices
+    remaining_optimum = _assignment_score(
+        remaining_subjects,
+        remaining_references,
+        weights,
     )
-    with superposition_context:
-        superimposer = _superimpose(
-            reference_coordinates,
-            mobile_coordinates,
+    selected: list[tuple[int, int]] = []
+    for subject_index in subject_indices:
+        if subject_index not in remaining_subjects:
+            continue
+        tail_subjects = tuple(
+            item for item in remaining_subjects if item != subject_index
         )
-        rotation_array, translation_array = superimposer.get_rotran()
-        fit_rmsd = float(superimposer.get_rms())
-    assert rotation_array is not None
-    assert translation_array is not None
-    transformed_mobile = (
-        np.dot(mobile_coordinates, rotation_array) + translation_array
+        candidates: tuple[int | None, ...] = (
+            *remaining_references,
+            *(
+                (None,)
+                if len(remaining_subjects) > len(remaining_references)
+                else ()
+            ),
+        )
+        chosen: int | None | object = ...
+        for reference_index in candidates:
+            if reference_index is None:
+                branch_score = _assignment_score(
+                    tail_subjects,
+                    remaining_references,
+                    weights,
+                )
+            else:
+                tail_references = tuple(
+                    item
+                    for item in remaining_references
+                    if item != reference_index
+                )
+                branch_score = weights[(subject_index, reference_index)] + (
+                    _assignment_score(
+                        tail_subjects,
+                        tail_references,
+                        weights,
+                    )
+                )
+            if branch_score == remaining_optimum:
+                chosen = reference_index
+                break
+        if chosen is ...:
+            raise RuntimeError("optimal segment assignment cannot be backtraced")
+        remaining_subjects = tail_subjects
+        if chosen is not None:
+            assert isinstance(chosen, int)
+            selected.append((subject_index, chosen))
+            remaining_optimum -= weights[(subject_index, chosen)]
+            remaining_references = tuple(
+                item for item in remaining_references if item != chosen
+            )
+    return tuple(selected)
+
+
+def _assign_segments(
+    subject_axis: ResolvedStructureResidueAxis,
+    reference_axis: ResolvedStructureResidueAxis,
+    alignments: dict[tuple[int, int], _AffineAlignment],
+    *,
+    pin_matching_chain_ids: bool,
+) -> tuple[tuple[int, int], ...]:
+    subject_indices = tuple(segment.segment_index for segment in subject_axis.segments)
+    reference_indices = tuple(
+        segment.segment_index for segment in reference_axis.segments
+    )
+    pinned: tuple[tuple[int, int], ...] = ()
+    if pin_matching_chain_ids:
+        subject_by_chain = {
+            segment.chain_id: segment.segment_index
+            for segment in subject_axis.segments
+        }
+        reference_by_chain = {
+            segment.chain_id: segment.segment_index
+            for segment in reference_axis.segments
+        }
+        if len(subject_by_chain) != len(subject_axis.segments):
+            raise ValueError("subject axis has duplicate chain_id under pinning")
+        if len(reference_by_chain) != len(reference_axis.segments):
+            raise ValueError("reference axis has duplicate chain_id under pinning")
+        pinned = tuple(
+            (subject_by_chain[chain_id], reference_by_chain[chain_id])
+            for chain_id in subject_by_chain
+            if chain_id in reference_by_chain
+        )
+        pinned_subjects = {subject_index for subject_index, _ in pinned}
+        pinned_references = {reference_index for _, reference_index in pinned}
+        subject_indices = tuple(
+            item for item in subject_indices if item not in pinned_subjects
+        )
+        reference_indices = tuple(
+            item for item in reference_indices if item not in pinned_references
+        )
+    assigned = _lexicographic_segment_assignment(
+        subject_indices,
+        reference_indices,
+        alignments,
+        maximum_paired_count=min(
+            subject_axis.layout.length,
+            reference_axis.layout.length,
+        ),
+    )
+    return tuple(sorted((*pinned, *assigned)))
+
+
+def _align_resolved_axes_tm_align(
+    subject_axis: ResolvedStructureResidueAxis,
+    reference_axis: ResolvedStructureResidueAxis,
+    *,
+    pin_matching_chain_ids: bool,
+) -> ResolvedAxisAlignment:
+    if len(subject_axis.segments) != 1 or len(reference_axis.segments) != 1:
+        raise ValueError("structure-first tm_align requires one segment per axis")
+    assert subject_axis.layout.residue_ids is not None
+    assert reference_axis.layout.residue_ids is not None
+    subject_entries = tuple(
+        (residue_id, amino_acid, subject_axis.coordinate_for(residue_id, "CA"))
+        for residue_id, amino_acid, has_ca in zip(
+            subject_axis.layout.residue_ids,
+            subject_axis.sequence,
+            subject_axis.ca_coordinate_mask,
+            strict=True,
+        )
+        if has_ca
+    )
+    reference_entries = tuple(
+        (
+            residue_id,
+            amino_acid,
+            reference_axis.coordinate_for(residue_id, "CA"),
+        )
+        for residue_id, amino_acid, has_ca in zip(
+            reference_axis.layout.residue_ids,
+            reference_axis.sequence,
+            reference_axis.ca_coordinate_mask,
+            strict=True,
+        )
+        if has_ca
+    )
+    if not subject_entries or not reference_entries:
+        raise ValueError("structure-first tm_align requires CA coordinates")
+    subject_coordinates = np.asarray(
+        [item[2] for item in subject_entries],
+        dtype=np.float64,
+    )
+    reference_coordinates = np.asarray(
+        [item[2] for item in reference_entries],
+        dtype=np.float64,
+    )
+    subject_sequence = "".join(item[1] for item in subject_entries)
+    reference_sequence = "".join(item[1] for item in reference_entries)
+    optimized = tm_align(
+        subject_coordinates,
+        reference_coordinates,
+        subject_sequence,
+        reference_sequence,
+        alignment=None,
+    )
+    aligned_subject = optimized.seqxA
+    aligned_reference = optimized.seqyA
+    subject_index = 0
+    reference_index = 0
+    cigar: list[str] = []
+    residue_pairs: list[tuple[str, str]] = []
+    for subject_letter, reference_letter in zip(
+        aligned_subject,
+        aligned_reference,
+    ):
+        if subject_letter != "-" and reference_letter != "-":
+            cigar.append("M")
+            residue_pairs.append(
+                (
+                    subject_entries[subject_index][0],
+                    reference_entries[reference_index][0],
+                )
+            )
+        elif subject_letter == "-":
+            cigar.append("D")
+        else:
+            cigar.append("I")
+        subject_index += subject_letter != "-"
+        reference_index += reference_letter != "-"
+    rotation_array = np.asarray(optimized.u, dtype=np.float64).T
+    translation_array = np.asarray(optimized.t, dtype=np.float64)
+    paired_subject_coordinates = np.asarray(
+        [subject_axis.coordinate_for(item[0], "CA") for item in residue_pairs],
+        dtype=np.float64,
+    )
+    paired_reference_coordinates = np.asarray(
+        [reference_axis.coordinate_for(item[1], "CA") for item in residue_pairs],
+        dtype=np.float64,
+    )
+    transformed_subject = (
+        paired_subject_coordinates @ rotation_array + translation_array
     )
     distances = np.linalg.norm(
-        reference_coordinates - transformed_mobile,
+        paired_reference_coordinates - transformed_subject,
         axis=1,
     )
-    return StructureAlignment(
-        residue_map=[
-            (
-                reference_residues[reference_index].pdb_label,
-                mobile_residues[mobile_index].pdb_label,
-            )
-            for reference_index, mobile_index in zip(
-                reference_indices,
-                mobile_indices,
-            )
-        ],
-        chain_map=selected_chain_map,
-        rotation=rotation_array.tolist(),
-        translation=translation_array.tolist(),
-        rmsd=fit_rmsd,
-        coverage=(
-            len(reference_indices)
-            / max(len(reference_residues), len(mobile_residues))
+    correspondence = tuple(
+        AlignmentAtomCorrespondence(
+            subject_residue_id=subject_id,
+            subject_atom_name="CA",
+            subject_coordinate=tuple(float(item) for item in subject_coordinate),
+            reference_residue_id=reference_id,
+            reference_atom_name="CA",
+            reference_coordinate=tuple(
+                float(item) for item in reference_coordinate
+            ),
+            transformed_subject_coordinate=tuple(
+                float(item) for item in transformed_coordinate
+            ),
+            residual_distance=float(distance),
+        )
+        for (
+            (subject_id, reference_id),
+            subject_coordinate,
+            reference_coordinate,
+            transformed_coordinate,
+            distance,
+        ) in zip(
+            residue_pairs,
+            paired_subject_coordinates,
+            paired_reference_coordinates,
+            transformed_subject,
+            distances,
+            strict=True,
+        )
+    )
+    aligned_count = len(correspondence)
+    return ResolvedAxisAlignment(
+        segment_map=(
+            AlignmentSegmentMapEntry(
+                subject_segment_index=0,
+                reference_segment_index=0,
+                subject_chain_id=subject_axis.segments[0].chain_id,
+                reference_chain_id=reference_axis.segments[0].chain_id,
+                sequence_score=None,
+                paired_residue_count=aligned_count,
+                cigar="".join(cigar),
+            ),
         ),
-        reference_sequence=reference_sequence,
-        mobile_sequence=mobile_sequence,
-        reference_length=len(reference_residues),
-        mobile_length=len(mobile_residues),
-        aligned_reference_indices=reference_indices,
-        aligned_mobile_indices=mobile_indices,
-        aligned_reference_coordinates=reference_coordinates.tolist(),
-        aligned_mobile_coordinates=mobile_coordinates.tolist(),
-        aligned_distances=distances.tolist(),
+        policy=AlignmentCorrespondencePolicy(
+            kind="structure_first_tm_align",
+            pin_matching_chain_ids=pin_matching_chain_ids,
+        ),
+        correspondence=correspondence,
+        transform=StructureAlignmentTransform(
+            maps_from_role="subject",
+            maps_to_role="reference",
+            row_vector_rotation=tuple(
+                tuple(float(item) for item in row) for row in rotation_array
+            ),
+            translation=tuple(float(item) for item in translation_array),
+        ),
+        normalization=StructureAlignmentNormalization(
+            subject_axis_residue_count=subject_axis.layout.length,
+            reference_axis_residue_count=reference_axis.layout.length,
+            subject_ca_count=sum(subject_axis.ca_coordinate_mask),
+            reference_ca_count=sum(reference_axis.ca_coordinate_mask),
+            aligned_atom_count=aligned_count,
+        ),
+        rmsd=float(np.sqrt(np.mean(np.square(distances)))),
+        coverage=aligned_count
+        / max(subject_axis.layout.length, reference_axis.layout.length),
+    )
+
+
+def align_resolved_axes(
+    subject_axis: ResolvedStructureResidueAxis,
+    reference_axis: ResolvedStructureResidueAxis,
+    *,
+    correspondence_method: str = "sequence_primary_affine",
+    pin_matching_chain_ids: bool = False,
+) -> ResolvedAxisAlignment:
+    """Align two resolved scalar axes by sequence before one global SVD."""
+
+    if (
+        type(subject_axis) is not ResolvedStructureResidueAxis
+        or type(reference_axis) is not ResolvedStructureResidueAxis
+    ):
+        raise ValueError("alignment requires two resolved structure residue axes")
+    if not subject_axis.segments or not reference_axis.segments:
+        raise ValueError("alignment requires non-empty segment topology")
+    _validate_segment_indices(subject_axis, role="subject")
+    _validate_segment_indices(reference_axis, role="reference")
+    if correspondence_method == "structure_first_tm_align":
+        return _align_resolved_axes_tm_align(
+            subject_axis,
+            reference_axis,
+            pin_matching_chain_ids=pin_matching_chain_ids,
+        )
+    if correspondence_method != "sequence_primary_affine":
+        raise ValueError("unknown structure correspondence method")
+    subject_segments = {
+        segment.segment_index: _segment_sequence(
+            subject_axis,
+            segment.segment_index,
+        )
+        for segment in subject_axis.segments
+    }
+    reference_segments = {
+        segment.segment_index: _segment_sequence(
+            reference_axis,
+            segment.segment_index,
+        )
+        for segment in reference_axis.segments
+    }
+    sequence_alignments = {
+        (subject_index, reference_index): _affine_sequence_alignment(
+            reference_segments[reference_index][0],
+            subject_segments[subject_index][0],
+        )
+        for subject_index in subject_segments
+        for reference_index in reference_segments
+    }
+    assigned_segments = _assign_segments(
+        subject_axis,
+        reference_axis,
+        sequence_alignments,
+        pin_matching_chain_ids=pin_matching_chain_ids,
+    )
+    segment_map = tuple(
+        AlignmentSegmentMapEntry(
+            subject_segment_index=subject_index,
+            reference_segment_index=reference_index,
+            subject_chain_id=subject_axis.segments[subject_index].chain_id,
+            reference_chain_id=(
+                reference_axis.segments[reference_index].chain_id
+            ),
+            sequence_score=sequence_alignments[
+                (subject_index, reference_index)
+            ].score,
+            paired_residue_count=sequence_alignments[
+                (subject_index, reference_index)
+            ].paired_count,
+            cigar=sequence_alignments[(subject_index, reference_index)].cigar,
+        )
+        for subject_index, reference_index in assigned_segments
+    )
+    subject_mask = dict(
+        zip(
+            subject_axis.layout.residue_ids or (),
+            subject_axis.ca_coordinate_mask,
+            strict=True,
+        )
+    )
+    reference_mask = dict(
+        zip(
+            reference_axis.layout.residue_ids or (),
+            reference_axis.ca_coordinate_mask,
+            strict=True,
+        )
+    )
+    residue_pairs_list: list[tuple[str, str]] = []
+    for subject_segment_index, reference_segment_index in assigned_segments:
+        alignment = sequence_alignments[
+            (subject_segment_index, reference_segment_index)
+        ]
+        subject_ids = subject_segments[subject_segment_index][1]
+        reference_ids = reference_segments[reference_segment_index][1]
+        residue_pairs_list.extend(
+            (subject_ids[subject_index], reference_ids[reference_index])
+            for reference_index, subject_index in zip(
+                alignment.reference_indices,
+                alignment.subject_indices,
+                strict=True,
+            )
+            if subject_mask[subject_ids[subject_index]]
+            and reference_mask[reference_ids[reference_index]]
+        )
+    residue_pairs = tuple(residue_pairs_list)
+    if not residue_pairs:
+        raise ValueError("alignment correspondence contains no paired CA atoms")
+    subject_coordinates = np.asarray(
+        [subject_axis.coordinate_for(item[0], "CA") for item in residue_pairs],
+        dtype=np.float64,
+    )
+    reference_coordinates = np.asarray(
+        [reference_axis.coordinate_for(item[1], "CA") for item in residue_pairs],
+        dtype=np.float64,
+    )
+    superimposer = _superimpose(reference_coordinates, subject_coordinates)
+    rotation_array, translation_array = superimposer.get_rotran()
+    assert rotation_array is not None
+    assert translation_array is not None
+    transformed_subject = subject_coordinates @ rotation_array + translation_array
+    distances = np.linalg.norm(
+        reference_coordinates - transformed_subject,
+        axis=1,
+    )
+    correspondence = tuple(
+        AlignmentAtomCorrespondence(
+            subject_residue_id=subject_id,
+            subject_atom_name="CA",
+            subject_coordinate=tuple(float(item) for item in subject_coordinate),
+            reference_residue_id=reference_id,
+            reference_atom_name="CA",
+            reference_coordinate=tuple(
+                float(item) for item in reference_coordinate
+            ),
+            transformed_subject_coordinate=tuple(
+                float(item) for item in transformed_coordinate
+            ),
+            residual_distance=float(distance),
+        )
+        for (
+            (subject_id, reference_id),
+            subject_coordinate,
+            reference_coordinate,
+            transformed_coordinate,
+            distance,
+        ) in zip(
+            residue_pairs,
+            subject_coordinates,
+            reference_coordinates,
+            transformed_subject,
+            distances,
+            strict=True,
+        )
+    )
+    aligned_count = len(correspondence)
+    return ResolvedAxisAlignment(
+        segment_map=segment_map,
+        policy=AlignmentCorrespondencePolicy(
+            kind="sequence_primary_affine",
+            pin_matching_chain_ids=pin_matching_chain_ids,
+        ),
+        correspondence=correspondence,
+        transform=StructureAlignmentTransform(
+            maps_from_role="subject",
+            maps_to_role="reference",
+            row_vector_rotation=tuple(
+                tuple(float(item) for item in row)
+                for row in rotation_array
+            ),
+            translation=tuple(float(item) for item in translation_array),
+        ),
+        normalization=StructureAlignmentNormalization(
+            subject_axis_residue_count=subject_axis.layout.length,
+            reference_axis_residue_count=reference_axis.layout.length,
+            subject_ca_count=sum(subject_axis.ca_coordinate_mask),
+            reference_ca_count=sum(reference_axis.ca_coordinate_mask),
+            aligned_atom_count=aligned_count,
+        ),
+        rmsd=float(superimposer.get_rms()),
+        coverage=aligned_count
+        / max(subject_axis.layout.length, reference_axis.layout.length),
     )

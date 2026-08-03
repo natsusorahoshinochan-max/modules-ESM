@@ -1,13 +1,13 @@
 schema_version: "2.1.0"
 node_type_id: protein_io.export_sequence
-version: "2.1.0"
+version: "3.0.0"
 title: Export protein sequence
 summary: Serializes one protein sequence as a validated Run-bound artifact.
 category: protein_io
 inputs:
   - name: sequence
     port_type_id: protein.sequence
-    port_type_version: "2.1.0"
+    port_type_version: "3.0.0"
     required: true
     multiplicity: one
     scientific_meaning: Protein sequence to serialize as canonical FASTA.

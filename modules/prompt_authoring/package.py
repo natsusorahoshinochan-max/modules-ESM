@@ -42,9 +42,14 @@ from .stochastic import (
 from .track_types import ALIGNED_TRACK_PORT_TYPES
 
 
-_VERSION = "2.1.0"
-_NODE_BINDING_VERSIONS = {
+_PACKAGE_VERSION = "2.1.0"
+_DEFAULT_METHOD_VERSION = "2.1.0"
+_METHOD_VERSIONS = {
     "prompt_from_structure": "3.0.0",
+}
+_DEFAULT_NODE_BINDING_VERSION = "3.0.0"
+_NODE_BINDING_VERSIONS = {
+    "prompt_from_structure": "5.0.0",
 }
 _OPERATIONS = (
     "add_function_annotation",
@@ -140,13 +145,11 @@ def _method(operation: str) -> MethodDefinition:
             "unaffected_tracks": "byte-equivalent-canonical-values",
         },
         "prompt_from_structure": {
-            "name": "canonical-pdb-to-protein-prompt",
-            "residue_identity": "chain-residue-number-insertion-code",
-            "coordinates": "named-atoms",
-            "visibility": "present-coordinate-residues",
-            "modified_residue_policy": (
-                "fail-closed-on-unsupported-polymer-CSH"
-            ),
+            "name": "canonical-resolved-axis-to-protein-prompt",
+            "residue_identity": "resolved-axis-layout-order",
+            "coordinates": "resolved-axis-selected-named-atoms",
+            "visibility": "resolved-axis-coordinate-bearing-residues",
+            "component_policy": "consume-resolver-admitted-polymer-axis",
         },
         "random_insert_masked": {
             "name": "seeded-chain-local-masked-residue-insertion",
@@ -170,7 +173,7 @@ def _method(operation: str) -> MethodDefinition:
     }[operation]
     return MethodDefinition(
         method_id=f"prompt_authoring.{operation}.method",
-        version=_VERSION,
+        version=_METHOD_VERSIONS.get(operation, _DEFAULT_METHOD_VERSION),
         algorithm_identity=algorithm_identity,
         model_identity={"kind": "none"},
         checkpoint_identity={"kind": "none"},
@@ -184,7 +187,10 @@ def _method(operation: str) -> MethodDefinition:
 
 
 def _binding(operation: str) -> ExecutionBindingDefinition:
-    binding_version = _NODE_BINDING_VERSIONS.get(operation, _VERSION)
+    binding_version = _NODE_BINDING_VERSIONS.get(
+        operation,
+        _DEFAULT_NODE_BINDING_VERSION,
+    )
     randomness_parameters = {
         "random_mask": (
             "effective_seed",
@@ -213,7 +219,7 @@ def _binding(operation: str) -> ExecutionBindingDefinition:
         method=ContractIdentity(
             "method",
             f"prompt_authoring.{operation}.method",
-            _VERSION,
+            _METHOD_VERSIONS.get(operation, _DEFAULT_METHOD_VERSION),
         ),
         binding_parameters={},
         execution_route="direct",
@@ -254,7 +260,7 @@ def _binding(operation: str) -> ExecutionBindingDefinition:
             EffectiveRandomnessResolver(
                 behavior=BehaviorReference(
                     f"prompt_authoring.{operation}/effective-randomness",
-                    _VERSION,
+                    binding_version,
                     {"normalization": "canonical-effective-set-v1"},
                 ),
                 resolve=randomness_resolvers[operation],
@@ -268,7 +274,7 @@ def _binding(operation: str) -> ExecutionBindingDefinition:
 MODULE_PACKAGE = ModulePackageRegistration(
     schema_version="2.1.0",
     package_id="prompt_authoring",
-    package_version=_VERSION,
+    package_version=_PACKAGE_VERSION,
     package_module=__package__,
     node_definitions=(
         DefinitionResource("definitions/add_function_annotation.yaml"),

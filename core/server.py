@@ -4,32 +4,35 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import base64
+import json
+import logging
+import math
 import os
+import re
 import uuid
-from collections.abc import Mapping
+from collections.abc import Awaitable, Callable, Mapping
 from pathlib import Path
 from typing import Any, AsyncGenerator
 
 from contextlib import ExitStack, asynccontextmanager, suppress
 from importlib.resources import as_file, files
 from fastapi import (
-    Body,
     FastAPI,
-    File,
     Request,
-    UploadFile,
     WebSocket,
     WebSocketDisconnect,
 )
 from fastapi.responses import JSONResponse, Response
-from fastapi.middleware.cors import CORSMiddleware
 from fastapi.exceptions import RequestValidationError
 
 from core.module_package import build_discovered_frozen_catalog
 from core.port_types import FrozenCatalog
 from core.project import (
-    MAX_PROJECT_INPUT_BYTES,
+    PROJECT_SCHEMA_VERSION,
+    ProjectInputIntegrityError,
     ProjectManager,
+    ProtectedProjectError,
 )
 from core.run_execution_v2 import (
     EnvironmentConfiguration,
@@ -38,45 +41,32 @@ from core.run_execution_v2 import (
     V2RunService,
     run_timestamp,
 )
-from core.storage import (
-    StoragePathError,
-    validate_identifier,
-)
+from core.storage import StoragePathError
 from core.workflow_authoring_v2 import (
     WorkflowAuthoringError,
     WorkflowAuthoringService,
 )
 from core.workflow_v2 import (
-    WorkflowCompileError,
     WorkflowDocumentError,
     parse_workflow_document,
+    workflow_document_from_admitted_public,
 )
 from protein_workbench_public import (
     ProtocolValidationError,
+    REST_BODY_ABSENT,
     bundle_bytes,
     bundle_digest,
+    decode_rest_request,
+    decode_run_event_stream_request,
     load_bundle,
     validate_artifact_response,
     validate_error,
     validate_event,
-    validate_request,
     validate_response,
-    validate_schema,
-)
-
-TRUSTED_BROWSER_ORIGINS = frozenset(
-    {
-        "http://127.0.0.1:5173",
-        "http://localhost:5173",
-        "http://127.0.0.1:8000",
-        "http://localhost:8000",
-    }
 )
 
 
-def _is_trusted_browser_origin(request: Request | WebSocket) -> bool:
-    origin = request.headers.get("origin")
-    return origin is None or origin in TRUSTED_BROWSER_ORIGINS
+_LOGGER = logging.getLogger(__name__)
 
 
 def create_app(
@@ -88,6 +78,7 @@ def create_app(
     ) = None,
     v2_result_replay_source: ResultReplaySource | None = None,
     _v2_wait_for_workers_on_shutdown: bool = True,
+    _install_canonical_seed: bool | None = None,
 ) -> FastAPI:
     """Create one backend from one startup-frozen v2 Catalog."""
 
@@ -104,6 +95,17 @@ def create_app(
             output_root=os.environ.get("PROTEIN_WORKBENCH_OUTPUT_ROOT"),
             run_root=os.environ.get("PROTEIN_WORKBENCH_RUN_ROOT"),
         )
+        app.state.project_manager = project_manager
+        app.state.frozen_catalog = catalog_candidate
+        app.state.workflow_authoring_v2 = WorkflowAuthoringService(
+            project_manager,
+            catalog_candidate,
+        )
+        install_canonical_seed = (
+            frozen_catalog_override is None
+            if _install_canonical_seed is None
+            else _install_canonical_seed
+        ) and module_packages_package == "modules"
         with ExitStack() as asset_stack:
             canonical_structure = asset_stack.enter_context(
                 as_file(files("pdbs").joinpath("3GB1.pdb"))
@@ -116,16 +118,14 @@ def create_app(
                     )
                 )
             )
-            project_manager.ensure_seed_project_v2(
-                canonical_v2_workflow,
-                input_sources={"3GB1.pdb": canonical_structure},
+            canonical_seed_workflow = parse_workflow_document(
+                json.loads(canonical_v2_workflow.read_text(encoding="utf-8"))
             )
-        app.state.project_manager = project_manager
-        app.state.frozen_catalog = catalog_candidate
-        app.state.workflow_authoring_v2 = WorkflowAuthoringService(
-            project_manager,
-            catalog_candidate,
-        )
+            if install_canonical_seed:
+                app.state.workflow_authoring_v2.install_seed_commit(
+                    locked_workflow=canonical_seed_workflow,
+                    input_sources={"3GB1.pdb": canonical_structure},
+                )
         app.state.run_execution_v2 = V2RunService(
             project_manager,
             catalog_candidate,
@@ -139,51 +139,21 @@ def create_app(
 
     app = FastAPI(title="Protein Workbench", version="0.1.0", lifespan=lifespan)
 
-    @app.middleware("http")
-    async def enforce_trusted_mutation_origin(
-        request: Request,
-        call_next: Any,
-    ) -> Any:
-        if (
-            request.method not in {"GET", "HEAD", "OPTIONS"}
-            and not _is_trusted_browser_origin(request)
-        ):
-            if request.url.path.startswith("/api/v2/projects/"):
-                path_parts = request.url.path.split("/")
-                requested_project_id = (
-                    path_parts[4]
-                    if len(path_parts) > 4
-                    else "unknown-project"
-                )
-                try:
-                    validate_identifier(
-                        requested_project_id,
-                        "project_id",
-                    )
-                except StoragePathError:
-                    requested_project_id = "unknown-project"
-                return public_error_response(
-                    "cross_scope_access_denied",
-                    "Browser origin is not allowed",
-                    {"requested_project_id": requested_project_id},
-                )
-            return JSONResponse(
-                status_code=403,
-                content={
-                    "error": {
-                        "kind": "untrusted_origin",
-                        "message": "Browser origin is not allowed",
-                    }
-                },
-            )
-        return await call_next(request)
-
     @app.exception_handler(StoragePathError)
     async def storage_path_error_handler(
         request: Request,
         error: StoragePathError,
     ) -> JSONResponse:
-        del request
+        if request.url.path.startswith("/api/v2/"):
+            incident_id = report_public_internal_error(
+                error,
+                transport="REST",
+            )
+            return public_error_response(
+                "internal_error",
+                "Internal server error",
+                {"incident_id": incident_id},
+            )
         return JSONResponse(
             status_code=422,
             content={
@@ -232,21 +202,33 @@ def create_app(
             },
         )
 
-    app.add_middleware(
-        CORSMiddleware,
-        allow_origins=list(TRUSTED_BROWSER_ORIGINS),
-        allow_credentials=True,
-        allow_methods=["*"],
-        allow_headers=["*"],
-    )
-
-    protocol_discovery = load_bundle()["bundle_discovery"]
+    public_bundle = load_bundle()
+    protocol_discovery = public_bundle["bundle_discovery"]
+    rest_operations = public_bundle["rest_operations"]
+    run_event_stream = public_bundle["run_event_stream"]
 
     @app.get(
         protocol_discovery["route"],
         include_in_schema=False,
     )
-    async def public_protocol_bundle() -> Response:
+    async def public_protocol_bundle(request: Request) -> Response:
+        try:
+            query_parameters, json_body = await public_rest_wire_sources(
+                request
+            )
+            if query_parameters:
+                field = sorted(query_parameters)[0]
+                raise ProtocolValidationError(
+                    f"$.{field}",
+                    "query parameter is not declared by protocol discovery",
+                )
+            if json_body is not REST_BODY_ABSENT:
+                raise ProtocolValidationError(
+                    "$",
+                    "protocol discovery does not declare a body",
+                )
+        except ProtocolValidationError as error:
+            return protocol_error_response(error)
         return Response(
             content=bundle_bytes(),
             media_type=protocol_discovery["media_type"],
@@ -255,10 +237,21 @@ def create_app(
             },
         )
 
-    catalog_operation = load_bundle()["rest_operations"]["catalog_snapshot"]
+    catalog_operation = rest_operations["catalog_snapshot"]
 
     @app.get(catalog_operation["route"], include_in_schema=False)
-    async def public_catalog_snapshot(request: Request) -> dict[str, Any]:
+    async def public_catalog_snapshot(request: Request) -> Any:
+        try:
+            query_parameters, json_body = await public_rest_wire_sources(
+                request
+            )
+            decode_rest_request(
+                "catalog_snapshot",
+                query_parameters=query_parameters,
+                json_body=json_body,
+            )
+        except ProtocolValidationError as error:
+            return protocol_error_response(error)
         payload = request.app.state.frozen_catalog.public_snapshot(
             protocol_digest=bundle_digest(),
         )
@@ -296,6 +289,129 @@ def create_app(
     ) -> JSONResponse:
         status, payload = public_error_payload(code, message, details)
         return JSONResponse(status_code=status, content=payload)
+
+    def report_public_internal_error(
+        error: Exception,
+        *,
+        transport: str,
+    ) -> str:
+        incident_id = f"incident-{uuid.uuid4().hex}"
+        _LOGGER.error(
+            "Unhandled public v2 %s error incident_id=%s exception_type=%s",
+            transport,
+            incident_id,
+            type(error).__name__,
+            exc_info=True,
+        )
+        return incident_id
+
+    @app.middleware("http")
+    async def public_v2_internal_error_boundary(
+        request: Request,
+        call_next: Callable[[Request], Awaitable[Response]],
+    ) -> Response:
+        try:
+            return await call_next(request)
+        except Exception as error:
+            if not request.url.path.startswith("/api/v2/"):
+                raise
+            incident_id = report_public_internal_error(
+                error,
+                transport="REST",
+            )
+            return public_error_response(
+                "internal_error",
+                "Internal server error",
+                {"incident_id": incident_id},
+            )
+
+    def protocol_error_field_path(
+        error: ProtocolValidationError,
+    ) -> list[str | int]:
+        field_path: list[str | int] = []
+        for match in re.finditer(r"\.([^.[\]]+)|\[([0-9]+)\]", error.path):
+            name, index = match.groups()
+            field_path.append(name if name is not None else int(index))
+        return field_path
+
+    def protocol_error_response(
+        error: ProtocolValidationError,
+        json_body: Any = None,
+    ) -> JSONResponse:
+        if error.path == "$.workflow.schema_version":
+            workflow_payload = (
+                json_body.get("workflow")
+                if isinstance(json_body, Mapping)
+                else None
+            )
+            received = (
+                workflow_payload.get("schema_version", "missing")
+                if isinstance(workflow_payload, Mapping)
+                else "invalid"
+            )
+            return public_error_response(
+                "unsupported_schema_version",
+                "Workflow schema version is unsupported",
+                {
+                    "artifact_kind": "workflow",
+                    "expected_schema_version": "2.1.0",
+                    "received_schema_version": (
+                        str(received)[:64] or "missing"
+                    ),
+                },
+            )
+        return public_error_response(
+            "malformed_request",
+            str(error),
+            {"field_path": protocol_error_field_path(error)},
+        )
+
+    def reject_duplicate_request_keys(
+        pairs: list[tuple[str, Any]],
+    ) -> dict[str, Any]:
+        result: dict[str, Any] = {}
+        for key, value in pairs:
+            if key in result:
+                raise ValueError(f"duplicate JSON object key {key!r}")
+            result[key] = value
+        return result
+
+    def parse_finite_request_float(value: str) -> float:
+        parsed = float(value)
+        if not math.isfinite(parsed):
+            raise ValueError(f"non-I-JSON numeric value {value!r}")
+        return parsed
+
+    async def public_rest_wire_sources(
+        request: Request,
+    ) -> tuple[dict[str, str], Any]:
+        query_parameters: dict[str, str] = {}
+        for name, value in request.query_params.multi_items():
+            if name in query_parameters:
+                raise ProtocolValidationError(
+                    f"$.{name}",
+                    "query parameter must appear exactly once",
+                )
+            query_parameters[name] = value
+
+        raw_body = await request.body()
+        if raw_body == b"":
+            return query_parameters, REST_BODY_ABSENT
+        try:
+            json_body = json.loads(
+                raw_body.decode("utf-8"),
+                object_pairs_hook=reject_duplicate_request_keys,
+                parse_float=parse_finite_request_float,
+                parse_constant=lambda value: (_ for _ in ()).throw(
+                    ValueError(f"non-I-JSON numeric value {value!r}")
+                ),
+            )
+        except (UnicodeError, ValueError) as error:
+            raise ProtocolValidationError(
+                "$",
+                "request body must be valid I-JSON",
+            ) from error
+        return query_parameters, json_body
 
     def workflow_document_error_response(
         error: WorkflowDocumentError,
@@ -337,184 +453,172 @@ def create_app(
         )
 
     @app.get(
-        "/api/v2/projects/{project_id}/workflow",
+        rest_operations["project_workflow_draft"]["route"],
         include_in_schema=False,
     )
-    async def public_project_workflow_snapshot(
+    async def public_project_workflow_draft(
         request: Request,
         project_id: str,
     ) -> Any:
         try:
-            validate_request(
-                "project_workflow_snapshot",
-                {"project_id": project_id},
+            query_parameters, json_body = await public_rest_wire_sources(
+                request
             )
-            payload = request.app.state.workflow_authoring_v2.load(project_id)
+            admitted = decode_rest_request(
+                "project_workflow_draft",
+                path_parameters={"project_id": project_id},
+                query_parameters=query_parameters,
+                json_body=json_body,
+            )
+            payload = (
+                request.app.state.workflow_authoring_v2.load_draft(
+                    admitted["project_id"]
+                ).to_public()
+            )
         except ProtocolValidationError as error:
-            return public_error_response(
-                "malformed_request",
-                str(error),
-                {"field_path": ["project_id"]},
-            )
+            return protocol_error_response(error)
         except WorkflowAuthoringError as error:
             return authoring_error_response(error)
-        validate_response("project_workflow_snapshot", 200, payload)
+        validate_response("project_workflow_draft", 200, payload)
         return payload
 
     @app.put(
-        "/api/v2/projects/{project_id}/workflow",
+        rest_operations["save_project_workflow_draft"]["route"],
         include_in_schema=False,
     )
-    async def public_save_project_workflow(
+    async def public_save_project_workflow_draft(
         request: Request,
         project_id: str,
-        payload: Any = Body(...),
     ) -> Any:
-        workflow_payload = (
-            payload.get("workflow")
-            if isinstance(payload, Mapping)
-            else payload
-        )
+        workflow_payload: Any = None
+        json_body: Any = REST_BODY_ABSENT
         try:
-            workflow = parse_workflow_document(workflow_payload)
-            combined = {"project_id": project_id, **payload}
-            validate_request("save_project_workflow", combined)
-            snapshot = request.app.state.workflow_authoring_v2.save(
-                project_id,
-                expected_workflow_revision=payload[
-                    "expected_workflow_revision"
-                ],
-                workflow=workflow,
+            query_parameters, json_body = await public_rest_wire_sources(
+                request
+            )
+            admitted = decode_rest_request(
+                "save_project_workflow_draft",
+                path_parameters={"project_id": project_id},
+                query_parameters=query_parameters,
+                json_body=json_body,
+            )
+            workflow_payload = admitted["workflow"]
+            workflow = workflow_document_from_admitted_public(
+                workflow_payload
+            )
+            snapshot = (
+                request.app.state.workflow_authoring_v2.save_draft(
+                    admitted["project_id"],
+                    expected_draft_revision=admitted[
+                        "expected_draft_revision"
+                    ],
+                    workflow=workflow,
+                ).to_public()
             )
         except WorkflowDocumentError as error:
             return workflow_document_error_response(error, workflow_payload)
         except ProtocolValidationError as error:
-            return public_error_response(
-                "malformed_request",
-                str(error),
-                {"field_path": []},
-            )
+            return protocol_error_response(error, json_body)
         except WorkflowAuthoringError as error:
             return authoring_error_response(error)
-        validate_response("save_project_workflow", 200, snapshot)
+        validate_response("save_project_workflow_draft", 200, snapshot)
         return snapshot
 
-    @app.post(
-        "/api/v2/projects/{project_id}/workflow:relock",
+    @app.get(
+        rest_operations["project_active_workflow_commit"]["route"],
         include_in_schema=False,
     )
-    async def public_relock_project_workflow(
+    async def public_project_active_workflow_commit(
         request: Request,
         project_id: str,
-        payload: Any = Body(...),
     ) -> Any:
         try:
-            combined = {"project_id": project_id, **payload}
-            validate_request("relock_project_workflow", combined)
-            snapshot = request.app.state.workflow_authoring_v2.relock(
-                project_id,
-                workflow_revision=payload["workflow_revision"],
+            query_parameters, json_body = await public_rest_wire_sources(
+                request
             )
-        except (ProtocolValidationError, TypeError) as error:
-            return public_error_response(
-                "malformed_request",
-                str(error),
-                {"field_path": []},
+            admitted = decode_rest_request(
+                "project_active_workflow_commit",
+                path_parameters={"project_id": project_id},
+                query_parameters=query_parameters,
+                json_body=json_body,
             )
-        except WorkflowAuthoringError as error:
-            return authoring_error_response(error)
-        except WorkflowCompileError as error:
-            code = (
-                error.code
-                if error.code in {
-                    "contract_digest_mismatch",
-                    "inactive_generation",
-                }
-                else "compile_rejected"
+            receipt = (
+                request.app.state.workflow_authoring_v2.load_active_commit(
+                    admitted["project_id"]
+                ).to_public()
             )
-            return public_error_response(
-                code,
-                str(error),
-                {"issues": [error.issue()]},
-            )
-        validate_response("relock_project_workflow", 200, snapshot)
-        return snapshot
-
-    @app.post(
-        "/api/v2/projects/{project_id}/workflow:compile",
-        include_in_schema=False,
-    )
-    async def public_compile_workflow(
-        request: Request,
-        project_id: str,
-        payload: Any = Body(...),
-    ) -> Any:
-        workflow_payload = (
-            payload.get("workflow")
-            if isinstance(payload, Mapping)
-            else payload
-        )
-        try:
-            workflow = parse_workflow_document(workflow_payload)
-            combined = {"project_id": project_id, **payload}
-            validate_request("workflow_compile", combined)
-            compiled = request.app.state.workflow_authoring_v2.compile(
-                project_id,
-                workflow_revision=payload["workflow_revision"],
-                workflow=workflow,
-            )
-        except WorkflowDocumentError as error:
-            return workflow_document_error_response(error, workflow_payload)
         except ProtocolValidationError as error:
-            return public_error_response(
-                "malformed_request",
-                str(error),
-                {"field_path": []},
-            )
+            return protocol_error_response(error)
         except WorkflowAuthoringError as error:
             return authoring_error_response(error)
-        except WorkflowCompileError as error:
-            code = (
-                error.code
-                if error.code in {
-                    "contract_digest_mismatch",
-                    "inactive_generation",
-                }
-                else "compile_rejected"
-            )
-            return public_error_response(
-                code,
-                str(error),
-                {"issues": [error.issue()]},
-            )
-        receipt = compiled.public_receipt()
-        validate_response("workflow_compile", 200, receipt)
+        validate_response("project_active_workflow_commit", 200, receipt)
         return receipt
 
     @app.post(
-        "/api/v2/projects/{project_id}/runs",
+        rest_operations["commit_project_workflow"]["route"],
+        include_in_schema=False,
+    )
+    async def public_commit_project_workflow(
+        request: Request,
+        project_id: str,
+    ) -> Any:
+        workflow_payload: Any = None
+        json_body: Any = REST_BODY_ABSENT
+        try:
+            query_parameters, json_body = await public_rest_wire_sources(
+                request
+            )
+            admitted = decode_rest_request(
+                "commit_project_workflow",
+                path_parameters={"project_id": project_id},
+                query_parameters=query_parameters,
+                json_body=json_body,
+            )
+            workflow_payload = admitted["workflow"]
+            workflow = workflow_document_from_admitted_public(
+                workflow_payload
+            )
+            receipt = request.app.state.workflow_authoring_v2.commit(
+                admitted["project_id"],
+                expected_draft_revision=admitted[
+                    "expected_draft_revision"
+                ],
+                workflow=workflow,
+            ).to_public()
+        except WorkflowDocumentError as error:
+            return workflow_document_error_response(error, workflow_payload)
+        except ProtocolValidationError as error:
+            return protocol_error_response(error, json_body)
+        except WorkflowAuthoringError as error:
+            return authoring_error_response(error)
+        validate_response("commit_project_workflow", 200, receipt)
+        return receipt
+
+    @app.post(
+        rest_operations["start_run"]["route"],
         include_in_schema=False,
     )
     async def public_start_run(
         request: Request,
         project_id: str,
-        payload: Any = Body(...),
     ) -> Any:
         try:
-            combined = {"project_id": project_id, **payload}
-            validate_request("start_run", combined)
+            query_parameters, json_body = await public_rest_wire_sources(
+                request
+            )
+            admitted = decode_rest_request(
+                "start_run",
+                path_parameters={"project_id": project_id},
+                query_parameters=query_parameters,
+                json_body=json_body,
+            )
             receipt = request.app.state.run_execution_v2.start_background(
-                project_id,
-                workflow_revision=payload["workflow_revision"],
-                compile_id=payload["compile_id"],
-                client_request_id=payload["client_request_id"],
+                admitted["project_id"],
+                workflow_commit_id=admitted["workflow_commit_id"],
+                client_request_id=admitted["client_request_id"],
             )
-        except (ProtocolValidationError, TypeError) as error:
-            return public_error_response(
-                "malformed_request",
-                str(error),
-                {"field_path": []},
-            )
+        except ProtocolValidationError as error:
+            return protocol_error_response(error)
         except WorkflowAuthoringError as error:
             return authoring_error_response(error)
         except V2RunError as error:
@@ -527,34 +631,35 @@ def create_app(
         return JSONResponse(status_code=202, content=receipt)
 
     @app.post(
-        "/api/v2/projects/{project_id}/runs/{run_id}:cancel",
+        rest_operations["cancel_run"]["route"],
         include_in_schema=False,
     )
     async def public_cancel_run(
         request: Request,
         project_id: str,
         run_id: str,
-        payload: Any = Body(...),
     ) -> Any:
         try:
-            combined = {
-                "project_id": project_id,
-                "run_id": run_id,
-                **payload,
-            }
-            validate_request("cancel_run", combined)
+            query_parameters, json_body = await public_rest_wire_sources(
+                request
+            )
+            admitted = decode_rest_request(
+                "cancel_run",
+                path_parameters={
+                    "project_id": project_id,
+                    "run_id": run_id,
+                },
+                query_parameters=query_parameters,
+                json_body=json_body,
+            )
             receipt = await asyncio.to_thread(
                 request.app.state.run_execution_v2.cancel,
-                project_id,
-                run_id,
-                after_cursor=payload.get("after_sequence"),
+                admitted["project_id"],
+                admitted["run_id"],
+                after_cursor=admitted.get("after_sequence"),
             )
-        except (ProtocolValidationError, TypeError) as error:
-            return public_error_response(
-                "malformed_request",
-                str(error),
-                {"field_path": []},
-            )
+        except ProtocolValidationError as error:
+            return protocol_error_response(error)
         except V2RunError as error:
             return public_error_response(
                 error.code,
@@ -565,33 +670,34 @@ def create_app(
         return receipt
 
     @app.post(
-        "/api/v2/projects/{project_id}/runs:derive",
+        rest_operations["start_derived_run"]["route"],
         include_in_schema=False,
     )
     async def public_start_derived_run(
         request: Request,
         project_id: str,
-        payload: Any = Body(...),
     ) -> Any:
         try:
-            combined = {"project_id": project_id, **payload}
-            validate_request("start_derived_run", combined)
+            query_parameters, json_body = await public_rest_wire_sources(
+                request
+            )
+            admitted = decode_rest_request(
+                "start_derived_run",
+                path_parameters={"project_id": project_id},
+                query_parameters=query_parameters,
+                json_body=json_body,
+            )
             receipt = (
                 request.app.state.run_execution_v2.start_derived_background(
-                    project_id,
-                    source_run_id=payload["source_run_id"],
-                    compile_id=payload["compile_id"],
-                    policy=payload["policy"],
-                    node_ids=payload["node_ids"],
-                    client_request_id=payload["client_request_id"],
+                    admitted["project_id"],
+                    source_run_id=admitted["source_run_id"],
+                    policy=admitted["policy"],
+                    node_ids=admitted["node_ids"],
+                    client_request_id=admitted["client_request_id"],
                 )
             )
-        except (ProtocolValidationError, TypeError) as error:
-            return public_error_response(
-                "malformed_request",
-                str(error),
-                {"field_path": []},
-            )
+        except ProtocolValidationError as error:
+            return protocol_error_response(error)
         except WorkflowAuthoringError as error:
             return authoring_error_response(error)
         except V2RunError as error:
@@ -604,7 +710,7 @@ def create_app(
         return JSONResponse(status_code=202, content=receipt)
 
     @app.get(
-        "/api/v2/projects/{project_id}/runs/{run_id}",
+        rest_operations["run_projection"]["route"],
         include_in_schema=False,
     )
     async def public_run_projection(
@@ -613,20 +719,24 @@ def create_app(
         run_id: str,
     ) -> Any:
         try:
-            validate_request(
+            query_parameters, json_body = await public_rest_wire_sources(
+                request
+            )
+            admitted = decode_rest_request(
                 "run_projection",
-                {"project_id": project_id, "run_id": run_id},
+                path_parameters={
+                    "project_id": project_id,
+                    "run_id": run_id,
+                },
+                query_parameters=query_parameters,
+                json_body=json_body,
             )
             projection = request.app.state.run_execution_v2.projection(
-                project_id,
-                run_id,
+                admitted["project_id"],
+                admitted["run_id"],
             )
         except ProtocolValidationError as error:
-            return public_error_response(
-                "malformed_request",
-                str(error),
-                {"field_path": []},
-            )
+            return protocol_error_response(error)
         except V2RunError as error:
             return public_error_response(
                 error.code,
@@ -637,36 +747,36 @@ def create_app(
         return projection
 
     @app.get(
-        "/api/v2/projects/{project_id}/runs/{run_id}/artifacts/"
-        "{artifact_reference}",
+        rest_operations["artifact_retrieval"]["route"],
         include_in_schema=False,
     )
-    def public_v2_artifact(
+    async def public_v2_artifact(
         request: Request,
         project_id: str,
         run_id: str,
         artifact_reference: str,
     ) -> Any:
         try:
-            validate_request(
+            query_parameters, json_body = await public_rest_wire_sources(
+                request
+            )
+            admitted = decode_rest_request(
                 "artifact_retrieval",
-                {
+                path_parameters={
                     "project_id": project_id,
                     "run_id": run_id,
                     "artifact_reference": artifact_reference,
                 },
+                query_parameters=query_parameters,
+                json_body=json_body,
             )
             artifact, body = request.app.state.run_execution_v2.artifact(
-                project_id,
-                run_id,
-                artifact_reference,
+                admitted["project_id"],
+                admitted["run_id"],
+                admitted["artifact_reference"],
             )
         except ProtocolValidationError as error:
-            return public_error_response(
-                "malformed_request",
-                str(error),
-                {"field_path": []},
-            )
+            return protocol_error_response(error)
         except V2RunError as error:
             return public_error_response(
                 error.code,
@@ -697,29 +807,35 @@ def create_app(
         )
 
     @app.websocket(
-        "/api/v2/projects/{project_id}/runs/{run_id}/events"
+        run_event_stream["route"].partition("?")[0]
     )
     async def public_v2_run_events(
         websocket: WebSocket,
         project_id: str,
         run_id: str,
     ) -> None:
-        if not _is_trusted_browser_origin(websocket):
-            await websocket.close(code=4403)
-            return
         await websocket.accept()
+        after_sequence: str | None = None
         try:
-            after_sequence = websocket.query_params.get("after_sequence")
-            request_payload: dict[str, Any] = {
-                "project_id": project_id,
-                "run_id": run_id,
-            }
-            if after_sequence is not None:
-                request_payload["after_sequence"] = after_sequence
-            validate_schema(
-                "#/$defs/RunEventStreamRequest",
-                request_payload,
+            query_parameters: dict[str, str] = {}
+            for name, value in websocket.query_params.multi_items():
+                if name in query_parameters:
+                    raise ProtocolValidationError(
+                        f"$.{name}",
+                        "query parameter must appear exactly once",
+                    )
+                query_parameters[name] = value
+            after_sequence = query_parameters.get("after_sequence")
+            admitted = decode_run_event_stream_request(
+                path_parameters={
+                    "project_id": project_id,
+                    "run_id": run_id,
+                },
+                query_parameters=query_parameters,
             )
+            project_id = admitted["project_id"]
+            run_id = admitted["run_id"]
+            after_sequence = admitted.get("after_sequence")
             (
                 replay_after_sequence,
                 replay_after_cursor,
@@ -788,103 +904,207 @@ def create_app(
                 message = str(error)
                 details = error.details
             else:
-                code = "invalid_cursor"
-                message = "Run Event Stream cursor is invalid"
-                details = {
-                    "after_sequence": (
-                        after_sequence
-                        if isinstance(after_sequence, str)
-                        and 1 <= len(after_sequence) <= 512
-                        else "invalid"
-                    )
-                }
+                if (
+                    error.path == "$.after_sequence"
+                    and after_sequence is not None
+                ):
+                    code = "invalid_cursor"
+                    message = "Run Event Stream cursor is invalid"
+                    details = {
+                        "after_sequence": (
+                            after_sequence
+                            if isinstance(after_sequence, str)
+                            and 1 <= len(after_sequence) <= 512
+                            else "invalid"
+                        )
+                    }
+                else:
+                    code = "malformed_request"
+                    message = str(error)
+                    details = {
+                        "field_path": protocol_error_field_path(error)
+                    }
             _, payload = public_error_payload(code, message, details)
             with suppress(RuntimeError, WebSocketDisconnect):
                 await websocket.send_json(payload)
             await websocket.close(code=1008)
-
-    # Project provisioning and opaque input publication are storage controls,
-    # not alternate Workflow or Run protocols. Scientific runtime operations
-    # remain exclusively under the versioned public bundle above.
-    @app.post("/api/projects", include_in_schema=False)
-    async def create_project(
-        request: Request,
-        payload: Any = Body(...),
-    ) -> Any:
-        if (
-            not isinstance(payload, Mapping)
-            or set(payload) != {"name"}
-            or not isinstance(payload["name"], str)
-            or not 1 <= len(payload["name"]) <= 256
-        ):
-            return JSONResponse(
-                status_code=422,
-                content={
-                    "schema_namespace": "protein-workbench-project/v2",
-                    "error": {
-                        "code": "malformed_request",
-                        "message": "Project name is invalid",
-                    },
-                },
+        except Exception as error:
+            incident_id = report_public_internal_error(
+                error,
+                transport="WebSocket",
             )
-        meta = request.app.state.project_manager.create(payload["name"])
-        return {
-            "schema_namespace": "protein-workbench-project/v2",
+            _, payload = public_error_payload(
+                "internal_error",
+                "Internal server error",
+                {"incident_id": incident_id},
+            )
+            with suppress(RuntimeError, WebSocketDisconnect):
+                await websocket.send_json(payload)
+            await websocket.close(code=1011)
+
+    create_project_operation = rest_operations["create_project"]
+
+    @app.post(create_project_operation["route"], include_in_schema=False)
+    async def public_create_project(request: Request) -> Any:
+        try:
+            query_parameters, json_body = await public_rest_wire_sources(
+                request
+            )
+            admitted = decode_rest_request(
+                "create_project",
+                query_parameters=query_parameters,
+                json_body=json_body,
+            )
+        except ProtocolValidationError as error:
+            return protocol_error_response(error)
+        meta = request.app.state.project_manager.create(admitted["name"])
+        payload = {
+            "schema_namespace": "protein-workbench-public/v2",
             "id": meta.id,
             "name": meta.name,
             "created_at": meta.created_at,
+            "modified_at": meta.modified_at,
+            "seed": meta.seed,
         }
+        status = create_project_operation["response"]["success_status"]
+        validate_response("create_project", status, payload)
+        return JSONResponse(status_code=status, content=payload)
 
-    @app.post(
-        "/api/projects/{project_id}/inputs",
-        include_in_schema=False,
-    )
-    async def upload_input(
+    publish_input_operation = rest_operations["publish_project_input"]
+
+    @app.post(publish_input_operation["route"], include_in_schema=False)
+    async def public_publish_project_input(
         request: Request,
         project_id: str,
-        file: UploadFile = File(...),
     ) -> Any:
         manager = request.app.state.project_manager
         try:
-            project = manager.load_meta(project_id)
+            query_parameters, json_body = await public_rest_wire_sources(
+                request
+            )
+            admitted = decode_rest_request(
+                "publish_project_input",
+                path_parameters={"project_id": project_id},
+                query_parameters=query_parameters,
+                json_body=json_body,
+            )
+            content = base64.b64decode(admitted["content_base64"])
+            project = manager.load_meta(admitted["project_id"])
+        except ProtocolValidationError as error:
+            return protocol_error_response(error)
         except ValueError:
             return public_error_response(
                 "unsupported_schema_version",
                 "Project metadata is not a supported exact v2 artifact",
                 {
                     "artifact_kind": "project",
-                    "expected_schema_version": "2.1.0",
+                    "expected_schema_version": PROJECT_SCHEMA_VERSION,
                     "received_schema_version": "unknown",
                 },
             )
         if project is None:
-            return JSONResponse(
-                status_code=404,
-                content={
-                    "schema_namespace": "protein-workbench-project/v2",
-                    "error": {
-                        "code": "project_not_found",
-                        "message": "Project was not found",
-                    },
+            return public_error_response(
+                "project_not_found",
+                "Project was not found",
+                {
+                    "resource_kind": "project",
+                    "resource_id": admitted["project_id"],
                 },
             )
-        manager.assert_writable(project_id)
-        payload = await file.read(MAX_PROJECT_INPUT_BYTES + 1)
-        if len(payload) > MAX_PROJECT_INPUT_BYTES:
-            raise StoragePathError(
-                "file",
-                "Uploaded Project input is too large",
+        try:
+            published = manager.publish_input(
+                admitted["project_id"],
+                f"input-{uuid.uuid4().hex}",
+                content,
+                filename=admitted["filename"],
             )
-        published = manager.publish_input(
-            project_id,
-            f"input-{uuid.uuid4().hex}",
-            payload,
-        )
-        return {
-            "schema_namespace": "protein-workbench-project/v2",
-            "filename": file.filename,
+        except ProtectedProjectError:
+            return public_error_response(
+                "cross_scope_access_denied",
+                "Protected Project cannot be changed through this scope",
+                {"requested_project_id": admitted["project_id"]},
+            )
+        payload = {
+            "schema_namespace": "protein-workbench-public/v2",
+            "project_id": admitted["project_id"],
             **published,
         }
+        status = publish_input_operation["response"]["success_status"]
+        validate_response("publish_project_input", status, payload)
+        return JSONResponse(status_code=status, content=payload)
+
+    input_metadata_operation = rest_operations["project_input_metadata"]
+
+    @app.get(input_metadata_operation["route"], include_in_schema=False)
+    async def public_project_input_metadata(
+        request: Request,
+        project_id: str,
+        project_input_ref: str,
+    ) -> Any:
+        manager = request.app.state.project_manager
+        try:
+            query_parameters, json_body = await public_rest_wire_sources(
+                request
+            )
+            admitted = decode_rest_request(
+                "project_input_metadata",
+                path_parameters={
+                    "project_id": project_id,
+                    "project_input_ref": project_input_ref,
+                },
+                query_parameters=query_parameters,
+                json_body=json_body,
+            )
+            project = manager.load_meta(admitted["project_id"])
+        except ProtocolValidationError as error:
+            return protocol_error_response(error)
+        except ValueError:
+            return public_error_response(
+                "unsupported_schema_version",
+                "Project metadata is not a supported exact v2 artifact",
+                {
+                    "artifact_kind": "project",
+                    "expected_schema_version": PROJECT_SCHEMA_VERSION,
+                    "received_schema_version": "unknown",
+                },
+            )
+        if project is None:
+            return public_error_response(
+                "project_not_found",
+                "Project was not found",
+                {
+                    "resource_kind": "project",
+                    "resource_id": admitted["project_id"],
+                },
+            )
+        try:
+            descriptor, _ = manager.read_input(
+                admitted["project_id"],
+                admitted["project_input_ref"],
+            )
+        except FileNotFoundError:
+            return public_error_response(
+                "project_input_not_found",
+                "Project Input was not found",
+                {
+                    "resource_kind": "project_input",
+                    "resource_id": admitted["project_input_ref"],
+                },
+            )
+        except ProjectInputIntegrityError as error:
+            return public_error_response(
+                "artifact_integrity_mismatch",
+                "Project Input integrity verification failed",
+                {"artifact_reference": error.project_input_ref},
+            )
+        payload = {
+            "schema_namespace": "protein-workbench-public/v2",
+            "project_id": admitted["project_id"],
+            **descriptor,
+        }
+        status = input_metadata_operation["response"]["success_status"]
+        validate_response("project_input_metadata", status, payload)
+        return JSONResponse(status_code=status, content=payload)
 
     return app
 

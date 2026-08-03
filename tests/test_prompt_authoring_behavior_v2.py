@@ -9,15 +9,20 @@ from typing import Any
 from fastapi.testclient import TestClient
 import pytest
 
-from core import WorkflowCompileError
+from core import WorkflowAuthoringError, build_frozen_catalog
 from core.server import create_app
 from core.workflow_v2 import WorkflowEdge
 from datatypes import ResidueLayout
 from modules.prompt_authoring.domain import AlignedResidueTrack
+from modules.prompt_authoring.package import MODULE_PACKAGE
+from modules.structure_transform.package import (
+    MODULE_PACKAGE as STRUCTURE_TRANSFORM_PACKAGE,
+)
 from protein_workbench_public import prepare_rest_request, validate_response
 from tests.fixtures.prompt_authoring_v2 import (
     TARGET_LAYOUT,
     VERSION,
+    WORKFLOW_SCHEMA_VERSION,
     decoded_output,
     run_operation,
     wire_value,
@@ -125,7 +130,7 @@ def test_track_mapping_rejects_misalignment_and_malformed_maps(
 def test_nominal_tracks_cannot_connect_by_structural_similarity(
     tmp_path: Path,
 ) -> None:
-    with pytest.raises(WorkflowCompileError) as rejected:
+    with pytest.raises(WorkflowAuthoringError) as rejected:
         run_operation(
             tmp_path,
             operation="map_residue_track",
@@ -146,26 +151,44 @@ def test_nominal_tracks_cannot_connect_by_structural_similarity(
             ),
         )
 
-    assert rejected.value.code == "port_type_mismatch"
+    assert rejected.value.code == "compile_rejected"
+    assert rejected.value.details["issues"][0]["code"] == (
+        "port_type_mismatch"
+    )
 
 
-def test_prompt_from_structure_fails_closed_on_polymer_modified_residue(
+def test_prompt_from_structure_uses_the_resolver_owned_axis(
     tmp_path: Path,
 ) -> None:
-    _, projection, _ = run_operation(
+    catalog, projection, _ = run_operation(
         tmp_path,
         operation="prompt_from_structure",
         node_parameters={},
         source_edges=(
-            WorkflowEdge("source", "structure", "author", "structure"),
+            WorkflowEdge(
+                "source",
+                "resolved_residue_axis",
+                "author",
+                "residue_axis",
+            ),
         ),
-        source_fixture="2emo",
     )
 
-    assert projection["status"] == "failed"
-    assert not any(
-        output["node_id"] == "author"
+    assert projection["status"] == "succeeded"
+    outputs = {
+        output["output_port"]: decoded_output(catalog, output)
         for output in projection["outputs"]
+        if output["node_id"] == "author"
+    }
+    assert outputs["layout"] == ResidueLayout(
+        "A,B",
+        3,
+        ["A:1", "A:2", "B:1"],
+    )
+    assert outputs["protein_prompt"].sequence_track.values == (
+        "A",
+        "G",
+        "S",
     )
 
 
@@ -460,7 +483,12 @@ def test_prompt_authoring_executes_through_the_public_protocol(
         root.mkdir()
         monkeypatch.setenv(f"PROTEIN_WORKBENCH_{name}_ROOT", str(root))
 
-    with TestClient(create_app()) as client:
+    catalog_override = build_frozen_catalog(
+        (MODULE_PACKAGE, STRUCTURE_TRANSFORM_PACKAGE)
+    )
+    with TestClient(
+        create_app(frozen_catalog_override=catalog_override)
+    ) as client:
         def public_request(
             operation_id: str,
             request: dict[str, Any],
@@ -483,11 +511,11 @@ def test_prompt_authoring_executes_through_the_public_protocol(
             for contract in catalog["contracts"]
         )
         project_id = client.post(
-            "/api/projects",
+            "/api/v2/projects",
             json={"name": "prompt authoring public journey"},
         ).json()["id"]
         workflow = {
-            "schema_version": VERSION,
+            "schema_version": WORKFLOW_SCHEMA_VERSION,
             "workflow_id": project_id,
             "nodes": [{
                 "node_id": "layout",
@@ -508,29 +536,12 @@ def test_prompt_authoring_executes_through_the_public_protocol(
             "edges": [],
             "contract_lock": [],
         }
-        saved = public_request(
-            "save_project_workflow",
+        committed = public_request(
+            "commit_project_workflow",
             {
                 "project_id": project_id,
-                "expected_workflow_revision": 0,
+                "expected_draft_revision": 0,
                 "workflow": workflow,
-            },
-            200,
-        ).json()
-        relocked = public_request(
-            "relock_project_workflow",
-            {
-                "project_id": project_id,
-                "workflow_revision": saved["workflow_revision"],
-            },
-            200,
-        ).json()
-        compiled = public_request(
-            "workflow_compile",
-            {
-                "project_id": project_id,
-                "workflow_revision": relocked["workflow_revision"],
-                "workflow": relocked["workflow"],
             },
             200,
         ).json()
@@ -538,8 +549,7 @@ def test_prompt_authoring_executes_through_the_public_protocol(
             "start_run",
             {
                 "project_id": project_id,
-                "workflow_revision": relocked["workflow_revision"],
-                "compile_id": compiled["compile_id"],
+                "workflow_commit_id": committed["workflow_commit_id"],
                 "client_request_id": "prompt-authoring-public",
             },
             202,

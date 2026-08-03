@@ -1,26 +1,26 @@
 schema_version: "2.1.0"
 node_type_id: prompt_authoring.add_function_annotation
-version: "2.1.0"
+version: "3.0.0"
 title: Add function annotation
 summary: Adds one chain-qualified inclusive residue interval with canonical ordering and explicit overlap policy.
 category: prompt_authoring
 inputs:
   - name: layout
     port_type_id: residue.layout
-    port_type_version: "2.1.0"
+    port_type_version: "3.0.0"
     required: true
     multiplicity: one
     scientific_meaning: Identity-complete effective residue layout used to resolve the interval.
   - name: existing_annotations
     port_type_id: function.annotations
-    port_type_version: "2.1.0"
+    port_type_version: "3.0.0"
     required: false
     multiplicity: one
     scientific_meaning: Existing canonical annotations aligned to the same effective layout.
 outputs:
   - name: function_annotations
     port_type_id: function.annotations
-    port_type_version: "2.1.0"
+    port_type_version: "3.0.0"
     required: true
     multiplicity: one
     scientific_meaning: Canonically ordered annotations retaining chain-qualified endpoint provenance.
@@ -59,12 +59,12 @@ node_parameters:
           field_scope: scientific
           scientific_meaning: Canonical chain-qualified identity of the first annotated residue.
           type: string
-          pattern: "^[A-Za-z0-9]:[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$"
+          pattern: "^[A-Za-z0-9]:(?:[A-Za-z0-9][A-Za-z0-9_.-]{0,63}|[+-][0-9]{1,3}[A-Za-z]?)$"
         end_residue_id:
           field_scope: scientific
           scientific_meaning: Canonical chain-qualified identity of the last annotated residue.
           type: string
-          pattern: "^[A-Za-z0-9]:[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$"
+          pattern: "^[A-Za-z0-9]:(?:[A-Za-z0-9][A-Za-z0-9_.-]{0,63}|[+-][0-9]{1,3}[A-Za-z]?)$"
   overlap_policy:
     parameter_scope: scientific
     scientific_meaning: Whether inclusive intervals may share residues.

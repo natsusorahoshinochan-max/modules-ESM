@@ -2,19 +2,25 @@
 
 from __future__ import annotations
 
+from contextlib import nullcontext
+from dataclasses import replace
+import json
 from pathlib import Path
 
 import pytest
 
 from core import (
+    InputContentDigests,
     ModulePackageContractCase,
     ModulePackagePortCase,
+    OperationCall,
     PortValueError,
     WorkflowCompileError,
     WorkflowDocument,
     WorkflowNodeInstance,
     build_discovered_frozen_catalog,
     build_frozen_catalog,
+    builtin_frozen_catalog,
     canonical_json_bytes,
     compile_workflow,
     discover_module_packages,
@@ -23,25 +29,57 @@ from core import (
 )
 from core.workflow_v2 import WorkflowEdge
 from datatypes import (
+    Candidate,
+    CandidateCollection,
+    CandidateDataReference,
     ModifiedResidueAtomMapping,
     ModifiedResidueNormalization,
     ModifiedResidueNormalizationCollection,
+    ProteinSequence,
     ProteinStructure,
+    ResidueLayout,
+    ResolvedStructureResidueAxis,
+    StructureAtomCoordinate,
+    StructureAxisSegment,
+    StructureComponentDisposition,
+    StructureResidueCoordinates,
+)
+from modules.structure_transform import (
+    CandidateModifiedResidueNormalizationAssociation,
+    CandidateModifiedResidueNormalizationAssociations,
+    CandidateResolvedResidueAxisAssociation,
+    CandidateResolvedResidueAxisAssociations,
 )
 from modules.structure_transform.package import MODULE_PACKAGE
+from modules.structure_transform.implementation import (
+    ExtractSequenceCandidatesImplementation,
+    SelectCandidateChainsImplementation,
+    extract_backbone,
+    extract_sequence,
+    resolve_residue_axis,
+    select_chains,
+)
 from tests.fixtures.structure_transform_sources.package import (
     MODULE_PACKAGE as SOURCE_PACKAGE,
 )
 
 
 VERSION = "2.1.0"
-STRUCTURE_VERSION = "3.0.0"
+CANDIDATE_COLLECTION_VERSION = "3.0.0"
+CANDIDATE_NODE_VERSION = "3.0.0"
+STRUCTURE_VERSION = "4.0.0"
+NORMALIZE_CSH_VERSION = "5.0.0"
+CANDIDATE_AXIS_VERSION = "5.0.0"
+SOURCE_VERSION = "5.0.0"
+BACKBONE_VERSION = "4.0.0"
+BACKBONE_METHOD_VERSION = "4.0.0"
+NORMALIZATION_VERSION = "3.0.0"
 _SOURCE = WorkflowNodeInstance(
     node_id="source",
     node_type_id="contract_test.structure_transform_source",
-    node_type_version=STRUCTURE_VERSION,
+    node_type_version=SOURCE_VERSION,
     binding_id="contract_test.structure_transform_source.direct",
-    binding_version=STRUCTURE_VERSION,
+    binding_version=SOURCE_VERSION,
     node_parameters={"fixture": "canonical"},
     binding_parameters={},
 )
@@ -54,13 +92,13 @@ _SOURCE_EDGE = WorkflowEdge(
 _BACKBONE = ProteinStructure(
     pdb_string=(
         "ATOM      1  N   ALA A   1       1.000   2.000   3.000"
-        "  1.00 20.00           N\n"
+        "  1.00 20.00           N  \n"
         "ATOM      2  CA  ALA A   1       2.000   2.000   3.000"
-        "  1.00 20.00           C\n"
+        "  1.00 20.00           C  \n"
         "ATOM      3  C   ALA A   1       3.000   2.000   3.000"
-        "  1.00 20.00           C\n"
+        "  1.00 20.00           C  \n"
         "ATOM      4  O   ALA A   1       4.000   2.000   3.000"
-        "  1.00 20.00           O\n"
+        "  1.00 20.00           O  \n"
         "TER\nEND\n"
     ),
 )
@@ -74,22 +112,328 @@ _MISSING_CHAIN_BREAK = ProteinStructure(
     pdb_string=(
         _BACKBONE.pdb_string.removesuffix("TER\nEND\n")
         + "ATOM      5  N   GLY B   1       5.000   2.000   3.000"
-        "  1.00 20.00           N\n"
+        "  1.00 20.00           N  \n"
         "ATOM      6  CA  GLY B   1       6.000   2.000   3.000"
-        "  1.00 20.00           C\n"
+        "  1.00 20.00           C  \n"
         "ATOM      7  C   GLY B   1       7.000   2.000   3.000"
-        "  1.00 20.00           C\n"
+        "  1.00 20.00           C  \n"
         "ATOM      8  O   GLY B   1       8.000   2.000   3.000"
-        "  1.00 20.00           O\n"
+        "  1.00 20.00           O  \n"
         "TER\nEND\n"
     ),
 )
+_RESOLVED_AXIS = ResolvedStructureResidueAxis(
+    structure=_BACKBONE,
+    layout=ResidueLayout("A", 1, ("A:1",)),
+    sequence="A",
+    residue_names=("ALA",),
+    segments=(StructureAxisSegment(0, "A", ("A:1",)),),
+    component_dispositions=(
+        StructureComponentDisposition(
+            "ALA",
+            "A:1",
+            "ATOM",
+            "polymer",
+            "included",
+            ("A:1",),
+            "A",
+            None,
+        ),
+    ),
+    modified_residue_normalizations=ModifiedResidueNormalizationCollection(),
+    residue_coordinates=(
+        StructureResidueCoordinates(
+            "A:1",
+            (
+                StructureAtomCoordinate("N", (1.0, 2.0, 3.0)),
+                StructureAtomCoordinate("CA", (2.0, 2.0, 3.0)),
+                StructureAtomCoordinate("C", (3.0, 2.0, 3.0)),
+                StructureAtomCoordinate("O", (4.0, 2.0, 3.0)),
+            ),
+        ),
+    ),
+    ca_coordinate_mask=(True,),
+    complete_backbone_mask=(True,),
+)
+_RESOLVED_AXIS_SUBJECT = CandidateDataReference(
+    candidate_id="resolved-axis-subject",
+    data_type_id="protein.structure",
+    content_digest=builtin_frozen_catalog()
+    .require_port_type("protein.structure", STRUCTURE_VERSION)
+    .content_digest(_BACKBONE),
+)
+_CANDIDATE_NORMALIZATIONS = CandidateModifiedResidueNormalizationAssociations(
+    entries=(
+        CandidateModifiedResidueNormalizationAssociation(
+            subject=_RESOLVED_AXIS_SUBJECT,
+            normalizations=ModifiedResidueNormalizationCollection(),
+        ),
+    )
+)
+_CANDIDATE_RESOLVED_AXES = CandidateResolvedResidueAxisAssociations(
+    entries=(
+        CandidateResolvedResidueAxisAssociation(
+            subject=_RESOLVED_AXIS_SUBJECT,
+            residue_axis=_RESOLVED_AXIS,
+        ),
+    )
+)
+
+
+class _RunResources:
+    @staticmethod
+    def engine_invocation(**kwargs):
+        del kwargs
+        return nullcontext()
+
+
+def _coordinate_line(
+    serial: int,
+    atom_name: str,
+    residue_name: str,
+    chain_id: str,
+    residue_number: int,
+    *,
+    record: str = "ATOM",
+) -> str:
+    element = "SE" if atom_name == "SE" else atom_name[0]
+    return (
+        f"{record:<6}{serial:5d} {atom_name:^4} "
+        f"{residue_name:>3} {chain_id}{residue_number:4d}    "
+        f"{float(serial):8.3f}{2.0:8.3f}{3.0:8.3f}"
+        f"{1.0:6.2f}{20.0:6.2f}          {element:>2}  "
+    )
+
+
+def _residue_lines(
+    serial: int,
+    residue_name: str,
+    chain_id: str,
+    residue_number: int,
+    *,
+    record: str = "ATOM",
+    include_se: bool = False,
+) -> tuple[list[str], int]:
+    atom_names = ["N", "CA", "C", "O"]
+    if include_se:
+        atom_names.append("SE")
+    return (
+        [
+            _coordinate_line(
+                serial + index,
+                atom_name,
+                residue_name,
+                chain_id,
+                residue_number,
+                record=record,
+            )
+            for index, atom_name in enumerate(atom_names)
+        ],
+        serial + len(atom_names),
+    )
+
+
+def _modres_mse(chain_id: str, residue_number: int) -> str:
+    fields = [" "] * 80
+    fields[0:6] = "MODRES"
+    fields[7:11] = "TEST"
+    fields[12:15] = "MSE"
+    fields[16] = chain_id
+    fields[18:22] = f"{residue_number:4d}"
+    fields[24:27] = "MET"
+    fields[29:45] = "SELENOMETHIONINE"
+    return "".join(fields).rstrip()
+
+
+def _declared_mse_multichain_structure() -> ProteinStructure:
+    ala, serial = _residue_lines(1, "ALA", "A", 1)
+    mse, serial = _residue_lines(
+        serial,
+        "MSE",
+        "A",
+        2,
+        record="HETATM",
+        include_se=True,
+    )
+    gly_a, serial = _residue_lines(serial, "GLY", "A", 3)
+    gly_b, _ = _residue_lines(serial, "GLY", "B", 1)
+    return ProteinStructure(
+        "\n".join(
+            [
+                "SEQRES   1 A    3  ALA MSE GLY",
+                "SEQRES   1 B    1  GLY",
+                _modres_mse("A", 2),
+                *ala,
+                *mse,
+                *gly_a,
+                "TER",
+                *gly_b,
+                "TER",
+                "END",
+                "",
+            ]
+        )
+    )
+
+
+def test_standard_parent_component_is_polymer_independent_of_pdb_record_type(
+) -> None:
+    ala, _ = _residue_lines(1, "ALA", "A", 1, record="HETATM")
+    axis = resolve_residue_axis(
+        ProteinStructure("\n".join([*ala, "TER", "END", ""]))
+    )
+
+    assert axis.sequence == "A"
+    assert axis.layout.residue_ids == ("A:1",)
+    assert axis.component_dispositions[0].component_role == "polymer"
+    assert axis.component_dispositions[0].record_type == "HETATM"
+    axis_type = build_frozen_catalog((MODULE_PACKAGE,)).require_port_type(
+        "structure_transform.resolved_residue_axis",
+        STRUCTURE_VERSION,
+    )
+    assert axis_type.decode(axis_type.encode(axis)) == axis
+
+
+def test_sequence_and_backbone_are_projections_of_the_resolved_axis() -> None:
+    axis = resolve_residue_axis(_declared_mse_multichain_structure())
+
+    sequence = extract_sequence(axis)
+    backbone = extract_backbone(axis)
+
+    assert sequence == ProteinSequence("AMGG", ("A:1", "A:2", "A:3", "B:1"))
+    ca_lines = [
+        line
+        for line in backbone.pdb_string.splitlines()
+        if line.startswith("ATOM  ") and line[12:16].strip() == "CA"
+    ]
+    assert [line[17:20] for line in ca_lines] == ["ALA", "MET", "GLY", "GLY"]
+    assert [f"{line[21]}:{line[22:26].strip()}" for line in ca_lines] == [
+        "A:1",
+        "A:2",
+        "A:3",
+        "B:1",
+    ]
+    assert not any(
+        line.startswith("HETATM") for line in backbone.pdb_string.splitlines()
+    )
+
+
+def test_chain_selection_preserves_polymer_declarations_and_resolved_axis(
+) -> None:
+    structure = _declared_mse_multichain_structure()
+    original_axis = resolve_residue_axis(structure)
+
+    selected = select_chains(structure, ["A"])
+    selected_axis = resolve_residue_axis(selected)
+
+    selected_lines = selected.pdb_string.splitlines()
+    assert "SEQRES   1 A    3  ALA MSE GLY" in selected_lines
+    assert "SEQRES   1 B    1  GLY" not in selected_lines
+    assert _modres_mse("A", 2) in selected_lines
+    assert selected_axis.sequence == "AMG"
+    assert selected_axis.layout.residue_ids == ("A:1", "A:2", "A:3")
+    assert selected_axis.modified_residue_normalizations == (
+        original_axis.modified_residue_normalizations
+    )
+
+
+def test_candidate_transforms_share_axis_projection_and_header_preservation(
+) -> None:
+    structure = _declared_mse_multichain_structure()
+    subject = CandidateDataReference(
+        candidate_id="subject",
+        data_type_id="protein.structure",
+        content_digest=builtin_frozen_catalog()
+        .require_port_type("protein.structure", STRUCTURE_VERSION)
+        .content_digest(structure),
+    )
+    residue_axes = CandidateResolvedResidueAxisAssociations(
+        entries=(
+            CandidateResolvedResidueAxisAssociation(
+                subject=subject,
+                residue_axis=resolve_residue_axis(structure),
+            ),
+        )
+    )
+    structure_candidates = CandidateCollection(
+        "structures",
+        "protein.structure",
+        (Candidate("subject", structure),),
+    )
+
+    sequence_output = ExtractSequenceCandidatesImplementation(
+        _RunResources()
+    ).execute(
+        OperationCall(
+            inputs={
+                "structure_candidates": structure_candidates,
+                "residue_axes": residue_axes,
+            },
+            node_parameters={},
+            binding_parameters={},
+            input_content_digests={
+                "structure_candidates": InputContentDigests(
+                    port_type_id="candidate.collection",
+                    value_content_digests=("sha256:" + ("e" * 64),),
+                    candidate_data=(subject,),
+                )
+            },
+        )
+    )["sequence_candidates"]
+    selected_output = SelectCandidateChainsImplementation(
+        _RunResources()
+    ).execute(
+        OperationCall(
+            inputs={
+                "structure_candidates": structure_candidates
+            },
+            node_parameters={"chain_ids": ["A"]},
+            binding_parameters={},
+            input_content_digests={},
+        )
+    )["structure_candidates"]
+
+    assert sequence_output.items[0].data == ProteinSequence(
+        "AMGG",
+        ("A:1", "A:2", "A:3", "B:1"),
+    )
+    assert sequence_output.items[0].parent_ids == ("subject",)
+    selected_axis = resolve_residue_axis(selected_output.items[0].data)
+    assert selected_axis.sequence == "AMG"
+    assert selected_axis.modified_residue_normalizations.entries
+
+    mismatched_axes = CandidateResolvedResidueAxisAssociations(
+        entries=(
+            CandidateResolvedResidueAxisAssociation(
+                subject=replace(subject, candidate_id="other-subject"),
+                residue_axis=residue_axes.entries[0].residue_axis,
+            ),
+        )
+    )
+    with pytest.raises(ValueError, match="complete exact Candidate references"):
+        ExtractSequenceCandidatesImplementation(_RunResources()).execute(
+            OperationCall(
+                inputs={
+                    "structure_candidates": structure_candidates,
+                    "residue_axes": mismatched_axes,
+                },
+                node_parameters={},
+                binding_parameters={},
+                input_content_digests={
+                    "structure_candidates": InputContentDigests(
+                        port_type_id="candidate.collection",
+                        value_content_digests=("sha256:" + ("e" * 64),),
+                        candidate_data=(subject,),
+                    )
+                },
+            )
+        )
 
 
 def test_backbone_wire_is_content_only_and_rejects_source_bearing_shape() -> None:
     port_type = build_frozen_catalog((MODULE_PACKAGE,)).require_port_type(
         "structure_transform.backbone_structure",
-        STRUCTURE_VERSION,
+        BACKBONE_VERSION,
     )
 
     encoded = port_type.encode(_BACKBONE)
@@ -97,7 +441,7 @@ def test_backbone_wire_is_content_only_and_rejects_source_bearing_shape() -> Non
     legacy_wire = canonical_json_bytes({
         "schema_namespace": "protein-workbench-port-value/v2",
         "port_type_id": "structure_transform.backbone_structure",
-        "port_type_version": STRUCTURE_VERSION,
+        "port_type_version": BACKBONE_VERSION,
         "value": {
             "pdb_string": _BACKBONE.pdb_string,
             "source": "structure_transform.extract_backbone",
@@ -105,6 +449,101 @@ def test_backbone_wire_is_content_only_and_rejects_source_bearing_shape() -> Non
     })
     with pytest.raises(PortValueError, match="could not decode"):
         port_type.decode(legacy_wire)
+
+
+def test_resolved_axis_wire_is_closed_and_identity_associated() -> None:
+    port_type = build_frozen_catalog((MODULE_PACKAGE,)).require_port_type(
+        "structure_transform.resolved_residue_axis",
+        STRUCTURE_VERSION,
+    )
+
+    encoded = port_type.encode(_RESOLVED_AXIS)
+    assert port_type.decode(encoded) == _RESOLVED_AXIS
+    source_bearing = json.loads(encoded)
+    source_bearing["value"]["source"] = "guessed-provenance"
+    with pytest.raises(PortValueError, match="could not decode"):
+        port_type.decode(canonical_json_bytes(source_bearing))
+    with pytest.raises(PortValueError, match="coordinate masks"):
+        port_type.encode(
+            replace(
+                _RESOLVED_AXIS,
+                complete_backbone_mask=(False,),
+            )
+        )
+    residue_coordinates = _RESOLVED_AXIS.residue_coordinates[0]
+    tampered_atoms = (
+        replace(
+            residue_coordinates.atom_coordinates[0],
+            coordinate=(999.0, 999.0, 999.0),
+        ),
+        *residue_coordinates.atom_coordinates[1:],
+    )
+    with pytest.raises(PortValueError, match="embedded structure"):
+        port_type.encode(
+            replace(
+                _RESOLVED_AXIS,
+                residue_coordinates=(
+                    replace(
+                        residue_coordinates,
+                        atom_coordinates=tampered_atoms,
+                    ),
+                ),
+            )
+        )
+    with pytest.raises(PortValueError, match="embedded structure"):
+        port_type.encode(
+            replace(
+                _RESOLVED_AXIS,
+                sequence="X",
+                residue_names=("UNK",),
+                component_dispositions=(
+                    replace(
+                        _RESOLVED_AXIS.component_dispositions[0],
+                        component_id="UNK",
+                        parent_sequence="X",
+                    ),
+                ),
+            )
+        )
+
+
+def test_normalization_codec_runtime_and_wire_domains_are_closed() -> None:
+    port_type = build_frozen_catalog((MODULE_PACKAGE,)).require_port_type(
+        "structure_transform.modified_residue_normalizations",
+        NORMALIZATION_VERSION,
+    )
+    valid = ModifiedResidueNormalizationCollection(entries=(
+        ModifiedResidueNormalization(
+            component_id="MSE",
+            observed_residue_id="A:2",
+            parent_residue_ids=("A:2",),
+            parent_sequence="M",
+            atom_mappings=(
+                ModifiedResidueAtomMapping("SE", "A:2", "SD"),
+            ),
+        ),
+    ))
+
+    assert port_type.decode(port_type.encode(valid)) == valid
+    duplicate_target = ModifiedResidueNormalizationCollection(entries=(
+        replace(
+            valid.entries[0],
+            atom_mappings=(
+                ModifiedResidueAtomMapping("SE", "A:2", "SD"),
+                ModifiedResidueAtomMapping("S1", "A:2", "SD"),
+            ),
+        ),
+    ))
+    non_string = ModifiedResidueNormalizationCollection(entries=(
+        replace(
+            valid.entries[0],
+            parent_sequence=["M"],  # type: ignore[arg-type]
+        ),
+    ))
+    with pytest.raises(PortValueError, match="atom mapping"):
+        port_type.encode(duplicate_target)
+    with pytest.raises(PortValueError, match="normalization entry"):
+        port_type.encode(non_string)
 
 
 def test_structure_transform_publishes_all_exact_transforms_and_bridge() -> None:
@@ -124,9 +563,28 @@ def test_structure_transform_publishes_all_exact_transforms_and_bridge() -> None
         "definitions/extract_sequence.yaml",
         "definitions/extract_sequence_candidates.yaml",
         "definitions/normalize_csh_parent_span.yaml",
+        "definitions/resolve_residue_axis.yaml",
+        "definitions/resolve_candidate_residue_axes.yaml",
         "definitions/backbone_to_structure.yaml",
     }
     catalog = build_discovered_frozen_catalog()
+    assert (
+        "port_type",
+        "structure_transform.backbone_structure",
+        "3.0.0",
+    ) not in catalog.owners
+    assert (
+        "method",
+        "structure_transform.backbone_to_structure.method",
+        "3.0.0",
+    ) not in catalog.owners
+    assert catalog.require_contract(
+        "method",
+        "structure_transform.backbone_to_structure.method",
+        BACKBONE_METHOD_VERSION,
+    ).descriptor["algorithm_identity"]["input_contract"] == (
+        f"structure_transform.backbone_structure@{BACKBONE_VERSION}"
+    )
     assert {
         (contract_id, version)
         for kind, contract_id, version in catalog.owners
@@ -135,11 +593,25 @@ def test_structure_transform_publishes_all_exact_transforms_and_bridge() -> None
         in catalog.owners[(kind, contract_id, version)]
     } == {
         ("structure_transform.select_chains", STRUCTURE_VERSION),
-        ("structure_transform.select_candidate_chains", VERSION),
+        (
+            "structure_transform.select_candidate_chains",
+            CANDIDATE_NODE_VERSION,
+        ),
         ("structure_transform.extract_backbone", STRUCTURE_VERSION),
         ("structure_transform.extract_sequence", STRUCTURE_VERSION),
-        ("structure_transform.extract_sequence_candidates", VERSION),
-        ("structure_transform.normalize_csh_parent_span", STRUCTURE_VERSION),
+        (
+            "structure_transform.extract_sequence_candidates",
+            CANDIDATE_NODE_VERSION,
+        ),
+        (
+            "structure_transform.normalize_csh_parent_span",
+            NORMALIZE_CSH_VERSION,
+        ),
+        ("structure_transform.resolve_residue_axis", STRUCTURE_VERSION),
+        (
+            "structure_transform.resolve_candidate_residue_axes",
+            CANDIDATE_AXIS_VERSION,
+        ),
         ("structure_transform.backbone_to_structure", STRUCTURE_VERSION),
     }
 
@@ -166,6 +638,21 @@ def test_transform_ports_are_exact_and_backbone_is_nominal() -> None:
         "structure_transform.backbone_to_structure",
         STRUCTURE_VERSION,
     ).descriptor
+    residue_axis = catalog.require_contract(
+        "node_type",
+        "structure_transform.resolve_residue_axis",
+        STRUCTURE_VERSION,
+    ).descriptor
+    candidate_residue_axes = catalog.require_contract(
+        "node_type",
+        "structure_transform.resolve_candidate_residue_axes",
+        CANDIDATE_AXIS_VERSION,
+    ).descriptor
+    candidate_sequence = catalog.require_contract(
+        "node_type",
+        "structure_transform.extract_sequence_candidates",
+        CANDIDATE_NODE_VERSION,
+    ).descriptor
 
     assert selection["inputs"][0]["port_type"]["contract_id"] == (
         "protein.structure"
@@ -174,13 +661,13 @@ def test_transform_ports_are_exact_and_backbone_is_nominal() -> None:
         "protein.structure"
     )
     assert backbone["inputs"][0]["port_type"]["contract_id"] == (
-        "protein.structure"
+        "structure_transform.resolved_residue_axis"
     )
     assert backbone["outputs"][0]["port_type"]["contract_id"] == (
         "structure_transform.backbone_structure"
     )
     assert sequence["inputs"][0]["port_type"]["contract_id"] == (
-        "protein.structure"
+        "structure_transform.resolved_residue_axis"
     )
     assert sequence["outputs"][0]["port_type"]["contract_id"] == (
         "protein.sequence"
@@ -191,6 +678,111 @@ def test_transform_ports_are_exact_and_backbone_is_nominal() -> None:
     assert backbone_bridge["outputs"][0]["port_type"]["contract_id"] == (
         "protein.structure"
     )
+    assert residue_axis["inputs"][0]["port_type"]["contract_id"] == (
+        "protein.structure"
+    )
+    assert residue_axis["inputs"][0]["port_type"]["contract_version"] == (
+        STRUCTURE_VERSION
+    )
+    assert residue_axis["outputs"][0]["port_type"]["contract_id"] == (
+        "structure_transform.resolved_residue_axis"
+    )
+    assert residue_axis["outputs"][0]["port_type"]["contract_version"] == (
+        STRUCTURE_VERSION
+    )
+    assert candidate_residue_axes["inputs"][0]["port_type"][
+        "contract_id"
+    ] == "candidate.collection"
+    assert candidate_residue_axes["inputs"][0]["port_type"][
+        "contract_version"
+    ] == CANDIDATE_COLLECTION_VERSION
+    assert candidate_residue_axes["inputs"][1]["port_type"][
+        "contract_id"
+    ] == (
+        "structure_transform."
+        "candidate_modified_residue_normalization_associations"
+    )
+    assert candidate_residue_axes["outputs"][0]["port_type"][
+        "contract_id"
+    ] == "structure_transform.candidate_resolved_residue_axis_associations"
+    assert candidate_residue_axes["inputs"][1]["port_type"][
+        "contract_version"
+    ] == CANDIDATE_AXIS_VERSION
+    assert candidate_residue_axes["outputs"][0]["port_type"][
+        "contract_version"
+    ] == CANDIDATE_AXIS_VERSION
+    assert candidate_sequence["inputs"][0]["name"] == "structure_candidates"
+    assert candidate_sequence["inputs"][0]["port_type"][
+        "contract_id"
+    ] == "candidate.collection"
+    assert candidate_sequence["inputs"][1]["name"] == "residue_axes"
+    assert candidate_sequence["inputs"][1]["port_type"][
+        "contract_id"
+    ] == "structure_transform.candidate_resolved_residue_axis_associations"
+    assert candidate_sequence["inputs"][1]["port_type"][
+        "contract_version"
+    ] == CANDIDATE_AXIS_VERSION
+    normalize_binding = catalog.require_contract(
+        "binding",
+        "structure_transform.normalize_csh_parent_span.direct",
+        NORMALIZE_CSH_VERSION,
+    ).descriptor
+    axis_binding = catalog.require_contract(
+        "binding",
+        "structure_transform.resolve_residue_axis.direct",
+        STRUCTURE_VERSION,
+    ).descriptor
+    unchanged_selection_binding = catalog.require_contract(
+        "binding",
+        "structure_transform.select_chains.direct",
+        STRUCTURE_VERSION,
+    ).descriptor
+    backbone_extraction_binding = catalog.require_contract(
+        "binding",
+        "structure_transform.extract_backbone.direct",
+        STRUCTURE_VERSION,
+    ).descriptor
+    sequence_extraction_binding = catalog.require_contract(
+        "binding",
+        "structure_transform.extract_sequence.direct",
+        STRUCTURE_VERSION,
+    ).descriptor
+    candidate_selection_binding = catalog.require_contract(
+        "binding",
+        "structure_transform.select_candidate_chains.direct",
+        CANDIDATE_NODE_VERSION,
+    ).descriptor
+    candidate_extraction_binding = catalog.require_contract(
+        "binding",
+        "structure_transform.extract_sequence_candidates.direct",
+        CANDIDATE_NODE_VERSION,
+    ).descriptor
+    candidate_axis_binding = catalog.require_contract(
+        "binding",
+        "structure_transform.resolve_candidate_residue_axes.direct",
+        CANDIDATE_AXIS_VERSION,
+    ).descriptor
+    assert normalize_binding["method"]["contract_version"] == "4.0.0"
+    assert normalize_binding["node_type"]["contract_version"] == (
+        NORMALIZE_CSH_VERSION
+    )
+    assert axis_binding["method"]["contract_version"] == "3.0.0"
+    assert unchanged_selection_binding["method"]["contract_version"] == (
+        "3.0.0"
+    )
+    assert backbone_extraction_binding["method"]["contract_version"] == (
+        "3.0.0"
+    )
+    assert sequence_extraction_binding["method"]["contract_version"] == (
+        "3.0.0"
+    )
+    assert candidate_selection_binding["method"]["contract_version"] == (
+        "3.0.0"
+    )
+    assert candidate_extraction_binding["method"]["contract_version"] == (
+        "3.0.0"
+    )
+    assert candidate_axis_binding["method"]["contract_version"] == "3.0.0"
 
 
 def test_full_atom_structure_cannot_enter_a_backbone_port_implicitly() -> None:
@@ -203,9 +795,9 @@ def test_full_atom_structure_cannot_enter_a_backbone_port_implicitly() -> None:
             WorkflowNodeInstance(
                 node_id="sink",
                 node_type_id="contract_test.backbone_sink",
-                node_type_version=STRUCTURE_VERSION,
+                node_type_version=BACKBONE_VERSION,
                 binding_id="contract_test.backbone_sink.direct",
-                binding_version=STRUCTURE_VERSION,
+                binding_version=BACKBONE_VERSION,
                 node_parameters={},
                 binding_parameters={},
             ),
@@ -219,7 +811,48 @@ def test_full_atom_structure_cannot_enter_a_backbone_port_implicitly() -> None:
     with pytest.raises(WorkflowCompileError) as rejected:
         compile_workflow(
             relock_workflow(workflow, catalog),
-            workflow_revision=1,
+            workflow_commit_revision=1,
+            catalog=catalog,
+        )
+
+    assert rejected.value.code == "port_type_mismatch"
+
+
+@pytest.mark.parametrize("operation", ["extract_backbone", "extract_sequence"])
+def test_raw_structure_cannot_enter_resolved_axis_projection_nodes(
+    operation: str,
+) -> None:
+    catalog = build_frozen_catalog((MODULE_PACKAGE, SOURCE_PACKAGE))
+    workflow = WorkflowDocument(
+        schema_version=VERSION,
+        workflow_id=f"no-raw-structure-{operation}",
+        nodes=(
+            _SOURCE,
+            WorkflowNodeInstance(
+                node_id="projection",
+                node_type_id=f"structure_transform.{operation}",
+                node_type_version=STRUCTURE_VERSION,
+                binding_id=f"structure_transform.{operation}.direct",
+                binding_version=STRUCTURE_VERSION,
+                node_parameters={},
+                binding_parameters={},
+            ),
+        ),
+        edges=(
+            WorkflowEdge(
+                "source",
+                "structure",
+                "projection",
+                "residue_axis",
+            ),
+        ),
+        contract_lock=(),
+    )
+
+    with pytest.raises(WorkflowCompileError) as rejected:
+        compile_workflow(
+            relock_workflow(workflow, catalog),
+            workflow_commit_revision=1,
             catalog=catalog,
         )
 
@@ -229,77 +862,142 @@ def test_full_atom_structure_cannot_enter_a_backbone_port_implicitly() -> None:
 def test_all_nodes_pass_the_shared_contract_test_kit(
     tmp_path: Path,
 ) -> None:
-    direct_cases = tuple(
+    selection_case = ModulePackageContractCase(
+        case_id="structure-transform-select_chains",
+        node_type_id="structure_transform.select_chains",
+        node_type_version=STRUCTURE_VERSION,
+        binding_id="structure_transform.select_chains.direct",
+        binding_version=STRUCTURE_VERSION,
+        node_parameters={"chain_ids": ["A"]},
+        binding_parameters={},
+        environment_values={},
+        safe_environment_fingerprint="provider-free",
+        invalidation_token="structure-transform-select-chains-v2",
+        workflow_nodes=(_SOURCE,),
+        workflow_edges=(_SOURCE_EDGE,),
+    )
+    resolve_axis_node = WorkflowNodeInstance(
+        node_id="resolve-axis",
+        node_type_id="structure_transform.resolve_residue_axis",
+        node_type_version=STRUCTURE_VERSION,
+        binding_id="structure_transform.resolve_residue_axis.direct",
+        binding_version=STRUCTURE_VERSION,
+        node_parameters={},
+        binding_parameters={},
+    )
+    axis_projection_cases = tuple(
         ModulePackageContractCase(
             case_id=f"structure-transform-{operation}",
             node_type_id=f"structure_transform.{operation}",
             node_type_version=STRUCTURE_VERSION,
             binding_id=f"structure_transform.{operation}.direct",
             binding_version=STRUCTURE_VERSION,
-            node_parameters=(
-                {"chain_ids": ["A"]}
-                if operation == "select_chains"
-                else {}
-            ),
+            node_parameters={},
             binding_parameters={},
             environment_values={},
             safe_environment_fingerprint="provider-free",
-            invalidation_token=f"structure-transform-{operation}-v1",
-            workflow_nodes=(_SOURCE,),
-            workflow_edges=(_SOURCE_EDGE,),
+            invalidation_token=f"structure-transform-{operation}-v2",
+            workflow_nodes=(_SOURCE, resolve_axis_node),
+            workflow_edges=(
+                WorkflowEdge(
+                    "source",
+                    "structure",
+                    "resolve-axis",
+                    "structure",
+                ),
+                WorkflowEdge(
+                    "resolve-axis",
+                    "residue_axis",
+                    "contract-test-node",
+                    "residue_axis",
+                ),
+            ),
         )
         for operation in (
-            "select_chains",
             "extract_backbone",
             "extract_sequence",
         )
     )
-    candidate_cases = tuple(
-        ModulePackageContractCase(
-            case_id=f"structure-transform-{operation}",
-            node_type_id=f"structure_transform.{operation}",
-            node_type_version=VERSION,
-            binding_id=f"structure_transform.{operation}.direct",
-            binding_version=VERSION,
-            node_parameters=(
-                {"chain_ids": ["A"]}
-                if operation == "select_candidate_chains"
-                else {}
-            ),
-            binding_parameters={},
-            environment_values={},
-            safe_environment_fingerprint="provider-free",
-            invalidation_token=f"structure-transform-{operation}-v1",
-            workflow_nodes=(_SOURCE,),
-            workflow_edges=(WorkflowEdge(
+    candidate_selection_case = ModulePackageContractCase(
+        case_id="structure-transform-select_candidate_chains",
+        node_type_id="structure_transform.select_candidate_chains",
+        node_type_version=CANDIDATE_NODE_VERSION,
+        binding_id="structure_transform.select_candidate_chains.direct",
+        binding_version=CANDIDATE_NODE_VERSION,
+        node_parameters={"chain_ids": ["A"]},
+        binding_parameters={},
+        environment_values={},
+        safe_environment_fingerprint="provider-free",
+        invalidation_token="structure-transform-select-candidate-chains-v2",
+        workflow_nodes=(_SOURCE,),
+        workflow_edges=(WorkflowEdge(
+            "source",
+            "structure_candidates",
+            "contract-test-node",
+            "structure_candidates",
+        ),),
+    )
+    resolve_candidate_axes_node = WorkflowNodeInstance(
+        node_id="resolve-candidate-axes",
+        node_type_id="structure_transform.resolve_candidate_residue_axes",
+        node_type_version=CANDIDATE_AXIS_VERSION,
+        binding_id=(
+            "structure_transform.resolve_candidate_residue_axes.direct"
+        ),
+        binding_version=CANDIDATE_AXIS_VERSION,
+        node_parameters={},
+        binding_parameters={},
+    )
+    candidate_extraction_case = ModulePackageContractCase(
+        case_id="structure-transform-extract_sequence_candidates",
+        node_type_id="structure_transform.extract_sequence_candidates",
+        node_type_version=CANDIDATE_NODE_VERSION,
+        binding_id="structure_transform.extract_sequence_candidates.direct",
+        binding_version=CANDIDATE_NODE_VERSION,
+        node_parameters={},
+        binding_parameters={},
+        environment_values={},
+        safe_environment_fingerprint="provider-free",
+        invalidation_token="structure-transform-extract-candidate-sequence-v2",
+        workflow_nodes=(_SOURCE, resolve_candidate_axes_node),
+        workflow_edges=(
+            WorkflowEdge(
                 "source",
                 "structure_candidates",
                 "contract-test-node",
                 "structure_candidates",
-            ),),
-        )
-        for operation in (
-            "select_candidate_chains",
-            "extract_sequence_candidates",
-        )
+            ),
+            WorkflowEdge(
+                "source",
+                "structure_candidates",
+                "resolve-candidate-axes",
+                "structure_candidates",
+            ),
+            WorkflowEdge(
+                "resolve-candidate-axes",
+                "residue_axes",
+                "contract-test-node",
+                "residue_axes",
+            ),
+        ),
     )
     csh_source = WorkflowNodeInstance(
         node_id="source",
         node_type_id="contract_test.structure_transform_source",
-        node_type_version=STRUCTURE_VERSION,
+        node_type_version=SOURCE_VERSION,
         binding_id="contract_test.structure_transform_source.direct",
-        binding_version=STRUCTURE_VERSION,
+        binding_version=SOURCE_VERSION,
         node_parameters={"fixture": "csh"},
         binding_parameters={},
     )
     normalization_case = ModulePackageContractCase(
         case_id="structure-transform-normalize-csh-parent-span",
         node_type_id="structure_transform.normalize_csh_parent_span",
-        node_type_version=STRUCTURE_VERSION,
+        node_type_version=NORMALIZE_CSH_VERSION,
         binding_id=(
             "structure_transform.normalize_csh_parent_span.direct"
         ),
-        binding_version=STRUCTURE_VERSION,
+        binding_version=NORMALIZE_CSH_VERSION,
         node_parameters={},
         binding_parameters={},
         environment_values={},
@@ -333,13 +1031,19 @@ def test_all_nodes_pass_the_shared_contract_test_kit(
         environment_values={},
         safe_environment_fingerprint="provider-free",
         invalidation_token="structure-transform-backbone-to-structure-v1",
-        workflow_nodes=(_SOURCE, backbone_node),
+        workflow_nodes=(_SOURCE, resolve_axis_node, backbone_node),
         workflow_edges=(
             WorkflowEdge(
                 "source",
                 "structure",
-                "extract-backbone",
+                "resolve-axis",
                 "structure",
+            ),
+            WorkflowEdge(
+                "resolve-axis",
+                "residue_axis",
+                "extract-backbone",
+                "residue_axis",
             ),
             WorkflowEdge(
                 "extract-backbone",
@@ -349,18 +1053,62 @@ def test_all_nodes_pass_the_shared_contract_test_kit(
             ),
         ),
     )
+    residue_axis_case = ModulePackageContractCase(
+        case_id="structure-transform-resolve-residue-axis",
+        node_type_id="structure_transform.resolve_residue_axis",
+        node_type_version=STRUCTURE_VERSION,
+        binding_id="structure_transform.resolve_residue_axis.direct",
+        binding_version=STRUCTURE_VERSION,
+        node_parameters={},
+        binding_parameters={},
+        environment_values={},
+        safe_environment_fingerprint="provider-free",
+        invalidation_token="structure-transform-residue-axis-v1",
+        workflow_nodes=(_SOURCE,),
+        workflow_edges=(WorkflowEdge(
+            "source",
+            "structure",
+            "contract-test-node",
+            "structure",
+        ),),
+    )
+    candidate_residue_axis_case = ModulePackageContractCase(
+        case_id="structure-transform-resolve-candidate-residue-axes",
+        node_type_id="structure_transform.resolve_candidate_residue_axes",
+        node_type_version=CANDIDATE_AXIS_VERSION,
+        binding_id=(
+            "structure_transform.resolve_candidate_residue_axes.direct"
+        ),
+        binding_version=CANDIDATE_AXIS_VERSION,
+        node_parameters={},
+        binding_parameters={},
+        environment_values={},
+        safe_environment_fingerprint="provider-free",
+        invalidation_token="structure-transform-candidate-residue-axes-v1",
+        workflow_nodes=(_SOURCE,),
+        workflow_edges=(WorkflowEdge(
+            "source",
+            "structure_candidates",
+            "contract-test-node",
+            "structure_candidates",
+        ),),
+    )
     report = verify_module_package_contract(
         MODULE_PACKAGE,
         execution_cases=(
-            *direct_cases,
-            *candidate_cases,
+            selection_case,
+            *axis_projection_cases,
+            candidate_selection_case,
+            candidate_extraction_case,
             normalization_case,
             bridge_case,
+            residue_axis_case,
+            candidate_residue_axis_case,
         ),
         port_cases=(
             ModulePackagePortCase(
                 "structure_transform.backbone_structure",
-                STRUCTURE_VERSION,
+                BACKBONE_VERSION,
                 _BACKBONE,
                 (
                     ProteinStructure(
@@ -369,7 +1117,7 @@ def test_all_nodes_pass_the_shared_contract_test_kit(
                             (
                                 "ATOM      5  CB  ALA A   1       5.000"
                                 "   2.000   3.000  1.00 20.00"
-                                "           C\nTER\n"
+                                "           C  \nTER\n"
                             ),
                         ),
                     ),
@@ -380,7 +1128,7 @@ def test_all_nodes_pass_the_shared_contract_test_kit(
             ),
             ModulePackagePortCase(
                 "structure_transform.modified_residue_normalizations",
-                VERSION,
+                NORMALIZATION_VERSION,
                 ModifiedResidueNormalizationCollection(entries=[
                     ModifiedResidueNormalization(
                         component_id="CSH",
@@ -408,6 +1156,71 @@ def test_all_nodes_pass_the_shared_contract_test_kit(
                 ]),
                 (object(), ModifiedResidueNormalizationCollection()),
             ),
+            ModulePackagePortCase(
+                "structure_transform.resolved_residue_axis",
+                STRUCTURE_VERSION,
+                _RESOLVED_AXIS,
+                (
+                    object(),
+                    replace(
+                        _RESOLVED_AXIS,
+                        ca_coordinate_mask=(False,),
+                    ),
+                    replace(
+                        _RESOLVED_AXIS,
+                        segments=(
+                            StructureAxisSegment(0, "B", ("A:1",)),
+                        ),
+                    ),
+                    replace(
+                        _RESOLVED_AXIS,
+                        component_dispositions=(),
+                    ),
+                ),
+            ),
+            ModulePackagePortCase(
+                (
+                    "structure_transform."
+                    "candidate_modified_residue_normalization_associations"
+                ),
+                CANDIDATE_AXIS_VERSION,
+                _CANDIDATE_NORMALIZATIONS,
+                (
+                    object(),
+                    CandidateModifiedResidueNormalizationAssociations(),
+                    CandidateModifiedResidueNormalizationAssociations(
+                        entries=(
+                            _CANDIDATE_NORMALIZATIONS.entries[0],
+                            _CANDIDATE_NORMALIZATIONS.entries[0],
+                        )
+                    ),
+                ),
+            ),
+            ModulePackagePortCase(
+                (
+                    "structure_transform."
+                    "candidate_resolved_residue_axis_associations"
+                ),
+                CANDIDATE_AXIS_VERSION,
+                _CANDIDATE_RESOLVED_AXES,
+                (
+                    object(),
+                    CandidateResolvedResidueAxisAssociations(),
+                    CandidateResolvedResidueAxisAssociations(
+                        entries=(
+                            replace(
+                                _CANDIDATE_RESOLVED_AXES.entries[0],
+                                subject=replace(
+                                    _RESOLVED_AXIS_SUBJECT,
+                                    content_digest=(
+                                        "sha256:" + ("f" * 64)
+                                    ),
+                                ),
+                            ),
+                        )
+                    ),
+                ),
+            ),
         ),
         supporting_registrations=(SOURCE_PACKAGE,),
         work_root=tmp_path,
@@ -415,8 +1228,17 @@ def test_all_nodes_pass_the_shared_contract_test_kit(
 
     assert [case.status for case in report.case_reports] == [
         "succeeded"
-    ] * 7
+    ] * 9
     assert report.verified_port_types == (
-        "structure_transform.backbone_structure@3.0.0",
-        "structure_transform.modified_residue_normalizations@2.1.0",
+        "structure_transform.backbone_structure@4.0.0",
+        (
+            "structure_transform."
+            "candidate_modified_residue_normalization_associations@5.0.0"
+        ),
+        (
+            "structure_transform."
+            "candidate_resolved_residue_axis_associations@5.0.0"
+        ),
+        "structure_transform.modified_residue_normalizations@3.0.0",
+        "structure_transform.resolved_residue_axis@4.0.0",
     )

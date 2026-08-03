@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from contextlib import nullcontext
 from dataclasses import replace
 from pathlib import Path
 from typing import Any
@@ -16,20 +17,19 @@ from core import (
     EnvironmentConfiguration,
     ModulePackageContractCase,
     ModulePackagePortCase,
+    OperationCall,
+    PortValueError,
+    ProjectInputIntegrityError,
     ProjectManager,
     V2RunError,
     V2RunService,
     WorkflowAuthoringService,
     WorkflowAuthoringError,
     WorkflowDocument,
-    WorkflowCompileError,
     WorkflowNodeInstance,
     build_discovered_frozen_catalog,
     build_frozen_catalog,
-    compile_workflow,
     discover_module_packages,
-    parse_workflow_document,
-    relock_workflow,
     verify_module_package_contract,
 )
 from core.port_types import canonical_json_bytes
@@ -37,9 +37,14 @@ from core.parameter_contract import (
     ParameterContractDefinitionError,
     validate_parameter_declarations,
 )
-from core.storage import StoragePathError
 from core.workflow_v2 import WorkflowEdge
-from datatypes import CandidateCollection, ProteinSequence, ProteinStructure
+from datatypes import (
+    Candidate,
+    CandidateCollection,
+    ProteinSequence,
+    ProteinStructure,
+)
+from modules.protein_io.implementation import StructureExportImplementation
 from modules.protein_io.package import MODULE_PACKAGE as PROTEIN_IO_PACKAGE
 from tests.fixtures.protein_io_sources.package import (
     MODULE_PACKAGE as STRUCTURE_SOURCE_PACKAGE,
@@ -49,18 +54,18 @@ from tests.fixtures.protein_io_sources.package import (
 _SEQUENCE_SOURCE = WorkflowNodeInstance(
     node_id="source",
     node_type_id="contract_test.protein_sequence",
-    node_type_version="2.1.0",
+    node_type_version="3.0.0",
     binding_id="contract_test.protein_sequence.direct",
-    binding_version="2.1.0",
+    binding_version="3.0.0",
     node_parameters={},
     binding_parameters={},
 )
 _STRUCTURE_SOURCE = WorkflowNodeInstance(
     node_id="source",
     node_type_id="contract_test.protein_structure",
-    node_type_version="3.0.0",
+    node_type_version="4.0.0",
     binding_id="contract_test.protein_structure.direct",
-    binding_version="3.0.0",
+    binding_version="4.0.0",
     node_parameters={},
     binding_parameters={},
 )
@@ -68,9 +73,9 @@ _CTK_CASES = (
     ModulePackageContractCase(
         case_id="protein-io-import-sequence",
         node_type_id="protein_io.import_sequence",
-        node_type_version="3.0.0",
+        node_type_version="5.0.0",
         binding_id="protein_io.import_sequence.direct",
-        binding_version="3.0.0",
+        binding_version="5.0.0",
         node_parameters={"project_input_ref": "sequence-input"},
         binding_parameters={},
         environment_values={},
@@ -81,9 +86,9 @@ _CTK_CASES = (
     ModulePackageContractCase(
         case_id="protein-io-import-structure",
         node_type_id="protein_io.import_structure",
-        node_type_version="3.0.0",
+        node_type_version="5.0.0",
         binding_id="protein_io.import_structure.direct",
-        binding_version="3.0.0",
+        binding_version="5.0.0",
         node_parameters={"project_input_ref": "structure-input"},
         binding_parameters={},
         environment_values={},
@@ -91,17 +96,17 @@ _CTK_CASES = (
         invalidation_token="protein-io-import-structure-v1",
         project_inputs={
             "structure-input": (
-                b"ATOM      1  CA  GLY A   1      "
-                b"1.000   2.000   3.000  1.00 20.00           C\nEND\n"
+                b"ATOM      1  CA  GLY A   1       "
+                b"1.000   2.000   3.000  1.00 20.00           C  \nEND\n"
             )
         },
     ),
     ModulePackageContractCase(
         case_id="protein-io-export-sequence",
         node_type_id="protein_io.export_sequence",
-        node_type_version="2.1.0",
+        node_type_version="3.0.0",
         binding_id="protein_io.export_sequence.direct",
-        binding_version="2.1.0",
+        binding_version="3.0.0",
         node_parameters={},
         binding_parameters={},
         environment_values={},
@@ -125,9 +130,9 @@ _CTK_CASES = (
     ModulePackageContractCase(
         case_id="protein-io-export-structure",
         node_type_id="protein_io.export_structure",
-        node_type_version="3.0.0",
+        node_type_version="5.0.0",
         binding_id="protein_io.export_structure.direct",
-        binding_version="3.0.0",
+        binding_version="5.0.0",
         node_parameters={},
         binding_parameters={},
         environment_values={},
@@ -145,8 +150,8 @@ _CTK_CASES = (
         expected_artifacts={
             "standalone_artifact": (
                 b"REMARK contract-test-provider-native\n"
-                b"ATOM      1  CA  GLY A   1      "
-                b"1.000   2.000   3.000  1.00 20.00           C\n"
+                b"ATOM      1  CA  GLY A   1       "
+                b"1.000   2.000   3.000  1.00 20.00           C  \n"
                 b"END\n"
             )
         },
@@ -162,6 +167,82 @@ _CTK_PORT_CASE = ModulePackagePortCase(
     ),
     invalid_values=(7,),
 )
+
+
+@pytest.mark.parametrize(
+    "candidate_id",
+    (
+        "candidate:alpha",
+        "candidate/alpha",
+        "candidate+alpha",
+    ),
+)
+def test_artifact_payload_preserves_an_admitted_candidate_identifier(
+    candidate_id: str,
+) -> None:
+    artifact_port = build_frozen_catalog(
+        (PROTEIN_IO_PACKAGE,)
+    ).require_port_type("protein_io.artifact_payload", "2.1.0")
+    payload = ArtifactPayload(
+        body=b"END\n",
+        media_type="chemical/x-pdb",
+        filename="structure-0000.pdb",
+        candidate_id=candidate_id,
+    )
+
+    assert artifact_port.decode(artifact_port.encode(payload)) == payload
+    with pytest.raises(PortValueError, match="artifact metadata is invalid"):
+        artifact_port.encode(
+            replace(payload, filename=f"{candidate_id}.pdb")
+        )
+
+
+def test_candidate_artifact_filenames_are_deterministic_ordinal_components(
+) -> None:
+    class Resources:
+        @staticmethod
+        def engine_invocation():
+            return nullcontext()
+
+    structure = ProteinStructure(
+        pdb_string=(
+            "ATOM      1  CA  GLY A   1       "
+            "1.000   2.000   3.000  1.00 20.00           C  \n"
+            "END\n"
+        )
+    )
+    candidates = CandidateCollection(
+        collection_id="artifact-filename-contract",
+        item_type="protein.structure",
+        items=(
+            Candidate("candidate:alpha", structure),
+            Candidate("candidate/alpha", structure),
+            Candidate("candidate+alpha", structure),
+        ),
+    )
+    operation = StructureExportImplementation(Resources())  # type: ignore[arg-type]
+    call = OperationCall(
+        inputs={"structures": candidates},
+        node_parameters={},
+        binding_parameters={},
+        input_content_digests={},
+    )
+
+    first = operation.execute(call)["candidate_artifacts"]
+    second = operation.execute(call)["candidate_artifacts"]
+
+    assert [artifact.filename for artifact in first] == [
+        "structure-0000.pdb",
+        "structure-0001.pdb",
+        "structure-0002.pdb",
+    ]
+    assert len({artifact.filename for artifact in first}) == len(first)
+    assert [artifact.candidate_id for artifact in first] == [
+        "candidate:alpha",
+        "candidate/alpha",
+        "candidate+alpha",
+    ]
+    assert first == second
 
 
 def test_protein_io_is_one_package_with_four_independent_nodes() -> None:
@@ -189,18 +270,41 @@ def test_protein_io_is_one_package_with_four_independent_nodes() -> None:
         and "protein_io" in catalog.owners[(kind, contract_id, version)]
     }
     assert owned_nodes == {
-        ("protein_io.import_sequence", "3.0.0"),
-        ("protein_io.import_structure", "3.0.0"),
-        ("protein_io.export_sequence", "2.1.0"),
-        ("protein_io.export_structure", "3.0.0"),
+        ("protein_io.import_sequence", "5.0.0"),
+        ("protein_io.import_structure", "5.0.0"),
+        ("protein_io.export_sequence", "3.0.0"),
+        ("protein_io.export_structure", "5.0.0"),
     }
-    for kind, contract_id in (
-        ("node_type", "protein_io.import_sequence"),
-        ("method", "protein_io.import_sequence.method"),
-        ("binding", "protein_io.import_sequence.direct"),
-    ):
-        assert catalog.get_contract(kind, contract_id, "3.0.0") is not None
-        assert catalog.get_contract(kind, contract_id, "2.1.0") is None
+    generations = {
+        "import_sequence": ("5.0.0", ("2.1.0", "3.0.0", "4.0.0")),
+        "import_structure": ("5.0.0", ("2.1.0", "3.0.0", "4.0.0")),
+        "export_sequence": ("3.0.0", ("2.1.0",)),
+        "export_structure": ("5.0.0", ("2.1.0", "3.0.0", "4.0.0")),
+    }
+    for operation, (active_version, inactive_versions) in generations.items():
+        for kind, contract_id in (
+            ("node_type", f"protein_io.{operation}"),
+            ("binding", f"protein_io.{operation}.direct"),
+        ):
+            assert (
+                catalog.get_contract(kind, contract_id, active_version)
+                is not None
+            )
+            for inactive_version in inactive_versions:
+                assert (
+                    catalog.get_contract(kind, contract_id, inactive_version)
+                    is None
+                )
+    assert catalog.get_contract(
+        "method",
+        "protein_io.import_sequence.method",
+        "4.0.0",
+    ) is not None
+    assert catalog.get_contract(
+        "method",
+        "protein_io.import_sequence.method",
+        "3.0.0",
+    ) is None
 
 
 def test_protein_io_passes_the_shared_contract_test_kit(
@@ -286,20 +390,30 @@ def test_artifact_media_contract_rejects_malformed_type_subtype() -> None:
         build_frozen_catalog((malformed_package,))
 
 
-def test_structure_export_xor_is_rejected_during_compilation() -> None:
+def test_structure_export_xor_is_rejected_during_commit(
+    tmp_path: Path,
+) -> None:
     catalog = build_frozen_catalog(
         (PROTEIN_IO_PACKAGE, STRUCTURE_SOURCE_PACKAGE)
     )
+    projects = ProjectManager(
+        tmp_path / "projects",
+        cache_root=tmp_path / "cache",
+        output_root=tmp_path / "outputs",
+        run_root=tmp_path / "runs",
+    )
+    project = projects.create("missing structure input")
+    authoring = WorkflowAuthoringService(projects, catalog)
     workflow = WorkflowDocument(
         schema_version="2.1.0",
-        workflow_id="missing-structure-input",
+        workflow_id=project.id,
         nodes=(
             WorkflowNodeInstance(
                 node_id="export",
                 node_type_id="protein_io.export_structure",
-                node_type_version="3.0.0",
+                node_type_version="5.0.0",
                 binding_id="protein_io.export_structure.direct",
-                binding_version="3.0.0",
+                binding_version="5.0.0",
                 node_parameters={},
                 binding_parameters={},
             ),
@@ -308,14 +422,18 @@ def test_structure_export_xor_is_rejected_during_compilation() -> None:
         contract_lock=(),
     )
 
-    with pytest.raises(WorkflowCompileError) as rejected:
-        compile_workflow(
-            relock_workflow(workflow, catalog),
-            workflow_revision=1,
-            catalog=catalog,
+    with pytest.raises(WorkflowAuthoringError) as rejected:
+        authoring.commit(
+            project.id,
+            expected_draft_revision=0,
+            workflow=workflow,
         )
 
-    assert rejected.value.code == "input_constraint_unsatisfied"
+    assert rejected.value.code == "compile_rejected"
+    assert (
+        rejected.value.details["issues"][0]["code"]
+        == "input_constraint_unsatisfied"
+    )
 
 
 def _run_single_node(
@@ -324,6 +442,7 @@ def _run_single_node(
     operation: str,
     node_parameters: dict[str, Any],
     project_inputs: dict[str, bytes] | None = None,
+    project_input_filenames: dict[str, str] | None = None,
     catalog: Any | None = None,
 ) -> tuple[Any, dict[str, Any], tuple[dict[str, Any], ...]]:
     catalog = catalog or build_discovered_frozen_catalog()
@@ -335,7 +454,15 @@ def _run_single_node(
     )
     project = projects.create(f"protein I/O {operation}")
     for reference, payload in (project_inputs or {}).items():
-        projects.publish_input(project.id, reference, payload)
+        projects.publish_input(
+            project.id,
+            reference,
+            payload,
+            filename=(project_input_filenames or {}).get(
+                reference,
+                f"{operation}.input",
+            ),
+        )
     authoring = WorkflowAuthoringService(projects, catalog)
     workflow = WorkflowDocument(
         schema_version="2.1.0",
@@ -344,25 +471,19 @@ def _run_single_node(
             WorkflowNodeInstance(
                 node_id="protein-io",
                 node_type_id=f"protein_io.{operation}",
-                node_type_version=(
-                    "3.0.0"
-                    if operation in {
-                        "import_sequence",
-                        "import_structure",
-                        "export_structure",
-                    }
-                    else "2.1.0"
-                ),
+                node_type_version={
+                    "import_sequence": "5.0.0",
+                    "import_structure": "5.0.0",
+                    "export_sequence": "3.0.0",
+                    "export_structure": "5.0.0",
+                }[operation],
                 binding_id=f"protein_io.{operation}.direct",
-                binding_version=(
-                    "3.0.0"
-                    if operation in {
-                        "import_sequence",
-                        "import_structure",
-                        "export_structure",
-                    }
-                    else "2.1.0"
-                ),
+                binding_version={
+                    "import_sequence": "5.0.0",
+                    "import_structure": "5.0.0",
+                    "export_sequence": "3.0.0",
+                    "export_structure": "5.0.0",
+                }[operation],
                 node_parameters=node_parameters,
                 binding_parameters={},
             ),
@@ -370,20 +491,18 @@ def _run_single_node(
         edges=(),
         contract_lock=(),
     )
-    saved = authoring.save(
+    committed = authoring.commit(
         project.id,
-        expected_workflow_revision=0,
+        expected_draft_revision=0,
         workflow=workflow,
     )
-    relocked = authoring.relock(
+    compiled = authoring.require_compiled(
         project.id,
-        workflow_revision=saved["workflow_revision"],
+        workflow_commit_id=committed.workflow_commit_id,
     )
-    locked = parse_workflow_document(relocked["workflow"])
-    compiled = authoring.compile(
-        project.id,
-        workflow_revision=relocked["workflow_revision"],
-        workflow=locked,
+    assert (
+        compiled.execution_plan.workflow_commit_revision
+        == committed.workflow_commit_revision
     )
     service = V2RunService(
         projects,
@@ -393,8 +512,7 @@ def _run_single_node(
     )
     receipt = service.start_background(
         project.id,
-        workflow_revision=relocked["workflow_revision"],
-        compile_id=compiled.public_receipt()["compile_id"],
+        workflow_commit_id=committed.workflow_commit_id,
         client_request_id=f"protein-io-{operation}",
     )
     service.shutdown()
@@ -421,13 +539,13 @@ def test_sequence_import_reads_only_one_project_scoped_reference(
         for item in projection["outputs"]
         if item["output_port"] == "sequence"
     )
-    port_type = catalog.require_port_type("protein.sequence", "2.1.0")
+    port_type = catalog.require_port_type("protein.sequence", "3.0.0")
     sequence = port_type.decode(
         canonical_json_bytes(
             {
                 "schema_namespace": "protein-workbench-port-value/v2",
                 "port_type_id": "protein.sequence",
-                "port_type_version": "2.1.0",
+                "port_type_version": "3.0.0",
                 "value": output["values"][0],
             }
         )
@@ -441,14 +559,14 @@ def test_sequence_import_reads_only_one_project_scoped_reference(
     )
     candidate_port = catalog.require_port_type(
         "candidate.collection",
-        "2.1.0",
+        "3.0.0",
     )
     candidates = candidate_port.decode(
         canonical_json_bytes(
             {
                 "schema_namespace": "protein-workbench-port-value/v2",
                 "port_type_id": "candidate.collection",
-                "port_type_version": "2.1.0",
+                "port_type_version": "3.0.0",
                 "value": candidate_output["values"][0],
             }
         )
@@ -470,26 +588,70 @@ def test_sequence_import_reads_only_one_project_scoped_reference(
     )
 
 
-def test_project_input_content_participates_in_result_identity(
+def test_sequence_import_rejects_multi_fasta_instead_of_concatenating_records(
     tmp_path: Path,
 ) -> None:
-    _, first, _ = _run_single_node(
-        tmp_path / "first",
+    _, projection, _ = _run_single_node(
+        tmp_path,
         operation="import_sequence",
-        node_parameters={"project_input_ref": "same-reference"},
-        project_inputs={"same-reference": b">protein\nACD\n"},
-    )
-    _, second, _ = _run_single_node(
-        tmp_path / "second",
-        operation="import_sequence",
-        node_parameters={"project_input_ref": "same-reference"},
-        project_inputs={"same-reference": b">protein\nACE\n"},
+        node_parameters={"project_input_ref": "multi-fasta"},
+        project_inputs={
+            "multi-fasta": b">first\nACD\n>second\nEFG\n",
+        },
     )
 
-    assert (
-        first["outputs"][0]["result_identity"]
-        != second["outputs"][0]["result_identity"]
+    assert projection["status"] == "failed"
+    assert projection["outputs"] == []
+
+
+def test_project_input_identity_uses_content_not_opaque_locator(
+    tmp_path: Path,
+) -> None:
+    _, first, first_events = _run_single_node(
+        tmp_path / "first",
+        operation="import_sequence",
+        node_parameters={"project_input_ref": "first-reference"},
+        project_inputs={"first-reference": b">protein\nACD\n"},
+        project_input_filenames={"first-reference": "source-one.fasta"},
     )
+    _, second, second_events = _run_single_node(
+        tmp_path / "second",
+        operation="import_sequence",
+        node_parameters={"project_input_ref": "renamed-reference"},
+        project_inputs={"renamed-reference": b">protein\nACD\n"},
+        project_input_filenames={"renamed-reference": "renamed-source.fa"},
+    )
+    _, changed, _ = _run_single_node(
+        tmp_path / "changed",
+        operation="import_sequence",
+        node_parameters={"project_input_ref": "renamed-reference"},
+        project_inputs={"renamed-reference": b">protein\nACE\n"},
+    )
+
+    first_identity = first["outputs"][0]["result_identity"]
+    second_identity = second["outputs"][0]["result_identity"]
+    changed_identity = changed["outputs"][0]["result_identity"]
+    assert first_identity == second_identity
+    assert (
+        second_identity
+        != changed_identity
+    )
+    first_invocation = next(
+        event["event"]
+        for event in first_events
+        if event["event"]["type"] == "engine_invocation_started"
+    )
+    second_invocation = next(
+        event["event"]
+        for event in second_events
+        if event["event"]["type"] == "engine_invocation_started"
+    )
+    assert first_invocation["invocation_provenance"] == {
+        "project_input_filename": "source-one.fasta"
+    }
+    assert second_invocation["invocation_provenance"] == {
+        "project_input_filename": "renamed-source.fa"
+    }
 
 
 def test_cacheable_project_inputs_are_resolved_before_cache_identity(
@@ -528,7 +690,7 @@ def test_cacheable_project_inputs_are_resolved_before_cache_identity(
     )
 
 
-def test_structure_import_validates_and_canonicalizes_project_pdb(
+def test_structure_import_parses_then_port_admits_canonical_project_pdb(
     tmp_path: Path,
 ) -> None:
     catalog, projection, _ = _run_single_node(
@@ -537,8 +699,8 @@ def test_structure_import_validates_and_canonicalizes_project_pdb(
         node_parameters={"project_input_ref": "input-structure-1"},
         project_inputs={
             "input-structure-1": (
-                b"ATOM      1  CA  GLY A   1      "
-                b"1.000   2.000   3.000  1.00 20.00           C\r\n"
+                b"ATOM      1  CA  GLY A   1       "
+                b"1.000   2.000   3.000  1.00 20.00           C  \r\n"
                 b"END\r\n"
             ),
         },
@@ -546,21 +708,21 @@ def test_structure_import_validates_and_canonicalizes_project_pdb(
 
     assert projection["status"] == "succeeded"
     output = projection["outputs"][0]
-    port_type = catalog.require_port_type("protein.structure", "3.0.0")
+    port_type = catalog.require_port_type("protein.structure", "4.0.0")
     structure = port_type.decode(
         canonical_json_bytes(
             {
                 "schema_namespace": "protein-workbench-port-value/v2",
                 "port_type_id": "protein.structure",
-                "port_type_version": "3.0.0",
+                "port_type_version": "4.0.0",
                 "value": output["values"][0],
             }
         )
     )
     assert structure == ProteinStructure(
         pdb_string=(
-            "ATOM      1  CA  GLY A   1      "
-            "1.000   2.000   3.000  1.00 20.00           C\n"
+            "ATOM      1  CA  GLY A   1       "
+            "1.000   2.000   3.000  1.00 20.00           C  \n"
             "END\n"
         ),
     )
@@ -572,6 +734,7 @@ def test_structure_import_validates_and_canonicalizes_project_pdb(
     (
         ("import_sequence", b">empty\n"),
         ("import_sequence", b">invalid\nACD?\n"),
+        ("import_sequence", "mßa\n".encode("utf-8")),
         ("import_structure", b"HEADER no atoms\nEND\n"),
         (
             "import_structure",
@@ -579,7 +742,7 @@ def test_structure_import_validates_and_canonicalizes_project_pdb(
         ),
     ),
 )
-def test_import_fails_closed_for_malformed_sequence_or_structure(
+def test_import_port_admission_rejects_noncanonical_sequence_or_structure(
     tmp_path: Path,
     operation: str,
     payload: bytes,
@@ -594,6 +757,18 @@ def test_import_fails_closed_for_malformed_sequence_or_structure(
     assert projection["status"] == "failed"
     assert projection["outputs"] == []
     assert projection["artifact_index"] == []
+    invocation_terminal = next(
+        event["event"]
+        for event in events
+        if event["event"]["type"] == "engine_invocation_terminal"
+    )
+    operation_terminal = next(
+        event["event"]
+        for event in events
+        if event["event"]["type"] == "operation_attempt_terminal"
+    )
+    assert invocation_terminal["status"] == "succeeded"
+    assert operation_terminal["status"] == "failed"
     assert not any(
         str(tmp_path) in str(event)
         or "malformed-input" in str(event.get("event"))
@@ -631,12 +806,18 @@ def test_project_input_snapshot_rejects_symlink_aliases(
 ) -> None:
     projects = ProjectManager(tmp_path / "projects")
     project = projects.create("input symlink containment")
-    projects.publish_input(project.id, "trusted-input", b">p\nACD\n")
+    projects.publish_input(
+        project.id,
+        "trusted-input",
+        b">p\nACD\n",
+        filename="trusted-input.fasta",
+    )
     managed = projects.input_path(project.id, "trusted-input")
     managed.unlink()
     outside = tmp_path / "outside.fasta"
     outside.write_bytes(b">outside\nW\n")
     managed.symlink_to(outside)
 
-    with pytest.raises((OSError, StoragePathError)):
+    with pytest.raises(ProjectInputIntegrityError) as rejected:
         projects.read_input(project.id, "trusted-input")
+    assert rejected.value.project_input_ref == "trusted-input"

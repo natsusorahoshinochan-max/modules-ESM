@@ -1,0 +1,28 @@
+schema_version: "2.1.0"
+node_type_id: structure_annotation.expected_secondary_structure_from_prompt
+version: "5.0.0"
+title: Project expected secondary structure from ProteinPrompt
+summary: Converts ProteinPrompt secondary-structure conditioning into an expected annotation SS8 comparison track without claiming an observed annotation.
+category: structure_annotation
+inputs:
+  - name: protein_prompt
+    port_type_id: protein.prompt
+    port_type_version: "3.0.0"
+    required: true
+    multiplicity: one
+    scientific_meaning: ProteinPrompt carrying secondary-structure conditioning on an exact residue layout; unspecified null values become excluded expected positions.
+  - name: references
+    port_type_id: candidate.collection
+    port_type_version: "3.0.0"
+    required: true
+    multiplicity: one
+    scientific_meaning: Exactly one admitted reference Candidate whose exact ID, data type, and content digest explicitly attribute the expected comparison track.
+outputs:
+  - name: secondary_structure_track
+    port_type_id: structure_annotation.secondary_structure_track
+    port_type_version: "4.0.0"
+    required: true
+    multiplicity: one
+    scientific_meaning: Expected SS8 comparison track on the unchanged Prompt layout, explicitly associated with the admitted reference Candidate; Prompt coil '-' becomes C and unspecified null becomes excluded '_'.
+parameter_groups: []
+node_parameters: {}
