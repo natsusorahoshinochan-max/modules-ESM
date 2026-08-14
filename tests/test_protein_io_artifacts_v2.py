@@ -295,7 +295,7 @@ def test_artifact_retrieval_rejects_media_outside_the_exact_output_port(
         payload=b">source\nACDEFG\n",
     )
     record = service._runs[(project_id, projection["run_id"])]
-    for fact in record.ledger._facts:
+    for fact in record.ledger._state.facts:
         if fact["fact_type"] != "outputs_published":
             continue
         for artifact in fact["payload"]["artifacts"]:
