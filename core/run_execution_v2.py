@@ -18,7 +18,7 @@ import stat
 import threading
 import time
 from types import MappingProxyType
-from typing import Any
+from typing import Any, Literal, Protocol, cast
 import uuid
 
 from protein_workbench_public import (
@@ -1011,7 +1011,7 @@ class ExecutedNodeSuccess:
     node_attempt_id: str
     operation_attempt_id: str
     result_identity: str
-    published_outputs: tuple[Mapping[str, Any], ...]
+    admitted_output_descriptors: tuple[Mapping[str, Any], ...]
     admitted_outputs: Mapping[tuple[str, str], AdmittedPortValues]
     cache_eligible: bool
     current_artifact_count: int
@@ -1025,9 +1025,8 @@ class ExecutedNodeNonSuccess:
     node_id: str
     node_attempt_id: str
     operation_attempt_id: str | None
-    status: str
+    status: Literal["failed"]
     public_error: Mapping[str, Any]
-    resolution: str = "executed"
 
 
 @dataclass(frozen=True, slots=True)
@@ -1042,7 +1041,7 @@ class CacheReplayNodeSuccess:
     node_attempt_id: str
     result_identity: str
     producer_run_id: str
-    published_outputs: tuple[Mapping[str, Any], ...]
+    admitted_output_descriptors: tuple[Mapping[str, Any], ...]
     admitted_outputs: Mapping[tuple[str, str], AdmittedPortValues]
     current_artifact_count: int
     current_artifact_bytes: int
@@ -1053,11 +1052,11 @@ class CancelledOrInterruptedNode:
     """One cancellation or interruption conclusion at its exact causal depth."""
 
     node_id: str
-    status: str
+    status: Literal["cancelled", "interrupted", "outcome_unknown"]
     public_error: Mapping[str, Any] | None
     node_attempt_id: str | None = None
     operation_attempt_id: str | None = None
-    resolution: str = "executed"
+    resolution: Literal["executed", "cache_replayed"] = "executed"
 
 
 NodeFinalizationIntent = (
@@ -1072,7 +1071,12 @@ NodeFinalizationIntent = (
 class FinalizedNode:
     """The committed disposition and success materialization for one Node."""
 
-    disposition: str
+    disposition: Literal[
+        "succeeded",
+        "failed",
+        "cancelled",
+        "interrupted",
+    ]
     admitted_outputs: Mapping[
         tuple[str, str],
         AdmittedPortValues,
@@ -1082,6 +1086,23 @@ class FinalizedNode:
         str,
         tuple[Mapping[str, Any], tuple[str, ...]],
     ] = field(default_factory=dict)
+
+
+class _ArtifactMaterializer(Protocol):
+    def __call__(
+        self,
+        *,
+        node: ExecutionPlanNode,
+        resources: RunResources,
+        published: list[dict[str, Any]],
+        runtime: Mapping[tuple[str, str], AdmittedPortValues],
+        current_artifact_count: int,
+        current_artifact_bytes: int,
+    ) -> tuple[
+        list[dict[str, Any]],
+        list[dict[str, Any]],
+        dict[str, tuple[dict[str, Any], tuple[str, ...]]],
+    ]: ...
 
 
 @dataclass(frozen=True, slots=True)
@@ -2780,24 +2801,21 @@ class NodeAttemptFinalizer:
         *,
         ledger: _RunEvidenceLedger,
         result_replay_source: ResultReplaySource,
-        materialize_artifacts: Callable[
-            ...,
-            tuple[
-                list[dict[str, Any]],
-                list[dict[str, Any]],
-                dict[
-                    str,
-                    tuple[dict[str, Any], tuple[str, ...]],
-                ],
-            ],
-        ],
+        materialize_artifacts: _ArtifactMaterializer,
     ) -> None:
         self._ledger = ledger
         self._result_replay_source = result_replay_source
         self._materialize_artifacts = materialize_artifacts
 
     @staticmethod
-    def _disposition_for_status(status: str) -> str:
+    def _disposition_for_status(
+        status: Literal[
+            "failed",
+            "cancelled",
+            "interrupted",
+            "outcome_unknown",
+        ],
+    ) -> Literal["failed", "cancelled", "interrupted"]:
         return "interrupted" if status == "outcome_unknown" else status
 
     def _finalize_non_success(
@@ -2820,7 +2838,7 @@ class NodeAttemptFinalizer:
             "node_attempt_terminal",
             {
                 "node_attempt_id": intent.node_attempt_id,
-                "resolution": intent.resolution,
+                "resolution": "executed",
                 **terminal_payload,
             },
         )
@@ -2879,7 +2897,7 @@ class NodeAttemptFinalizer:
             tuple[Mapping[str, Any], tuple[str, ...]],
         ],
     ) -> None:
-        cleanup_error: Exception | None = None
+        cleanup_error: BaseException | None = None
         cancellation = resources._cancellation_control
         if cancellation is not None and self._ledger.cancellation_requested:
             cancellation.wait_for_cleanup()
@@ -2891,7 +2909,7 @@ class NodeAttemptFinalizer:
                     (resources.run_id, *stored_parts),
                     field="artifact_path",
                 )
-            except Exception as error:
+            except (OSError, StoragePathError) as error:
                 if cleanup_error is None:
                     cleanup_error = error
         if cleanup_error is not None:
@@ -2900,8 +2918,11 @@ class NodeAttemptFinalizer:
     def _preparation_failed(
         self,
         *,
-        intent: ExecutedNodeSuccess | CacheReplayNodeSuccess,
-        error: Exception,
+        node_id: str,
+        node_attempt_id: str,
+        operation_attempt_id: str | None,
+        resources: RunResources,
+        error: BaseException,
         artifact_records: Mapping[
             str,
             tuple[Mapping[str, Any], tuple[str, ...]],
@@ -2910,168 +2931,267 @@ class NodeAttemptFinalizer:
         if artifact_records:
             try:
                 self._cleanup_artifacts(
-                    resources=intent.resources,
+                    resources=resources,
                     artifact_records=artifact_records,
                 )
-            except Exception as cleanup_error:
+            except (OSError, StoragePathError, RuntimeError) as cleanup_error:
                 cleanup_error.add_note(
                     "Node finalization also failed before cleanup: "
                     f"{type(error).__name__}"
                 )
                 error = cleanup_error
-        if isinstance(error, V2RunError) and error.code == "evidence_unavailable":
-            raise error
         return self._finalize_non_success(
             ExecutedNodeNonSuccess(
-                node_id=intent.node.node_id,
-                node_attempt_id=intent.node_attempt_id,
-                operation_attempt_id=(
-                    intent.operation_attempt_id
-                    if isinstance(intent, ExecutedNodeSuccess)
-                    else None
-                ),
+                node_id=node_id,
+                node_attempt_id=node_attempt_id,
+                operation_attempt_id=operation_attempt_id,
                 status="failed",
                 public_error=_public_failure(error),
             )
         )
 
-    def _finalize_success(
+    def _materialize_success(
         self,
         intent: ExecutedNodeSuccess | CacheReplayNodeSuccess,
-    ) -> FinalizedNode:
-        resolution = (
-            "executed"
-            if isinstance(intent, ExecutedNodeSuccess)
-            else "cache_replayed"
-        )
-        producer_run_id = (
-            intent.run_id
-            if isinstance(intent, ExecutedNodeSuccess)
-            else intent.producer_run_id
-        )
-        published = [dict(output) for output in intent.published_outputs]
-        cache_outputs = _with_result_provenance(
-            published,
+        *,
+        producer_run_id: str,
+        resolution: Literal["executed", "cache_replayed"],
+    ) -> tuple[
+        list[dict[str, Any]],
+        list[dict[str, Any]],
+        dict[str, tuple[dict[str, Any], tuple[str, ...]]],
+        list[dict[str, Any]],
+    ]:
+        admitted_descriptors = [
+            dict(output) for output in intent.admitted_output_descriptors
+        ]
+        cache_descriptors = _with_result_provenance(
+            admitted_descriptors,
             result_identity=intent.result_identity,
             current_run_id=intent.run_id,
             producer_run_id=producer_run_id,
             resolution=resolution,
         )
+        typed_descriptors, artifacts, artifact_records = (
+            self._materialize_artifacts(
+                node=intent.node,
+                resources=intent.resources,
+                published=admitted_descriptors,
+                runtime=intent.admitted_outputs,
+                current_artifact_count=intent.current_artifact_count,
+                current_artifact_bytes=intent.current_artifact_bytes,
+            )
+        )
+        return (
+            _with_result_provenance(
+                typed_descriptors,
+                result_identity=intent.result_identity,
+                current_run_id=intent.run_id,
+                producer_run_id=producer_run_id,
+                resolution=resolution,
+            ),
+            artifacts,
+            artifact_records,
+            cache_descriptors,
+        )
+
+    def _commit_success(
+        self,
+        *,
+        node_id: str,
+        node_attempt_id: str,
+        operation_attempt_id: str | None,
+        resolution: Literal["executed", "cache_replayed"],
+        resources: RunResources,
+        admitted_outputs: Mapping[tuple[str, str], AdmittedPortValues],
+        typed_descriptors: list[dict[str, Any]],
+        artifacts: list[dict[str, Any]],
+        artifact_records: Mapping[
+            str,
+            tuple[Mapping[str, Any], tuple[str, ...]],
+        ],
+        before_success: Callable[[], Callable[[], None] | None] | None,
+    ) -> FinalizedNode:
+
+        def cleanup_artifacts() -> None:
+            self._cleanup_artifacts(
+                resources=resources,
+                artifact_records=artifact_records,
+            )
+
+        disposition = self._ledger._commit_node_publication(
+            node_id=node_id,
+            node_attempt_id=node_attempt_id,
+            resolution=resolution,
+            outputs=typed_descriptors,
+            artifacts=artifacts,
+            operation_attempt_id=operation_attempt_id,
+            cancel_cleanup=cleanup_artifacts,
+            before_success=before_success,
+        )
+        if disposition != "succeeded":
+            return FinalizedNode(
+                disposition=cast(
+                    Literal["failed", "cancelled", "interrupted"],
+                    disposition,
+                )
+            )
+        return FinalizedNode(
+            disposition="succeeded",
+            admitted_outputs=admitted_outputs,
+            artifacts=tuple(artifacts),
+            artifact_records=artifact_records,
+        )
+
+    def _finalize_executed_success(
+        self,
+        intent: ExecutedNodeSuccess,
+    ) -> FinalizedNode:
         artifact_records: dict[
             str,
             tuple[dict[str, Any], tuple[str, ...]],
         ] = {}
         try:
             (
-                typed_outputs,
+                typed_descriptors,
                 artifacts,
                 artifact_records,
-            ) = self._materialize_artifacts(
-                node=intent.node,
+                cache_descriptors,
+            ) = self._materialize_success(
+                intent,
+                producer_run_id=intent.run_id,
+                resolution="executed",
+            )
+        except (PortValueError, OSError, StoragePathError) as error:
+            return self._preparation_failed(
+                node_id=intent.node.node_id,
+                node_attempt_id=intent.node_attempt_id,
+                operation_attempt_id=intent.operation_attempt_id,
                 resources=intent.resources,
-                published=published,
-                runtime=intent.admitted_outputs,
-                current_artifact_count=intent.current_artifact_count,
-                current_artifact_bytes=intent.current_artifact_bytes,
+                error=error,
+                artifact_records=artifact_records,
             )
-            typed_outputs = _with_result_provenance(
-                typed_outputs,
-                result_identity=intent.result_identity,
-                current_run_id=intent.run_id,
-                producer_run_id=producer_run_id,
-                resolution=resolution,
-            )
-            if (
-                isinstance(intent, ExecutedNodeSuccess)
-                and intent.cache_eligible
-            ):
+        if intent.cache_eligible:
+            try:
                 self._result_replay_source.validate_publish(
                     project_id=intent.project_id,
                     execution_plan=intent.execution_plan,
                     node=intent.node,
                     result_identity=intent.result_identity,
-                    outputs=cache_outputs,
+                    outputs=cache_descriptors,
                     producer_run_id=intent.run_id,
                     admitted_outputs=intent.admitted_outputs,
                 )
-        except Exception as error:
-            return self._preparation_failed(
-                intent=intent,
-                error=error,
-                artifact_records=artifact_records,
-            )
-
-        def cleanup_artifacts() -> None:
-            self._cleanup_artifacts(
-                resources=intent.resources,
-                artifact_records=artifact_records,
-            )
+            except V2RunError as error:
+                if error.code != "cache_identity_conflict":
+                    raise
+                return self._preparation_failed(
+                    node_id=intent.node.node_id,
+                    node_attempt_id=intent.node_attempt_id,
+                    operation_attempt_id=intent.operation_attempt_id,
+                    resources=intent.resources,
+                    error=error,
+                    artifact_records=artifact_records,
+                )
 
         def publish_cache() -> Callable[[], None] | None:
-            if (
-                not isinstance(intent, ExecutedNodeSuccess)
-                or not intent.cache_eligible
-            ):
+            if not intent.cache_eligible:
                 return None
             return self._result_replay_source.publish(
                 project_id=intent.project_id,
                 execution_plan=intent.execution_plan,
                 node=intent.node,
                 result_identity=intent.result_identity,
-                outputs=cache_outputs,
+                outputs=cache_descriptors,
                 producer_run_id=intent.run_id,
                 admitted_outputs=intent.admitted_outputs,
             )
 
         try:
-            disposition = self._ledger._commit_node_publication(
+            return self._commit_success(
                 node_id=intent.node.node_id,
                 node_attempt_id=intent.node_attempt_id,
-                resolution=resolution,
-                outputs=typed_outputs,
+                operation_attempt_id=intent.operation_attempt_id,
+                resolution="executed",
+                resources=intent.resources,
+                admitted_outputs=intent.admitted_outputs,
+                typed_descriptors=typed_descriptors,
                 artifacts=artifacts,
-                operation_attempt_id=(
-                    intent.operation_attempt_id
-                    if isinstance(intent, ExecutedNodeSuccess)
-                    else None
-                ),
-                cancel_cleanup=cleanup_artifacts,
-                before_success=(
-                    publish_cache
-                    if isinstance(intent, ExecutedNodeSuccess)
-                    else None
-                ),
+                artifact_records=artifact_records,
+                before_success=publish_cache,
             )
         except V2RunError as error:
-            if (
-                not isinstance(intent, ExecutedNodeSuccess)
-                or error.code != "cache_identity_conflict"
-            ):
-                if isinstance(intent, CacheReplayNodeSuccess):
-                    cleanup_artifacts()
+            if error.code != "cache_identity_conflict":
                 raise
             return self._preparation_failed(
-                intent=intent,
+                node_id=intent.node.node_id,
+                node_attempt_id=intent.node_attempt_id,
+                operation_attempt_id=intent.operation_attempt_id,
+                resources=intent.resources,
                 error=error,
                 artifact_records=artifact_records,
             )
-        except Exception:
-            if isinstance(intent, CacheReplayNodeSuccess):
-                cleanup_artifacts()
+
+    def _finalize_cache_replay_success(
+        self,
+        intent: CacheReplayNodeSuccess,
+    ) -> FinalizedNode:
+        artifact_records: dict[
+            str,
+            tuple[dict[str, Any], tuple[str, ...]],
+        ] = {}
+        try:
+            (
+                typed_descriptors,
+                artifacts,
+                artifact_records,
+                _,
+            ) = self._materialize_success(
+                intent,
+                producer_run_id=intent.producer_run_id,
+                resolution="cache_replayed",
+            )
+        except (PortValueError, OSError, StoragePathError) as error:
+            return self._preparation_failed(
+                node_id=intent.node.node_id,
+                node_attempt_id=intent.node_attempt_id,
+                operation_attempt_id=None,
+                resources=intent.resources,
+                error=error,
+                artifact_records=artifact_records,
+            )
+        try:
+            return self._commit_success(
+                node_id=intent.node.node_id,
+                node_attempt_id=intent.node_attempt_id,
+                operation_attempt_id=None,
+                resolution="cache_replayed",
+                resources=intent.resources,
+                admitted_outputs=intent.admitted_outputs,
+                typed_descriptors=typed_descriptors,
+                artifacts=artifacts,
+                artifact_records=artifact_records,
+                before_success=None,
+            )
+        except V2RunError as error:
+            try:
+                self._cleanup_artifacts(
+                    resources=intent.resources,
+                    artifact_records=artifact_records,
+                )
+            except (OSError, StoragePathError, RuntimeError) as cleanup_error:
+                error.add_note(
+                    "Replayed Artifact cleanup also failed: "
+                    f"{type(cleanup_error).__name__}"
+                )
             raise
-        if disposition != "succeeded":
-            return FinalizedNode(disposition=disposition)
-        return FinalizedNode(
-            disposition="succeeded",
-            admitted_outputs=intent.admitted_outputs,
-            artifacts=tuple(artifacts),
-            artifact_records=artifact_records,
-        )
 
     def finalize(self, intent: NodeFinalizationIntent) -> FinalizedNode:
         """Commit the disposition implied by one closed finalization intent."""
-        if isinstance(intent, (ExecutedNodeSuccess, CacheReplayNodeSuccess)):
-            return self._finalize_success(intent)
+        if isinstance(intent, ExecutedNodeSuccess):
+            return self._finalize_executed_success(intent)
+        if isinstance(intent, CacheReplayNodeSuccess):
+            return self._finalize_cache_replay_success(intent)
         if isinstance(intent, ExecutedNodeNonSuccess):
             return self._finalize_non_success(intent)
         if isinstance(intent, CancelledOrInterruptedNode):
@@ -5890,8 +6010,8 @@ class V2RunService:
                         resources=replay_resources,
                         node_attempt_id=node_attempt_id,
                         result_identity=result_identity,
-                        producer_run_id=replay_producer_run_id,
-                        published_outputs=tuple(replayed_published),
+                        producer_run_id=cast(str, replay_producer_run_id),
+                        admitted_output_descriptors=tuple(replayed_published),
                         admitted_outputs=replayed_runtime,
                         current_artifact_count=len(all_artifacts),
                         current_artifact_bytes=sum(
@@ -6161,7 +6281,7 @@ class V2RunService:
                     node_attempt_id=node_attempt_id,
                     operation_attempt_id=operation_attempt_id,
                     result_identity=result_identity,
-                    published_outputs=tuple(pending_published),
+                    admitted_output_descriptors=tuple(pending_published),
                     admitted_outputs=pending_runtime,
                     cache_eligible=cache_eligible,
                     current_artifact_count=len(all_artifacts),
