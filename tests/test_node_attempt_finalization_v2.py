@@ -37,6 +37,7 @@ def _open_attempt_ledger(
     tmp_path,
     *,
     operation_started: bool,
+    selection_required: bool = False,
     run_id: str = "run-1",
     transaction_store: run_execution_v2.LedgerTransactionStore | None = None,
 ) -> run_execution_v2._RunEvidenceLedger:
@@ -46,6 +47,7 @@ def _open_attempt_ledger(
         dependencies=(),
         required_dependencies=(),
         result_identity_plan_facts_digest="sha256:" + "1" * 64,
+        selection_consumer=selection_required,
     )
     ledger = run_execution_v2._RunEvidenceLedger(
         ProjectManager(tmp_path / "projects"),
@@ -66,8 +68,10 @@ def _open_attempt_ledger(
             "execution_plan_digest": "sha256:" + "4" * 64,
             "catalog_contract_digest": "sha256:" + "5" * 64,
             "resolved_contracts": [],
-            "selection_required": False,
-            "selection_terminal_keys": [],
+            "selection_required": selection_required,
+            "selection_terminal_keys": (
+                ["node-1"] if selection_required else []
+            ),
             "plan_nodes": [plan_node.to_dict()],
         },
     )
@@ -216,6 +220,51 @@ def test_executed_success_publishes_one_physical_ledger_transaction(
         "node_attempt_terminal",
         "node_disposition",
     ]
+
+
+def test_restart_audit_cannot_bypass_required_selection_closure(
+    tmp_path,
+) -> None:
+    ledger = _open_attempt_ledger(
+        tmp_path,
+        operation_started=True,
+        selection_required=True,
+    )
+    finalized = _finalizer(ledger).finalize(
+        run_execution_v2.ExecutedNodeSuccess(
+            project_id="project-1",
+            run_id="run-1",
+            execution_plan=SimpleNamespace(),
+            node=_node(),
+            resources=SimpleNamespace(
+                run_id="run-1",
+                _output_root=tmp_path / "outputs",
+                _cancellation_control=None,
+            ),
+            node_attempt_id="node-attempt-1",
+            operation_attempt_id="operation-1",
+            result_identity="sha256:" + "6" * 64,
+            admitted_output_descriptors=(),
+            admitted_outputs={},
+            cache_eligible=False,
+        )
+    )
+    assert finalized.disposition == "succeeded"
+    ledger.append(
+        "restart_reconciliation_started",
+        {"restarted_at": "2026-08-14T00:01:00Z"},
+    )
+
+    with pytest.raises(
+        run_execution_v2.V2RunError,
+        match="causal validation",
+    ):
+        ledger.commit_run_closure()
+
+    assert not any(
+        fact["fact_type"] in {"selection_terminal", "run_terminal"}
+        for fact in ledger.facts
+    )
 
 
 def test_operation_failure_is_one_exact_node_conclusion_transaction(

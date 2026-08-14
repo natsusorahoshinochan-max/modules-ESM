@@ -129,6 +129,25 @@ _DISPOSITION_OUTCOMES = frozenset(
 )
 
 
+def _run_terminal_status(
+    dispositions: Mapping[str, Mapping[str, Any]],
+    selection_terminals: tuple[Mapping[str, Any], ...],
+) -> Literal["succeeded", "failed", "cancelled", "interrupted"]:
+    outcomes = {
+        disposition["outcome"] for disposition in dispositions.values()
+    }
+    if "failed" in outcomes or any(
+        terminal["status"] == "failed"
+        for terminal in selection_terminals
+    ):
+        return "failed"
+    if "interrupted" in outcomes:
+        return "interrupted"
+    if "cancelled" in outcomes:
+        return "cancelled"
+    return "succeeded"
+
+
 def _is_immutable_object_descriptor(value: Any) -> bool:
     return (
         isinstance(value, Mapping)
@@ -1558,6 +1577,23 @@ class _RunEvidenceLedger:
             return self._state.cancellation_sequence is not None
 
     @property
+    def all_dispositions_succeeded(self) -> bool:
+        """Return whether the durable Plan disposition set is all-success."""
+        with self._condition:
+            return (
+                set(self._state.dispositions) == set(self._plan_nodes)
+                and all(
+                    disposition["outcome"] == "succeeded"
+                    for disposition in self._state.dispositions.values()
+                )
+            )
+
+    @property
+    def selection_consumer_ids(self) -> tuple[str, ...]:
+        """Return the Selection consumers fixed by durable Run scope."""
+        return self._selection_consumer_ids
+
+    @property
     def plan_nodes(self) -> tuple[_PlanNodeEvidence, ...]:
         return tuple(
             _PlanNodeEvidence(
@@ -2005,26 +2041,14 @@ class _RunEvidenceLedger:
                 raise self._causal_error()
             return
         if fact_type == "run_terminal":
+            expected_status = _run_terminal_status(
+                self._state.dispositions,
+                tuple(self._state.selection_terminals),
+            )
             outcomes = {
                 disposition["outcome"]
                 for disposition in self._state.dispositions.values()
             }
-            expected_status = (
-                "interrupted"
-                if self._state.restart_reconciled
-                else "failed"
-                if "failed" in outcomes
-                else "interrupted"
-                if "interrupted" in outcomes
-                else "cancelled"
-                if "cancelled" in outcomes
-                else "failed"
-                if any(
-                    terminal["status"] == "failed"
-                    for terminal in self._state.selection_terminals
-                )
-                else "succeeded"
-            )
             if (
                 not self._state.run_started
                 or set(self._state.dispositions) != set(self._plan_nodes)
@@ -2042,7 +2066,6 @@ class _RunEvidenceLedger:
                 )
                 or (
                     self._state.selection_required
-                    and not self._state.restart_reconciled
                     and not outcomes.intersection(
                         {"failed", "interrupted", "cancelled"}
                     )
@@ -2679,6 +2702,22 @@ class _RunEvidenceLedger:
         self,
         facts: tuple[dict[str, Any], ...],
     ) -> None:
+        closure_facts = [
+            fact
+            for fact in facts
+            if fact["fact_type"] in {"selection_terminal", "run_terminal"}
+        ]
+        if closure_facts:
+            if (
+                closure_facts != list(facts)
+                or facts[-1]["fact_type"] != "run_terminal"
+                or any(
+                    fact["fact_type"] != "selection_terminal"
+                    for fact in facts[:-1]
+                )
+            ):
+                raise self._causal_error()
+            return
         operation_terminals = [
             fact
             for fact in facts
@@ -2896,6 +2935,26 @@ class _RunEvidenceLedger:
         """Commit one logical fact through the sole transaction interface."""
         committed = self.commit((ProposedFact(fact_type, payload),))
         return dict(committed.facts[0])
+
+    def commit_run_closure(
+        self,
+        selection_terminals: tuple[Mapping[str, Any], ...] = (),
+    ) -> CommittedFactRange:
+        """Conclude Selection and Run status as one durable transition."""
+        with self._condition:
+            run_status = _run_terminal_status(
+                self._state.dispositions,
+                selection_terminals,
+            )
+            return self.commit(
+                (
+                    *(
+                        ProposedFact("selection_terminal", terminal)
+                        for terminal in selection_terminals
+                    ),
+                    ProposedFact("run_terminal", {"status": run_status}),
+                )
+            )
 
     @contextmanager
     def _ordered_append_scope(self) -> Iterator[None]:
@@ -4735,12 +4794,10 @@ def _result_identity(
 def _selection_consumer_result(
     node: ExecutionPlanNode,
     values: Mapping[tuple[str, str], AdmittedPortValues],
-) -> dict[str, Any] | None:
+) -> dict[str, Any]:
     """Project one declared selection Node's actual typed output."""
     resolved_objectives = node._runtime.selection_objectives
     resolved_selectors = node._runtime.observation_selectors
-    if not resolved_objectives and not resolved_selectors:
-        return None
     if resolved_selectors:
         selectors = tuple(item.selector for item in resolved_selectors)
         candidate_references = {
@@ -6514,8 +6571,7 @@ class V2RunService:
             _on_admitted(receipt, record)
         if _before_execute is not None:
             _before_execute()
-        values: dict[tuple[str, str], AdmittedPortValues] = {}
-        disposition_outcomes: dict[str, str] = {}
+        committed_values: dict[tuple[str, str], AdmittedPortValues] = {}
         for node in plan.nodes:
             if ledger.cancellation_requested:
                 record.cancellation.wait_for_cleanup()
@@ -6531,11 +6587,10 @@ class V2RunService:
                         public_error=None,
                     )
                 )
-                disposition_outcomes[node.node_id] = finalized.disposition
                 continue
             blocked_by = self._required_input_blockers(
                 node,
-                values,
+                committed_values,
             )
             if blocked_by:
                 finalized = finalizer.conclude(
@@ -6544,7 +6599,6 @@ class V2RunService:
                         blocked_by=tuple(blocked_by),
                     )
                 )
-                disposition_outcomes[node.node_id] = finalized.disposition
                 continue
             node_attempt_id = f"node-attempt-{uuid.uuid4().hex}"
             operation_attempt_id = f"operation-{uuid.uuid4().hex}"
@@ -6557,7 +6611,7 @@ class V2RunService:
             try:
                 node_inputs, input_content_digests = self._inputs_for(
                     node,
-                    values,
+                    committed_values,
                 )
             except PortValueError as error:
                 input_admission_error = error
@@ -6736,7 +6790,6 @@ class V2RunService:
                         resolution="cache_replayed",
                     )
                 )
-                disposition_outcomes[node.node_id] = finalized.disposition
                 continue
             if (
                 replayed_published is not None
@@ -6756,7 +6809,6 @@ class V2RunService:
                             public_error=None,
                         )
                     )
-                    disposition_outcomes[node.node_id] = finalized.disposition
                     continue
                 ledger.append(
                     "node_attempt_started",
@@ -6790,9 +6842,8 @@ class V2RunService:
                     )
                 )
                 if finalized.disposition == "succeeded":
-                    values.update(finalized.admitted_outputs)
+                    committed_values.update(finalized.admitted_outputs)
                     all_artifacts.extend(finalized.artifacts)
-                disposition_outcomes[node.node_id] = finalized.disposition
                 continue
             resources = RunResources(
                 project_id=project_id,
@@ -6892,7 +6943,6 @@ class V2RunService:
                         ),
                     )
                 )
-                disposition_outcomes[node.node_id] = finalized.disposition
                 continue
             except BaseException as error:
                 pre_operation_invariant_error = error
@@ -6923,7 +6973,6 @@ class V2RunService:
                         ),
                     )
                 )
-                disposition_outcomes[node.node_id] = finalized.disposition
                 continue
             if pre_operation_invariant_error is not None:
                 raise pre_operation_invariant_error
@@ -7064,7 +7113,6 @@ class V2RunService:
                         ),
                     )
                 finalized = finalizer.finalize(intent)
-                disposition_outcomes[node.node_id] = finalized.disposition
                 continue
             assert result_identity is not None
             finalized = finalizer.finalize(
@@ -7084,61 +7132,32 @@ class V2RunService:
                 )
             )
             if finalized.disposition == "succeeded":
-                values.update(finalized.admitted_outputs)
+                committed_values.update(finalized.admitted_outputs)
                 all_artifacts.extend(finalized.artifacts)
-            disposition_outcomes[node.node_id] = finalized.disposition
-        selection_failed = False
-        selection_consumers = tuple(
-            node
-            for node in plan.nodes
-            if (
-                node._runtime.selection_objectives
-                or node._runtime.observation_selectors
-            )
-        )
-        if (
-            selection_consumers
-            and all(
-                outcome == "succeeded"
-                for outcome in disposition_outcomes.values()
-            )
-        ):
+        selection_terminals: tuple[Mapping[str, Any], ...] = ()
+        if ledger.selection_consumer_ids and ledger.all_dispositions_succeeded:
+            selection_consumers = {
+                node.node_id: node for node in plan.nodes
+            }
             try:
-                results = tuple(
-                    _selection_consumer_result(node, values)
-                    for node in selection_consumers
+                selection_terminals = tuple(
+                    {
+                        "status": "succeeded",
+                        "result": _selection_consumer_result(
+                            selection_consumers[node_id],
+                            committed_values,
+                        ),
+                    }
+                    for node_id in ledger.selection_consumer_ids
                 )
-                for result in results:
-                    if result is None:
-                        raise RuntimeError(
-                            "Selection consumer lacks an exact result"
-                        )
-                    ledger.append(
-                        "selection_terminal",
-                        {
-                            "status": "succeeded",
-                            "result": result,
-                        },
-                    )
-            except Exception as error:
-                selection_failed = True
-                ledger.append(
-                    "selection_terminal",
+            except SelectionError as error:
+                selection_terminals = (
                     {
                         "status": "failed",
                         "error": _public_selection_failure(error),
                     },
                 )
-        run_status = (
-            "failed"
-            if selection_failed or "failed" in disposition_outcomes.values()
-            else "interrupted"
-            if "interrupted" in disposition_outcomes.values()
-            else "cancelled"
-            if "cancelled" in disposition_outcomes.values()
-            else "succeeded"
-        )
-        ledger.append("run_terminal", {"status": run_status})
+        ledger.commit_run_closure(selection_terminals)
         record.finished.set()
         return receipt
 

@@ -3047,6 +3047,71 @@ def test_public_run_exposes_no_node_subset_when_transaction_commit_fails(
     assert calls.count("execute:test.direct.local") == 1
 
 
+def test_run_without_selection_closes_after_its_node_disposition(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    run_root = tmp_path / "runs"
+    monkeypatch.setenv("PROTEIN_WORKBENCH_PROJECT_ROOT", str(tmp_path / "projects"))
+    monkeypatch.setenv("PROTEIN_WORKBENCH_RUN_ROOT", str(run_root))
+    monkeypatch.setenv("PROTEIN_WORKBENCH_OUTPUT_ROOT", str(tmp_path / "outputs"))
+    app = create_app(
+        frozen_catalog_override=_direct_catalog([]),
+        v2_environment_configuration={
+            ("test.direct.local", "2.1.0"): {
+                "values": {"credential": "credential-value"},
+            }
+        },
+    )
+
+    with TestClient(app) as client:
+        project_id, compiled = _commit_one_node(client)
+        started = client.post(
+            f"/api/v2/projects/{project_id}/runs",
+            json={
+                "workflow_commit_id": compiled["workflow_commit_id"],
+                "client_request_id": "no-selection-run-closure",
+            },
+        )
+        assert started.status_code == 202
+        run_id = started.json()["run_id"]
+        projection = wait_for_testclient_run_terminal(
+            client,
+            project_id,
+            run_id,
+        )
+
+    transactions = [
+        json.loads(path.read_text())
+        for path in sorted(
+            (run_root / project_id / run_id / "ledger").glob("*.json")
+        )
+    ]
+    closure_index, closure = next(
+        (index, transaction)
+        for index, transaction in enumerate(transactions)
+        if any(
+            fact["fact_type"] == "run_terminal"
+            for fact in transaction["facts"]
+        )
+    )
+    disposition_index = next(
+        index
+        for index, transaction in enumerate(transactions)
+        if any(
+            fact["fact_type"] == "node_disposition"
+            for fact in transaction["facts"]
+        )
+    )
+
+    assert projection["status"] == "succeeded"
+    assert closure_index > disposition_index
+    assert [fact["fact_type"] for fact in closure["facts"]] == [
+        "run_terminal"
+    ]
+    assert closure["facts"][0]["payload"] == {"status": "succeeded"}
+
+
 def test_cleanup_failure_is_bounded_and_does_not_rewrite_engine_success(
     tmp_path,
     monkeypatch,

@@ -14,7 +14,7 @@ from fastapi.testclient import TestClient
 import pytest
 from starlette.websockets import WebSocketDisconnect
 
-from core import ResultReplayHit, ResultReplaySource
+from core import ExecutionTermination, ResultReplayHit, ResultReplaySource
 import core.run_execution_v2 as run_execution_v2
 from core.server import create_app
 from protein_workbench_public import validate_error, validate_response
@@ -397,6 +397,76 @@ def test_completion_race_is_decided_by_the_ledger_cursor(
     assert observed_terminal.json()["decision_sequence"] == (
         projection["terminal_sequence"]
     )
+
+
+@pytest.mark.parametrize(
+    ("first_error", "first_outcome", "expected_run_status"),
+    (
+        (RuntimeError("fixture Node failure"), "failed", "failed"),
+        (
+            ExecutionTermination("interrupted"),
+            "interrupted",
+            "interrupted",
+        ),
+    ),
+)
+def test_run_terminal_precedence_uses_durable_node_dispositions(
+    tmp_path,
+    monkeypatch,
+    first_error: BaseException,
+    first_outcome: str,
+    expected_run_status: str,
+) -> None:
+    second_entered = threading.Event()
+    second_release = threading.Event()
+
+    def execute_by_node(resources) -> None:
+        if resources.node_id == "direct-0":
+            raise first_error
+        second_entered.set()
+        assert second_release.wait(timeout=2)
+
+    monkeypatch.setenv("PROTEIN_WORKBENCH_PROJECT_ROOT", str(tmp_path / "projects"))
+    monkeypatch.setenv("PROTEIN_WORKBENCH_RUN_ROOT", str(tmp_path / "runs"))
+    monkeypatch.setenv("PROTEIN_WORKBENCH_OUTPUT_ROOT", str(tmp_path / "outputs"))
+    app = create_app(
+        frozen_catalog_override=_direct_catalog(
+            [],
+            execution_action=execute_by_node,
+        ),
+        v2_environment_configuration={
+            ("test.direct.local", "2.1.0"): {
+                "values": {"credential": "credential-value"},
+            }
+        },
+    )
+
+    with TestClient(app) as client:
+        project_id, committed = _commit_independent_nodes(
+            client,
+            ("test.direct.local", "test.direct.local"),
+        )
+        receipt = _start(
+            client,
+            project_id,
+            committed,
+            f"{expected_run_status}-before-cancelled",
+        )
+        assert second_entered.wait(timeout=2)
+        cancelled = client.post(
+            f"/api/v2/projects/{project_id}/runs/{receipt['run_id']}:cancel",
+            json={},
+        )
+        second_release.set()
+        projection = _wait_terminal(client, project_id, receipt["run_id"])
+
+    assert cancelled.status_code == 200
+    assert cancelled.json()["outcome"] == "cancellation_requested"
+    assert projection["status"] == expected_run_status
+    assert {
+        item["node_id"]: item["outcome"]
+        for item in projection["node_dispositions"]
+    } == {"direct-0": first_outcome, "direct-1": "cancelled"}
 
 
 class _ControllableReplay(ResultReplaySource):

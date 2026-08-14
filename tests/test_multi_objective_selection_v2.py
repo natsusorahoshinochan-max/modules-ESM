@@ -30,6 +30,7 @@ from core import (
 from core.scoring_v2 import SelectionError
 from core.project import ProjectManager
 from core.server import create_app
+import core.run_execution_v2 as run_execution_v2
 from core.workflow_v2 import WorkflowCompileError, WorkflowEdge
 from datatypes import (
     CandidateDataReference,
@@ -1070,6 +1071,26 @@ def _run_public_workflow(
     )
 
 
+def _selection_public_scope(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    project_name: str,
+) -> tuple[Any, str, WorkflowDocument, dict[str, Path]]:
+    catalog = _catalog()
+    roots: dict[str, Path] = {}
+    for name in ("PROJECT", "CACHE", "OUTPUT", "RUN"):
+        root = tmp_path / name.lower()
+        root.mkdir()
+        roots[name] = root
+        monkeypatch.setenv(f"PROTEIN_WORKBENCH_{name}_ROOT", str(root))
+    project_id = ProjectManager(tmp_path / "project").create(project_name).id
+    workflow = replace(
+        _workflow(catalog, "weighted_rank"),
+        workflow_id=project_id,
+    )
+    return catalog, project_id, workflow, roots
+
+
 def test_result_identity_ignores_node_renames_while_plan_digest_tracks_topology(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -1626,6 +1647,204 @@ def test_public_selection_uses_the_executed_method_and_is_cache_replay_stable(
         if item["node_id"] == "select"
     )
     assert second_select["resolution"] == "cache_replayed"
+
+
+def test_selection_conclusion_and_run_terminal_publish_as_one_closure(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    catalog, project_id, workflow, roots = _selection_public_scope(
+        tmp_path,
+        monkeypatch,
+        "atomic selection closure",
+    )
+
+    with TestClient(
+        create_app(frozen_catalog_override=catalog)
+    ) as client:
+        committed = _commit_public_workflow(client, project_id, workflow)
+        started = client.post(
+            f"/api/v2/projects/{project_id}/runs",
+            json={
+                "workflow_commit_id": committed["workflow_commit_id"],
+                "client_request_id": "atomic-selection-closure",
+            },
+        )
+        assert started.status_code == 202
+        run_id = started.json()["run_id"]
+        projection = wait_for_testclient_run_terminal(
+            client,
+            project_id,
+            run_id,
+        )
+        events = client.app.state.run_execution_v2.public_events(
+            project_id,
+            run_id,
+        )
+
+    transactions = [
+        json.loads(path.read_text())
+        for path in sorted(
+            (roots["RUN"] / project_id / run_id / "ledger").glob("*.json")
+        )
+    ]
+    closure = next(
+        transaction
+        for transaction in transactions
+        if any(
+            fact["fact_type"] == "run_terminal"
+            for fact in transaction["facts"]
+        )
+    )
+
+    assert projection["status"] == "succeeded"
+    assert [
+        fact["fact_type"] for fact in closure["facts"]
+    ] == ["selection_terminal", "run_terminal"]
+    assert closure["facts"][0]["payload"]["result"] == (
+        projection["selection_results"][0]
+    )
+    assert closure["facts"][1]["payload"] == {"status": "succeeded"}
+    assert [
+        event["event"]["type"] for event in events[-2:]
+    ] == ["selection_terminal", "run_terminal"]
+    assert {
+        fact["payload"]["node_id"]
+        for transaction in transactions[:-1]
+        for fact in transaction["facts"]
+        if fact["fact_type"] == "node_disposition"
+    } == {"canonical-source", "canonical-scores", "select"}
+
+
+def test_selection_derivation_failure_closes_selection_and_run_together(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    catalog, project_id, workflow, roots = _selection_public_scope(
+        tmp_path,
+        monkeypatch,
+        "failed selection closure",
+    )
+
+    def fail_selection_derivation(*_args: Any, **_kwargs: Any) -> None:
+        raise SelectionError("committed Selection value cannot be derived")
+
+    monkeypatch.setattr(
+        run_execution_v2,
+        "_selection_consumer_result",
+        fail_selection_derivation,
+    )
+
+    with TestClient(
+        create_app(frozen_catalog_override=catalog)
+    ) as client:
+        committed = _commit_public_workflow(client, project_id, workflow)
+        started = client.post(
+            f"/api/v2/projects/{project_id}/runs",
+            json={
+                "workflow_commit_id": committed["workflow_commit_id"],
+                "client_request_id": "failed-selection-closure",
+            },
+        )
+        assert started.status_code == 202
+        run_id = started.json()["run_id"]
+        projection = wait_for_testclient_run_terminal(
+            client,
+            project_id,
+            run_id,
+        )
+        events = client.app.state.run_execution_v2.public_events(
+            project_id,
+            run_id,
+        )
+
+    closure = next(
+        json.loads(path.read_text())
+        for path in sorted(
+            (roots["RUN"] / project_id / run_id / "ledger").glob("*.json")
+        )
+        if b'"fact_type":"run_terminal"' in path.read_bytes()
+    )
+    assert projection["status"] == "failed"
+    assert projection["selection_results"] == []
+    assert projection["selection_error"]["code"] == "selection_failed"
+    assert projection["selection_error"]["details"] == {
+        "reason": "committed Selection value cannot be derived"
+    }
+    assert [fact["fact_type"] for fact in closure["facts"]] == [
+        "selection_terminal",
+        "run_terminal",
+    ]
+    assert [fact["payload"]["status"] for fact in closure["facts"]] == [
+        "failed",
+        "failed",
+    ]
+    assert [event["event"]["type"] for event in events[-2:]] == [
+        "selection_terminal",
+        "run_terminal",
+    ]
+
+
+def test_run_closure_failure_publishes_neither_selection_nor_run_terminal(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class FailRunClosure:
+        def __init__(self) -> None:
+            self.filesystem = (
+                run_execution_v2.FilesystemLedgerTransactionStore()
+            )
+
+        def publish(self, *, root, relative_parts, payload) -> None:
+            transaction = json.loads(payload)
+            if any(
+                fact["fact_type"] == "run_terminal"
+                for fact in transaction["facts"]
+            ):
+                raise OSError("fixture Run Closure failure")
+            self.filesystem.publish(
+                root=root,
+                relative_parts=relative_parts,
+                payload=payload,
+            )
+
+    catalog, project_id, workflow, roots = _selection_public_scope(
+        tmp_path,
+        monkeypatch,
+        "unavailable selection closure",
+    )
+
+    with TestClient(
+        create_app(
+            frozen_catalog_override=catalog,
+            _v2_ledger_transaction_store=FailRunClosure(),
+        )
+    ) as client:
+        committed = _commit_public_workflow(client, project_id, workflow)
+        started = client.post(
+            f"/api/v2/projects/{project_id}/runs",
+            json={
+                "workflow_commit_id": committed["workflow_commit_id"],
+                "client_request_id": "unavailable-selection-closure",
+            },
+        )
+
+    assert started.status_code == 503
+    assert started.json()["error"]["code"] == "evidence_unavailable"
+    durable_facts = [
+        fact
+        for path in sorted(roots["RUN"].rglob("ledger/*.json"))
+        for fact in json.loads(path.read_text())["facts"]
+    ]
+    assert {
+        fact["payload"]["node_id"]
+        for fact in durable_facts
+        if fact["fact_type"] == "node_disposition"
+    } == {"canonical-source", "canonical-scores", "select"}
+    assert not any(
+        fact["fact_type"] in {"selection_terminal", "run_terminal"}
+        for fact in durable_facts
+    )
 
 
 def test_compiler_rejects_selection_objective_with_multiple_consumers(
