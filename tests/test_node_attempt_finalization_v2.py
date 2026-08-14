@@ -397,8 +397,36 @@ def test_cache_replay_cancellation_cleanup_failure_retains_resolution(
     assert node_terminal["payload"]["resolution"] == "cache_replayed"
     assert not any(
         fact["fact_type"].startswith("operation_attempt")
+        or fact["fact_type"] == "outputs_published"
         for fact in ledger.facts
     )
+
+
+def test_cache_replay_failure_rejects_already_published_outputs(
+    tmp_path,
+) -> None:
+    ledger = _open_attempt_ledger(tmp_path, operation_started=False)
+    ledger.append(
+        "outputs_published",
+        {"node_id": "node-1", "outputs": [], "artifacts": []},
+    )
+    decision = ledger.request_cancellation(None)
+    assert decision["outcome"] == "cancellation_requested"
+
+    with pytest.raises(run_execution_v2.V2RunError) as captured:
+        ledger.append(
+            "node_attempt_terminal",
+            {
+                "node_attempt_id": "node-attempt-1",
+                "status": "failed",
+                "resolution": "cache_replayed",
+                "error": run_execution_v2._public_failure(
+                    OSError("fixture cancellation cleanup failure")
+                ),
+            },
+        )
+
+    assert captured.value.code == "evidence_unavailable"
 
 
 @pytest.mark.parametrize(

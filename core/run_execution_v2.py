@@ -1732,6 +1732,11 @@ class _RunEvidenceLedger:
                             and self._cancellation_sequence is None
                         )
                         or (
+                            payload["status"] == "failed"
+                            and attempt["node_id"]
+                            in self._outputs_published
+                        )
+                        or (
                             payload["status"]
                             in {"interrupted", "outcome_unknown"}
                             and not self._restart_reconciled
