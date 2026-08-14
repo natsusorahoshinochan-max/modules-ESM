@@ -1383,6 +1383,29 @@ class _LedgerReducerState:
     cancellation_sequence: int | None
     restart_reconciled: bool
 
+    def clone(self) -> _LedgerReducerState:
+        """Stage from immutable retained facts and copied reducer indexes."""
+        return _LedgerReducerState(
+            facts=list(self.facts),
+            node_attempts=deepcopy(self.node_attempts),
+            node_attempt_by_node=dict(self.node_attempt_by_node),
+            operations=deepcopy(self.operations),
+            invocations=deepcopy(self.invocations),
+            dispositions=deepcopy(self.dispositions),
+            outputs_published=set(self.outputs_published),
+            run_admitted=self.run_admitted,
+            run_started=self.run_started,
+            selection_required=self.selection_required,
+            expected_selection_terminal_keys=(
+                self.expected_selection_terminal_keys
+            ),
+            selection_terminals=deepcopy(self.selection_terminals),
+            selection_terminal_keys=set(self.selection_terminal_keys),
+            run_terminal=self.run_terminal,
+            cancellation_sequence=self.cancellation_sequence,
+            restart_reconciled=self.restart_reconciled,
+        )
+
 
 class _RunEvidenceLedger:
     """Schema-checked, causally closed owner-only facts for one Run."""
@@ -1465,7 +1488,7 @@ class _RunEvidenceLedger:
         self._projection_error: BaseException | None = None
 
     def _capture_reducer_state(self) -> _LedgerReducerState:
-        return deepcopy(self._state)
+        return self._state.clone()
 
     def _install_reducer_state(self, state: _LedgerReducerState) -> None:
         self._state = state
@@ -2502,7 +2525,9 @@ class _RunEvidenceLedger:
         for fact in facts:
             self._validate_schema(fact["fact_type"], fact["payload"])
         self._validate_transaction_boundary(facts)
-        prior_state = self._capture_reducer_state()
+        prior_state = self._state
+        staged_state = prior_state.clone()
+        self._install_reducer_state(staged_state)
         try:
             for fact in facts:
                 fact_type = fact["fact_type"]
@@ -2525,7 +2550,7 @@ class _RunEvidenceLedger:
                 retained = deepcopy(fact)
                 self._state.facts.append(retained)
                 self._apply(fact_type, payload)
-            return self._capture_reducer_state()
+            return staged_state
         finally:
             self._install_reducer_state(prior_state)
 
