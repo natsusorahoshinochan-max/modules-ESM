@@ -240,6 +240,12 @@ contracts, result-affecting execution identity, normalized inputs, parameters,
 and effective randomness.
 _Avoid_: Cache path, Run ID, Node Instance ID, arbitrary hash
 
+**Typed Output**:
+The admitted ordered values published for one exact output Port, retaining
+their nominal Port Type, content identity, Result Identity, and producer
+provenance independently of storage representation.
+_Avoid_: Artifact, Cache entry, provider payload
+
 **Node Execution Attempt**:
 The record of one scheduled Node Instance outcome, including an execution
 satisfied entirely by Cache replay.
@@ -259,3 +265,13 @@ _Avoid_: Readiness check, Cache replay, outer operation summary
 The ordered durable source of typed run facts from which the manifest and
 lifecycle event stream are projected.
 _Avoid_: Provider log, mutable details map, independent manifest writer
+
+**Node Outcome Publication**:
+The all-or-nothing durable conclusion of one Node Execution Attempt, relating
+its terminal outcome to any published Typed Outputs and Artifacts.
+_Avoid_: Operation Attempt terminal, Projection refresh, Cache write
+
+**Run Closure**:
+The durable terminal conclusion of a Run after every Node disposition and every
+required Selection conclusion is closed.
+_Avoid_: Worker exit, restart marker, last Node completion
