@@ -1723,23 +1723,18 @@ class _RunEvidenceLedger:
                     and (
                         child_operations
                         or (
-                            attempt["node_id"] not in self._outputs_published
-                            and not (
-                                self._cancellation_sequence is not None
-                                and payload["status"] == "cancelled"
-                            )
+                            payload["status"] == "succeeded"
+                            and attempt["node_id"]
+                            not in self._outputs_published
                         )
                         or (
-                            payload["status"] != "succeeded"
-                            and not (
-                                self._restart_reconciled
-                                and payload["status"]
-                                in {"interrupted", "outcome_unknown"}
-                            )
-                            and not (
-                                self._cancellation_sequence is not None
-                                and payload["status"] == "cancelled"
-                            )
+                            payload["status"] == "cancelled"
+                            and self._cancellation_sequence is None
+                        )
+                        or (
+                            payload["status"]
+                            in {"interrupted", "outcome_unknown"}
+                            and not self._restart_reconciled
                         )
                     )
                 )
@@ -2764,6 +2759,8 @@ class NodeAttemptFinalizer:
     def _finalize_non_success(
         self,
         intent: ExecutedNodeNonSuccess,
+        *,
+        resolution: Literal["executed", "cache_replayed"],
     ) -> FinalizedNode:
         with self._ledger._ordered_append_scope():
             terminal_payload = {
@@ -2782,7 +2779,7 @@ class NodeAttemptFinalizer:
                 "node_attempt_terminal",
                 {
                     "node_attempt_id": intent.node_attempt_id,
-                    "resolution": "executed",
+                    "resolution": resolution,
                     **terminal_payload,
                 },
             )
@@ -2933,7 +2930,8 @@ class NodeAttemptFinalizer:
                 operation_attempt_id=context.operation_attempt_id,
                 status="failed",
                 public_error=_public_failure(error),
-            )
+            ),
+            resolution=context.resolution,
         )
 
     def _finalize_committed_cancellation(
@@ -2960,7 +2958,8 @@ class NodeAttemptFinalizer:
                     operation_attempt_id=context.operation_attempt_id,
                     status="failed",
                     public_error=_public_failure(cleanup_error),
-                )
+                ),
+                resolution=context.resolution,
             )
         return self._finalize_termination(
             CancelledOrInterruptedNode(
@@ -3232,7 +3231,7 @@ class NodeAttemptFinalizer:
         if isinstance(intent, CacheReplayNodeSuccess):
             return self._finalize_cache_replay_success(intent)
         if isinstance(intent, ExecutedNodeNonSuccess):
-            return self._finalize_non_success(intent)
+            return self._finalize_non_success(intent, resolution="executed")
         if isinstance(intent, CancelledOrInterruptedNode):
             return self._finalize_termination(intent)
         raise TypeError("Node finalization intent is not current")

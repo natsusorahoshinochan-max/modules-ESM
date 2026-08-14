@@ -146,6 +146,7 @@ def test_executed_non_success_is_finalized_without_outputs(tmp_path) -> None:
         "node_attempt_terminal",
         "node_disposition",
     ]
+    assert ledger.facts[-2]["payload"]["resolution"] == "executed"
 
 
 def test_cache_validation_storage_failure_closes_the_executed_node(
@@ -352,6 +353,51 @@ def test_cache_replay_success_has_no_operation_attempt(tmp_path) -> None:
     )
     assert ledger.projection()["node_dispositions"][0]["resolution"] == (
         "cache_replayed"
+    )
+
+
+def test_cache_replay_cancellation_cleanup_failure_retains_resolution(
+    tmp_path,
+) -> None:
+    ledger = _open_attempt_ledger(tmp_path, operation_started=False)
+    decision = ledger.request_cancellation(None)
+    assert decision["outcome"] == "cancellation_requested"
+    cancellation = SimpleNamespace(
+        wait_for_cleanup=lambda: None,
+        cleanup_error=OSError("fixture cancellation cleanup failure"),
+    )
+
+    finalized = _finalizer(ledger).finalize(
+        run_execution_v2.CacheReplayNodeSuccess(
+            project_id="project-1",
+            run_id="run-1",
+            execution_plan=SimpleNamespace(),
+            node=SimpleNamespace(node_id="node-1"),
+            resources=SimpleNamespace(
+                run_id="run-1",
+                _output_root=tmp_path / "outputs",
+                _cancellation_control=cancellation,
+            ),
+            node_attempt_id="node-attempt-1",
+            result_identity="sha256:" + "c" * 64,
+            producer_run_id="producer-run",
+            admitted_output_descriptors=(),
+            admitted_outputs={},
+            current_artifact_count=0,
+            current_artifact_bytes=0,
+        )
+    )
+
+    assert finalized.disposition == "failed"
+    node_terminal = next(
+        fact for fact in ledger.facts
+        if fact["fact_type"] == "node_attempt_terminal"
+    )
+    assert node_terminal["payload"]["status"] == "failed"
+    assert node_terminal["payload"]["resolution"] == "cache_replayed"
+    assert not any(
+        fact["fact_type"].startswith("operation_attempt")
+        for fact in ledger.facts
     )
 
 
