@@ -1064,22 +1064,6 @@ class CancelledOrInterruptedNode:
 
 
 @dataclass(frozen=True, slots=True)
-class DurableSucceededNode:
-    """One durable successful Attempt awaiting only its disposition."""
-
-    node_id: str
-    resolution: Literal["executed", "cache_replayed"]
-
-
-@dataclass(frozen=True, slots=True)
-class DurableNonSuccessNode:
-    """One durable non-success Attempt awaiting only its disposition."""
-
-    node_id: str
-    status: Literal["failed", "cancelled", "interrupted", "outcome_unknown"]
-
-
-@dataclass(frozen=True, slots=True)
 class BlockedNode:
     """One unstarted Node blocked by concluded required dependencies."""
 
@@ -1093,11 +1077,6 @@ NodeFinalizationIntent = (
     | CacheReplayNodeSuccess
     | CancelledOrInterruptedNode
 )
-
-NodeDispositionIntent = (
-    DurableSucceededNode | DurableNonSuccessNode | BlockedNode
-)
-
 
 @dataclass(frozen=True, slots=True)
 class _NodeCompletionContext:
@@ -1416,11 +1395,11 @@ class _RunEvidenceLedger:
         plan_nodes: tuple[_PlanNodeEvidence, ...],
         transaction_store: LedgerTransactionStore | None = None,
     ) -> None:
+        self._projects = projects
         run_dir = projects.run_dir(project_id, run_id)
         self._root = run_dir.parent
         self._project_id = project_id
         self._run_id = run_id
-        self._facts: list[dict[str, Any]] = []
         self._plan_node_order = tuple(node.node_id for node in plan_nodes)
         self._plan_nodes = frozenset(self._plan_node_order)
         self._dependencies = {
@@ -1459,21 +1438,24 @@ class _RunEvidenceLedger:
         self._selection_consumer_ids = tuple(
             node.node_id for node in plan_nodes if node.selection_consumer
         )
-        self._node_attempts: dict[str, dict[str, Any]] = {}
-        self._node_attempt_by_node: dict[str, str] = {}
-        self._operations: dict[str, dict[str, Any]] = {}
-        self._invocations: dict[str, dict[str, Any]] = {}
-        self._dispositions: dict[str, dict[str, Any]] = {}
-        self._outputs_published: set[str] = set()
-        self._run_admitted = False
-        self._run_started = False
-        self._selection_required = False
-        self._expected_selection_terminal_keys: tuple[str, ...] = ()
-        self._selection_terminals: list[dict[str, Any]] = []
-        self._selection_terminal_keys: set[str] = set()
-        self._run_terminal = False
-        self._cancellation_sequence: int | None = None
-        self._restart_reconciled = False
+        self._state = _LedgerReducerState(
+            facts=[],
+            node_attempts={},
+            node_attempt_by_node={},
+            operations={},
+            invocations={},
+            dispositions={},
+            outputs_published=set(),
+            run_admitted=False,
+            run_started=False,
+            selection_required=False,
+            expected_selection_terminal_keys=(),
+            selection_terminals=[],
+            selection_terminal_keys=set(),
+            run_terminal=False,
+            cancellation_sequence=None,
+            restart_reconciled=False,
+        )
         self._transaction_count = 0
         self._committed_fact_count = 0
         self._transaction_store = (
@@ -1483,51 +1465,15 @@ class _RunEvidenceLedger:
         self._projection_error: BaseException | None = None
 
     def _capture_reducer_state(self) -> _LedgerReducerState:
-        return _LedgerReducerState(
-            facts=list(self._facts),
-            node_attempts=deepcopy(self._node_attempts),
-            node_attempt_by_node=dict(self._node_attempt_by_node),
-            operations=deepcopy(self._operations),
-            invocations=deepcopy(self._invocations),
-            dispositions=deepcopy(self._dispositions),
-            outputs_published=set(self._outputs_published),
-            run_admitted=self._run_admitted,
-            run_started=self._run_started,
-            selection_required=self._selection_required,
-            expected_selection_terminal_keys=(
-                self._expected_selection_terminal_keys
-            ),
-            selection_terminals=deepcopy(self._selection_terminals),
-            selection_terminal_keys=set(self._selection_terminal_keys),
-            run_terminal=self._run_terminal,
-            cancellation_sequence=self._cancellation_sequence,
-            restart_reconciled=self._restart_reconciled,
-        )
+        return deepcopy(self._state)
 
     def _install_reducer_state(self, state: _LedgerReducerState) -> None:
-        self._facts = state.facts
-        self._node_attempts = state.node_attempts
-        self._node_attempt_by_node = state.node_attempt_by_node
-        self._operations = state.operations
-        self._invocations = state.invocations
-        self._dispositions = state.dispositions
-        self._outputs_published = state.outputs_published
-        self._run_admitted = state.run_admitted
-        self._run_started = state.run_started
-        self._selection_required = state.selection_required
-        self._expected_selection_terminal_keys = (
-            state.expected_selection_terminal_keys
-        )
-        self._selection_terminals = state.selection_terminals
-        self._selection_terminal_keys = state.selection_terminal_keys
-        self._run_terminal = state.run_terminal
-        self._cancellation_sequence = state.cancellation_sequence
-        self._restart_reconciled = state.restart_reconciled
+        self._state = state
 
     @property
     def facts(self) -> tuple[dict[str, Any], ...]:
         with self._condition:
-            return tuple(json.loads(json.dumps(fact)) for fact in self._facts)
+            return tuple(json.loads(json.dumps(fact)) for fact in self._state.facts)
 
     @property
     def cursor(self) -> str:
@@ -1537,17 +1483,17 @@ class _RunEvidenceLedger:
     @property
     def terminal(self) -> bool:
         with self._condition:
-            return self._run_terminal
+            return self._state.run_terminal
 
     @property
     def started(self) -> bool:
         with self._condition:
-            return self._run_started
+            return self._state.run_started
 
     @property
     def cancellation_requested(self) -> bool:
         with self._condition:
-            return self._cancellation_sequence is not None
+            return self._state.cancellation_sequence is not None
 
     @property
     def plan_nodes(self) -> tuple[_PlanNodeEvidence, ...]:
@@ -1565,7 +1511,7 @@ class _RunEvidenceLedger:
         )
 
     def _cursor_at(self, sequence: int) -> str:
-        fact = self._facts[sequence - 1] if sequence else None
+        fact = self._state.facts[sequence - 1] if sequence else None
         return run_cursor(
             sequence,
             project_id=self._project_id,
@@ -1588,7 +1534,7 @@ class _RunEvidenceLedger:
         with self._condition:
             expected = (
                 self._cursor_at(sequence)
-                if sequence <= len(self._facts)
+                if sequence <= len(self._state.facts)
                 else None
             )
         if (
@@ -1611,7 +1557,7 @@ class _RunEvidenceLedger:
 
     def cursor_at(self, sequence: int) -> str:
         with self._condition:
-            if sequence < 0 or sequence > len(self._facts):
+            if sequence < 0 or sequence > len(self._state.facts):
                 raise ValueError("Ledger cursor sequence is outside the Run")
             return self._cursor_at(sequence)
 
@@ -1642,7 +1588,7 @@ class _RunEvidenceLedger:
         fact_type: str,
         payload: Mapping[str, Any],
     ) -> None:
-        if self._run_terminal:
+        if self._state.run_terminal:
             raise self._causal_error()
         if fact_type == "run_scope_bound":
             try:
@@ -1653,7 +1599,7 @@ class _RunEvidenceLedger:
             except StoragePathError as error:
                 raise self._causal_error() from error
             if (
-                self._facts
+                self._state.facts
                 or payload["project_id"] != self._project_id
                 or payload["run_id"] != self._run_id
                 or workflow_commit_id != payload["workflow_commit_id"]
@@ -1662,17 +1608,20 @@ class _RunEvidenceLedger:
             ):
                 raise self._causal_error()
             return
-        if not self._facts or self._facts[0]["fact_type"] != "run_scope_bound":
+        if (
+            not self._state.facts
+            or self._state.facts[0]["fact_type"] != "run_scope_bound"
+        ):
             raise self._causal_error()
         if fact_type in {"availability_bound", "readiness_attested"}:
-            if self._run_admitted:
+            if self._state.run_admitted:
                 raise self._causal_error()
             return
         if fact_type == "run_admitted":
-            scope = self._facts[0]["payload"]
+            scope = self._state.facts[0]["payload"]
             if (
-                self._run_admitted
-                or self._run_started
+                self._state.run_admitted
+                or self._state.run_started
                 or payload["workflow_commit_id"]
                 != scope["workflow_commit_id"]
                 or payload["workflow_commit_revision"]
@@ -1681,21 +1630,21 @@ class _RunEvidenceLedger:
                 raise self._causal_error()
             return
         if fact_type == "run_started":
-            if not self._run_admitted or self._run_started:
+            if not self._state.run_admitted or self._state.run_started:
                 raise self._causal_error()
             return
         if fact_type == "cancellation_requested":
             if (
-                not self._run_started
-                or self._cancellation_sequence is not None
+                not self._state.run_started
+                or self._state.cancellation_sequence is not None
             ):
                 raise self._causal_error()
             return
         if fact_type == "restart_reconciliation_started":
             if (
-                not self._run_started
-                or self._run_terminal
-                or self._restart_reconciled
+                not self._state.run_started
+                or self._state.run_terminal
+                or self._state.restart_reconciled
             ):
                 raise self._causal_error()
             return
@@ -1703,13 +1652,13 @@ class _RunEvidenceLedger:
             node_id = payload["node_id"]
             attempt_id = payload["node_attempt_id"]
             if (
-                not self._run_started
+                not self._state.run_started
                 or node_id not in self._plan_nodes
-                or node_id in self._node_attempt_by_node
-                or node_id in self._dispositions
-                or attempt_id in self._node_attempts
+                or node_id in self._state.node_attempt_by_node
+                or node_id in self._state.dispositions
+                or attempt_id in self._state.node_attempts
                 or any(
-                    upstream not in self._dispositions
+                    upstream not in self._state.dispositions
                     for upstream in self._dependencies[node_id]
                 )
             ):
@@ -1718,14 +1667,14 @@ class _RunEvidenceLedger:
         if fact_type == "operation_attempt_started":
             attempt_id = payload["node_attempt_id"]
             operation_id = payload["operation_attempt_id"]
-            attempt = self._node_attempts.get(attempt_id)
+            attempt = self._state.node_attempts.get(attempt_id)
             if (
                 attempt is None
                 or attempt["terminal"] is not None
-                or operation_id in self._operations
+                or operation_id in self._state.operations
                 or any(
                     operation["node_attempt_id"] == attempt_id
-                    for operation in self._operations.values()
+                    for operation in self._state.operations.values()
                 )
             ):
                 raise self._causal_error()
@@ -1734,16 +1683,16 @@ class _RunEvidenceLedger:
             operation_id = payload["operation_attempt_id"]
             invocation_id = payload["invocation_id"]
             parent_invocation_id = payload.get("parent_invocation_id")
-            operation = self._operations.get(operation_id)
+            operation = self._state.operations.get(operation_id)
             parent = (
-                self._invocations.get(parent_invocation_id)
+                self._state.invocations.get(parent_invocation_id)
                 if parent_invocation_id is not None
                 else None
             )
             if (
                 operation is None
                 or operation["terminal"] is not None
-                or invocation_id in self._invocations
+                or invocation_id in self._state.invocations
                 or (
                     parent_invocation_id is not None
                     and (
@@ -1756,27 +1705,27 @@ class _RunEvidenceLedger:
                 raise self._causal_error()
             return
         if fact_type == "engine_invocation_terminal":
-            invocation = self._invocations.get(payload["invocation_id"])
+            invocation = self._state.invocations.get(payload["invocation_id"])
             if invocation is None or invocation["terminal"] is not None:
                 raise self._causal_error()
             return
         if fact_type == "operation_attempt_terminal":
             operation_id = payload["operation_attempt_id"]
-            operation = self._operations.get(operation_id)
+            operation = self._state.operations.get(operation_id)
             if (
                 operation is None
                 or operation["terminal"] is not None
                 or any(
                     invocation["operation_attempt_id"] == operation_id
                     and invocation["terminal"] is None
-                    for invocation in self._invocations.values()
+                    for invocation in self._state.invocations.values()
                 )
                 or (
                     payload["status"] == "succeeded"
                     and any(
                         invocation["operation_attempt_id"] == operation_id
                         and invocation["terminal"] != "succeeded"
-                        for invocation in self._invocations.values()
+                        for invocation in self._state.invocations.values()
                     )
                 )
             ):
@@ -1788,46 +1737,46 @@ class _RunEvidenceLedger:
                 if fact_type == "artifact_published"
                 else payload["node_id"]
             )
-            attempt_id = self._node_attempt_by_node.get(node_id)
+            attempt_id = self._state.node_attempt_by_node.get(node_id)
             attempt = (
-                self._node_attempts.get(attempt_id)
+                self._state.node_attempts.get(attempt_id)
                 if attempt_id is not None
                 else None
             )
             if (
                 attempt is None
                 or attempt["terminal"] is not None
-                or node_id in self._dispositions
+                or node_id in self._state.dispositions
                 or (
                     fact_type == "outputs_published"
-                    and node_id in self._outputs_published
+                    and node_id in self._state.outputs_published
                 )
             ):
                 raise self._causal_error()
             child_operations = [
                 operation_id
-                for operation_id, operation in self._operations.items()
+                for operation_id, operation in self._state.operations.items()
                 if operation["node_attempt_id"] == attempt_id
             ]
             if child_operations:
                 if fact_type == "outputs_published" and any(
-                    self._operations[operation_id]["terminal"] != "succeeded"
+                    self._state.operations[operation_id]["terminal"] != "succeeded"
                     for operation_id in child_operations
                 ):
                     raise self._causal_error()
                 if fact_type == "artifact_published" and any(
                     invocation["operation_attempt_id"] in child_operations
                     and invocation["terminal"] != "succeeded"
-                    for invocation in self._invocations.values()
+                    for invocation in self._state.invocations.values()
                 ):
                     raise self._causal_error()
             return
         if fact_type == "node_attempt_terminal":
             attempt_id = payload["node_attempt_id"]
-            attempt = self._node_attempts.get(attempt_id)
+            attempt = self._state.node_attempts.get(attempt_id)
             child_operations = [
                 operation
-                for operation in self._operations.values()
+                for operation in self._state.operations.values()
                 if operation["node_attempt_id"] == attempt_id
             ]
             if (
@@ -1844,21 +1793,21 @@ class _RunEvidenceLedger:
                         or (
                             payload["status"] == "succeeded"
                             and attempt["node_id"]
-                            not in self._outputs_published
+                            not in self._state.outputs_published
                         )
                         or (
                             payload["status"] == "cancelled"
-                            and self._cancellation_sequence is None
+                            and self._state.cancellation_sequence is None
                         )
                         or (
                             payload["status"] == "failed"
                             and attempt["node_id"]
-                            in self._outputs_published
+                            in self._state.outputs_published
                         )
                         or (
                             payload["status"]
                             in {"interrupted", "outcome_unknown"}
-                            and not self._restart_reconciled
+                            and not self._state.restart_reconciled
                         )
                     )
                 )
@@ -1873,12 +1822,12 @@ class _RunEvidenceLedger:
                     and child_operations[-1]["terminal"]
                     != payload["status"]
                     and not (
-                        self._restart_reconciled
+                        self._state.restart_reconciled
                         and payload["status"]
                         in {"interrupted", "outcome_unknown"}
                     )
                     and not (
-                        self._cancellation_sequence is not None
+                        self._state.cancellation_sequence is not None
                         and payload["status"] == "cancelled"
                     )
                 )
@@ -1888,11 +1837,11 @@ class _RunEvidenceLedger:
         if fact_type == "node_disposition":
             node_id = payload["node_id"]
             outcome = payload["outcome"]
-            if node_id not in self._plan_nodes or node_id in self._dispositions:
+            if node_id not in self._plan_nodes or node_id in self._state.dispositions:
                 raise self._causal_error()
-            attempt_id = self._node_attempt_by_node.get(node_id)
+            attempt_id = self._state.node_attempt_by_node.get(node_id)
             attempt = (
-                self._node_attempts.get(attempt_id)
+                self._state.node_attempts.get(attempt_id)
                 if attempt_id is not None
                 else None
             )
@@ -1903,7 +1852,7 @@ class _RunEvidenceLedger:
                     or not blocked_by
                     or not blocked_by <= self._dependencies[node_id]
                     or any(
-                        upstream not in self._dispositions
+                        upstream not in self._state.dispositions
                         for upstream in blocked_by
                     )
                 ):
@@ -1935,31 +1884,31 @@ class _RunEvidenceLedger:
                 else "__failed__"
             )
             if (
-                not self._run_started
-                or not self._selection_required
-                or set(self._dispositions) != set(self._plan_nodes)
+                not self._state.run_started
+                or not self._state.selection_required
+                or set(self._state.dispositions) != set(self._plan_nodes)
                 or any(
                     disposition["outcome"] != "succeeded"
-                    for disposition in self._dispositions.values()
+                    for disposition in self._state.dispositions.values()
                 )
                 or not isinstance(selection_key, str)
                 or (
                     payload["status"] == "succeeded"
                     and (
                         selection_key
-                        not in self._expected_selection_terminal_keys
-                        or selection_key in self._selection_terminal_keys
+                        not in self._state.expected_selection_terminal_keys
+                        or selection_key in self._state.selection_terminal_keys
                     )
                 )
                 or (
                     payload["status"] == "failed"
-                    and self._selection_terminals
+                    and self._state.selection_terminals
                 )
                 or (
                     payload["status"] == "succeeded"
                     and any(
                         terminal["status"] == "failed"
-                        for terminal in self._selection_terminals
+                        for terminal in self._state.selection_terminals
                     )
                 )
             ):
@@ -1968,11 +1917,11 @@ class _RunEvidenceLedger:
         if fact_type == "run_terminal":
             outcomes = {
                 disposition["outcome"]
-                for disposition in self._dispositions.values()
+                for disposition in self._state.dispositions.values()
             }
             expected_status = (
                 "interrupted"
-                if self._restart_reconciled
+                if self._state.restart_reconciled
                 else "failed"
                 if "failed" in outcomes
                 else "interrupted"
@@ -1982,35 +1931,35 @@ class _RunEvidenceLedger:
                 else "failed"
                 if any(
                     terminal["status"] == "failed"
-                    for terminal in self._selection_terminals
+                    for terminal in self._state.selection_terminals
                 )
                 else "succeeded"
             )
             if (
-                not self._run_started
-                or set(self._dispositions) != set(self._plan_nodes)
+                not self._state.run_started
+                or set(self._state.dispositions) != set(self._plan_nodes)
                 or any(
                     attempt["terminal"] is None
-                    for attempt in self._node_attempts.values()
+                    for attempt in self._state.node_attempts.values()
                 )
                 or any(
                     operation["terminal"] is None
-                    for operation in self._operations.values()
+                    for operation in self._state.operations.values()
                 )
                 or any(
                     invocation["terminal"] is None
-                    for invocation in self._invocations.values()
+                    for invocation in self._state.invocations.values()
                 )
                 or (
-                    self._selection_required
-                    and not self._restart_reconciled
+                    self._state.selection_required
+                    and not self._state.restart_reconciled
                     and not outcomes.intersection(
                         {"failed", "interrupted", "cancelled"}
                     )
                     and payload["status"] == "succeeded"
                     and (
-                        self._selection_terminal_keys
-                        != set(self._expected_selection_terminal_keys)
+                        self._state.selection_terminal_keys
+                        != set(self._state.expected_selection_terminal_keys)
                     )
                 )
                 or payload["status"] != expected_status
@@ -2299,35 +2248,35 @@ class _RunEvidenceLedger:
 
     def _apply(self, fact_type: str, payload: Mapping[str, Any]) -> None:
         if fact_type == "run_scope_bound":
-            self._selection_required = payload["selection_required"]
-            self._expected_selection_terminal_keys = tuple(
+            self._state.selection_required = payload["selection_required"]
+            self._state.expected_selection_terminal_keys = tuple(
                 payload["selection_terminal_keys"]
             )
         elif fact_type == "run_admitted":
-            self._run_admitted = True
+            self._state.run_admitted = True
         elif fact_type == "run_started":
-            self._run_started = True
+            self._state.run_started = True
         elif fact_type == "cancellation_requested":
-            self._cancellation_sequence = len(self._facts)
+            self._state.cancellation_sequence = len(self._state.facts)
         elif fact_type == "restart_reconciliation_started":
-            self._restart_reconciled = True
+            self._state.restart_reconciled = True
         elif fact_type == "node_attempt_started":
             record = {
                 "node_id": payload["node_id"],
                 "terminal": None,
                 "resolution": None,
             }
-            self._node_attempts[payload["node_attempt_id"]] = record
-            self._node_attempt_by_node[payload["node_id"]] = payload[
+            self._state.node_attempts[payload["node_attempt_id"]] = record
+            self._state.node_attempt_by_node[payload["node_id"]] = payload[
                 "node_attempt_id"
             ]
         elif fact_type == "operation_attempt_started":
-            self._operations[payload["operation_attempt_id"]] = {
+            self._state.operations[payload["operation_attempt_id"]] = {
                 "node_attempt_id": payload["node_attempt_id"],
                 "terminal": None,
             }
         elif fact_type == "engine_invocation_started":
-            self._invocations[payload["invocation_id"]] = {
+            self._state.invocations[payload["invocation_id"]] = {
                 "operation_attempt_id": payload["operation_attempt_id"],
                 "parent_invocation_id": payload.get(
                     "parent_invocation_id"
@@ -2335,21 +2284,21 @@ class _RunEvidenceLedger:
                 "terminal": None,
             }
         elif fact_type == "engine_invocation_terminal":
-            self._invocations[payload["invocation_id"]]["terminal"] = payload[
+            self._state.invocations[payload["invocation_id"]]["terminal"] = payload[
                 "status"
             ]
         elif fact_type == "operation_attempt_terminal":
-            self._operations[payload["operation_attempt_id"]]["terminal"] = (
+            self._state.operations[payload["operation_attempt_id"]]["terminal"] = (
                 payload["status"]
             )
         elif fact_type == "node_attempt_terminal":
-            attempt = self._node_attempts[payload["node_attempt_id"]]
+            attempt = self._state.node_attempts[payload["node_attempt_id"]]
             attempt["terminal"] = payload["status"]
             attempt["resolution"] = payload["resolution"]
         elif fact_type == "outputs_published":
-            self._outputs_published.add(payload["node_id"])
+            self._state.outputs_published.add(payload["node_id"])
         elif fact_type == "node_disposition":
-            self._dispositions[payload["node_id"]] = dict(payload)
+            self._state.dispositions[payload["node_id"]] = dict(payload)
         elif fact_type == "selection_terminal":
             terminal = dict(payload)
             result = terminal.get("result")
@@ -2358,16 +2307,19 @@ class _RunEvidenceLedger:
                 if isinstance(result, Mapping)
                 else "__failed__"
             )
-            self._selection_terminals.append(terminal)
+            self._state.selection_terminals.append(terminal)
             if terminal["status"] == "succeeded":
-                self._selection_terminal_keys.add(selection_key)
+                self._state.selection_terminal_keys.add(selection_key)
         elif fact_type == "run_terminal":
-            self._run_terminal = True
+            self._state.run_terminal = True
 
     def _projection(self) -> dict[str, Any]:
-        if not self._facts or self._facts[0]["fact_type"] != "run_scope_bound":
+        if (
+            not self._state.facts
+            or self._state.facts[0]["fact_type"] != "run_scope_bound"
+        ):
             raise self._causal_error()
-        scope = self._facts[0]["payload"]
+        scope = self._state.facts[0]["payload"]
         dispositions: list[dict[str, Any]] = []
         published_by_node: dict[
             str,
@@ -2377,7 +2329,7 @@ class _RunEvidenceLedger:
         selection_results: list[dict[str, Any]] = []
         selection_error: dict[str, Any] | None = None
         terminal_sequence: int | None = None
-        for fact in self._facts:
+        for fact in self._state.facts:
             payload = fact["payload"]
             if fact["fact_type"] == "run_started":
                 status = "running"
@@ -2426,7 +2378,7 @@ class _RunEvidenceLedger:
             ],
             "workflow_digest": scope["workflow_digest"],
             "status": status,
-            "ledger_cursor": self._cursor_at(len(self._facts)),
+            "ledger_cursor": self._cursor_at(len(self._state.facts)),
             "node_dispositions": dispositions,
             "outputs": outputs,
             "artifact_index": artifacts,
@@ -2449,15 +2401,15 @@ class _RunEvidenceLedger:
         """Persist one cancellation decision under the Ledger ordering lock."""
         observed_sequence = self.sequence_for_cursor(after_cursor)
         with self._condition:
-            if self._cancellation_sequence is not None:
-                decision_sequence = self._cancellation_sequence
+            if self._state.cancellation_sequence is not None:
+                decision_sequence = self._state.cancellation_sequence
                 return {
                     "outcome": "already_requested",
                     "decision_sequence": decision_sequence,
                     "cursor": self._cursor_at(decision_sequence),
                 }
-            if self._run_terminal:
-                terminal_sequence = len(self._facts)
+            if self._state.run_terminal:
+                terminal_sequence = len(self._state.facts)
                 return {
                     "outcome": (
                         "completed_before_cancel"
@@ -2470,8 +2422,8 @@ class _RunEvidenceLedger:
                     "decision_sequence": terminal_sequence,
                     "cursor": self._cursor_at(terminal_sequence),
                 }
-            if set(self._dispositions) == set(self._plan_nodes):
-                decision_sequence = len(self._facts)
+            if set(self._state.dispositions) == set(self._plan_nodes):
+                decision_sequence = len(self._state.facts)
                 return {
                     "outcome": "completed_before_cancel",
                     "decision_sequence": decision_sequence,
@@ -2496,7 +2448,7 @@ class _RunEvidenceLedger:
         manifest = canonical_json_bytes(self._projection())
         lifecycle = b"".join(
             canonical_json_bytes(event) + b"\n"
-            for fact in self._facts
+            for fact in self._state.facts
             if (
                 event := _public_event_from_fact(
                     project_id=self._project_id,
@@ -2571,7 +2523,7 @@ class _RunEvidenceLedger:
                             details={"last_durable_cursor": self.cursor},
                         ) from error
                 retained = deepcopy(fact)
-                self._facts.append(retained)
+                self._state.facts.append(retained)
                 self._apply(fact_type, payload)
             return self._capture_reducer_state()
         finally:
@@ -2611,7 +2563,7 @@ class _RunEvidenceLedger:
         ):
             raise self._causal_error()
         node_terminal = node_terminals[0]["payload"]
-        attempt = self._node_attempts.get(
+        attempt = self._state.node_attempts.get(
             node_terminal["node_attempt_id"]
         )
         if (
@@ -2651,7 +2603,7 @@ class _RunEvidenceLedger:
             raise self._causal_error()
         open_operations = [
             operation_id
-            for operation_id, operation in self._operations.items()
+            for operation_id, operation in self._state.operations.items()
             if (
                 operation["node_attempt_id"]
                 == node_terminal["node_attempt_id"]
@@ -2675,8 +2627,8 @@ class _RunEvidenceLedger:
                 if operation_terminals
                 else ()
             ),
-            *("artifact_published" for _ in artifact_publications),
             *(("outputs_published",) if terminal_succeeded else ()),
+            *("artifact_published" for _ in artifact_publications),
             "node_attempt_terminal",
             "node_disposition",
         ]
@@ -2691,7 +2643,7 @@ class _RunEvidenceLedger:
         if not logical_facts:
             raise ValueError("Run Ledger transaction must contain facts")
         with self._condition:
-            first_sequence = len(self._facts) + 1
+            first_sequence = len(self._state.facts) + 1
             facts = tuple(
                 {
                     "sequence": first_sequence + offset,
@@ -2737,9 +2689,37 @@ class _RunEvidenceLedger:
                     "Required Run evidence transaction could not be acknowledged",
                     details={"last_durable_cursor": self.cursor},
                 ) from error
-            self._install_reducer_state(staged_state)
-            self._transaction_count = transaction_sequence
-            self._committed_fact_count = facts[-1]["sequence"]
+            try:
+                self._install_reducer_state(staged_state)
+            except RuntimeError:
+                try:
+                    reloaded = _read_run_evidence_ledger(
+                        self._projects,
+                        self._project_id,
+                        self._run_id,
+                        self._transaction_store,
+                    )
+                    if reloaded is None:
+                        raise RuntimeError(
+                            "Acknowledged Run evidence is absent"
+                        )
+                except (OSError, StoragePathError, RuntimeError) as reload_error:
+                    raise V2RunError(
+                        "evidence_unavailable",
+                        "Acknowledged Run evidence could not be reloaded",
+                        details={"last_durable_cursor": self.cursor},
+                    ) from reload_error
+                _RunEvidenceLedger._install_reducer_state(
+                    self,
+                    reloaded._capture_reducer_state(),
+                )
+                self._transaction_count = reloaded._transaction_count
+                self._committed_fact_count = (
+                    reloaded._committed_fact_count
+                )
+            else:
+                self._transaction_count = transaction_sequence
+                self._committed_fact_count = facts[-1]["sequence"]
             try:
                 self._refresh_projections()
             except (OSError, StoragePathError) as error:
@@ -2774,7 +2754,7 @@ class _RunEvidenceLedger:
         with self._condition:
             status = (
                 "cancelled"
-                if self._cancellation_sequence is not None
+                if self._state.cancellation_sequence is not None
                 else "succeeded"
             )
             self.append(fact_type, {**identity, "status": status})
@@ -2809,7 +2789,7 @@ class _RunEvidenceLedger:
                 or transaction["transaction_sequence"]
                 != self._transaction_count + 1
                 or type(transaction["first_fact_sequence"]) is not int
-                or transaction["first_fact_sequence"] != len(self._facts) + 1
+                or transaction["first_fact_sequence"] != len(self._state.facts) + 1
                 or type(transaction["last_fact_sequence"]) is not int
                 or not isinstance(transaction["committed_at"], str)
                 or not isinstance(transaction["facts"], list)
@@ -2852,13 +2832,13 @@ class _RunEvidenceLedger:
         with self._condition:
             self._ensure_projection_consistency()
             upper = (
-                len(self._facts)
+                len(self._state.facts)
                 if through_sequence is None
-                else min(through_sequence, len(self._facts))
+                else min(through_sequence, len(self._state.facts))
             )
             return tuple(
                 event
-                for fact in self._facts[after_sequence:upper]
+                for fact in self._state.facts[after_sequence:upper]
                 if (
                     event := _public_event_from_fact(
                         project_id=self._project_id,
@@ -2875,7 +2855,7 @@ class _RunEvidenceLedger:
     ) -> tuple[int, str, int, str, tuple[dict[str, Any], ...], bool]:
         after_sequence = self.sequence_for_cursor(cursor)
         with self._condition:
-            through_sequence = len(self._facts)
+            through_sequence = len(self._state.facts)
             through_cursor = self._cursor_at(through_sequence)
             events = self.public_events(
                 after_sequence=after_sequence,
@@ -2887,7 +2867,7 @@ class _RunEvidenceLedger:
                 through_sequence,
                 through_cursor,
                 events,
-                self._run_terminal,
+                self._state.run_terminal,
             )
 
     def wait_for_public_events(
@@ -2897,19 +2877,22 @@ class _RunEvidenceLedger:
         timeout_seconds: float,
     ) -> tuple[tuple[dict[str, Any], ...], int, bool]:
         with self._condition:
-            if len(self._facts) <= after_sequence and not self._run_terminal:
+            if (
+                len(self._state.facts) <= after_sequence
+                and not self._state.run_terminal
+            ):
                 self._condition.wait(timeout_seconds)
             return (
                 self.public_events(after_sequence=after_sequence),
-                len(self._facts),
-                self._run_terminal,
+                len(self._state.facts),
+                self._state.run_terminal,
             )
 
     def reconcile_restart(self, finalizer: NodeAttemptFinalizer) -> None:
         with self._condition:
-            if not self._run_started or self._run_terminal:
+            if not self._state.run_started or self._state.run_terminal:
                 return
-        if not self._restart_reconciled:
+        if not self._state.restart_reconciled:
             self.append(
                 "restart_reconciliation_started",
                 {"restarted_at": run_timestamp()},
@@ -2921,7 +2904,7 @@ class _RunEvidenceLedger:
             "correlation_id": f"restart-{self._run_id}",
             "details": {"exception_type": "BackendRestart"},
         }
-        for invocation_id, invocation in tuple(self._invocations.items()):
+        for invocation_id, invocation in tuple(self._state.invocations.items()):
             if invocation["terminal"] is None:
                 self.append(
                     "engine_invocation_terminal",
@@ -2931,12 +2914,12 @@ class _RunEvidenceLedger:
                         "error": restart_error,
                     },
                 )
-        for attempt_id, attempt in tuple(self._node_attempts.items()):
+        for attempt_id, attempt in tuple(self._state.node_attempts.items()):
             if attempt["terminal"] is not None:
                 continue
             child_operations = [
                 (operation_id, operation)
-                for operation_id, operation in self._operations.items()
+                for operation_id, operation in self._state.operations.items()
                 if operation["node_attempt_id"] == attempt_id
             ]
             open_operation_id: str | None = None
@@ -2946,7 +2929,7 @@ class _RunEvidenceLedger:
                 if terminal is None:
                     invocation_statuses = [
                         invocation["terminal"]
-                        for invocation in self._invocations.values()
+                        for invocation in self._state.invocations.values()
                         if invocation["operation_attempt_id"] == operation_id
                     ]
                     terminal = (
@@ -2959,7 +2942,7 @@ class _RunEvidenceLedger:
             node_id = attempt["node_id"]
             resolution = (
                 "cache_replayed"
-                if node_id in self._outputs_published and not child_operations
+                if node_id in self._state.outputs_published and not child_operations
                 else "executed"
             )
             finalizer.finalize(
@@ -2977,44 +2960,14 @@ class _RunEvidenceLedger:
                 )
             )
         for node_id in self._plan_node_order:
-            if node_id in self._dispositions:
+            if node_id in self._state.dispositions:
                 continue
-            attempt_id = self._node_attempt_by_node.get(node_id)
-            if attempt_id is not None:
-                attempt = self._node_attempts[attempt_id]
-                terminal = attempt["terminal"]
-                if terminal is None:
-                    raise self._causal_error()
-                if terminal == "succeeded":
-                    finalizer.conclude(
-                        DurableSucceededNode(
-                            node_id=node_id,
-                            resolution=cast(
-                                Literal["executed", "cache_replayed"],
-                                attempt["resolution"],
-                            ),
-                        )
-                    )
-                else:
-                    finalizer.conclude(
-                        DurableNonSuccessNode(
-                            node_id=node_id,
-                            status=cast(
-                                Literal[
-                                    "failed",
-                                    "cancelled",
-                                    "interrupted",
-                                    "outcome_unknown",
-                                ],
-                                terminal,
-                            ),
-                        )
-                    )
-                continue
+            if node_id in self._state.node_attempt_by_node:
+                raise self._causal_error()
             blocked_by = sorted(
                 dependency
                 for dependency in self._required_dependencies[node_id]
-                if self._dispositions.get(dependency, {}).get("outcome")
+                if self._state.dispositions.get(dependency, {}).get("outcome")
                 != "succeeded"
             )
             if blocked_by:
@@ -3152,46 +3105,6 @@ class NodeAttemptFinalizer:
                 )
             )
             self._ledger.commit(tuple(facts))
-            return FinalizedNode(disposition=disposition)
-
-    def _finalize_durable_success(
-        self,
-        intent: DurableSucceededNode,
-    ) -> FinalizedNode:
-        with self._ledger._ordered_append_scope():
-            self._ledger.commit(
-                (
-                    ProposedFact(
-                        "node_disposition",
-                        {
-                            "node_id": intent.node_id,
-                            "outcome": "succeeded",
-                            "resolution": intent.resolution,
-                            "blocked_by": [],
-                        },
-                    ),
-                )
-            )
-            return FinalizedNode(disposition="succeeded")
-
-    def _finalize_durable_non_success(
-        self,
-        intent: DurableNonSuccessNode,
-    ) -> FinalizedNode:
-        with self._ledger._ordered_append_scope():
-            disposition = self._disposition_for_status(intent.status)
-            self._ledger.commit(
-                (
-                    ProposedFact(
-                        "node_disposition",
-                        {
-                            "node_id": intent.node_id,
-                            "outcome": disposition,
-                            "blocked_by": [],
-                        },
-                    ),
-                )
-            )
             return FinalizedNode(disposition=disposition)
 
     def _finalize_blocked(self, intent: BlockedNode) -> FinalizedNode:
@@ -3376,20 +3289,22 @@ class NodeAttemptFinalizer:
                     },
                 )
             )
+        facts.append(
+            ProposedFact(
+                "outputs_published",
+                {
+                    "node_id": context.node_id,
+                    "outputs": typed_descriptors,
+                    "artifacts": artifacts,
+                },
+            )
+        )
         facts.extend(
             ProposedFact("artifact_published", {"artifact": artifact})
             for artifact in artifacts
         )
         facts.extend(
             (
-                ProposedFact(
-                    "outputs_published",
-                    {
-                        "node_id": context.node_id,
-                        "outputs": typed_descriptors,
-                        "artifacts": artifacts,
-                    },
-                ),
                 ProposedFact(
                     "node_attempt_terminal",
                     {
@@ -3579,12 +3494,8 @@ class NodeAttemptFinalizer:
             return self._finalize_termination(intent)
         raise TypeError("Node finalization intent is not current")
 
-    def conclude(self, intent: NodeDispositionIntent) -> FinalizedNode:
+    def conclude(self, intent: BlockedNode) -> FinalizedNode:
         """Persist one closed disposition-only Node conclusion."""
-        if isinstance(intent, DurableSucceededNode):
-            return self._finalize_durable_success(intent)
-        if isinstance(intent, DurableNonSuccessNode):
-            return self._finalize_durable_non_success(intent)
         if isinstance(intent, BlockedNode):
             return self._finalize_blocked(intent)
         raise TypeError("Node disposition intent is not current")
@@ -4865,12 +4776,6 @@ class V2RunService:
             )
             for node in plan.nodes
         )
-
-    @staticmethod
-    def _parse_plan_evidence(
-        value: Any,
-    ) -> tuple[_PlanNodeEvidence, ...]:
-        return _parse_plan_evidence(value)
 
     def _run_directories(self):
         project_root = self._projects.root_dir

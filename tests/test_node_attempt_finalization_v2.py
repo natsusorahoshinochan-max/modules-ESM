@@ -324,6 +324,138 @@ def test_unacknowledged_commit_is_hidden_until_restart_reads_durable_file(
     )
 
 
+def test_acknowledged_commit_reloads_after_reducer_advance_failure(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    ledger = _open_attempt_ledger(tmp_path, operation_started=True)
+    install_state = ledger._install_reducer_state
+    failed = False
+
+    def fail_first_conclusion_advance(state) -> None:
+        nonlocal failed
+        if not failed and any(
+            fact["fact_type"] == "node_disposition"
+            for fact in state.facts
+        ):
+            failed = True
+            raise RuntimeError("fixture reducer advance failure")
+        install_state(state)
+
+    monkeypatch.setattr(
+        ledger,
+        "_install_reducer_state",
+        fail_first_conclusion_advance,
+    )
+
+    finalized = _finalizer(ledger).finalize(
+        run_execution_v2.ExecutedNodeSuccess(
+            project_id="project-1",
+            run_id="run-1",
+            execution_plan=SimpleNamespace(),
+            node=SimpleNamespace(node_id="node-1"),
+            resources=SimpleNamespace(
+                run_id="run-1",
+                _output_root=tmp_path / "outputs",
+                _cancellation_control=None,
+            ),
+            node_attempt_id="node-attempt-1",
+            operation_attempt_id="operation-1",
+            result_identity="sha256:" + "6" * 64,
+            admitted_output_descriptors=(),
+            admitted_outputs={},
+            cache_eligible=False,
+            current_artifact_count=0,
+            current_artifact_bytes=0,
+        )
+    )
+
+    assert finalized.disposition == "succeeded"
+    assert [fact["fact_type"] for fact in ledger.facts[-4:]] == [
+        "operation_attempt_terminal",
+        "outputs_published",
+        "node_attempt_terminal",
+        "node_disposition",
+    ]
+    assert ledger.projection()["node_dispositions"][0]["outcome"] == (
+        "succeeded"
+    )
+    assert len(_ledger_transaction_paths(tmp_path)) == 6
+
+
+def test_reducer_advance_and_reload_failure_reports_evidence_unavailable(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    class PublishUnreadableConclusion:
+        def __init__(self) -> None:
+            self.filesystem = (
+                run_execution_v2.FilesystemLedgerTransactionStore()
+            )
+
+        def publish(self, *, root, relative_parts, payload) -> None:
+            self.filesystem.publish(
+                root=root,
+                relative_parts=relative_parts,
+                payload=payload,
+            )
+            if any(
+                fact["fact_type"] == "node_disposition"
+                for fact in json.loads(payload)["facts"]
+            ):
+                root.joinpath(*relative_parts).chmod(0o000)
+
+    ledger = _open_attempt_ledger(
+        tmp_path,
+        operation_started=True,
+        transaction_store=PublishUnreadableConclusion(),
+    )
+    install_state = ledger._install_reducer_state
+    failed = False
+
+    def fail_first_conclusion_advance(state) -> None:
+        nonlocal failed
+        if not failed and any(
+            fact["fact_type"] == "node_disposition"
+            for fact in state.facts
+        ):
+            failed = True
+            raise RuntimeError("fixture reducer advance failure")
+        install_state(state)
+
+    monkeypatch.setattr(
+        ledger,
+        "_install_reducer_state",
+        fail_first_conclusion_advance,
+    )
+
+    with pytest.raises(run_execution_v2.V2RunError) as rejected:
+        _finalizer(ledger).finalize(
+            run_execution_v2.ExecutedNodeSuccess(
+                project_id="project-1",
+                run_id="run-1",
+                execution_plan=SimpleNamespace(),
+                node=SimpleNamespace(node_id="node-1"),
+                resources=SimpleNamespace(
+                    run_id="run-1",
+                    _output_root=tmp_path / "outputs",
+                    _cancellation_control=None,
+                ),
+                node_attempt_id="node-attempt-1",
+                operation_attempt_id="operation-1",
+                result_identity="sha256:" + "6" * 64,
+                admitted_output_descriptors=(),
+                admitted_outputs={},
+                cache_eligible=False,
+                current_artifact_count=0,
+                current_artifact_bytes=0,
+            )
+        )
+
+    assert rejected.value.code == "evidence_unavailable"
+    assert ledger.projection()["node_dispositions"] == []
+
+
 def test_node_events_appear_only_after_the_whole_transaction_is_durable(
     tmp_path,
 ) -> None:

@@ -3844,8 +3844,8 @@ def test_success_ledger_projects_validated_events_and_opaque_artifact(
         fact["fact_type"] for fact in node_transaction["facts"]
     ] == [
         "operation_attempt_terminal",
-        "artifact_published",
         "outputs_published",
+        "artifact_published",
         "node_attempt_terminal",
         "node_disposition",
     ]
