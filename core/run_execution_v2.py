@@ -6757,6 +6757,7 @@ class V2RunService:
             operation_execute: Callable[[OperationCall], Mapping[str, Any]] | None = None
             operation_call: OperationCall | None = None
             operation_started = False
+            pre_operation_invariant_error: BaseException | None = None
             try:
                 if body_error is None:
                     assert effective_randomness_snapshot is not None
@@ -6834,7 +6835,7 @@ class V2RunService:
                 disposition_outcomes[node.node_id] = finalized.disposition
                 continue
             except BaseException as error:
-                body_error = error
+                pre_operation_invariant_error = error
             if ledger.cancellation_requested:
                 record.cancellation.wait_for_cleanup()
                 cancellation_outcome = "cancelled"
@@ -6864,8 +6865,8 @@ class V2RunService:
                 )
                 disposition_outcomes[node.node_id] = finalized.disposition
                 continue
-            if body_error is not None and not operation_started:
-                raise body_error
+            if pre_operation_invariant_error is not None:
+                raise pre_operation_invariant_error
             ledger.append(
                 "node_attempt_started",
                 {
@@ -6881,8 +6882,6 @@ class V2RunService:
             pending_artifact_plan = AdmittedArtifactPublicationPlan((), ())
 
             try:
-                if body_error is not None:
-                    raise body_error
                 ledger.append(
                     "operation_attempt_started",
                     {
@@ -6891,6 +6890,8 @@ class V2RunService:
                     },
                 )
                 operation_started = True
+                if body_error is not None:
+                    raise body_error
                 assert implementation is not None
                 assert operation_execute is not None
                 assert operation_call is not None

@@ -3419,33 +3419,15 @@ def test_cross_input_candidate_identity_closes_runtime_before_sink_side_effects(
     )
 
     try:
-        if candidate_case == "identical":
-            receipt = service.start(
-                project.id,
-                workflow_commit_id=committed.workflow_commit_id,
-                client_request_id="candidate-conflict",
-            )
-            projection = service.projection(project.id, receipt["run_id"])
-            events = service.public_events(project.id, receipt["run_id"])
-        else:
-            with pytest.raises(
-                PortValueError,
-                match="Candidate identity resolves to conflicting canonical facts",
-            ):
-                service.start(
-                    project.id,
-                    workflow_commit_id=committed.workflow_commit_id,
-                    client_request_id="candidate-conflict",
-                )
+        receipt = service.start(
+            project.id,
+            workflow_commit_id=committed.workflow_commit_id,
+            client_request_id="candidate-conflict",
+        )
+        projection = service.projection(project.id, receipt["run_id"])
+        events = service.public_events(project.id, receipt["run_id"])
     finally:
         service.shutdown()
-
-    if candidate_case != "identical":
-        assert cache_lookups == ["source-left", "source-right"]
-        assert not any(call.startswith("factory:") for call in calls)
-        assert not any(call.startswith("execute:") for call in calls)
-        assert not any(call.startswith("sink-input:") for call in calls)
-        return
 
     sink_started = next(
         item["event"]
@@ -3472,22 +3454,28 @@ def test_cross_input_candidate_identity_closes_runtime_before_sink_side_effects(
         if item["event"]["type"] == "run_terminal"
     )
 
-    assert projection["status"] == "succeeded"
-    assert sink_terminal["status"] == "succeeded"
-    assert sink_disposition["outcome"] == "succeeded"
-    assert run_terminal["status"] == "succeeded"
+    expected_status = "succeeded" if candidate_case == "identical" else "failed"
+    assert projection["status"] == expected_status
+    assert sink_terminal["status"] == expected_status
+    assert sink_disposition["outcome"] == expected_status
+    assert run_terminal["status"] == expected_status
+    if candidate_case != "identical":
+        assert sink_terminal["failure_origin"] == "operation"
+        assert sink_terminal["error"]["code"] == "node_execution_failed"
     assert cache_lookups == [
         "source-left",
         "source-right",
-        "sink",
+        *(("sink",) if candidate_case == "identical" else ()),
     ]
-    assert [call for call in calls if call.startswith("factory:")] == [
-        "factory:sink"
-    ]
+    assert [call for call in calls if call.startswith("factory:")] == (
+        ["factory:sink"] if candidate_case == "identical" else []
+    )
     assert not any(call.startswith("execute:") for call in calls)
-    assert [call for call in calls if call.startswith("sink-input:")] == [
-        "sink-input:source-left"
-    ]
+    assert [call for call in calls if call.startswith("sink-input:")] == (
+        ["sink-input:source-left"]
+        if candidate_case == "identical"
+        else []
+    )
     assert sum(
         item["event"]["type"] == "operation_attempt_started"
         for item in events

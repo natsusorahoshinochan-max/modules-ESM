@@ -779,13 +779,25 @@ def test_import_rejects_private_paths_and_cross_project_references(
         )
     assert rejected.value.code == "compile_rejected"
 
-    _, _, projection, _ = _run_single_node(
+    _, _, projection, events = _run_single_node(
         tmp_path / "cross-project",
         operation="import_sequence",
         node_parameters={"project_input_ref": "belongs-to-another-project"},
     )
     assert projection["status"] == "failed"
     assert projection["outputs"] == []
+    node_terminal = next(
+        event["event"]
+        for event in events
+        if event["event"]["type"] == "node_attempt_terminal"
+    )
+    assert node_terminal["failure_origin"] == "operation"
+    assert node_terminal["error"]["code"] == "node_execution_failed"
+    assert any(
+        event["event"]["type"] == "operation_attempt_terminal"
+        and event["event"]["status"] == "failed"
+        for event in events
+    )
 
 
 def test_project_input_snapshot_rejects_symlink_aliases(
