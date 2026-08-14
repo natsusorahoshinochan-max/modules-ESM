@@ -1094,7 +1094,7 @@ class _ArtifactMaterializer(Protocol):
         *,
         node: ExecutionPlanNode,
         resources: RunResources,
-        published: list[dict[str, Any]],
+        admitted_output_descriptors: list[dict[str, Any]],
         runtime: Mapping[tuple[str, str], AdmittedPortValues],
         current_artifact_count: int,
         current_artifact_bytes: int,
@@ -2478,7 +2478,7 @@ class _RunEvidenceLedger:
         before_success: (
             Callable[[], Callable[[], None] | None] | None
         ) = None,
-    ) -> str:
+    ) -> Literal["succeeded", "failed", "cancelled"]:
         """Commit one Node outcome atomically against Run cancellation."""
         with self._condition:
             if self._cancellation_sequence is not None:
@@ -2976,7 +2976,7 @@ class NodeAttemptFinalizer:
             self._materialize_artifacts(
                 node=intent.node,
                 resources=intent.resources,
-                published=admitted_descriptors,
+                admitted_output_descriptors=admitted_descriptors,
                 runtime=intent.admitted_outputs,
                 current_artifact_count=intent.current_artifact_count,
                 current_artifact_bytes=intent.current_artifact_bytes,
@@ -3030,12 +3030,7 @@ class NodeAttemptFinalizer:
             before_success=before_success,
         )
         if disposition != "succeeded":
-            return FinalizedNode(
-                disposition=cast(
-                    Literal["failed", "cancelled", "interrupted"],
-                    disposition,
-                )
-            )
+            return FinalizedNode(disposition=disposition)
         return FinalizedNode(
             disposition="succeeded",
             admitted_outputs=admitted_outputs,
@@ -3085,6 +3080,15 @@ class NodeAttemptFinalizer:
             except V2RunError as error:
                 if error.code != "cache_identity_conflict":
                     raise
+                return self._preparation_failed(
+                    node_id=intent.node.node_id,
+                    node_attempt_id=intent.node_attempt_id,
+                    operation_attempt_id=intent.operation_attempt_id,
+                    resources=intent.resources,
+                    error=error,
+                    artifact_records=artifact_records,
+                )
+            except (OSError, StoragePathError) as error:
                 return self._preparation_failed(
                     node_id=intent.node.node_id,
                     node_attempt_id=intent.node_attempt_id,
@@ -5502,7 +5506,7 @@ class V2RunService:
         *,
         node: ExecutionPlanNode,
         resources: RunResources,
-        published: list[dict[str, Any]],
+        admitted_output_descriptors: list[dict[str, Any]],
         runtime: Mapping[tuple[str, str], AdmittedPortValues],
         current_artifact_count: int,
         current_artifact_bytes: int,
@@ -5524,7 +5528,7 @@ class V2RunService:
         artifact_sources: list[
             tuple[str, str, ArtifactPayload, tuple[str, ...]]
         ] = []
-        for output in published:
+        for output in admitted_output_descriptors:
             declaration = port_declarations[output["output_port"]]
             artifact_kind = declaration.get("artifact_kind")
             if artifact_kind is None:

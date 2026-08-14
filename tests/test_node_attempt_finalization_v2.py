@@ -70,13 +70,19 @@ def _open_attempt_ledger(
 
 def _finalizer(
     ledger: run_execution_v2._RunEvidenceLedger,
+    *,
+    result_replay_source: ResultReplaySource | None = None,
+    materialize_artifacts: run_execution_v2._ArtifactMaterializer | None = None,
 ) -> run_execution_v2.NodeAttemptFinalizer:
-    def materialize_artifacts(**kwargs):
-        return list(kwargs["published"]), [], {}
+    if materialize_artifacts is None:
+        def default_materializer(**kwargs):
+            return list(kwargs["admitted_output_descriptors"]), [], {}
+
+        materialize_artifacts = default_materializer
 
     return run_execution_v2.NodeAttemptFinalizer(
         ledger=ledger,
-        result_replay_source=ResultReplaySource(),
+        result_replay_source=result_replay_source or ResultReplaySource(),
         materialize_artifacts=materialize_artifacts,
     )
 
@@ -140,6 +146,83 @@ def test_executed_non_success_is_finalized_without_outputs(tmp_path) -> None:
         "node_attempt_terminal",
         "node_disposition",
     ]
+
+
+def test_cache_validation_storage_failure_closes_the_executed_node(
+    tmp_path,
+) -> None:
+    class UnreadableCache(ResultReplaySource):
+        def validate_publish(self, **_kwargs) -> None:
+            raise OSError("fixture cache storage failure")
+
+    ledger = _open_attempt_ledger(tmp_path, operation_started=True)
+    finalized = _finalizer(
+        ledger,
+        result_replay_source=UnreadableCache(),
+    ).finalize(
+        run_execution_v2.ExecutedNodeSuccess(
+            project_id="project-1",
+            run_id="run-1",
+            execution_plan=SimpleNamespace(),
+            node=SimpleNamespace(node_id="node-1"),
+            resources=SimpleNamespace(
+                run_id="run-1",
+                _output_root=tmp_path / "outputs",
+                _cancellation_control=None,
+            ),
+            node_attempt_id="node-attempt-1",
+            operation_attempt_id="operation-1",
+            result_identity="sha256:" + "8" * 64,
+            admitted_output_descriptors=(),
+            admitted_outputs={},
+            cache_eligible=True,
+            current_artifact_count=0,
+            current_artifact_bytes=0,
+        )
+    )
+
+    assert finalized.disposition == "failed"
+    assert ledger.projection()["node_dispositions"][0]["outcome"] == "failed"
+    assert ledger.projection()["outputs"] == []
+
+
+def test_local_finalization_invariant_failure_is_not_coerced(tmp_path) -> None:
+    ledger = _open_attempt_ledger(tmp_path, operation_started=True)
+
+    def invalid_materializer(**_kwargs):
+        raise TypeError("fixture local invariant")
+
+    with pytest.raises(TypeError, match="fixture local invariant"):
+        _finalizer(
+            ledger,
+            materialize_artifacts=invalid_materializer,
+        ).finalize(
+            run_execution_v2.ExecutedNodeSuccess(
+                project_id="project-1",
+                run_id="run-1",
+                execution_plan=SimpleNamespace(),
+                node=SimpleNamespace(node_id="node-1"),
+                resources=SimpleNamespace(
+                    run_id="run-1",
+                    _output_root=tmp_path / "outputs",
+                    _cancellation_control=None,
+                ),
+                node_attempt_id="node-attempt-1",
+                operation_attempt_id="operation-1",
+                result_identity="sha256:" + "9" * 64,
+                admitted_output_descriptors=(),
+                admitted_outputs={},
+                cache_eligible=False,
+                current_artifact_count=0,
+                current_artifact_bytes=0,
+            )
+        )
+
+    assert not any(
+        fact["fact_type"].endswith("_terminal")
+        or fact["fact_type"] == "node_disposition"
+        for fact in ledger.facts
+    )
 
 
 def test_cache_replay_success_has_no_operation_attempt(tmp_path) -> None:
