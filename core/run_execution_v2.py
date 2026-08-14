@@ -1505,6 +1505,26 @@ class _RunEvidenceLedger:
         )
         self._condition = threading.Condition(threading.RLock())
         self._projection_error: BaseException | None = None
+        self._evidence_unavailable: V2RunError | None = None
+
+    def _mark_evidence_unavailable(self, error: V2RunError) -> None:
+        if self._evidence_unavailable is None:
+            self._evidence_unavailable = error
+        self._condition.notify_all()
+
+    def _retain_evidence_unavailable(self, error: V2RunError) -> None:
+        """Order one unavailable-evidence decision against Run writers."""
+        with self._condition:
+            self._mark_evidence_unavailable(error)
+
+    def _require_available_evidence(self) -> None:
+        unavailable = self._evidence_unavailable
+        if unavailable is not None:
+            raise V2RunError(
+                unavailable.code,
+                str(unavailable),
+                details=unavailable.details,
+            ) from unavailable
 
     def _capture_reducer_state(self) -> _LedgerReducerState:
         return self._state.clone()
@@ -2521,8 +2541,9 @@ class _RunEvidenceLedger:
         after_cursor: str | None,
     ) -> dict[str, Any]:
         """Persist one cancellation decision under the Ledger ordering lock."""
-        observed_sequence = self.sequence_for_cursor(after_cursor)
         with self._condition:
+            self._require_available_evidence()
+            observed_sequence = self.sequence_for_cursor(after_cursor)
             if self._state.cancellation_sequence is not None:
                 decision_sequence = self._state.cancellation_sequence
                 return {
@@ -2563,6 +2584,7 @@ class _RunEvidenceLedger:
 
     def projection(self) -> dict[str, Any]:
         with self._condition:
+            self._require_available_evidence()
             self._ensure_projection_consistency()
             return json.loads(json.dumps(self._projection()))
 
@@ -2767,6 +2789,7 @@ class _RunEvidenceLedger:
         if not logical_facts:
             raise ValueError("Run Ledger transaction must contain facts")
         with self._condition:
+            self._require_available_evidence()
             first_sequence = len(self._state.facts) + 1
             facts = tuple(
                 {
@@ -2777,7 +2800,12 @@ class _RunEvidenceLedger:
                 }
                 for offset, proposed in enumerate(logical_facts)
             )
-            staged_state = self._stage_facts(facts)
+            try:
+                staged_state = self._stage_facts(facts)
+            except V2RunError as error:
+                if error.code == "evidence_unavailable":
+                    self._mark_evidence_unavailable(error)
+                raise
             transaction_sequence = self._transaction_count + 1
             transaction = {
                 "schema_namespace": RUN_LEDGER_TRANSACTION_NAMESPACE,
@@ -2792,11 +2820,13 @@ class _RunEvidenceLedger:
             }
             encoded = canonical_json_bytes(transaction)
             if len(encoded) > MAX_LEDGER_TRANSACTION_BYTES:
-                raise V2RunError(
+                error = V2RunError(
                     "evidence_unavailable",
                     "Required Run evidence exceeds the durable transaction bound",
                     details={"last_durable_cursor": self.cursor},
                 )
+                self._mark_evidence_unavailable(error)
+                raise error
             try:
                 self._transaction_store.publish(
                     root=self._root,
@@ -2808,11 +2838,13 @@ class _RunEvidenceLedger:
                     payload=encoded,
                 )
             except (OSError, StoragePathError) as error:
-                raise V2RunError(
+                unavailable = V2RunError(
                     "evidence_unavailable",
                     "Required Run evidence transaction could not be acknowledged",
                     details={"last_durable_cursor": self.cursor},
-                ) from error
+                )
+                self._mark_evidence_unavailable(unavailable)
+                raise unavailable from error
             try:
                 self._install_reducer_state(staged_state)
             except RuntimeError:
@@ -2828,11 +2860,13 @@ class _RunEvidenceLedger:
                             "Acknowledged Run evidence is absent"
                         )
                 except (OSError, StoragePathError, RuntimeError) as reload_error:
-                    raise V2RunError(
+                    unavailable = V2RunError(
                         "evidence_unavailable",
                         "Acknowledged Run evidence could not be reloaded",
                         details={"last_durable_cursor": self.cursor},
-                    ) from reload_error
+                    )
+                    self._mark_evidence_unavailable(unavailable)
+                    raise unavailable from reload_error
                 _RunEvidenceLedger._install_reducer_state(
                     self,
                     reloaded._capture_reducer_state(),
@@ -2867,7 +2901,12 @@ class _RunEvidenceLedger:
     def _ordered_append_scope(self) -> Iterator[None]:
         """Keep one caller-owned evidence sequence ordered with cancellation."""
         with self._condition:
-            yield
+            try:
+                yield
+            except V2RunError as error:
+                if error.code == "evidence_unavailable":
+                    self._mark_evidence_unavailable(error)
+                raise
 
     def append_terminal_from_success(
         self,
@@ -2954,6 +2993,7 @@ class _RunEvidenceLedger:
         through_sequence: int | None = None,
     ) -> tuple[dict[str, Any], ...]:
         with self._condition:
+            self._require_available_evidence()
             self._ensure_projection_consistency()
             upper = (
                 len(self._state.facts)
@@ -2977,8 +3017,9 @@ class _RunEvidenceLedger:
         self,
         cursor: str | None,
     ) -> tuple[int, str, int, str, tuple[dict[str, Any], ...], bool]:
-        after_sequence = self.sequence_for_cursor(cursor)
         with self._condition:
+            self._require_available_evidence()
+            after_sequence = self.sequence_for_cursor(cursor)
             through_sequence = len(self._state.facts)
             through_cursor = self._cursor_at(through_sequence)
             events = self.public_events(
@@ -3001,11 +3042,13 @@ class _RunEvidenceLedger:
         timeout_seconds: float,
     ) -> tuple[tuple[dict[str, Any], ...], int, bool]:
         with self._condition:
+            self._require_available_evidence()
             if (
                 len(self._state.facts) <= after_sequence
                 and not self._state.run_terminal
             ):
                 self._condition.wait(timeout_seconds)
+            self._require_available_evidence()
             return (
                 self.public_events(after_sequence=after_sequence),
                 len(self._state.facts),
@@ -6661,6 +6704,7 @@ class V2RunService:
                     )
                 except V2RunError as error:
                     if error.code == "evidence_unavailable":
+                        ledger._retain_evidence_unavailable(error)
                         raise
                     if error.code != "result_identity_conflict":
                         raise RuntimeError(
@@ -6987,6 +7031,7 @@ class V2RunService:
                     isinstance(body_error, V2RunError)
                     and body_error.code == "evidence_unavailable"
                 ):
+                    ledger._retain_evidence_unavailable(body_error)
                     raise body_error
                 terminal_status = (
                     "failed"

@@ -641,8 +641,9 @@ def test_failed_node_transaction_exposes_no_logical_fact_subset(
 
     assert rejected.value.code == "evidence_unavailable"
     assert ledger.facts == before
-    assert ledger.projection()["outputs"] == []
-    assert ledger.projection()["node_dispositions"] == []
+    with pytest.raises(run_execution_v2.V2RunError) as unavailable:
+        ledger.projection()
+    assert unavailable.value.code == "evidence_unavailable"
     transaction_paths = _ledger_transaction_paths(tmp_path)
     assert len(transaction_paths) == 5
 
@@ -715,8 +716,9 @@ def test_artifact_object_remains_unpublished_when_transaction_fails(
         )
 
     assert rejected.value.code == "evidence_unavailable"
-    assert ledger.projection()["artifact_index"] == []
-    assert ledger.projection()["outputs"] == []
+    with pytest.raises(run_execution_v2.V2RunError) as unavailable:
+        ledger.projection()
+    assert unavailable.value.code == "evidence_unavailable"
     assert object_store.read_exact(
         "project-1",
         "sha256:"
@@ -966,7 +968,9 @@ def test_reducer_advance_and_reload_failure_reports_evidence_unavailable(
         )
 
     assert rejected.value.code == "evidence_unavailable"
-    assert ledger.projection()["node_dispositions"] == []
+    with pytest.raises(run_execution_v2.V2RunError) as unavailable:
+        ledger.projection()
+    assert unavailable.value.code == "evidence_unavailable"
 
 
 def test_node_events_appear_only_after_the_whole_transaction_is_durable(
@@ -1288,7 +1292,9 @@ def test_ledger_rejects_publication_outside_a_node_conclusion_transaction(
         )
 
     assert captured.value.code == "evidence_unavailable"
-    assert ledger.projection()["outputs"] == []
+    with pytest.raises(run_execution_v2.V2RunError) as unavailable:
+        ledger.projection()
+    assert unavailable.value.code == "evidence_unavailable"
 
 
 def test_cancellation_first_blocks_publication_without_deleting_shared_objects(
@@ -1459,6 +1465,106 @@ def test_success_first_keeps_success_when_cancellation_waits_on_run_ordering(
         fact["fact_type"] == "cancellation_requested"
         for fact in ledger.facts
     )
+
+
+@pytest.mark.parametrize("publish_final_name", (False, True))
+def test_unavailable_evidence_wins_before_waiting_cancellation(
+    tmp_path,
+    publish_final_name: bool,
+) -> None:
+    conclusion_entered = threading.Event()
+    release_conclusion = threading.Event()
+
+    class PauseThenLoseConclusionAcknowledgement:
+        def __init__(self) -> None:
+            self.filesystem = (
+                run_execution_v2.FilesystemLedgerTransactionStore()
+            )
+
+        def publish(self, *, root, relative_parts, payload) -> None:
+            transaction = json.loads(payload)
+            is_conclusion = any(
+                fact["fact_type"] == "outputs_published"
+                for fact in transaction["facts"]
+            )
+            if not is_conclusion or publish_final_name:
+                self.filesystem.publish(
+                    root=root,
+                    relative_parts=relative_parts,
+                    payload=payload,
+                )
+            if is_conclusion:
+                conclusion_entered.set()
+                assert release_conclusion.wait(timeout=2)
+                raise OSError("fixture conclusion acknowledgement failure")
+
+    ledger = _open_attempt_ledger(
+        tmp_path,
+        operation_started=True,
+        transaction_store=PauseThenLoseConclusionAcknowledgement(),
+    )
+    finalization_errors: list[BaseException] = []
+    cancellation_errors: list[BaseException] = []
+    cancellation_decisions: list[dict[str, object]] = []
+    cancellation_started = threading.Event()
+
+    def finalize() -> None:
+        try:
+            _finalizer(ledger).finalize(
+                run_execution_v2.ExecutedNodeSuccess(
+                    project_id="project-1",
+                    run_id="run-1",
+                    execution_plan=SimpleNamespace(),
+                    node=_node(),
+                    resources=SimpleNamespace(
+                        run_id="run-1",
+                        _output_root=tmp_path / "outputs",
+                        _cancellation_control=None,
+                    ),
+                    node_attempt_id="node-attempt-1",
+                    operation_attempt_id="operation-1",
+                    result_identity="sha256:" + "6" * 64,
+                    admitted_output_descriptors=(),
+                    admitted_outputs={},
+                    cache_eligible=False,
+                )
+            )
+        except BaseException as error:
+            finalization_errors.append(error)
+
+    def cancel() -> None:
+        cancellation_started.set()
+        try:
+            cancellation_decisions.append(ledger.request_cancellation(None))
+        except BaseException as error:
+            cancellation_errors.append(error)
+
+    finalization_worker = threading.Thread(target=finalize)
+    finalization_worker.start()
+    assert conclusion_entered.wait(timeout=2)
+    cancellation_worker = threading.Thread(target=cancel)
+    cancellation_worker.start()
+    assert cancellation_started.wait(timeout=2)
+    release_conclusion.set()
+    finalization_worker.join(timeout=2)
+    cancellation_worker.join(timeout=2)
+
+    assert not finalization_worker.is_alive()
+    assert not cancellation_worker.is_alive()
+    assert len(finalization_errors) == 1
+    assert isinstance(finalization_errors[0], run_execution_v2.V2RunError)
+    assert finalization_errors[0].code == "evidence_unavailable"
+    assert cancellation_decisions == []
+    assert len(cancellation_errors) == 1
+    assert isinstance(cancellation_errors[0], run_execution_v2.V2RunError)
+    assert cancellation_errors[0].code == "evidence_unavailable"
+    assert not any(
+        fact["fact_type"] == "cancellation_requested"
+        for fact in ledger.facts
+    )
+    with pytest.raises(run_execution_v2.V2RunError) as unavailable:
+        ledger.projection()
+    assert unavailable.value.code == "evidence_unavailable"
 
 
 @pytest.mark.parametrize(
