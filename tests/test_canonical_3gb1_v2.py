@@ -36,6 +36,7 @@ from modules.proteinmpnn.adapter import LocalProteinMPNNAdapter
 from modules.structure_transform.domain import (
     CandidateResolvedResidueAxisAssociations,
 )
+from protein_workbench_public import artifact_content_disposition
 from scripts.fresh_remote_3gb1 import (
     CANONICAL_PROVIDER_PROMPT_CONTENT_DIGEST,
 )
@@ -889,6 +890,12 @@ def test_canonical_v2_public_protocol_reproduces_scientific_intent(
         ] == [
             candidate.candidate_id for candidate in final_folds.items
         ]
+        assert [
+            artifact["filename"]
+            for artifact in first["artifact_index"]
+        ] == [
+            f"structure-{index:04d}.pdb" for index in range(15)
+        ]
         downloaded_hashes: list[str] = []
         for artifact in first["artifact_index"]:
             downloaded = client.get(
@@ -899,6 +906,9 @@ def test_canonical_v2_public_protocol_reproduces_scientific_intent(
             assert downloaded.status_code == 200
             assert downloaded.headers["Digest"] == (
                 artifact["content_digest"]
+            )
+            assert downloaded.headers["Content-Disposition"] == (
+                artifact_content_disposition(artifact["filename"])
             )
             assert len(downloaded.content) == artifact["size"]
             assert (

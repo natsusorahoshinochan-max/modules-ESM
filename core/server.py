@@ -55,6 +55,7 @@ from core.workflow_v2 import (
 from protein_workbench_public import (
     ProtocolValidationError,
     REST_BODY_ABSENT,
+    artifact_content_disposition,
     bundle_bytes,
     bundle_digest,
     decode_rest_request,
@@ -858,8 +859,8 @@ def create_app(
                 str(error),
                 error.details,
             )
-        content_disposition = (
-            f'attachment; filename="{artifact_reference}.bin"'
+        content_disposition = artifact_content_disposition(
+            artifact["filename"]
         )
         headers = {
             "Content-Disposition": content_disposition,

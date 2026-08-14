@@ -201,6 +201,12 @@ Readiness and execution; scientific operations do not rescan the Catalog.
 Direct Port compatibility requires an exact nominal Port Type ID and version.
 Artifact-capable Port Types require explicit Node publication intent and an
 exact media contract; no path-output or media-type fallback exists.
+Artifact bytes share the Project-scoped immutable object store used by Typed
+Output values. The committed Run Ledger remains the visibility authority, and
+the independent Artifact route preserves exact media type, filename
+provenance, Candidate association, digest, and size without a Run-scoped
+authoritative file. Artifact retrieval represents that filename as an RFC 5987
+UTF-8 `filename*` Content-Disposition parameter, including non-ASCII names.
 
 Project metadata, persisted Workflows, Result Cache entries, and Run Ledger
 facts use closed current schemas. Unsupported schemas or inactive contract

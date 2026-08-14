@@ -25,6 +25,11 @@
         "content_digest": {
           "$ref": "#/$defs/Digest"
         },
+        "filename": {
+          "maxLength": 512,
+          "minLength": 1,
+          "type": "string"
+        },
         "media_type": {
           "$ref": "#/$defs/MediaType"
         },
@@ -47,6 +52,7 @@
         "node_id",
         "output_port",
         "media_type",
+        "filename",
         "size",
         "content_digest"
       ],
@@ -63,6 +69,11 @@
         },
         "content_digest": {
           "$ref": "#/$defs/Digest"
+        },
+        "filename": {
+          "maxLength": 512,
+          "minLength": 1,
+          "type": "string"
         },
         "media_type": {
           "$ref": "#/$defs/MediaType"
@@ -85,6 +96,7 @@
         "node_id",
         "output_port",
         "media_type",
+        "filename",
         "size",
         "content_digest"
       ],
@@ -117,8 +129,9 @@
           "$ref": "#/$defs/ArtifactDescriptor"
         },
         "content_disposition": {
-          "maxLength": 512,
+          "maxLength": 6173,
           "minLength": 1,
+          "pattern": "^attachment; filename\\*=UTF-8''(?:[A-Za-z0-9._~-]|%[0-9A-F]{2})+$",
           "type": "string"
         }
       },

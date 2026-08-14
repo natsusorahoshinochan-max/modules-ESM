@@ -583,6 +583,11 @@ def validate_event(payload: Any) -> None:
         )
 
 
+def artifact_content_disposition(filename: str) -> str:
+    """Return the Artifact filename's exact public response representation."""
+    return f"attachment; filename*=UTF-8''{quote(filename, safe='')}"
+
+
 def validate_artifact_response(
     metadata: Any,
     headers: Mapping[str, str],
@@ -591,6 +596,14 @@ def validate_artifact_response(
     """Validate an Artifact Retrieval body against declared public metadata."""
     validate_schema("#/$defs/ArtifactResponseMetadata", metadata)
     artifact = metadata["artifact"]
+    expected_disposition = artifact_content_disposition(
+        artifact["filename"]
+    )
+    if metadata["content_disposition"] != expected_disposition:
+        raise ProtocolValidationError(
+            "$.content_disposition",
+            f"must equal {expected_disposition!r}",
+        )
     observed_digest = f"sha256:{hashlib.sha256(body).hexdigest()}"
     if observed_digest != artifact["content_digest"]:
         raise ProtocolValidationError(

@@ -619,6 +619,7 @@ def test_installed_backend_completes_full_public_v2_journey(
                 for disposition in first_projection["node_dispositions"]
             )
             artifact = first_projection["artifact_index"][0]
+            assert artifact["filename"] == "structure.pdb"
             artifact_request = prepare_rest_request(
                 "artifact_retrieval",
                 {
@@ -634,6 +635,9 @@ def test_installed_backend_completes_full_public_v2_journey(
             )
             retrieved.raise_for_status()
             payload = retrieved.content
+            assert retrieved.headers["content-disposition"] == (
+                "attachment; filename*=UTF-8''structure.pdb"
+            )
             validate_artifact_response(
                 {
                     "artifact": artifact,

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from copy import deepcopy
 import hashlib
 import json
 from pathlib import Path
@@ -19,6 +20,7 @@ from protein_workbench_public import (
     PreparedEventStreamRequest,
     PreparedRestRequest,
     ProtocolValidationError,
+    artifact_content_disposition,
     bundle_bytes,
     bundle_digest,
     decode_rest_request,
@@ -1074,10 +1076,13 @@ def test_artifact_response_validation_binds_metadata_headers_and_bytes() -> None
             "node_id": "export",
             "output_port": "structure",
             "media_type": "chemical/x-pdb",
+            "filename": "structure.pdb",
             "size": len(body),
             "content_digest": content_digest,
         },
-        "content_disposition": 'attachment; filename="structure.pdb"',
+        "content_disposition": (
+            "attachment; filename*=UTF-8''structure.pdb"
+        ),
     }
     headers = {
         "Content-Disposition": metadata["content_disposition"],
@@ -1087,6 +1092,10 @@ def test_artifact_response_validation_binds_metadata_headers_and_bytes() -> None
     }
 
     validate_artifact_response(metadata, headers, body)
+    without_filename = deepcopy(metadata)
+    without_filename["artifact"].pop("filename")
+    with pytest.raises(ProtocolValidationError, match="filename"):
+        validate_artifact_response(without_filename, headers, body)
     with pytest.raises(ProtocolValidationError, match="content digest"):
         validate_artifact_response(metadata, headers, body + b"TAMPERED")
     with pytest.raises(ProtocolValidationError, match="candidate_id"):
@@ -1101,6 +1110,58 @@ def test_artifact_response_validation_binds_metadata_headers_and_bytes() -> None
             headers,
             body,
         )
+
+
+@pytest.mark.parametrize(
+    ("filename", "expected"),
+    (
+        (
+            'structure "alpha".pdb',
+            "attachment; filename*=UTF-8''structure%20%22alpha%22.pdb",
+        ),
+        (
+            "来源结构.pdb",
+            (
+                "attachment; filename*=UTF-8''"
+                "%E6%9D%A5%E6%BA%90%E7%BB%93%E6%9E%84.pdb"
+            ),
+        ),
+    ),
+)
+def test_artifact_content_disposition_encodes_exact_utf8_filename(
+    filename: str,
+    expected: str,
+) -> None:
+    assert artifact_content_disposition(filename) == expected
+
+
+def test_artifact_response_accepts_maximum_length_utf8_filename() -> None:
+    body = b"MODEL        1\n"
+    filename = "蛋" * 512
+    content_disposition = artifact_content_disposition(filename)
+    metadata = {
+        "artifact": {
+            "artifact_reference": "artifact_1",
+            "artifact_kind": "standalone",
+            "node_id": "export",
+            "output_port": "structure",
+            "media_type": "chemical/x-pdb",
+            "filename": filename,
+            "size": len(body),
+            "content_digest": (
+                f"sha256:{hashlib.sha256(body).hexdigest()}"
+            ),
+        },
+        "content_disposition": content_disposition,
+    }
+    headers = {
+        "Content-Disposition": content_disposition,
+        "Content-Length": str(len(body)),
+        "Content-Type": "chemical/x-pdb",
+        "Digest": metadata["artifact"]["content_digest"],
+    }
+
+    validate_artifact_response(metadata, headers, body)
 
 
 def test_backend_serves_the_authoritative_bundle_without_a_v1_fallback(

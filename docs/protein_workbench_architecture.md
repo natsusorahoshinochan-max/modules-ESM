@@ -558,7 +558,13 @@ Run Evidence Ledger 是 Node Execution Attempt、Operation Attempt、Engine Invo
 exact Method contract digest，并由 Execution Plan 绑定；Operation 或 Adapter 不能提供或覆盖
 该身份。`effective_randomness` 内部是 closed union：实际应用 seed 时为 `exact_seed`，
 provider 不受控时为 `provider_uncontrolled`。它可以与 residue-projection fact 同时存在。
-Artifact bytes、media contract 和 digest 必须与公开事实一致。
+Artifact bytes 与 ordinary Typed Output values 由同一个 Project-scoped
+content-addressed object store 持有，但两者保持独立 nominal Port semantics。
+Artifact descriptor 保留 publication intent、exact media type、原始 filename、
+Candidate association（若声明）和 Run-scoped opaque reference；只有 committed
+Ledger publication 才使 Artifact 进入公开 index。Artifact retrieval 通过 descriptor
+中的 digest 与 size 读取并验证 immutable object，不存在随机 Run-scoped Artifact file
+或 file rollback path。
 
 ## 14. Persistence 与公开协议
 

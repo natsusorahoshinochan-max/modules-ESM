@@ -18,7 +18,10 @@ import pytest
 
 from core import build_discovered_frozen_catalog
 from modules.provider_contract import validate_biohub_token_file
-from protein_workbench_public import bundle_digest
+from protein_workbench_public import (
+    artifact_content_disposition,
+    bundle_digest,
+)
 from scripts.fresh_remote_3gb1 import (
     PROJECT_ID,
     PROTEINMPNN_BINDING_ID,
@@ -37,6 +40,7 @@ from scripts.fresh_remote_3gb1 import (
     _retrieve_typed_output_value,
     _validate_run_admission,
     _validate_replay_boundary,
+    require_artifact_bundle_matches_projection,
     require_invocation_proof_matches_ledger,
     require_remote_engine_contracts,
     validate_evidence_bundle,
@@ -53,6 +57,69 @@ WORKFLOW_PATH = (
 )
 WORKFLOW_COMMIT_ID_EXACT = "workflow-commit-" + "1" * 64
 WORKFLOW_COMMIT_ID_FOREIGN = "workflow-commit-" + "2" * 64
+
+
+def test_artifact_bundle_validator_requires_all_fifteen_filenames(
+    tmp_path: Path,
+) -> None:
+    run_id = "run-artifact-evidence"
+    candidate_ids = [f"candidate-{index:02d}" for index in range(15)]
+    projected: list[dict[str, Any]] = []
+    artifacts: list[dict[str, Any]] = []
+    for index, candidate_id in enumerate(candidate_ids):
+        filename = f"structure-{index:04d}.pdb"
+        body = f"MODEL {index:8d}\nEND\n".encode()
+        bundle_path = Path("artifacts") / filename
+        output = tmp_path / bundle_path
+        output.parent.mkdir(exist_ok=True)
+        output.write_bytes(body)
+        descriptor = {
+            "artifact_reference": f"artifact_{index}",
+            "artifact_kind": "candidate",
+            "candidate_id": candidate_id,
+            "node_id": "export-final",
+            "output_port": "candidate_artifacts",
+            "media_type": "chemical/x-pdb",
+            "filename": filename,
+            "size": len(body),
+            "content_digest": (
+                "sha256:" + hashlib.sha256(body).hexdigest()
+            ),
+        }
+        projected.append(descriptor)
+        artifacts.append(
+            {
+                **descriptor,
+                "project_id": PROJECT_ID,
+                "run_id": run_id,
+                "bundle_path": bundle_path.as_posix(),
+                "retrieved_headers": {
+                    "content-disposition": (
+                        artifact_content_disposition(filename)
+                    ),
+                    "content-length": str(len(body)),
+                    "content-type": "chemical/x-pdb",
+                    "digest": descriptor["content_digest"],
+                },
+            }
+        )
+
+    require_artifact_bundle_matches_projection(
+        tmp_path,
+        artifacts=artifacts,
+        projection={"run_id": run_id, "artifact_index": projected},
+        candidate_ids=candidate_ids,
+    )
+
+    wrong_filename = json.loads(json.dumps(artifacts))
+    wrong_filename[0]["filename"] = "legacy-name.pdb"
+    with pytest.raises(ValueError, match="filename"):
+        require_artifact_bundle_matches_projection(
+            tmp_path,
+            artifacts=wrong_filename,
+            projection={"run_id": run_id, "artifact_index": projected},
+            candidate_ids=candidate_ids,
+        )
 
 
 class _EchoPortType:

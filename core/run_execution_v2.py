@@ -9,7 +9,6 @@ from copy import deepcopy
 from contextlib import contextmanager
 from dataclasses import dataclass, field, fields, is_dataclass, replace
 from datetime import datetime, timezone
-import hashlib
 import json
 import os
 from pathlib import Path
@@ -772,25 +771,6 @@ class RunResources:
         compare=False,
     )
 
-    @property
-    def _output_root(self) -> Path:
-        return self._projects.output_dir(self.project_id, self.run_id).parent
-
-    def write_artifact(
-        self,
-        relative_name: str,
-        payload: bytes,
-    ) -> str:
-        """Create one private no-follow artifact and return a private relative ref."""
-        parts = validate_relative_path(relative_name, "artifact_name")
-        write_private_new_file(
-            self._output_root,
-            (self.run_id, *parts),
-            payload,
-            field="artifact_name",
-        )
-        return "/".join(parts)
-
     def read_project_input(
         self,
         input_reference: str,
@@ -1108,10 +1088,6 @@ class FinalizedNode:
         AdmittedPortValues,
     ] = field(default_factory=dict)
     artifacts: tuple[Mapping[str, Any], ...] = ()
-    artifact_records: Mapping[
-        str,
-        tuple[Mapping[str, Any], tuple[str, ...]],
-    ] = field(default_factory=dict)
 
 
 class _ArtifactMaterializer(Protocol):
@@ -1127,7 +1103,6 @@ class _ArtifactMaterializer(Protocol):
     ) -> tuple[
         list[dict[str, Any]],
         list[dict[str, Any]],
-        dict[str, tuple[dict[str, Any], tuple[str, ...]]],
     ]: ...
 
 
@@ -3031,22 +3006,6 @@ class _RunEvidenceLedger:
         self.append("run_terminal", {"status": "interrupted"})
 
 
-class _ArtifactCleanupPreparationFailure(RuntimeError):
-    """Carry the exact cleanup outcome and remaining Artifact ownership."""
-
-    def __init__(
-        self,
-        error: BaseException,
-        artifact_records: dict[
-            str,
-            tuple[dict[str, Any], tuple[str, ...]],
-        ],
-    ) -> None:
-        self.error = error
-        self.artifact_records = artifact_records
-        super().__init__("Artifact cleanup failed during Node publication")
-
-
 class NodeAttemptFinalizer:
     """The sole completion seam for one scheduled Node Execution Attempt."""
 
@@ -3234,55 +3193,12 @@ class NodeAttemptFinalizer:
             )
             return FinalizedNode(disposition="blocked")
 
-    def _cleanup_artifacts(
-        self,
-        *,
-        resources: RunResources,
-        artifact_records: Mapping[
-            str,
-            tuple[Mapping[str, Any], tuple[str, ...]],
-        ],
-    ) -> None:
-        cleanup_error: BaseException | None = None
-        cancellation = resources._cancellation_control
-        if cancellation is not None and self._ledger.cancellation_requested:
-            cancellation.wait_for_cleanup()
-            cleanup_error = cancellation.cleanup_error
-        for _, stored_parts in artifact_records.values():
-            try:
-                remove_private_regular_file(
-                    resources._output_root,
-                    (resources.run_id, *stored_parts),
-                    field="artifact_path",
-                )
-            except (OSError, StoragePathError) as error:
-                if cleanup_error is None:
-                    cleanup_error = error
-        if cleanup_error is not None:
-            raise cleanup_error
-
     def _finalize_preparation_failure(
         self,
         *,
         context: _NodeCompletionContext,
         error: BaseException,
-        artifact_records: Mapping[
-            str,
-            tuple[Mapping[str, Any], tuple[str, ...]],
-        ],
     ) -> FinalizedNode:
-        if artifact_records:
-            try:
-                self._cleanup_artifacts(
-                    resources=context.resources,
-                    artifact_records=artifact_records,
-                )
-            except (OSError, StoragePathError, RuntimeError) as cleanup_error:
-                cleanup_error.add_note(
-                    "Node finalization also failed before cleanup: "
-                    f"{type(error).__name__}"
-                )
-                error = cleanup_error
         return self._finalize_non_success(
             ExecutedNodeNonSuccess(
                 node_id=context.node_id,
@@ -3298,26 +3214,20 @@ class NodeAttemptFinalizer:
         self,
         *,
         context: _NodeCompletionContext,
-        artifact_records: Mapping[
-            str,
-            tuple[Mapping[str, Any], tuple[str, ...]],
-        ],
     ) -> FinalizedNode | None:
         if not self._ledger.cancellation_requested:
             return None
-        try:
-            self._cleanup_artifacts(
-                resources=context.resources,
-                artifact_records=artifact_records,
-            )
-        except (OSError, StoragePathError, RuntimeError) as cleanup_error:
+        cancellation = context.resources._cancellation_control
+        if cancellation is not None:
+            cancellation.wait_for_cleanup()
+        if cancellation is not None and cancellation.cleanup_error is not None:
             return self._finalize_non_success(
                 ExecutedNodeNonSuccess(
                     node_id=context.node_id,
                     node_attempt_id=context.node_attempt_id,
                     operation_attempt_id=context.operation_attempt_id,
                     status="failed",
-                    public_error=_public_failure(cleanup_error),
+                    public_error=_public_failure(cancellation.cleanup_error),
                 ),
                 resolution=context.resolution,
             )
@@ -3341,7 +3251,6 @@ class NodeAttemptFinalizer:
     ) -> tuple[
         list[dict[str, Any]],
         list[dict[str, Any]],
-        dict[str, tuple[dict[str, Any], tuple[str, ...]]],
         list[dict[str, Any]],
     ]:
         admitted_descriptors = [
@@ -3354,7 +3263,7 @@ class NodeAttemptFinalizer:
             producer_run_id=producer_run_id,
             resolution=resolution,
         )
-        typed_descriptors, artifacts, artifact_records = (
+        typed_descriptors, artifacts = (
             self._materialize_artifacts(
                 node=intent.node,
                 resources=intent.resources,
@@ -3364,39 +3273,12 @@ class NodeAttemptFinalizer:
                 current_artifact_bytes=intent.current_artifact_bytes,
             )
         )
-        try:
-            typed_descriptors = self._publish_typed_outputs(
-                project_id=intent.project_id,
-                node_id=intent.node.node_id,
-                descriptors=typed_descriptors,
-                admitted_outputs=intent.admitted_outputs,
-            )
-        except (
-            ObjectIntegrityError,
-            PortValueError,
-            OSError,
-            StoragePathError,
-        ) as publication_error:
-            if artifact_records:
-                try:
-                    self._cleanup_artifacts(
-                        resources=intent.resources,
-                        artifact_records=artifact_records,
-                    )
-                except (
-                    OSError,
-                    RuntimeError,
-                    StoragePathError,
-                ) as cleanup_error:
-                    cleanup_error.add_note(
-                        "Typed Value publication also failed before cleanup: "
-                        f"{type(publication_error).__name__}"
-                    )
-                    raise _ArtifactCleanupPreparationFailure(
-                        cleanup_error,
-                        artifact_records,
-                    ) from publication_error
-            raise
+        typed_descriptors = self._publish_typed_outputs(
+            project_id=intent.project_id,
+            node_id=intent.node.node_id,
+            descriptors=typed_descriptors,
+            admitted_outputs=intent.admitted_outputs,
+        )
         return (
             _with_result_provenance(
                 typed_descriptors,
@@ -3406,7 +3288,6 @@ class NodeAttemptFinalizer:
                 resolution=resolution,
             ),
             artifacts,
-            artifact_records,
             cache_descriptors,
         )
 
@@ -3417,10 +3298,6 @@ class NodeAttemptFinalizer:
         admitted_outputs: Mapping[tuple[str, str], AdmittedPortValues],
         typed_descriptors: list[dict[str, Any]],
         artifacts: list[dict[str, Any]],
-        artifact_records: Mapping[
-            str,
-            tuple[Mapping[str, Any], tuple[str, ...]],
-        ],
     ) -> FinalizedNode:
         facts: list[ProposedFact] = []
         if context.operation_attempt_id is not None:
@@ -3473,7 +3350,6 @@ class NodeAttemptFinalizer:
             disposition="succeeded",
             admitted_outputs=admitted_outputs,
             artifacts=tuple(artifacts),
-            artifact_records=artifact_records,
         )
 
     def _finalize_executed_success(
@@ -3489,26 +3365,18 @@ class NodeAttemptFinalizer:
         )
         typed_descriptors: list[dict[str, Any]] = []
         artifacts: list[dict[str, Any]] = []
-        artifact_records: dict[
-            str,
-            tuple[dict[str, Any], tuple[str, ...]],
-        ] = {}
         cache_descriptors: list[dict[str, Any]] = []
         preparation_error: BaseException | None = None
         try:
             (
                 typed_descriptors,
                 artifacts,
-                artifact_records,
                 cache_descriptors,
             ) = self._materialize_success(
                 intent,
                 producer_run_id=intent.run_id,
                 resolution="executed",
             )
-        except _ArtifactCleanupPreparationFailure as failure:
-            preparation_error = failure.error
-            artifact_records = failure.artifact_records
         except (
             ObjectIntegrityError,
             PortValueError,
@@ -3537,7 +3405,6 @@ class NodeAttemptFinalizer:
         with self._ledger._ordered_append_scope():
             cancelled = self._finalize_committed_cancellation(
                 context=context,
-                artifact_records=artifact_records,
             )
             if cancelled is not None:
                 return cancelled
@@ -3545,7 +3412,6 @@ class NodeAttemptFinalizer:
                 return self._finalize_preparation_failure(
                     context=context,
                     error=preparation_error,
-                    artifact_records=artifact_records,
                 )
             rollback_cache: Callable[[], None] | None = None
             if intent.cache_eligible:
@@ -3565,7 +3431,6 @@ class NodeAttemptFinalizer:
                     return self._finalize_preparation_failure(
                         context=context,
                         error=error,
-                        artifact_records=artifact_records,
                     )
             persisted = False
             try:
@@ -3574,7 +3439,6 @@ class NodeAttemptFinalizer:
                     admitted_outputs=intent.admitted_outputs,
                     typed_descriptors=typed_descriptors,
                     artifacts=artifacts,
-                    artifact_records=artifact_records,
                 )
                 persisted = True
                 return finalized
@@ -3595,25 +3459,17 @@ class NodeAttemptFinalizer:
         )
         typed_descriptors: list[dict[str, Any]] = []
         artifacts: list[dict[str, Any]] = []
-        artifact_records: dict[
-            str,
-            tuple[dict[str, Any], tuple[str, ...]],
-        ] = {}
         preparation_error: BaseException | None = None
         try:
             (
                 typed_descriptors,
                 artifacts,
-                artifact_records,
                 _,
             ) = self._materialize_success(
                 intent,
                 producer_run_id=intent.producer_run_id,
                 resolution="cache_replayed",
             )
-        except _ArtifactCleanupPreparationFailure as failure:
-            preparation_error = failure.error
-            artifact_records = failure.artifact_records
         except (
             ObjectIntegrityError,
             PortValueError,
@@ -3624,7 +3480,6 @@ class NodeAttemptFinalizer:
         with self._ledger._ordered_append_scope():
             cancelled = self._finalize_committed_cancellation(
                 context=context,
-                artifact_records=artifact_records,
             )
             if cancelled is not None:
                 return cancelled
@@ -3632,14 +3487,12 @@ class NodeAttemptFinalizer:
                 return self._finalize_preparation_failure(
                     context=context,
                     error=preparation_error,
-                    artifact_records=artifact_records,
                 )
             return self._persist_success(
                 context=context,
                 admitted_outputs=intent.admitted_outputs,
                 typed_descriptors=typed_descriptors,
                 artifacts=artifacts,
-                artifact_records=artifact_records,
             )
 
     def finalize(self, intent: NodeFinalizationIntent) -> FinalizedNode:
@@ -3724,7 +3577,6 @@ class _OperationInvocationRecorder:
 class _RunRecord:
     compiled: CompiledWorkflow | None
     ledger: _RunEvidenceLedger
-    artifacts: dict[str, tuple[dict[str, Any], tuple[str, ...]]]
     cancellation: _CancellationControl = field(
         default_factory=_CancellationControl,
     )
@@ -5090,20 +4942,9 @@ class V2RunService:
             ledger.rebuild_projections()
         except (OSError, StoragePathError):
             pass
-        artifacts: dict[
-            str,
-            tuple[dict[str, Any], tuple[str, ...]],
-        ] = {}
-        for descriptor in ledger.projection()["artifact_index"]:
-            reference = descriptor["artifact_reference"]
-            artifacts[reference] = (
-                descriptor,
-                ("published", reference),
-            )
         record = _RunRecord(
             compiled=None,
             ledger=ledger,
-            artifacts=artifacts,
         )
         if ledger.terminal:
             record.finished.set()
@@ -5859,7 +5700,7 @@ class V2RunService:
         payload: ArtifactPayload,
         accepted_media_types: tuple[str, ...],
         maximum_size: int,
-    ) -> tuple[dict[str, Any], tuple[str, ...]]:
+    ) -> dict[str, Any]:
         if type(payload) is not ArtifactPayload:
             raise PortValueError(
                 "Artifact publication requires one validated ArtifactPayload"
@@ -5899,12 +5740,9 @@ class V2RunService:
         else:
             raise PortValueError("Artifact kind is invalid")
         reference = f"artifact-{uuid.uuid4().hex}"
-        stored_parts = ("published", reference)
-        write_private_new_file(
-            resources._output_root,
-            (resources.run_id, *stored_parts),
+        stored = self._object_store.put_exact(
+            resources.project_id,
             payload.body,
-            field="artifact_path",
         )
         descriptor = {
             "artifact_reference": reference,
@@ -5912,15 +5750,14 @@ class V2RunService:
             "node_id": node_id,
             "output_port": output_port,
             "media_type": payload.media_type,
-            "size": len(payload.body),
-            "content_digest": (
-                "sha256:" + hashlib.sha256(payload.body).hexdigest()
-            ),
+            "filename": payload.filename,
+            "size": stored.size,
+            "content_digest": stored.content_digest,
         }
         if payload.candidate_id is not None:
             descriptor["candidate_id"] = payload.candidate_id
         validate_schema("#/$defs/ArtifactDescriptor", descriptor)
-        return descriptor, stored_parts
+        return descriptor
 
     def _materialize_artifacts(
         self,
@@ -5934,14 +5771,9 @@ class V2RunService:
     ) -> tuple[
         list[dict[str, Any]],
         list[dict[str, Any]],
-        dict[str, tuple[dict[str, Any], tuple[str, ...]]],
     ]:
         typed_outputs: list[dict[str, Any]] = []
         artifact_index: list[dict[str, Any]] = []
-        artifacts: dict[
-            str,
-            tuple[dict[str, Any], tuple[str, ...]],
-        ] = {}
         port_declarations = {
             name: port.declaration
             for name, port in node._runtime.output_ports.items()
@@ -6001,43 +5833,24 @@ class V2RunService:
         remaining_bytes = (
             MAX_ARTIFACT_BYTES_PER_RUN - current_artifact_bytes
         )
-        try:
-            for (
-                output_port,
-                artifact_kind,
-                source,
-                accepted_media_types,
-            ) in artifact_sources:
-                descriptor, stored_parts = self._publish_artifact_payload(
-                    resources=resources,
-                    node_id=node.node_id,
-                    output_port=output_port,
-                    artifact_kind=artifact_kind,
-                    payload=source,
-                    accepted_media_types=accepted_media_types,
-                    maximum_size=remaining_bytes,
-                )
-                remaining_bytes -= descriptor["size"]
-                artifact_index.append(descriptor)
-                artifacts[descriptor["artifact_reference"]] = (
-                    descriptor,
-                    stored_parts,
-                )
-        except BaseException as body_error:
-            for _, stored_parts in artifacts.values():
-                try:
-                    remove_private_regular_file(
-                        resources._output_root,
-                        (resources.run_id, *stored_parts),
-                        field="artifact_path",
-                    )
-                except BaseException as cleanup_error:
-                    body_error.add_note(
-                        "Artifact rollback also failed: "
-                        f"{type(cleanup_error).__name__}"
-                    )
-            raise
-        return typed_outputs, artifact_index, artifacts
+        for (
+            output_port,
+            artifact_kind,
+            source,
+            accepted_media_types,
+        ) in artifact_sources:
+            descriptor = self._publish_artifact_payload(
+                resources=resources,
+                node_id=node.node_id,
+                output_port=output_port,
+                artifact_kind=artifact_kind,
+                payload=source,
+                accepted_media_types=accepted_media_types,
+                maximum_size=remaining_bytes,
+            )
+            remaining_bytes -= descriptor["size"]
+            artifact_index.append(descriptor)
+        return typed_outputs, artifact_index
 
     def start(
         self,
@@ -6171,14 +5984,9 @@ class V2RunService:
         ledger.append("run_started", {"started_at": run_timestamp()})
 
         all_artifacts: list[dict[str, Any]] = []
-        artifact_records: dict[
-            str,
-            tuple[dict[str, Any], tuple[str, ...]],
-        ] = {}
         record = _RunRecord(
             compiled=compiled,
             ledger=ledger,
-            artifacts=artifact_records,
         )
         finalizer = NodeAttemptFinalizer(
             ledger=ledger,
@@ -6447,7 +6255,6 @@ class V2RunService:
                 if finalized.disposition == "succeeded":
                     values.update(finalized.admitted_outputs)
                     all_artifacts.extend(finalized.artifacts)
-                    artifact_records.update(finalized.artifact_records)
                 disposition_outcomes[node.node_id] = finalized.disposition
                 continue
             resources = RunResources(
@@ -6718,7 +6525,6 @@ class V2RunService:
             if finalized.disposition == "succeeded":
                 values.update(finalized.admitted_outputs)
                 all_artifacts.extend(finalized.artifacts)
-                artifact_records.update(finalized.artifact_records)
             disposition_outcomes[node.node_id] = finalized.disposition
         selection_failed = False
         selection_consumers = tuple(
@@ -7238,82 +7044,17 @@ class V2RunService:
                 },
             )
         try:
-            validate_schema("#/$defs/ArtifactDescriptor", descriptor)
-        except ProtocolValidationError as error:
-            raise V2RunError(
-                "artifact_integrity_mismatch",
-                "Artifact descriptor integrity validation failed",
-                details={"artifact_reference": artifact_reference},
-            ) from error
-        plan_node = next(
-            (
-                node
-                for node in record.ledger.plan_nodes
-                if node.node_id == descriptor["node_id"]
-            ),
-            None,
-        )
-        try:
-            if plan_node is None or plan_node.node_type is None:
-                raise KeyError("missing durable Node Type evidence")
-            output_evidence = next(
-                output
-                for output in plan_node.artifact_outputs
-                if output["output_port"] == descriptor["output_port"]
+            payload = self._object_store.read_exact(
+                project_id,
+                descriptor["content_digest"],
+                size=descriptor["size"],
             )
-            declared_media_type = output_evidence.get(
-                "artifact_media_type"
-            )
-            if (
-                output_evidence["artifact_kind"]
-                != descriptor["artifact_kind"]
-                or (
-                    declared_media_type is not None
-                    and declared_media_type != descriptor["media_type"]
-                )
-            ):
-                raise KeyError("artifact output declaration changed")
-            if (
-                descriptor["media_type"]
-                not in output_evidence["accepted_media_types"]
-            ):
-                raise KeyError("artifact media contract changed")
-        except (KeyError, StopIteration, TypeError, ValueError) as error:
-            raise V2RunError(
-                "artifact_integrity_mismatch",
-                "Artifact output binding integrity validation failed",
-                details={"artifact_reference": artifact_reference},
-            ) from error
-        stored_parts = ("published", artifact_reference)
-        output_root = self._projects.output_dir(project_id, run_id).parent
-        try:
-            payload = _read_stable_private_file(
-                output_root,
-                (run_id, *stored_parts),
-                field="artifact_reference",
-                maximum_size=MAX_ARTIFACT_SIZE_BYTES,
-            )
-        except (OSError, StoragePathError) as error:
+        except ObjectIntegrityError as error:
             raise V2RunError(
                 "artifact_integrity_mismatch",
                 "Artifact integrity validation failed",
                 details={"artifact_reference": artifact_reference},
             ) from error
-        observed_digest = "sha256:" + hashlib.sha256(payload).hexdigest()
-        if (
-            len(payload) != descriptor["size"]
-            or observed_digest != descriptor["content_digest"]
-        ):
-            raise V2RunError(
-                "artifact_integrity_mismatch",
-                "Artifact integrity validation failed",
-                details={
-                    "artifact_reference": artifact_reference,
-                    "expected_digest": descriptor["content_digest"],
-                    "observed_digest": observed_digest,
-                    "observed_size": len(payload),
-                },
-            )
         return json.loads(json.dumps(descriptor)), payload
 
     def public_events(

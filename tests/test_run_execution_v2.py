@@ -8,6 +8,7 @@ from dataclasses import replace
 from datetime import datetime, timedelta, timezone
 import hashlib
 import json
+from pathlib import Path
 import stat
 import threading
 import time
@@ -58,6 +59,7 @@ from datatypes import (
     ProteinSequence,
 )
 from protein_workbench_public import (
+    artifact_content_disposition,
     validate_error,
     validate_response,
     validate_schema,
@@ -82,6 +84,23 @@ def _durable_facts(root) -> list[dict[str, Any]]:
         for path in sorted(root.rglob("ledger/*.json"))
         for fact in json.loads(path.read_text())["facts"]
     ]
+
+
+def _object_path(
+    output_root: Path,
+    project_id: str,
+    content_digest: str,
+) -> Path:
+    return (
+        output_root
+        / project_id
+        / "objects"
+        / Path(
+            *run_execution_v2.ProjectObjectStore._relative_parts(
+                content_digest
+            )
+        )
+    )
 
 
 def _contract(
@@ -3542,6 +3561,57 @@ def test_artifact_publication_requires_explicit_node_port_opt_in(
     assert projection["artifact_index"] == []
 
 
+def test_artifact_object_write_failure_publishes_no_node_values(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    output_root = tmp_path / "outputs"
+    original_put = run_execution_v2.ProjectObjectStore.put_exact
+
+    def fail_artifact_put(store, project_id, payload):
+        if payload == b"MODEL        1\nEND\n":
+            raise OSError("fixture Artifact object write failure")
+        return original_put(store, project_id, payload)
+
+    monkeypatch.setattr(
+        run_execution_v2.ProjectObjectStore,
+        "put_exact",
+        fail_artifact_put,
+    )
+    monkeypatch.setenv(
+        "PROTEIN_WORKBENCH_PROJECT_ROOT",
+        str(tmp_path / "projects"),
+    )
+    monkeypatch.setenv("PROTEIN_WORKBENCH_RUN_ROOT", str(tmp_path / "runs"))
+    monkeypatch.setenv("PROTEIN_WORKBENCH_OUTPUT_ROOT", str(output_root))
+    app = create_app(frozen_catalog_override=_artifact_catalog([]))
+
+    with TestClient(app) as client:
+        project_id, committed = _commit_artifact_node(client)
+        started = client.post(
+            f"/api/v2/projects/{project_id}/runs",
+            json={
+                "workflow_commit_id": committed["workflow_commit_id"],
+                "client_request_id": "artifact-object-write-failure",
+            },
+        )
+        projection = wait_for_testclient_run_terminal(
+            client,
+            project_id,
+            started.json()["run_id"],
+        )
+
+    assert projection["status"] == "failed"
+    assert projection["artifact_index"] == []
+    assert projection["outputs"] == []
+    assert not any(
+        fact["fact_type"] in {"artifact_published", "outputs_published"}
+        for fact in _durable_facts(tmp_path / "runs")
+    )
+    assert not list(output_root.rglob("objects/v1/sha256/*/*"))
+    assert not list(output_root.rglob("published/*"))
+
+
 def test_standalone_file_collection_projects_each_opaque_artifact(
     tmp_path,
     monkeypatch,
@@ -3625,9 +3695,13 @@ def test_candidate_artifact_identifier_is_metadata_not_a_storage_path(
     assert descriptor["candidate_id"] == candidate_id
     assert descriptor["artifact_reference"].startswith("artifact-")
     assert candidate_id not in descriptor["artifact_reference"]
-    stored = list(output_root.rglob("published/*"))
-    assert len(stored) == 1
-    assert stored[0].name == descriptor["artifact_reference"]
+    stored = _object_path(
+        output_root,
+        project_id,
+        descriptor["content_digest"],
+    )
+    assert stored.read_bytes() == b"MODEL        1\nEND\n"
+    assert not list(output_root.rglob("published/*"))
 
 
 @pytest.mark.parametrize("candidate_id", ("候选", "a" * 129))
@@ -3666,7 +3740,7 @@ def test_invalid_candidate_artifact_identifier_leaves_no_stored_payload(
 
     assert projection["status"] == "failed"
     assert projection["artifact_index"] == []
-    assert list(output_root.rglob("published/*")) == []
+    assert list(output_root.rglob("objects/v1/sha256/*/*")) == []
     assert not any(
         fact["fact_type"] == "artifact_published"
         for fact in _durable_facts(run_root)
@@ -3746,10 +3820,11 @@ def test_run_artifact_count_and_aggregate_size_are_bounded(
         fact["fact_type"] == "artifact_published"
         for fact in _durable_facts(aggregate_root)
     ) == 0
-    published_files = list(
-        (tmp_path / "outputs").rglob("published/*")
+    unreferenced_objects = list(
+        (tmp_path / "outputs").rglob("objects/v1/sha256/*/*")
     )
-    assert published_files == []
+    assert [path.read_bytes() for path in unreferenced_objects] == [b"12345"]
+    assert not list((tmp_path / "outputs").rglob("published/*"))
 
 
 def test_success_ledger_projects_validated_events_and_opaque_artifact(
@@ -3792,10 +3867,17 @@ def test_success_ledger_projects_validated_events_and_opaque_artifact(
         assert artifact["output_port"] == "structure"
         assert artifact["artifact_reference"] != "models/result-0.pdb"
         assert "/" not in artifact["artifact_reference"]
+        assert artifact["filename"] == "result-0.pdb"
         assert artifact["content_digest"] == (
             "sha256:"
             + hashlib.sha256(b"MODEL        1\nEND\n").hexdigest()
         )
+        assert client.app.state.run_execution_v2._object_store.read_exact(
+            project_id,
+            artifact["content_digest"],
+            size=artifact["size"],
+        ) == b"MODEL        1\nEND\n"
+        assert not (output_root / project_id / run_id / "published").exists()
 
         downloaded = client.get(
             f"/api/v2/projects/{project_id}/runs/{run_id}/artifacts/"
@@ -3806,6 +3888,9 @@ def test_success_ledger_projects_validated_events_and_opaque_artifact(
         assert downloaded.headers["digest"] == artifact["content_digest"]
         assert downloaded.headers["content-type"] == "chemical/x-pdb"
         assert downloaded.headers["content-length"] == str(artifact["size"])
+        assert downloaded.headers["content-disposition"] == (
+            artifact_content_disposition(artifact["filename"])
+        )
 
         with client.websocket_connect(
             f"/api/v2/projects/{project_id}/runs/{run_id}/events"
@@ -3939,7 +4024,11 @@ def test_artifact_retrieval_rejects_cross_scope_tamper_and_symlink(
             "cross_scope_access_denied"
         )
 
-        managed = output_root / project_id / run_id / "published" / reference
+        managed = _object_path(
+            output_root,
+            project_id,
+            artifact["content_digest"],
+        )
         managed.write_bytes(b"TAMPERED")
         managed.chmod(0o600)
         tampered = client.get(

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 from pathlib import Path
 from typing import Any
 
@@ -21,8 +22,10 @@ from core import (
     builtin_frozen_catalog,
 )
 from core.server import create_app
+from core.project_objects import ProjectObjectStore
 from core.workflow_v2 import WorkflowEdge
 from modules.protein_io.package import MODULE_PACKAGE as PROTEIN_IO_PACKAGE
+from protein_workbench_public import artifact_content_disposition
 from tests.fixtures.protein_io_sources.package import (
     MODULE_PACKAGE as STRUCTURE_SOURCE_PACKAGE,
 )
@@ -117,6 +120,19 @@ def _run_import_export(
     )
 
 
+def _artifact_object_path(
+    output_root: Path,
+    project_id: str,
+    artifact: dict[str, Any],
+) -> Path:
+    return (
+        output_root
+        / project_id
+        / "objects"
+        / Path(*ProjectObjectStore._relative_parts(artifact["content_digest"]))
+    )
+
+
 def test_sequence_export_publishes_only_an_opaque_run_bound_fasta(
     tmp_path: Path,
 ) -> None:
@@ -131,6 +147,9 @@ def test_sequence_export_publishes_only_an_opaque_run_bound_fasta(
         "sequence",
         "sequence_candidates",
     ]
+    assert all(
+        "artifact_kind" not in output for output in projection["outputs"]
+    )
     assert len(projection["artifact_index"]) == 1
     artifact = projection["artifact_index"][0]
     assert artifact["artifact_kind"] == "standalone"
@@ -158,13 +177,10 @@ def test_artifact_retrieval_rejects_tampering_symlinks_and_traversal(
     )
     artifact = projection["artifact_index"][0]
     reference = artifact["artifact_reference"]
-    managed = (
-        tmp_path
-        / "outputs"
-        / project_id
-        / projection["run_id"]
-        / "published"
-        / reference
+    managed = _artifact_object_path(
+        tmp_path / "outputs",
+        project_id,
+        artifact,
     )
     managed.write_bytes(b"TAMPERED")
     managed.chmod(0o600)
@@ -215,13 +231,10 @@ def test_artifact_retrieval_rejects_inactive_generation_without_rewriting_eviden
 
     artifact = projection["artifact_index"][0]
     run_id = projection["run_id"]
-    artifact_path = (
-        tmp_path
-        / "outputs"
-        / project_id
-        / run_id
-        / "published"
-        / artifact["artifact_reference"]
+    artifact_path = _artifact_object_path(
+        tmp_path / "outputs",
+        project_id,
+        artifact,
     )
     evidence_root = tmp_path / "runs" / project_id / run_id
     artifact_before = artifact_path.read_bytes()
@@ -285,26 +298,69 @@ def test_artifact_retrieval_rejects_inactive_generation_without_rewriting_eviden
     assert evidence_after == evidence_before
 
 
-def test_artifact_retrieval_rejects_media_outside_the_exact_output_port(
+@pytest.mark.parametrize(
+    "filename",
+    (
+        '来源结构 "alpha".pdb',
+        "蛋" * 512,
+    ),
+)
+def test_artifact_route_returns_exact_utf8_filename_provenance(
     tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    filename: str,
 ) -> None:
-    service, project_id, projection, _ = _run_import_export(
-        tmp_path,
-        value_kind="sequence",
-        payload=b">source\nACDEFG\n",
+    body = b"MODEL        1\nEND\n"
+    descriptor = {
+        "artifact_reference": "artifact_1",
+        "artifact_kind": "standalone",
+        "node_id": "export",
+        "output_port": "structure",
+        "media_type": "chemical/x-pdb",
+        "filename": filename,
+        "size": len(body),
+        "content_digest": f"sha256:{hashlib.sha256(body).hexdigest()}",
+    }
+    monkeypatch.setenv(
+        "PROTEIN_WORKBENCH_PROJECT_ROOT",
+        str(tmp_path / "projects"),
     )
-    record = service._runs[(project_id, projection["run_id"])]
-    for fact in record.ledger._state.facts:
-        if fact["fact_type"] != "outputs_published":
-            continue
-        for artifact in fact["payload"]["artifacts"]:
-            artifact["media_type"] = "chemical/x-pdb"
-    reference = projection["artifact_index"][0]["artifact_reference"]
+    monkeypatch.setenv(
+        "PROTEIN_WORKBENCH_CACHE_ROOT",
+        str(tmp_path / "cache"),
+    )
+    monkeypatch.setenv(
+        "PROTEIN_WORKBENCH_OUTPUT_ROOT",
+        str(tmp_path / "outputs"),
+    )
+    monkeypatch.setenv(
+        "PROTEIN_WORKBENCH_RUN_ROOT",
+        str(tmp_path / "runs"),
+    )
+    with TestClient(
+        create_app(
+            frozen_catalog_override=builtin_frozen_catalog(),
+            _install_canonical_seed=False,
+        )
+    ) as client:
+        service = client.app.state.run_execution_v2
+        monkeypatch.setattr(
+            service,
+            "artifact",
+            lambda project_id, run_id, artifact_reference: (
+                descriptor,
+                body,
+            ),
+        )
+        response = client.get(
+            "/api/v2/projects/project-1/runs/run-1/artifacts/artifact_1"
+        )
 
-    with pytest.raises(V2RunError) as rejected:
-        service.artifact(project_id, projection["run_id"], reference)
-
-    assert rejected.value.code == "artifact_integrity_mismatch"
+    assert response.status_code == 200
+    assert response.content == body
+    assert response.headers["content-disposition"] == (
+        artifact_content_disposition(filename)
+    )
 
 
 def test_structure_export_preserves_the_validated_native_pdb_serialization(
@@ -440,6 +496,9 @@ def test_fifteen_candidate_pdbs_keep_identity_slots_and_cache_rematerialize(
             and artifact["media_type"] == "chemical/x-pdb"
             for artifact in artifacts
         )
+        assert [artifact["filename"] for artifact in artifacts] == [
+            f"structure-{index:04d}.pdb" for index in range(15)
+        ]
         bodies = [
             service.artifact(
                 project.id,
@@ -464,6 +523,14 @@ def test_fifteen_candidate_pdbs_keep_identity_slots_and_cache_rematerialize(
             for artifact in projections[1]["artifact_index"]
         }
     )
+    assert [
+        artifact["content_digest"]
+        for artifact in projections[0]["artifact_index"]
+    ] == [
+        artifact["content_digest"]
+        for artifact in projections[1]["artifact_index"]
+    ]
+    assert not list((tmp_path / "outputs").rglob("published/*"))
     with pytest.raises(V2RunError) as cross_run:
         service.artifact(
             project.id,

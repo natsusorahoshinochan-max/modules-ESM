@@ -713,6 +713,80 @@ def write_checksums(root: Path) -> None:
     checksum_path.chmod(0o600)
 
 
+def require_artifact_bundle_matches_projection(
+    root: Path,
+    *,
+    artifacts: list[dict[str, Any]],
+    projection: dict[str, Any],
+    candidate_ids: list[str],
+) -> None:
+    """Require exact public descriptors and retrieved bytes for final folds."""
+    from protein_workbench_public import artifact_content_disposition
+
+    if len(artifacts) != 15:
+        raise ValueError("canonical run must retain fifteen final PDB artifacts")
+    expected_filenames = {
+        f"structure-{index:04d}.pdb" for index in range(15)
+    }
+    if {artifact["filename"] for artifact in artifacts} != expected_filenames:
+        raise ValueError("artifact filename provenance is incomplete")
+    expected_candidate_ids = set(candidate_ids)
+    if {artifact["candidate_id"] for artifact in artifacts} != (
+        expected_candidate_ids
+    ):
+        raise ValueError("artifact Candidate association is not one-to-one")
+    projected_artifacts = {
+        item["artifact_reference"]: item
+        for item in projection["artifact_index"]
+    }
+    public_artifact_fields = {
+        "artifact_reference",
+        "artifact_kind",
+        "candidate_id",
+        "node_id",
+        "output_port",
+        "media_type",
+        "filename",
+        "size",
+        "content_digest",
+    }
+    for artifact in artifacts:
+        path = root / artifact["bundle_path"]
+        payload = path.read_bytes()
+        public_descriptor = {
+            key: artifact[key]
+            for key in public_artifact_fields
+        }
+        if (
+            path.is_symlink()
+            or artifact["project_id"] != PROJECT_ID
+            or artifact["run_id"] != projection["run_id"]
+            or projected_artifacts.get(artifact["artifact_reference"])
+            != public_descriptor
+            or artifact["artifact_kind"] != "candidate"
+            or artifact["node_id"] != "export-final"
+            or artifact["output_port"] != "candidate_artifacts"
+            or artifact["media_type"] not in {
+                "chemical/x-pdb",
+                "text/plain",
+            }
+            or artifact["size"] != len(payload)
+            or artifact["content_digest"] != _sha256(payload)
+            or artifact["candidate_id"] not in expected_candidate_ids
+            or artifact["retrieved_headers"]["content-disposition"]
+            != artifact_content_disposition(artifact["filename"])
+            or artifact["retrieved_headers"]["content-length"]
+            != str(artifact["size"])
+            or artifact["retrieved_headers"]["content-type"]
+            != artifact["media_type"]
+            or artifact["retrieved_headers"]["digest"]
+            != artifact["content_digest"]
+        ):
+            raise ValueError(
+                "artifact scope, association, media, filename, size, or bytes fail"
+            )
+
+
 def validate_evidence_bundle(root: Path) -> dict[str, Any]:
     """Validate a complete public, source-bound, fresh remote evidence bundle."""
     if root.is_symlink() or not root.is_dir():
@@ -919,61 +993,12 @@ def validate_evidence_bundle(root: Path) -> dict[str, Any]:
         raise ValueError("canonical scientific lineage assertions are incomplete")
 
     artifacts = _load_json(root / "artifact-index.json")
-    if len(artifacts) != 15:
-        raise ValueError("canonical run must retain fifteen final PDB artifacts")
-    projected_artifacts = {
-        item["artifact_reference"]: item
-        for item in final["artifact_index"]
-    }
-    public_artifact_fields = {
-        "artifact_reference",
-        "artifact_kind",
-        "candidate_id",
-        "node_id",
-        "output_port",
-        "media_type",
-        "size",
-        "content_digest",
-    }
-    for artifact in artifacts:
-        path = root / artifact["bundle_path"]
-        payload = path.read_bytes()
-        public_descriptor = {
-            key: artifact[key]
-            for key in public_artifact_fields
-            if key in artifact
-        }
-        if (
-            path.is_symlink()
-            or artifact["project_id"] != PROJECT_ID
-            or artifact["run_id"] != final["run_id"]
-            or projected_artifacts.get(artifact["artifact_reference"])
-            != public_descriptor
-            or artifact["artifact_kind"] != "candidate"
-            or artifact["node_id"] != "export-final"
-            or artifact["output_port"] != "candidate_artifacts"
-            or artifact["media_type"] not in {
-                "chemical/x-pdb",
-                "text/plain",
-            }
-            or artifact["size"] != len(payload)
-            or artifact["content_digest"] != _sha256(payload)
-            or not artifact["candidate_id"]
-            or not artifact["output_port"]
-            or artifact["candidate_id"]
-            not in set(lineage["final_fold_candidate_ids"])
-            or artifact["retrieved_headers"]["content-length"]
-            != str(artifact["size"])
-            or artifact["retrieved_headers"]["content-type"]
-            != artifact["media_type"]
-            or artifact["retrieved_headers"]["digest"]
-            != artifact["content_digest"]
-        ):
-            raise ValueError("artifact scope, association, media, size, or bytes fail")
-    if {item["candidate_id"] for item in artifacts} != set(
-        lineage["final_fold_candidate_ids"]
-    ):
-        raise ValueError("artifact Candidate association is not one-to-one")
+    require_artifact_bundle_matches_projection(
+        root,
+        artifacts=artifacts,
+        projection=final,
+        candidate_ids=lineage["final_fold_candidate_ids"],
+    )
     verification = _load_json(root / "verification.json")
     if (
         verification.get("schema_namespace") != SCHEMA_NAMESPACE

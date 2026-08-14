@@ -747,39 +747,25 @@ def test_cancel_factory_cleanup_failure_is_interrupted_without_false_attempt(
     assert "private-cleanup-detail" not in json.dumps(facts)
 
 
-def test_cancel_during_artifact_materialization_removes_uncommitted_files(
+def test_cancel_during_artifact_materialization_keeps_object_unpublished(
     tmp_path,
     monkeypatch,
 ) -> None:
     entered = threading.Event()
     release = threading.Event()
-    original_write = run_execution_v2.write_private_new_file
+    original_put = run_execution_v2.ProjectObjectStore.put_exact
 
-    def hold_published_artifact(
-        root,
-        relative_parts,
-        payload,
-        *,
-        field,
-    ):
-        path = original_write(
-            root,
-            relative_parts,
-            payload,
-            field=field,
-        )
-        if (
-            field == "artifact_path"
-            and "published" in relative_parts
-        ):
+    def hold_artifact_object(store, project_id, payload):
+        stored = original_put(store, project_id, payload)
+        if payload == b"MODEL        1\nEND\n":
             entered.set()
             assert release.wait(timeout=3)
-        return path
+        return stored
 
     monkeypatch.setattr(
-        run_execution_v2,
-        "write_private_new_file",
-        hold_published_artifact,
+        run_execution_v2.ProjectObjectStore,
+        "put_exact",
+        hold_artifact_object,
     )
     monkeypatch.setenv("PROTEIN_WORKBENCH_PROJECT_ROOT", str(tmp_path / "projects"))
     monkeypatch.setenv("PROTEIN_WORKBENCH_RUN_ROOT", str(tmp_path / "runs"))
@@ -806,13 +792,14 @@ def test_cancel_during_artifact_materialization_removes_uncommitted_files(
         fact["fact_type"] in {"artifact_published", "outputs_published"}
         for fact in facts
     )
-    published_root = (
-        tmp_path / "outputs" / project_id / receipt["run_id"] / "published"
+    objects = list(
+        (tmp_path / "outputs" / project_id / "objects").rglob("*")
     )
-    assert not published_root.exists() or not any(published_root.iterdir())
+    assert any(path.is_file() for path in objects)
+    assert not list((tmp_path / "outputs").rglob("published/*"))
 
 
-def test_normal_temp_cleanup_failure_rolls_back_uncommitted_artifact(
+def test_normal_temp_cleanup_failure_does_not_publish_artifact(
     tmp_path,
     monkeypatch,
 ) -> None:
@@ -839,10 +826,11 @@ def test_normal_temp_cleanup_failure_rolls_back_uncommitted_artifact(
     assert projection["outputs"] == []
     retained = json.dumps(_facts(app, project_id, receipt["run_id"]))
     assert "private-normal-cleanup-detail" not in retained
-    published_root = (
-        tmp_path / "outputs" / project_id / receipt["run_id"] / "published"
+    assert not list(
+        (tmp_path / "outputs" / project_id).rglob(
+            "objects/v1/sha256/*/*"
+        )
     )
-    assert not published_root.exists() or not any(published_root.iterdir())
 
 
 def test_one_process_cleanup_failure_does_not_skip_other_process_groups(
@@ -967,10 +955,6 @@ def test_derived_artifacts_and_source_run_remain_independently_immutable(
         source = _start(client, project_id, committed, "artifact-source")
         source_projection = _wait_terminal(client, project_id, source["run_id"])
         source_artifact = source_projection["artifact_index"][0]
-        app.state.run_execution_v2._require_record(
-            project_id,
-            source["run_id"],
-        ).artifacts.clear()
         source_download = client.get(
             f"/api/v2/projects/{project_id}/runs/{source['run_id']}/"
             f"artifacts/{source_artifact['artifact_reference']}"
