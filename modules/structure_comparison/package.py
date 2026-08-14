@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import math
+from collections.abc import Callable
 from typing import Any, Mapping
 
 from core import (
@@ -12,7 +13,6 @@ from core import (
     ContractIdentity,
     DefinitionResource,
     ExecutionBindingDefinition,
-    MethodDefinition,
     ModulePackageRegistration,
     OperationContext,
     ProducedObservationDefinition,
@@ -30,11 +30,13 @@ from .contracts import (
     RMSD_FROM_EVIDENCE_METHOD,
     SEQUENCE_PRIMARY_AFFINE_METHOD,
     STRUCTURE_FIRST_TM_ALIGN_METHOD,
+    THREE_WAY_CONSISTENCY_METHOD,
     TM_SCORE_FROM_EVIDENCE_METHOD,
     VERSION,
 )
 from .implementation import StructureComparisonImplementation
-from .port_types import ALIGNMENT_EVIDENCE_PORT_TYPE, THREE_WAY_CONSISTENCY_PORT_TYPE
+from .port_types import ALIGNMENT_EVIDENCE_PORT_TYPE
+from .three_way_port import THREE_WAY_CONSISTENCY_PORT_TYPE
 
 
 _RMSD_NORMALIZATION = "aligned-CA-mean-square-distance"
@@ -53,7 +55,10 @@ def _ready(check_input: ReadinessCheckInput) -> ReadinessResult:
     return ReadinessResult(True)
 
 
-def _build(operation: str, pairing_mode: str | None = None):
+def _build(
+    operation: str,
+    pairing_mode: str | None = None,
+) -> Callable[[OperationContext], ScientificOperation]:
     def factory(context: OperationContext) -> ScientificOperation:
         return StructureComparisonImplementation(
             context,
@@ -70,62 +75,12 @@ def _build_three_way(context: OperationContext) -> ScientificOperation:
     return ThreeWayConsistencyImplementation(context.method)
 
 
-THREE_WAY_CONSISTENCY_METHOD = MethodDefinition(
-    method_id="structure_comparison.1pga_three_way_consistency.threshold_graph",
-    version=THREE_WAY_VERSION,
-    algorithm_identity={
-        "name": "input-esmfold2-simplefold-threshold-graph",
-        "source_identity": "pdbs/1PGA-75-gen1_0690.pdb",
-        "residue_count": 75,
-        "confidence_eligibility": {
-            "metric": "structure.plddt.mean_residue@3.0.0",
-            "minimum": 70.0,
-            "methods": [
-                "folding.fold.esmfold2_fast_biohub_2026_05@4.0.0",
-                "folding.fold.simplefold_100m_c7a5570@4.0.0",
-            ],
-        },
-        "close": {
-            "reference_normalized_tm_score_minimum": 0.8,
-            "ca_rmsd_angstrom_maximum": 2.5,
-        },
-        "edge_roles": [
-            "input_esmfold2",
-            "input_simplefold",
-            "esmfold2_simplefold",
-        ],
-        "classifications": [
-            "three_way_consistent",
-            "method_disagreement",
-            "input_disagreement",
-            "all_disagree",
-            "insufficient_evidence",
-        ],
-        "two_close_edge_subreason": "threshold_boundary_nontransitive",
-        "input_b_factor": "uninterpreted-coordinate-field",
-    },
-    model_identity={"kind": "none"},
-    checkpoint_identity={"kind": "none"},
-    featurization_identity={
-        "candidate_association": "exact-CandidateDataReference",
-        "pairing": "explicit-common-parent-sibling-pairing",
-        "comparison": "exact-alignment-evidence-provenanced-scores",
-    },
-    source_identity={"kind": "repository-owned"},
-    scale_contract={
-        "plddt": "zero-to-100",
-        "tm_score": "dimensionless-reference-axis-normalized",
-        "rmsd": "angstrom",
-    },
-)
-
-
 THREE_WAY_CONSISTENCY_BINDING = ExecutionBindingDefinition(
-    binding_id="structure_comparison.classify_1pga_three_way_consistency.direct",
+    binding_id="structure_comparison.classify_three_way_consistency.direct",
     version=THREE_WAY_VERSION,
     node_type=ContractIdentity(
         "node_type",
-        "structure_comparison.classify_1pga_three_way_consistency",
+        "structure_comparison.classify_three_way_consistency",
         THREE_WAY_VERSION,
     ),
     method=THREE_WAY_CONSISTENCY_METHOD.identity,
@@ -133,7 +88,7 @@ THREE_WAY_CONSISTENCY_BINDING = ExecutionBindingDefinition(
     execution_route="direct",
     factory=ScientificOperationFactory(
         behavior=BehaviorReference(
-            "structure_comparison.classify_1pga_three_way_consistency.direct/factory",
+            "structure_comparison.classify_three_way_consistency.direct/factory",
             THREE_WAY_VERSION,
             {"execution_route": "direct"},
         ),
@@ -141,7 +96,7 @@ THREE_WAY_CONSISTENCY_BINDING = ExecutionBindingDefinition(
     ),
     availability=AvailabilityDeclaration(
         behavior=BehaviorReference(
-            "structure_comparison.classify_1pga_three_way_consistency.direct/availability",
+            "structure_comparison.classify_three_way_consistency.direct/availability",
             THREE_WAY_VERSION,
             {"observation": "startup"},
         ),
@@ -150,7 +105,7 @@ THREE_WAY_CONSISTENCY_BINDING = ExecutionBindingDefinition(
     ),
     readiness=ReadinessDeclaration(
         behavior=BehaviorReference(
-            "structure_comparison.classify_1pga_three_way_consistency.direct/readiness",
+            "structure_comparison.classify_three_way_consistency.direct/readiness",
             THREE_WAY_VERSION,
             {"observation": "per-run"},
         ),
@@ -160,7 +115,7 @@ THREE_WAY_CONSISTENCY_BINDING = ExecutionBindingDefinition(
     deterministic=True,
     cacheable=True,
     implementation_identity={
-        "name": "structure_comparison.classify_1pga_three_way_consistency.direct",
+        "name": "structure_comparison.classify_three_way_consistency.direct",
         "source": "repository-owned",
         "candidate_association": "exact-CandidateDataReference",
         "raw_structure_parsing": False,

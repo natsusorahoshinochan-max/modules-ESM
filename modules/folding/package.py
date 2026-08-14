@@ -943,6 +943,12 @@ def _simplefold_confidence_binding() -> ExecutionBindingDefinition:
     )
 
 
+REMOTE_ESMFOLD2_FOLD_METHOD = _method("remote")
+LOCAL_ESMFOLD2_FOLD_METHOD = _method("local")
+SIMPLEFOLD_FOLD_METHOD = _simplefold_method()
+SIMPLEFOLD_CONFIDENCE_METHOD = _simplefold_confidence_method()
+
+
 MODULE_PACKAGE = ModulePackageRegistration(
     schema_version="2.1.0",
     package_id="folding",
@@ -953,10 +959,10 @@ MODULE_PACKAGE = ModulePackageRegistration(
         DefinitionResource("definitions/simplefold_confidence.yaml"),
     ),
     methods=(
-        _method("remote"),
-        _method("local"),
-        _simplefold_method(),
-        _simplefold_confidence_method(),
+        REMOTE_ESMFOLD2_FOLD_METHOD,
+        LOCAL_ESMFOLD2_FOLD_METHOD,
+        SIMPLEFOLD_FOLD_METHOD,
+        SIMPLEFOLD_CONFIDENCE_METHOD,
     ),
     bindings=(
         _binding("remote"),

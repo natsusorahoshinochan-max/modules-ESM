@@ -185,9 +185,9 @@
     },
     {
       "node_id": "classify-consistency",
-      "node_type_id": "structure_comparison.classify_1pga_three_way_consistency",
+      "node_type_id": "structure_comparison.classify_three_way_consistency",
       "node_type_version": "1.0.0",
-      "binding_id": "structure_comparison.classify_1pga_three_way_consistency.direct",
+      "binding_id": "structure_comparison.classify_three_way_consistency.direct",
       "binding_version": "1.0.0",
       "node_parameters": {},
       "binding_parameters": {}
@@ -626,9 +626,9 @@
     },
     {
       "contract_kind": "binding",
-      "contract_id": "structure_comparison.classify_1pga_three_way_consistency.direct",
+      "contract_id": "structure_comparison.classify_three_way_consistency.direct",
       "contract_version": "1.0.0",
-      "contract_digest": "sha256:849abd716a16e40b68d1624a0648243566c1d63477e10e4b8b8a338d4aa0e58d"
+      "contract_digest": "sha256:ca11daf0435c67c570e83a50004bf9e2d77e588fabb0354a5c3f63dd2ffd940d"
     },
     {
       "contract_kind": "binding",
@@ -698,12 +698,6 @@
     },
     {
       "contract_kind": "method",
-      "contract_id": "structure_comparison.1pga_three_way_consistency.threshold_graph",
-      "contract_version": "1.0.0",
-      "contract_digest": "sha256:fa890e4c1c93c5fbf05faf9fe8e4cce850076b68354443ee64cc1159c3c5fcb0"
-    },
-    {
-      "contract_kind": "method",
       "contract_id": "structure_comparison.rmsd.from_alignment_evidence.method",
       "contract_version": "3.0.0",
       "contract_digest": "sha256:e3fd0502f31ddf8c029ffd862673dbadbcb7e19a844c39fd742d1ca591e7dd99"
@@ -713,6 +707,12 @@
       "contract_id": "structure_comparison.sequence_primary_affine_svd.method",
       "contract_version": "3.0.0",
       "contract_digest": "sha256:863f98c327e008e9e5da820470a7c5a6ef72c5911e699cd06487f797e731bb53"
+    },
+    {
+      "contract_kind": "method",
+      "contract_id": "structure_comparison.three_way_consistency.threshold_graph",
+      "contract_version": "1.0.0",
+      "contract_digest": "sha256:9b90aa7207bf76cac662fb338779172b16bb7243611aae2a122ce94e54e23b74"
     },
     {
       "contract_kind": "method",
@@ -806,9 +806,9 @@
     },
     {
       "contract_kind": "node_type",
-      "contract_id": "structure_comparison.classify_1pga_three_way_consistency",
+      "contract_id": "structure_comparison.classify_three_way_consistency",
       "contract_version": "1.0.0",
-      "contract_digest": "sha256:f8d828b95bf17f1f58df600b305e0d48d7a0ee1844bfd8e1a2ec992223bc1382"
+      "contract_digest": "sha256:c7b5169b711d98c0f78df2e9814735106fcc760fd7f6b368ae19a119853eb9c7"
     },
     {
       "contract_kind": "node_type",
@@ -878,15 +878,15 @@
     },
     {
       "contract_kind": "port_type",
-      "contract_id": "structure_comparison.1pga_three_way_consistency",
-      "contract_version": "1.0.0",
-      "contract_digest": "sha256:923012d840d2774985e58d1c177598d5e383158a074d75618d34c984db68ebb6"
-    },
-    {
-      "contract_kind": "port_type",
       "contract_id": "structure_comparison.alignment_evidence",
       "contract_version": "4.0.0",
       "contract_digest": "sha256:efb95ad8d5dc6410871c33bd3946af884a975086821933da1f18ca677a34789a"
+    },
+    {
+      "contract_kind": "port_type",
+      "contract_id": "structure_comparison.three_way_consistency",
+      "contract_version": "1.0.0",
+      "contract_digest": "sha256:ff19137a42f01c4cfc95672576e54972e9c03c37ba66a28c1229c5612aac1136"
     },
     {
       "contract_kind": "port_type",

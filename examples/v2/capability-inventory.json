@@ -371,9 +371,9 @@
     },
     {
       "contract_kind": "binding",
-      "contract_id": "structure_comparison.classify_1pga_three_way_consistency.direct",
+      "contract_id": "structure_comparison.classify_three_way_consistency.direct",
       "contract_version": "1.0.0",
-      "contract_digest": "sha256:849abd716a16e40b68d1624a0648243566c1d63477e10e4b8b8a338d4aa0e58d"
+      "contract_digest": "sha256:ca11daf0435c67c570e83a50004bf9e2d77e588fabb0354a5c3f63dd2ffd940d"
     },
     {
       "contract_kind": "binding",
@@ -791,12 +791,6 @@
     },
     {
       "contract_kind": "method",
-      "contract_id": "structure_comparison.1pga_three_way_consistency.threshold_graph",
-      "contract_version": "1.0.0",
-      "contract_digest": "sha256:fa890e4c1c93c5fbf05faf9fe8e4cce850076b68354443ee64cc1159c3c5fcb0"
-    },
-    {
-      "contract_kind": "method",
       "contract_id": "structure_comparison.rmsd.from_alignment_evidence.method",
       "contract_version": "3.0.0",
       "contract_digest": "sha256:e3fd0502f31ddf8c029ffd862673dbadbcb7e19a844c39fd742d1ca591e7dd99"
@@ -812,6 +806,12 @@
       "contract_id": "structure_comparison.structure_first_tm_align.method",
       "contract_version": "3.0.0",
       "contract_digest": "sha256:577f493b1f3d57f89ff69037ad1fc69fd5eb2ef45b2283082c39a1ca5c2530b1"
+    },
+    {
+      "contract_kind": "method",
+      "contract_id": "structure_comparison.three_way_consistency.threshold_graph",
+      "contract_version": "1.0.0",
+      "contract_digest": "sha256:9b90aa7207bf76cac662fb338779172b16bb7243611aae2a122ce94e54e23b74"
     },
     {
       "contract_kind": "method",
@@ -1253,9 +1253,9 @@
     },
     {
       "contract_kind": "node_type",
-      "contract_id": "structure_comparison.classify_1pga_three_way_consistency",
+      "contract_id": "structure_comparison.classify_three_way_consistency",
       "contract_version": "1.0.0",
-      "contract_digest": "sha256:f8d828b95bf17f1f58df600b305e0d48d7a0ee1844bfd8e1a2ec992223bc1382"
+      "contract_digest": "sha256:c7b5169b711d98c0f78df2e9814735106fcc760fd7f6b368ae19a119853eb9c7"
     },
     {
       "contract_kind": "node_type",

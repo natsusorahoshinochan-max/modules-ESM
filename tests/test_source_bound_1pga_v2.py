@@ -40,6 +40,14 @@ from modules.structure_comparison.domain import (
     StructureAlignmentEvidence,
     ThreeWayConsistencyEvidence,
 )
+from modules.structure_comparison.contracts import (
+    REMOTE_ESMFOLD2_FOLD_METHOD_REFERENCE,
+    RMSD_FROM_EVIDENCE_METHOD_REFERENCE,
+    SEQUENCE_PRIMARY_AFFINE_METHOD_REFERENCE,
+    SIMPLEFOLD_FOLD_METHOD_REFERENCE,
+    THREE_WAY_CONSISTENCY_METHOD_REFERENCE,
+    TM_SCORE_FROM_EVIDENCE_METHOD_REFERENCE,
+)
 from modules.structure_transform import (
     CandidateResolvedResidueAxisAssociations,
 )
@@ -59,6 +67,10 @@ WORKFLOW_PATH = (
 INPUT_SHA256 = (
     "d4392068a70cd5cb21f1598a83b6eff29f829d510ae808be0f62f35a6d01dc30"
 )
+INPUT_SEQUENCE = (
+    "MKESYKVILTNKKTEKNLVLTTTQEVSNEENAHDKEKVFVEEYANKTLGNPAFTNWTYQFDATHDEWFCVVEANL"
+)
+INPUT_RESIDUE_IDS = tuple(f"A:{index}" for index in range(1, 76))
 
 
 def _workflow_payload() -> dict[str, object]:
@@ -239,7 +251,7 @@ def test_source_bound_1pga_is_exact_locked_and_compilable() -> None:
     )
     assert nodes["fold-simplefold"].binding_parameters == {"num_steps": 50}
     assert nodes["classify-consistency"].node_type_id == (
-        "structure_comparison.classify_1pga_three_way_consistency"
+        "structure_comparison.classify_three_way_consistency"
     )
 
 
@@ -382,7 +394,9 @@ def test_source_bound_1pga_public_journey_closes_complete_evidence(
                 simplefold_structures,
             )
         )
-        assert len(sequence_parents.items[0].data.sequence) == 75
+        assert input_candidates.items[0].data.pdb_string == source_text
+        assert sequence_parents.items[0].data.sequence == INPUT_SEQUENCE
+        assert sequence_parents.items[0].data.residue_ids == INPUT_RESIDUE_IDS
         assert sequence_parents.items[0].parent_ids == (
             input_candidates.items[0].candidate_id,
         )
@@ -432,6 +446,25 @@ def test_source_bound_1pga_public_journey_closes_complete_evidence(
             )
         )
         assert all(type(item) is StructureAlignmentEvidence for item in alignments)
+        assert all(
+            item.method == SEQUENCE_PRIMARY_AFFINE_METHOD_REFERENCE
+            and tuple(
+                correspondence.subject_residue_id
+                for correspondence in item.correspondence
+            )
+            == INPUT_RESIDUE_IDS
+            and tuple(
+                correspondence.reference_residue_id
+                for correspondence in item.correspondence
+            )
+            == INPUT_RESIDUE_IDS
+            and all(
+                correspondence.subject_atom_name == "CA"
+                and correspondence.reference_atom_name == "CA"
+                for correspondence in item.correspondence
+            )
+            for item in alignments
+        )
         assert [
             (
                 item.subject.candidate_id,
@@ -496,6 +529,11 @@ def test_source_bound_1pga_public_journey_closes_complete_evidence(
             item.mean_residue_plddt for item in consistency.confidences
         ] == pytest.approx([90.0, 90.0])
         assert all(item.eligible for item in consistency.confidences)
+        assert consistency.residue_count == 75
+        assert tuple(item.method for item in consistency.confidences) == (
+            REMOTE_ESMFOLD2_FOLD_METHOD_REFERENCE,
+            SIMPLEFOLD_FOLD_METHOD_REFERENCE,
+        )
         assert [edge.edge_id for edge in consistency.edges] == [
             "input_esmfold2",
             "input_simplefold",
@@ -507,6 +545,10 @@ def test_source_bound_1pga_public_journey_closes_complete_evidence(
             and edge.rmsd_angstrom <= 2.5
             and edge.normalization_length == 75
             and edge.aligned_atom_count == 75
+            and edge.alignment_method
+            == SEQUENCE_PRIMARY_AFFINE_METHOD_REFERENCE
+            and edge.tm_score_method == TM_SCORE_FROM_EVIDENCE_METHOD_REFERENCE
+            and edge.rmsd_method == RMSD_FROM_EVIDENCE_METHOD_REFERENCE
             for edge in consistency.edges
         )
         alignment_codec = catalog.require_port_type(
@@ -544,11 +586,8 @@ def test_source_bound_1pga_public_journey_closes_complete_evidence(
             item.score_content_digest for item in consistency.confidences
         ] == [score_codec.content_digest(item) for item in confidence]
         assert (
-            consistency.classification_method.contract_id,
-            consistency.classification_method.contract_version,
-        ) == (
-            "structure_comparison.1pga_three_way_consistency.threshold_graph",
-            "1.0.0",
+            consistency.classification_method
+            == THREE_WAY_CONSISTENCY_METHOD_REFERENCE
         )
 
     assert len(esmfold2.calls) == 1

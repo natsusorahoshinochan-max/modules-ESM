@@ -1,4 +1,4 @@
-"""Exact 1PGA input/ESMFold2/SimpleFold consistency classification."""
+"""Exact input/ESMFold2/SimpleFold consistency classification."""
 
 from __future__ import annotations
 
@@ -9,9 +9,11 @@ from datatypes import (
     Candidate,
     CandidateCollection,
     CandidateDataReference,
+    ExactContractReference,
     PairwiseCandidateMapping,
     PairwiseObservationContext,
     ProteinSequence,
+    ResolvedStructureResidueAxis,
     ScoreCollection,
     ScoreObservation,
 )
@@ -64,7 +66,7 @@ def _axis(
     call: OperationCall,
     port: str,
     subject: CandidateDataReference,
-):
+) -> ResolvedStructureResidueAxis:
     associations = call.inputs[port]
     assert type(associations) is CandidateResolvedResidueAxisAssociations
     matches = tuple(
@@ -102,6 +104,7 @@ def _confidence(
     port: str,
     subject: CandidateDataReference,
     sequence_parent: CandidateDataReference,
+    residue_count: int,
 ) -> ThreeWayConfidenceEvidence:
     observation = _observation(
         call,
@@ -113,9 +116,9 @@ def _confidence(
     if (
         axis is None
         or axis.source != sequence_parent
-        or axis.layout.length != 75
+        or axis.layout.length != residue_count
     ):
-        raise ValueError(f"{port} does not retain the exact 75-residue parent")
+        raise ValueError(f"{port} does not retain the exact sequence parent")
     value = float(observation.value)
     return ThreeWayConfidenceEvidence(
         role=role,
@@ -195,7 +198,7 @@ def _edge(
 class ThreeWayConsistencyImplementation:
     """Classify one complete exact three-structure evidence graph."""
 
-    def __init__(self, classification_method) -> None:
+    def __init__(self, classification_method: ExactContractReference) -> None:
         self._classification_method = classification_method
 
     def execute(self, call: OperationCall) -> Mapping[str, object]:
@@ -219,7 +222,6 @@ class ThreeWayConsistencyImplementation:
         )
         if (
             type(sequence_candidate.data) is not ProteinSequence
-            or len(sequence_candidate.data.sequence) != 75
             or sequence_candidate.parent_ids != (input_candidate.candidate_id,)
             or esmfold2_candidate.parent_ids != (sequence_candidate.candidate_id,)
             or simplefold_candidate.parent_ids != (sequence_candidate.candidate_id,)
@@ -227,13 +229,17 @@ class ThreeWayConsistencyImplementation:
             raise ValueError("three-way Candidates do not retain exact lineage")
 
         sequence = sequence_candidate.data.sequence
+        residue_count = len(sequence)
         axes = (
             _axis(call, "input_residue_axes", input_reference),
             _axis(call, "esmfold2_residue_axes", esmfold2_reference),
             _axis(call, "simplefold_residue_axes", simplefold_reference),
         )
-        if any(axis.layout.length != 75 or axis.sequence != sequence for axis in axes):
-            raise ValueError("three-way residue axes do not share one 75-residue sequence")
+        if any(
+            axis.layout.length != residue_count or axis.sequence != sequence
+            for axis in axes
+        ):
+            raise ValueError("three-way residue axes do not share one sequence")
         alignment_values = (
             call.inputs["input_esmfold2_alignments"],
             call.inputs["input_simplefold_alignments"],
@@ -282,6 +288,7 @@ class ThreeWayConsistencyImplementation:
                 port="esmfold2_confidence",
                 subject=esmfold2_reference,
                 sequence_parent=sequence_reference,
+                residue_count=residue_count,
             ),
             _confidence(
                 call,
@@ -289,6 +296,7 @@ class ThreeWayConsistencyImplementation:
                 port="simplefold_confidence",
                 subject=simplefold_reference,
                 sequence_parent=sequence_reference,
+                residue_count=residue_count,
             ),
         )
         edges = (
@@ -334,6 +342,7 @@ class ThreeWayConsistencyImplementation:
                 input_b_factor_semantics=(
                     "uninterpreted_coordinate_temperature_factor"
                 ),
+                residue_count=residue_count,
                 plddt_threshold=70.0,
                 tm_score_threshold=0.8,
                 rmsd_threshold_angstrom=2.5,

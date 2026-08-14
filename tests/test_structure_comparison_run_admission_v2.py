@@ -18,10 +18,14 @@ from core import (
 from datatypes import PairwiseObservationContext
 from modules.structure_comparison import implementation
 from tests.test_structure_comparison_v2 import (
+    COLLECTION_OPS_PACKAGE,
     MODULE_PACKAGE,
     SOURCE_PACKAGE,
+    STRUCTURE_PREDICTION_PACKAGE,
     TRANSFORM_PACKAGE,
     _ctk_case,
+    _three_way_consistency_value,
+    _three_way_ctk_case,
 )
 from tests.test_tm_score_observations_v2 import _evidence
 
@@ -78,6 +82,7 @@ def _execution_cases() -> tuple[ModulePackageContractCase, ...]:
                 ("per_subject_counterpart", "counterparts"),
             )
         ),
+        _three_way_ctk_case(),
     )
 
 
@@ -95,8 +100,25 @@ def _verify_comparison_package(
                 evidence,
                 (object(), replace(evidence, correspondence=())),
             ),
+            ModulePackagePortCase(
+                "structure_comparison.three_way_consistency",
+                "1.0.0",
+                _three_way_consistency_value(),
+                (
+                    object(),
+                    replace(
+                        _three_way_consistency_value(),
+                        classification="all_disagree",
+                    ),
+                ),
+            ),
         ),
-        supporting_registrations=(TRANSFORM_PACKAGE, SOURCE_PACKAGE),
+        supporting_registrations=(
+            TRANSFORM_PACKAGE,
+            SOURCE_PACKAGE,
+            COLLECTION_OPS_PACKAGE,
+            STRUCTURE_PREDICTION_PACKAGE,
+        ),
         work_root=tmp_path,
     )
 
@@ -106,7 +128,7 @@ def test_real_v2_run_admits_exact_structure_alignment_evidence(
 ) -> None:
     report = _verify_comparison_package(tmp_path)
 
-    assert len(report.case_reports) == 8
+    assert len(report.case_reports) == 9
     assert {case.status for case in report.case_reports} == {"succeeded"}
 
 

@@ -6,6 +6,10 @@ from importlib.metadata import version
 
 from core import CatalogContract, MethodDefinition
 from datatypes import ExactContractReference
+from modules.folding.package import (
+    REMOTE_ESMFOLD2_FOLD_METHOD,
+    SIMPLEFOLD_FOLD_METHOD,
+)
 
 
 VERSION = "3.0.0"
@@ -189,6 +193,54 @@ TM_SCORE_FROM_EVIDENCE_METHOD = MethodDefinition(
 )
 
 
+THREE_WAY_CONSISTENCY_METHOD = MethodDefinition(
+    method_id="structure_comparison.three_way_consistency.threshold_graph",
+    version="1.0.0",
+    algorithm_identity={
+        "name": "input-esmfold2-simplefold-threshold-graph",
+        "confidence_eligibility": {
+            "metric": "structure.plddt.mean_residue@3.0.0",
+            "minimum": 70.0,
+            "methods": [
+                "folding.fold.esmfold2_fast_biohub_2026_05@4.0.0",
+                "folding.fold.simplefold_100m_c7a5570@4.0.0",
+            ],
+        },
+        "close": {
+            "reference_normalized_tm_score_minimum": 0.8,
+            "ca_rmsd_angstrom_maximum": 2.5,
+        },
+        "edge_roles": [
+            "input_esmfold2",
+            "input_simplefold",
+            "esmfold2_simplefold",
+        ],
+        "classifications": [
+            "three_way_consistent",
+            "method_disagreement",
+            "input_disagreement",
+            "all_disagree",
+            "insufficient_evidence",
+        ],
+        "two_close_edge_subreason": "threshold_boundary_nontransitive",
+        "input_b_factor": "uninterpreted-coordinate-field",
+    },
+    model_identity={"kind": "none"},
+    checkpoint_identity={"kind": "none"},
+    featurization_identity={
+        "candidate_association": "exact-CandidateDataReference",
+        "pairing": "explicit-common-parent-sibling-pairing",
+        "comparison": "exact-alignment-evidence-provenanced-scores",
+    },
+    source_identity={"kind": "repository-owned"},
+    scale_contract={
+        "plddt": "zero-to-100",
+        "tm_score": "dimensionless-reference-axis-normalized",
+        "rmsd": "angstrom",
+    },
+)
+
+
 ALIGNMENT_METHODS = (
     SEQUENCE_PRIMARY_AFFINE_METHOD,
     STRUCTURE_FIRST_TM_ALIGN_METHOD,
@@ -228,3 +280,10 @@ RMSD_FROM_EVIDENCE_METHOD_REFERENCE = method_reference(
 TM_SCORE_FROM_EVIDENCE_METHOD_REFERENCE = method_reference(
     TM_SCORE_FROM_EVIDENCE_METHOD
 )
+THREE_WAY_CONSISTENCY_METHOD_REFERENCE = method_reference(
+    THREE_WAY_CONSISTENCY_METHOD
+)
+REMOTE_ESMFOLD2_FOLD_METHOD_REFERENCE = method_reference(
+    REMOTE_ESMFOLD2_FOLD_METHOD
+)
+SIMPLEFOLD_FOLD_METHOD_REFERENCE = method_reference(SIMPLEFOLD_FOLD_METHOD)

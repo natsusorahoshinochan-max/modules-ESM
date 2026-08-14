@@ -410,7 +410,7 @@ def test_production_catalog_advertises_only_cohesive_v2_capabilities() -> None:
         ("structure_comparison.align_fixed_reference", "4.0.0"),
         ("structure_comparison.align_single", "4.0.0"),
         (
-            "structure_comparison.classify_1pga_three_way_consistency",
+            "structure_comparison.classify_three_way_consistency",
             "1.0.0",
         ),
         ("structure_comparison.rmsd_counterparts", "5.0.0"),
@@ -444,7 +444,7 @@ def test_production_catalog_advertises_only_cohesive_v2_capabilities() -> None:
             "4.0.0",
         ),
         (
-            "structure_comparison.classify_1pga_three_way_consistency.direct",
+            "structure_comparison.classify_three_way_consistency.direct",
             "1.0.0",
         ),
         (

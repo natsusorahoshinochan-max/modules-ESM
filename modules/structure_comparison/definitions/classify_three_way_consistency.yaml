@@ -1,5 +1,5 @@
 schema_version: "2.1.0"
-node_type_id: structure_comparison.classify_1pga_three_way_consistency
+node_type_id: structure_comparison.classify_three_way_consistency
 version: "1.0.0"
 title: Classify three-way structural consistency
 summary: Classifies one input, one ESMFold2 prediction, and one SimpleFold prediction from complete exact lineage, confidence, sibling-pairing, alignment, TM-score, and RMSD evidence.
@@ -16,7 +16,7 @@ inputs:
     port_type_version: "3.0.0"
     required: true
     multiplicity: one
-    scientific_meaning: Exactly one 75-residue sequence Candidate extracted from the input structure and shared as the exact parent of both predictions.
+    scientific_meaning: Exactly one sequence Candidate extracted from the input structure and shared as the exact parent of both predictions.
   - name: esmfold2_structures
     port_type_id: candidate.collection
     port_type_version: "3.0.0"
@@ -34,7 +34,7 @@ inputs:
     port_type_version: "5.0.0"
     required: true
     multiplicity: one
-    scientific_meaning: Exact Candidate-associated 75-residue source structure axis.
+    scientific_meaning: Exact Candidate-associated source structure axis.
   - name: esmfold2_residue_axes
     port_type_id: structure_transform.candidate_resolved_residue_axis_associations
     port_type_version: "5.0.0"
@@ -121,7 +121,7 @@ inputs:
     scientific_meaning: Candidate-associated SimpleFold confidence Observations retaining the exact provider Method and prediction-input residue axis.
 outputs:
   - name: consistency
-    port_type_id: structure_comparison.1pga_three_way_consistency
+    port_type_id: structure_comparison.three_way_consistency
     port_type_version: "1.0.0"
     required: true
     multiplicity: one

@@ -140,6 +140,7 @@ class ThreeWayConsistencyEvidence:
     simplefold_structure: CandidateDataReference
     classification_method: ExactContractReference
     input_b_factor_semantics: str
+    residue_count: int
     plddt_threshold: float
     tm_score_threshold: float
     rmsd_threshold_angstrom: float

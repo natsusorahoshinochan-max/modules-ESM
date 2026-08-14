@@ -33,11 +33,14 @@ from modules.structure_comparison.alignment import (
     align_resolved_axes,
 )
 from modules.structure_comparison.contracts import (
+    REMOTE_ESMFOLD2_FOLD_METHOD_REFERENCE,
     RMSD_FROM_EVIDENCE_METHOD_REFERENCE,
     SEQUENCE_PRIMARY_AFFINE_METHOD,
     SEQUENCE_PRIMARY_AFFINE_METHOD_REFERENCE,
+    SIMPLEFOLD_FOLD_METHOD_REFERENCE,
     STRUCTURE_FIRST_TM_ALIGN_METHOD,
     STRUCTURE_FIRST_TM_ALIGN_METHOD_REFERENCE,
+    THREE_WAY_CONSISTENCY_METHOD_REFERENCE,
     TM_SCORE_FROM_EVIDENCE_METHOD_REFERENCE,
 )
 from modules.structure_comparison.domain import (
@@ -51,6 +54,9 @@ from modules.structure_comparison.port_types import (
     ALIGNMENT_EVIDENCE_PORT_TYPE,
     alignment_evidence_from_wire,
     alignment_evidence_to_wire,
+)
+from modules.structure_comparison.three_way_port import (
+    validate_three_way_consistency,
 )
 from modules.structure_comparison.package import MODULE_PACKAGE
 from modules.collection_ops.package import MODULE_PACKAGE as COLLECTION_OPS_PACKAGE
@@ -920,7 +926,7 @@ def test_structure_comparison_catalog_has_only_active_split_paths() -> None:
         ("structure_comparison.align_fixed_reference", "4.0.0"),
         ("structure_comparison.align_counterparts", "4.0.0"),
         (
-            "structure_comparison.classify_1pga_three_way_consistency",
+            "structure_comparison.classify_three_way_consistency",
             "1.0.0",
         ),
         ("structure_comparison.rmsd_fixed_reference", "5.0.0"),
@@ -957,7 +963,7 @@ def test_structure_comparison_catalog_has_only_active_split_paths() -> None:
             "4.0.0",
         ),
         (
-            "structure_comparison.classify_1pga_three_way_consistency.direct",
+            "structure_comparison.classify_three_way_consistency.direct",
             "1.0.0",
         ),
         (
@@ -990,7 +996,7 @@ def test_structure_comparison_catalog_has_only_active_split_paths() -> None:
         "structure_comparison.align_single",
         "structure_comparison.align_fixed_reference",
         "structure_comparison.align_counterparts",
-        "structure_comparison.classify_1pga_three_way_consistency",
+        "structure_comparison.classify_three_way_consistency",
         "structure_comparison.rmsd_fixed_reference",
         "structure_comparison.rmsd_counterparts",
         "structure_comparison.tm_score_fixed_reference",
@@ -1052,7 +1058,7 @@ def test_structure_comparison_catalog_has_only_active_split_paths() -> None:
         for contract in contracts
         if contract.contract_id.endswith(".direct")
     } == {
-        "structure_comparison.classify_1pga_three_way_consistency.direct"
+        "structure_comparison.classify_three_way_consistency.direct"
     }
     assert not any(
         "batch_tm_score" in contract.contract_id for contract in contracts
@@ -1460,9 +1466,9 @@ def _three_way_ctk_case() -> ModulePackageContractCase:
     )
     return ModulePackageContractCase(
         case_id="classify-1pga-three-way-consistency",
-        node_type_id="structure_comparison.classify_1pga_three_way_consistency",
+        node_type_id="structure_comparison.classify_three_way_consistency",
         node_type_version="1.0.0",
-        binding_id="structure_comparison.classify_1pga_three_way_consistency.direct",
+        binding_id="structure_comparison.classify_three_way_consistency.direct",
         binding_version="1.0.0",
         node_parameters={},
         binding_parameters={},
@@ -1472,6 +1478,163 @@ def _three_way_ctk_case() -> ModulePackageContractCase:
         workflow_nodes=nodes,
         workflow_edges=tuple(edges),
     )
+
+
+def _three_way_consistency_value() -> ThreeWayConsistencyEvidence:
+    input_reference = CandidateDataReference(
+        "input", "protein.structure", "sha256:" + "5" * 64
+    )
+    sequence_reference = CandidateDataReference(
+        "sequence", "protein.sequence", "sha256:" + "6" * 64
+    )
+    esmfold2_reference = CandidateDataReference(
+        "esmfold2", "protein.structure", "sha256:" + "7" * 64
+    )
+    simplefold_reference = CandidateDataReference(
+        "simplefold", "protein.structure", "sha256:" + "8" * 64
+    )
+    confidences = (
+        ThreeWayConfidenceEvidence(
+            "esmfold2",
+            esmfold2_reference,
+            REMOTE_ESMFOLD2_FOLD_METHOD_REFERENCE,
+            90.0,
+            True,
+            "sha256:" + "9" * 64,
+        ),
+        ThreeWayConfidenceEvidence(
+            "simplefold",
+            simplefold_reference,
+            SIMPLEFOLD_FOLD_METHOD_REFERENCE,
+            90.0,
+            True,
+            "sha256:" + "a" * 64,
+        ),
+    )
+    edge_specs = (
+        ("input_esmfold2", esmfold2_reference, input_reference, "b", "c", "d"),
+        ("input_simplefold", simplefold_reference, input_reference, "e", "f", "0"),
+        (
+            "esmfold2_simplefold",
+            esmfold2_reference,
+            simplefold_reference,
+            "1",
+            "2",
+            "3",
+        ),
+    )
+    edges = tuple(
+        ThreeWayComparisonEdge(
+            edge_id=edge_id,
+            subject=subject,
+            reference=reference_candidate,
+            alignment_evidence_content_digest="sha256:" + digest * 64,
+            alignment_method=SEQUENCE_PRIMARY_AFFINE_METHOD_REFERENCE,
+            normalization_length=75,
+            aligned_atom_count=75,
+            tm_score=1.0,
+            rmsd_angstrom=0.0,
+            tm_score_method=TM_SCORE_FROM_EVIDENCE_METHOD_REFERENCE,
+            rmsd_method=RMSD_FROM_EVIDENCE_METHOD_REFERENCE,
+            tm_score_content_digest="sha256:" + tm_digest * 64,
+            rmsd_content_digest="sha256:" + rmsd_digest * 64,
+            close=True,
+        )
+        for edge_id, subject, reference_candidate, digest, tm_digest, rmsd_digest in edge_specs
+    )
+    return ThreeWayConsistencyEvidence(
+        input_structure=input_reference,
+        sequence_parent=sequence_reference,
+        esmfold2_structure=esmfold2_reference,
+        simplefold_structure=simplefold_reference,
+        classification_method=THREE_WAY_CONSISTENCY_METHOD_REFERENCE,
+        input_b_factor_semantics="uninterpreted_coordinate_temperature_factor",
+        residue_count=75,
+        plddt_threshold=70.0,
+        tm_score_threshold=0.8,
+        rmsd_threshold_angstrom=2.5,
+        confidences=confidences,
+        edges=edges,
+        classification="three_way_consistent",
+        subreason=None,
+    )
+
+
+def test_three_way_thresholds_are_inclusive_and_exact() -> None:
+    value = _three_way_consistency_value()
+    exact_confidence = replace(
+        value.confidences[0],
+        mean_residue_plddt=70.0,
+        eligible=True,
+    )
+    exact_edge = replace(
+        value.edges[0],
+        tm_score=0.8,
+        rmsd_angstrom=2.5,
+        close=True,
+    )
+    validate_three_way_consistency(
+        replace(
+            value,
+            confidences=(exact_confidence, value.confidences[1]),
+            edges=(exact_edge, *value.edges[1:]),
+        )
+    )
+
+    below_confidence = replace(
+        exact_confidence,
+        mean_residue_plddt=69.999999,
+        eligible=False,
+    )
+    validate_three_way_consistency(
+        replace(
+            value,
+            confidences=(below_confidence, value.confidences[1]),
+            classification="insufficient_evidence",
+            subreason="method_confidence_below_threshold",
+        )
+    )
+    for outside_edge in (
+        replace(exact_edge, tm_score=0.799999, close=False),
+        replace(exact_edge, rmsd_angstrom=2.500001, close=False),
+    ):
+        validate_three_way_consistency(
+            replace(
+                value,
+                edges=(outside_edge, *value.edges[1:]),
+                classification="insufficient_evidence",
+                subreason="threshold_boundary_nontransitive",
+            )
+        )
+
+
+def test_three_way_port_requires_tuples_and_exact_method_references() -> None:
+    value = _three_way_consistency_value()
+    with pytest.raises(ValueError, match="exact tuple"):
+        validate_three_way_consistency(
+            replace(value, confidences=list(value.confidences))
+        )
+    with pytest.raises(ValueError, match="exact tuple"):
+        validate_three_way_consistency(replace(value, edges=list(value.edges)))
+    wrong_digest = replace(
+        value.confidences[0].method,
+        contract_digest="sha256:" + "0" * 64,
+    )
+    with pytest.raises(ValueError, match="confidence evidence"):
+        validate_three_way_consistency(
+            replace(
+                value,
+                confidences=(
+                    replace(value.confidences[0], method=wrong_digest),
+                    value.confidences[1],
+                ),
+            )
+        )
+    wrong_kind = replace(value.classification_method, contract_kind="metric")
+    with pytest.raises(ValueError, match="not canonical"):
+        validate_three_way_consistency(
+            replace(value, classification_method=wrong_kind)
+        )
 
 
 def test_structure_comparison_contract_test_kit(
@@ -1666,10 +1829,11 @@ def test_structure_comparison_contract_test_kit(
         simplefold_structure=simplefold_reference,
         classification_method=reference(
             "method",
-            "structure_comparison.1pga_three_way_consistency.threshold_graph",
+            "structure_comparison.three_way_consistency.threshold_graph",
             "1.0.0",
         ),
         input_b_factor_semantics="uninterpreted_coordinate_temperature_factor",
+        residue_count=75,
         plddt_threshold=70.0,
         tm_score_threshold=0.8,
         rmsd_threshold_angstrom=2.5,
@@ -1690,7 +1854,7 @@ def test_structure_comparison_contract_test_kit(
                 (object(), replace(evidence, correspondence=())),
             ),
             ModulePackagePortCase(
-                "structure_comparison.1pga_three_way_consistency",
+                "structure_comparison.three_way_consistency",
                 "1.0.0",
                 consistency,
                 (object(), replace(consistency, classification="all_disagree")),
