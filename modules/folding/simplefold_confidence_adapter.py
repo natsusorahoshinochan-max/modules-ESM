@@ -20,9 +20,7 @@ from typing import Any, cast, Protocol, TypedDict
 from core import ReadinessResult, RunResources
 from modules.provider_contract import (
     SIMPLEFOLD_ARTIFACT_IDENTITIES,
-    SIMPLEFOLD_ARTIFACT_SHA256,
     SIMPLEFOLD_ESM2_ARTIFACT_IDENTITIES,
-    SIMPLEFOLD_ESM2_ARTIFACT_SHA256,
     SIMPLEFOLD_ESM2_REVISION,
     SIMPLEFOLD_ESM2_SOURCE_TREE_SHA256,
     SIMPLEFOLD_REVISION,
@@ -35,10 +33,10 @@ from datatypes import (
 from .adapter import normalize_residue_plddt
 from .simplefold_contract import (
     SIMPLEFOLD_CONFIDENCE_ADAPTER,
-    SIMPLEFOLD_CONFIDENCE_ARTIFACTS,
     SIMPLEFOLD_CONFIDENCE_DEVICE,
-    SIMPLEFOLD_CONFIDENCE_ESM2_ARTIFACTS,
     SIMPLEFOLD_CONFIDENCE_FEATURIZATION,
+    simplefold_confidence_artifact_sha256,
+    simplefold_confidence_esm2_artifact_sha256,
 )
 
 
@@ -81,22 +79,6 @@ def validated_simplefold_esm2_root(
     )
 
     return validate(source_root)
-
-
-def simplefold_confidence_artifact_sha256() -> dict[str, str]:
-    """Return the exact SimpleFold model/data closure used by confidence."""
-    return {
-        name: SIMPLEFOLD_ARTIFACT_SHA256[name]
-        for name in SIMPLEFOLD_CONFIDENCE_ARTIFACTS
-    }
-
-
-def simplefold_confidence_esm2_artifact_sha256() -> dict[str, str]:
-    """Return the representation-only ESM2 weight closure."""
-    return {
-        name: SIMPLEFOLD_ESM2_ARTIFACT_SHA256[name]
-        for name in SIMPLEFOLD_CONFIDENCE_ESM2_ARTIFACTS
-    }
 
 
 def provider_identity() -> dict[str, Any]:

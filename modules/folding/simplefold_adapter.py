@@ -13,7 +13,6 @@ from typing import Any, cast, Protocol, TypedDict, TypeAlias
 from core import ReadinessResult, RunResources
 from modules.provider_contract import (
     SIMPLEFOLD_ARTIFACT_IDENTITIES,
-    SIMPLEFOLD_ARTIFACT_SHA256,
     SIMPLEFOLD_ESM2_ARTIFACT_IDENTITIES,
     SIMPLEFOLD_ESM2_ARTIFACT_SHA256,
     SIMPLEFOLD_ESM2_REVISION,
@@ -25,8 +24,8 @@ from modules.provider_contract import (
 from datatypes import ProteinSequence, ProteinStructure
 from .simplefold_contract import (
     SIMPLEFOLD_DEVICE,
-    SIMPLEFOLD_FOLDING_ARTIFACTS,
     SIMPLEFOLD_MODEL,
+    simplefold_folding_artifact_sha256,
 )
 
 
@@ -79,14 +78,6 @@ class SimpleFoldAdapter(Protocol):
         derived_call_seed: int,
         engine_role: str,
     ) -> SimpleFoldAdapterResult: ...
-
-
-def simplefold_folding_artifact_sha256() -> dict[str, str]:
-    """Return the exact checkpoint closure used by the folding Binding."""
-    return {
-        name: SIMPLEFOLD_ARTIFACT_SHA256[name]
-        for name in SIMPLEFOLD_FOLDING_ARTIFACTS
-    }
 
 
 def simplefold_folding_provider_identity() -> dict[str, Any]:

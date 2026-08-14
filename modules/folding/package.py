@@ -32,6 +32,8 @@ from modules.provider_contract import (
 )
 
 from .contracts import (
+    CONFIDENCE_METHOD_VERSION,
+    FOLD_METHOD_VERSION,
     LOCAL_ESMFOLD2_FOLD_METHOD,
     REMOTE_ESMFOLD2_FOLD_METHOD,
     SIMPLEFOLD_CONFIDENCE_METHOD,
@@ -61,7 +63,6 @@ from .simplefold_adapter import (
     LocalSimpleFoldAdapter,
     SIMPLEFOLD_DEVICE,
     SIMPLEFOLD_MODEL,
-    simplefold_folding_artifact_sha256,
     simplefold_readiness,
     simplefold_runtime_structurally_available,
 )
@@ -71,18 +72,19 @@ from .simplefold_confidence_adapter import (
     SIMPLEFOLD_CONFIDENCE_DEVICE,
     SIMPLEFOLD_CONFIDENCE_FEATURIZATION,
     configured_runtime_fingerprint as confidence_runtime_fingerprint,
-    simplefold_confidence_artifact_sha256,
-    simplefold_confidence_esm2_artifact_sha256,
     simplefold_confidence_readiness,
     simplefold_confidence_runtime_structurally_available,
+)
+from .simplefold_contract import (
+    simplefold_confidence_artifact_sha256,
+    simplefold_confidence_esm2_artifact_sha256,
+    simplefold_folding_artifact_sha256,
 )
 
 
 _PACKAGE_VERSION = "5.0.0"
-_FOLD_METHOD_VERSION = "4.0.0"
 _FOLD_NODE_BINDING_VERSION = "6.0.0"
 _REMOTE_FOLD_BINDING_VERSION = "7.0.0"
-_CONFIDENCE_METHOD_VERSION = "3.0.0"
 _CONFIDENCE_NODE_BINDING_VERSION = "4.0.0"
 _METRIC_VERSIONS = {
     "structure.ptm": "2.1.0",
@@ -403,7 +405,7 @@ def _binding(route: str) -> ExecutionBindingDefinition:
             "folding.fold",
             _FOLD_NODE_BINDING_VERSION,
         ),
-        method=ContractIdentity("method", method_id, _FOLD_METHOD_VERSION),
+        method=ContractIdentity("method", method_id, FOLD_METHOD_VERSION),
         binding_parameters={},
         execution_route="adapter",
         factory=ScientificOperationFactory(
@@ -456,7 +458,7 @@ def _simplefold_binding() -> ExecutionBindingDefinition:
             "folding.fold",
             _FOLD_NODE_BINDING_VERSION,
         ),
-        method=ContractIdentity("method", method_id, _FOLD_METHOD_VERSION),
+        method=ContractIdentity("method", method_id, FOLD_METHOD_VERSION),
         binding_parameters={
             "num_steps": {
                 "parameter_scope": "scientific",
@@ -600,7 +602,7 @@ def _simplefold_confidence_binding() -> ExecutionBindingDefinition:
         method=ContractIdentity(
             "method",
             method_id,
-            _CONFIDENCE_METHOD_VERSION,
+            CONFIDENCE_METHOD_VERSION,
         ),
         binding_parameters={},
         execution_route="adapter",

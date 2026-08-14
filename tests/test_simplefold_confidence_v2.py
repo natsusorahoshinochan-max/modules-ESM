@@ -138,6 +138,7 @@ def _confidence_environment(
     asset_prefix: str = "fixture",
 ) -> dict[str, Any]:
     import modules.folding.simplefold_confidence_adapter as adapter
+    import modules.folding.simplefold_contract as contract
 
     model_root = tmp_path / "models"
     esm2_model_root = tmp_path / "esm2-models"
@@ -147,18 +148,18 @@ def _confidence_environment(
     esm2_source_root.mkdir()
     model_payloads = {
         name: f"{asset_prefix}-{name}".encode()
-        for name in adapter.SIMPLEFOLD_CONFIDENCE_ARTIFACTS
+        for name in contract.SIMPLEFOLD_CONFIDENCE_ARTIFACTS
     }
     esm2_payloads = {
         name: f"{asset_prefix}-{name}".encode()
-        for name in adapter.SIMPLEFOLD_CONFIDENCE_ESM2_ARTIFACTS
+        for name in contract.SIMPLEFOLD_CONFIDENCE_ESM2_ARTIFACTS
     }
     for name, payload in model_payloads.items():
         (model_root / name).write_bytes(payload)
     for name, payload in esm2_payloads.items():
         (esm2_model_root / name).write_bytes(payload)
     monkeypatch.setattr(
-        adapter,
+        contract,
         "SIMPLEFOLD_ARTIFACT_SHA256",
         {
             name: hashlib.sha256(payload).hexdigest()
@@ -174,7 +175,7 @@ def _confidence_environment(
         },
     )
     monkeypatch.setattr(
-        adapter,
+        contract,
         "SIMPLEFOLD_ESM2_ARTIFACT_SHA256",
         {
             name: hashlib.sha256(payload).hexdigest()
@@ -1099,10 +1100,12 @@ def test_resolved_asset_digests_are_bound_to_result_contract_identity(
         if output["node_id"] == "confidence"
     )
     assert result_identity.startswith("sha256:")
-    replacement = dict(adapter.SIMPLEFOLD_ARTIFACT_SHA256)
+    import modules.folding.simplefold_contract as contract
+
+    replacement = dict(contract.SIMPLEFOLD_ARTIFACT_SHA256)
     replacement["ccd.pkl"] = "0" * 64
     monkeypatch.setattr(
-        adapter,
+        contract,
         "SIMPLEFOLD_ARTIFACT_SHA256",
         replacement,
     )

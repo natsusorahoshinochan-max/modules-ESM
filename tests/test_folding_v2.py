@@ -1359,6 +1359,7 @@ def test_remote_and_local_bindings_pass_shared_contract_test_kit(
     )
     local_environment["provider_client"] = LocalClient()
     import modules.folding.simplefold_adapter as simplefold_adapter
+    import modules.folding.simplefold_contract as simplefold_contract
 
     simplefold_model_root = tmp_path / "simplefold-models"
     simplefold_esm2_models = tmp_path / "simplefold-esm2-models"
@@ -1368,7 +1369,7 @@ def test_remote_and_local_bindings_pass_shared_contract_test_kit(
     simplefold_esm2_source.mkdir()
     simplefold_payloads = {
         name: f"fixture-{name}".encode()
-        for name in simplefold_adapter.SIMPLEFOLD_FOLDING_ARTIFACTS
+        for name in simplefold_contract.SIMPLEFOLD_FOLDING_ARTIFACTS
     }
     simplefold_esm2_payloads = {
         "esm2_t36_3B_UR50D.pt": b"fixture-esm2",
@@ -1379,7 +1380,7 @@ def test_remote_and_local_bindings_pass_shared_contract_test_kit(
     for name, payload in simplefold_esm2_payloads.items():
         (simplefold_esm2_models / name).write_bytes(payload)
     monkeypatch.setattr(
-        simplefold_adapter,
+        simplefold_contract,
         "SIMPLEFOLD_ARTIFACT_SHA256",
         {
             name: hashlib.sha256(payload).hexdigest()
@@ -1396,6 +1397,14 @@ def test_remote_and_local_bindings_pass_shared_contract_test_kit(
     )
     monkeypatch.setattr(
         simplefold_adapter,
+        "SIMPLEFOLD_ESM2_ARTIFACT_SHA256",
+        {
+            name: hashlib.sha256(payload).hexdigest()
+            for name, payload in simplefold_esm2_payloads.items()
+        },
+    )
+    monkeypatch.setattr(
+        simplefold_contract,
         "SIMPLEFOLD_ESM2_ARTIFACT_SHA256",
         {
             name: hashlib.sha256(payload).hexdigest()
@@ -1426,30 +1435,10 @@ def test_remote_and_local_bindings_pass_shared_contract_test_kit(
 
     monkeypatch.setattr(
         confidence_adapter,
-        "SIMPLEFOLD_ARTIFACT_SHA256",
-        {
-            name: hashlib.sha256(simplefold_payloads[name]).hexdigest()
-            for name in confidence_adapter.SIMPLEFOLD_CONFIDENCE_ARTIFACTS
-        },
-    )
-    monkeypatch.setattr(
-        confidence_adapter,
         "SIMPLEFOLD_ARTIFACT_IDENTITIES",
         {
             name: {"bytes": len(simplefold_payloads[name])}
-            for name in confidence_adapter.SIMPLEFOLD_CONFIDENCE_ARTIFACTS
-        },
-    )
-    monkeypatch.setattr(
-        confidence_adapter,
-        "SIMPLEFOLD_ESM2_ARTIFACT_SHA256",
-        {
-            name: hashlib.sha256(
-                simplefold_esm2_payloads[name]
-            ).hexdigest()
-            for name in (
-                confidence_adapter.SIMPLEFOLD_CONFIDENCE_ESM2_ARTIFACTS
-            )
+            for name in simplefold_contract.SIMPLEFOLD_CONFIDENCE_ARTIFACTS
         },
     )
     monkeypatch.setattr(
@@ -1458,7 +1447,7 @@ def test_remote_and_local_bindings_pass_shared_contract_test_kit(
         {
             name: {"bytes": len(simplefold_esm2_payloads[name])}
             for name in (
-                confidence_adapter.SIMPLEFOLD_CONFIDENCE_ESM2_ARTIFACTS
+                simplefold_contract.SIMPLEFOLD_CONFIDENCE_ESM2_ARTIFACTS
             )
         },
     )

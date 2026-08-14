@@ -246,6 +246,7 @@ def _simplefold_environment(
     client: Any,
 ) -> dict[str, Any]:
     import modules.folding.simplefold_adapter as adapter
+    import modules.folding.simplefold_contract as contract
 
     model_root = tmp_path / "models"
     esm2_model_root = tmp_path / "esm2-models"
@@ -255,7 +256,7 @@ def _simplefold_environment(
     esm2_source_root.mkdir()
     model_payloads = {
         name: f"fixture-{name}".encode()
-        for name in adapter.SIMPLEFOLD_FOLDING_ARTIFACTS
+        for name in contract.SIMPLEFOLD_FOLDING_ARTIFACTS
     }
     esm2_payloads = {
         "esm2_t36_3B_UR50D.pt": b"fixture-esm2",
@@ -266,7 +267,7 @@ def _simplefold_environment(
     for name, payload in esm2_payloads.items():
         (esm2_model_root / name).write_bytes(payload)
     monkeypatch.setattr(
-        adapter,
+        contract,
         "SIMPLEFOLD_ARTIFACT_SHA256",
         {
             name: hashlib.sha256(payload).hexdigest()
