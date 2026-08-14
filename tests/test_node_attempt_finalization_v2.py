@@ -1,0 +1,209 @@
+"""Closed Node Attempt finalization contracts."""
+
+from __future__ import annotations
+
+from types import SimpleNamespace
+
+import pytest
+
+from core import ProjectManager, ResultReplaySource
+import core.run_execution_v2 as run_execution_v2
+
+
+def _open_attempt_ledger(
+    tmp_path,
+    *,
+    operation_started: bool,
+) -> run_execution_v2._RunEvidenceLedger:
+    workflow_commit_id = "workflow-commit-" + "0" * 64
+    plan_node = run_execution_v2._PlanNodeEvidence(
+        node_id="node-1",
+        dependencies=(),
+        required_dependencies=(),
+        result_identity_plan_facts_digest="sha256:" + "1" * 64,
+    )
+    ledger = run_execution_v2._RunEvidenceLedger(
+        ProjectManager(tmp_path / "projects"),
+        "project-1",
+        "run-1",
+        (plan_node,),
+    )
+    ledger.append(
+        "run_scope_bound",
+        {
+            "project_id": "project-1",
+            "run_id": "run-1",
+            "workflow_commit_id": workflow_commit_id,
+            "workflow_commit_revision": 1,
+            "workflow_digest": "sha256:" + "2" * 64,
+            "contract_lock_digest": "sha256:" + "3" * 64,
+            "execution_plan_digest": "sha256:" + "4" * 64,
+            "catalog_contract_digest": "sha256:" + "5" * 64,
+            "resolved_contracts": [],
+            "selection_required": False,
+            "selection_terminal_keys": [],
+            "plan_nodes": [plan_node.to_dict()],
+        },
+    )
+    ledger.append(
+        "run_admitted",
+        {
+            "workflow_commit_id": workflow_commit_id,
+            "workflow_commit_revision": 1,
+        },
+    )
+    ledger.append("run_started", {"started_at": "2026-08-14T00:00:00Z"})
+    ledger.append(
+        "node_attempt_started",
+        {"node_id": "node-1", "node_attempt_id": "node-attempt-1"},
+    )
+    if operation_started:
+        ledger.append(
+            "operation_attempt_started",
+            {
+                "operation_attempt_id": "operation-1",
+                "node_attempt_id": "node-attempt-1",
+            },
+        )
+    return ledger
+
+
+def _finalizer(
+    ledger: run_execution_v2._RunEvidenceLedger,
+) -> run_execution_v2.NodeAttemptFinalizer:
+    def materialize_artifacts(**kwargs):
+        return list(kwargs["published"]), [], {}
+
+    return run_execution_v2.NodeAttemptFinalizer(
+        ledger=ledger,
+        result_replay_source=ResultReplaySource(),
+        materialize_artifacts=materialize_artifacts,
+    )
+
+
+def test_executed_success_is_finalized_with_outputs_and_disposition(
+    tmp_path,
+) -> None:
+    ledger = _open_attempt_ledger(tmp_path, operation_started=True)
+    finalized = _finalizer(ledger).finalize(
+        run_execution_v2.ExecutedNodeSuccess(
+            project_id="project-1",
+            run_id="run-1",
+            execution_plan=SimpleNamespace(),
+            node=SimpleNamespace(node_id="node-1"),
+            resources=SimpleNamespace(
+                run_id="run-1",
+                _output_root=tmp_path / "outputs",
+                _cancellation_control=None,
+            ),
+            node_attempt_id="node-attempt-1",
+            operation_attempt_id="operation-1",
+            result_identity="sha256:" + "6" * 64,
+            published_outputs=(),
+            admitted_outputs={},
+            cache_eligible=False,
+            current_artifact_count=0,
+            current_artifact_bytes=0,
+        )
+    )
+
+    assert finalized.disposition == "succeeded"
+    assert [fact["fact_type"] for fact in ledger.facts[-4:]] == [
+        "operation_attempt_terminal",
+        "outputs_published",
+        "node_attempt_terminal",
+        "node_disposition",
+    ]
+    assert ledger.projection()["node_dispositions"][0]["resolution"] == (
+        "executed"
+    )
+
+
+def test_executed_non_success_is_finalized_without_outputs(tmp_path) -> None:
+    ledger = _open_attempt_ledger(tmp_path, operation_started=True)
+    finalized = _finalizer(ledger).finalize(
+        run_execution_v2.ExecutedNodeNonSuccess(
+            node_id="node-1",
+            node_attempt_id="node-attempt-1",
+            operation_attempt_id="operation-1",
+            status="failed",
+            public_error=run_execution_v2._public_failure(
+                RuntimeError("fixture failure")
+            ),
+        )
+    )
+
+    assert finalized.disposition == "failed"
+    assert ledger.projection()["outputs"] == []
+    assert [fact["fact_type"] for fact in ledger.facts[-3:]] == [
+        "operation_attempt_terminal",
+        "node_attempt_terminal",
+        "node_disposition",
+    ]
+
+
+def test_cache_replay_success_has_no_operation_attempt(tmp_path) -> None:
+    ledger = _open_attempt_ledger(tmp_path, operation_started=False)
+    finalized = _finalizer(ledger).finalize(
+        run_execution_v2.CacheReplayNodeSuccess(
+            project_id="project-1",
+            run_id="run-1",
+            execution_plan=SimpleNamespace(),
+            node=SimpleNamespace(node_id="node-1"),
+            resources=SimpleNamespace(
+                run_id="run-1",
+                _output_root=tmp_path / "outputs",
+                _cancellation_control=None,
+            ),
+            node_attempt_id="node-attempt-1",
+            result_identity="sha256:" + "7" * 64,
+            producer_run_id="producer-run",
+            published_outputs=(),
+            admitted_outputs={},
+            current_artifact_count=0,
+            current_artifact_bytes=0,
+        )
+    )
+
+    assert finalized.disposition == "succeeded"
+    assert not any(
+        fact["fact_type"].startswith("operation_attempt")
+        for fact in ledger.facts
+    )
+    assert ledger.projection()["node_dispositions"][0]["resolution"] == (
+        "cache_replayed"
+    )
+
+
+@pytest.mark.parametrize(
+    ("status", "disposition"),
+    (
+        ("cancelled", "cancelled"),
+        ("interrupted", "interrupted"),
+        ("outcome_unknown", "interrupted"),
+    ),
+)
+def test_cancellation_and_interruption_share_the_finalization_seam(
+    tmp_path,
+    status: str,
+    disposition: str,
+) -> None:
+    ledger = _open_attempt_ledger(tmp_path, operation_started=True)
+    finalized = _finalizer(ledger).finalize(
+        run_execution_v2.CancelledOrInterruptedNode(
+            node_id="node-1",
+            status=status,
+            public_error=run_execution_v2._public_failure(
+                RuntimeError("fixture termination")
+            ),
+            node_attempt_id="node-attempt-1",
+            operation_attempt_id="operation-1",
+            resolution="executed",
+        )
+    )
+
+    assert finalized.disposition == disposition
+    assert ledger.projection()["node_dispositions"][0]["outcome"] == (
+        disposition
+    )
+    assert ledger.facts[-2]["payload"]["status"] == status

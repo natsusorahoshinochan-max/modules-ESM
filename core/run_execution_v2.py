@@ -1000,6 +1000,91 @@ class PreScheduleTermination(RuntimeError):
 
 
 @dataclass(frozen=True, slots=True)
+class ExecutedNodeSuccess:
+    """One admitted executed result ready for Node finalization."""
+
+    project_id: str
+    run_id: str
+    execution_plan: ExecutionPlan
+    node: ExecutionPlanNode
+    resources: RunResources
+    node_attempt_id: str
+    operation_attempt_id: str
+    result_identity: str
+    published_outputs: tuple[Mapping[str, Any], ...]
+    admitted_outputs: Mapping[tuple[str, str], AdmittedPortValues]
+    cache_eligible: bool
+    current_artifact_count: int
+    current_artifact_bytes: int
+
+
+@dataclass(frozen=True, slots=True)
+class ExecutedNodeNonSuccess:
+    """One executed or inspected Node Attempt that did not succeed."""
+
+    node_id: str
+    node_attempt_id: str
+    operation_attempt_id: str | None
+    status: str
+    public_error: Mapping[str, Any]
+    resolution: str = "executed"
+
+
+@dataclass(frozen=True, slots=True)
+class CacheReplayNodeSuccess:
+    """One identity-bound Cache replay ready for Node finalization."""
+
+    project_id: str
+    run_id: str
+    execution_plan: ExecutionPlan
+    node: ExecutionPlanNode
+    resources: RunResources
+    node_attempt_id: str
+    result_identity: str
+    producer_run_id: str
+    published_outputs: tuple[Mapping[str, Any], ...]
+    admitted_outputs: Mapping[tuple[str, str], AdmittedPortValues]
+    current_artifact_count: int
+    current_artifact_bytes: int
+
+
+@dataclass(frozen=True, slots=True)
+class CancelledOrInterruptedNode:
+    """One cancellation or interruption conclusion at its exact causal depth."""
+
+    node_id: str
+    status: str
+    public_error: Mapping[str, Any] | None
+    node_attempt_id: str | None = None
+    operation_attempt_id: str | None = None
+    resolution: str = "executed"
+
+
+NodeFinalizationIntent = (
+    ExecutedNodeSuccess
+    | ExecutedNodeNonSuccess
+    | CacheReplayNodeSuccess
+    | CancelledOrInterruptedNode
+)
+
+
+@dataclass(frozen=True, slots=True)
+class FinalizedNode:
+    """The committed disposition and success materialization for one Node."""
+
+    disposition: str
+    admitted_outputs: Mapping[
+        tuple[str, str],
+        AdmittedPortValues,
+    ] = field(default_factory=dict)
+    artifacts: tuple[Mapping[str, Any], ...] = ()
+    artifact_records: Mapping[
+        str,
+        tuple[Mapping[str, Any], tuple[str, ...]],
+    ] = field(default_factory=dict)
+
+
+@dataclass(frozen=True, slots=True)
 class _PlanNodeEvidence:
     node_id: str
     dependencies: tuple[str, ...]
@@ -2359,7 +2444,7 @@ class _RunEvidenceLedger:
             self.append(fact_type, {**identity, "status": status})
             return status
 
-    def commit_node_publication(
+    def _commit_node_publication(
         self,
         *,
         node_id: str,
@@ -2571,7 +2656,7 @@ class _RunEvidenceLedger:
                 self._run_terminal,
             )
 
-    def reconcile_restart(self) -> None:
+    def reconcile_restart(self, finalizer: NodeAttemptFinalizer) -> None:
         with self._condition:
             if not self._run_started or self._run_terminal:
                 return
@@ -2597,52 +2682,50 @@ class _RunEvidenceLedger:
                         "error": restart_error,
                     },
                 )
-        for operation_id, operation in tuple(self._operations.items()):
-            if operation["terminal"] is not None:
-                continue
-            child_statuses = [
-                invocation["terminal"]
-                for invocation in self._invocations.values()
-                if invocation["operation_attempt_id"] == operation_id
-            ]
-            self.append(
-                "operation_attempt_terminal",
-                {
-                    "operation_attempt_id": operation_id,
-                    "status": (
-                        "outcome_unknown"
-                        if "outcome_unknown" in child_statuses
-                        else "interrupted"
-                    ),
-                    "error": restart_error,
-                },
-            )
         for attempt_id, attempt in tuple(self._node_attempts.items()):
             if attempt["terminal"] is not None:
                 continue
-            child_statuses = [
-                operation["terminal"]
-                for operation in self._operations.values()
+            child_operations = [
+                (operation_id, operation)
+                for operation_id, operation in self._operations.items()
                 if operation["node_attempt_id"] == attempt_id
             ]
+            open_operation_id: str | None = None
+            child_statuses: list[str] = []
+            for operation_id, operation in child_operations:
+                terminal = operation["terminal"]
+                if terminal is None:
+                    invocation_statuses = [
+                        invocation["terminal"]
+                        for invocation in self._invocations.values()
+                        if invocation["operation_attempt_id"] == operation_id
+                    ]
+                    terminal = (
+                        "outcome_unknown"
+                        if "outcome_unknown" in invocation_statuses
+                        else "interrupted"
+                    )
+                    open_operation_id = operation_id
+                child_statuses.append(terminal)
             node_id = attempt["node_id"]
             resolution = (
                 "cache_replayed"
-                if node_id in self._outputs_published and not child_statuses
+                if node_id in self._outputs_published and not child_operations
                 else "executed"
             )
-            self.append(
-                "node_attempt_terminal",
-                {
-                    "node_attempt_id": attempt_id,
-                    "status": (
+            finalizer.finalize(
+                CancelledOrInterruptedNode(
+                    node_id=node_id,
+                    status=(
                         "outcome_unknown"
                         if "outcome_unknown" in child_statuses
                         else "interrupted"
                     ),
-                    "resolution": resolution,
-                    "error": restart_error,
-                },
+                    public_error=restart_error,
+                    node_attempt_id=attempt_id,
+                    operation_attempt_id=open_operation_id,
+                    resolution=resolution,
+                )
             )
         for node_id in self._plan_node_order:
             if node_id in self._dispositions:
@@ -2687,6 +2770,313 @@ class _RunEvidenceLedger:
                 },
             )
         self.append("run_terminal", {"status": "interrupted"})
+
+
+class NodeAttemptFinalizer:
+    """The sole completion seam for one scheduled Node Execution Attempt."""
+
+    def __init__(
+        self,
+        *,
+        ledger: _RunEvidenceLedger,
+        result_replay_source: ResultReplaySource,
+        materialize_artifacts: Callable[
+            ...,
+            tuple[
+                list[dict[str, Any]],
+                list[dict[str, Any]],
+                dict[
+                    str,
+                    tuple[dict[str, Any], tuple[str, ...]],
+                ],
+            ],
+        ],
+    ) -> None:
+        self._ledger = ledger
+        self._result_replay_source = result_replay_source
+        self._materialize_artifacts = materialize_artifacts
+
+    @staticmethod
+    def _disposition_for_status(status: str) -> str:
+        return "interrupted" if status == "outcome_unknown" else status
+
+    def _finalize_non_success(
+        self,
+        intent: ExecutedNodeNonSuccess,
+    ) -> FinalizedNode:
+        terminal_payload = {
+            "status": intent.status,
+            "error": dict(intent.public_error),
+        }
+        if intent.operation_attempt_id is not None:
+            self._ledger.append(
+                "operation_attempt_terminal",
+                {
+                    "operation_attempt_id": intent.operation_attempt_id,
+                    **terminal_payload,
+                },
+            )
+        self._ledger.append(
+            "node_attempt_terminal",
+            {
+                "node_attempt_id": intent.node_attempt_id,
+                "resolution": intent.resolution,
+                **terminal_payload,
+            },
+        )
+        disposition = self._disposition_for_status(intent.status)
+        self._ledger.append(
+            "node_disposition",
+            {
+                "node_id": intent.node_id,
+                "outcome": disposition,
+                "blocked_by": [],
+            },
+        )
+        return FinalizedNode(disposition=disposition)
+
+    def _finalize_termination(
+        self,
+        intent: CancelledOrInterruptedNode,
+    ) -> FinalizedNode:
+        disposition = self._disposition_for_status(intent.status)
+        if intent.node_attempt_id is not None:
+            terminal_payload: dict[str, Any] = {"status": intent.status}
+            if intent.public_error is not None:
+                terminal_payload["error"] = dict(intent.public_error)
+            if intent.operation_attempt_id is not None:
+                self._ledger.append(
+                    "operation_attempt_terminal",
+                    {
+                        "operation_attempt_id": intent.operation_attempt_id,
+                        **terminal_payload,
+                    },
+                )
+            self._ledger.append(
+                "node_attempt_terminal",
+                {
+                    "node_attempt_id": intent.node_attempt_id,
+                    "resolution": intent.resolution,
+                    **terminal_payload,
+                },
+            )
+        self._ledger.append(
+            "node_disposition",
+            {
+                "node_id": intent.node_id,
+                "outcome": disposition,
+                "blocked_by": [],
+            },
+        )
+        return FinalizedNode(disposition=disposition)
+
+    def _cleanup_artifacts(
+        self,
+        *,
+        resources: RunResources,
+        artifact_records: Mapping[
+            str,
+            tuple[Mapping[str, Any], tuple[str, ...]],
+        ],
+    ) -> None:
+        cleanup_error: Exception | None = None
+        cancellation = resources._cancellation_control
+        if cancellation is not None and self._ledger.cancellation_requested:
+            cancellation.wait_for_cleanup()
+            cleanup_error = cancellation.cleanup_error
+        for _, stored_parts in artifact_records.values():
+            try:
+                remove_private_regular_file(
+                    resources._output_root,
+                    (resources.run_id, *stored_parts),
+                    field="artifact_path",
+                )
+            except Exception as error:
+                if cleanup_error is None:
+                    cleanup_error = error
+        if cleanup_error is not None:
+            raise cleanup_error
+
+    def _preparation_failed(
+        self,
+        *,
+        intent: ExecutedNodeSuccess | CacheReplayNodeSuccess,
+        error: Exception,
+        artifact_records: Mapping[
+            str,
+            tuple[Mapping[str, Any], tuple[str, ...]],
+        ],
+    ) -> FinalizedNode:
+        if artifact_records:
+            try:
+                self._cleanup_artifacts(
+                    resources=intent.resources,
+                    artifact_records=artifact_records,
+                )
+            except Exception as cleanup_error:
+                cleanup_error.add_note(
+                    "Node finalization also failed before cleanup: "
+                    f"{type(error).__name__}"
+                )
+                error = cleanup_error
+        if isinstance(error, V2RunError) and error.code == "evidence_unavailable":
+            raise error
+        return self._finalize_non_success(
+            ExecutedNodeNonSuccess(
+                node_id=intent.node.node_id,
+                node_attempt_id=intent.node_attempt_id,
+                operation_attempt_id=(
+                    intent.operation_attempt_id
+                    if isinstance(intent, ExecutedNodeSuccess)
+                    else None
+                ),
+                status="failed",
+                public_error=_public_failure(error),
+            )
+        )
+
+    def _finalize_success(
+        self,
+        intent: ExecutedNodeSuccess | CacheReplayNodeSuccess,
+    ) -> FinalizedNode:
+        resolution = (
+            "executed"
+            if isinstance(intent, ExecutedNodeSuccess)
+            else "cache_replayed"
+        )
+        producer_run_id = (
+            intent.run_id
+            if isinstance(intent, ExecutedNodeSuccess)
+            else intent.producer_run_id
+        )
+        published = [dict(output) for output in intent.published_outputs]
+        cache_outputs = _with_result_provenance(
+            published,
+            result_identity=intent.result_identity,
+            current_run_id=intent.run_id,
+            producer_run_id=producer_run_id,
+            resolution=resolution,
+        )
+        artifact_records: dict[
+            str,
+            tuple[dict[str, Any], tuple[str, ...]],
+        ] = {}
+        try:
+            (
+                typed_outputs,
+                artifacts,
+                artifact_records,
+            ) = self._materialize_artifacts(
+                node=intent.node,
+                resources=intent.resources,
+                published=published,
+                runtime=intent.admitted_outputs,
+                current_artifact_count=intent.current_artifact_count,
+                current_artifact_bytes=intent.current_artifact_bytes,
+            )
+            typed_outputs = _with_result_provenance(
+                typed_outputs,
+                result_identity=intent.result_identity,
+                current_run_id=intent.run_id,
+                producer_run_id=producer_run_id,
+                resolution=resolution,
+            )
+            if (
+                isinstance(intent, ExecutedNodeSuccess)
+                and intent.cache_eligible
+            ):
+                self._result_replay_source.validate_publish(
+                    project_id=intent.project_id,
+                    execution_plan=intent.execution_plan,
+                    node=intent.node,
+                    result_identity=intent.result_identity,
+                    outputs=cache_outputs,
+                    producer_run_id=intent.run_id,
+                    admitted_outputs=intent.admitted_outputs,
+                )
+        except Exception as error:
+            return self._preparation_failed(
+                intent=intent,
+                error=error,
+                artifact_records=artifact_records,
+            )
+
+        def cleanup_artifacts() -> None:
+            self._cleanup_artifacts(
+                resources=intent.resources,
+                artifact_records=artifact_records,
+            )
+
+        def publish_cache() -> Callable[[], None] | None:
+            if (
+                not isinstance(intent, ExecutedNodeSuccess)
+                or not intent.cache_eligible
+            ):
+                return None
+            return self._result_replay_source.publish(
+                project_id=intent.project_id,
+                execution_plan=intent.execution_plan,
+                node=intent.node,
+                result_identity=intent.result_identity,
+                outputs=cache_outputs,
+                producer_run_id=intent.run_id,
+                admitted_outputs=intent.admitted_outputs,
+            )
+
+        try:
+            disposition = self._ledger._commit_node_publication(
+                node_id=intent.node.node_id,
+                node_attempt_id=intent.node_attempt_id,
+                resolution=resolution,
+                outputs=typed_outputs,
+                artifacts=artifacts,
+                operation_attempt_id=(
+                    intent.operation_attempt_id
+                    if isinstance(intent, ExecutedNodeSuccess)
+                    else None
+                ),
+                cancel_cleanup=cleanup_artifacts,
+                before_success=(
+                    publish_cache
+                    if isinstance(intent, ExecutedNodeSuccess)
+                    else None
+                ),
+            )
+        except V2RunError as error:
+            if (
+                not isinstance(intent, ExecutedNodeSuccess)
+                or error.code != "cache_identity_conflict"
+            ):
+                if isinstance(intent, CacheReplayNodeSuccess):
+                    cleanup_artifacts()
+                raise
+            return self._preparation_failed(
+                intent=intent,
+                error=error,
+                artifact_records=artifact_records,
+            )
+        except Exception:
+            if isinstance(intent, CacheReplayNodeSuccess):
+                cleanup_artifacts()
+            raise
+        if disposition != "succeeded":
+            return FinalizedNode(disposition=disposition)
+        return FinalizedNode(
+            disposition="succeeded",
+            admitted_outputs=intent.admitted_outputs,
+            artifacts=tuple(artifacts),
+            artifact_records=artifact_records,
+        )
+
+    def finalize(self, intent: NodeFinalizationIntent) -> FinalizedNode:
+        """Commit the disposition implied by one closed finalization intent."""
+        if isinstance(intent, (ExecutedNodeSuccess, CacheReplayNodeSuccess)):
+            return self._finalize_success(intent)
+        if isinstance(intent, ExecutedNodeNonSuccess):
+            return self._finalize_non_success(intent)
+        if isinstance(intent, CancelledOrInterruptedNode):
+            return self._finalize_termination(intent)
+        raise TypeError("Node finalization intent is not current")
 
 
 @dataclass(frozen=True, slots=True)
@@ -4140,7 +4530,13 @@ class V2RunService:
             )
             self._run_owners[run_id] = project_id
             return
-        ledger.reconcile_restart()
+        ledger.reconcile_restart(
+            NodeAttemptFinalizer(
+                ledger=ledger,
+                result_replay_source=self._result_replay_source,
+                materialize_artifacts=self._materialize_artifacts,
+            )
+        )
         try:
             ledger.rebuild_projections()
         except (OSError, StoragePathError):
@@ -5238,6 +5634,11 @@ class V2RunService:
             ledger=ledger,
             artifacts=artifact_records,
         )
+        finalizer = NodeAttemptFinalizer(
+            ledger=ledger,
+            result_replay_source=self._result_replay_source,
+            materialize_artifacts=self._materialize_artifacts,
+        )
 
         self._runs[(project_id, run_id)] = record
         self._run_owners[run_id] = project_id
@@ -5263,15 +5664,14 @@ class V2RunService:
                     if record.cancellation.cleanup_error is not None
                     else "cancelled"
                 )
-                ledger.append(
-                    "node_disposition",
-                    {
-                        "node_id": node.node_id,
-                        "outcome": cancellation_outcome,
-                        "blocked_by": [],
-                    },
+                finalized = finalizer.finalize(
+                    CancelledOrInterruptedNode(
+                        node_id=node.node_id,
+                        status=cancellation_outcome,
+                        public_error=None,
+                    )
                 )
-                disposition_outcomes[node.node_id] = cancellation_outcome
+                disposition_outcomes[node.node_id] = finalized.disposition
                 continue
             blocked_by = self._required_input_blockers(
                 node,
@@ -5371,11 +5771,6 @@ class V2RunService:
                 tuple[str, str],
                 AdmittedPortValues,
             ] | None = None
-            replayed_artifacts: list[dict[str, Any]] = []
-            replayed_artifact_records: dict[
-                str,
-                tuple[dict[str, Any], tuple[str, ...]],
-            ] = {}
             replay_producer_run_id: str | None = None
             cache_lookup_error: V2RunError | None = None
             if cache_lookup_eligible and result_identity is not None:
@@ -5421,39 +5816,9 @@ class V2RunService:
                         )
                     if replayed_admitted is not None:
                         candidate_runtime = dict(replayed_admitted)
-                        candidate_published = self._published_outputs(
+                        replayed_published = self._published_outputs(
                             node,
                             candidate_runtime,
-                        )
-                        replay_resources = RunResources(
-                            project_id,
-                            run_id,
-                            node.node_id,
-                            self._projects,
-                            None,
-                            record.cancellation,
-                        )
-                        (
-                            replayed_typed_outputs,
-                            replayed_artifacts,
-                            replayed_artifact_records,
-                        ) = self._materialize_artifacts(
-                            node=node,
-                            resources=replay_resources,
-                            published=candidate_published,
-                            runtime=candidate_runtime,
-                            current_artifact_count=len(all_artifacts),
-                            current_artifact_bytes=sum(
-                                artifact["size"]
-                                for artifact in all_artifacts
-                            ),
-                        )
-                        replayed_published = _with_result_provenance(
-                            replayed_typed_outputs,
-                            result_identity=result_identity,
-                            current_run_id=run_id,
-                            producer_run_id=replay_producer_run_id,
-                            resolution="cache_replayed",
                         )
                         replayed_runtime = candidate_runtime
                 except RecoverableCacheMiss:
@@ -5475,67 +5840,32 @@ class V2RunService:
                         "node_attempt_id": node_attempt_id,
                     },
                 )
-                ledger.append(
-                    "node_attempt_terminal",
-                    {
-                        "node_attempt_id": node_attempt_id,
-                        "status": "failed",
-                        "resolution": "executed",
-                        "error": _public_failure(cache_lookup_error),
-                    },
+                finalized = finalizer.finalize(
+                    ExecutedNodeNonSuccess(
+                        node_id=node.node_id,
+                        node_attempt_id=node_attempt_id,
+                        operation_attempt_id=None,
+                        status="failed",
+                        public_error=_public_failure(cache_lookup_error),
+                    )
                 )
-                ledger.append(
-                    "node_disposition",
-                    {
-                        "node_id": node.node_id,
-                        "outcome": "failed",
-                        "blocked_by": [],
-                    },
-                )
-                disposition_outcomes[node.node_id] = "failed"
+                disposition_outcomes[node.node_id] = finalized.disposition
                 continue
             if replayed_published is not None and replayed_runtime is not None:
-                def cleanup_replayed_artifacts() -> None:
-                    cleanup_error: BaseException | None = None
-                    if ledger.cancellation_requested:
-                        record.cancellation.wait_for_cleanup()
-                        cleanup_error = record.cancellation.cleanup_error
-                    for _, stored_parts in (
-                        replayed_artifact_records.values()
-                    ):
-                        try:
-                            remove_private_regular_file(
-                                self._projects.output_dir(
-                                    project_id,
-                                    run_id,
-                                ).parent,
-                                (run_id, *stored_parts),
-                                field="artifact_path",
-                            )
-                        except BaseException as error:
-                            if cleanup_error is None:
-                                cleanup_error = error
-                    if cleanup_error is not None:
-                        raise cleanup_error
-
                 if ledger.cancellation_requested:
-                    cleanup_replayed_artifacts()
                     cancellation_outcome = (
                         "interrupted"
                         if record.cancellation.cleanup_error is not None
                         else "cancelled"
                     )
-                    ledger.append(
-                        "node_disposition",
-                        {
-                            "node_id": node.node_id,
-                            "outcome": cancellation_outcome,
-                            "blocked_by": [],
-                        },
+                    finalized = finalizer.finalize(
+                        CancelledOrInterruptedNode(
+                            node_id=node.node_id,
+                            status=cancellation_outcome,
+                            public_error=None,
+                        )
                     )
-                    disposition_outcomes[node.node_id] = (
-                        cancellation_outcome
-                    )
+                    disposition_outcomes[node.node_id] = finalized.disposition
                     continue
                 ledger.append(
                     "node_attempt_started",
@@ -5544,29 +5874,36 @@ class V2RunService:
                         "node_attempt_id": node_attempt_id,
                     },
                 )
-                try:
-                    outcome = ledger.commit_node_publication(
-                        node_id=node.node_id,
+                replay_resources = RunResources(
+                    project_id=project_id,
+                    run_id=run_id,
+                    node_id=node.node_id,
+                    _projects=self._projects,
+                    _cancellation_control=record.cancellation,
+                )
+                finalized = finalizer.finalize(
+                    CacheReplayNodeSuccess(
+                        project_id=project_id,
+                        run_id=run_id,
+                        execution_plan=plan,
+                        node=node,
+                        resources=replay_resources,
                         node_attempt_id=node_attempt_id,
-                        resolution="cache_replayed",
-                        outputs=replayed_published,
-                        artifacts=replayed_artifacts,
-                        cancel_cleanup=cleanup_replayed_artifacts,
+                        result_identity=result_identity,
+                        producer_run_id=replay_producer_run_id,
+                        published_outputs=tuple(replayed_published),
+                        admitted_outputs=replayed_runtime,
+                        current_artifact_count=len(all_artifacts),
+                        current_artifact_bytes=sum(
+                            artifact["size"] for artifact in all_artifacts
+                        ),
                     )
-                except BaseException as error:
-                    try:
-                        cleanup_replayed_artifacts()
-                    except BaseException as cleanup_error:
-                        error.add_note(
-                            "Replayed artifact rollback also failed: "
-                            f"{type(cleanup_error).__name__}"
-                        )
-                    raise
-                if outcome == "succeeded":
-                    values.update(replayed_runtime)
-                    all_artifacts.extend(replayed_artifacts)
-                    artifact_records.update(replayed_artifact_records)
-                disposition_outcomes[node.node_id] = outcome
+                )
+                if finalized.disposition == "succeeded":
+                    values.update(finalized.admitted_outputs)
+                    all_artifacts.extend(finalized.artifacts)
+                    artifact_records.update(finalized.artifact_records)
+                disposition_outcomes[node.node_id] = finalized.disposition
                 continue
             resources = RunResources(
                 project_id=project_id,
@@ -5651,15 +5988,14 @@ class V2RunService:
                 disposition_outcome = (
                     cancellation_outcome or termination.outcome
                 )
-                ledger.append(
-                    "node_disposition",
-                    {
-                        "node_id": node.node_id,
-                        "outcome": disposition_outcome,
-                        "blocked_by": [],
-                    },
+                finalized = finalizer.finalize(
+                    CancelledOrInterruptedNode(
+                        node_id=node.node_id,
+                        status=disposition_outcome,
+                        public_error=None,
+                    )
                 )
-                disposition_outcomes[node.node_id] = disposition_outcome
+                disposition_outcomes[node.node_id] = finalized.disposition
                 continue
             except BaseException as error:
                 body_error = error
@@ -5677,15 +6013,14 @@ class V2RunService:
                         )
                 if record.cancellation.cleanup_error is not None:
                     cancellation_outcome = "interrupted"
-                ledger.append(
-                    "node_disposition",
-                    {
-                        "node_id": node.node_id,
-                        "outcome": cancellation_outcome,
-                        "blocked_by": [],
-                    },
+                finalized = finalizer.finalize(
+                    CancelledOrInterruptedNode(
+                        node_id=node.node_id,
+                        status=cancellation_outcome,
+                        public_error=None,
+                    )
                 )
-                disposition_outcomes[node.node_id] = cancellation_outcome
+                disposition_outcomes[node.node_id] = finalized.disposition
                 continue
             ledger.append(
                 "node_attempt_started",
@@ -5698,31 +6033,8 @@ class V2RunService:
                 tuple[str, str],
                 AdmittedPortValues,
             ] = {}
-            pending_typed_outputs: list[dict[str, Any]] = []
-            pending_cache_outputs: list[dict[str, Any]] = []
-            pending_artifacts: list[dict[str, Any]] = []
-            pending_artifact_records: dict[
-                str,
-                tuple[dict[str, Any], tuple[str, ...]],
-            ] = {}
-
-            def cleanup_cancelled_publication() -> None:
-                cleanup_error: BaseException | None = None
-                if ledger.cancellation_requested:
-                    record.cancellation.wait_for_cleanup()
-                    cleanup_error = record.cancellation.cleanup_error
-                for _, stored_parts in pending_artifact_records.values():
-                    try:
-                        remove_private_regular_file(
-                            resources._output_root,
-                            (run_id, *stored_parts),
-                            field="artifact_path",
-                        )
-                    except BaseException as error:
-                        if cleanup_error is None:
-                            cleanup_error = error
-                if cleanup_error is not None:
-                    raise cleanup_error
+            pending_published: list[dict[str, Any]] = []
+            operation_started = False
 
             try:
                 if body_error is not None:
@@ -5734,6 +6046,7 @@ class V2RunService:
                         "node_attempt_id": node_attempt_id,
                     },
                 )
+                operation_started = True
                 assert implementation is not None
                 assert operation_execute is not None
                 assert operation_call is not None
@@ -5761,52 +6074,13 @@ class V2RunService:
                         inputs=node_inputs,
                         outputs=raw_outputs,
                     )
-                published, pending_runtime = self._admit_outputs(
+                pending_published, pending_runtime = self._admit_outputs(
                     plan,
                     node,
                     raw_outputs,
                     inputs=node_inputs,
                     input_content_digests=input_content_digests,
                 )
-                pending_cache_outputs = _with_result_provenance(
-                    published,
-                    result_identity=result_identity,
-                    current_run_id=run_id,
-                    producer_run_id=run_id,
-                    resolution="executed",
-                )
-                (
-                    pending_typed_outputs,
-                    pending_artifacts,
-                    pending_artifact_records,
-                ) = self._materialize_artifacts(
-                    node=node,
-                    resources=resources,
-                    published=published,
-                    runtime=pending_runtime,
-                    current_artifact_count=len(all_artifacts),
-                    current_artifact_bytes=sum(
-                        artifact["size"]
-                        for artifact in all_artifacts
-                    ),
-                )
-                pending_typed_outputs = _with_result_provenance(
-                    pending_typed_outputs,
-                    result_identity=result_identity,
-                    current_run_id=run_id,
-                    producer_run_id=run_id,
-                    resolution="executed",
-                )
-                if cache_eligible:
-                    self._result_replay_source.validate_publish(
-                        project_id=project_id,
-                        execution_plan=plan,
-                        node=node,
-                        result_identity=result_identity,
-                        outputs=pending_cache_outputs,
-                        producer_run_id=run_id,
-                        admitted_outputs=pending_runtime,
-                    )
                 if ledger.cancellation_requested:
                     raise ExecutionTermination("cancelled")
             except BaseException as error:
@@ -5821,16 +6095,6 @@ class V2RunService:
                             f"{type(cleanup_error).__name__}"
                         )
                     else:
-                        body_error = cleanup_error
-                if body_error is not None or ledger.cancellation_requested:
-                    try:
-                        cleanup_cancelled_publication()
-                    except BaseException as cleanup_error:
-                        if body_error is not None:
-                            cleanup_error.add_note(
-                                "Execution also terminated before cleanup: "
-                                f"{type(body_error).__name__}"
-                            )
                         body_error = cleanup_error
                 cancellation_cleanup_error = (
                     record.cancellation.cleanup_error
@@ -5862,110 +6126,55 @@ class V2RunService:
                     if isinstance(body_error, ExecutionTermination)
                     else "failed"
                 )
-                disposition_outcome = (
-                    "interrupted"
-                    if terminal_status == "outcome_unknown"
-                    else terminal_status
-                )
                 public_error = _public_failure(body_error)
-                operation_started = any(
-                    fact["fact_type"] == "operation_attempt_started"
-                    and fact["payload"]["operation_attempt_id"]
-                    == operation_attempt_id
-                    for fact in ledger.facts
-                )
-                if operation_started:
-                    ledger.append(
-                        "operation_attempt_terminal",
-                        {
-                            "operation_attempt_id": operation_attempt_id,
-                            "status": terminal_status,
-                            "error": public_error,
-                        },
+                if terminal_status == "failed":
+                    intent: NodeFinalizationIntent = ExecutedNodeNonSuccess(
+                        node_id=node.node_id,
+                        node_attempt_id=node_attempt_id,
+                        operation_attempt_id=(
+                            operation_attempt_id if operation_started else None
+                        ),
+                        status=terminal_status,
+                        public_error=public_error,
                     )
-                ledger.append(
-                    "node_attempt_terminal",
-                    {
-                        "node_attempt_id": node_attempt_id,
-                        "status": terminal_status,
-                        "resolution": "executed",
-                        "error": public_error,
-                    },
-                )
-                ledger.append(
-                    "node_disposition",
-                    {
-                        "node_id": node.node_id,
-                        "outcome": disposition_outcome,
-                        "blocked_by": [],
-                    },
-                )
-                disposition_outcomes[node.node_id] = disposition_outcome
+                else:
+                    intent = CancelledOrInterruptedNode(
+                        node_id=node.node_id,
+                        status=terminal_status,
+                        public_error=public_error,
+                        node_attempt_id=node_attempt_id,
+                        operation_attempt_id=(
+                            operation_attempt_id if operation_started else None
+                        ),
+                    )
+                finalized = finalizer.finalize(intent)
+                disposition_outcomes[node.node_id] = finalized.disposition
                 continue
-
-            def publish_cache_before_success() -> Callable[[], None] | None:
-                if (
-                    not cache_eligible
-                    or result_identity is None
-                ):
-                    return None
-                return self._result_replay_source.publish(
+            assert result_identity is not None
+            finalized = finalizer.finalize(
+                ExecutedNodeSuccess(
                     project_id=project_id,
+                    run_id=run_id,
                     execution_plan=plan,
                     node=node,
-                    result_identity=result_identity,
-                    outputs=pending_cache_outputs,
-                    producer_run_id=run_id,
-                    admitted_outputs=pending_runtime,
-                )
-
-            try:
-                outcome = ledger.commit_node_publication(
-                    node_id=node.node_id,
+                    resources=resources,
                     node_attempt_id=node_attempt_id,
-                    resolution="executed",
-                    outputs=pending_typed_outputs,
-                    artifacts=pending_artifacts,
                     operation_attempt_id=operation_attempt_id,
-                    cancel_cleanup=cleanup_cancelled_publication,
-                    before_success=publish_cache_before_success,
+                    result_identity=result_identity,
+                    published_outputs=tuple(pending_published),
+                    admitted_outputs=pending_runtime,
+                    cache_eligible=cache_eligible,
+                    current_artifact_count=len(all_artifacts),
+                    current_artifact_bytes=sum(
+                        artifact["size"] for artifact in all_artifacts
+                    ),
                 )
-            except V2RunError as cache_error:
-                if cache_error.code != "cache_identity_conflict":
-                    raise
-                public_error = _public_failure(cache_error)
-                ledger.append(
-                    "operation_attempt_terminal",
-                    {
-                        "operation_attempt_id": operation_attempt_id,
-                        "status": "failed",
-                        "error": public_error,
-                    },
-                )
-                ledger.append(
-                    "node_attempt_terminal",
-                    {
-                        "node_attempt_id": node_attempt_id,
-                        "status": "failed",
-                        "resolution": "executed",
-                        "error": public_error,
-                    },
-                )
-                ledger.append(
-                    "node_disposition",
-                    {
-                        "node_id": node.node_id,
-                        "outcome": "failed",
-                        "blocked_by": [],
-                    },
-                )
-                disposition_outcomes[node.node_id] = "failed"
-                continue
-            if outcome == "succeeded":
-                values.update(pending_runtime)
-                all_artifacts.extend(pending_artifacts)
-                artifact_records.update(pending_artifact_records)
-            disposition_outcomes[node.node_id] = outcome
+            )
+            if finalized.disposition == "succeeded":
+                values.update(finalized.admitted_outputs)
+                all_artifacts.extend(finalized.artifacts)
+                artifact_records.update(finalized.artifact_records)
+            disposition_outcomes[node.node_id] = finalized.disposition
         selection_failed = False
         selection_consumers = tuple(
             node
