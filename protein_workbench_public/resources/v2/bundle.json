@@ -1096,10 +1096,7 @@
               "$ref": "#/$defs/Identifier"
             },
             "resolution": {
-              "enum": [
-                "executed",
-                "cache_replayed"
-              ]
+              "const": "executed"
             },
             "status": {
               "const": "failed"

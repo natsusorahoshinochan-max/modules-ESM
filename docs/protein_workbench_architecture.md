@@ -582,6 +582,10 @@ Operation terminal、Node terminal 与 disposition。公开 error details 只包
 bounded domain identifiers、publication stage 或 Result Identity，不包含 object path、
 canonical value 或 raw exception。
 
+`failure_origin=operation` 必须引用同一 Node Attempt 中唯一且已 `failed` 的 executed
+Operation；Cache replay 或没有 Operation Attempt 的本地 pre-operation invariant 不得伪造该
+origin。后者在 contract-owning boundary fail fast，且不写虚构的 Node/Operation terminal。
+
 每个开始的 Engine Invocation 恰有一个 terminal fact，其 `engine_identity` 必须是 resolved
 exact Method contract digest，并由 Execution Plan 绑定；Operation 或 Adapter 不能提供或覆盖
 该身份。`effective_randomness` 内部是 closed union：实际应用 seed 时为 `exact_seed`，

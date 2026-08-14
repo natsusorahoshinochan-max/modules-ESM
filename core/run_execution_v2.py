@@ -1850,6 +1850,7 @@ class _RunEvidenceLedger:
                             payload["status"]
                             in {"interrupted", "outcome_unknown"}
                             and not self._state.restart_reconciled
+                            and self._state.cancellation_sequence is None
                         )
                     )
                 )
@@ -1878,6 +1879,27 @@ class _RunEvidenceLedger:
                         self._state.cancellation_sequence is not None
                         and payload["status"] == "cancelled"
                     )
+                )
+            ):
+                raise self._causal_error()
+            failure_origin = payload.get("failure_origin")
+            if failure_origin == "operation" and (
+                payload["resolution"] != "executed"
+                or len(child_operations) != 1
+                or child_operations[0]["terminal"] != "failed"
+            ):
+                raise self._causal_error()
+            if failure_origin in {"publication", "result_identity"} and (
+                (
+                    payload["resolution"] == "executed"
+                    and (
+                        len(child_operations) != 1
+                        or child_operations[0]["terminal"] != "succeeded"
+                    )
+                )
+                or (
+                    payload["resolution"] == "cache_replayed"
+                    and child_operations
                 )
             ):
                 raise self._causal_error()
@@ -3641,6 +3663,19 @@ class NodeAttemptFinalizer:
         if cancellation is not None:
             cancellation.wait_for_cleanup()
         if cancellation is not None and cancellation.cleanup_error is not None:
+            if context.operation_attempt_id is None:
+                return self._finalize_termination(
+                    CancelledOrInterruptedNode(
+                        node_id=context.node_id,
+                        status="interrupted",
+                        public_error=_public_failure(
+                            cancellation.cleanup_error
+                        ),
+                        node_attempt_id=context.node_attempt_id,
+                        operation_attempt_id=None,
+                        resolution=context.resolution,
+                    )
+                )
             return self._finalize_non_success(
                 ExecutedNodeNonSuccess(
                     node_id=context.node_id,
@@ -6721,6 +6756,7 @@ class V2RunService:
             implementation: Any | None = None
             operation_execute: Callable[[OperationCall], Mapping[str, Any]] | None = None
             operation_call: OperationCall | None = None
+            operation_started = False
             try:
                 if body_error is None:
                     assert effective_randomness_snapshot is not None
@@ -6787,6 +6823,12 @@ class V2RunService:
                         node_id=node.node_id,
                         status=disposition_outcome,
                         public_error=None,
+                        node_attempt_id=(
+                            node_attempt_id if operation_started else None
+                        ),
+                        operation_attempt_id=(
+                            operation_attempt_id if operation_started else None
+                        ),
                     )
                 )
                 disposition_outcomes[node.node_id] = finalized.disposition
@@ -6812,10 +6854,18 @@ class V2RunService:
                         node_id=node.node_id,
                         status=cancellation_outcome,
                         public_error=None,
+                        node_attempt_id=(
+                            node_attempt_id if operation_started else None
+                        ),
+                        operation_attempt_id=(
+                            operation_attempt_id if operation_started else None
+                        ),
                     )
                 )
                 disposition_outcomes[node.node_id] = finalized.disposition
                 continue
+            if body_error is not None and not operation_started:
+                raise body_error
             ledger.append(
                 "node_attempt_started",
                 {
@@ -6829,7 +6879,6 @@ class V2RunService:
             ] = {}
             pending_published: list[dict[str, Any]] = []
             pending_artifact_plan = AdmittedArtifactPublicationPlan((), ())
-            operation_started = False
 
             try:
                 if body_error is not None:

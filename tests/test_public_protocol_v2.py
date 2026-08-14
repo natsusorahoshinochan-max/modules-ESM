@@ -455,6 +455,13 @@ def test_failed_node_attempt_event_closes_error_by_failure_origin(
     }
     validate_schema("#/$defs/NodeAttemptTerminalEvent", event)
 
+    if failure_origin == "operation":
+        with pytest.raises(ProtocolValidationError):
+            validate_schema(
+                "#/$defs/NodeAttemptTerminalEvent",
+                {**event, "resolution": "cache_replayed"},
+            )
+
     other_origin = (
         "result_identity"
         if failure_origin != "result_identity"

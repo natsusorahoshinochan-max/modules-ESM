@@ -1745,7 +1745,7 @@ def test_pre_schedule_termination_has_disposition_without_false_attempt(
     )
 
 
-def test_invalid_scientific_operation_factory_has_no_false_operation_attempt(
+def test_invalid_scientific_operation_factory_fails_before_any_attempt(
     tmp_path,
     monkeypatch,
 ) -> None:
@@ -1773,21 +1773,19 @@ def test_invalid_scientific_operation_factory_has_no_false_operation_attempt(
                 "client_request_id": "invalid-operation-factory",
             },
         )
-        projection = wait_for_testclient_run_terminal(
-            client,
-            project_id,
-            started.json()["run_id"],
-        )
-        events = app.state.run_execution_v2.public_events(
-            project_id,
-            started.json()["run_id"],
-        )
 
-    assert projection["status"] == "failed"
-    event_types = [item["event"]["type"] for item in events]
-    assert "node_attempt_started" in event_types
-    assert "operation_attempt_started" not in event_types
-    assert "engine_invocation_started" not in event_types
+    assert started.status_code == 500
+    validate_error(started.json(), status=500)
+    assert started.json()["error"]["code"] == "internal_error"
+    assert not any(
+        fact["fact_type"]
+        in {
+            "node_attempt_started",
+            "operation_attempt_started",
+            "engine_invocation_started",
+        }
+        for fact in _durable_facts(tmp_path / "runs")
+    )
 
 
 def test_cache_replay_closes_only_the_scheduled_node_attempt(
@@ -3421,15 +3419,33 @@ def test_cross_input_candidate_identity_closes_runtime_before_sink_side_effects(
     )
 
     try:
-        receipt = service.start(
-            project.id,
-            workflow_commit_id=committed.workflow_commit_id,
-            client_request_id="candidate-conflict",
-        )
-        projection = service.projection(project.id, receipt["run_id"])
-        events = service.public_events(project.id, receipt["run_id"])
+        if candidate_case == "identical":
+            receipt = service.start(
+                project.id,
+                workflow_commit_id=committed.workflow_commit_id,
+                client_request_id="candidate-conflict",
+            )
+            projection = service.projection(project.id, receipt["run_id"])
+            events = service.public_events(project.id, receipt["run_id"])
+        else:
+            with pytest.raises(
+                PortValueError,
+                match="Candidate identity resolves to conflicting canonical facts",
+            ):
+                service.start(
+                    project.id,
+                    workflow_commit_id=committed.workflow_commit_id,
+                    client_request_id="candidate-conflict",
+                )
     finally:
         service.shutdown()
+
+    if candidate_case != "identical":
+        assert cache_lookups == ["source-left", "source-right"]
+        assert not any(call.startswith("factory:") for call in calls)
+        assert not any(call.startswith("execute:") for call in calls)
+        assert not any(call.startswith("sink-input:") for call in calls)
+        return
 
     sink_started = next(
         item["event"]
@@ -3456,29 +3472,26 @@ def test_cross_input_candidate_identity_closes_runtime_before_sink_side_effects(
         if item["event"]["type"] == "run_terminal"
     )
 
-    expected_status = "succeeded" if candidate_case == "identical" else "failed"
-    assert projection["status"] == expected_status
-    assert sink_terminal["status"] == expected_status
-    assert sink_disposition["outcome"] == expected_status
-    assert run_terminal["status"] == expected_status
+    assert projection["status"] == "succeeded"
+    assert sink_terminal["status"] == "succeeded"
+    assert sink_disposition["outcome"] == "succeeded"
+    assert run_terminal["status"] == "succeeded"
     assert cache_lookups == [
         "source-left",
         "source-right",
-        *(("sink",) if candidate_case == "identical" else ()),
+        "sink",
     ]
-    assert [call for call in calls if call.startswith("factory:")] == (
-        ["factory:sink"] if candidate_case == "identical" else []
-    )
+    assert [call for call in calls if call.startswith("factory:")] == [
+        "factory:sink"
+    ]
     assert not any(call.startswith("execute:") for call in calls)
-    assert [call for call in calls if call.startswith("sink-input:")] == (
-        ["sink-input:source-left"]
-        if candidate_case == "identical"
-        else []
-    )
+    assert [call for call in calls if call.startswith("sink-input:")] == [
+        "sink-input:source-left"
+    ]
     assert sum(
         item["event"]["type"] == "operation_attempt_started"
         for item in events
-    ) == (1 if candidate_case == "identical" else 0)
+    ) == 1
 
 
 def test_invalid_output_never_publishes_success_or_a_public_result(

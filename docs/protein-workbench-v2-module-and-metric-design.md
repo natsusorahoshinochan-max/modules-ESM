@@ -465,6 +465,10 @@ transaction 写入所需 terminals 与 disposition，且不发布 outputs 或 Ar
 details 使用 public bundle 声明的 closed bounded schema，不携带 paths、canonical values
 或 raw exceptions。
 
+`failure_origin=operation` 只允许 `resolution=executed`，并且必须存在同一 Node Attempt
+中唯一的 failed Operation。Cache replay 不得声明 Operation failure；在 Operation Attempt
+开始前发现的本地 contract invariant 直接 fail fast，不补写一个从未发生的 Operation。
+
 Run Evidence Ledger 是 typed run facts 的唯一写入 interface。事实经过 schema/causal
 validation、安全 redaction、durable persistence 与 monotonic sequence 分配后，才投影
 为 manifest、JSONL lifecycle stream 或 WebSocket events。证据提交失败时 Node 不能

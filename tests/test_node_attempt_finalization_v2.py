@@ -296,6 +296,34 @@ def test_finalizer_rejects_error_code_from_another_failure_origin(
     assert ledger.facts == before
 
 
+def test_operation_failure_requires_one_executed_child_operation(
+    tmp_path,
+) -> None:
+    ledger = _open_attempt_ledger(tmp_path, operation_started=False)
+    before = ledger.facts
+
+    with pytest.raises(run_execution_v2.V2RunError) as rejected:
+        _finalizer(ledger).finalize(
+            run_execution_v2.ExecutedNodeNonSuccess(
+                node_id="node-1",
+                node_attempt_id="node-attempt-1",
+                operation_attempt_id=None,
+                status="failed",
+                public_error={
+                    "code": "node_execution_failed",
+                    "message": "Node execution failed safely",
+                    "retryable": False,
+                    "correlation_id": "incident-no-operation",
+                    "details": {"exception_type": "PortValueError"},
+                },
+                failure_origin="operation",
+            )
+        )
+
+    assert rejected.value.code == "evidence_unavailable"
+    assert ledger.facts == before
+
+
 def test_project_publication_lock_serializes_conflicting_result_claims(
     tmp_path,
 ) -> None:
@@ -1234,13 +1262,14 @@ def test_cache_replay_cancellation_cleanup_failure_retains_resolution(
         )
     )
 
-    assert finalized.disposition == "failed"
+    assert finalized.disposition == "interrupted"
     node_terminal = next(
         fact for fact in ledger.facts
         if fact["fact_type"] == "node_attempt_terminal"
     )
-    assert node_terminal["payload"]["status"] == "failed"
+    assert node_terminal["payload"]["status"] == "interrupted"
     assert node_terminal["payload"]["resolution"] == "cache_replayed"
+    assert "failure_origin" not in node_terminal["payload"]
     assert not any(
         fact["fact_type"].startswith("operation_attempt")
         or fact["fact_type"] == "outputs_published"
