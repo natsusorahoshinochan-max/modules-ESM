@@ -10,6 +10,7 @@ from contextlib import contextmanager
 from dataclasses import dataclass, field, fields, is_dataclass, replace
 from datetime import datetime, timezone
 import json
+import logging
 import os
 from pathlib import Path
 import re
@@ -86,6 +87,9 @@ from datatypes import (
     validate_canonical_identifier,
 )
 from datatypes.protein import residue_identity_chain
+
+
+_LOGGER = logging.getLogger(__name__)
 
 
 READINESS_ATTESTATION_NAMESPACE = (
@@ -3355,6 +3359,95 @@ def _load_node_result_manifest(
     return manifest
 
 
+def _decode_port_value_manifest(encoded: bytes) -> dict[str, Any]:
+    """Validate one canonical current Port Value Manifest exactly once."""
+    try:
+        manifest = json.loads(encoded)
+        if (
+            encoded != canonical_json_bytes(manifest)
+            or not isinstance(manifest, dict)
+            or set(manifest)
+            != {
+                "schema_namespace",
+                "port_type",
+                "multiplicity",
+                "content_digest",
+                "value_count",
+                "values",
+            }
+            or manifest["schema_namespace"]
+            != PORT_VALUE_MANIFEST_NAMESPACE
+            or manifest["multiplicity"] not in {"one", "many"}
+            or not isinstance(manifest["content_digest"], str)
+            or re.fullmatch(
+                r"sha256:[0-9a-f]{64}",
+                manifest["content_digest"],
+            )
+            is None
+            or type(manifest["value_count"]) is not int
+            or manifest["value_count"] < 0
+            or not isinstance(manifest["values"], list)
+            or len(manifest["values"]) != manifest["value_count"]
+        ):
+            raise RuntimeError("Current Port Value Manifest is invalid")
+        validate_schema("#/$defs/ContractReference", manifest["port_type"])
+        if manifest["port_type"]["contract_kind"] != "port_type":
+            raise RuntimeError("Current Port Value Manifest is invalid")
+        for index, value in enumerate(manifest["values"]):
+            if (
+                not isinstance(value, dict)
+                or set(value)
+                != {"index", "content_digest", "size", "object"}
+                or value["index"] != index
+                or not _is_immutable_object_descriptor(value["object"])
+                or value["object"]
+                != {
+                    "content_digest": value["content_digest"],
+                    "size": value["size"],
+                }
+            ):
+                raise RuntimeError("Current Port Value Manifest is invalid")
+    except (
+        json.JSONDecodeError,
+        ProtocolValidationError,
+        TypeError,
+        UnicodeDecodeError,
+        ValueError,
+    ) as error:
+        raise RuntimeError("Current Port Value Manifest is invalid") from error
+    return manifest
+
+
+def _load_node_result_object_roots(
+    object_store: ProjectObjectStore,
+    project_id: str,
+    reference: Mapping[str, Any],
+) -> tuple[dict[str, Any], set[str]]:
+    """Validate current manifest ownership and return its object graph."""
+    node_result = _load_node_result_manifest(
+        object_store,
+        project_id,
+        reference,
+    )
+    roots = {reference["content_digest"]}
+    for output in node_result["outputs"]:
+        value_manifest_reference = output["value_manifest"]
+        if value_manifest_reference["size"] > MAX_PORT_VALUE_MANIFEST_BYTES:
+            raise RuntimeError("Current Port Value Manifest is invalid")
+        encoded = object_store.read_exact(
+            project_id,
+            value_manifest_reference["content_digest"],
+            size=value_manifest_reference["size"],
+        )
+        value_manifest = _decode_port_value_manifest(encoded)
+        if value_manifest["port_type"] != output["port_type"]:
+            raise RuntimeError("Current Port Value Manifest is invalid")
+        roots.add(value_manifest_reference["content_digest"])
+        for value in value_manifest["values"]:
+            roots.add(value["content_digest"])
+    return node_result, roots
+
+
 @dataclass(slots=True)
 class _CommittedResultIdentity:
     node_result_manifest: dict[str, Any]
@@ -3380,6 +3473,12 @@ class ProjectResultIdentityAuthority:
                 project_id,
                 threading.RLock(),
             )
+
+    @contextmanager
+    def publication_scope(self, project_id: str) -> Iterator[None]:
+        """Order Project collection with Result Identity publication."""
+        with self._project_lock(project_id):
+            yield
 
     def mark_unavailable(self, project_id: str) -> None:
         """Block Project publication when its Ledger authority is incomplete."""
@@ -4209,9 +4308,11 @@ class NodeAttemptFinalizer:
     def finalize(self, intent: NodeFinalizationIntent) -> FinalizedNode:
         """Commit the disposition implied by one closed finalization intent."""
         if isinstance(intent, ExecutedNodeSuccess):
-            return self._finalize_executed_success(intent)
+            with self._object_store.active_writer(intent.project_id):
+                return self._finalize_executed_success(intent)
         if isinstance(intent, CacheReplayNodeSuccess):
-            return self._finalize_cache_replay_success(intent)
+            with self._object_store.active_writer(intent.project_id):
+                return self._finalize_cache_replay_success(intent)
         if isinstance(intent, ExecutedNodeNonSuccess):
             return self._finalize_non_success(
                 intent,
@@ -5031,44 +5132,15 @@ def _admitted_output_from_manifest(
         reference["content_digest"],
         size=reference["size"],
     )
-    manifest = json.loads(encoded)
+    manifest = _decode_port_value_manifest(encoded)
     if (
-        encoded != canonical_json_bytes(manifest)
-        or not isinstance(manifest, dict)
-        or set(manifest)
-        != {
-            "schema_namespace",
-            "port_type",
-            "multiplicity",
-            "content_digest",
-            "value_count",
-            "values",
-        }
-        or manifest["schema_namespace"] != PORT_VALUE_MANIFEST_NAMESPACE
-        or manifest["port_type"] != output["port_type"]
+        manifest["port_type"] != output["port_type"]
         or manifest["port_type"] != declaration["port_type"]
         or manifest["multiplicity"] != declaration["multiplicity"]
-        or type(manifest["value_count"]) is not int
-        or manifest["value_count"] < 0
-        or not isinstance(manifest["values"], list)
-        or len(manifest["values"]) != manifest["value_count"]
     ):
         raise RuntimeError("Current Port Value Manifest is invalid")
     canonical_values: list[bytes] = []
-    for index, value in enumerate(manifest["values"]):
-        if (
-            not isinstance(value, dict)
-            or set(value)
-            != {"index", "content_digest", "size", "object"}
-            or value["index"] != index
-            or not _is_immutable_object_descriptor(value["object"])
-            or value["object"]
-            != {
-                "content_digest": value["content_digest"],
-                "size": value["size"],
-            }
-        ):
-            raise RuntimeError("Current Port Value Manifest is invalid")
+    for value in manifest["values"]:
         canonical_values.append(
             object_store.read_exact(
                 project_id,
@@ -5191,6 +5263,57 @@ class _ProjectResultCache(ResultReplaySource):
                 "Current Result Cache entry is invalid"
             ) from error
         return payload
+
+    def validated_object_roots(self, project_id: str) -> set[str]:
+        """Validate every current Cache index and return its object roots."""
+        result_root = self._projects.cache_dir(project_id) / "v4" / "results"
+        if not result_root.exists():
+            return set()
+        if result_root.is_symlink() or not result_root.is_dir():
+            raise RuntimeError("Current Result Cache namespace is invalid")
+        roots: set[str] = set()
+        for path in sorted(result_root.iterdir()):
+            if (
+                path.is_symlink()
+                or not path.is_file()
+                or re.fullmatch(r"[0-9a-f]{64}\.json", path.name) is None
+            ):
+                raise RuntimeError("Current Result Cache namespace is invalid")
+            result_identity = f"sha256:{path.stem}"
+            entry = self._load_entry(project_id, result_identity)
+            if entry is None:
+                raise RuntimeError("Current Result Cache entry is unavailable")
+            if not self._result_identity_authority.committed_publication(
+                project_id=project_id,
+                result_identity=result_identity,
+                node_result_manifest=entry["node_result_manifest"],
+                producer_run_id=entry["producer"]["producer_run_id"],
+                producer_node_id=entry["producer"]["producer_node_id"],
+            ):
+                raise RuntimeError(
+                    "Current Result Cache entry lacks committed evidence"
+                )
+            node_result, object_roots = _load_node_result_object_roots(
+                self._object_store,
+                project_id,
+                entry["node_result_manifest"],
+            )
+            if (
+                node_result["result_identity"] != result_identity
+                or node_result["result_contract_metadata"]
+                != entry["result_contract_metadata"]
+                or entry["outputs"]
+                != [
+                    {
+                        "output_port": output["output_port"],
+                        "value_manifest": output["value_manifest"],
+                    }
+                    for output in node_result["outputs"]
+                ]
+            ):
+                raise RuntimeError("Current Result Cache entry is invalid")
+            roots.update(object_roots)
+        return roots
 
     def _admitted_output_from_manifest(
         self,
@@ -5434,13 +5557,14 @@ class V2RunService:
         self._result_identity_authority = ProjectResultIdentityAuthority(
             self._object_store
         )
+        self._project_result_cache = _ProjectResultCache(
+            projects,
+            self._object_store,
+            self._result_identity_authority,
+        )
         self._result_replay_source = (
             result_replay_source
-            or _ProjectResultCache(
-                projects,
-                self._object_store,
-                self._result_identity_authority,
-            )
+            or self._project_result_cache
         )
         self._ledger_transaction_store = ledger_transaction_store
         self._runs: dict[tuple[str, str], _RunRecord] = {}
@@ -5457,7 +5581,126 @@ class V2RunService:
             tuple[str, str, str, str],
             ReusableReadinessProof,
         ] = {}
+        self._validated_ledgers: dict[
+            tuple[str, str],
+            _RunEvidenceLedger,
+        ] = {}
+        self._gc_failures: dict[str, str] = {}
         self._load_persisted_runs()
+        self._collect_project_objects()
+
+    @property
+    def gc_failures(self) -> Mapping[str, str]:
+        """Expose bounded startup collection failures for operations."""
+        return MappingProxyType(dict(self._gc_failures))
+
+    def _record_gc_failure(
+        self,
+        project_id: str,
+        *,
+        stage: Literal["owner_validation", "collection"],
+        error: BaseException,
+    ) -> None:
+        self._gc_failures[project_id] = stage
+        _LOGGER.error(
+            "Project immutable-object collection failed",
+            extra={"project_id": project_id, "failure_stage": stage},
+            exc_info=(type(error), error, error.__traceback__),
+        )
+
+    def _ledger_object_roots(self, project_id: str) -> set[str]:
+        roots: set[str] = set()
+        for (owner_project_id, _run_id), ledger in (
+            self._validated_ledgers.items()
+        ):
+            if owner_project_id != project_id:
+                continue
+            for fact in ledger.facts:
+                if fact["fact_type"] == "artifact_published":
+                    roots.add(fact["payload"]["artifact"]["content_digest"])
+                    continue
+                if fact["fact_type"] != "outputs_published":
+                    continue
+                publication = fact["payload"]
+                node_result, object_roots = (
+                    _load_node_result_object_roots(
+                        self._object_store,
+                        project_id,
+                        publication["node_result_manifest"],
+                    )
+                )
+                if node_result["result_identity"] != publication[
+                    "result_identity"
+                ]:
+                    raise RuntimeError(
+                        "Committed Node Result publication is invalid"
+                    )
+                result_outputs = {
+                    output["output_port"]: output
+                    for output in node_result["outputs"]
+                }
+                for output in publication["outputs"]:
+                    result_output = result_outputs.get(output["output_port"])
+                    if (
+                        result_output is None
+                        or output["value_manifest_reference"]
+                        != result_output["value_manifest"]["content_digest"]
+                    ):
+                        raise RuntimeError(
+                            "Committed Typed Output publication is invalid"
+                        )
+                roots.update(object_roots)
+                roots.update(
+                    artifact["content_digest"]
+                    for artifact in publication["artifacts"]
+                )
+        return roots
+
+    def _collect_project_objects(self) -> None:
+        project_ids = {project.id for project in self._projects.list_projects()}
+        damaged_projects = {
+            project_id for project_id, _run_id in self._damaged_runs
+        }
+        for project_id in sorted(project_ids):
+            if project_id in damaged_projects:
+                self._record_gc_failure(
+                    project_id,
+                    stage="owner_validation",
+                    error=RuntimeError(
+                        "Current Run Ledger validation did not complete"
+                    ),
+                )
+                continue
+            try:
+                with self._result_identity_authority.publication_scope(
+                    project_id
+                ):
+                    roots = self._ledger_object_roots(project_id)
+                    roots.update(
+                        self._project_result_cache.validated_object_roots(
+                            project_id
+                        )
+                    )
+                    self._object_store.collect_unreferenced(
+                        project_id,
+                        roots,
+                    )
+            except (
+                OSError,
+                RuntimeError,
+                StoragePathError,
+                ValueError,
+            ) as error:
+                stage: Literal["owner_validation", "collection"] = (
+                    "collection"
+                    if isinstance(error, OSError)
+                    else "owner_validation"
+                )
+                self._record_gc_failure(
+                    project_id,
+                    stage=stage,
+                    error=error,
+                )
 
     def _plan_evidence(
         self,
@@ -5572,10 +5815,12 @@ class V2RunService:
                 self._run_owners.setdefault(run_id, project_id)
                 continue
             try:
-                self._load_persisted_run(
+                ledger = self._load_persisted_run(
                     project_id,
                     run_id,
                 )
+                if ledger is not None:
+                    self._validated_ledgers[(project_id, run_id)] = ledger
             except (
                 ContractResolutionError,
                 KeyError,
@@ -5662,7 +5907,7 @@ class V2RunService:
         self,
         project_id: str,
         run_id: str,
-    ) -> None:
+    ) -> _RunEvidenceLedger | None:
         ledger = _read_run_evidence_ledger(
             self._projects,
             project_id,
@@ -5670,9 +5915,9 @@ class V2RunService:
             self._ledger_transaction_store,
         )
         if ledger is None:
-            return
+            return None
         if not ledger.started:
-            return
+            return None
         if (
             run_id in self._run_owners
             and self._run_owners[run_id] != project_id
@@ -5688,7 +5933,7 @@ class V2RunService:
                 persisted_catalog_digest
             )
             self._run_owners[run_id] = project_id
-            return
+            return ledger
         ledger.reconcile_restart(
             NodeAttemptFinalizer(
                 ledger=ledger,
@@ -5739,6 +5984,7 @@ class V2RunService:
             record.finished.set()
         self._runs[(project_id, run_id)] = record
         self._run_owners[run_id] = project_id
+        return ledger
 
     def _require_record(
         self,
@@ -7706,53 +7952,18 @@ class V2RunService:
                 manifest_reference,
                 maximum_size=MAX_PORT_VALUE_MANIFEST_BYTES,
             )
-            manifest = json.loads(encoded_manifest)
-            if encoded_manifest != canonical_json_bytes(manifest):
-                raise ValueError("Port Value Manifest is not canonical")
+            manifest = _decode_port_value_manifest(encoded_manifest)
             if (
-                not isinstance(manifest, Mapping)
-                or set(manifest)
-                != {
-                    "schema_namespace",
-                    "port_type",
-                    "multiplicity",
-                    "content_digest",
-                    "value_count",
-                    "values",
-                }
-                or manifest["schema_namespace"]
-                != PORT_VALUE_MANIFEST_NAMESPACE
-                or manifest["port_type"] != descriptor["port_type"]
+                manifest["port_type"] != descriptor["port_type"]
                 or manifest["content_digest"]
                 != descriptor["content_digest"]
                 or manifest["value_count"] != descriptor["value_count"]
-                or not isinstance(manifest["values"], list)
-                or len(manifest["values"]) != descriptor["value_count"]
             ):
                 raise ValueError("Port Value Manifest contract is invalid")
             entry = manifest["values"][value_index]
-            if (
-                not isinstance(entry, Mapping)
-                or set(entry)
-                != {
-                    "index",
-                    "content_digest",
-                    "size",
-                    "object",
-                }
-                or entry["index"] != value_index
-                or type(entry["size"]) is not int
-                or entry["size"] < 0
-                or not isinstance(entry["object"], Mapping)
-                or dict(entry["object"])
-                != {
-                    "content_digest": entry["content_digest"],
-                    "size": entry["size"],
-                }
-            ):
-                raise ValueError("Port Value Manifest entry is invalid")
         except (
             ObjectIntegrityError,
+            RuntimeError,
             UnicodeDecodeError,
             json.JSONDecodeError,
             TypeError,

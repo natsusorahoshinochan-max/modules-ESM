@@ -350,28 +350,26 @@ class ProjectManager:
             validate_identifier(project_id, "project_id"),
         )
 
+    def _output_base(self, project_id: str) -> Path:
+        if self.output_root is None:
+            return contained_path(self.project_dir(project_id), "outputs")
+        return contained_path(
+            self.output_root,
+            validate_identifier(project_id, "project_id"),
+        )
+
     def output_dir(self, project_id: str, run_id: str) -> Path:
         """Resolve one run's artifact directory."""
         safe_run_id = validate_identifier(run_id, "run_id")
-        if self.output_root is None:
-            base = contained_path(self.project_dir(project_id), "outputs")
-        else:
-            base = contained_path(
-                self.output_root,
-                validate_identifier(project_id, "project_id"),
-            )
-        return contained_path(base, safe_run_id)
+        return contained_path(self._output_base(project_id), safe_run_id)
 
     def object_dir(self, project_id: str) -> Path:
         """Resolve one Project's shared immutable object namespace."""
-        if self.output_root is None:
-            base = contained_path(self.project_dir(project_id), "outputs")
-        else:
-            base = contained_path(
-                self.output_root,
-                validate_identifier(project_id, "project_id"),
-            )
-        return contained_path(base, "objects")
+        return contained_path(self._output_base(project_id), "objects")
+
+    def staging_dir(self, project_id: str) -> Path:
+        """Resolve one Project's private immutable-object writer namespace."""
+        return contained_path(self._output_base(project_id), "staging")
 
     def run_dir(self, project_id: str, run_id: str) -> Path:
         """Resolve one run's mutable namespace."""
