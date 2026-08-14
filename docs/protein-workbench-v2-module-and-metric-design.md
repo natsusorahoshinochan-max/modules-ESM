@@ -451,8 +451,19 @@ Invocation。一个 Operation Attempt 可以包含零个、一个或多个带显
 
 每个已开始的 Operation Attempt 与 Engine Invocation 必须恰有一个 terminal fact：
 `succeeded`、`failed`、`cancelled`、`interrupted` 或 `outcome_unknown`。Engine 成功但
-decode、normalization、output validation 或 artifact post-processing 失败时，
+documented Provider translation、normalization、Candidate identity normalization、
+output Port admission 或 Artifact contract processing 失败时，
 Invocation 保持成功，外层 Operation/Node 失败。worker 丢失后不得臆造远端结果。
+
+Operation 成功后才进入 Node Outcome Publication。object/manifest persistence 失败保留
+Operation `succeeded`，并以 `failure_origin=publication`、
+`node_publication_failed` 关闭 Node；Result Identity comparison 冲突保留 Operation
+`succeeded`，并以 `failure_origin=result_identity`、
+`result_identity_conflict` 关闭 Node。Operation 内失败使用
+`failure_origin=operation` 与 `node_execution_failed`。三类失败均以一个完整 Ledger
+transaction 写入所需 terminals 与 disposition，且不发布 outputs 或 Artifacts。error
+details 使用 public bundle 声明的 closed bounded schema，不携带 paths、canonical values
+或 raw exceptions。
 
 Run Evidence Ledger 是 typed run facts 的唯一写入 interface。事实经过 schema/causal
 validation、安全 redaction、durable persistence 与 monotonic sequence 分配后，才投影

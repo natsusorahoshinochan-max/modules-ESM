@@ -1087,14 +1087,10 @@
           "additionalProperties": false,
           "properties": {
             "error": {
-              "$ref": "#/$defs/StructuredError"
+              "$ref": "#/$defs/NodeOperationFailureError"
             },
             "failure_origin": {
-              "enum": [
-                "operation",
-                "publication",
-                "result_identity"
-              ]
+              "const": "operation"
             },
             "node_attempt_id": {
               "$ref": "#/$defs/Identifier"
@@ -1117,7 +1113,78 @@
             "node_attempt_id",
             "status",
             "resolution",
-            "failure_origin"
+            "failure_origin",
+            "error"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "error": {
+              "$ref": "#/$defs/NodePublicationFailureError"
+            },
+            "failure_origin": {
+              "const": "publication"
+            },
+            "node_attempt_id": {
+              "$ref": "#/$defs/Identifier"
+            },
+            "resolution": {
+              "enum": [
+                "executed",
+                "cache_replayed"
+              ]
+            },
+            "status": {
+              "const": "failed"
+            },
+            "type": {
+              "const": "node_attempt_terminal"
+            }
+          },
+          "required": [
+            "type",
+            "node_attempt_id",
+            "status",
+            "resolution",
+            "failure_origin",
+            "error"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "error": {
+              "$ref": "#/$defs/NodeResultIdentityFailureError"
+            },
+            "failure_origin": {
+              "const": "result_identity"
+            },
+            "node_attempt_id": {
+              "$ref": "#/$defs/Identifier"
+            },
+            "resolution": {
+              "enum": [
+                "executed",
+                "cache_replayed"
+              ]
+            },
+            "status": {
+              "const": "failed"
+            },
+            "type": {
+              "const": "node_attempt_terminal"
+            }
+          },
+          "required": [
+            "type",
+            "node_attempt_id",
+            "status",
+            "resolution",
+            "failure_origin",
+            "error"
           ],
           "type": "object"
         },
@@ -1174,6 +1241,66 @@
       ],
       "type": "object"
     },
+    "NodeOperationFailureError": {
+      "additionalProperties": false,
+      "properties": {
+        "code": {
+          "const": "node_execution_failed"
+        },
+        "correlation_id": {
+          "$ref": "#/$defs/Identifier"
+        },
+        "details": {
+          "$ref": "#/$defs/ExceptionErrorDetails"
+        },
+        "message": {
+          "maxLength": 2048,
+          "minLength": 1,
+          "type": "string"
+        },
+        "retryable": {
+          "const": false
+        }
+      },
+      "required": [
+        "code",
+        "message",
+        "retryable",
+        "correlation_id",
+        "details"
+      ],
+      "type": "object"
+    },
+    "NodePublicationFailureError": {
+      "additionalProperties": false,
+      "properties": {
+        "code": {
+          "const": "node_publication_failed"
+        },
+        "correlation_id": {
+          "$ref": "#/$defs/Identifier"
+        },
+        "details": {
+          "$ref": "#/$defs/NodePublicationFailureDetails"
+        },
+        "message": {
+          "maxLength": 2048,
+          "minLength": 1,
+          "type": "string"
+        },
+        "retryable": {
+          "const": false
+        }
+      },
+      "required": [
+        "code",
+        "message",
+        "retryable",
+        "correlation_id",
+        "details"
+      ],
+      "type": "object"
+    },
     "NodePublicationFailureDetails": {
       "additionalProperties": false,
       "properties": {
@@ -1191,6 +1318,36 @@
       "required": [
         "node_id",
         "publication_stage"
+      ],
+      "type": "object"
+    },
+    "NodeResultIdentityFailureError": {
+      "additionalProperties": false,
+      "properties": {
+        "code": {
+          "const": "result_identity_conflict"
+        },
+        "correlation_id": {
+          "$ref": "#/$defs/Identifier"
+        },
+        "details": {
+          "$ref": "#/$defs/ResultIdentityConflictDetails"
+        },
+        "message": {
+          "maxLength": 2048,
+          "minLength": 1,
+          "type": "string"
+        },
+        "retryable": {
+          "const": false
+        }
+      },
+      "required": [
+        "code",
+        "message",
+        "retryable",
+        "correlation_id",
+        "details"
       ],
       "type": "object"
     },

@@ -251,7 +251,8 @@ def test_object_write_failure_closes_node_without_public_output(
     monkeypatch.setattr(ProjectObjectStore, "put_exact", fail_write)
     app = create_app(frozen_catalog_override=_pipeline_catalog([]))
     with TestClient(app) as client:
-        _, _, projection = _start_pipeline(client)
+        project_id, run_id, projection = _start_pipeline(client)
+        events = app.state.run_execution_v2.public_events(project_id, run_id)
 
     assert projection["status"] == "failed"
     assert projection["outputs"] == []
@@ -259,6 +260,30 @@ def test_object_write_failure_closes_node_without_public_output(
         disposition["outcome"]
         for disposition in projection["node_dispositions"]
     } == {"failed", "blocked"}
+    operation_terminal = next(
+        item["event"]
+        for item in events
+        if item["event"]["type"] == "operation_attempt_terminal"
+    )
+    node_terminal = next(
+        item["event"]
+        for item in events
+        if item["event"]["type"] == "node_attempt_terminal"
+    )
+    assert operation_terminal["status"] == "succeeded"
+    assert "error" not in operation_terminal
+    assert node_terminal["failure_origin"] == "publication"
+    publication_error = dict(node_terminal["error"])
+    assert publication_error.pop("correlation_id").startswith("incident-")
+    assert publication_error == {
+        "code": "node_publication_failed",
+        "message": "Node result publication failed",
+        "retryable": False,
+        "details": {
+            "node_id": "source",
+            "publication_stage": "typed_value_object",
+        },
+    }
 
 
 def test_typed_value_data_loss_is_a_closed_public_integrity_error(

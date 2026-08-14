@@ -218,6 +218,84 @@ def test_executed_success_publishes_one_physical_ledger_transaction(
     ]
 
 
+def test_operation_failure_is_one_exact_node_conclusion_transaction(
+    tmp_path,
+) -> None:
+    ledger = _open_attempt_ledger(tmp_path, operation_started=True)
+    public_error = {
+        "code": "node_execution_failed",
+        "message": "Node execution failed safely",
+        "retryable": False,
+        "correlation_id": "incident-operation",
+        "details": {"exception_type": "PortValueError"},
+    }
+
+    finalized = _finalizer(ledger).finalize(
+        run_execution_v2.ExecutedNodeNonSuccess(
+            node_id="node-1",
+            node_attempt_id="node-attempt-1",
+            operation_attempt_id="operation-1",
+            status="failed",
+            public_error=public_error,
+            failure_origin="operation",
+        )
+    )
+
+    assert finalized.disposition == "failed"
+    transaction = json.loads(_ledger_transaction_paths(tmp_path)[-1].read_bytes())
+    assert [fact["fact_type"] for fact in transaction["facts"]] == [
+        "operation_attempt_terminal",
+        "node_attempt_terminal",
+        "node_disposition",
+    ]
+    operation_terminal, node_terminal, disposition = transaction["facts"]
+    assert operation_terminal["payload"] == {
+        "operation_attempt_id": "operation-1",
+        "status": "failed",
+        "error": public_error,
+    }
+    assert node_terminal["payload"] == {
+        "node_attempt_id": "node-attempt-1",
+        "status": "failed",
+        "resolution": "executed",
+        "failure_origin": "operation",
+        "error": public_error,
+    }
+    assert disposition["payload"]["outcome"] == "failed"
+
+
+def test_finalizer_rejects_error_code_from_another_failure_origin(
+    tmp_path,
+) -> None:
+    ledger = _open_attempt_ledger(tmp_path, operation_started=True)
+    before = ledger.facts
+
+    with pytest.raises(run_execution_v2.V2RunError) as rejected:
+        _finalizer(ledger).finalize(
+            run_execution_v2.ExecutedNodeNonSuccess(
+                node_id="node-1",
+                node_attempt_id="node-attempt-1",
+                operation_attempt_id="operation-1",
+                status="failed",
+                public_error={
+                    "code": "result_identity_conflict",
+                    "message": (
+                        "Result Identity resolves to conflicting manifests"
+                    ),
+                    "retryable": False,
+                    "correlation_id": "incident-mismatched-origin",
+                    "details": {
+                        "result_identity": "sha256:" + "a" * 64,
+                    },
+                },
+                failure_origin="publication",
+            )
+        )
+
+    assert rejected.value.code == "evidence_unavailable"
+    assert ledger.facts == before
+
+
 def test_project_publication_lock_serializes_conflicting_result_claims(
     tmp_path,
 ) -> None:
@@ -417,6 +495,64 @@ def test_artifact_object_failure_publishes_no_artifact_or_output(
         "node_id": "node-1",
         "publication_stage": "artifact_object",
     }
+
+
+def test_manifest_object_failure_preserves_successful_operation(
+    tmp_path,
+) -> None:
+    ledger = _open_attempt_ledger(tmp_path, operation_started=True)
+
+    class FailingManifestObjectStore(run_execution_v2.ProjectObjectStore):
+        def put_exact(self, project_id, payload):
+            raise OSError("fixture manifest path and canonical bytes")
+
+    finalized = _finalizer(
+        ledger,
+        object_store=FailingManifestObjectStore(ledger._projects),
+    ).finalize(
+        run_execution_v2.ExecutedNodeSuccess(
+            project_id="project-1",
+            run_id="run-1",
+            execution_plan=SimpleNamespace(),
+            node=_node(),
+            resources=SimpleNamespace(
+                run_id="run-1",
+                _cancellation_control=None,
+            ),
+            node_attempt_id="node-attempt-1",
+            operation_attempt_id="operation-1",
+            result_identity="sha256:" + "5" * 64,
+            admitted_output_descriptors=(),
+            admitted_outputs={},
+            cache_eligible=False,
+        )
+    )
+
+    assert finalized.disposition == "failed"
+    operation_terminal = next(
+        fact["payload"]
+        for fact in ledger.facts
+        if fact["fact_type"] == "operation_attempt_terminal"
+    )
+    node_terminal = next(
+        fact["payload"]
+        for fact in ledger.facts
+        if fact["fact_type"] == "node_attempt_terminal"
+    )
+    assert operation_terminal == {
+        "operation_attempt_id": "operation-1",
+        "status": "succeeded",
+    }
+    assert node_terminal["failure_origin"] == "publication"
+    assert node_terminal["error"]["details"] == {
+        "node_id": "node-1",
+        "publication_stage": "manifest",
+    }
+    retained = json.dumps(ledger.facts).encode()
+    assert b"fixture manifest path" not in retained
+    assert b"canonical bytes" not in retained
+    assert ledger.projection()["outputs"] == []
+    assert ledger.projection()["artifact_index"] == []
 
 
 def test_failed_node_transaction_exposes_no_logical_fact_subset(

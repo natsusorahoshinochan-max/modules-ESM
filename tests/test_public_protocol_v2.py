@@ -363,6 +363,16 @@ def test_failed_node_attempt_event_requires_exact_failure_origin() -> None:
         "status": "failed",
         "resolution": "executed",
         "failure_origin": "publication",
+        "error": {
+            "code": "node_publication_failed",
+            "message": "Node result publication failed",
+            "retryable": False,
+            "correlation_id": "incident-publication",
+            "details": {
+                "node_id": "node-1",
+                "publication_stage": "typed_value_object",
+            },
+        },
     }
     validate_schema("#/$defs/NodeAttemptTerminalEvent", failed)
     with pytest.raises(ProtocolValidationError):
@@ -378,8 +388,96 @@ def test_failed_node_attempt_event_requires_exact_failure_origin() -> None:
         validate_schema(
             "#/$defs/NodeAttemptTerminalEvent",
             {
+                key: value
+                for key, value in failed.items()
+                if key != "error"
+            },
+        )
+    with pytest.raises(ProtocolValidationError):
+        validate_schema(
+            "#/$defs/NodeAttemptTerminalEvent",
+            {
                 **failed,
                 "status": "succeeded",
+            },
+        )
+
+
+@pytest.mark.parametrize(
+    ("failure_origin", "error"),
+    (
+        (
+            "operation",
+            {
+                "code": "node_execution_failed",
+                "message": "Node execution failed safely",
+                "retryable": False,
+                "correlation_id": "incident-operation",
+                "details": {"exception_type": "PortValueError"},
+            },
+        ),
+        (
+            "publication",
+            {
+                "code": "node_publication_failed",
+                "message": "Node result publication failed",
+                "retryable": False,
+                "correlation_id": "incident-publication",
+                "details": {
+                    "node_id": "node-1",
+                    "publication_stage": "manifest",
+                },
+            },
+        ),
+        (
+            "result_identity",
+            {
+                "code": "result_identity_conflict",
+                "message": "Result Identity resolves to conflicting manifests",
+                "retryable": False,
+                "correlation_id": "incident-result-identity",
+                "details": {"result_identity": "sha256:" + "a" * 64},
+            },
+        ),
+    ),
+)
+def test_failed_node_attempt_event_closes_error_by_failure_origin(
+    failure_origin: str,
+    error: dict[str, object],
+) -> None:
+    event = {
+        "type": "node_attempt_terminal",
+        "node_attempt_id": "node-attempt-1",
+        "status": "failed",
+        "resolution": "executed",
+        "failure_origin": failure_origin,
+        "error": error,
+    }
+    validate_schema("#/$defs/NodeAttemptTerminalEvent", event)
+
+    other_origin = (
+        "result_identity"
+        if failure_origin != "result_identity"
+        else "publication"
+    )
+    with pytest.raises(ProtocolValidationError):
+        validate_schema(
+            "#/$defs/NodeAttemptTerminalEvent",
+            {**event, "failure_origin": other_origin},
+        )
+
+    with pytest.raises(ProtocolValidationError):
+        validate_schema(
+            "#/$defs/NodeAttemptTerminalEvent",
+            {
+                **event,
+                "error": {
+                    **error,
+                    "details": {
+                        **error["details"],
+                        "object_path": "/private/output/value.json",
+                    },
+                },
             },
         )
 

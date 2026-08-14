@@ -363,14 +363,6 @@ def _safe_cursor_detail(value: Any) -> str:
 
 
 def _public_failure(error: BaseException) -> dict[str, Any]:
-    if isinstance(error, V2RunError):
-        return {
-            "code": error.code,
-            "message": str(error),
-            "retryable": False,
-            "correlation_id": f"incident-{uuid.uuid4().hex}",
-            "details": sanitize_public_value(error.details),
-        }
     error_type = type(error).__name__
     if (
         len(error_type) > 128
@@ -383,6 +375,19 @@ def _public_failure(error: BaseException) -> dict[str, Any]:
         "retryable": False,
         "correlation_id": f"incident-{uuid.uuid4().hex}",
         "details": {"exception_type": error_type},
+    }
+
+
+def _public_result_identity_failure(
+    *,
+    result_identity: str,
+) -> dict[str, Any]:
+    return {
+        "code": "result_identity_conflict",
+        "message": "Result Identity resolves to conflicting manifests",
+        "retryable": False,
+        "correlation_id": f"incident-{uuid.uuid4().hex}",
+        "details": {"result_identity": result_identity},
     }
 
 
@@ -2277,6 +2282,19 @@ class _RunEvidenceLedger:
             })
         ):
             raise self._causal_error()
+        if fact_type == "node_attempt_terminal" and payload["status"] == "failed":
+            failure_error_schemas = {
+                "operation": "#/$defs/NodeOperationFailureError",
+                "publication": "#/$defs/NodePublicationFailureError",
+                "result_identity": "#/$defs/NodeResultIdentityFailureError",
+            }
+            try:
+                validate_schema(
+                    failure_error_schemas[payload["failure_origin"]],
+                    payload["error"],
+                )
+            except (KeyError, ProtocolValidationError) as error:
+                raise self._causal_error() from error
         if fact_type == "node_disposition":
             if payload["outcome"] not in _DISPOSITION_OUTCOMES:
                 raise self._causal_error()
@@ -3855,14 +3873,8 @@ class NodeAttemptFinalizer:
                         node_attempt_id=context.node_attempt_id,
                         operation_attempt_id=context.operation_attempt_id,
                         status="failed",
-                        public_error=_public_failure(
-                            V2RunError(
-                                "result_identity_conflict",
-                                "Result Identity resolves to conflicting manifests",
-                                details={
-                                    "result_identity": intent.result_identity
-                                },
-                            )
+                        public_error=_public_result_identity_failure(
+                            result_identity=intent.result_identity,
                         ),
                         failure_origin="result_identity",
                     ),
@@ -3959,14 +3971,8 @@ class NodeAttemptFinalizer:
                         node_attempt_id=context.node_attempt_id,
                         operation_attempt_id=None,
                         status="failed",
-                        public_error=_public_failure(
-                            V2RunError(
-                                "result_identity_conflict",
-                                "Result Identity resolves to conflicting manifests",
-                                details={
-                                    "result_identity": intent.result_identity
-                                },
-                            )
+                        public_error=_public_result_identity_failure(
+                            result_identity=intent.result_identity,
                         ),
                         failure_origin="result_identity",
                     ),
@@ -6533,7 +6539,10 @@ class V2RunService:
                 AdmittedArtifactPublicationPlan | None
             ) = None
             replay_producer_run_id: str | None = None
-            cache_lookup_error: V2RunError | None = None
+            cache_lookup_failure: tuple[
+                Literal["publication", "result_identity"],
+                dict[str, Any],
+            ] | None = None
             if cache_lookup_eligible and result_identity is not None:
                 try:
                     replayed = self._result_replay_source.lookup(
@@ -6592,19 +6601,28 @@ class V2RunService:
                             )
                         )
                 except NodePublicationError as error:
-                    cache_lookup_error = V2RunError(
-                        "node_publication_failed",
-                        "Node result publication failed",
-                        details={
-                            "node_id": node.node_id,
-                            "publication_stage": error.stage,
-                        },
+                    cache_lookup_failure = (
+                        "publication",
+                        _public_publication_failure(
+                            node_id=node.node_id,
+                            stage=error.stage,
+                        ),
                     )
                 except V2RunError as error:
                     if error.code == "evidence_unavailable":
                         raise
-                    cache_lookup_error = error
-            if cache_lookup_error is not None:
+                    if error.code != "result_identity_conflict":
+                        raise RuntimeError(
+                            "Result replay returned a non-current failure code"
+                        ) from error
+                    cache_lookup_failure = (
+                        "result_identity",
+                        _public_result_identity_failure(
+                            result_identity=result_identity,
+                        ),
+                    )
+            if cache_lookup_failure is not None:
+                failure_origin, public_error = cache_lookup_failure
                 ledger.append(
                     "node_attempt_started",
                     {
@@ -6618,13 +6636,8 @@ class V2RunService:
                         node_attempt_id=node_attempt_id,
                         operation_attempt_id=None,
                         status="failed",
-                        public_error=_public_failure(cache_lookup_error),
-                        failure_origin=(
-                            "result_identity"
-                            if cache_lookup_error.code
-                            == "result_identity_conflict"
-                            else "publication"
-                        ),
+                        public_error=public_error,
+                        failure_origin=failure_origin,
                         resolution="cache_replayed",
                     )
                 )

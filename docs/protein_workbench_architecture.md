@@ -570,6 +570,18 @@ Run Evidence Ledger 是 Node Execution Attempt、Operation Attempt、Engine Invo
 output descriptors、Artifact descriptors、Node terminal 与 disposition 等独立 logical facts。
 immutable object bytes 必须先 durable；transaction 提交前没有任何 output 或 Artifact 可见。
 
+Operation Attempt 覆盖 implementation、Engine Invocation、documented Provider translation、
+normalization、Candidate identity normalization、Port admission 与 Artifact contract
+processing。该边界内失败时 Operation 与 Node 同为 `failed`，Node 使用
+`failure_origin=operation` 与 `node_execution_failed`。Operation 成功后，object 或
+manifest persistence 失败只关闭 Node 为 `failed/publication`，并使用
+`node_publication_failed`；Result Identity comparison 冲突只关闭 Node 为
+`failed/result_identity`，并使用 `result_identity_conflict`。后两者不得倒写已经成功的
+Operation，也不得发布 output 或 Artifact。每种失败都以一个完整 transaction 同时提交所需
+Operation terminal、Node terminal 与 disposition。公开 error details 只包含各 code 声明的
+bounded domain identifiers、publication stage 或 Result Identity，不包含 object path、
+canonical value 或 raw exception。
+
 每个开始的 Engine Invocation 恰有一个 terminal fact，其 `engine_identity` 必须是 resolved
 exact Method contract digest，并由 Execution Plan 绑定；Operation 或 Adapter 不能提供或覆盖
 该身份。`effective_randomness` 内部是 closed union：实际应用 seed 时为 `exact_seed`，
