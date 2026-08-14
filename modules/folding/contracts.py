@@ -255,4 +255,3 @@ REMOTE_ESMFOLD2_FOLD_METHOD = _method("remote")
 LOCAL_ESMFOLD2_FOLD_METHOD = _method("local")
 SIMPLEFOLD_FOLD_METHOD = _simplefold_method()
 SIMPLEFOLD_CONFIDENCE_METHOD = _simplefold_confidence_method()
-
