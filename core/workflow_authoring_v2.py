@@ -550,6 +550,14 @@ class WorkflowAuthoringService:
                     "resource_id": project_id,
                 },
             )
+        return self._load_commit_revision_record(project_id, revision)
+
+    def _load_commit_revision_record(
+        self,
+        project_id: str,
+        revision: int,
+    ) -> WorkflowCommit:
+        """Load one exact immutable Workflow Commit revision."""
         try:
             payload = self._read_record(project_id, "commits", revision)
             if (
@@ -1008,5 +1016,27 @@ class WorkflowAuthoringService:
                         "resource_kind": "workflow_commit",
                         "resource_id": workflow_commit_id,
                     },
+                )
+            return self._hydrate_compiled_commit(commit)
+
+    def require_compiled_revision(
+        self,
+        project_id: str,
+        *,
+        workflow_commit_id: str,
+        workflow_commit_revision: int,
+    ) -> CompiledWorkflow:
+        """Hydrate the exact immutable Commit named by durable Run scope."""
+        self._require_project(project_id)
+        with self._project_lock(project_id):
+            commit = self._load_commit_revision_record(
+                project_id,
+                workflow_commit_revision,
+            )
+            if commit.workflow_commit_id != workflow_commit_id:
+                raise WorkflowAuthoringError(
+                    "workflow_commit_identity_mismatch",
+                    "Workflow Commit revision does not match Run evidence",
+                    details={"workflow_commit_id": workflow_commit_id},
                 )
             return self._hydrate_compiled_commit(commit)

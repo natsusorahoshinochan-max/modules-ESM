@@ -3112,6 +3112,405 @@ def test_run_without_selection_closes_after_its_node_disposition(
     assert closure["facts"][0]["payload"] == {"status": "succeeded"}
 
 
+def test_restart_closes_all_success_run_when_original_closure_is_missing(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    class FailRunClosure:
+        def __init__(self) -> None:
+            self.filesystem = (
+                run_execution_v2.FilesystemLedgerTransactionStore()
+            )
+
+        def publish(self, *, root, relative_parts, payload) -> None:
+            if _transaction_has_fact(payload, "run_terminal"):
+                raise OSError("fixture Run Closure failure")
+            self.filesystem.publish(
+                root=root,
+                relative_parts=relative_parts,
+                payload=payload,
+            )
+
+    project_root = tmp_path / "projects"
+    run_root = tmp_path / "runs"
+    monkeypatch.setenv("PROTEIN_WORKBENCH_PROJECT_ROOT", str(project_root))
+    monkeypatch.setenv("PROTEIN_WORKBENCH_RUN_ROOT", str(run_root))
+    monkeypatch.setenv(
+        "PROTEIN_WORKBENCH_OUTPUT_ROOT",
+        str(tmp_path / "outputs"),
+    )
+    catalog = _direct_catalog([])
+    environment = {
+        ("test.direct.local", "2.1.0"): {
+            "values": {"credential": "credential-value"},
+        }
+    }
+
+    with TestClient(
+        create_app(
+            frozen_catalog_override=catalog,
+            v2_environment_configuration=environment,
+            _v2_ledger_transaction_store=FailRunClosure(),
+        )
+    ) as first:
+        project_id, compiled = _commit_one_node(first)
+        failed = first.post(
+            f"/api/v2/projects/{project_id}/runs",
+            json={
+                "workflow_commit_id": compiled["workflow_commit_id"],
+                "client_request_id": "missing-no-selection-closure",
+            },
+        )
+
+    assert failed.status_code == 503
+    assert failed.json()["error"]["code"] == "evidence_unavailable"
+    run_id = next((run_root / project_id).iterdir()).name
+    before_restart = _durable_facts(run_root)
+    assert any(
+        fact["fact_type"] == "node_disposition"
+        and fact["payload"]["outcome"] == "succeeded"
+        for fact in before_restart
+    )
+    assert not any(
+        fact["fact_type"] == "run_terminal"
+        for fact in before_restart
+    )
+
+    with TestClient(
+        create_app(
+            frozen_catalog_override=catalog,
+            v2_environment_configuration=environment,
+        )
+    ) as restarted:
+        recovered = restarted.get(
+            f"/api/v2/projects/{project_id}/runs/{run_id}"
+        )
+        events = restarted.app.state.run_execution_v2.public_events(
+            project_id,
+            run_id,
+        )
+
+    assert recovered.status_code == 200
+    projection = recovered.json()
+    assert projection["status"] == "succeeded"
+    assert projection["node_dispositions"][0]["outcome"] == "succeeded"
+    assert events[-1]["event"] == {
+        "type": "run_terminal",
+        "status": "succeeded",
+    }
+    assert [
+        fact["fact_type"] for fact in _durable_facts(run_root)[-2:]
+    ] == ["restart_reconciliation_started", "run_terminal"]
+
+
+def test_restart_resolves_unacknowledged_node_commit_from_canonical_disk_fact(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    class PublishThenLoseNodeAcknowledgement:
+        def __init__(self) -> None:
+            self.filesystem = (
+                run_execution_v2.FilesystemLedgerTransactionStore()
+            )
+
+        def publish(self, *, root, relative_parts, payload) -> None:
+            self.filesystem.publish(
+                root=root,
+                relative_parts=relative_parts,
+                payload=payload,
+            )
+            if _transaction_has_fact(payload, "node_disposition"):
+                raise OSError("fixture Node acknowledgement failure")
+
+    run_root = tmp_path / "runs"
+    monkeypatch.setenv(
+        "PROTEIN_WORKBENCH_PROJECT_ROOT",
+        str(tmp_path / "projects"),
+    )
+    monkeypatch.setenv("PROTEIN_WORKBENCH_RUN_ROOT", str(run_root))
+    monkeypatch.setenv(
+        "PROTEIN_WORKBENCH_OUTPUT_ROOT",
+        str(tmp_path / "outputs"),
+    )
+    catalog = _direct_catalog([])
+    environment = {
+        ("test.direct.local", "2.1.0"): {
+            "values": {"credential": "credential-value"},
+        }
+    }
+
+    with TestClient(
+        create_app(
+            frozen_catalog_override=catalog,
+            v2_environment_configuration=environment,
+            _v2_ledger_transaction_store=(
+                PublishThenLoseNodeAcknowledgement()
+            ),
+        )
+    ) as first:
+        project_id, compiled = _commit_one_node(first)
+        failed = first.post(
+            f"/api/v2/projects/{project_id}/runs",
+            json={
+                "workflow_commit_id": compiled["workflow_commit_id"],
+                "client_request_id": "unacknowledged-node-commit",
+            },
+        )
+
+    assert failed.status_code == 503
+    run_id = next((run_root / project_id).iterdir()).name
+    durable_before_restart = _durable_facts(run_root)
+    assert sum(
+        fact["fact_type"] == "node_disposition"
+        for fact in durable_before_restart
+    ) == 1
+
+    with TestClient(
+        create_app(
+            frozen_catalog_override=catalog,
+            v2_environment_configuration=environment,
+        )
+    ) as restarted:
+        recovered = restarted.get(
+            f"/api/v2/projects/{project_id}/runs/{run_id}"
+        )
+
+    assert recovered.status_code == 200
+    assert recovered.json()["status"] == "succeeded"
+    durable_after_restart = _durable_facts(run_root)
+    assert sum(
+        fact["fact_type"] == "node_disposition"
+        for fact in durable_after_restart
+    ) == 1
+    assert sum(
+        fact["fact_type"] == "run_terminal"
+        for fact in durable_after_restart
+    ) == 1
+
+
+@pytest.mark.parametrize("engine_status", ("failed", "cancelled"))
+def test_restart_preserves_durable_engine_non_success_as_direct_cause(
+    tmp_path,
+    monkeypatch,
+    engine_status: str,
+) -> None:
+    class FailOperationConclusion:
+        def __init__(self) -> None:
+            self.filesystem = (
+                run_execution_v2.FilesystemLedgerTransactionStore()
+            )
+
+        def publish(self, *, root, relative_parts, payload) -> None:
+            if _transaction_has_fact(payload, "operation_attempt_terminal"):
+                raise OSError("fixture Operation conclusion failure")
+            self.filesystem.publish(
+                root=root,
+                relative_parts=relative_parts,
+                payload=payload,
+            )
+
+    def terminate_engine(resources: RunResources) -> None:
+        del resources
+        raise ExecutionTermination(engine_status)
+
+    run_root = tmp_path / "runs"
+    monkeypatch.setenv(
+        "PROTEIN_WORKBENCH_PROJECT_ROOT",
+        str(tmp_path / "projects"),
+    )
+    monkeypatch.setenv("PROTEIN_WORKBENCH_RUN_ROOT", str(run_root))
+    monkeypatch.setenv(
+        "PROTEIN_WORKBENCH_OUTPUT_ROOT",
+        str(tmp_path / "outputs"),
+    )
+    catalog = _direct_catalog([], execution_action=terminate_engine)
+    environment = {
+        ("test.direct.local", "2.1.0"): {
+            "values": {"credential": "credential-value"},
+        }
+    }
+
+    with TestClient(
+        create_app(
+            frozen_catalog_override=catalog,
+            v2_environment_configuration=environment,
+            _v2_ledger_transaction_store=FailOperationConclusion(),
+        )
+    ) as first:
+        project_id, compiled = _commit_one_node(first)
+        failed = first.post(
+            f"/api/v2/projects/{project_id}/runs",
+            json={
+                "workflow_commit_id": compiled["workflow_commit_id"],
+                "client_request_id": f"engine-{engine_status}-prefix",
+            },
+        )
+
+    assert failed.status_code == 503
+    assert failed.json()["error"]["code"] == "evidence_unavailable"
+    run_id = next((run_root / project_id).iterdir()).name
+    durable_before_restart = _durable_facts(run_root)
+    assert [
+        fact["payload"]["status"]
+        for fact in durable_before_restart
+        if fact["fact_type"] == "engine_invocation_terminal"
+    ] == [engine_status]
+    assert not any(
+        fact["fact_type"] == "operation_attempt_terminal"
+        for fact in durable_before_restart
+    )
+
+    with TestClient(
+        create_app(
+            frozen_catalog_override=catalog,
+            v2_environment_configuration=environment,
+        )
+    ) as restarted:
+        recovered = restarted.get(
+            f"/api/v2/projects/{project_id}/runs/{run_id}"
+        )
+        events = restarted.app.state.run_execution_v2.public_events(
+            project_id,
+            run_id,
+        )
+
+    assert recovered.status_code == 200
+    projection = recovered.json()
+    assert projection["status"] == engine_status
+    assert projection["node_dispositions"][0]["outcome"] == engine_status
+    terminal_events = [
+        event["event"]
+        for event in events
+        if event["event"]["type"]
+        in {
+            "engine_invocation_terminal",
+            "operation_attempt_terminal",
+            "node_attempt_terminal",
+            "run_terminal",
+        }
+    ]
+    assert [event["status"] for event in terminal_events] == (
+        [engine_status] * 4
+    )
+    engine_terminal, operation_terminal, node_terminal, _ = terminal_events
+    assert operation_terminal.get("error") == engine_terminal.get("error")
+    assert node_terminal.get("error") == engine_terminal.get("error")
+    if engine_status == "failed":
+        assert node_terminal["failure_origin"] == "operation"
+    else:
+        assert "failure_origin" not in node_terminal
+
+
+def test_recovery_continues_from_prefix_after_a_second_restart(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    class FailOpenInvocationRecovery:
+        def __init__(self) -> None:
+            self.filesystem = (
+                run_execution_v2.FilesystemLedgerTransactionStore()
+            )
+
+        def publish(self, *, root, relative_parts, payload) -> None:
+            if _transaction_has_fact(payload, "engine_invocation_terminal"):
+                raise OSError("fixture recovery transaction failure")
+            self.filesystem.publish(
+                root=root,
+                relative_parts=relative_parts,
+                payload=payload,
+            )
+
+    entered = threading.Event()
+    release = threading.Event()
+    run_root = tmp_path / "runs"
+    monkeypatch.setenv(
+        "PROTEIN_WORKBENCH_PROJECT_ROOT",
+        str(tmp_path / "projects"),
+    )
+    monkeypatch.setenv("PROTEIN_WORKBENCH_RUN_ROOT", str(run_root))
+    monkeypatch.setenv(
+        "PROTEIN_WORKBENCH_OUTPUT_ROOT",
+        str(tmp_path / "outputs"),
+    )
+    catalog = _direct_catalog([], execution_gate=(entered, release))
+    environment = {
+        ("test.direct.local", "2.1.0"): {
+            "values": {"credential": "credential-value"},
+        }
+    }
+
+    try:
+        with TestClient(
+            create_app(
+                frozen_catalog_override=catalog,
+                v2_environment_configuration=environment,
+                _v2_wait_for_workers_on_shutdown=False,
+            )
+        ) as first:
+            project_id, compiled = _commit_one_node(first)
+            started = first.post(
+                f"/api/v2/projects/{project_id}/runs",
+                json={
+                    "workflow_commit_id": compiled["workflow_commit_id"],
+                    "client_request_id": "repeated-restart",
+                },
+            )
+            assert started.status_code == 202
+            assert entered.wait(timeout=1)
+            run_id = started.json()["run_id"]
+
+        with TestClient(
+            create_app(
+                frozen_catalog_override=catalog,
+                v2_environment_configuration=environment,
+                _v2_ledger_transaction_store=(
+                    FailOpenInvocationRecovery()
+                ),
+            )
+        ) as interrupted_recovery:
+            unavailable = interrupted_recovery.get(
+                f"/api/v2/projects/{project_id}/runs/{run_id}"
+            )
+
+        assert unavailable.status_code == 503
+        after_interrupted_recovery = _durable_facts(run_root)
+        assert sum(
+            fact["fact_type"] == "restart_reconciliation_started"
+            for fact in after_interrupted_recovery
+        ) == 1
+        assert not any(
+            fact["fact_type"] == "engine_invocation_terminal"
+            for fact in after_interrupted_recovery
+        )
+
+        with TestClient(
+            create_app(
+                frozen_catalog_override=catalog,
+                v2_environment_configuration=environment,
+            )
+        ) as restarted_again:
+            recovered = restarted_again.get(
+                f"/api/v2/projects/{project_id}/runs/{run_id}"
+            )
+    finally:
+        release.set()
+
+    assert recovered.status_code == 200
+    assert recovered.json()["status"] == "interrupted"
+    durable = _durable_facts(run_root)
+    for fact_type in (
+        "restart_reconciliation_started",
+        "engine_invocation_terminal",
+        "operation_attempt_terminal",
+        "node_attempt_terminal",
+        "node_disposition",
+        "run_terminal",
+    ):
+        assert sum(
+            fact["fact_type"] == fact_type for fact in durable
+        ) == 1
+
+
 def test_cleanup_failure_is_bounded_and_does_not_rewrite_engine_success(
     tmp_path,
     monkeypatch,

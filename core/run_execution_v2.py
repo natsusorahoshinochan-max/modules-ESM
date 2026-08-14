@@ -2439,6 +2439,7 @@ class _RunEvidenceLedger:
             self._state.operations[payload["operation_attempt_id"]] = {
                 "node_attempt_id": payload["node_attempt_id"],
                 "terminal": None,
+                "error": None,
             }
         elif fact_type == "engine_invocation_started":
             self._state.invocations[payload["invocation_id"]] = {
@@ -2447,15 +2448,16 @@ class _RunEvidenceLedger:
                     "parent_invocation_id"
                 ),
                 "terminal": None,
+                "error": None,
             }
         elif fact_type == "engine_invocation_terminal":
-            self._state.invocations[payload["invocation_id"]]["terminal"] = payload[
-                "status"
-            ]
+            invocation = self._state.invocations[payload["invocation_id"]]
+            invocation["terminal"] = payload["status"]
+            invocation["error"] = deepcopy(payload.get("error"))
         elif fact_type == "operation_attempt_terminal":
-            self._state.operations[payload["operation_attempt_id"]]["terminal"] = (
-                payload["status"]
-            )
+            operation = self._state.operations[payload["operation_attempt_id"]]
+            operation["terminal"] = payload["status"]
+            operation["error"] = deepcopy(payload.get("error"))
         elif fact_type == "node_attempt_terminal":
             attempt = self._state.node_attempts[payload["node_attempt_id"]]
             attempt["terminal"] = payload["status"]
@@ -3119,7 +3121,11 @@ class _RunEvidenceLedger:
         with self._condition:
             self._condition.notify_all()
 
-    def reconcile_restart(self, finalizer: NodeAttemptFinalizer) -> None:
+    def reconcile_restart(
+        self,
+        finalizer: NodeAttemptFinalizer,
+    ) -> None:
+        """Close only the causal work left open by the durable prefix."""
         with self._condition:
             if not self._state.run_started or self._state.run_terminal:
                 return
@@ -3155,20 +3161,45 @@ class _RunEvidenceLedger:
             ]
             open_operation_id: str | None = None
             child_statuses: list[str] = []
+            child_errors: dict[str, Mapping[str, Any]] = {}
             for operation_id, operation in child_operations:
                 terminal = operation["terminal"]
                 if terminal is None:
-                    invocation_statuses = [
-                        invocation["terminal"]
+                    child_invocations = [
+                        invocation
                         for invocation in self._state.invocations.values()
                         if invocation["operation_attempt_id"] == operation_id
                     ]
-                    terminal = (
-                        "outcome_unknown"
-                        if "outcome_unknown" in invocation_statuses
-                        else "interrupted"
+                    invocation_statuses = [
+                        invocation["terminal"]
+                        for invocation in child_invocations
+                    ]
+                    if self._state.cancellation_sequence is not None:
+                        terminal = "cancelled"
+                    elif "failed" in invocation_statuses:
+                        terminal = "failed"
+                    elif "outcome_unknown" in invocation_statuses:
+                        terminal = "outcome_unknown"
+                    elif "cancelled" in invocation_statuses:
+                        terminal = "cancelled"
+                    elif "interrupted" in invocation_statuses:
+                        terminal = "interrupted"
+                    else:
+                        terminal = "interrupted"
+                    causal_error = next(
+                        (
+                            invocation["error"]
+                            for invocation in child_invocations
+                            if invocation["terminal"] == terminal
+                            and invocation["error"] is not None
+                        ),
+                        None,
                     )
+                    if causal_error is not None:
+                        child_errors[terminal] = causal_error
                     open_operation_id = operation_id
+                elif operation["error"] is not None:
+                    child_errors[terminal] = operation["error"]
                 child_statuses.append(terminal)
             node_id = attempt["node_id"]
             resolution = (
@@ -3176,25 +3207,65 @@ class _RunEvidenceLedger:
                 if node_id in self._state.outputs_published and not child_operations
                 else "executed"
             )
-            finalizer.finalize(
-                CancelledOrInterruptedNode(
-                    node_id=node_id,
-                    status=(
-                        "outcome_unknown"
-                        if "outcome_unknown" in child_statuses
-                        else "interrupted"
-                    ),
-                    public_error=restart_error,
-                    node_attempt_id=attempt_id,
-                    operation_attempt_id=open_operation_id,
-                    resolution=resolution,
+            terminal_status: Literal[
+                "failed",
+                "cancelled",
+                "interrupted",
+                "outcome_unknown",
+            ] = (
+                "failed"
+                if "failed" in child_statuses
+                else "outcome_unknown"
+                if "outcome_unknown" in child_statuses
+                else "cancelled"
+                if (
+                    "cancelled" in child_statuses
+                    or (
+                        not child_operations
+                        and self._state.cancellation_sequence is not None
+                    )
                 )
+                else "interrupted"
             )
+            if terminal_status == "failed":
+                finalizer.finalize(
+                    ExecutedNodeNonSuccess(
+                        node_id=node_id,
+                        node_attempt_id=attempt_id,
+                        operation_attempt_id=open_operation_id,
+                        status="failed",
+                        public_error=child_errors["failed"],
+                    )
+                )
+            else:
+                finalizer.finalize(
+                    CancelledOrInterruptedNode(
+                        node_id=node_id,
+                        status=terminal_status,
+                        public_error=(
+                            child_errors.get(terminal_status)
+                            if terminal_status == "cancelled"
+                            else restart_error
+                        ),
+                        node_attempt_id=attempt_id,
+                        operation_attempt_id=open_operation_id,
+                        resolution=resolution,
+                    )
+                )
         for node_id in self._plan_node_order:
             if node_id in self._state.dispositions:
                 continue
             if node_id in self._state.node_attempt_by_node:
                 raise self._causal_error()
+            if self._state.cancellation_sequence is not None:
+                finalizer.finalize(
+                    CancelledOrInterruptedNode(
+                        node_id=node_id,
+                        status="cancelled",
+                        public_error=None,
+                    )
+                )
+                continue
             blocked_by = sorted(
                 dependency
                 for dependency in self._required_dependencies[node_id]
@@ -3216,7 +3287,11 @@ class _RunEvidenceLedger:
                         public_error=restart_error,
                     )
                 )
-        self.append("run_terminal", {"status": "interrupted"})
+        if not (
+            self.all_dispositions_succeeded
+            and self._selection_consumer_ids
+        ):
+            self.commit_run_closure()
 
 
 def _load_node_result_manifest(
@@ -4937,6 +5012,85 @@ def _with_result_provenance(
     ]
 
 
+def _admitted_output_from_manifest(
+    *,
+    object_store: ProjectObjectStore,
+    project_id: str,
+    execution_plan: ExecutionPlan,
+    node: ExecutionPlanNode,
+    output: Mapping[str, Any],
+) -> AdmittedPortValues:
+    """Materialize one committed Port manifest through its exact codec."""
+    output_port = output["output_port"]
+    declaration = node._runtime.output_ports[output_port].declaration
+    reference = output["value_manifest"]
+    if reference["size"] > MAX_PORT_VALUE_MANIFEST_BYTES:
+        raise RuntimeError("Current Port Value Manifest is invalid")
+    encoded = object_store.read_exact(
+        project_id,
+        reference["content_digest"],
+        size=reference["size"],
+    )
+    manifest = json.loads(encoded)
+    if (
+        encoded != canonical_json_bytes(manifest)
+        or not isinstance(manifest, dict)
+        or set(manifest)
+        != {
+            "schema_namespace",
+            "port_type",
+            "multiplicity",
+            "content_digest",
+            "value_count",
+            "values",
+        }
+        or manifest["schema_namespace"] != PORT_VALUE_MANIFEST_NAMESPACE
+        or manifest["port_type"] != output["port_type"]
+        or manifest["port_type"] != declaration["port_type"]
+        or manifest["multiplicity"] != declaration["multiplicity"]
+        or type(manifest["value_count"]) is not int
+        or manifest["value_count"] < 0
+        or not isinstance(manifest["values"], list)
+        or len(manifest["values"]) != manifest["value_count"]
+    ):
+        raise RuntimeError("Current Port Value Manifest is invalid")
+    canonical_values: list[bytes] = []
+    for index, value in enumerate(manifest["values"]):
+        if (
+            not isinstance(value, dict)
+            or set(value)
+            != {"index", "content_digest", "size", "object"}
+            or value["index"] != index
+            or not _is_immutable_object_descriptor(value["object"])
+            or value["object"]
+            != {
+                "content_digest": value["content_digest"],
+                "size": value["size"],
+            }
+        ):
+            raise RuntimeError("Current Port Value Manifest is invalid")
+        canonical_values.append(
+            object_store.read_exact(
+                project_id,
+                value["content_digest"],
+                size=value["size"],
+            )
+        )
+    port_type = node._runtime.output_ports[output_port].port_type
+    admitted = admitted_port_values_from_bytes(
+        port_type=port_type,
+        multiplicity=declaration["multiplicity"],
+        canonical_values=tuple(canonical_values),
+        candidate_data=lambda value: _candidate_digests_for_value(
+            execution_plan._runtime.candidate_data_port_types,
+            value,
+        ),
+    )
+    if admitted.content_digest != manifest["content_digest"]:
+        raise RuntimeError("Current Port Value Manifest is invalid")
+    return admitted
+
+
 class _ProjectResultCache(ResultReplaySource):
     """Project-owned reference-only replay index over committed Results."""
 
@@ -5046,74 +5200,13 @@ class _ProjectResultCache(ResultReplaySource):
         node: ExecutionPlanNode,
         output: Mapping[str, Any],
     ) -> AdmittedPortValues:
-        output_port = output["output_port"]
-        declaration = node._runtime.output_ports[output_port].declaration
-        reference = output["value_manifest"]
-        if reference["size"] > MAX_PORT_VALUE_MANIFEST_BYTES:
-            raise RuntimeError("Current Port Value Manifest is invalid")
-        encoded = self._object_store.read_exact(
-            project_id,
-            reference["content_digest"],
-            size=reference["size"],
+        return _admitted_output_from_manifest(
+            object_store=self._object_store,
+            project_id=project_id,
+            execution_plan=execution_plan,
+            node=node,
+            output=output,
         )
-        manifest = json.loads(encoded)
-        if (
-            encoded != canonical_json_bytes(manifest)
-            or not isinstance(manifest, dict)
-            or set(manifest)
-            != {
-                "schema_namespace",
-                "port_type",
-                "multiplicity",
-                "content_digest",
-                "value_count",
-                "values",
-            }
-            or manifest["schema_namespace"] != PORT_VALUE_MANIFEST_NAMESPACE
-            or manifest["port_type"] != output["port_type"]
-            or manifest["port_type"] != declaration["port_type"]
-            or manifest["multiplicity"] != declaration["multiplicity"]
-            or type(manifest["value_count"]) is not int
-            or manifest["value_count"] < 0
-            or not isinstance(manifest["values"], list)
-            or len(manifest["values"]) != manifest["value_count"]
-        ):
-            raise RuntimeError("Current Port Value Manifest is invalid")
-        canonical_values: list[bytes] = []
-        for index, value in enumerate(manifest["values"]):
-            if (
-                not isinstance(value, dict)
-                or set(value)
-                != {"index", "content_digest", "size", "object"}
-                or value["index"] != index
-                or not _is_immutable_object_descriptor(value["object"])
-                or value["object"]
-                != {
-                    "content_digest": value["content_digest"],
-                    "size": value["size"],
-                }
-            ):
-                raise RuntimeError("Current Port Value Manifest is invalid")
-            canonical_values.append(
-                self._object_store.read_exact(
-                    project_id,
-                    value["content_digest"],
-                    size=value["size"],
-                )
-            )
-        port_type = node._runtime.output_ports[output_port].port_type
-        admitted = admitted_port_values_from_bytes(
-            port_type=port_type,
-            multiplicity=declaration["multiplicity"],
-            canonical_values=tuple(canonical_values),
-            candidate_data=lambda value: _candidate_digests_for_value(
-                execution_plan._runtime.candidate_data_port_types,
-                value,
-            ),
-        )
-        if admitted.content_digest != manifest["content_digest"]:
-            raise RuntimeError("Current Port Value Manifest is invalid")
-        return admitted
 
     def lookup(
         self,
@@ -5502,6 +5595,69 @@ class V2RunService:
                 )
                 self._run_owners.setdefault(run_id, project_id)
 
+    def _restart_selection_terminals(
+        self,
+        ledger: _RunEvidenceLedger,
+        plan: ExecutionPlan,
+    ) -> tuple[Mapping[str, Any], ...]:
+        """Rebuild missing Selection conclusions from committed values."""
+        nodes = {node.node_id: node for node in plan.nodes}
+        publications = {
+            fact["payload"]["node_id"]: fact["payload"]
+            for fact in ledger.facts
+            if fact["fact_type"] == "outputs_published"
+        }
+        committed_values: dict[
+            tuple[str, str],
+            AdmittedPortValues,
+        ] = {}
+        for node_id in ledger.selection_consumer_ids:
+            node = nodes[node_id]
+            publication = publications[node_id]
+            node_result = _load_node_result_manifest(
+                self._object_store,
+                ledger._project_id,
+                publication["node_result_manifest"],
+            )
+            if (
+                node_result["result_identity"]
+                != publication["result_identity"]
+                or node_result["result_contract_metadata"]
+                != _result_contract_metadata(node)
+            ):
+                raise RuntimeError(
+                    "Committed Selection Result Manifest is invalid"
+                )
+            for output in node_result["outputs"]:
+                admitted = _admitted_output_from_manifest(
+                    object_store=self._object_store,
+                    project_id=ledger._project_id,
+                    execution_plan=plan,
+                    node=node,
+                    output=output,
+                )
+                committed_values[(node_id, output["output_port"])] = (
+                    admitted
+                )
+        try:
+            return tuple(
+                {
+                    "status": "succeeded",
+                    "result": _selection_consumer_result(
+                        nodes[node_id],
+                        committed_values,
+                    ),
+                }
+                for node_id in ledger.selection_consumer_ids
+            )
+        except SelectionError as error:
+            return (
+                {
+                    "status": "failed",
+                    "error": _public_selection_failure(error),
+                },
+            )
+
     def _load_persisted_run(
         self,
         project_id: str,
@@ -5543,6 +5699,34 @@ class V2RunService:
                 ),
             )
         )
+        if not ledger.terminal:
+            selection_terminals: tuple[Mapping[str, Any], ...] = ()
+            if (
+                ledger.all_dispositions_succeeded
+                and ledger.selection_consumer_ids
+            ):
+                scope = ledger.facts[0]["payload"]
+                compiled = self._authoring.require_compiled_revision(
+                    project_id,
+                    workflow_commit_id=scope["workflow_commit_id"],
+                    workflow_commit_revision=scope[
+                        "workflow_commit_revision"
+                    ],
+                )
+                plan = compiled.execution_plan
+                if (
+                    plan.execution_plan_digest
+                    != scope["execution_plan_digest"]
+                    or self._plan_evidence(plan) != ledger.plan_nodes
+                ):
+                    raise RuntimeError(
+                        "Run scope does not match its immutable Execution Plan"
+                    )
+                selection_terminals = self._restart_selection_terminals(
+                    ledger,
+                    plan,
+                )
+            ledger.commit_run_closure(selection_terminals)
         try:
             ledger.rebuild_projections()
         except (OSError, StoragePathError):

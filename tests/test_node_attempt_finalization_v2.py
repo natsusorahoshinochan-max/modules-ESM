@@ -1145,6 +1145,146 @@ def test_reader_rejects_a_v4_node_conclusion_split_across_transactions(
     assert rejected.value.code == "evidence_unavailable"
 
 
+def test_reader_ignores_private_ledger_staging_file(tmp_path) -> None:
+    projects = ProjectManager(tmp_path / "projects")
+    ledger = _open_attempt_ledger(tmp_path, operation_started=True)
+    ledger_dir = _ledger_transaction_paths(tmp_path)[0].parent
+    staging = ledger_dir / ".00000000000000000006.json.staging"
+    staging.write_bytes(b"private incomplete transaction")
+    staging.chmod(0o600)
+
+    restarted = run_execution_v2._read_run_evidence_ledger(
+        projects,
+        "project-1",
+        "run-1",
+    )
+
+    assert restarted is not None
+    assert restarted.facts == ledger.facts
+
+
+def test_reader_rejects_noncontiguous_transaction_names(tmp_path) -> None:
+    projects = ProjectManager(tmp_path / "projects")
+    _open_attempt_ledger(tmp_path, operation_started=True)
+    ledger_dir = _ledger_transaction_paths(tmp_path)[0].parent
+    sixth = ledger_dir / "00000000000000000005.json"
+    sixth.rename(ledger_dir / "00000000000000000006.json")
+
+    with pytest.raises(
+        RuntimeError,
+        match="transaction sequence is not contiguous",
+    ):
+        run_execution_v2._read_run_evidence_ledger(
+            projects,
+            "project-1",
+            "run-1",
+        )
+
+
+def test_restart_preserves_durable_cancellation_before_operation_start(
+    tmp_path,
+) -> None:
+    ledger = _open_attempt_ledger(tmp_path, operation_started=False)
+    decision = ledger.request_cancellation(None)
+    assert decision["outcome"] == "cancellation_requested"
+
+    ledger.reconcile_restart(_finalizer(ledger))
+
+    projection = ledger.projection()
+    assert projection["status"] == "cancelled"
+    assert projection["node_dispositions"][0]["outcome"] == "cancelled"
+    node_terminal = next(
+        fact
+        for fact in ledger.facts
+        if fact["fact_type"] == "node_attempt_terminal"
+    )
+    assert node_terminal["payload"]["status"] == "cancelled"
+
+
+def test_restart_cancellation_precedes_blocking_for_unstarted_node(
+    tmp_path,
+) -> None:
+    workflow_commit_id = "workflow-commit-" + "0" * 64
+    upstream = run_execution_v2._PlanNodeEvidence(
+        node_id="upstream",
+        dependencies=(),
+        required_dependencies=(),
+        result_identity_plan_facts_digest="sha256:" + "1" * 64,
+    )
+    downstream = run_execution_v2._PlanNodeEvidence(
+        node_id="downstream",
+        dependencies=("upstream",),
+        required_dependencies=("upstream",),
+        result_identity_plan_facts_digest="sha256:" + "2" * 64,
+    )
+    ledger = run_execution_v2._RunEvidenceLedger(
+        ProjectManager(tmp_path / "projects"),
+        "project-1",
+        "run-1",
+        (upstream, downstream),
+    )
+    ledger.append(
+        "run_scope_bound",
+        {
+            "project_id": "project-1",
+            "run_id": "run-1",
+            "workflow_commit_id": workflow_commit_id,
+            "workflow_commit_revision": 1,
+            "workflow_digest": "sha256:" + "3" * 64,
+            "contract_lock_digest": "sha256:" + "4" * 64,
+            "execution_plan_digest": "sha256:" + "5" * 64,
+            "catalog_contract_digest": "sha256:" + "6" * 64,
+            "resolved_contracts": [],
+            "selection_required": False,
+            "selection_terminal_keys": [],
+            "plan_nodes": [upstream.to_dict(), downstream.to_dict()],
+        },
+    )
+    ledger.append(
+        "run_admitted",
+        {
+            "workflow_commit_id": workflow_commit_id,
+            "workflow_commit_revision": 1,
+        },
+    )
+    ledger.append("run_started", {"started_at": "2026-08-14T00:00:00Z"})
+    ledger.append(
+        "node_attempt_started",
+        {"node_id": "upstream", "node_attempt_id": "node-attempt-1"},
+    )
+    ledger.append(
+        "operation_attempt_started",
+        {
+            "operation_attempt_id": "operation-1",
+            "node_attempt_id": "node-attempt-1",
+        },
+    )
+    _finalizer(ledger).finalize(
+        run_execution_v2.ExecutedNodeNonSuccess(
+            node_id="upstream",
+            node_attempt_id="node-attempt-1",
+            operation_attempt_id="operation-1",
+            status="failed",
+            public_error=run_execution_v2._public_failure(
+                RuntimeError("fixture upstream failure")
+            ),
+        )
+    )
+    decision = ledger.request_cancellation(None)
+    assert decision["outcome"] == "cancellation_requested"
+
+    ledger.reconcile_restart(_finalizer(ledger))
+
+    dispositions = {
+        item["node_id"]: item
+        for item in ledger.projection()["node_dispositions"]
+    }
+    assert dispositions["upstream"]["outcome"] == "failed"
+    assert dispositions["downstream"]["outcome"] == "cancelled"
+    assert dispositions["downstream"]["blocked_by"] == []
+    assert ledger.projection()["status"] == "failed"
+
+
 def test_executed_non_success_is_finalized_without_outputs(tmp_path) -> None:
     ledger = _open_attempt_ledger(tmp_path, operation_started=True)
     finalized = _finalizer(ledger).finalize(
