@@ -12,11 +12,12 @@ from typing import Any
 
 from fastapi.testclient import TestClient
 import pytest
+from starlette.websockets import WebSocketDisconnect
 
 from core import ResultReplayHit, ResultReplaySource
 import core.run_execution_v2 as run_execution_v2
 from core.server import create_app
-from protein_workbench_public import validate_response
+from protein_workbench_public import validate_error, validate_response
 from tests.fixtures.public_v2 import wait_for_testclient_run_terminal
 from tests.fixtures.result_replay_v2 import admitted_replay_outputs
 from tests.test_run_execution_v2 import (
@@ -79,6 +80,155 @@ def _terminal_ids(facts: list[dict[str, Any]]) -> dict[str, set[str]]:
             if fact["fact_type"] == "engine_invocation_started"
         },
     }
+
+
+class _PublishConclusionThenLoseAcknowledgement:
+    def __init__(self, *, publish_final_name: bool) -> None:
+        self.filesystem = run_execution_v2.FilesystemLedgerTransactionStore()
+        self.publish_final_name = publish_final_name
+        self.conclusion_published = threading.Event()
+        self.release_acknowledgement = threading.Event()
+        self.conclusion_publication_attempts = 0
+
+    def publish(self, *, root, relative_parts, payload) -> None:
+        transaction = json.loads(payload)
+        is_conclusion = any(
+            fact["fact_type"] == "outputs_published"
+            for fact in transaction["facts"]
+        )
+        if not is_conclusion or self.publish_final_name:
+            self.filesystem.publish(
+                root=root,
+                relative_parts=relative_parts,
+                payload=payload,
+            )
+        if is_conclusion:
+            self.conclusion_publication_attempts += 1
+            self.conclusion_published.set()
+            assert self.release_acknowledgement.wait(timeout=2)
+            raise OSError("fixture conclusion acknowledgement failure")
+
+
+@pytest.mark.parametrize("publish_final_name", (False, True))
+def test_finished_worker_exposes_sticky_unavailable_evidence(
+    tmp_path,
+    monkeypatch,
+    publish_final_name: bool,
+) -> None:
+    store = _PublishConclusionThenLoseAcknowledgement(
+        publish_final_name=publish_final_name,
+    )
+    project_root = tmp_path / "projects"
+    run_root = tmp_path / "runs"
+    output_root = tmp_path / "outputs"
+    cache_root = tmp_path / "cache"
+    monkeypatch.setenv("PROTEIN_WORKBENCH_PROJECT_ROOT", str(project_root))
+    monkeypatch.setenv("PROTEIN_WORKBENCH_RUN_ROOT", str(run_root))
+    monkeypatch.setenv("PROTEIN_WORKBENCH_OUTPUT_ROOT", str(output_root))
+    monkeypatch.setenv("PROTEIN_WORKBENCH_CACHE_ROOT", str(cache_root))
+    app = create_app(
+        frozen_catalog_override=_direct_catalog([], cacheable=True),
+        v2_environment_configuration={
+            ("test.direct.local", "2.1.0"): {
+                "values": {"credential": "credential-value"},
+            }
+        },
+        _v2_ledger_transaction_store=store,
+    )
+
+    with TestClient(app) as client:
+        project_id, committed = _commit_one_node(client)
+        receipt = _start(
+            client,
+            project_id,
+            committed,
+            "unacknowledged-conclusion",
+        )
+        assert store.conclusion_published.is_set()
+        store.release_acknowledgement.set()
+        record = app.state.run_execution_v2._require_record(
+            project_id,
+            receipt["run_id"],
+        )
+        assert record.finished.wait(timeout=2)
+
+        projection = client.get(
+            f"/api/v2/projects/{project_id}/runs/{receipt['run_id']}"
+        )
+        cancelled = client.post(
+            f"/api/v2/projects/{project_id}/runs/{receipt['run_id']}:cancel",
+            json={},
+        )
+        with client.websocket_connect(
+            f"/api/v2/projects/{project_id}/runs/{receipt['run_id']}/events"
+        ) as websocket:
+            unavailable_event_stream = websocket.receive_json()
+            with pytest.raises(WebSocketDisconnect) as closed:
+                websocket.receive_json()
+
+    assert projection.status_code == cancelled.status_code == 503
+    assert isinstance(record.execution_error, run_execution_v2.V2RunError)
+    assert record.evidence_unavailable is record.execution_error
+    sticky_error = record.evidence_unavailable
+    assert sticky_error is not None
+    for response in (projection, cancelled):
+        validate_error(response.json(), status=503)
+        assert response.json()["error"]["code"] == "evidence_unavailable"
+        assert response.json()["error"]["details"] == {
+            "last_durable_cursor": sticky_error.details[
+                "last_durable_cursor"
+            ]
+        }
+    validate_error(unavailable_event_stream, status=503)
+    assert unavailable_event_stream["error"]["code"] == (
+        "evidence_unavailable"
+    )
+    assert closed.value.code == 1008
+    assert record.finished.is_set()
+    assert record.execution_error.code == "evidence_unavailable"
+    assert not any(
+        fact["fact_type"]
+        in {
+            "operation_attempt_terminal",
+            "outputs_published",
+            "node_attempt_terminal",
+            "node_disposition",
+            "run_terminal",
+            "cancellation_requested",
+        }
+        for fact in record.ledger.facts
+    )
+    durable_transactions = [
+        json.loads(path.read_bytes())
+        for path in sorted(
+            (run_root / project_id / receipt["run_id"] / "ledger").glob(
+                "*.json"
+            )
+        )
+    ]
+    conclusions = [
+        transaction
+        for transaction in durable_transactions
+        if any(
+            fact["fact_type"] == "outputs_published"
+            for fact in transaction["facts"]
+        )
+    ]
+    assert bool(conclusions) is publish_final_name
+    if conclusions:
+        assert [
+            fact["fact_type"] for fact in conclusions[0]["facts"]
+        ][-3:] == [
+            "outputs_published",
+            "node_attempt_terminal",
+            "node_disposition",
+        ]
+        assert conclusions[0]["facts"][-2]["payload"]["status"] == (
+            "succeeded"
+        )
+    assert store.conclusion_publication_attempts == 1
+    assert list(output_root.rglob("objects/v1/sha256/*/*"))
+    assert not list(cache_root.rglob("*.json"))
 
 
 @pytest.mark.deterministic_acceptance

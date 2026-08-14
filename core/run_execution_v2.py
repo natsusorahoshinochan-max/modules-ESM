@@ -3012,6 +3012,11 @@ class _RunEvidenceLedger:
                 self._state.run_terminal,
             )
 
+    def notify_waiters(self) -> None:
+        """Wake event consumers after an active Run state transition."""
+        with self._condition:
+            self._condition.notify_all()
+
     def reconcile_restart(self, finalizer: NodeAttemptFinalizer) -> None:
         with self._condition:
             if not self._state.run_started or self._state.run_terminal:
@@ -4114,6 +4119,7 @@ class _RunRecord:
     )
     finished: threading.Event = field(default_factory=threading.Event)
     execution_error: BaseException | None = None
+    evidence_unavailable: V2RunError | None = None
 
 
 _RESOLVED_CONTRACT_FIELDS = frozenset(
@@ -5510,6 +5516,16 @@ class V2RunService:
                 "Run was not found",
                 details={"resource_kind": "run", "resource_id": run_id},
             ) from error
+
+    @staticmethod
+    def _require_available_evidence(record: _RunRecord) -> None:
+        unavailable = record.evidence_unavailable
+        if unavailable is not None:
+            raise V2RunError(
+                unavailable.code,
+                str(unavailable),
+                details=unavailable.details,
+            ) from unavailable
 
     def _availability(
         self,
@@ -7124,7 +7140,13 @@ class V2RunService:
                 record = state.get("record")
                 if isinstance(record, _RunRecord):
                     record.execution_error = error
+                    if (
+                        isinstance(error, V2RunError)
+                        and error.code == "evidence_unavailable"
+                    ):
+                        record.evidence_unavailable = error
                     record.finished.set()
+                    record.ledger.notify_waiters()
             finally:
                 if state.get("execution_slot_acquired") is True:
                     self._execution_lock.release()
@@ -7347,6 +7369,7 @@ class V2RunService:
     ) -> dict[str, Any]:
         """Persist cancellation before signalling active work."""
         record = self._require_record(project_id, run_id)
+        self._require_available_evidence(record)
         decision = record.ledger.request_cancellation(after_cursor)
         if decision["outcome"] in {
             "cancellation_requested",
@@ -7369,6 +7392,7 @@ class V2RunService:
 
     def projection(self, project_id: str, run_id: str) -> dict[str, Any]:
         record = self._require_record(project_id, run_id)
+        self._require_available_evidence(record)
         return record.ledger.projection()
 
     @staticmethod
@@ -7563,6 +7587,7 @@ class V2RunService:
         run_id: str,
     ) -> tuple[dict[str, Any], ...]:
         record = self._require_record(project_id, run_id)
+        self._require_available_evidence(record)
         return record.ledger.public_events()
 
     def ledger_cursor(self, project_id: str, run_id: str) -> str:
@@ -7574,10 +7599,12 @@ class V2RunService:
         run_id: str,
         cursor: str | None,
     ) -> tuple[int, str, int, str, tuple[dict[str, Any], ...], bool]:
-        return self._require_record(
+        record = self._require_record(
             project_id,
             run_id,
-        ).ledger.replay_window(cursor)
+        )
+        self._require_available_evidence(record)
+        return record.ledger.replay_window(cursor)
 
     def wait_for_public_events(
         self,
@@ -7587,10 +7614,14 @@ class V2RunService:
         *,
         timeout_seconds: float = 1.0,
     ) -> tuple[tuple[dict[str, Any], ...], int, bool]:
-        return self._require_record(
+        record = self._require_record(
             project_id,
             run_id,
-        ).ledger.wait_for_public_events(
+        )
+        self._require_available_evidence(record)
+        observed = record.ledger.wait_for_public_events(
             after_sequence,
             timeout_seconds=timeout_seconds,
         )
+        self._require_available_evidence(record)
+        return observed

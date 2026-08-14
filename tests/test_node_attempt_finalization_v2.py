@@ -1291,6 +1291,176 @@ def test_ledger_rejects_publication_outside_a_node_conclusion_transaction(
     assert ledger.projection()["outputs"] == []
 
 
+def test_cancellation_first_blocks_publication_without_deleting_shared_objects(
+    tmp_path,
+) -> None:
+    artifact_body = b"shared immutable Artifact bytes"
+    object_persisted = threading.Event()
+    release_materialization = threading.Event()
+
+    class PauseAfterArtifactPersistence(run_execution_v2.ProjectObjectStore):
+        def put_exact(self, project_id, payload):
+            stored = super().put_exact(project_id, payload)
+            if payload == artifact_body:
+                object_persisted.set()
+                assert release_materialization.wait(timeout=2)
+            return stored
+
+    ledger = _open_attempt_ledger(tmp_path, operation_started=True)
+    object_store = PauseAfterArtifactPersistence(ledger._projects)
+    finalized: dict[str, run_execution_v2.FinalizedNode] = {}
+    failures: list[BaseException] = []
+
+    def finalize() -> None:
+        try:
+            finalized["node"] = _finalizer(
+                ledger,
+                object_store=object_store,
+            ).finalize(
+                run_execution_v2.ExecutedNodeSuccess(
+                    project_id="project-1",
+                    run_id="run-1",
+                    execution_plan=SimpleNamespace(),
+                    node=_node(),
+                    resources=SimpleNamespace(
+                        run_id="run-1",
+                        _output_root=tmp_path / "outputs",
+                        _cancellation_control=None,
+                    ),
+                    node_attempt_id="node-attempt-1",
+                    operation_attempt_id="operation-1",
+                    result_identity="sha256:" + "6" * 64,
+                    admitted_output_descriptors=(),
+                    admitted_outputs={},
+                    cache_eligible=False,
+                    artifact_publication_plan=(
+                        run_execution_v2.AdmittedArtifactPublicationPlan(
+                            artifact_output_ports=("structure",),
+                            publications=(
+                                run_execution_v2.AdmittedArtifactPublication(
+                                    output_port="structure",
+                                    artifact_kind="standalone",
+                                    body=artifact_body,
+                                    media_type="chemical/x-pdb",
+                                    filename="structure.pdb",
+                                    candidate_id=None,
+                                ),
+                            ),
+                        )
+                    ),
+                )
+            )
+        except BaseException as error:
+            failures.append(error)
+
+    worker = threading.Thread(target=finalize)
+    worker.start()
+    assert object_persisted.wait(timeout=2)
+    decision = ledger.request_cancellation(None)
+    release_materialization.set()
+    worker.join(timeout=2)
+
+    assert not worker.is_alive()
+    assert failures == []
+    assert decision["outcome"] == "cancellation_requested"
+    assert finalized["node"].disposition == "cancelled"
+    assert ledger.projection()["outputs"] == []
+    assert ledger.projection()["artifact_index"] == []
+    assert not any(
+        fact["fact_type"] in {"outputs_published", "artifact_published"}
+        for fact in ledger.facts
+    )
+    assert list(tmp_path.rglob("objects/v1/sha256/*/*"))
+
+
+def test_success_first_keeps_success_when_cancellation_waits_on_run_ordering(
+    tmp_path,
+) -> None:
+    success_commit_entered = threading.Event()
+    release_success_commit = threading.Event()
+
+    class PauseInsideSuccessCommit:
+        def __init__(self) -> None:
+            self.filesystem = (
+                run_execution_v2.FilesystemLedgerTransactionStore()
+            )
+
+        def publish(self, *, root, relative_parts, payload) -> None:
+            transaction = json.loads(payload)
+            if any(
+                fact["fact_type"] == "outputs_published"
+                for fact in transaction["facts"]
+            ):
+                success_commit_entered.set()
+                assert release_success_commit.wait(timeout=2)
+            self.filesystem.publish(
+                root=root,
+                relative_parts=relative_parts,
+                payload=payload,
+            )
+
+    ledger = _open_attempt_ledger(
+        tmp_path,
+        operation_started=True,
+        transaction_store=PauseInsideSuccessCommit(),
+    )
+    finalized: dict[str, run_execution_v2.FinalizedNode] = {}
+    cancellation: dict[str, dict[str, object]] = {}
+    failures: list[BaseException] = []
+
+    def finalize() -> None:
+        try:
+            finalized["node"] = _finalizer(ledger).finalize(
+                run_execution_v2.ExecutedNodeSuccess(
+                    project_id="project-1",
+                    run_id="run-1",
+                    execution_plan=SimpleNamespace(),
+                    node=_node(),
+                    resources=SimpleNamespace(
+                        run_id="run-1",
+                        _output_root=tmp_path / "outputs",
+                        _cancellation_control=None,
+                    ),
+                    node_attempt_id="node-attempt-1",
+                    operation_attempt_id="operation-1",
+                    result_identity="sha256:" + "6" * 64,
+                    admitted_output_descriptors=(),
+                    admitted_outputs={},
+                    cache_eligible=False,
+                )
+            )
+        except BaseException as error:
+            failures.append(error)
+
+    def cancel() -> None:
+        try:
+            cancellation["decision"] = ledger.request_cancellation(None)
+        except BaseException as error:
+            failures.append(error)
+
+    finalization_worker = threading.Thread(target=finalize)
+    finalization_worker.start()
+    assert success_commit_entered.wait(timeout=2)
+    cancellation_worker = threading.Thread(target=cancel)
+    cancellation_worker.start()
+    release_success_commit.set()
+    finalization_worker.join(timeout=2)
+    cancellation_worker.join(timeout=2)
+
+    assert not finalization_worker.is_alive()
+    assert not cancellation_worker.is_alive()
+    assert failures == []
+    assert finalized["node"].disposition == "succeeded"
+    assert cancellation["decision"]["outcome"] == "completed_before_cancel"
+    assert ledger.projection()["node_dispositions"][0]["outcome"] == (
+        "succeeded"
+    )
+    assert not any(
+        fact["fact_type"] == "cancellation_requested"
+        for fact in ledger.facts
+    )
+
+
 @pytest.mark.parametrize(
     ("status", "disposition"),
     (
