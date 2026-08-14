@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import base64
 import binascii
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Iterator, Mapping
 from contextlib import contextmanager
 from dataclasses import dataclass, field, fields, is_dataclass, replace
 from datetime import datetime, timezone
@@ -1059,11 +1059,38 @@ class CancelledOrInterruptedNode:
     resolution: Literal["executed", "cache_replayed"] = "executed"
 
 
+@dataclass(frozen=True, slots=True)
+class DurableSucceededNode:
+    """One durable successful Attempt awaiting only its disposition."""
+
+    node_id: str
+    resolution: Literal["executed", "cache_replayed"]
+
+
+@dataclass(frozen=True, slots=True)
+class DurableNonSuccessNode:
+    """One durable non-success Attempt awaiting only its disposition."""
+
+    node_id: str
+    status: Literal["failed", "cancelled", "interrupted", "outcome_unknown"]
+
+
+@dataclass(frozen=True, slots=True)
+class BlockedNode:
+    """One unstarted Node blocked by concluded required dependencies."""
+
+    node_id: str
+    blocked_by: tuple[str, ...]
+
+
 NodeFinalizationIntent = (
     ExecutedNodeSuccess
     | ExecutedNodeNonSuccess
     | CacheReplayNodeSuccess
     | CancelledOrInterruptedNode
+    | DurableSucceededNode
+    | DurableNonSuccessNode
+    | BlockedNode
 )
 
 
@@ -1076,6 +1103,7 @@ class FinalizedNode:
         "failed",
         "cancelled",
         "interrupted",
+        "blocked",
     ]
     admitted_outputs: Mapping[
         tuple[str, str],
@@ -2450,6 +2478,12 @@ class _RunEvidenceLedger:
             self._condition.notify_all()
             return json.loads(json.dumps(fact))
 
+    @contextmanager
+    def _ordered_append_scope(self) -> Iterator[None]:
+        """Keep one caller-owned evidence sequence ordered with cancellation."""
+        with self._condition:
+            yield
+
     def append_terminal_from_success(
         self,
         fact_type: str,
@@ -2464,121 +2498,6 @@ class _RunEvidenceLedger:
             )
             self.append(fact_type, {**identity, "status": status})
             return status
-
-    def _commit_node_publication(
-        self,
-        *,
-        node_id: str,
-        node_attempt_id: str,
-        resolution: str,
-        outputs: list[dict[str, Any]],
-        artifacts: list[dict[str, Any]],
-        operation_attempt_id: str | None = None,
-        cancel_cleanup: Callable[[], None] | None = None,
-        before_success: (
-            Callable[[], Callable[[], None] | None] | None
-        ) = None,
-    ) -> Literal["succeeded", "failed", "cancelled"]:
-        """Commit one Node outcome atomically against Run cancellation."""
-        with self._condition:
-            if self._cancellation_sequence is not None:
-                cleanup_error: BaseException | None = None
-                if cancel_cleanup is not None:
-                    try:
-                        cancel_cleanup()
-                    except BaseException as error:
-                        cleanup_error = error
-                terminal_status = (
-                    "failed" if cleanup_error is not None else "cancelled"
-                )
-                terminal_payload: dict[str, Any] = {
-                    "status": terminal_status,
-                }
-                if cleanup_error is not None:
-                    terminal_payload["error"] = _public_failure(cleanup_error)
-                if operation_attempt_id is not None:
-                    self.append(
-                        "operation_attempt_terminal",
-                        {
-                            "operation_attempt_id": operation_attempt_id,
-                            **terminal_payload,
-                        },
-                    )
-                self.append(
-                    "node_attempt_terminal",
-                    {
-                        "node_attempt_id": node_attempt_id,
-                        "resolution": resolution,
-                        **terminal_payload,
-                    },
-                )
-                outcome = (
-                    "failed"
-                    if terminal_status == "failed"
-                    else "cancelled"
-                )
-                self.append(
-                    "node_disposition",
-                    {
-                        "node_id": node_id,
-                        "outcome": outcome,
-                        "blocked_by": [],
-                    },
-                )
-                return outcome
-            rollback: Callable[[], None] | None = None
-            try:
-                if before_success is not None:
-                    rollback = before_success()
-                if operation_attempt_id is not None:
-                    self.append(
-                        "operation_attempt_terminal",
-                        {
-                            "operation_attempt_id": operation_attempt_id,
-                            "status": "succeeded",
-                        },
-                    )
-                for artifact in artifacts:
-                    self.append(
-                        "artifact_published",
-                        {"artifact": artifact},
-                    )
-                self.append(
-                    "outputs_published",
-                    {
-                        "node_id": node_id,
-                        "outputs": outputs,
-                        "artifacts": artifacts,
-                    },
-                )
-                self.append(
-                    "node_attempt_terminal",
-                    {
-                        "node_attempt_id": node_attempt_id,
-                        "status": "succeeded",
-                        "resolution": resolution,
-                    },
-                )
-                self.append(
-                    "node_disposition",
-                    {
-                        "node_id": node_id,
-                        "outcome": "succeeded",
-                        "resolution": resolution,
-                        "blocked_by": [],
-                    },
-                )
-            except BaseException as error:
-                if rollback is not None:
-                    try:
-                        rollback()
-                    except BaseException as rollback_error:
-                        error.add_note(
-                            "Result Cache rollback also failed: "
-                            f"{type(rollback_error).__name__}"
-                        )
-                raise
-            return "succeeded"
 
     def load_fact(self, fact: Mapping[str, Any], encoded: bytes) -> None:
         with self._condition:
@@ -2757,24 +2676,31 @@ class _RunEvidenceLedger:
                 terminal = attempt["terminal"]
                 if terminal is None:
                     raise self._causal_error()
-                outcome = {
-                    "succeeded": "succeeded",
-                    "failed": "failed",
-                    "cancelled": "cancelled",
-                    "interrupted": "interrupted",
-                    "outcome_unknown": "interrupted",
-                }[terminal]
-                disposition = {
-                    "node_id": node_id,
-                    "outcome": outcome,
-                    "blocked_by": [],
-                }
-                if outcome == "succeeded":
-                    disposition["resolution"] = attempt["resolution"]
-                self.append(
-                    "node_disposition",
-                    disposition,
-                )
+                if terminal == "succeeded":
+                    finalizer.finalize(
+                        DurableSucceededNode(
+                            node_id=node_id,
+                            resolution=cast(
+                                Literal["executed", "cache_replayed"],
+                                attempt["resolution"],
+                            ),
+                        )
+                    )
+                else:
+                    finalizer.finalize(
+                        DurableNonSuccessNode(
+                            node_id=node_id,
+                            status=cast(
+                                Literal[
+                                    "failed",
+                                    "cancelled",
+                                    "interrupted",
+                                    "outcome_unknown",
+                                ],
+                                terminal,
+                            ),
+                        )
+                    )
                 continue
             blocked_by = sorted(
                 dependency
@@ -2782,14 +2708,21 @@ class _RunEvidenceLedger:
                 if self._dispositions.get(dependency, {}).get("outcome")
                 != "succeeded"
             )
-            self.append(
-                "node_disposition",
-                {
-                    "node_id": node_id,
-                    "outcome": "blocked" if blocked_by else "interrupted",
-                    "blocked_by": blocked_by,
-                },
-            )
+            if blocked_by:
+                finalizer.finalize(
+                    BlockedNode(
+                        node_id=node_id,
+                        blocked_by=tuple(blocked_by),
+                    )
+                )
+            else:
+                finalizer.finalize(
+                    CancelledOrInterruptedNode(
+                        node_id=node_id,
+                        status="interrupted",
+                        public_error=restart_error,
+                    )
+                )
         self.append("run_terminal", {"status": "interrupted"})
 
 
@@ -2822,46 +2755,11 @@ class NodeAttemptFinalizer:
         self,
         intent: ExecutedNodeNonSuccess,
     ) -> FinalizedNode:
-        terminal_payload = {
-            "status": intent.status,
-            "error": dict(intent.public_error),
-        }
-        if intent.operation_attempt_id is not None:
-            self._ledger.append(
-                "operation_attempt_terminal",
-                {
-                    "operation_attempt_id": intent.operation_attempt_id,
-                    **terminal_payload,
-                },
-            )
-        self._ledger.append(
-            "node_attempt_terminal",
-            {
-                "node_attempt_id": intent.node_attempt_id,
-                "resolution": "executed",
-                **terminal_payload,
-            },
-        )
-        disposition = self._disposition_for_status(intent.status)
-        self._ledger.append(
-            "node_disposition",
-            {
-                "node_id": intent.node_id,
-                "outcome": disposition,
-                "blocked_by": [],
-            },
-        )
-        return FinalizedNode(disposition=disposition)
-
-    def _finalize_termination(
-        self,
-        intent: CancelledOrInterruptedNode,
-    ) -> FinalizedNode:
-        disposition = self._disposition_for_status(intent.status)
-        if intent.node_attempt_id is not None:
-            terminal_payload: dict[str, Any] = {"status": intent.status}
-            if intent.public_error is not None:
-                terminal_payload["error"] = dict(intent.public_error)
+        with self._ledger._ordered_append_scope():
+            terminal_payload = {
+                "status": intent.status,
+                "error": dict(intent.public_error),
+            }
             if intent.operation_attempt_id is not None:
                 self._ledger.append(
                     "operation_attempt_terminal",
@@ -2874,19 +2772,100 @@ class NodeAttemptFinalizer:
                 "node_attempt_terminal",
                 {
                     "node_attempt_id": intent.node_attempt_id,
-                    "resolution": intent.resolution,
+                    "resolution": "executed",
                     **terminal_payload,
                 },
             )
-        self._ledger.append(
-            "node_disposition",
-            {
-                "node_id": intent.node_id,
-                "outcome": disposition,
-                "blocked_by": [],
-            },
-        )
-        return FinalizedNode(disposition=disposition)
+            disposition = self._disposition_for_status(intent.status)
+            self._ledger.append(
+                "node_disposition",
+                {
+                    "node_id": intent.node_id,
+                    "outcome": disposition,
+                    "blocked_by": [],
+                },
+            )
+            return FinalizedNode(disposition=disposition)
+
+    def _finalize_termination(
+        self,
+        intent: CancelledOrInterruptedNode,
+    ) -> FinalizedNode:
+        with self._ledger._ordered_append_scope():
+            disposition = self._disposition_for_status(intent.status)
+            if intent.node_attempt_id is not None:
+                terminal_payload: dict[str, Any] = {"status": intent.status}
+                if intent.public_error is not None:
+                    terminal_payload["error"] = dict(intent.public_error)
+                if intent.operation_attempt_id is not None:
+                    self._ledger.append(
+                        "operation_attempt_terminal",
+                        {
+                            "operation_attempt_id": intent.operation_attempt_id,
+                            **terminal_payload,
+                        },
+                    )
+                self._ledger.append(
+                    "node_attempt_terminal",
+                    {
+                        "node_attempt_id": intent.node_attempt_id,
+                        "resolution": intent.resolution,
+                        **terminal_payload,
+                    },
+                )
+            self._ledger.append(
+                "node_disposition",
+                {
+                    "node_id": intent.node_id,
+                    "outcome": disposition,
+                    "blocked_by": [],
+                },
+            )
+            return FinalizedNode(disposition=disposition)
+
+    def _finalize_durable_success(
+        self,
+        intent: DurableSucceededNode,
+    ) -> FinalizedNode:
+        with self._ledger._ordered_append_scope():
+            self._ledger.append(
+                "node_disposition",
+                {
+                    "node_id": intent.node_id,
+                    "outcome": "succeeded",
+                    "resolution": intent.resolution,
+                    "blocked_by": [],
+                },
+            )
+            return FinalizedNode(disposition="succeeded")
+
+    def _finalize_durable_non_success(
+        self,
+        intent: DurableNonSuccessNode,
+    ) -> FinalizedNode:
+        with self._ledger._ordered_append_scope():
+            disposition = self._disposition_for_status(intent.status)
+            self._ledger.append(
+                "node_disposition",
+                {
+                    "node_id": intent.node_id,
+                    "outcome": disposition,
+                    "blocked_by": [],
+                },
+            )
+            return FinalizedNode(disposition=disposition)
+
+    def _finalize_blocked(self, intent: BlockedNode) -> FinalizedNode:
+        with self._ledger._ordered_append_scope():
+            self._ledger.append(
+                "node_disposition",
+                {
+                    "node_id": intent.node_id,
+                    "outcome": "blocked",
+                    "blocked_by": list(intent.blocked_by),
+                },
+            )
+            return FinalizedNode(disposition="blocked")
 
     def _cleanup_artifacts(
         self,
@@ -2915,7 +2894,7 @@ class NodeAttemptFinalizer:
         if cleanup_error is not None:
             raise cleanup_error
 
-    def _preparation_failed(
+    def _finalize_preparation_failure(
         self,
         *,
         node_id: str,
@@ -2927,7 +2906,7 @@ class NodeAttemptFinalizer:
             str,
             tuple[Mapping[str, Any], tuple[str, ...]],
         ],
-    ) -> FinalizedNode:
+        ) -> FinalizedNode:
         if artifact_records:
             try:
                 self._cleanup_artifacts(
@@ -2947,6 +2926,47 @@ class NodeAttemptFinalizer:
                 operation_attempt_id=operation_attempt_id,
                 status="failed",
                 public_error=_public_failure(error),
+            )
+        )
+
+    def _finalize_committed_cancellation(
+        self,
+        *,
+        node_id: str,
+        node_attempt_id: str,
+        operation_attempt_id: str | None,
+        resolution: Literal["executed", "cache_replayed"],
+        resources: RunResources,
+        artifact_records: Mapping[
+            str,
+            tuple[Mapping[str, Any], tuple[str, ...]],
+        ],
+    ) -> FinalizedNode | None:
+        if not self._ledger.cancellation_requested:
+            return None
+        try:
+            self._cleanup_artifacts(
+                resources=resources,
+                artifact_records=artifact_records,
+            )
+        except (OSError, StoragePathError, RuntimeError) as cleanup_error:
+            return self._finalize_non_success(
+                ExecutedNodeNonSuccess(
+                    node_id=node_id,
+                    node_attempt_id=node_attempt_id,
+                    operation_attempt_id=operation_attempt_id,
+                    status="failed",
+                    public_error=_public_failure(cleanup_error),
+                )
+            )
+        return self._finalize_termination(
+            CancelledOrInterruptedNode(
+                node_id=node_id,
+                status="cancelled",
+                public_error=None,
+                node_attempt_id=node_attempt_id,
+                operation_attempt_id=operation_attempt_id,
+                resolution=resolution,
             )
         )
 
@@ -2995,14 +3015,13 @@ class NodeAttemptFinalizer:
             cache_descriptors,
         )
 
-    def _commit_success(
+    def _persist_success(
         self,
         *,
         node_id: str,
         node_attempt_id: str,
         operation_attempt_id: str | None,
         resolution: Literal["executed", "cache_replayed"],
-        resources: RunResources,
         admitted_outputs: Mapping[tuple[str, str], AdmittedPortValues],
         typed_descriptors: list[dict[str, Any]],
         artifacts: list[dict[str, Any]],
@@ -3010,27 +3029,45 @@ class NodeAttemptFinalizer:
             str,
             tuple[Mapping[str, Any], tuple[str, ...]],
         ],
-        before_success: Callable[[], Callable[[], None] | None] | None,
     ) -> FinalizedNode:
-
-        def cleanup_artifacts() -> None:
-            self._cleanup_artifacts(
-                resources=resources,
-                artifact_records=artifact_records,
+        if operation_attempt_id is not None:
+            self._ledger.append(
+                "operation_attempt_terminal",
+                {
+                    "operation_attempt_id": operation_attempt_id,
+                    "status": "succeeded",
+                },
             )
-
-        disposition = self._ledger._commit_node_publication(
-            node_id=node_id,
-            node_attempt_id=node_attempt_id,
-            resolution=resolution,
-            outputs=typed_descriptors,
-            artifacts=artifacts,
-            operation_attempt_id=operation_attempt_id,
-            cancel_cleanup=cleanup_artifacts,
-            before_success=before_success,
+        for artifact in artifacts:
+            self._ledger.append(
+                "artifact_published",
+                {"artifact": artifact},
+            )
+        self._ledger.append(
+            "outputs_published",
+            {
+                "node_id": node_id,
+                "outputs": typed_descriptors,
+                "artifacts": artifacts,
+            },
         )
-        if disposition != "succeeded":
-            return FinalizedNode(disposition=disposition)
+        self._ledger.append(
+            "node_attempt_terminal",
+            {
+                "node_attempt_id": node_attempt_id,
+                "status": "succeeded",
+                "resolution": resolution,
+            },
+        )
+        self._ledger.append(
+            "node_disposition",
+            {
+                "node_id": node_id,
+                "outcome": "succeeded",
+                "resolution": resolution,
+                "blocked_by": [],
+            },
+        )
         return FinalizedNode(
             disposition="succeeded",
             admitted_outputs=admitted_outputs,
@@ -3042,10 +3079,14 @@ class NodeAttemptFinalizer:
         self,
         intent: ExecutedNodeSuccess,
     ) -> FinalizedNode:
+        typed_descriptors: list[dict[str, Any]] = []
+        artifacts: list[dict[str, Any]] = []
         artifact_records: dict[
             str,
             tuple[dict[str, Any], tuple[str, ...]],
         ] = {}
+        cache_descriptors: list[dict[str, Any]] = []
+        preparation_error: BaseException | None = None
         try:
             (
                 typed_descriptors,
@@ -3058,15 +3099,8 @@ class NodeAttemptFinalizer:
                 resolution="executed",
             )
         except (PortValueError, OSError, StoragePathError) as error:
-            return self._preparation_failed(
-                node_id=intent.node.node_id,
-                node_attempt_id=intent.node_attempt_id,
-                operation_attempt_id=intent.operation_attempt_id,
-                resources=intent.resources,
-                error=error,
-                artifact_records=artifact_records,
-            )
-        if intent.cache_eligible:
+            preparation_error = error
+        if intent.cache_eligible and preparation_error is None:
             try:
                 self._result_replay_source.validate_publish(
                     project_id=intent.project_id,
@@ -3080,70 +3114,91 @@ class NodeAttemptFinalizer:
             except V2RunError as error:
                 if error.code != "cache_identity_conflict":
                     raise
-                return self._preparation_failed(
-                    node_id=intent.node.node_id,
-                    node_attempt_id=intent.node_attempt_id,
-                    operation_attempt_id=intent.operation_attempt_id,
-                    resources=intent.resources,
-                    error=error,
-                    artifact_records=artifact_records,
-                )
+                preparation_error = error
             except (OSError, StoragePathError) as error:
-                return self._preparation_failed(
-                    node_id=intent.node.node_id,
-                    node_attempt_id=intent.node_attempt_id,
-                    operation_attempt_id=intent.operation_attempt_id,
-                    resources=intent.resources,
-                    error=error,
-                    artifact_records=artifact_records,
-                )
+                preparation_error = error
 
-        def publish_cache() -> Callable[[], None] | None:
-            if not intent.cache_eligible:
-                return None
-            return self._result_replay_source.publish(
-                project_id=intent.project_id,
-                execution_plan=intent.execution_plan,
-                node=intent.node,
-                result_identity=intent.result_identity,
-                outputs=cache_descriptors,
-                producer_run_id=intent.run_id,
-                admitted_outputs=intent.admitted_outputs,
-            )
-
-        try:
-            return self._commit_success(
+        with self._ledger._ordered_append_scope():
+            cancelled = self._finalize_committed_cancellation(
                 node_id=intent.node.node_id,
                 node_attempt_id=intent.node_attempt_id,
                 operation_attempt_id=intent.operation_attempt_id,
                 resolution="executed",
                 resources=intent.resources,
-                admitted_outputs=intent.admitted_outputs,
-                typed_descriptors=typed_descriptors,
-                artifacts=artifacts,
-                artifact_records=artifact_records,
-                before_success=publish_cache,
-            )
-        except V2RunError as error:
-            if error.code != "cache_identity_conflict":
-                raise
-            return self._preparation_failed(
-                node_id=intent.node.node_id,
-                node_attempt_id=intent.node_attempt_id,
-                operation_attempt_id=intent.operation_attempt_id,
-                resources=intent.resources,
-                error=error,
                 artifact_records=artifact_records,
             )
+            if cancelled is not None:
+                return cancelled
+            if preparation_error is not None:
+                return self._finalize_preparation_failure(
+                    node_id=intent.node.node_id,
+                    node_attempt_id=intent.node_attempt_id,
+                    operation_attempt_id=intent.operation_attempt_id,
+                    resources=intent.resources,
+                    error=preparation_error,
+                    artifact_records=artifact_records,
+                )
+            rollback_cache: Callable[[], None] | None = None
+            if intent.cache_eligible:
+                try:
+                    rollback_cache = self._result_replay_source.publish(
+                        project_id=intent.project_id,
+                        execution_plan=intent.execution_plan,
+                        node=intent.node,
+                        result_identity=intent.result_identity,
+                        outputs=cache_descriptors,
+                        producer_run_id=intent.run_id,
+                        admitted_outputs=intent.admitted_outputs,
+                    )
+                except V2RunError as error:
+                    if error.code != "cache_identity_conflict":
+                        raise
+                    return self._finalize_preparation_failure(
+                        node_id=intent.node.node_id,
+                        node_attempt_id=intent.node_attempt_id,
+                        operation_attempt_id=intent.operation_attempt_id,
+                        resources=intent.resources,
+                        error=error,
+                        artifact_records=artifact_records,
+                    )
+                except (OSError, StoragePathError) as error:
+                    return self._finalize_preparation_failure(
+                        node_id=intent.node.node_id,
+                        node_attempt_id=intent.node_attempt_id,
+                        operation_attempt_id=intent.operation_attempt_id,
+                        resources=intent.resources,
+                        error=error,
+                        artifact_records=artifact_records,
+                    )
+            persisted = False
+            try:
+                finalized = self._persist_success(
+                    node_id=intent.node.node_id,
+                    node_attempt_id=intent.node_attempt_id,
+                    operation_attempt_id=intent.operation_attempt_id,
+                    resolution="executed",
+                    admitted_outputs=intent.admitted_outputs,
+                    typed_descriptors=typed_descriptors,
+                    artifacts=artifacts,
+                    artifact_records=artifact_records,
+                )
+                persisted = True
+                return finalized
+            finally:
+                if not persisted and rollback_cache is not None:
+                    rollback_cache()
 
     def _finalize_cache_replay_success(
         self,
         intent: CacheReplayNodeSuccess,
     ) -> FinalizedNode:
+        typed_descriptors: list[dict[str, Any]] = []
+        artifacts: list[dict[str, Any]] = []
         artifact_records: dict[
             str,
             tuple[dict[str, Any], tuple[str, ...]],
         ] = {}
+        preparation_error: BaseException | None = None
         try:
             (
                 typed_descriptors,
@@ -3156,39 +3211,37 @@ class NodeAttemptFinalizer:
                 resolution="cache_replayed",
             )
         except (PortValueError, OSError, StoragePathError) as error:
-            return self._preparation_failed(
-                node_id=intent.node.node_id,
-                node_attempt_id=intent.node_attempt_id,
-                operation_attempt_id=None,
-                resources=intent.resources,
-                error=error,
-                artifact_records=artifact_records,
-            )
-        try:
-            return self._commit_success(
+            preparation_error = error
+        with self._ledger._ordered_append_scope():
+            cancelled = self._finalize_committed_cancellation(
                 node_id=intent.node.node_id,
                 node_attempt_id=intent.node_attempt_id,
                 operation_attempt_id=None,
                 resolution="cache_replayed",
                 resources=intent.resources,
+                artifact_records=artifact_records,
+            )
+            if cancelled is not None:
+                return cancelled
+            if preparation_error is not None:
+                return self._finalize_preparation_failure(
+                    node_id=intent.node.node_id,
+                    node_attempt_id=intent.node_attempt_id,
+                    operation_attempt_id=None,
+                    resources=intent.resources,
+                    error=preparation_error,
+                    artifact_records=artifact_records,
+                )
+            return self._persist_success(
+                node_id=intent.node.node_id,
+                node_attempt_id=intent.node_attempt_id,
+                operation_attempt_id=None,
+                resolution="cache_replayed",
                 admitted_outputs=intent.admitted_outputs,
                 typed_descriptors=typed_descriptors,
                 artifacts=artifacts,
                 artifact_records=artifact_records,
-                before_success=None,
             )
-        except V2RunError as error:
-            try:
-                self._cleanup_artifacts(
-                    resources=intent.resources,
-                    artifact_records=artifact_records,
-                )
-            except (OSError, StoragePathError, RuntimeError) as cleanup_error:
-                error.add_note(
-                    "Replayed Artifact cleanup also failed: "
-                    f"{type(cleanup_error).__name__}"
-                )
-            raise
 
     def finalize(self, intent: NodeFinalizationIntent) -> FinalizedNode:
         """Commit the disposition implied by one closed finalization intent."""
@@ -3200,6 +3253,12 @@ class NodeAttemptFinalizer:
             return self._finalize_non_success(intent)
         if isinstance(intent, CancelledOrInterruptedNode):
             return self._finalize_termination(intent)
+        if isinstance(intent, DurableSucceededNode):
+            return self._finalize_durable_success(intent)
+        if isinstance(intent, DurableNonSuccessNode):
+            return self._finalize_durable_non_success(intent)
+        if isinstance(intent, BlockedNode):
+            return self._finalize_blocked(intent)
         raise TypeError("Node finalization intent is not current")
 
 
@@ -5802,15 +5861,13 @@ class V2RunService:
                 values,
             )
             if blocked_by:
-                ledger.append(
-                    "node_disposition",
-                    {
-                        "node_id": node.node_id,
-                        "outcome": "blocked",
-                        "blocked_by": blocked_by,
-                    },
+                finalized = finalizer.finalize(
+                    BlockedNode(
+                        node_id=node.node_id,
+                        blocked_by=tuple(blocked_by),
+                    )
                 )
-                disposition_outcomes[node.node_id] = "blocked"
+                disposition_outcomes[node.node_id] = finalized.disposition
                 continue
             node_attempt_id = f"node-attempt-{uuid.uuid4().hex}"
             operation_attempt_id = f"operation-{uuid.uuid4().hex}"

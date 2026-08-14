@@ -186,6 +186,64 @@ def test_cache_validation_storage_failure_closes_the_executed_node(
     assert ledger.projection()["outputs"] == []
 
 
+def test_committed_cancellation_wins_over_cache_validation_conflict(
+    tmp_path,
+) -> None:
+    ledger = _open_attempt_ledger(tmp_path, operation_started=True)
+
+    class CancelThenConflict(ResultReplaySource):
+        def validate_publish(self, **_kwargs) -> None:
+            decision = ledger.request_cancellation(None)
+            assert decision["outcome"] == "cancellation_requested"
+            raise run_execution_v2.V2RunError(
+                "cache_identity_conflict",
+                "Fixture conflict after committed cancellation",
+                details={"result_identity": "sha256:" + "a" * 64},
+            )
+
+    finalized = _finalizer(
+        ledger,
+        result_replay_source=CancelThenConflict(),
+    ).finalize(
+        run_execution_v2.ExecutedNodeSuccess(
+            project_id="project-1",
+            run_id="run-1",
+            execution_plan=SimpleNamespace(),
+            node=SimpleNamespace(node_id="node-1"),
+            resources=SimpleNamespace(
+                run_id="run-1",
+                _output_root=tmp_path / "outputs",
+                _cancellation_control=None,
+            ),
+            node_attempt_id="node-attempt-1",
+            operation_attempt_id="operation-1",
+            result_identity="sha256:" + "a" * 64,
+            admitted_output_descriptors=(),
+            admitted_outputs={},
+            cache_eligible=True,
+            current_artifact_count=0,
+            current_artifact_bytes=0,
+        )
+    )
+
+    assert finalized.disposition == "cancelled"
+    assert ledger.projection()["node_dispositions"] == [
+        {
+            "node_id": "node-1",
+            "outcome": "cancelled",
+            "blocked_by": [],
+            "terminal_sequence": ledger.projection()["node_dispositions"][0][
+                "terminal_sequence"
+            ],
+        }
+    ]
+    assert ledger.projection()["outputs"] == []
+    assert [fact["payload"]["status"] for fact in ledger.facts[-3:-1]] == [
+        "cancelled",
+        "cancelled",
+    ]
+
+
 def test_local_finalization_invariant_failure_is_not_coerced(tmp_path) -> None:
     ledger = _open_attempt_ledger(tmp_path, operation_started=True)
 
