@@ -244,6 +244,45 @@ def test_committed_cancellation_wins_over_cache_validation_conflict(
     ]
 
 
+def test_cache_publish_storage_failure_remains_fail_fast(tmp_path) -> None:
+    class UnreadableOnPublish(ResultReplaySource):
+        def publish(self, **_kwargs):
+            raise OSError("fixture cache publish storage failure")
+
+    ledger = _open_attempt_ledger(tmp_path, operation_started=True)
+    with pytest.raises(OSError, match="cache publish storage failure"):
+        _finalizer(
+            ledger,
+            result_replay_source=UnreadableOnPublish(),
+        ).finalize(
+            run_execution_v2.ExecutedNodeSuccess(
+                project_id="project-1",
+                run_id="run-1",
+                execution_plan=SimpleNamespace(),
+                node=SimpleNamespace(node_id="node-1"),
+                resources=SimpleNamespace(
+                    run_id="run-1",
+                    _output_root=tmp_path / "outputs",
+                    _cancellation_control=None,
+                ),
+                node_attempt_id="node-attempt-1",
+                operation_attempt_id="operation-1",
+                result_identity="sha256:" + "b" * 64,
+                admitted_output_descriptors=(),
+                admitted_outputs={},
+                cache_eligible=True,
+                current_artifact_count=0,
+                current_artifact_bytes=0,
+            )
+        )
+
+    assert not any(
+        fact["fact_type"].endswith("_terminal")
+        or fact["fact_type"] == "node_disposition"
+        for fact in ledger.facts
+    )
+
+
 def test_local_finalization_invariant_failure_is_not_coerced(tmp_path) -> None:
     ledger = _open_attempt_ledger(tmp_path, operation_started=True)
 
