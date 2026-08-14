@@ -47,6 +47,20 @@ This work does not:
 - add authentication, multi-tenancy, hostile-input hardening, distributed
   locking, or multi-process execution support.
 
+### 2.1 Trust model
+
+This is a trusted, single-user, loopback-only system. Each contract owner
+validates once; downstream components trust admitted values and resolved
+contracts. Adapters translate documented Provider responses directly and do
+not guess schemas, repair responses, cross-check Providers, or add fallback
+behavior for hypothetical malformed responses.
+
+Only scientific contracts, public protocol admission, durable writes, content
+integrity, causal evidence, accidental data loss, and credential hygiene retain
+checks. A current-generation local invariant violation fails fast. The design
+does not add repeated validation, broad catches, catch-and-continue behavior,
+silent coercion, guessed defaults, or undocumented retries.
+
 ## 3. Required invariants
 
 1. Canonical Port value bytes and the existing per-value and aggregate Port
@@ -318,8 +332,9 @@ Cache publication has no rollback callback. Failure to create or refresh the
 index loses only an optimization. Cache lookup verifies references and object
 digests, reconstructs `AdmittedPortValues` through the registered Port codec,
 and records current-Run materialization plus original producer provenance.
-Absent, malformed, or incomplete Cache storage is a recoverable miss. A
-conflict with committed Result Identity evidence is
+An absent Cache entry is a miss. A current-generation Cache entry that violates
+its exact storage contract fails fast rather than being silently converted to a
+miss. A conflict with committed Result Identity evidence is
 `result_identity_conflict`, not `cache_identity_conflict`.
 
 ## 8. Ledger transaction schema
@@ -545,9 +560,10 @@ Run Projection is rebuilt only from committed transactions. It joins
 dispositions; object-store enumeration never contributes.
 
 Projection refresh failure after commit records an in-memory operational error
-and retries only through the existing bounded projection mechanism. A public
-read may build directly from the validated in-memory Ledger state. It does not
-append a compensating fact and does not hide committed outputs.
+without retrying automatically. A subsequent explicit public read or startup
+rebuild derives the view from validated Ledger state. Projection failure does
+not append a compensating fact, hide committed outputs, or change their
+outcome.
 
 When a background worker finishes but cannot persist a required Ledger
 transaction, the active Run record keeps a sticky `evidence_unavailable`
