@@ -219,6 +219,9 @@ be cleared and regenerated.
 Run Ledger facts are bounded, fsynced under private temporary names, and
 atomically published without replacement. Public projection and event replay
 are derived from that Ledger. There is no parallel provider-evidence writer.
+Run Projection contains only bounded Typed Output descriptors. Exact canonical
+values are retrieved individually through the Run-scoped v2 Typed Value route;
+they are never embedded in the projection or lifecycle WebSocket stream.
 
 ## Deterministic public-protocol acceptance
 

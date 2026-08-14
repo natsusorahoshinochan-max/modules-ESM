@@ -313,3 +313,47 @@
 }
 .viewer-panel h3 { margin: 0 0 8px 0; font-size: 14px; color: #334155; }
 .ngl-viewport { flex: 1; min-height: 300px; border: 1px solid #e2e8f0; border-radius: 6px; overflow: hidden; }
+
+.frontend-error {
+  position: absolute;
+  left: 16px;
+  bottom: 16px;
+  z-index: 10;
+  max-width: 560px;
+  padding: 10px 12px;
+  border: 1px solid #fecaca;
+  border-radius: 6px;
+  background: #fef2f2;
+  color: #991b1b;
+}
+
+.typed-output-metadata {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 4px 8px;
+  margin-top: 8px;
+  font-size: 11px;
+}
+
+.typed-output-metadata dt {
+  color: #64748b;
+  font-weight: 600;
+}
+
+.typed-output-metadata dd,
+.artifact-list small {
+  overflow-wrap: anywhere;
+}
+
+.artifact-list {
+  display: grid;
+  gap: 8px;
+  margin-top: 8px;
+  padding: 0;
+  list-style: none;
+}
+
+.artifact-list li,
+.artifact-list small {
+  display: block;
+}

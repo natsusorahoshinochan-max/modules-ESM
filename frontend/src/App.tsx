@@ -1,4 +1,10 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import {
   ReactFlow,
   Background,
@@ -15,39 +21,28 @@ import {
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
 import "./App.css";
-import WorkflowModuleNode from "./WorkflowModuleNode";
-import ProteinPromptEditor, { type ResidueRow, type FunctionAnnotation } from "./ProteinPromptEditor";
+import WorkflowNode, { type WorkflowNodeData } from "./WorkflowNode";
 import TypedOutputExplorer from "./TypedOutputExplorer";
-
-interface ApiParam {
-  name: string;
-  type: string;
-  default: unknown;
-  display_name: string;
-  description: string;
-  min?: number;
-  max?: number;
-  options?: string[];
-}
-
-interface ApiModule {
-  module_id: string;
-  version: string;
-  display_name: string;
-  category: string;
-  description: string;
-  input_ports: { name: string; type_id: string; display_name: string }[];
-  output_ports: { name: string; type_id: string; display_name: string }[];
-  parameters: ApiParam[];
-}
-
-interface ProjectMeta {
-  id: string;
-  name: string;
-  created_at: string;
-  modified_at: string;
-  module_dependencies: string[];
-}
+import ParameterField from "./ParameterField";
+import {
+  catalogNodeTypes,
+  encodeFileContent,
+  groupNodeTypesByCategory,
+  parameterValues,
+  requestJson,
+  type BindingView,
+  type CatalogSnapshot,
+  type NodeTypeView,
+  type ProjectMetadata,
+  type ProjectWorkflowDraft,
+  type RunReceipt,
+  type WorkflowCommit,
+  type WorkflowDocument,
+} from "./currentProtocol";
+import {
+  nodeStateFromRunEvent,
+  type RunEventEnvelope,
+} from "./runEvents";
 
 interface NodeStateInfo {
   [nodeId: string]: string;
@@ -61,451 +56,514 @@ const STATE_COLORS: Record<string, string> = {
   failed: "#ef4444",
   cancelled: "#6b7280",
   blocked: "#374151",
+  interrupted: "#a855f7",
 };
 
-function groupByCategory(modules: ApiModule[]): Map<string, ApiModule[]> {
-  const map = new Map<string, ApiModule[]>();
-  for (const m of modules) {
-    const list = map.get(m.category) || [];
-    list.push(m);
-    map.set(m.category, list);
-  }
-  return map;
+const reactFlowNodeTypes = { workflowNode: WorkflowNode };
+
+function nodeStyle(state: string, available: boolean) {
+  return {
+    border: available
+      ? `2px solid ${STATE_COLORS[state] ?? STATE_COLORS.idle}`
+      : "2px dashed #f59e0b",
+    borderRadius: "6px",
+    padding: "8px",
+    background: available ? "#fff" : "#fffbeb",
+    opacity: available ? 1 : 0.7,
+  };
 }
-
-
-function parseResidueData(params: Record<string, unknown>, chainId: string, length: number): ResidueRow[] {
-  const raw = params.residues_data as string | undefined;
-  if (raw) {
-    try {
-      const parsed = JSON.parse(raw) as ResidueRow[];
-      if (Array.isArray(parsed) && parsed.length > 0) return parsed;
-    } catch {}
-  }
-  // Default: generate from chain_id and length
-  const rows: ResidueRow[] = [];
-  let chain = chainId;
-  if (chain === "multi") chain = "A";
-  for (let i = 0; i < length; i++) {
-    rows.push({
-      index: i + 1,
-      chain: chain,
-      aminoAcid: null,
-      structureVisible: false,
-      secondaryStructure: null,
-      sasa: null,
-    });
-  }
-  return rows;
-}
-
-function parseAnnotationData(params: Record<string, unknown>): FunctionAnnotation[] {
-  const raw = params.annotations_data as string | undefined;
-  if (raw) {
-    try {
-      const parsed = JSON.parse(raw) as FunctionAnnotation[];
-      if (Array.isArray(parsed)) return parsed;
-    } catch {}
-  }
-  return [];
-}
-
-const nodeTypes = { workflowModule: WorkflowModuleNode };
 
 export default function App() {
-  const [nodes, setNodes, onNodesChange] = useNodesState<Node>([]);
+  const [nodes, setNodes, onNodesChange] =
+    useNodesState<Node<WorkflowNodeData>>([]);
   const [edges, setEdges, onEdgesChange] = useEdgesState<Edge>([]);
-  const [modules, setModules] = useState<ApiModule[]>([]);
+  const [nodeTypeViews, setNodeTypeViews] = useState<NodeTypeView[]>([]);
   const [menuOpen, setMenuOpen] = useState(false);
   const [nodeIdCounter, setNodeIdCounter] = useState(0);
   const [nodeStates, setNodeStates] = useState<NodeStateInfo>({});
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
   const [isRunning, setIsRunning] = useState(false);
   const [projectId, setProjectId] = useState<string | null>(null);
-  const [projects, setProjects] = useState<ProjectMeta[]>([]);
-  const [openDialog, setOpenDialog] = useState(false);
-  const wsRef = useRef<WebSocket | null>(null);
-  const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const EXECUTION_TIMEOUT_MS = 300_000; // 5 minutes
-  const autoSaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [draftRevision, setDraftRevision] = useState(0);
+  const [workflowSemantics, setWorkflowSemantics] = useState<
+    Pick<
+      WorkflowDocument,
+      "contract_lock" | "observation_selectors" | "selection_objectives"
+    >
+  >({
+    contract_lock: [],
+    observation_selectors: [],
+    selection_objectives: [],
+  });
+  const [activeRunId, setActiveRunId] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const websocketRef = useRef<WebSocket | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  // Fetch modules
   useEffect(() => {
-    fetch("/api/modules")
-      .then((r) => r.json())
-      .then(setModules)
-      .catch(() => setModules([]));
+    void requestJson<CatalogSnapshot>("/api/v2/catalog")
+      .then((snapshot) => setNodeTypeViews(catalogNodeTypes(snapshot)))
+      .catch((failure: Error) => setError(failure.message));
   }, []);
 
-  // Fetch project list
-  const refreshProjects = useCallback(() => {
-    fetch("/api/projects")
-      .then((r) => r.json())
-      .then(setProjects)
-      .catch(() => {});
-  }, []);
-
-  useEffect(() => { refreshProjects(); }, [refreshProjects]);
-
-  // WebSocket
-  const connectWS = useCallback(() => {
-    if (wsRef.current?.readyState === WebSocket.OPEN) return;
-    const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
-    const ws = new WebSocket(`${protocol}//${window.location.host}/ws/execution`);
-    ws.onmessage = (event) => {
-      const data = JSON.parse(event.data);
-      if (data.type === "node_state") {
-        setNodeStates((prev) => ({ ...prev, [data.node_id]: data.new_state }));
-      } else if (
-        data.type === "run_complete" || data.type === "run_error" ||
-        data.type === "run_cancelled"
-      ) {
-        setIsRunning(false);
-        if (timeoutRef.current) { clearTimeout(timeoutRef.current); timeoutRef.current = null; }
-      }
-    };
-    ws.onclose = () => {
-      wsRef.current = null;
-      setIsRunning((prev) => {
-        if (prev) console.warn("WebSocket disconnected during execution");
-        return false;
-      });
-    };
-    wsRef.current = ws;
-  }, []);
-
-  // Sync node states to rendering
   useEffect(() => {
-    setNodes((nds) =>
-      nds.map((n) => {
-        const nodeData = n.data as Record<string, unknown>;
-        const isAvailable = nodeData.available !== false;
-        const state = nodeStates[n.id] || "idle";
-        const modDef = isAvailable
-          ? modules.find((m) => m.module_id === (nodeData.moduleId as string))
-          : undefined;
-        const displayName = modDef?.display_name || (nodeData._modDisplayName as string) || (nodeData.moduleId as string);
-        const label = isAvailable
-          ? `${displayName} [${state}]`
-          : `${displayName} (unavailable)`;
-
+    setNodes((current) =>
+      current.map((node) => {
+        const data = node.data;
+        const state = nodeStates[node.id] ?? data.state;
         return {
-          ...n,
-          data: { ...n.data, label, state, moduleDef: modDef },
-          style: isAvailable ? {
-            border: `2px solid ${STATE_COLORS[state] || "#94a3b8"}`,
-            borderRadius: "6px",
-            padding: "8px",
-            background: state === "completed" ? "#f0fdf4" : state === "failed" ? "#fef2f2" : "#fff",
-          } : {
-            border: "2px dashed #f59e0b",
-            borderRadius: "6px",
-            padding: "8px",
-            background: "#fffbeb",
-            opacity: 0.7,
-          },
+          ...node,
+          data: { ...data, state, label: `${data.nodeType.display_name} [${state}]` },
+          style: nodeStyle(state, data.available),
         };
       }),
     );
-  }, [nodeStates, setNodes, modules]);
+  }, [nodeStates, setNodes]);
 
-  const getModuleDef = useCallback(
-    (nodeId: string): ApiModule | undefined => {
-      const node = nodes.find((n) => n.id === nodeId);
-      if (!node) return undefined;
-      return modules.find(
-        (m) => m.module_id === ((node.data as Record<string, unknown>).moduleId as string),
-      );
-    },
-    [nodes, modules],
+  const workflowDocument = useCallback(
+    (id: string): WorkflowDocument => ({
+      schema_version: "2.1.0",
+      workflow_id: id,
+      nodes: nodes.map((node) => {
+        const data = node.data;
+        return {
+          node_id: node.id,
+          node_type_id: data.nodeTypeId,
+          node_type_version: data.nodeTypeVersion,
+          binding_id: data.bindingId,
+          binding_version: data.bindingVersion,
+          node_parameters: data.nodeParameters,
+          binding_parameters: data.bindingParameters,
+        };
+      }),
+      edges: edges.map((edge) => ({
+        source_node_id: edge.source,
+        source_port: edge.sourceHandle ?? "",
+        target_node_id: edge.target,
+        target_port: edge.targetHandle ?? "",
+      })),
+      ...workflowSemantics,
+    }),
+    [edges, nodes, workflowSemantics],
   );
 
-  // ── Project operations ──────────────────────────────────────────
-
   const createProject = useCallback(async () => {
-    const name = prompt("Project name:") || "Untitled";
-    const resp = await fetch("/api/projects", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ name }),
-    });
-    const meta = await resp.json();
-    setProjectId(meta.id);
-    setNodes([]);
-    setEdges([]);
-    refreshProjects();
-  }, [setNodes, setEdges, refreshProjects]);
-
-  const openProject = useCallback(async (id: string) => {
-    setOpenDialog(false);
-
-    const [wfResp, uiResp] = await Promise.all([
-      fetch(`/api/projects/${id}/workflow`),
-      fetch(`/api/projects/${id}/ui`),
-    ]);
-    const wf = await wfResp.json();
-    const ui = await uiResp.json();
-
-    // Build nodes from workflow
-    const loadedNodes: Node[] = (wf.nodes || []).map((n: Record<string, unknown>, i: number) => {
-      const pos = ui.node_positions?.[n.node_id as string] || {
-        x: 100 + (i % 4) * 250,
-        y: 100 + Math.floor(i / 4) * 150,
-      };
-      const isAvailable = n.available !== false;
-      const modDef = modules.find((m) => m.module_id === (n.module_id as string));
-      return {
-        id: n.node_id as string,
-        type: "workflowModule",
-        position: pos,
-        data: {
-          label: isAvailable
-            ? `${modDef?.display_name || n.module_id} [idle]`
-            : `${n.module_id} (unavailable)`,
-          moduleId: n.module_id,
-          category: modDef?.category || "",
-          state: "idle",
-          moduleDef: modDef || null,
-          parameters: n.parameters || {},
-          available: isAvailable,
-          _modDisplayName: modDef?.display_name || "",
-        },
-        style: isAvailable ? {
-          border: "2px solid #94a3b8",
-          borderRadius: "6px",
-          padding: "8px",
-        } : {
-          border: "2px dashed #f59e0b",
-          borderRadius: "6px",
-          padding: "8px",
-          background: "#fffbeb",
-          opacity: 0.7,
-        },
-      };
-    });
-
-    const loadedEdges: Edge[] = (wf.edges || []).map((e: Record<string, string>) => ({
-      id: `edge_${e.source_node_id}_${e.source_port}_${e.target_node_id}_${e.target_port}`,
-      source: e.source_node_id,
-      sourceHandle: e.source_port,
-      target: e.target_node_id,
-      targetHandle: e.target_port,
-      markerEnd: { type: MarkerType.ArrowClosed },
-    }));
-
-    setProjectId(id);
-    setNodes(loadedNodes);
-    setEdges(loadedEdges);
-    setNodeIdCounter(loadedNodes.length);
-
-    // Apply viewport
-    if (ui.canvas_zoom) {
-      // Viewport restoration via fitView for now
+    const name = window.prompt("Project name:") ?? "Untitled";
+    setError(null);
+    try {
+      const project = await requestJson<ProjectMetadata>("/api/v2/projects", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name }),
+      });
+      setProjectId(project.id);
+      setDraftRevision(0);
+      setActiveRunId(null);
+      setWorkflowSemantics({
+        contract_lock: [],
+        observation_selectors: [],
+        selection_objectives: [],
+      });
+      setNodes([]);
+      setEdges([]);
+    } catch (failure) {
+      setError((failure as Error).message);
     }
-  }, [setNodes, setEdges, modules]);
+  }, [setEdges, setNodes]);
 
-  // Auto-save (debounced)
-  const autoSave = useCallback(() => {
-    if (!projectId) return;
-    if (autoSaveTimer.current) clearTimeout(autoSaveTimer.current);
-    autoSaveTimer.current = setTimeout(async () => {
-      const wfPayload = {
-        nodes: nodes.map((n) => ({
-          node_id: n.id,
-          module_id: (n.data as Record<string, unknown>).moduleId as string,
-          module_version: "1.0.0",
-          parameters: (n.data as Record<string, unknown>).parameters || {},
+  const openProject = useCallback(async () => {
+    const requested = window.prompt("Project ID:");
+    if (requested === null || requested === "") return;
+    setError(null);
+    try {
+      const draft = await requestJson<ProjectWorkflowDraft>(
+        `/api/v2/projects/${encodeURIComponent(requested)}/workflow/draft`,
+      );
+      const loadedNodes: Node<WorkflowNodeData>[] = draft.workflow.nodes.map(
+        (workflowNode, index) => {
+          const nodeType = nodeTypeViews.find(
+            (candidate) =>
+              candidate.node_type_id === workflowNode.node_type_id &&
+              candidate.node_type_version === workflowNode.node_type_version,
+          );
+          if (nodeType === undefined) {
+            throw new Error(
+              `Inactive Node Type ${workflowNode.node_type_id}@${workflowNode.node_type_version}`,
+            );
+          }
+          const binding = nodeType.bindings.find(
+            (candidate) =>
+              candidate.binding_id === workflowNode.binding_id &&
+              candidate.binding_version === workflowNode.binding_version,
+          );
+          if (binding === undefined) {
+            throw new Error(
+              `Inactive Binding ${workflowNode.binding_id}@${workflowNode.binding_version}`,
+            );
+          }
+          const data: WorkflowNodeData = {
+            nodeTypeId: nodeType.node_type_id,
+            nodeTypeVersion: nodeType.node_type_version,
+            bindingId: binding.binding_id,
+            bindingVersion: binding.binding_version,
+            nodeType,
+            nodeParameters: workflowNode.node_parameters,
+            bindingParameters: workflowNode.binding_parameters,
+            available: binding.available,
+            state: "idle",
+            label: `${nodeType.display_name} [idle]`,
+            category: nodeType.category,
+          };
+          return {
+            id: workflowNode.node_id,
+            type: "workflowNode",
+            position: {
+              x: 100 + (index % 4) * 250,
+              y: 100 + Math.floor(index / 4) * 150,
+            },
+            data,
+            style: nodeStyle("idle", binding.available),
+          };
+        },
+      );
+      setProjectId(requested);
+      setDraftRevision(draft.draft_revision);
+      setActiveRunId(null);
+      setWorkflowSemantics({
+        contract_lock: draft.workflow.contract_lock,
+        observation_selectors: draft.workflow.observation_selectors ?? [],
+        selection_objectives: draft.workflow.selection_objectives ?? [],
+      });
+      setNodes(loadedNodes);
+      setEdges(
+        draft.workflow.edges.map((edge) => ({
+          id: `edge_${edge.source_node_id}_${edge.source_port}_${edge.target_node_id}_${edge.target_port}`,
+          source: edge.source_node_id,
+          sourceHandle: edge.source_port,
+          target: edge.target_node_id,
+          targetHandle: edge.target_port,
+          markerEnd: { type: MarkerType.ArrowClosed },
         })),
-        edges: edges.map((e) => ({
-          source_node_id: e.source,
-          source_port: (e.sourceHandle != null ? e.sourceHandle : "text"),
-          target_node_id: e.target,
-          target_port: (e.targetHandle != null ? e.targetHandle : "text"),
-        })),
-      };
-      const uiPayload = {
-        node_positions: Object.fromEntries(
-          nodes.map((n) => [n.id, n.position]),
-        ),
-      };
-      await Promise.all([
-        fetch(`/api/projects/${projectId}/workflow`, {
-          method: "PUT",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(wfPayload),
-        }),
-        fetch(`/api/projects/${projectId}/ui`, {
-          method: "PUT",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(uiPayload),
-        }),
-      ]);
-      refreshProjects();
-    }, 2000);
-  }, [projectId, nodes, edges, refreshProjects]);
-
-  // Trigger auto-save on changes
-  useEffect(() => {
-    if (projectId && (nodes.length > 0 || edges.length > 0)) {
-      autoSave();
+      );
+      setNodeIdCounter(loadedNodes.length);
+    } catch (failure) {
+      setError((failure as Error).message);
     }
-  }, [nodes, edges, projectId, autoSave]);
+  }, [nodeTypeViews, setEdges, setNodes]);
 
-  // ── Node operations ─────────────────────────────────────────────
+  const saveDraft = useCallback(async (): Promise<ProjectWorkflowDraft> => {
+    if (projectId === null) throw new Error("Create or open a Project first");
+    const draft = await requestJson<ProjectWorkflowDraft>(
+      `/api/v2/projects/${encodeURIComponent(projectId)}/workflow/draft`,
+      {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          expected_draft_revision: draftRevision,
+          workflow: workflowDocument(projectId),
+        }),
+      },
+    );
+    setDraftRevision(draft.draft_revision);
+    return draft;
+  }, [draftRevision, projectId, workflowDocument]);
 
+  const handleSave = useCallback(async () => {
+    setError(null);
+    try {
+      await saveDraft();
+    } catch (failure) {
+      setError((failure as Error).message);
+    }
+  }, [saveDraft]);
 
-  const handleImport = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0]; if (!file) return;
-    const pid = projectId;
-    if (!pid) { alert("Create a project first"); return; }
-    const form = new FormData(); form.append("file", file);
-    const r = await fetch(`/api/projects/${pid}/inputs`, { method:"POST", body:form });
-    const up = await r.json();
-    if (up.error) { alert(up.error); return; }
-    const isPDB = file.name.endsWith(".pdb") || file.name.endsWith(".ent");
-    const modId = isPDB ? "import.structure" : "import.sequence";
-    const modDef = modules.find(m => m.module_id === modId);
-    const id = `node_${nodeIdCounter}`; setNodeIdCounter(c => c+1);
-    const nn: Node = { id, type:"workflowModule", position:{x:100+Math.random()*300, y:100+Math.random()*200},
-      data: { label:`${modDef?.display_name||modId} [idle]`, moduleId:modId, category:"input", state:"idle", moduleDef:modDef||null, parameters:{file_path:up.path}, available:true },
-      style:{ border:"2px solid #94a3b8", borderRadius:"6px", padding:"8px" } };
-    setNodes(nds => [...nds, nn]);
-    e.target.value = "";
-  }, [projectId, nodeIdCounter, setNodes, modules]);
+  const connectRunEvents = useCallback((id: string, runId: string) => {
+    websocketRef.current?.close();
+    const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
+    const socket = new WebSocket(
+      `${protocol}//${window.location.host}/api/v2/projects/` +
+        `${encodeURIComponent(id)}/runs/${encodeURIComponent(runId)}/events`,
+    );
+    socket.onmessage = (message) => {
+      const envelope = JSON.parse(message.data) as RunEventEnvelope;
+      const update = nodeStateFromRunEvent(envelope);
+      if (update !== null) {
+        setNodeStates((current) => ({
+          ...current,
+          [update.nodeId]: update.state,
+        }));
+      }
+      if (envelope.event.type === "run_terminal") setIsRunning(false);
+    };
+    socket.onclose = () => {
+      websocketRef.current = null;
+    };
+    websocketRef.current = socket;
+  }, []);
+
+  const runWorkflow = useCallback(async () => {
+    if (projectId === null || nodes.length === 0) return;
+    setError(null);
+    setIsRunning(true);
+    setNodeStates(
+      Object.fromEntries(nodes.map((node) => [node.id, "queued"])),
+    );
+    try {
+      const committed = await requestJson<WorkflowCommit>(
+        `/api/v2/projects/${encodeURIComponent(projectId)}/workflow:commit`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            expected_draft_revision: draftRevision,
+            workflow: workflowDocument(projectId),
+          }),
+        },
+      );
+      setDraftRevision(committed.source_draft_revision);
+      const receipt = await requestJson<RunReceipt>(
+        `/api/v2/projects/${encodeURIComponent(projectId)}/runs`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            workflow_commit_id: committed.workflow_commit_id,
+            client_request_id: `frontend-${crypto.randomUUID()}`,
+          }),
+        },
+      );
+      setActiveRunId(receipt.run_id);
+      connectRunEvents(projectId, receipt.run_id);
+    } catch (failure) {
+      setIsRunning(false);
+      setError((failure as Error).message);
+    }
+  }, [connectRunEvents, draftRevision, nodes, projectId, workflowDocument]);
+
+  const cancelRun = useCallback(async () => {
+    if (projectId === null || activeRunId === null) return;
+    setError(null);
+    try {
+      await requestJson(
+        `/api/v2/projects/${encodeURIComponent(projectId)}/runs/` +
+          `${encodeURIComponent(activeRunId)}:cancel`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: "{}",
+        },
+      );
+    } catch (failure) {
+      setError((failure as Error).message);
+    }
+  }, [activeRunId, projectId]);
 
   const addNode = useCallback(
-    (mod: ApiModule) => {
+    (
+      nodeType: NodeTypeView,
+      binding: BindingView,
+      overrides: Record<string, unknown> = {},
+    ) => {
       const id = `node_${nodeIdCounter}`;
-      setNodeIdCounter((c) => c + 1);
-      const newNode: Node = {
-        id,
-        type: "workflowModule",
-        position: { x: 100 + Math.random() * 300, y: 100 + Math.random() * 200 },
-        data: {
-          label: mod.display_name,
-          moduleId: mod.module_id,
-          category: mod.category,
-          state: "idle",
-          moduleDef: mod,
-          parameters: Object.fromEntries(
-            mod.parameters.map((p) => [p.name, p.default]),
+      const data: WorkflowNodeData = {
+        nodeTypeId: nodeType.node_type_id,
+        nodeTypeVersion: nodeType.node_type_version,
+        bindingId: binding.binding_id,
+        bindingVersion: binding.binding_version,
+        nodeType,
+        nodeParameters: {
+          ...Object.fromEntries(
+            nodeType.parameters
+              .filter((parameter) => parameter.default !== undefined)
+              .map((parameter) => [parameter.name, parameter.default]),
           ),
-          available: true,
+          ...overrides,
         },
-        style: {
-          border: `2px solid ${STATE_COLORS["idle"]}`,
-          borderRadius: "6px",
-          padding: "8px",
-        },
+        bindingParameters: parameterValues(binding.parameters),
+        available: binding.available,
+        state: "idle",
+        label: `${nodeType.display_name} [idle]`,
+        category: nodeType.category,
       };
-      setNodes((nds) => [...nds, newNode]);
+      setNodeIdCounter((current) => current + 1);
+      setNodes((current) => [
+        ...current,
+        {
+          id,
+          type: "workflowNode",
+          position: { x: 100 + Math.random() * 300, y: 100 + Math.random() * 200 },
+          data,
+          style: nodeStyle("idle", binding.available),
+        },
+      ]);
       setMenuOpen(false);
     },
     [nodeIdCounter, setNodes],
   );
 
-
-  const handleExport = useCallback(async (nodeId: string) => {
-    const node = nodes.find(n => n.id === nodeId); if (!node) return;
-    alert("Export from canvas: outputs are stored on the server. Use the Export Structure/Sequence module in your workflow.");
-  }, [nodes]);
+  const handleImport = useCallback(
+    async (event: React.ChangeEvent<HTMLInputElement>) => {
+      const file = event.target.files?.[0];
+      if (file === undefined || projectId === null) return;
+      setError(null);
+      try {
+        const publication = await requestJson<{ project_input_ref: string }>(
+          `/api/v2/projects/${encodeURIComponent(projectId)}/inputs`,
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              filename: file.name,
+              content_base64: encodeFileContent(
+                new Uint8Array(await file.arrayBuffer()),
+              ),
+            }),
+          },
+        );
+        const nodeTypeId = /\.(pdb|ent|cif)$/i.test(file.name)
+          ? "protein_io.import_structure"
+          : "protein_io.import_sequence";
+        const nodeType = nodeTypeViews.find(
+          (candidate) => candidate.node_type_id === nodeTypeId,
+        );
+        if (nodeType === undefined) throw new Error(`Missing active ${nodeTypeId}`);
+        if (nodeType.bindings.length !== 1) {
+          throw new Error(
+            `${nodeTypeId} requires an explicit Binding choice from Add Node`,
+          );
+        }
+        addNode(nodeType, nodeType.bindings[0], {
+          project_input_ref: publication.project_input_ref,
+        });
+      } catch (failure) {
+        setError((failure as Error).message);
+      } finally {
+        event.target.value = "";
+      }
+    },
+    [addNode, nodeTypeViews, projectId],
+  );
 
   const onConnect = useCallback(
     (connection: Connection) => {
-      const edge: Edge = {
-        ...connection,
-        id: `edge_${connection.source}_${connection.sourceHandle}_${connection.target}_${connection.targetHandle}`,
-        markerEnd: { type: MarkerType.ArrowClosed },
-      };
-      setEdges((eds) => addEdge(edge, eds));
+      setEdges((current) =>
+        addEdge(
+          {
+            ...connection,
+            id: `edge_${connection.source}_${connection.sourceHandle}_${connection.target}_${connection.targetHandle}`,
+            markerEnd: { type: MarkerType.ArrowClosed },
+          },
+          current,
+        ),
+      );
     },
     [setEdges],
   );
 
-  const onNodeClick = useCallback(
-    (_: React.MouseEvent, node: Node) => { setSelectedNodeId(node.id); },
-    [],
+  const isValidConnection = useCallback(
+    (connection: Edge | Connection) => {
+      const source = nodes.find((node) => node.id === connection.source);
+      const target = nodes.find((node) => node.id === connection.target);
+      if (source === undefined || target === undefined) return false;
+      const sourceData = source.data;
+      const targetData = target.data;
+      const sourcePort = sourceData.nodeType.output_ports.find(
+        (port) => port.name === connection.sourceHandle,
+      );
+      const targetPort = targetData.nodeType.input_ports.find(
+        (port) => port.name === connection.targetHandle,
+      );
+      return sourcePort?.type_id === targetPort?.type_id;
+    },
+    [nodes],
   );
 
-  const updateParam = useCallback(
-    (nodeId: string, paramName: string, value: unknown) => {
-      setNodes((nds) =>
-        nds.map((n) => {
-          if (n.id !== nodeId) return n;
-          const nd = n.data as Record<string, unknown>;
+  const selectedNode = selectedNodeId
+    ? nodes.find((node) => node.id === selectedNodeId)
+    : undefined;
+  const selectedData = selectedNode?.data;
+  const selectedBinding = selectedData?.nodeType.bindings.find(
+    (binding) =>
+      binding.binding_id === selectedData.bindingId &&
+      binding.binding_version === selectedData.bindingVersion,
+  );
+  const grouped = useMemo(
+    () => groupNodeTypesByCategory(nodeTypeViews),
+    [nodeTypeViews],
+  );
+
+  const updateNodeParameter = useCallback(
+    (name: string, value: unknown) => {
+      if (selectedNodeId === null) return;
+      setNodes((current) =>
+        current.map((node) => {
+          if (node.id !== selectedNodeId) return node;
+          const data = node.data;
           return {
-            ...n,
+            ...node,
             data: {
-              ...n.data,
-              parameters: { ...(nd.parameters as Record<string, unknown>), [paramName]: value },
+              ...data,
+              nodeParameters: { ...data.nodeParameters, [name]: value },
             },
           };
         }),
       );
     },
-    [setNodes],
+    [selectedNodeId, setNodes],
   );
 
-  // ── Run workflow ─────────────────────────────────────────────────
+  const selectBinding = useCallback(
+    (bindingId: string, bindingVersion: string) => {
+      if (selectedNodeId === null || selectedData === undefined) return;
+      const binding = selectedData.nodeType.bindings.find(
+        (candidate) =>
+          candidate.binding_id === bindingId &&
+          candidate.binding_version === bindingVersion,
+      );
+      if (binding === undefined) return;
+      setNodes((current) =>
+        current.map((node) =>
+          node.id === selectedNodeId
+            ? {
+                ...node,
+                data: {
+                  ...node.data,
+                  bindingId: binding.binding_id,
+                  bindingVersion: binding.binding_version,
+                  bindingParameters: parameterValues(binding.parameters),
+                  available: binding.available,
+                },
+                style: nodeStyle("idle", binding.available),
+              }
+            : node,
+        ),
+      );
+    },
+    [selectedData, selectedNodeId, setNodes],
+  );
 
-  const selectedNode = selectedNodeId ? nodes.find(n => n.id===selectedNodeId) : undefined;
-  const selectedParams = selectedNode
-    ? ((selectedNode.data as Record<string, unknown>).parameters as Record<string, unknown>) || {}
-    : {};
-  const selectedAvailable = selectedNode
-    ? ((selectedNode.data as Record<string, unknown>).available as boolean) !== false
-    : true;
-  const runWorkflow = useCallback(async () => {
-    if (nodes.length === 0) return;
-    connectWS();
-    setIsRunning(true);
-    // Clear any previous timeout
-    if (timeoutRef.current) clearTimeout(timeoutRef.current);
-    timeoutRef.current = setTimeout(() => {
-      setIsRunning(false);
-      console.warn("Execution timed out after " + EXECUTION_TIMEOUT_MS / 1000 + "s");
-    }, EXECUTION_TIMEOUT_MS);
-    setNodeStates({});
-    for (const n of nodes) {
-      setNodeStates((prev) => ({ ...prev, [n.id]: "queued" }));
-    }
-
-    const payload = {
-      project_id: projectId || undefined,
-      nodes: nodes.map((n) => ({
-        node_id: n.id,
-        module_id: ((n.data as Record<string, unknown>).moduleId as string),
-        module_version: "1.0.0",
-        parameters: (n.data as Record<string, unknown>).parameters || {},
-      })),
-      edges: edges.map((e) => ({
-        source_node_id: e.source,
-        source_port: (e.sourceHandle != null ? e.sourceHandle : "text"),
-        target_node_id: e.target,
-        target_port: (e.targetHandle != null ? e.targetHandle : "text"),
-      })),
-    };
-
-    try {
-      const resp = await fetch("/api/execute", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
-      });
-      const result = await resp.json();
-      if (result.error) { alert(result.error); setIsRunning(false); }
-    } catch {
-      alert("Failed to execute workflow");
-      setIsRunning(false);
-      if (timeoutRef.current) { clearTimeout(timeoutRef.current); timeoutRef.current = null; }
-    }
-  }, [nodes, edges, connectWS, projectId]);
-
-  // ── Render helpers ───────────────────────────────────────────────
-
-  const grouped = groupByCategory(modules);
-  const selectedModule = selectedNodeId ? getModuleDef(selectedNodeId) : undefined;
+  const updateBindingParameter = useCallback(
+    (name: string, value: unknown) => {
+      if (selectedNodeId === null) return;
+      setNodes((current) =>
+        current.map((node) => {
+          if (node.id !== selectedNodeId) return node;
+          const data = node.data;
+          return {
+            ...node,
+            data: {
+              ...data,
+              bindingParameters: {
+                ...data.bindingParameters,
+                [name]: value,
+              },
+            },
+          };
+        }),
+      );
+    },
+    [selectedNodeId, setNodes],
+  );
 
   return (
     <div style={{ width: "100vw", height: "100vh", display: "flex" }}>
@@ -516,183 +574,152 @@ export default function App() {
           onNodesChange={onNodesChange}
           onEdgesChange={onEdgesChange}
           onConnect={onConnect}
-          onNodeClick={onNodeClick}
-          nodeTypes={nodeTypes}
+          isValidConnection={isValidConnection}
+          onNodeClick={(_, node) => setSelectedNodeId(node.id)}
+          nodeTypes={reactFlowNodeTypes}
           fitView
         >
           <Background />
           <Controls />
           <MiniMap />
-
           <Panel position="top-left" className="toolbar">
-            <input type="file" ref={fileInputRef} style={{display:"none"}} accept=".pdb,.ent,.cif,.fasta,.fa" onChange={handleImport} />
+            <input
+              type="file"
+              ref={fileInputRef}
+              style={{ display: "none" }}
+              accept=".pdb,.ent,.cif,.fasta,.fa"
+              onChange={handleImport}
+            />
             <button className="add-node-btn" onClick={() => setMenuOpen(!menuOpen)}>
               + Add Node
             </button>
-            <button className="import-btn" onClick={()=>fileInputRef.current?.click()}>Import</button>
-            <button className="run-btn" onClick={runWorkflow}
-              disabled={isRunning || nodes.length === 0}>
-              {isRunning ? "Running..." : "\u25B6 Run Workflow"}
+            <button
+              className="proj-btn"
+              disabled={projectId === null}
+              onClick={() => fileInputRef.current?.click()}
+            >
+              Import
             </button>
-            <span className="toolbar-sep" />
-            {!projectId ? (
-              <button className="proj-btn" onClick={createProject}>
-                New Project
-              </button>
-            ) : (
-              <>
-                <button className="proj-btn" onClick={() => autoSaveTimer.current && clearTimeout(autoSaveTimer.current) || autoSave()}>
-                  Save
-                </button>
-                <button className="proj-btn" onClick={() => setOpenDialog(true)}>
-                  Open
-                </button>
-            {selectedNode && <button className="proj-btn" onClick={()=>handleExport(selectedNode.id)}>Export</button>}
-              </>
+            <button
+              className="run-btn"
+              onClick={runWorkflow}
+              disabled={isRunning || nodes.length === 0 || projectId === null}
+            >
+              {isRunning ? "Running…" : "▶ Run Workflow"}
+            </button>
+            {isRunning && (
+              <button className="proj-btn" onClick={cancelRun}>Cancel Run</button>
             )}
+            <span className="toolbar-sep" />
+            <button className="proj-btn" onClick={createProject}>New Project</button>
+            <button className="proj-btn" onClick={openProject}>Open</button>
+            <button
+              className="proj-btn"
+              disabled={projectId === null}
+              onClick={handleSave}
+            >
+              Save Draft
+            </button>
           </Panel>
 
           {menuOpen && (
             <Panel position="top-left" className="add-node-menu">
               <h3>Add Node</h3>
-              {modules.length === 0 && <p className="empty-hint">No modules discovered.</p>}
-              {[...grouped.entries()].map(([category, mods]) => (
+              {[...grouped.entries()].map(([category, categoryNodeTypes]) => (
                 <div key={category} className="category-group">
                   <h4>{category}</h4>
-                  {mods.map((mod) => (
-                    <button key={mod.module_id} className="node-option" onClick={() => addNode(mod)}>
-                      <span className="node-name">{mod.display_name}</span>
-                      <span className="node-id">{mod.module_id}</span>
-                    </button>
-                  ))}
+                  {categoryNodeTypes.flatMap((nodeType) =>
+                    nodeType.bindings.map((binding) => (
+                      <button
+                        key={
+                          `${nodeType.node_type_id}@${nodeType.node_type_version}:` +
+                          `${binding.binding_id}@${binding.binding_version}`
+                        }
+                        className="node-option"
+                        onClick={() => addNode(nodeType, binding)}
+                      >
+                        <span className="node-name">{nodeType.display_name}</span>
+                        <span className="node-id">
+                          {binding.binding_id}@{binding.binding_version}
+                          {binding.available ? "" : " (unavailable)"}
+                        </span>
+                      </button>
+                    )),
+                  )}
                 </div>
               ))}
             </Panel>
           )}
-
-          {openDialog && (
-            <Panel position="top-left" className="open-dialog">
-              <h3>Open Project</h3>
-              {projects.length === 0 && <p className="empty-hint">No saved projects.</p>}
-              {projects.map((p) => (
-                <button key={p.id} className="project-option" onClick={() => openProject(p.id)}>
-                  <span className="project-name">{p.name}</span>
-                  <span className="project-date">{new Date(p.modified_at).toLocaleString()}</span>
-                </button>
-              ))}
-              <button className="close-panel-btn" onClick={() => setOpenDialog(false)}>
-                Cancel
-              </button>
-            </Panel>
-          )}
         </ReactFlow>
+        {error && <p className="frontend-error" role="alert">{error}</p>}
       </div>
 
-      {selectedModule && selectedNodeId && (
+      {selectedData && selectedNodeId && (
         <div className="param-panel">
-          <h3>
-            {selectedModule.display_name}
-            {!selectedAvailable && <span className="unavailable-badge">unavailable</span>}
-          </h3>
-          <p className="param-desc">{selectedModule.description}</p>
-          {!selectedAvailable && (
-            <p className="unavailable-hint">
-              Module &quot;{selectedModule.module_id}&quot; is not installed.
-              Install it to enable execution.
-            </p>
-          )}
-          <h4>Parameters</h4>
-          {selectedModule.parameters.length === 0 && (
-            <p className="empty-hint">No configurable parameters.</p>
-          )}
-          {selectedModule.parameters.map((param) => {
-            const currentValue = selectedParams[param.name];
-            return (
-              <div key={param.name} className="param-field">
-                <label>
-                  {param.display_name || param.name}
-                  {param.description && (
-                    <span className="param-desc-hint"> \u2014 {param.description}</span>
-                  )}
-                </label>
-                {param.type === "int" || param.type === "float" ? (
-                  <input type="number"
-                    value={currentValue as number ?? param.default as number ?? 0}
-                    min={param.min} max={param.max}
-                    step={param.type === "float" ? "0.1" : "1"}
-                    onChange={(e) => updateParam(selectedNodeId, param.name,
-                      param.type === "float" ? parseFloat(e.target.value) : parseInt(e.target.value, 10))}
+          <h3>{selectedData.nodeType.display_name}</h3>
+          <p className="param-desc">{selectedData.nodeType.description}</p>
+          <h4>Execution Binding</h4>
+          <select
+            value={`${selectedData.bindingId}@${selectedData.bindingVersion}`}
+            onChange={(event) => {
+              const [bindingId, bindingVersion] = event.target.value.split("@");
+              selectBinding(bindingId, bindingVersion);
+            }}
+          >
+            {selectedData.nodeType.bindings.map((binding) => (
+              <option
+                key={`${binding.binding_id}@${binding.binding_version}`}
+                value={`${binding.binding_id}@${binding.binding_version}`}
+              >
+                {binding.binding_id}@{binding.binding_version}
+                {binding.available ? "" : " (unavailable)"}
+              </option>
+            ))}
+          </select>
+          <h4>Node parameters</h4>
+          {selectedData.nodeType.parameters.map((parameter) => (
+            <ParameterField
+              key={parameter.name}
+              parameter={parameter}
+              value={selectedData.nodeParameters[parameter.name]}
+              onChange={(value) => updateNodeParameter(parameter.name, value)}
+            />
+          ))}
+          {selectedBinding && Object.keys(selectedBinding.parameters).length > 0 && (
+            <>
+              <h4>Binding parameters</h4>
+              {Object.entries(selectedBinding.parameters).map(
+                ([name, definition]) => (
+                  <ParameterField
+                    key={name}
+                    parameter={{
+                      name,
+                      type: definition.value_contract!.type!,
+                      default: definition.default,
+                      display_name: name,
+                      description: definition.scientific_meaning!,
+                      min: definition.value_contract?.minimum,
+                      max: definition.value_contract?.maximum,
+                      options: definition.value_contract?.enum,
+                      required: definition.required ?? false,
+                    }}
+                    value={selectedData.bindingParameters[name]}
+                    onChange={(value) => updateBindingParameter(name, value)}
                   />
-                ) : param.type === "enum" && param.options ? (
-                  <select value={(currentValue as string) ?? (param.default as string) ?? ""}
-                    onChange={(e) => updateParam(selectedNodeId, param.name, e.target.value)}>
-                    {param.options.map((opt) => <option key={opt} value={opt}>{opt}</option>)}
-                  </select>
-                ) : param.type === "bool" ? (
-                  <input type="checkbox"
-                    checked={(currentValue as boolean) ?? (param.default as boolean) ?? false}
-                    onChange={(e) => updateParam(selectedNodeId, param.name, e.target.checked)} />
-                ) : (
-                  <input type="text"
-                    value={(currentValue as string) ?? (param.default as string) ?? ""}
-                    onChange={(e) => updateParam(selectedNodeId, param.name, e.target.value)} />
-                )}
-              </div>
-            );
-          })}
-
-          <h4>Ports</h4>
-          <div className="ports-info">
-            <div>
-              <strong>Inputs:</strong>
-              {selectedModule.input_ports.length === 0 && " none"}
-              {selectedModule.input_ports.map((p) => (
-                <div key={p.name} className="port-item">{p.display_name || p.name} <code>{p.type_id}</code></div>
-              ))}
-            </div>
-            <div>
-              <strong>Outputs:</strong>
-              {selectedModule.output_ports.length === 0 && " none"}
-              {selectedModule.output_ports.map((p) => (
-                <div key={p.name} className="port-item">{p.display_name || p.name} <code>{p.type_id}</code></div>
-              ))}
-            </div>
-          </div>
-          <button className="close-panel-btn" onClick={() => setSelectedNodeId(null)}>Close</button>
+                ),
+              )}
+            </>
+          )}
+          <button className="close-panel-btn" onClick={() => setSelectedNodeId(null)}>
+            Close
+          </button>
         </div>
       )}
-      {selectedModule && selectedNodeId && selectedModule.category === "prompt" && (() => {
-        const nodeParams = (selectedNode?.data as Record<string, unknown>)?.parameters as Record<string, unknown> || {};
-        const chainId = (nodeParams.chain_id as string) || "A";
-        const length = (nodeParams.length as number) || 0;
-        const residues = parseResidueData(nodeParams, chainId, length > 0 ? length : 10);
-        const annotations = parseAnnotationData(nodeParams);
 
-        const handleResiduesChange = (newResidues: ResidueRow[]) => {
-          const nd = selectedNode?.data as Record<string, unknown>;
-          if (!nd || !selectedNodeId) return;
-          const params = { ...(nd.parameters as Record<string, unknown> || {}), residues_data: JSON.stringify(newResidues), length: newResidues.length };
-          // Update node via setNodes
-          setNodes((nds) => nds.map((n) => n.id === selectedNodeId ? { ...n, data: { ...n.data, parameters: params } } : n));
-        };
-
-        const handleAnnotationsChange = (newAnnotations: FunctionAnnotation[]) => {
-          const nd = selectedNode?.data as Record<string, unknown>;
-          if (!nd || !selectedNodeId) return;
-          const params = { ...(nd.parameters as Record<string, unknown> || {}), annotations_data: JSON.stringify(newAnnotations) };
-          setNodes((nds) => nds.map((n) => n.id === selectedNodeId ? { ...n, data: { ...n.data, parameters: params } } : n));
-        };
-
-        return (
-          <ProteinPromptEditor
-            residues={residues}
-            annotations={annotations}
-            onResiduesChange={handleResiduesChange}
-            onAnnotationsChange={handleAnnotationsChange}
-          />
-        );
-      })()}
-      <TypedOutputExplorer activeProjectId={projectId} />
+      <TypedOutputExplorer
+        activeProjectId={projectId}
+        activeRunId={activeRunId}
+      />
     </div>
   );
 }

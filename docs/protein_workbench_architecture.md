@@ -183,8 +183,10 @@ Engine Invocation evidence recorder
 4. Cache miss 或 bypass 时进入一次 Operation Attempt；
 5. 记录零个、一个或多个 Engine Invocations；
 6. 接纳 immutable output values；
-7. 原子发布 Cache、Artifact 和 Ledger facts；
-8. 从 Run Evidence Ledger 投影事件和 manifest。
+7. 将 Typed Output 与 Artifact bytes 写入 Project-scoped immutable objects，并以一个
+   Ledger transaction 原子发布 Node outcome；
+8. 从 Run Evidence Ledger 投影事件和 bounded output descriptors，再在成功后发布可选的
+   Cache v4 replay index。
 
 Readiness 必须早于 Cache lookup。Cache replay 是 Node Execution Attempt，但不是 Operation Attempt 或 Engine Invocation。
 

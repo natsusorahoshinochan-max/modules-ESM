@@ -1,5 +1,6 @@
 import { memo } from "react";
 import { Handle, Position, type NodeProps, type Node } from "@xyflow/react";
+import type { NodeTypeView } from "./currentProtocol";
 
 interface PortInfo {
   name: string;
@@ -7,38 +8,34 @@ interface PortInfo {
   display_name: string;
 }
 
-interface ModuleDef {
-  module_id: string;
-  display_name: string;
-  input_ports: PortInfo[];
-  output_ports: PortInfo[];
-}
-
-export type WorkflowModuleNodeData = {
+export interface WorkflowNodeData extends Record<string, unknown> {
   label: string;
-  moduleId: string;
+  nodeTypeId: string;
+  nodeTypeVersion: string;
+  bindingId: string;
+  bindingVersion: string;
   category: string;
   state: string;
-  moduleDef: ModuleDef | null;
-  parameters: Record<string, unknown>;
+  nodeType: NodeTypeView;
+  nodeParameters: Record<string, unknown>;
+  bindingParameters: Record<string, unknown>;
   available: boolean;
-  _modDisplayName?: string;
-};
+}
 
-type WorkflowModuleNodeType = Node<WorkflowModuleNodeData>;
+type WorkflowNodeType = Node<WorkflowNodeData>;
 
-function WorkflowModuleNode({ data, selected }: NodeProps<WorkflowModuleNodeType>) {
-  const modDef = data.moduleDef;
-  const isAvailable = data.available !== false;
+function WorkflowNode({ data, selected }: NodeProps<WorkflowNodeType>) {
+  const nodeType = data.nodeType;
+  const isAvailable = data.available;
 
-  const inputPorts: PortInfo[] = modDef?.input_ports || [];
-  const outputPorts: PortInfo[] = modDef?.output_ports || [];
+  const inputPorts: PortInfo[] = nodeType.input_ports;
+  const outputPorts: PortInfo[] = nodeType.output_ports;
 
   const handleSpacing = 22;
 
   return (
     <div
-      className="workflow-module-node"
+      className="workflow-node"
       style={{
         border: selected ? "2px solid #3b82f6" : "1px solid #cbd5e1",
         borderRadius: "6px",
@@ -86,7 +83,7 @@ function WorkflowModuleNode({ data, selected }: NodeProps<WorkflowModuleNodeType
               marginLeft: "4px",
             }}
           >
-            {port.display_name || port.name}
+            {port.display_name}
           </span>
         </div>
       ))}
@@ -100,7 +97,7 @@ function WorkflowModuleNode({ data, selected }: NodeProps<WorkflowModuleNodeType
           color: isAvailable ? "#1e293b" : "#94a3b8",
         }}
       >
-        {modDef?.display_name || data._modDisplayName || data.moduleId}
+        {nodeType.display_name}
       </div>
 
       {/* State badge */}
@@ -111,7 +108,7 @@ function WorkflowModuleNode({ data, selected }: NodeProps<WorkflowModuleNodeType
           marginBottom: inputPorts.length > 0 || outputPorts.length > 0 ? "8px" : "0",
         }}
       >
-        [{data.state || "idle"}]
+        [{data.state}]
       </div>
 
       {/* Output handles (right side) */}
@@ -136,7 +133,7 @@ function WorkflowModuleNode({ data, selected }: NodeProps<WorkflowModuleNodeType
               marginRight: "4px",
             }}
           >
-            {port.display_name || port.name}
+            {port.display_name}
           </span>
           <Handle
             type="source"
@@ -158,4 +155,4 @@ function WorkflowModuleNode({ data, selected }: NodeProps<WorkflowModuleNodeType
   );
 }
 
-export default memo(WorkflowModuleNode);
+export default memo(WorkflowNode);

@@ -7,20 +7,34 @@ import type {
 
 interface TypedOutputExplorerProps {
   activeProjectId: string | null;
+  activeRunId: string | null;
 }
 
 interface RunProjection {
   outputs: TypedOutputDescriptor[];
+  artifact_index: ArtifactDescriptor[];
+}
+
+interface ArtifactDescriptor {
+  artifact_reference: string;
+  node_id: string;
+  output_port: string;
+  filename: string;
+  media_type: string;
+  size: number;
+  content_digest: string;
 }
 
 interface LoadedRun {
   projectId: string;
   runId: string;
   outputs: TypedOutputDescriptor[];
+  artifacts: ArtifactDescriptor[];
 }
 
 export default function TypedOutputExplorer({
   activeProjectId,
+  activeRunId,
 }: TypedOutputExplorerProps) {
   const [projectId, setProjectId] = useState(activeProjectId ?? "");
   const [runId, setRunId] = useState("");
@@ -37,6 +51,14 @@ export default function TypedOutputExplorer({
       setRetrieved(null);
     }
   }, [activeProjectId]);
+
+  useEffect(() => {
+    if (activeRunId !== null) {
+      setRunId(activeRunId);
+      setLoadedRun(null);
+      setRetrieved(null);
+    }
+  }, [activeRunId]);
 
   const loadProjection = async () => {
     setLoading(true);
@@ -59,6 +81,7 @@ export default function TypedOutputExplorer({
         projectId: requestedProjectId,
         runId: requestedRunId,
         outputs: projection.outputs,
+        artifacts: projection.artifact_index,
       });
       setOutputIndex(0);
     } finally {
@@ -129,7 +152,55 @@ export default function TypedOutputExplorer({
             output={output}
             onRetrieved={setRetrieved}
           />
+          <dl className="typed-output-metadata">
+            <dt>Port Type</dt>
+            <dd>
+              {output.port_type.contract_id}@{output.port_type.contract_version}
+            </dd>
+            <dt>Port digest</dt>
+            <dd><code>{output.content_digest}</code></dd>
+            <dt>Value count</dt>
+            <dd>{output.value_count}</dd>
+            <dt>Result Identity</dt>
+            <dd><code>{output.result_identity}</code></dd>
+            <dt>Materialization</dt>
+            <dd>
+              {output.materialization.resolution} in {output.materialization.run_id}
+            </dd>
+            <dt>Producer</dt>
+            <dd>
+              {output.producer_provenance.producer_run_id} /{" "}
+              {output.producer_provenance.output_port} /{" "}
+              <code>
+                {output.producer_provenance.producer_result_identity}
+              </code>
+            </dd>
+          </dl>
         </>
+      )}
+      {loadedRun !== null && loadedRun.artifacts.length > 0 && (
+        <section>
+          <h4>Artifacts</h4>
+          <ul className="artifact-list">
+            {loadedRun.artifacts.map((artifact) => (
+              <li key={artifact.artifact_reference}>
+                <a
+                  href={
+                    `/api/v2/projects/${encodeURIComponent(loadedRun.projectId)}` +
+                    `/runs/${encodeURIComponent(loadedRun.runId)}/artifacts/` +
+                    encodeURIComponent(artifact.artifact_reference)
+                  }
+                >
+                  {artifact.filename}
+                </a>
+                <small>
+                  {artifact.node_id}.{artifact.output_port} · {artifact.media_type} ·{" "}
+                  {artifact.size} bytes · {artifact.content_digest}
+                </small>
+              </li>
+            ))}
+          </ul>
+        </section>
       )}
       {retrieved && (
         <pre>{new TextDecoder().decode(retrieved.canonicalBytes)}</pre>

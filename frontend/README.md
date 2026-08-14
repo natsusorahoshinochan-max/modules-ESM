@@ -1,32 +1,35 @@
-# React + TypeScript + Vite
+# Protein Workbench frontend
 
-This template provides a minimal setup to get React working in Vite with HMR and some Oxlint rules.
+The frontend is a React, TypeScript, Vite, and React Flow client for the current
+`protein-workbench-public/v2` protocol. It discovers Node Types and Bindings from
+the Catalog, authors Project Workflow Drafts, commits and starts Runs, follows the
+run-scoped lifecycle WebSocket, and retrieves bounded Run projections, individual
+canonical Typed Output values, and Artifacts.
 
-Currently, two official plugins are available:
+There is no unversioned API, legacy `/ws` stream, embedded-output path, or custom
+prompt-authoring payload. Array and object scientific parameters remain typed
+through the JSON parameter editor; scalar parameters use widgets derived from
+their current Catalog value contracts.
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
+## Development
 
-## React Compiler
-
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
-
-## Expanding the Oxlint configuration
-
-If you are developing a production application, we recommend enabling type-aware lint rules by installing `oxlint-tsgolint` and editing `.oxlintrc.json`:
-
-```json
-{
-  "$schema": "./node_modules/oxlint/configuration_schema.json",
-  "plugins": ["react", "typescript", "oxc"],
-  "options": {
-    "typeAware": true
-  },
-  "rules": {
-    "react/rules-of-hooks": "error",
-    "react/only-export-components": ["warn", { "allowConstantExport": true }]
-  }
-}
+```bash
+npm install
+npm run dev
 ```
 
-See the [Oxlint rules documentation](https://oxc.rs/docs/guide/usage/linter/rules) for the full list of rules and categories.
+Vite proxies both HTTP and WebSocket traffic under `/api` to the loopback backend
+at `127.0.0.1:8000`.
+
+## Verification
+
+```bash
+npm test
+npm run lint
+npm run build
+```
+
+The Vitest journeys cover explicit Binding choice, exact Workflow Selection
+semantics round-trips, typed structured parameters, lifecycle events, bounded
+projection metadata, single-value retrieval, Artifact links, and the WebSocket
+development-proxy contract.
