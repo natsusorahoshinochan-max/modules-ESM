@@ -306,7 +306,7 @@ TIERS = {
         ),
         (
             "tests/test_run_execution_v2.py::"
-            "test_node_success_is_not_published_when_disposition_commit_fails"
+            "test_public_run_exposes_no_node_subset_when_transaction_commit_fails"
         ),
         (
             "tests/test_result_cache_v2.py::"
