@@ -23,3 +23,14 @@ Workflows under `tests/fixtures/v2_workflows`: exact prompt-track inputs cover
 the two track transformations, and exact fixed-3GB1/paired-ESM3 Score
 Observations and Utility Transforms cover all six selection operations. Those
 independent fixtures are not shipped as production capabilities.
+
+`source-bound-1pga.workflow.json` is the exact 75-residue acceptance Workflow
+for `pdbs/1PGA-75-gen1_0690.pdb` (SHA-256
+`d4392068a70cd5cb21f1598a83b6eff29f829d510ae808be0f62f35a6d01dc30`).
+It admits the structure through Project Input, derives the shared sequence
+parent inside the Workbench, runs one explicitly seeded ESMFold2 sample and one
+explicitly seeded 50-step SimpleFold sample, and closes the three pairwise
+comparisons with exact evidence references. Only the two prediction Methods
+provide pLDDT confidence; the input coordinate B-factor field remains
+uninterpreted. Provider-free public REST/WebSocket acceptance uses lawful
+controlled Binding clients and never invokes a remote Provider or local model.

@@ -1,0 +1,910 @@
+{
+  "schema_version": "2.1.0",
+  "workflow_id": "source-bound-1pga",
+  "nodes": [
+    {
+      "node_id": "import-input",
+      "node_type_id": "protein_io.import_structure",
+      "node_type_version": "5.0.0",
+      "binding_id": "protein_io.import_structure.direct",
+      "binding_version": "5.0.0",
+      "node_parameters": {
+        "project_input_ref": "1PGA-75-gen1_0690.pdb"
+      },
+      "binding_parameters": {}
+    },
+    {
+      "node_id": "resolve-input",
+      "node_type_id": "structure_transform.resolve_candidate_residue_axes",
+      "node_type_version": "5.0.0",
+      "binding_id": "structure_transform.resolve_candidate_residue_axes.direct",
+      "binding_version": "5.0.0",
+      "node_parameters": {},
+      "binding_parameters": {}
+    },
+    {
+      "node_id": "extract-sequence",
+      "node_type_id": "structure_transform.extract_sequence_candidates",
+      "node_type_version": "3.0.0",
+      "binding_id": "structure_transform.extract_sequence_candidates.direct",
+      "binding_version": "3.0.0",
+      "node_parameters": {},
+      "binding_parameters": {}
+    },
+    {
+      "node_id": "fold-esmfold2",
+      "node_type_id": "folding.fold",
+      "node_type_version": "6.0.0",
+      "binding_id": "folding.fold.esmfold2_remote",
+      "binding_version": "7.0.0",
+      "node_parameters": {
+        "effective_seed": 1075001,
+        "num_samples": 1
+      },
+      "binding_parameters": {}
+    },
+    {
+      "node_id": "fold-simplefold",
+      "node_type_id": "folding.fold",
+      "node_type_version": "6.0.0",
+      "binding_id": "folding.fold.simplefold_local",
+      "binding_version": "6.0.0",
+      "node_parameters": {
+        "effective_seed": 1075002,
+        "num_samples": 1
+      },
+      "binding_parameters": {
+        "num_steps": 50
+      }
+    },
+    {
+      "node_id": "materialize-esmfold2-confidence",
+      "node_type_id": "structure_prediction.materialize_confidence",
+      "node_type_version": "1.0.0",
+      "binding_id": "structure_prediction.materialize_confidence.direct",
+      "binding_version": "1.0.0",
+      "node_parameters": {},
+      "binding_parameters": {}
+    },
+    {
+      "node_id": "materialize-simplefold-confidence",
+      "node_type_id": "structure_prediction.materialize_confidence",
+      "node_type_version": "1.0.0",
+      "binding_id": "structure_prediction.materialize_confidence.direct",
+      "binding_version": "1.0.0",
+      "node_parameters": {},
+      "binding_parameters": {}
+    },
+    {
+      "node_id": "resolve-esmfold2",
+      "node_type_id": "structure_transform.resolve_candidate_residue_axes",
+      "node_type_version": "5.0.0",
+      "binding_id": "structure_transform.resolve_candidate_residue_axes.direct",
+      "binding_version": "5.0.0",
+      "node_parameters": {},
+      "binding_parameters": {}
+    },
+    {
+      "node_id": "resolve-simplefold",
+      "node_type_id": "structure_transform.resolve_candidate_residue_axes",
+      "node_type_version": "5.0.0",
+      "binding_id": "structure_transform.resolve_candidate_residue_axes.direct",
+      "binding_version": "5.0.0",
+      "node_parameters": {},
+      "binding_parameters": {}
+    },
+    {
+      "node_id": "align-esmfold2-input",
+      "node_type_id": "structure_comparison.align_fixed_reference",
+      "node_type_version": "4.0.0",
+      "binding_id": "structure_comparison.align_fixed_reference.sequence_primary_affine",
+      "binding_version": "4.0.0",
+      "node_parameters": {},
+      "binding_parameters": {}
+    },
+    {
+      "node_id": "tm-esmfold2-input",
+      "node_type_id": "structure_comparison.tm_score_fixed_reference",
+      "node_type_version": "5.0.0",
+      "binding_id": "structure_comparison.tm_score_fixed_reference.from_alignment_evidence",
+      "binding_version": "5.0.0",
+      "node_parameters": {},
+      "binding_parameters": {}
+    },
+    {
+      "node_id": "rmsd-esmfold2-input",
+      "node_type_id": "structure_comparison.rmsd_fixed_reference",
+      "node_type_version": "5.0.0",
+      "binding_id": "structure_comparison.rmsd_fixed_reference.from_alignment_evidence",
+      "binding_version": "5.0.0",
+      "node_parameters": {},
+      "binding_parameters": {}
+    },
+    {
+      "node_id": "align-simplefold-input",
+      "node_type_id": "structure_comparison.align_fixed_reference",
+      "node_type_version": "4.0.0",
+      "binding_id": "structure_comparison.align_fixed_reference.sequence_primary_affine",
+      "binding_version": "4.0.0",
+      "node_parameters": {},
+      "binding_parameters": {}
+    },
+    {
+      "node_id": "tm-simplefold-input",
+      "node_type_id": "structure_comparison.tm_score_fixed_reference",
+      "node_type_version": "5.0.0",
+      "binding_id": "structure_comparison.tm_score_fixed_reference.from_alignment_evidence",
+      "binding_version": "5.0.0",
+      "node_parameters": {},
+      "binding_parameters": {}
+    },
+    {
+      "node_id": "rmsd-simplefold-input",
+      "node_type_id": "structure_comparison.rmsd_fixed_reference",
+      "node_type_version": "5.0.0",
+      "binding_id": "structure_comparison.rmsd_fixed_reference.from_alignment_evidence",
+      "binding_version": "5.0.0",
+      "node_parameters": {},
+      "binding_parameters": {}
+    },
+    {
+      "node_id": "pair-methods",
+      "node_type_id": "collection_ops.pair_siblings_by_parent",
+      "node_type_version": "3.0.0",
+      "binding_id": "collection_ops.pair_siblings_by_parent.direct",
+      "binding_version": "3.0.0",
+      "node_parameters": {},
+      "binding_parameters": {}
+    },
+    {
+      "node_id": "align-methods",
+      "node_type_id": "structure_comparison.align_counterparts",
+      "node_type_version": "4.0.0",
+      "binding_id": "structure_comparison.align_counterparts.sequence_primary_affine",
+      "binding_version": "4.0.0",
+      "node_parameters": {},
+      "binding_parameters": {}
+    },
+    {
+      "node_id": "tm-methods",
+      "node_type_id": "structure_comparison.tm_score_counterparts",
+      "node_type_version": "5.0.0",
+      "binding_id": "structure_comparison.tm_score_counterparts.from_alignment_evidence",
+      "binding_version": "5.0.0",
+      "node_parameters": {},
+      "binding_parameters": {}
+    },
+    {
+      "node_id": "rmsd-methods",
+      "node_type_id": "structure_comparison.rmsd_counterparts",
+      "node_type_version": "5.0.0",
+      "binding_id": "structure_comparison.rmsd_counterparts.from_alignment_evidence",
+      "binding_version": "5.0.0",
+      "node_parameters": {},
+      "binding_parameters": {}
+    },
+    {
+      "node_id": "classify-consistency",
+      "node_type_id": "structure_comparison.classify_1pga_three_way_consistency",
+      "node_type_version": "1.0.0",
+      "binding_id": "structure_comparison.classify_1pga_three_way_consistency.direct",
+      "binding_version": "1.0.0",
+      "node_parameters": {},
+      "binding_parameters": {}
+    }
+  ],
+  "edges": [
+    {
+      "source_node_id": "import-input",
+      "source_port": "structure_candidates",
+      "target_node_id": "resolve-input",
+      "target_port": "structure_candidates"
+    },
+    {
+      "source_node_id": "import-input",
+      "source_port": "structure_candidates",
+      "target_node_id": "extract-sequence",
+      "target_port": "structure_candidates"
+    },
+    {
+      "source_node_id": "resolve-input",
+      "source_port": "residue_axes",
+      "target_node_id": "extract-sequence",
+      "target_port": "residue_axes"
+    },
+    {
+      "source_node_id": "extract-sequence",
+      "source_port": "sequence_candidates",
+      "target_node_id": "fold-esmfold2",
+      "target_port": "sequence_candidates"
+    },
+    {
+      "source_node_id": "fold-esmfold2",
+      "source_port": "structure_candidates",
+      "target_node_id": "materialize-esmfold2-confidence",
+      "target_port": "structure_candidates"
+    },
+    {
+      "source_node_id": "fold-esmfold2",
+      "source_port": "confidence_facts",
+      "target_node_id": "materialize-esmfold2-confidence",
+      "target_port": "confidence_facts"
+    },
+    {
+      "source_node_id": "fold-esmfold2",
+      "source_port": "structure_candidates",
+      "target_node_id": "resolve-esmfold2",
+      "target_port": "structure_candidates"
+    },
+    {
+      "source_node_id": "fold-esmfold2",
+      "source_port": "structure_candidates",
+      "target_node_id": "align-esmfold2-input",
+      "target_port": "subjects"
+    },
+    {
+      "source_node_id": "resolve-esmfold2",
+      "source_port": "residue_axes",
+      "target_node_id": "align-esmfold2-input",
+      "target_port": "subject_residue_axes"
+    },
+    {
+      "source_node_id": "import-input",
+      "source_port": "structure_candidates",
+      "target_node_id": "align-esmfold2-input",
+      "target_port": "references"
+    },
+    {
+      "source_node_id": "resolve-input",
+      "source_port": "residue_axes",
+      "target_node_id": "align-esmfold2-input",
+      "target_port": "reference_residue_axes"
+    },
+    {
+      "source_node_id": "align-esmfold2-input",
+      "source_port": "alignments",
+      "target_node_id": "tm-esmfold2-input",
+      "target_port": "alignments"
+    },
+    {
+      "source_node_id": "fold-esmfold2",
+      "source_port": "structure_candidates",
+      "target_node_id": "tm-esmfold2-input",
+      "target_port": "subjects"
+    },
+    {
+      "source_node_id": "import-input",
+      "source_port": "structure_candidates",
+      "target_node_id": "tm-esmfold2-input",
+      "target_port": "references"
+    },
+    {
+      "source_node_id": "align-esmfold2-input",
+      "source_port": "alignments",
+      "target_node_id": "rmsd-esmfold2-input",
+      "target_port": "alignments"
+    },
+    {
+      "source_node_id": "fold-esmfold2",
+      "source_port": "structure_candidates",
+      "target_node_id": "rmsd-esmfold2-input",
+      "target_port": "subjects"
+    },
+    {
+      "source_node_id": "import-input",
+      "source_port": "structure_candidates",
+      "target_node_id": "rmsd-esmfold2-input",
+      "target_port": "references"
+    },
+    {
+      "source_node_id": "extract-sequence",
+      "source_port": "sequence_candidates",
+      "target_node_id": "fold-simplefold",
+      "target_port": "sequence_candidates"
+    },
+    {
+      "source_node_id": "fold-simplefold",
+      "source_port": "structure_candidates",
+      "target_node_id": "materialize-simplefold-confidence",
+      "target_port": "structure_candidates"
+    },
+    {
+      "source_node_id": "fold-simplefold",
+      "source_port": "confidence_facts",
+      "target_node_id": "materialize-simplefold-confidence",
+      "target_port": "confidence_facts"
+    },
+    {
+      "source_node_id": "fold-simplefold",
+      "source_port": "structure_candidates",
+      "target_node_id": "resolve-simplefold",
+      "target_port": "structure_candidates"
+    },
+    {
+      "source_node_id": "fold-simplefold",
+      "source_port": "structure_candidates",
+      "target_node_id": "align-simplefold-input",
+      "target_port": "subjects"
+    },
+    {
+      "source_node_id": "resolve-simplefold",
+      "source_port": "residue_axes",
+      "target_node_id": "align-simplefold-input",
+      "target_port": "subject_residue_axes"
+    },
+    {
+      "source_node_id": "import-input",
+      "source_port": "structure_candidates",
+      "target_node_id": "align-simplefold-input",
+      "target_port": "references"
+    },
+    {
+      "source_node_id": "resolve-input",
+      "source_port": "residue_axes",
+      "target_node_id": "align-simplefold-input",
+      "target_port": "reference_residue_axes"
+    },
+    {
+      "source_node_id": "align-simplefold-input",
+      "source_port": "alignments",
+      "target_node_id": "tm-simplefold-input",
+      "target_port": "alignments"
+    },
+    {
+      "source_node_id": "fold-simplefold",
+      "source_port": "structure_candidates",
+      "target_node_id": "tm-simplefold-input",
+      "target_port": "subjects"
+    },
+    {
+      "source_node_id": "import-input",
+      "source_port": "structure_candidates",
+      "target_node_id": "tm-simplefold-input",
+      "target_port": "references"
+    },
+    {
+      "source_node_id": "align-simplefold-input",
+      "source_port": "alignments",
+      "target_node_id": "rmsd-simplefold-input",
+      "target_port": "alignments"
+    },
+    {
+      "source_node_id": "fold-simplefold",
+      "source_port": "structure_candidates",
+      "target_node_id": "rmsd-simplefold-input",
+      "target_port": "subjects"
+    },
+    {
+      "source_node_id": "import-input",
+      "source_port": "structure_candidates",
+      "target_node_id": "rmsd-simplefold-input",
+      "target_port": "references"
+    },
+    {
+      "source_node_id": "fold-esmfold2",
+      "source_port": "structure_candidates",
+      "target_node_id": "pair-methods",
+      "target_port": "subjects"
+    },
+    {
+      "source_node_id": "fold-simplefold",
+      "source_port": "structure_candidates",
+      "target_node_id": "pair-methods",
+      "target_port": "references"
+    },
+    {
+      "source_node_id": "fold-esmfold2",
+      "source_port": "structure_candidates",
+      "target_node_id": "align-methods",
+      "target_port": "subjects"
+    },
+    {
+      "source_node_id": "resolve-esmfold2",
+      "source_port": "residue_axes",
+      "target_node_id": "align-methods",
+      "target_port": "subject_residue_axes"
+    },
+    {
+      "source_node_id": "fold-simplefold",
+      "source_port": "structure_candidates",
+      "target_node_id": "align-methods",
+      "target_port": "references"
+    },
+    {
+      "source_node_id": "resolve-simplefold",
+      "source_port": "residue_axes",
+      "target_node_id": "align-methods",
+      "target_port": "reference_residue_axes"
+    },
+    {
+      "source_node_id": "pair-methods",
+      "source_port": "pairing",
+      "target_node_id": "align-methods",
+      "target_port": "pairing"
+    },
+    {
+      "source_node_id": "align-methods",
+      "source_port": "alignments",
+      "target_node_id": "tm-methods",
+      "target_port": "alignments"
+    },
+    {
+      "source_node_id": "fold-esmfold2",
+      "source_port": "structure_candidates",
+      "target_node_id": "tm-methods",
+      "target_port": "subjects"
+    },
+    {
+      "source_node_id": "fold-simplefold",
+      "source_port": "structure_candidates",
+      "target_node_id": "tm-methods",
+      "target_port": "references"
+    },
+    {
+      "source_node_id": "pair-methods",
+      "source_port": "pairing",
+      "target_node_id": "tm-methods",
+      "target_port": "pairing"
+    },
+    {
+      "source_node_id": "align-methods",
+      "source_port": "alignments",
+      "target_node_id": "rmsd-methods",
+      "target_port": "alignments"
+    },
+    {
+      "source_node_id": "fold-esmfold2",
+      "source_port": "structure_candidates",
+      "target_node_id": "rmsd-methods",
+      "target_port": "subjects"
+    },
+    {
+      "source_node_id": "fold-simplefold",
+      "source_port": "structure_candidates",
+      "target_node_id": "rmsd-methods",
+      "target_port": "references"
+    },
+    {
+      "source_node_id": "pair-methods",
+      "source_port": "pairing",
+      "target_node_id": "rmsd-methods",
+      "target_port": "pairing"
+    },
+    {
+      "source_node_id": "import-input",
+      "source_port": "structure_candidates",
+      "target_node_id": "classify-consistency",
+      "target_port": "input_structures"
+    },
+    {
+      "source_node_id": "extract-sequence",
+      "source_port": "sequence_candidates",
+      "target_node_id": "classify-consistency",
+      "target_port": "sequence_parents"
+    },
+    {
+      "source_node_id": "fold-esmfold2",
+      "source_port": "structure_candidates",
+      "target_node_id": "classify-consistency",
+      "target_port": "esmfold2_structures"
+    },
+    {
+      "source_node_id": "fold-simplefold",
+      "source_port": "structure_candidates",
+      "target_node_id": "classify-consistency",
+      "target_port": "simplefold_structures"
+    },
+    {
+      "source_node_id": "resolve-input",
+      "source_port": "residue_axes",
+      "target_node_id": "classify-consistency",
+      "target_port": "input_residue_axes"
+    },
+    {
+      "source_node_id": "resolve-esmfold2",
+      "source_port": "residue_axes",
+      "target_node_id": "classify-consistency",
+      "target_port": "esmfold2_residue_axes"
+    },
+    {
+      "source_node_id": "resolve-simplefold",
+      "source_port": "residue_axes",
+      "target_node_id": "classify-consistency",
+      "target_port": "simplefold_residue_axes"
+    },
+    {
+      "source_node_id": "pair-methods",
+      "source_port": "pairing",
+      "target_node_id": "classify-consistency",
+      "target_port": "method_pairing"
+    },
+    {
+      "source_node_id": "align-esmfold2-input",
+      "source_port": "alignments",
+      "target_node_id": "classify-consistency",
+      "target_port": "input_esmfold2_alignments"
+    },
+    {
+      "source_node_id": "align-simplefold-input",
+      "source_port": "alignments",
+      "target_node_id": "classify-consistency",
+      "target_port": "input_simplefold_alignments"
+    },
+    {
+      "source_node_id": "align-methods",
+      "source_port": "alignments",
+      "target_node_id": "classify-consistency",
+      "target_port": "method_alignments"
+    },
+    {
+      "source_node_id": "tm-esmfold2-input",
+      "source_port": "scores",
+      "target_node_id": "classify-consistency",
+      "target_port": "input_esmfold2_tm_scores"
+    },
+    {
+      "source_node_id": "rmsd-esmfold2-input",
+      "source_port": "scores",
+      "target_node_id": "classify-consistency",
+      "target_port": "input_esmfold2_rmsd_scores"
+    },
+    {
+      "source_node_id": "tm-simplefold-input",
+      "source_port": "scores",
+      "target_node_id": "classify-consistency",
+      "target_port": "input_simplefold_tm_scores"
+    },
+    {
+      "source_node_id": "rmsd-simplefold-input",
+      "source_port": "scores",
+      "target_node_id": "classify-consistency",
+      "target_port": "input_simplefold_rmsd_scores"
+    },
+    {
+      "source_node_id": "tm-methods",
+      "source_port": "scores",
+      "target_node_id": "classify-consistency",
+      "target_port": "method_tm_scores"
+    },
+    {
+      "source_node_id": "rmsd-methods",
+      "source_port": "scores",
+      "target_node_id": "classify-consistency",
+      "target_port": "method_rmsd_scores"
+    },
+    {
+      "source_node_id": "materialize-esmfold2-confidence",
+      "source_port": "observations",
+      "target_node_id": "classify-consistency",
+      "target_port": "esmfold2_confidence"
+    },
+    {
+      "source_node_id": "materialize-simplefold-confidence",
+      "source_port": "observations",
+      "target_node_id": "classify-consistency",
+      "target_port": "simplefold_confidence"
+    }
+  ],
+  "observation_selectors": [],
+  "selection_objectives": [],
+  "contract_lock": [
+    {
+      "contract_kind": "binding",
+      "contract_id": "collection_ops.pair_siblings_by_parent.direct",
+      "contract_version": "3.0.0",
+      "contract_digest": "sha256:788377c00b3a47c288b924c2625b39bf43e020aebc9e0d95615e986f998f7754"
+    },
+    {
+      "contract_kind": "binding",
+      "contract_id": "folding.fold.esmfold2_remote",
+      "contract_version": "7.0.0",
+      "contract_digest": "sha256:cb0781ac3f9e4b42e54c6fa84b96c68169282f91fb2762e14b889e4b4f5748e4"
+    },
+    {
+      "contract_kind": "binding",
+      "contract_id": "folding.fold.simplefold_local",
+      "contract_version": "6.0.0",
+      "contract_digest": "sha256:66344992b10334219f75de73d53a801f14486fc9e784c1c85eca1b20db7f9055"
+    },
+    {
+      "contract_kind": "binding",
+      "contract_id": "protein_io.import_structure.direct",
+      "contract_version": "5.0.0",
+      "contract_digest": "sha256:3cb50990f4d369ff1fcd57d3e8925152a75f8f7b894a8c1a538f8d0767eb9eed"
+    },
+    {
+      "contract_kind": "binding",
+      "contract_id": "structure_comparison.align_counterparts.sequence_primary_affine",
+      "contract_version": "4.0.0",
+      "contract_digest": "sha256:e2c13dada2ad29d4ca20da3ad9ffa1c21f3efdf0dfd95cb05ba5214d8e802a0c"
+    },
+    {
+      "contract_kind": "binding",
+      "contract_id": "structure_comparison.align_fixed_reference.sequence_primary_affine",
+      "contract_version": "4.0.0",
+      "contract_digest": "sha256:e700524ca26e715b03680b3150da0f683060711e58e156691a87a981e9d5f540"
+    },
+    {
+      "contract_kind": "binding",
+      "contract_id": "structure_comparison.classify_1pga_three_way_consistency.direct",
+      "contract_version": "1.0.0",
+      "contract_digest": "sha256:849abd716a16e40b68d1624a0648243566c1d63477e10e4b8b8a338d4aa0e58d"
+    },
+    {
+      "contract_kind": "binding",
+      "contract_id": "structure_comparison.rmsd_counterparts.from_alignment_evidence",
+      "contract_version": "5.0.0",
+      "contract_digest": "sha256:fef310704e4692dfe0624109e35611ff7da985782e9f55e4770f4c9369f996ff"
+    },
+    {
+      "contract_kind": "binding",
+      "contract_id": "structure_comparison.rmsd_fixed_reference.from_alignment_evidence",
+      "contract_version": "5.0.0",
+      "contract_digest": "sha256:6a18447e835b0ab3dedac4079b68e5b3175ca20c2b7b6dc0e70ace62ab4320f3"
+    },
+    {
+      "contract_kind": "binding",
+      "contract_id": "structure_comparison.tm_score_counterparts.from_alignment_evidence",
+      "contract_version": "5.0.0",
+      "contract_digest": "sha256:473f56f9c25a9c59810e1b058f10245f78dbd55589fca05a94ff231d68a29efb"
+    },
+    {
+      "contract_kind": "binding",
+      "contract_id": "structure_comparison.tm_score_fixed_reference.from_alignment_evidence",
+      "contract_version": "5.0.0",
+      "contract_digest": "sha256:f730fb4aa94fd0f5a0e7d4ce741f552636195d255c9789551e2d8a1b6fde1a0a"
+    },
+    {
+      "contract_kind": "binding",
+      "contract_id": "structure_prediction.materialize_confidence.direct",
+      "contract_version": "1.0.0",
+      "contract_digest": "sha256:86de8ef9c5ecb9f86ef490cad1304d60b3e81b566c6a735c7fa1886324060021"
+    },
+    {
+      "contract_kind": "binding",
+      "contract_id": "structure_transform.extract_sequence_candidates.direct",
+      "contract_version": "3.0.0",
+      "contract_digest": "sha256:ea1cc9fc10c539de3e484d60e695f965da935933bc9012bd79e2ee168a60ac2b"
+    },
+    {
+      "contract_kind": "binding",
+      "contract_id": "structure_transform.resolve_candidate_residue_axes.direct",
+      "contract_version": "5.0.0",
+      "contract_digest": "sha256:c2899e7a2ed9da8d303f5094a11a672d1c7b9521c719003ba3805d397617d499"
+    },
+    {
+      "contract_kind": "method",
+      "contract_id": "collection_ops.pair_siblings_by_parent.method",
+      "contract_version": "3.0.0",
+      "contract_digest": "sha256:b088f7ac400f889e5a3ed2cd9b89d603f2654a0a2b6d662ec8802dce87088fa8"
+    },
+    {
+      "contract_kind": "method",
+      "contract_id": "folding.fold.esmfold2_fast_biohub_2026_05",
+      "contract_version": "4.0.0",
+      "contract_digest": "sha256:96ba1f830ca71c844cc1ea506e6b60a327b5cf4c17bd0bfc2143b25bf669bee8"
+    },
+    {
+      "contract_kind": "method",
+      "contract_id": "folding.fold.simplefold_100m_c7a5570",
+      "contract_version": "4.0.0",
+      "contract_digest": "sha256:554eabb76c346ee58682719ef758edc476582172ae84e1d80725bc44d76c97c9"
+    },
+    {
+      "contract_kind": "method",
+      "contract_id": "protein_io.import_structure.method",
+      "contract_version": "2.1.0",
+      "contract_digest": "sha256:6c237f98e33b331a781ef348ac26d6955e12f9985d0b798805181bfdfd7f8b52"
+    },
+    {
+      "contract_kind": "method",
+      "contract_id": "structure_comparison.1pga_three_way_consistency.threshold_graph",
+      "contract_version": "1.0.0",
+      "contract_digest": "sha256:fa890e4c1c93c5fbf05faf9fe8e4cce850076b68354443ee64cc1159c3c5fcb0"
+    },
+    {
+      "contract_kind": "method",
+      "contract_id": "structure_comparison.rmsd.from_alignment_evidence.method",
+      "contract_version": "3.0.0",
+      "contract_digest": "sha256:e3fd0502f31ddf8c029ffd862673dbadbcb7e19a844c39fd742d1ca591e7dd99"
+    },
+    {
+      "contract_kind": "method",
+      "contract_id": "structure_comparison.sequence_primary_affine_svd.method",
+      "contract_version": "3.0.0",
+      "contract_digest": "sha256:863f98c327e008e9e5da820470a7c5a6ef72c5911e699cd06487f797e731bb53"
+    },
+    {
+      "contract_kind": "method",
+      "contract_id": "structure_comparison.tm_score.reference_axis_normalized.method",
+      "contract_version": "3.0.0",
+      "contract_digest": "sha256:b3149ada26856dd1f06c9bcdc228c712a5abf1671b3c219b3c03556c2e8b3625"
+    },
+    {
+      "contract_kind": "method",
+      "contract_id": "structure_prediction.materialize_confidence.exact_reference_join",
+      "contract_version": "1.0.0",
+      "contract_digest": "sha256:20157dc9def4fc79cb9f57182eade975ea281b192888a3af985fb2432ce16569"
+    },
+    {
+      "contract_kind": "method",
+      "contract_id": "structure_transform.extract_sequence_candidates.method",
+      "contract_version": "3.0.0",
+      "contract_digest": "sha256:291770103cc85d960431a4520161ba83fa5b96f946d46d6cc895aa6795393b3d"
+    },
+    {
+      "contract_kind": "method",
+      "contract_id": "structure_transform.resolve_candidate_residue_axes.method",
+      "contract_version": "3.0.0",
+      "contract_digest": "sha256:f898caefe627a24386bc573606c0a5cae766a30b11f6f78aa64e60cedb78ceff"
+    },
+    {
+      "contract_kind": "metric",
+      "contract_id": "structure.pae",
+      "contract_version": "3.0.0",
+      "contract_digest": "sha256:8b56f157ce05a2add518b1ab3d7f1860c4b861b98b36cac55db1ba215ff6b36c"
+    },
+    {
+      "contract_kind": "metric",
+      "contract_id": "structure.plddt.mean_residue",
+      "contract_version": "3.0.0",
+      "contract_digest": "sha256:f51b9e5fbba31a1a9dbe6c5d724d9f500d1e2ce5d0889d812c82fe73b147399f"
+    },
+    {
+      "contract_kind": "metric",
+      "contract_id": "structure.plddt.per_residue",
+      "contract_version": "3.0.0",
+      "contract_digest": "sha256:25f6cf829620778f7ac889cea552b64132b3123acaece94df03e0be9a679391c"
+    },
+    {
+      "contract_kind": "metric",
+      "contract_id": "structure.ptm",
+      "contract_version": "2.1.0",
+      "contract_digest": "sha256:f58dc87c4199d10aaaa5c4babeba12147e51628475c0738290d63ee530a5f506"
+    },
+    {
+      "contract_kind": "metric",
+      "contract_id": "structure_comparison.rmsd",
+      "contract_version": "3.0.0",
+      "contract_digest": "sha256:dcb428d5d2e9e9d91511004c539d281dd136a964edb7cc7c2a5d9dbda86d5f44"
+    },
+    {
+      "contract_kind": "metric",
+      "contract_id": "structure_comparison.tm_score",
+      "contract_version": "3.0.0",
+      "contract_digest": "sha256:6bbd756040cb0856c6a89d0953826a2cd09002766a5e8257ea24e0e8636b3cb8"
+    },
+    {
+      "contract_kind": "node_type",
+      "contract_id": "collection_ops.pair_siblings_by_parent",
+      "contract_version": "3.0.0",
+      "contract_digest": "sha256:7de5d6bd2b726834f7ca9e2389d81ffa423b35740a887a46cdfe12da9a13e9c7"
+    },
+    {
+      "contract_kind": "node_type",
+      "contract_id": "folding.fold",
+      "contract_version": "6.0.0",
+      "contract_digest": "sha256:a035be76549d73bd861577478eec02edea5391f19c5a0633855f69e586cef9e9"
+    },
+    {
+      "contract_kind": "node_type",
+      "contract_id": "protein_io.import_structure",
+      "contract_version": "5.0.0",
+      "contract_digest": "sha256:3df132307350727bca70afe3e8db7f448d3a641fae5490958f7b56b9b86d3d76"
+    },
+    {
+      "contract_kind": "node_type",
+      "contract_id": "structure_comparison.align_counterparts",
+      "contract_version": "4.0.0",
+      "contract_digest": "sha256:f3f4270c3613831f48251920dda9f5d7966955756b66c24d1407fa09d59f7e65"
+    },
+    {
+      "contract_kind": "node_type",
+      "contract_id": "structure_comparison.align_fixed_reference",
+      "contract_version": "4.0.0",
+      "contract_digest": "sha256:52bd2688b020c4a047e393ae1251eed97a9d6e314835c3e422a52098376c6837"
+    },
+    {
+      "contract_kind": "node_type",
+      "contract_id": "structure_comparison.classify_1pga_three_way_consistency",
+      "contract_version": "1.0.0",
+      "contract_digest": "sha256:f8d828b95bf17f1f58df600b305e0d48d7a0ee1844bfd8e1a2ec992223bc1382"
+    },
+    {
+      "contract_kind": "node_type",
+      "contract_id": "structure_comparison.rmsd_counterparts",
+      "contract_version": "5.0.0",
+      "contract_digest": "sha256:46bdf9a771d9eb462f7edca6b30bdc39edd02e0442bfe3777039a65bf4885bf4"
+    },
+    {
+      "contract_kind": "node_type",
+      "contract_id": "structure_comparison.rmsd_fixed_reference",
+      "contract_version": "5.0.0",
+      "contract_digest": "sha256:f86dc88b776d9d9da8068d491e46c2a89cfe584e0840957581fa7e673c2b2fe3"
+    },
+    {
+      "contract_kind": "node_type",
+      "contract_id": "structure_comparison.tm_score_counterparts",
+      "contract_version": "5.0.0",
+      "contract_digest": "sha256:54101a9d224d9e2970f90fc313fedb6023cd3358ee40a3a42a4775e397588baf"
+    },
+    {
+      "contract_kind": "node_type",
+      "contract_id": "structure_comparison.tm_score_fixed_reference",
+      "contract_version": "5.0.0",
+      "contract_digest": "sha256:b89f4e6013ed3422c8426ebd7fa5bdb48cb3d3c404069ea4f277c4f0cc580125"
+    },
+    {
+      "contract_kind": "node_type",
+      "contract_id": "structure_prediction.materialize_confidence",
+      "contract_version": "1.0.0",
+      "contract_digest": "sha256:aa9a7e1387c2806fb3fa270dc7efa5ea624665871f867d4fb0dbe3a9f8b91f08"
+    },
+    {
+      "contract_kind": "node_type",
+      "contract_id": "structure_transform.extract_sequence_candidates",
+      "contract_version": "3.0.0",
+      "contract_digest": "sha256:d292e412d0c96da3b8740fe10b8e222f1cb8978d43d80dbfb777ad3f3525fab2"
+    },
+    {
+      "contract_kind": "node_type",
+      "contract_id": "structure_transform.resolve_candidate_residue_axes",
+      "contract_version": "5.0.0",
+      "contract_digest": "sha256:03eda6d7af5bce3f46e6136f0cbcbc7e95de690bc54961a4e877f4317570046a"
+    },
+    {
+      "contract_kind": "port_type",
+      "contract_id": "candidate.collection",
+      "contract_version": "3.0.0",
+      "contract_digest": "sha256:e900457e8e059f4f15469e7673fa3156d0f51e060fc8235daf07fc3ce5954812"
+    },
+    {
+      "contract_kind": "port_type",
+      "contract_id": "candidate.pairing",
+      "contract_version": "3.0.0",
+      "contract_digest": "sha256:20a3e7771705d5d160342a7b3b5c5a311ed224a002c441bd5c2d4eae4d3ee5cf"
+    },
+    {
+      "contract_kind": "port_type",
+      "contract_id": "protein.structure",
+      "contract_version": "4.0.0",
+      "contract_digest": "sha256:329ebc4c4f2c3323afa7577999882ef51a7588e5803be4d2b0da5d6e07fe8e0b"
+    },
+    {
+      "contract_kind": "port_type",
+      "contract_id": "score.collection",
+      "contract_version": "4.0.0",
+      "contract_digest": "sha256:369193274cf356a6814a81a15d9261467c6eac8768888cfe2643fe5f605d385e"
+    },
+    {
+      "contract_kind": "port_type",
+      "contract_id": "structure_comparison.1pga_three_way_consistency",
+      "contract_version": "1.0.0",
+      "contract_digest": "sha256:923012d840d2774985e58d1c177598d5e383158a074d75618d34c984db68ebb6"
+    },
+    {
+      "contract_kind": "port_type",
+      "contract_id": "structure_comparison.alignment_evidence",
+      "contract_version": "4.0.0",
+      "contract_digest": "sha256:efb95ad8d5dc6410871c33bd3946af884a975086821933da1f18ca677a34789a"
+    },
+    {
+      "contract_kind": "port_type",
+      "contract_id": "structure_prediction.confidence_facts",
+      "contract_version": "1.0.0",
+      "contract_digest": "sha256:f8cab44a554f5263c6869bbb34be577a6bbea5e292f7305c1d5902dab5a1c01c"
+    },
+    {
+      "contract_kind": "port_type",
+      "contract_id": "structure_transform.candidate_modified_residue_normalization_associations",
+      "contract_version": "5.0.0",
+      "contract_digest": "sha256:28b2879d5c993c64fc27ece8359541a6a344490eb4e1816e0dea6a86f84f3510"
+    },
+    {
+      "contract_kind": "port_type",
+      "contract_id": "structure_transform.candidate_resolved_residue_axis_associations",
+      "contract_version": "5.0.0",
+      "contract_digest": "sha256:3d333e0d98d2cc97c58e7ef0a4a3fdd3618a30d96547d1ca831108ab68e6f353"
+    }
+  ]
+}

@@ -96,3 +96,73 @@ class ResolvedAxisAlignment:
     normalization: StructureAlignmentNormalization
     rmsd: float
     coverage: float
+
+
+@dataclass(frozen=True, slots=True)
+class ThreeWayConfidenceEvidence:
+    """One Method-specific confidence gate used by three-way classification."""
+
+    role: str
+    subject: CandidateDataReference
+    method: ExactContractReference
+    mean_residue_plddt: float
+    eligible: bool
+    score_content_digest: str
+
+
+@dataclass(frozen=True, slots=True)
+class ThreeWayComparisonEdge:
+    """One explicit thresholded edge in the three-structure graph."""
+
+    edge_id: str
+    subject: CandidateDataReference
+    reference: CandidateDataReference
+    alignment_evidence_content_digest: str
+    alignment_method: ExactContractReference
+    normalization_length: int
+    aligned_atom_count: int
+    tm_score: float
+    rmsd_angstrom: float
+    tm_score_method: ExactContractReference
+    rmsd_method: ExactContractReference
+    tm_score_content_digest: str
+    rmsd_content_digest: str
+    close: bool
+
+
+@dataclass(frozen=True, slots=True)
+class ThreeWayConsistencyEvidence:
+    """Closed scientific conclusion for input/ESMFold2/SimpleFold agreement."""
+
+    input_structure: CandidateDataReference
+    sequence_parent: CandidateDataReference
+    esmfold2_structure: CandidateDataReference
+    simplefold_structure: CandidateDataReference
+    classification_method: ExactContractReference
+    input_b_factor_semantics: str
+    plddt_threshold: float
+    tm_score_threshold: float
+    rmsd_threshold_angstrom: float
+    confidences: tuple[ThreeWayConfidenceEvidence, ...]
+    edges: tuple[ThreeWayComparisonEdge, ...]
+    classification: str
+    subreason: str | None
+
+
+def classify_three_way_consistency(
+    confidences: tuple[ThreeWayConfidenceEvidence, ...],
+    edges: tuple[ThreeWayComparisonEdge, ...],
+) -> tuple[str, str | None]:
+    """Classify the exact threshold graph encoded by the evidence value."""
+    if not all(item.eligible for item in confidences):
+        return "insufficient_evidence", "method_confidence_below_threshold"
+    close = {edge.edge_id for edge in edges if edge.close}
+    if len(close) == 3:
+        return "three_way_consistent", None
+    if len(close) == 2:
+        return "insufficient_evidence", "threshold_boundary_nontransitive"
+    if not close:
+        return "all_disagree", None
+    if close == {"esmfold2_simplefold"}:
+        return "input_disagreement", None
+    return "method_disagreement", None

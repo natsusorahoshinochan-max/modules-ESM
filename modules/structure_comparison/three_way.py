@@ -1,0 +1,345 @@
+"""Exact 1PGA input/ESMFold2/SimpleFold consistency classification."""
+
+from __future__ import annotations
+
+from collections.abc import Mapping
+
+from core import OperationCall
+from datatypes import (
+    Candidate,
+    CandidateCollection,
+    CandidateDataReference,
+    PairwiseCandidateMapping,
+    PairwiseObservationContext,
+    ProteinSequence,
+    ScoreCollection,
+    ScoreObservation,
+)
+from modules.structure_transform import (
+    CandidateResolvedResidueAxisAssociations,
+)
+from modules.structure_transform.port_types import RESOLVED_AXIS_PORT_TYPE
+
+from .contracts import (
+    RMSD_FROM_EVIDENCE_METHOD_REFERENCE,
+    TM_SCORE_FROM_EVIDENCE_METHOD_REFERENCE,
+)
+from .domain import (
+    StructureAlignmentEvidence,
+    ThreeWayComparisonEdge,
+    ThreeWayConfidenceEvidence,
+    ThreeWayConsistencyEvidence,
+    classify_three_way_consistency,
+)
+
+
+_MEAN_PLDDT = ("structure.plddt.mean_residue", "3.0.0")
+_TM_SCORE = ("structure_comparison.tm_score", "3.0.0")
+_RMSD = ("structure_comparison.rmsd", "3.0.0")
+
+
+def _candidate_scope(
+    call: OperationCall,
+    port: str,
+) -> tuple[Candidate, CandidateDataReference]:
+    collection = call.inputs[port]
+    assert type(collection) is CandidateCollection
+    if len(collection.items) != 1:
+        raise ValueError(f"{port} must contain exactly one Candidate")
+    candidate = collection.items[0]
+    references = call.input_content_digests[port].candidate_data
+    if len(references) != 1 or references[0].candidate_id != candidate.candidate_id:
+        raise ValueError(f"{port} does not identify one exact Candidate")
+    return candidate, references[0]
+
+
+def _value_digest(call: OperationCall, port: str) -> str:
+    digests = call.input_content_digests[port].value_content_digests
+    if len(digests) != 1:
+        raise ValueError(f"{port} must carry exactly one canonical value")
+    return digests[0]
+
+
+def _axis(
+    call: OperationCall,
+    port: str,
+    subject: CandidateDataReference,
+):
+    associations = call.inputs[port]
+    assert type(associations) is CandidateResolvedResidueAxisAssociations
+    matches = tuple(
+        item for item in associations.entries if item.subject == subject
+    )
+    if len(matches) != 1 or len(associations.entries) != 1:
+        raise ValueError(f"{port} must bind one exact residue axis")
+    return matches[0].residue_axis
+
+
+def _observation(
+    call: OperationCall,
+    port: str,
+    *,
+    metric: tuple[str, str],
+    subject: CandidateDataReference,
+) -> ScoreObservation:
+    collection = call.inputs[port]
+    assert type(collection) is ScoreCollection
+    matches = tuple(
+        item
+        for item in collection.entries
+        if item.subject == subject
+        and (item.metric.contract_id, item.metric.contract_version) == metric
+    )
+    if len(matches) != 1:
+        raise ValueError(f"{port} must contain one exact required Observation")
+    return matches[0]
+
+
+def _confidence(
+    call: OperationCall,
+    *,
+    role: str,
+    port: str,
+    subject: CandidateDataReference,
+    sequence_parent: CandidateDataReference,
+) -> ThreeWayConfidenceEvidence:
+    observation = _observation(
+        call,
+        port,
+        metric=_MEAN_PLDDT,
+        subject=subject,
+    )
+    axis = observation.residue_axis
+    if (
+        axis is None
+        or axis.source != sequence_parent
+        or axis.layout.length != 75
+    ):
+        raise ValueError(f"{port} does not retain the exact 75-residue parent")
+    value = float(observation.value)
+    return ThreeWayConfidenceEvidence(
+        role=role,
+        subject=subject,
+        method=observation.method,
+        mean_residue_plddt=value,
+        eligible=value >= 70.0,
+        score_content_digest=_value_digest(call, port),
+    )
+
+
+def _edge(
+    call: OperationCall,
+    *,
+    edge_id: str,
+    alignment_port: str,
+    tm_score_port: str,
+    rmsd_port: str,
+    subject: CandidateDataReference,
+    reference: CandidateDataReference,
+) -> ThreeWayComparisonEdge:
+    alignments = call.inputs[alignment_port]
+    assert type(alignments) is tuple
+    if len(alignments) != 1:
+        raise ValueError(f"{alignment_port} must contain one exact alignment")
+    alignment = alignments[0]
+    assert type(alignment) is StructureAlignmentEvidence
+    if (alignment.subject, alignment.reference) != (subject, reference):
+        raise ValueError(f"{alignment_port} contradicts the declared edge")
+    alignment_digest = _value_digest(call, alignment_port)
+    tm_score = _observation(
+        call,
+        tm_score_port,
+        metric=_TM_SCORE,
+        subject=subject,
+    )
+    rmsd = _observation(
+        call,
+        rmsd_port,
+        metric=_RMSD,
+        subject=subject,
+    )
+    for observation in (tm_score, rmsd):
+        context = observation.context
+        if (
+            type(context) is not PairwiseObservationContext
+            or context.subject.candidate != subject
+            or context.reference.candidate != reference
+            or context.evidence_content_digest != alignment_digest
+            or context.evidence_method != alignment.method
+            or context.normalization_length
+            != alignment.normalization.reference_axis_residue_count
+            or context.aligned_atom_count
+            != alignment.normalization.aligned_atom_count
+        ):
+            raise ValueError("comparison Observation contradicts its alignment")
+    tm_value = float(tm_score.value)
+    rmsd_value = float(rmsd.value)
+    return ThreeWayComparisonEdge(
+        edge_id=edge_id,
+        subject=subject,
+        reference=reference,
+        alignment_evidence_content_digest=alignment_digest,
+        alignment_method=alignment.method,
+        normalization_length=alignment.normalization.reference_axis_residue_count,
+        aligned_atom_count=alignment.normalization.aligned_atom_count,
+        tm_score=tm_value,
+        rmsd_angstrom=rmsd_value,
+        tm_score_method=tm_score.method,
+        rmsd_method=rmsd.method,
+        tm_score_content_digest=_value_digest(call, tm_score_port),
+        rmsd_content_digest=_value_digest(call, rmsd_port),
+        close=tm_value >= 0.8 and rmsd_value <= 2.5,
+    )
+
+
+class ThreeWayConsistencyImplementation:
+    """Classify one complete exact three-structure evidence graph."""
+
+    def __init__(self, classification_method) -> None:
+        self._classification_method = classification_method
+
+    def execute(self, call: OperationCall) -> Mapping[str, object]:
+        if call.node_parameters or call.binding_parameters:
+            raise ValueError("three-way consistency accepts no parameters")
+        input_candidate, input_reference = _candidate_scope(
+            call,
+            "input_structures",
+        )
+        sequence_candidate, sequence_reference = _candidate_scope(
+            call,
+            "sequence_parents",
+        )
+        esmfold2_candidate, esmfold2_reference = _candidate_scope(
+            call,
+            "esmfold2_structures",
+        )
+        simplefold_candidate, simplefold_reference = _candidate_scope(
+            call,
+            "simplefold_structures",
+        )
+        if (
+            type(sequence_candidate.data) is not ProteinSequence
+            or len(sequence_candidate.data.sequence) != 75
+            or sequence_candidate.parent_ids != (input_candidate.candidate_id,)
+            or esmfold2_candidate.parent_ids != (sequence_candidate.candidate_id,)
+            or simplefold_candidate.parent_ids != (sequence_candidate.candidate_id,)
+        ):
+            raise ValueError("three-way Candidates do not retain exact lineage")
+
+        sequence = sequence_candidate.data.sequence
+        axes = (
+            _axis(call, "input_residue_axes", input_reference),
+            _axis(call, "esmfold2_residue_axes", esmfold2_reference),
+            _axis(call, "simplefold_residue_axes", simplefold_reference),
+        )
+        if any(axis.layout.length != 75 or axis.sequence != sequence for axis in axes):
+            raise ValueError("three-way residue axes do not share one 75-residue sequence")
+        alignment_values = (
+            call.inputs["input_esmfold2_alignments"],
+            call.inputs["input_simplefold_alignments"],
+            call.inputs["method_alignments"],
+        )
+        if any(
+            type(items) is not tuple
+            or len(items) != 1
+            or type(items[0]) is not StructureAlignmentEvidence
+            for items in alignment_values
+        ):
+            raise ValueError("three-way graph requires exactly three alignments")
+        axis_digests = tuple(
+            RESOLVED_AXIS_PORT_TYPE.content_digest(axis) for axis in axes
+        )
+        input_esmfold2_alignment = alignment_values[0][0]
+        input_simplefold_alignment = alignment_values[1][0]
+        method_alignment = alignment_values[2][0]
+        if (
+            input_esmfold2_alignment.subject_axis_content_digest
+            != axis_digests[1]
+            or input_esmfold2_alignment.reference_axis_content_digest
+            != axis_digests[0]
+            or input_simplefold_alignment.subject_axis_content_digest
+            != axis_digests[2]
+            or input_simplefold_alignment.reference_axis_content_digest
+            != axis_digests[0]
+            or method_alignment.subject_axis_content_digest != axis_digests[1]
+            or method_alignment.reference_axis_content_digest != axis_digests[2]
+        ):
+            raise ValueError("three-way alignments contradict their exact axes")
+
+        pairing = call.inputs["method_pairing"]
+        assert type(pairing) is PairwiseCandidateMapping
+        if (
+            len(pairing.entries) != 1
+            or pairing.entries[0].subject != esmfold2_reference
+            or pairing.entries[0].reference != simplefold_reference
+        ):
+            raise ValueError("Method outputs lack exact sibling pairing")
+
+        confidences = (
+            _confidence(
+                call,
+                role="esmfold2",
+                port="esmfold2_confidence",
+                subject=esmfold2_reference,
+                sequence_parent=sequence_reference,
+            ),
+            _confidence(
+                call,
+                role="simplefold",
+                port="simplefold_confidence",
+                subject=simplefold_reference,
+                sequence_parent=sequence_reference,
+            ),
+        )
+        edges = (
+            _edge(
+                call,
+                edge_id="input_esmfold2",
+                alignment_port="input_esmfold2_alignments",
+                tm_score_port="input_esmfold2_tm_scores",
+                rmsd_port="input_esmfold2_rmsd_scores",
+                subject=esmfold2_reference,
+                reference=input_reference,
+            ),
+            _edge(
+                call,
+                edge_id="input_simplefold",
+                alignment_port="input_simplefold_alignments",
+                tm_score_port="input_simplefold_tm_scores",
+                rmsd_port="input_simplefold_rmsd_scores",
+                subject=simplefold_reference,
+                reference=input_reference,
+            ),
+            _edge(
+                call,
+                edge_id="esmfold2_simplefold",
+                alignment_port="method_alignments",
+                tm_score_port="method_tm_scores",
+                rmsd_port="method_rmsd_scores",
+                subject=esmfold2_reference,
+                reference=simplefold_reference,
+            ),
+        )
+        classification, subreason = classify_three_way_consistency(
+            confidences,
+            edges,
+        )
+        return {
+            "consistency": ThreeWayConsistencyEvidence(
+                input_structure=input_reference,
+                sequence_parent=sequence_reference,
+                esmfold2_structure=esmfold2_reference,
+                simplefold_structure=simplefold_reference,
+                classification_method=self._classification_method,
+                input_b_factor_semantics=(
+                    "uninterpreted_coordinate_temperature_factor"
+                ),
+                plddt_threshold=70.0,
+                tm_score_threshold=0.8,
+                rmsd_threshold_angstrom=2.5,
+                confidences=confidences,
+                edges=edges,
+                classification=classification,
+                subreason=subreason,
+            )
+        }

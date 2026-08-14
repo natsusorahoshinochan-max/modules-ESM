@@ -371,6 +371,12 @@
     },
     {
       "contract_kind": "binding",
+      "contract_id": "structure_comparison.classify_1pga_three_way_consistency.direct",
+      "contract_version": "1.0.0",
+      "contract_digest": "sha256:849abd716a16e40b68d1624a0648243566c1d63477e10e4b8b8a338d4aa0e58d"
+    },
+    {
+      "contract_kind": "binding",
       "contract_id": "structure_comparison.rmsd_counterparts.from_alignment_evidence",
       "contract_version": "5.0.0",
       "contract_digest": "sha256:fef310704e4692dfe0624109e35611ff7da985782e9f55e4770f4c9369f996ff"
@@ -782,6 +788,12 @@
       "contract_id": "structure_annotation.secondary_structure_extract.method",
       "contract_version": "3.0.0",
       "contract_digest": "sha256:256cd029d7d7d11eff33aa0a47cc7710869972a01ae791f6d951c1818ce600d9"
+    },
+    {
+      "contract_kind": "method",
+      "contract_id": "structure_comparison.1pga_three_way_consistency.threshold_graph",
+      "contract_version": "1.0.0",
+      "contract_digest": "sha256:fa890e4c1c93c5fbf05faf9fe8e4cce850076b68354443ee64cc1159c3c5fcb0"
     },
     {
       "contract_kind": "method",
@@ -1238,6 +1250,12 @@
       "contract_id": "structure_comparison.align_single",
       "contract_version": "4.0.0",
       "contract_digest": "sha256:48e8225cb206a4b99cac7daf28bb7231659c1695b942991e0b5a0cfcef149711"
+    },
+    {
+      "contract_kind": "node_type",
+      "contract_id": "structure_comparison.classify_1pga_three_way_consistency",
+      "contract_version": "1.0.0",
+      "contract_digest": "sha256:f8d828b95bf17f1f58df600b305e0d48d7a0ee1844bfd8e1a2ec992223bc1382"
     },
     {
       "contract_kind": "node_type",

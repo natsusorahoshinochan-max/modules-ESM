@@ -24,6 +24,7 @@ from datatypes import (
     Candidate,
     CandidateCollection,
     CandidateDataReference,
+    ExactContractReference,
     ProteinStructure,
     ScoreCollection,
 )
@@ -32,14 +33,19 @@ from modules.structure_comparison.alignment import (
     align_resolved_axes,
 )
 from modules.structure_comparison.contracts import (
+    RMSD_FROM_EVIDENCE_METHOD_REFERENCE,
     SEQUENCE_PRIMARY_AFFINE_METHOD,
     SEQUENCE_PRIMARY_AFFINE_METHOD_REFERENCE,
     STRUCTURE_FIRST_TM_ALIGN_METHOD,
     STRUCTURE_FIRST_TM_ALIGN_METHOD_REFERENCE,
+    TM_SCORE_FROM_EVIDENCE_METHOD_REFERENCE,
 )
 from modules.structure_comparison.domain import (
     AlignmentSegmentMapEntry,
     StructureAlignmentEvidence,
+    ThreeWayComparisonEdge,
+    ThreeWayConfidenceEvidence,
+    ThreeWayConsistencyEvidence,
 )
 from modules.structure_comparison.port_types import (
     ALIGNMENT_EVIDENCE_PORT_TYPE,
@@ -47,6 +53,10 @@ from modules.structure_comparison.port_types import (
     alignment_evidence_to_wire,
 )
 from modules.structure_comparison.package import MODULE_PACKAGE
+from modules.collection_ops.package import MODULE_PACKAGE as COLLECTION_OPS_PACKAGE
+from modules.structure_prediction.package import (
+    MODULE_PACKAGE as STRUCTURE_PREDICTION_PACKAGE,
+)
 from modules.structure_transform import (
     CandidateResolvedResidueAxisAssociation,
     CandidateResolvedResidueAxisAssociations,
@@ -909,6 +919,10 @@ def test_structure_comparison_catalog_has_only_active_split_paths() -> None:
         ("structure_comparison.align_single", "4.0.0"),
         ("structure_comparison.align_fixed_reference", "4.0.0"),
         ("structure_comparison.align_counterparts", "4.0.0"),
+        (
+            "structure_comparison.classify_1pga_three_way_consistency",
+            "1.0.0",
+        ),
         ("structure_comparison.rmsd_fixed_reference", "5.0.0"),
         ("structure_comparison.rmsd_counterparts", "5.0.0"),
         ("structure_comparison.tm_score_fixed_reference", "5.0.0"),
@@ -918,7 +932,7 @@ def test_structure_comparison_catalog_has_only_active_split_paths() -> None:
         contract.contract_version
         for contract in contracts
         if contract.contract_kind in {"method", "metric", "utility_transform"}
-    } == {"3.0.0"}
+    } == {"1.0.0", "3.0.0"}
     assert {
         (contract.contract_id, contract.contract_version)
         for contract in contracts
@@ -941,6 +955,10 @@ def test_structure_comparison_catalog_has_only_active_split_paths() -> None:
             "structure_comparison.align_counterparts."
             "sequence_primary_affine",
             "4.0.0",
+        ),
+        (
+            "structure_comparison.classify_1pga_three_way_consistency.direct",
+            "1.0.0",
         ),
         (
             "structure_comparison.rmsd_fixed_reference."
@@ -972,6 +990,7 @@ def test_structure_comparison_catalog_has_only_active_split_paths() -> None:
         "structure_comparison.align_single",
         "structure_comparison.align_fixed_reference",
         "structure_comparison.align_counterparts",
+        "structure_comparison.classify_1pga_three_way_consistency",
         "structure_comparison.rmsd_fixed_reference",
         "structure_comparison.rmsd_counterparts",
         "structure_comparison.tm_score_fixed_reference",
@@ -1028,9 +1047,13 @@ def test_structure_comparison_catalog_has_only_active_split_paths() -> None:
         for binding in score_bindings
         for declaration in binding.descriptor["produced_observations"]
     )
-    assert not any(
-        contract.contract_id.endswith(".direct") for contract in contracts
-    )
+    assert {
+        contract.contract_id
+        for contract in contracts
+        if contract.contract_id.endswith(".direct")
+    } == {
+        "structure_comparison.classify_1pga_three_way_consistency.direct"
+    }
     assert not any(
         "batch_tm_score" in contract.contract_id for contract in contracts
     )
@@ -1215,6 +1238,242 @@ def _ctk_case(
     )
 
 
+def _three_way_node(
+    node_id: str,
+    node_type_id: str,
+    node_type_version: str,
+    binding_id: str,
+    binding_version: str,
+) -> WorkflowNodeInstance:
+    return WorkflowNodeInstance(
+        node_id=node_id,
+        node_type_id=node_type_id,
+        node_type_version=node_type_version,
+        binding_id=binding_id,
+        binding_version=binding_version,
+        node_parameters=(
+            {"pin_matching_chain_ids": False}
+            if node_type_id.startswith("structure_comparison.align_")
+            else {}
+        ),
+        binding_parameters={},
+    )
+
+
+def _three_way_ctk_case() -> ModulePackageContractCase:
+    source = _three_way_node(
+        "source",
+        "contract_test.1pga_three_way_source",
+        "4.0.0",
+        "contract_test.1pga_three_way_source.fixture",
+        "4.0.0",
+    )
+    nodes = (
+        source,
+        *(
+            _three_way_node(
+                f"axis-{role}",
+                "structure_transform.resolve_candidate_residue_axes",
+                "5.0.0",
+                "structure_transform.resolve_candidate_residue_axes.direct",
+                "5.0.0",
+            )
+            for role in ("input", "esmfold2", "simplefold")
+        ),
+        _three_way_node(
+            "pair-methods",
+            "collection_ops.pair_siblings_by_parent",
+            "3.0.0",
+            "collection_ops.pair_siblings_by_parent.direct",
+            "3.0.0",
+        ),
+        _three_way_node(
+            "prediction-axis",
+            "contract_test.prediction_axis_source",
+            "4.0.0",
+            "contract_test.prediction_axis_source.fixture",
+            "4.0.0",
+        ),
+        _three_way_node(
+            "align-esmfold2-input",
+            "structure_comparison.align_fixed_reference",
+            "4.0.0",
+            "structure_comparison.align_fixed_reference.sequence_primary_affine",
+            "4.0.0",
+        ),
+        _three_way_node(
+            "align-simplefold-input",
+            "structure_comparison.align_fixed_reference",
+            "4.0.0",
+            "structure_comparison.align_fixed_reference.sequence_primary_affine",
+            "4.0.0",
+        ),
+        _three_way_node(
+            "align-methods",
+            "structure_comparison.align_counterparts",
+            "4.0.0",
+            "structure_comparison.align_counterparts.sequence_primary_affine",
+            "4.0.0",
+        ),
+        *(
+            _three_way_node(
+                f"{metric}-{edge}",
+                f"structure_comparison.{metric}_{mode}",
+                "5.0.0",
+                (
+                    f"structure_comparison.{metric}_{mode}."
+                    "from_alignment_evidence"
+                ),
+                "5.0.0",
+            )
+            for edge, mode in (
+                ("esmfold2-input", "fixed_reference"),
+                ("simplefold-input", "fixed_reference"),
+                ("methods", "counterparts"),
+            )
+            for metric in ("tm_score", "rmsd")
+        ),
+        _three_way_node(
+            "confidence-esmfold2",
+            "contract_test.prediction_confidence_source",
+            "4.0.0",
+            "contract_test.esmfold2_confidence_source.fixture",
+            "4.0.0",
+        ),
+        _three_way_node(
+            "confidence-fact-esmfold2",
+            "contract_test.prediction_confidence_fact_source",
+            "4.0.0",
+            "contract_test.esmfold2_confidence_fact_source.fixture",
+            "4.0.0",
+        ),
+        _three_way_node(
+            "confidence-simplefold",
+            "contract_test.prediction_confidence_source",
+            "4.0.0",
+            "contract_test.simplefold_confidence_source.fixture",
+            "4.0.0",
+        ),
+        _three_way_node(
+            "confidence-fact-simplefold",
+            "contract_test.prediction_confidence_fact_source",
+            "4.0.0",
+            "contract_test.simplefold_confidence_fact_source.fixture",
+            "4.0.0",
+        ),
+    )
+    edges: list[WorkflowEdge] = []
+    for role, source_port in (
+        ("input", "input_structures"),
+        ("esmfold2", "esmfold2_structures"),
+        ("simplefold", "simplefold_structures"),
+    ):
+        edges.append(
+            WorkflowEdge(source.node_id, source_port, f"axis-{role}", "structure_candidates")
+        )
+    edges.extend(
+        (
+            WorkflowEdge("source", "esmfold2_structures", "pair-methods", "subjects"),
+            WorkflowEdge("source", "simplefold_structures", "pair-methods", "references"),
+            WorkflowEdge(
+                "source",
+                "sequence_parents",
+                "prediction-axis",
+                "sequence_parents",
+            ),
+        )
+    )
+    for edge_id, subject_role, reference_role, alignment_node in (
+        ("esmfold2-input", "esmfold2", "input", "align-esmfold2-input"),
+        ("simplefold-input", "simplefold", "input", "align-simplefold-input"),
+        ("methods", "esmfold2", "simplefold", "align-methods"),
+    ):
+        edges.extend(
+            (
+                WorkflowEdge("source", f"{subject_role}_structures", alignment_node, "subjects"),
+                WorkflowEdge(f"axis-{subject_role}", "residue_axes", alignment_node, "subject_residue_axes"),
+                WorkflowEdge("source", f"{reference_role}_structures", alignment_node, "references"),
+                WorkflowEdge(f"axis-{reference_role}", "residue_axes", alignment_node, "reference_residue_axes"),
+            )
+        )
+        if edge_id == "methods":
+            edges.append(WorkflowEdge("pair-methods", "pairing", alignment_node, "pairing"))
+        for metric in ("tm_score", "rmsd"):
+            score_node = f"{metric}-{edge_id}"
+            edges.extend(
+                (
+                    WorkflowEdge(alignment_node, "alignments", score_node, "alignments"),
+                    WorkflowEdge("source", f"{subject_role}_structures", score_node, "subjects"),
+                    WorkflowEdge("source", f"{reference_role}_structures", score_node, "references"),
+                )
+            )
+            if edge_id == "methods":
+                edges.append(WorkflowEdge("pair-methods", "pairing", score_node, "pairing"))
+    for role in ("esmfold2", "simplefold"):
+        edges.extend(
+            (
+                WorkflowEdge(
+                    "prediction-axis",
+                    "prediction_axis",
+                    f"confidence-fact-{role}",
+                    "prediction_axis",
+                ),
+                WorkflowEdge(
+                    "source",
+                    f"{role}_structures",
+                    f"confidence-fact-{role}",
+                    "structures",
+                ),
+                WorkflowEdge(
+                    f"confidence-fact-{role}",
+                    "confidence_facts",
+                    f"confidence-{role}",
+                    "confidence_facts",
+                ),
+                WorkflowEdge("source", f"{role}_structures", f"confidence-{role}", "structures"),
+            )
+        )
+    target_ports = {
+        "input_structures": ("source", "input_structures"),
+        "sequence_parents": ("source", "sequence_parents"),
+        "esmfold2_structures": ("source", "esmfold2_structures"),
+        "simplefold_structures": ("source", "simplefold_structures"),
+        "input_residue_axes": ("axis-input", "residue_axes"),
+        "esmfold2_residue_axes": ("axis-esmfold2", "residue_axes"),
+        "simplefold_residue_axes": ("axis-simplefold", "residue_axes"),
+        "method_pairing": ("pair-methods", "pairing"),
+        "input_esmfold2_alignments": ("align-esmfold2-input", "alignments"),
+        "input_simplefold_alignments": ("align-simplefold-input", "alignments"),
+        "method_alignments": ("align-methods", "alignments"),
+        "input_esmfold2_tm_scores": ("tm_score-esmfold2-input", "scores"),
+        "input_esmfold2_rmsd_scores": ("rmsd-esmfold2-input", "scores"),
+        "input_simplefold_tm_scores": ("tm_score-simplefold-input", "scores"),
+        "input_simplefold_rmsd_scores": ("rmsd-simplefold-input", "scores"),
+        "method_tm_scores": ("tm_score-methods", "scores"),
+        "method_rmsd_scores": ("rmsd-methods", "scores"),
+        "esmfold2_confidence": ("confidence-esmfold2", "observations"),
+        "simplefold_confidence": ("confidence-simplefold", "observations"),
+    }
+    edges.extend(
+        WorkflowEdge(source_node, source_port, "contract-test-node", target_port)
+        for target_port, (source_node, source_port) in target_ports.items()
+    )
+    return ModulePackageContractCase(
+        case_id="classify-1pga-three-way-consistency",
+        node_type_id="structure_comparison.classify_1pga_three_way_consistency",
+        node_type_version="1.0.0",
+        binding_id="structure_comparison.classify_1pga_three_way_consistency.direct",
+        binding_version="1.0.0",
+        node_parameters={},
+        binding_parameters={},
+        environment_values={},
+        safe_environment_fingerprint="provider-free",
+        invalidation_token="classify-1pga-three-way-consistency-v1",
+        workflow_nodes=nodes,
+        workflow_edges=tuple(edges),
+    )
+
+
 def test_structure_comparison_contract_test_kit(
     tmp_path: Path,
 ) -> None:
@@ -1298,6 +1557,126 @@ def test_structure_comparison_contract_test_kit(
                 ("per_subject_counterpart", "counterparts"),
             )
         ),
+        _three_way_ctk_case(),
+    )
+
+    support = (
+        TRANSFORM_PACKAGE,
+        SOURCE_PACKAGE,
+        COLLECTION_OPS_PACKAGE,
+        STRUCTURE_PREDICTION_PACKAGE,
+    )
+    catalog = build_frozen_catalog((MODULE_PACKAGE, *support))
+
+    def reference(
+        kind: str,
+        contract_id: str,
+        version: str,
+    ) -> ExactContractReference:
+        return ExactContractReference(
+            **catalog.require_contract(kind, contract_id, version).reference()
+        )
+
+    input_reference = CandidateDataReference(
+        "input", "protein.structure", "sha256:" + "5" * 64
+    )
+    sequence_reference = CandidateDataReference(
+        "sequence", "protein.sequence", "sha256:" + "6" * 64
+    )
+    esmfold2_reference = CandidateDataReference(
+        "esmfold2", "protein.structure", "sha256:" + "7" * 64
+    )
+    simplefold_reference = CandidateDataReference(
+        "simplefold", "protein.structure", "sha256:" + "8" * 64
+    )
+    confidences = (
+        ThreeWayConfidenceEvidence(
+            "esmfold2",
+            esmfold2_reference,
+            reference(
+                "method",
+                "folding.fold.esmfold2_fast_biohub_2026_05",
+                "4.0.0",
+            ),
+            90.0,
+            True,
+            "sha256:" + "9" * 64,
+        ),
+        ThreeWayConfidenceEvidence(
+            "simplefold",
+            simplefold_reference,
+            reference(
+                "method",
+                "folding.fold.simplefold_100m_c7a5570",
+                "4.0.0",
+            ),
+            90.0,
+            True,
+            "sha256:" + "a" * 64,
+        ),
+    )
+    edges = tuple(
+        ThreeWayComparisonEdge(
+            edge_id=edge_id,
+            subject=subject,
+            reference=reference_candidate,
+            alignment_evidence_content_digest="sha256:" + digest * 64,
+            alignment_method=SEQUENCE_PRIMARY_AFFINE_METHOD_REFERENCE,
+            normalization_length=75,
+            aligned_atom_count=75,
+            tm_score=1.0,
+            rmsd_angstrom=0.0,
+            tm_score_method=TM_SCORE_FROM_EVIDENCE_METHOD_REFERENCE,
+            rmsd_method=RMSD_FROM_EVIDENCE_METHOD_REFERENCE,
+            tm_score_content_digest="sha256:" + tm_digest * 64,
+            rmsd_content_digest="sha256:" + rmsd_digest * 64,
+            close=True,
+        )
+        for edge_id, subject, reference_candidate, digest, tm_digest, rmsd_digest in (
+            (
+                "input_esmfold2",
+                esmfold2_reference,
+                input_reference,
+                "b",
+                "c",
+                "d",
+            ),
+            (
+                "input_simplefold",
+                simplefold_reference,
+                input_reference,
+                "e",
+                "f",
+                "0",
+            ),
+            (
+                "esmfold2_simplefold",
+                esmfold2_reference,
+                simplefold_reference,
+                "1",
+                "2",
+                "3",
+            ),
+        )
+    )
+    consistency = ThreeWayConsistencyEvidence(
+        input_structure=input_reference,
+        sequence_parent=sequence_reference,
+        esmfold2_structure=esmfold2_reference,
+        simplefold_structure=simplefold_reference,
+        classification_method=reference(
+            "method",
+            "structure_comparison.1pga_three_way_consistency.threshold_graph",
+            "1.0.0",
+        ),
+        input_b_factor_semantics="uninterpreted_coordinate_temperature_factor",
+        plddt_threshold=70.0,
+        tm_score_threshold=0.8,
+        rmsd_threshold_angstrom=2.5,
+        confidences=confidences,
+        edges=edges,
+        classification="three_way_consistent",
+        subreason=None,
     )
 
     report = verify_module_package_contract(
@@ -1310,10 +1689,16 @@ def test_structure_comparison_contract_test_kit(
                 evidence,
                 (object(), replace(evidence, correspondence=())),
             ),
+            ModulePackagePortCase(
+                "structure_comparison.1pga_three_way_consistency",
+                "1.0.0",
+                consistency,
+                (object(), replace(consistency, classification="all_disagree")),
+            ),
         ),
-        supporting_registrations=(TRANSFORM_PACKAGE, SOURCE_PACKAGE),
+        supporting_registrations=support,
         work_root=tmp_path,
     )
 
-    assert len(report.case_reports) == 8
+    assert len(report.case_reports) == 9
     assert {case.status for case in report.case_reports} == {"succeeded"}
