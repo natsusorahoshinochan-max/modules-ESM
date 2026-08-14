@@ -498,6 +498,35 @@
       ],
       "type": "object"
     },
+    "TypedValueErrorDetails": {
+      "additionalProperties": false,
+      "properties": {
+        "expected_digest": {
+          "$ref": "#/$defs/Digest"
+        },
+        "expected_size": {
+          "minimum": 0,
+          "type": "integer"
+        },
+        "node_id": {
+          "$ref": "#/$defs/NodeInstanceId"
+        },
+        "output_port": {
+          "$ref": "#/$defs/Identifier"
+        },
+        "value_index": {
+          "maximum": 65535,
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "node_id",
+        "output_port",
+        "value_index"
+      ],
+      "type": "object"
+    },
     "BindingErrorDetails": {
       "additionalProperties": false,
       "properties": {
@@ -2850,12 +2879,13 @@
         "result_identity": {
           "$ref": "#/$defs/Digest"
         },
-        "values": {
-          "items": {
-            "$ref": "#/$defs/JsonValue"
-          },
-          "maxItems": 65536,
-          "type": "array"
+        "value_count": {
+          "maximum": 65536,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "value_manifest_reference": {
+          "$ref": "#/$defs/Digest"
         }
       },
       "required": [
@@ -2866,7 +2896,99 @@
         "result_identity",
         "materialization",
         "producer_provenance",
-        "values"
+        "value_count",
+        "value_manifest_reference"
+      ],
+      "type": "object"
+    },
+    "TypedValueDescriptor": {
+      "additionalProperties": false,
+      "properties": {
+        "node_id": {
+          "$ref": "#/$defs/NodeInstanceId"
+        },
+        "output_port": {
+          "$ref": "#/$defs/Identifier"
+        },
+        "port_content_digest": {
+          "$ref": "#/$defs/Digest"
+        },
+        "port_type": {
+          "$ref": "#/$defs/ContractReference"
+        },
+        "size": {
+          "minimum": 0,
+          "type": "integer"
+        },
+        "value_content_digest": {
+          "$ref": "#/$defs/Digest"
+        },
+        "value_count": {
+          "maximum": 65536,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "value_index": {
+          "maximum": 65535,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "value_manifest_reference": {
+          "$ref": "#/$defs/Digest"
+        }
+      },
+      "required": [
+        "node_id",
+        "output_port",
+        "port_type",
+        "port_content_digest",
+        "value_manifest_reference",
+        "value_index",
+        "value_count",
+        "value_content_digest",
+        "size"
+      ],
+      "type": "object"
+    },
+    "TypedValueResponseMetadata": {
+      "additionalProperties": false,
+      "properties": {
+        "typed_value": {
+          "$ref": "#/$defs/TypedValueDescriptor"
+        }
+      },
+      "required": [
+        "typed_value"
+      ],
+      "type": "object"
+    },
+    "TypedValueRetrievalRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "node_id": {
+          "$ref": "#/$defs/NodeInstanceId"
+        },
+        "output_port": {
+          "$ref": "#/$defs/Identifier"
+        },
+        "project_id": {
+          "$ref": "#/$defs/ProjectId"
+        },
+        "run_id": {
+          "$ref": "#/$defs/RunId"
+        },
+        "value_index": {
+          "maximum": 65535,
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "project_id",
+        "run_id",
+        "node_id",
+        "output_port",
+        "value_index"
       ],
       "type": "object"
     },
@@ -3488,6 +3610,37 @@
         "default": "structured_error"
       }
     },
+    "typed_value_retrieval": {
+      "method": "GET",
+      "request_schema": "#/$defs/TypedValueRetrievalRequest",
+      "response": {
+        "headers": {
+          "Content-Length": "typed_value.size",
+          "Content-Type": "application/json",
+          "Digest": "typed_value.value_content_digest",
+          "ETag": "strong_etag",
+          "X-Port-Content-Digest": "typed_value.port_content_digest",
+          "X-Port-Type-Kind": "typed_value.port_type.contract_kind",
+          "X-Port-Type-Id": "typed_value.port_type.contract_id",
+          "X-Port-Type-Version": "typed_value.port_type.contract_version",
+          "X-Port-Type-Digest": "typed_value.port_type.contract_digest",
+          "X-Value-Count": "typed_value.value_count",
+          "X-Value-Index": "typed_value.value_index",
+          "X-Value-Manifest-Reference": "typed_value.value_manifest_reference"
+        },
+        "kind": "binary",
+        "metadata_schema": "#/$defs/TypedValueResponseMetadata",
+        "success_status": 200
+      },
+      "route": "/api/v2/projects/{project_id}/runs/{run_id}/outputs/{node_id}/{output_port}/values/{value_index}",
+      "status_mapping": {
+        "200": "response",
+        "404": "structured_error",
+        "409": "structured_error",
+        "422": "structured_error",
+        "default": "structured_error"
+      }
+    },
     "cancel_run": {
       "method": "POST",
       "request_schema": "#/$defs/CancelRunRequest",
@@ -3723,7 +3876,7 @@
     "transport": "websocket"
   },
   "schema_namespace": "protein-workbench-public/v2",
-  "schema_version": "2.1.0",
+  "schema_version": "2.2.0",
   "structured_errors": {
     "details_max_bytes": 16384,
     "envelope_schema": "#/$defs/StructuredErrorEnvelope",
@@ -3859,6 +4012,18 @@
         "http_status": 422,
         "retryable": false
       },
+      "typed_output_not_found": {
+        "code": "typed_output_not_found",
+        "details_schema": "#/$defs/TypedValueErrorDetails",
+        "http_status": 404,
+        "retryable": false
+      },
+      "typed_value_integrity_mismatch": {
+        "code": "typed_value_integrity_mismatch",
+        "details_schema": "#/$defs/TypedValueErrorDetails",
+        "http_status": 409,
+        "retryable": false
+      },
       "unsupported_schema_version": {
         "code": "unsupported_schema_version",
         "details_schema": "#/$defs/UnsupportedSchemaVersionDetails",
@@ -3890,6 +4055,6 @@
         "retryable": false
       }
     },
-    "vocabulary_version": "2.1.0"
+    "vocabulary_version": "2.2.0"
   }
 }

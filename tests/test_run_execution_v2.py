@@ -62,7 +62,10 @@ from protein_workbench_public import (
     validate_response,
     validate_schema,
 )
-from tests.fixtures.public_v2 import wait_for_testclient_run_terminal
+from tests.fixtures.public_v2 import (
+    retrieve_typed_output_values,
+    wait_for_testclient_run_terminal,
+)
 from tests.fixtures.result_replay_v2 import admitted_replay_outputs
 
 
@@ -1786,6 +1789,12 @@ def test_cache_replay_closes_only_the_scheduled_node_attempt(
             project_id=project_id,
             run_id=run_id,
         )
+        replayed_values = retrieve_typed_output_values(
+            client,
+            project_id,
+            run_id,
+            projection["outputs"][0],
+        )
         events = app.state.run_execution_v2.public_events(project_id, run_id)
 
     assert projection["node_dispositions"] == [
@@ -1799,7 +1808,7 @@ def test_cache_replay_closes_only_the_scheduled_node_attempt(
             "blocked_by": [],
         }
     ]
-    assert projection["outputs"][0]["values"] == ["CACHED"]
+    assert replayed_values == ["CACHED"]
     assert calls == ["readiness:test.direct.local", "cache-lookup"]
     event_types = [event["event"]["type"] for event in events]
     assert event_types.count("node_attempt_started") == 1
@@ -2150,6 +2159,12 @@ def test_public_start_run_binds_the_exact_commit_before_direct_execution(
             project_id,
             receipt["run_id"],
         )
+        output_values = retrieve_typed_output_values(
+            client,
+            project_id,
+            receipt["run_id"],
+            projection["outputs"][0],
+        )
         assert projection == {
             "project_id": project_id,
             "run_id": receipt["run_id"],
@@ -2206,11 +2221,17 @@ def test_public_start_run_binds_the_exact_commit_before_direct_execution(
                         ),
                         "output_port": "text",
                     },
-                    "values": ["READY"],
+                    "value_count": 1,
+                    "value_manifest_reference": (
+                        projection["outputs"][0][
+                            "value_manifest_reference"
+                        ]
+                    ),
                 }
             ],
             "artifact_index": [],
         }
+        assert output_values == ["READY"]
 
     assert calls == [
         "readiness:test.direct.local",
@@ -3065,9 +3086,18 @@ def test_connected_ports_publish_and_consume_only_canonical_validated_values(
             project_id,
             started.json()["run_id"],
         )
+        published_values = [
+            retrieve_typed_output_values(
+                client,
+                project_id,
+                started.json()["run_id"],
+                output,
+            )
+            for output in projection["outputs"]
+        ]
 
     assert started.status_code == 202
-    assert [output["values"] for output in projection["outputs"]] == [
+    assert published_values == [
         ["ready"],
         ["ready"],
     ]

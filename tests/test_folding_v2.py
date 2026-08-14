@@ -28,7 +28,6 @@ from core import (
     verify_module_package_contract,
 )
 import core.run_execution_v2 as run_execution_v2
-from core.port_types import canonical_json_bytes
 from core.workflow_v2 import WorkflowEdge
 from datatypes import (
     Candidate,
@@ -41,6 +40,7 @@ from tests.fixtures.scientific_operation import (
     operation_call,
     operation_context,
 )
+from tests.fixtures.public_v2 import decode_service_typed_output_value
 
 
 _FOLD_NODE_VERSION = "6.0.0"
@@ -106,21 +106,17 @@ class _LocalComplexRenderer:
         return _RenderedProtein()
 
 
-def _decode_output(catalog: Any, output: dict[str, Any]) -> Any:
-    reference = output["port_type"]
-    port_type = catalog.require_port_type(
-        reference["contract_id"],
-        reference["contract_version"],
-    )
-    return port_type.decode(
-        canonical_json_bytes(
-            {
-                "schema_namespace": "protein-workbench-port-value/v2",
-                "port_type_id": port_type.type_id,
-                "port_type_version": port_type.version,
-                "value": output["values"][0],
-            }
-        )
+def _decode_output(
+    service: Any,
+    catalog: Any,
+    projection: dict[str, Any],
+    output: dict[str, Any],
+) -> Any:
+    return decode_service_typed_output_value(
+        service,
+        catalog,
+        projection,
+        output,
     )
 
 
@@ -133,7 +129,7 @@ def _run_fold(
     result_replay_source: ResultReplaySource | None = None,
     source_sequence: str = "AG",
     safe_environment_fingerprint: str | None = None,
-) -> tuple[Any, dict[str, Any], tuple[dict[str, Any], ...]]:
+) -> tuple[Any, Any, dict[str, Any], tuple[dict[str, Any], ...]]:
     from modules.folding.package import MODULE_PACKAGE as FOLDING_PACKAGE
     from modules.structure_prediction.package import (
         MODULE_PACKAGE as STRUCTURE_PREDICTION_PACKAGE,
@@ -267,7 +263,7 @@ def _run_fold(
         events = service.public_events(project.id, receipt["run_id"])
     finally:
         service.shutdown()
-    return catalog, projection, events
+    return service, catalog, projection, events
 
 
 def test_remote_and_local_esmfold2_are_explicit_bindings_of_one_node() -> None:
@@ -1110,7 +1106,7 @@ def test_selected_binding_folds_without_fallback_and_publishes_exact_lineage(
         environment = _write_local_runtime_fixture(tmp_path, monkeypatch)
         environment["provider_client"] = client
 
-    catalog, projection, events = _run_fold(
+    service, catalog, projection, events = _run_fold(
         tmp_path,
         route=route,
         client=client,
@@ -1132,10 +1128,14 @@ def test_selected_binding_folds_without_fallback_and_publishes_exact_lineage(
         if output["node_id"] == "source"
         and output["output_port"] == "sequence_candidates"
     )
-    parents = _decode_output(catalog, source_output)
-    structures = _decode_output(catalog, outputs["structure_candidates"])
+    parents = _decode_output(service, catalog, projection, source_output)
+    structures = _decode_output(
+        service, catalog, projection, outputs["structure_candidates"]
+    )
     facts = _decode_output(
+        service,
         catalog,
+        projection,
         outputs["confidence_facts"],
     )
     observation_output = next(
@@ -1145,7 +1145,9 @@ def test_selected_binding_folds_without_fallback_and_publishes_exact_lineage(
         and output["output_port"] == "observations"
     )
     observations = _decode_output(
+        service,
         catalog,
+        projection,
         observation_output,
     )
     assert len(structures.items) == 1

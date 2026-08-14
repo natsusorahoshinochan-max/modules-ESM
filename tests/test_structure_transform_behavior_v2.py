@@ -17,7 +17,6 @@ from core import (
     WorkflowNodeInstance,
     build_frozen_catalog,
 )
-from core.port_types import canonical_json_bytes
 from core.workflow_v2 import WorkflowEdge
 from datatypes import CandidateCollection, ProteinSequence, ProteinStructure
 from modules.structure_transform import CandidateResolvedResidueAxisAssociations
@@ -46,7 +45,7 @@ def _run_transform(
     fixture: str = "canonical",
     node_parameters: dict[str, Any] | None = None,
     environment_label: str = "one",
-) -> tuple[Any, dict[str, Any], tuple[dict[str, Any], ...]]:
+) -> tuple[Any, V2RunService, dict[str, Any], tuple[dict[str, Any], ...]]:
     catalog = build_frozen_catalog((MODULE_PACKAGE, SOURCE_PACKAGE))
     projects = ProjectManager(
         tmp_path / "projects",
@@ -160,7 +159,7 @@ def _run_transform(
     projection = service.projection(project.id, receipt["run_id"])
     events = service.public_events(project.id, receipt["run_id"])
     service.shutdown()
-    return catalog, projection, events
+    return catalog, service, projection, events
 
 
 def _transform_output(projection: dict[str, Any]) -> dict[str, Any]:
@@ -171,21 +170,19 @@ def _transform_output(projection: dict[str, Any]) -> dict[str, Any]:
     )
 
 
-def _decode(catalog: Any, output: dict[str, Any]) -> Any:
-    reference = output["port_type"]
-    port_type = catalog.require_port_type(
-        reference["contract_id"],
-        reference["contract_version"],
-    )
-    return port_type.decode(
-        canonical_json_bytes(
-            {
-                "schema_namespace": "protein-workbench-port-value/v2",
-                "port_type_id": port_type.type_id,
-                "port_type_version": port_type.version,
-                "value": output["values"][0],
-            }
-        )
+def _decode(
+    catalog: Any,
+    service: V2RunService,
+    projection: dict[str, Any],
+    output: dict[str, Any],
+) -> Any:
+    from tests.fixtures.public_v2 import decode_service_typed_output_value
+
+    return decode_service_typed_output_value(
+        service,
+        catalog,
+        projection,
+        output,
     )
 
 
@@ -194,7 +191,7 @@ def _run_candidate_transform(
     *,
     operation: str,
     node_parameters: dict[str, Any] | None = None,
-) -> tuple[Any, dict[str, Any]]:
+) -> tuple[Any, V2RunService, dict[str, Any]]:
     catalog = build_frozen_catalog((MODULE_PACKAGE, CANDIDATE_SOURCE_PACKAGE))
     projects = ProjectManager(
         tmp_path / "projects",
@@ -298,20 +295,20 @@ def _run_candidate_transform(
     )
     projection = service.projection(project.id, receipt["run_id"])
     service.shutdown()
-    return catalog, projection
+    return catalog, service, projection
 
 
 def test_chain_selection_obeys_requested_order_and_excludes_other_chains(
     tmp_path: Path,
 ) -> None:
-    catalog, projection, _ = _run_transform(
+    catalog, service, projection, _ = _run_transform(
         tmp_path,
         operation="select_chains",
         node_parameters={"chain_ids": ["B", "A"]},
     )
 
     assert projection["status"] == "succeeded"
-    structure = _decode(catalog, _transform_output(projection))
+    structure = _decode(catalog, service, projection, _transform_output(projection))
     atom_chains = [
         line[21]
         for line in structure.pdb_string.splitlines()
@@ -355,7 +352,7 @@ def test_chain_selection_rejects_empty_and_duplicate_requests(
 def test_chain_selection_rejects_missing_chain_without_output(
     tmp_path: Path,
 ) -> None:
-    _, projection, _ = _run_transform(
+    _, _, projection, _ = _run_transform(
         tmp_path,
         operation="select_chains",
         node_parameters={"chain_ids": ["Z"]},
@@ -371,14 +368,14 @@ def test_chain_selection_rejects_missing_chain_without_output(
 def test_chain_selection_preserves_distinct_alternate_locations(
     tmp_path: Path,
 ) -> None:
-    catalog, projection, _ = _run_transform(
+    catalog, service, projection, _ = _run_transform(
         tmp_path,
         operation="select_chains",
         fixture="alternate_locations",
         node_parameters={"chain_ids": ["A"]},
     )
 
-    structure = _decode(catalog, _transform_output(projection))
+    structure = _decode(catalog, service, projection, _transform_output(projection))
     ca_lines = [
         line
         for line in structure.pdb_string.splitlines()
@@ -396,7 +393,7 @@ def test_all_transforms_reject_multi_model_inputs(
     tmp_path: Path,
     operation: str,
 ) -> None:
-    _, projection, _ = _run_transform(
+    _, _, projection, _ = _run_transform(
         tmp_path,
         operation=operation,
         fixture="multi_model",
@@ -417,13 +414,13 @@ def test_all_transforms_reject_multi_model_inputs(
 def test_backbone_retains_exact_atoms_chain_breaks_and_canonical_digest(
     tmp_path: Path,
 ) -> None:
-    catalog, projection, _ = _run_transform(
+    catalog, service, projection, _ = _run_transform(
         tmp_path,
         operation="extract_backbone",
     )
 
     output = _transform_output(projection)
-    backbone = _decode(catalog, output)
+    backbone = _decode(catalog, service, projection, output)
     lines = backbone.pdb_string.splitlines()
     atom_lines = [line for line in lines if line.startswith("ATOM  ")]
     assert [line[12:16].strip() for line in atom_lines] == [
@@ -452,13 +449,13 @@ def test_backbone_retains_exact_atoms_chain_breaks_and_canonical_digest(
 def test_backbone_resolves_alternate_locations_to_a_and_normalizes_marker(
     tmp_path: Path,
 ) -> None:
-    catalog, projection, _ = _run_transform(
+    catalog, service, projection, _ = _run_transform(
         tmp_path,
         operation="extract_backbone",
         fixture="alternate_locations",
     )
 
-    backbone = _decode(catalog, _transform_output(projection))
+    backbone = _decode(catalog, service, projection, _transform_output(projection))
     ca = next(
         line
         for line in backbone.pdb_string.splitlines()
@@ -471,7 +468,7 @@ def test_backbone_resolves_alternate_locations_to_a_and_normalizes_marker(
 def test_backbone_rejects_a_residue_with_missing_atoms(
     tmp_path: Path,
 ) -> None:
-    _, projection, _ = _run_transform(
+    _, _, projection, _ = _run_transform(
         tmp_path,
         operation="extract_backbone",
         fixture="missing_backbone",
@@ -487,7 +484,7 @@ def test_backbone_rejects_a_residue_with_missing_atoms(
 def test_backbone_rejects_conflicting_names_within_one_residue(
     tmp_path: Path,
 ) -> None:
-    _, projection, _ = _run_transform(
+    _, _, projection, _ = _run_transform(
         tmp_path,
         operation="extract_backbone",
         fixture="residue_name_conflict",
@@ -503,13 +500,13 @@ def test_backbone_rejects_conflicting_names_within_one_residue(
 def test_sequence_excludes_non_protein_and_keeps_authored_correspondence(
     tmp_path: Path,
 ) -> None:
-    catalog, projection, _ = _run_transform(
+    catalog, service, projection, _ = _run_transform(
         tmp_path,
         operation="extract_sequence",
         fixture="sequence_edge_cases",
     )
 
-    sequence = _decode(catalog, _transform_output(projection))
+    sequence = _decode(catalog, service, projection, _transform_output(projection))
     assert sequence == ProteinSequence(
         sequence="AVG",
         residue_ids=["A:1", "A:2", "B:5"],
@@ -519,7 +516,7 @@ def test_sequence_excludes_non_protein_and_keeps_authored_correspondence(
 def test_resolved_axis_normalizes_mse_and_excludes_ligand_and_water(
     tmp_path: Path,
 ) -> None:
-    catalog, projection, _ = _run_transform(
+    catalog, service, projection, _ = _run_transform(
         tmp_path,
         operation="resolve_residue_axis",
         fixture="mse_ligand_water",
@@ -528,6 +525,8 @@ def test_resolved_axis_normalizes_mse_and_excludes_ligand_and_water(
     assert projection["status"] == "succeeded"
     source = _decode(
         catalog,
+        service,
+        projection,
         next(
             output
             for output in projection["outputs"]
@@ -535,7 +534,7 @@ def test_resolved_axis_normalizes_mse_and_excludes_ligand_and_water(
             and output["output_port"] == "structure"
         ),
     )
-    axis = _decode(catalog, _transform_output(projection))
+    axis = _decode(catalog, service, projection, _transform_output(projection))
     assert axis.structure == source
     assert axis.layout.chain_id == "A"
     assert axis.layout.residue_ids == ("A:1", "A:2", "A:3")
@@ -603,7 +602,7 @@ def test_resolved_axis_normalizes_mse_and_excludes_ligand_and_water(
 def test_resolved_axis_rejects_unknown_modified_polymer(
     tmp_path: Path,
 ) -> None:
-    _, projection, _ = _run_transform(
+    _, _, projection, _ = _run_transform(
         tmp_path,
         operation="resolve_residue_axis",
         fixture="unknown_modified_polymer",
@@ -619,7 +618,7 @@ def test_resolved_axis_rejects_unknown_modified_polymer(
 def test_resolved_axis_rejects_unknown_atom_polymer(
     tmp_path: Path,
 ) -> None:
-    _, projection, _ = _run_transform(
+    _, _, projection, _ = _run_transform(
         tmp_path,
         operation="resolve_residue_axis",
         fixture="unknown_atom_polymer",
@@ -635,7 +634,7 @@ def test_resolved_axis_rejects_unknown_atom_polymer(
 def test_candidate_sequence_extraction_preserves_parent_lineage(
     tmp_path: Path,
 ) -> None:
-    catalog, projection = _run_candidate_transform(
+    catalog, service, projection = _run_candidate_transform(
         tmp_path,
         operation="extract_sequence_candidates",
     )
@@ -643,13 +642,15 @@ def test_candidate_sequence_extraction_preserves_parent_lineage(
     assert projection["status"] == "succeeded"
     source = _decode(
         catalog,
+        service,
+        projection,
         next(
             output
             for output in projection["outputs"]
             if output["node_id"] == "source"
         ),
     )
-    transformed = _decode(catalog, _transform_output(projection))
+    transformed = _decode(catalog, service, projection, _transform_output(projection))
     assert type(source) is CandidateCollection
     assert type(transformed) is CandidateCollection
     assert transformed.item_type == "protein.sequence"
@@ -665,7 +666,7 @@ def test_candidate_sequence_extraction_preserves_parent_lineage(
 def test_candidate_chain_selection_preserves_parent_lineage(
     tmp_path: Path,
 ) -> None:
-    catalog, projection = _run_candidate_transform(
+    catalog, service, projection = _run_candidate_transform(
         tmp_path,
         operation="select_candidate_chains",
         node_parameters={"chain_ids": ["A"]},
@@ -674,13 +675,15 @@ def test_candidate_chain_selection_preserves_parent_lineage(
     assert projection["status"] == "succeeded"
     source = _decode(
         catalog,
+        service,
+        projection,
         next(
             output
             for output in projection["outputs"]
             if output["node_id"] == "source"
         ),
     )
-    transformed = _decode(catalog, _transform_output(projection))
+    transformed = _decode(catalog, service, projection, _transform_output(projection))
     assert type(source) is CandidateCollection
     assert type(transformed) is CandidateCollection
     assert transformed.item_type == "protein.structure"
@@ -697,7 +700,7 @@ def test_candidate_chain_selection_preserves_parent_lineage(
 def test_candidate_residue_axes_bind_exact_structure_candidate_reference(
     tmp_path: Path,
 ) -> None:
-    catalog, projection = _run_candidate_transform(
+    catalog, service, projection = _run_candidate_transform(
         tmp_path,
         operation="resolve_candidate_residue_axes",
     )
@@ -705,13 +708,15 @@ def test_candidate_residue_axes_bind_exact_structure_candidate_reference(
     assert projection["status"] == "succeeded"
     source = _decode(
         catalog,
+        service,
+        projection,
         next(
             output
             for output in projection["outputs"]
             if output["node_id"] == "source"
         ),
     )
-    transformed = _decode(catalog, _transform_output(projection))
+    transformed = _decode(catalog, service, projection, _transform_output(projection))
     assert type(source) is CandidateCollection
     assert type(transformed) is CandidateResolvedResidueAxisAssociations
     assert len(transformed.entries) == 1
@@ -731,12 +736,12 @@ def test_candidate_residue_axes_bind_exact_structure_candidate_reference(
 def test_provider_free_transform_identity_is_stable_across_environments(
     tmp_path: Path,
 ) -> None:
-    first_catalog, first, first_events = _run_transform(
+    first_catalog, first_service, first, first_events = _run_transform(
         tmp_path / "first",
         operation="extract_sequence",
         environment_label="first",
     )
-    second_catalog, second, second_events = _run_transform(
+    second_catalog, second_service, second, second_events = _run_transform(
         tmp_path / "second",
         operation="extract_sequence",
         environment_label="second",
@@ -746,8 +751,15 @@ def test_provider_free_transform_identity_is_stable_across_environments(
 
     assert first_output["result_identity"] == second_output["result_identity"]
     assert first_output["content_digest"] == second_output["content_digest"]
-    assert _decode(first_catalog, first_output) == _decode(
+    assert _decode(
+        first_catalog,
+        first_service,
+        first,
+        first_output,
+    ) == _decode(
         second_catalog,
+        second_service,
+        second,
         second_output,
     )
     retained = str(

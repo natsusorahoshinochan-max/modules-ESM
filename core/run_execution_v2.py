@@ -43,6 +43,7 @@ from core.port_types import (
 )
 from core.process_control import signal_process_group
 from core.project import ProjectInputIntegrityError, ProjectManager
+from core.project_objects import ObjectIntegrityError, ProjectObjectStore
 from core.public_values import sanitize_public_value
 from core.scoring_v2 import (
     SelectionError,
@@ -94,6 +95,9 @@ READINESS_ATTESTATION_NAMESPACE = (
 )
 RESULT_IDENTITY_NAMESPACE = "protein-workbench-cache/v3"
 RESULT_CACHE_ENTRY_NAMESPACE = "protein-workbench-cache-entry/v3"
+PORT_VALUE_MANIFEST_NAMESPACE = (
+    "protein-workbench-port-value-manifest/v1"
+)
 RUN_LEDGER_TRANSACTION_NAMESPACE = (
     "protein-workbench-run-ledger-transaction/v4"
 )
@@ -102,6 +106,7 @@ MAX_ARTIFACTS_PER_RUN = 2_048
 MAX_ARTIFACT_SIZE_BYTES = 64 * 1024 * 1024
 MAX_ARTIFACT_BYTES_PER_RUN = 256 * 1024 * 1024
 MAX_LEDGER_TRANSACTION_BYTES = 4 * 1024 * 1024
+MAX_PORT_VALUE_MANIFEST_BYTES = 32 * 1024 * 1024
 MAX_BACKGROUND_RUNS = 8
 FAST_RUN_COMPLETION_GRACE_SECONDS = 0.25
 CANCELLATION_TERM_GRACE_SECONDS = 0.25
@@ -2247,6 +2252,19 @@ class _RunEvidenceLedger:
                 payload["outcome"] == "succeeded"
             ) != ("resolution" in payload):
                 raise self._causal_error()
+        if fact_type == "outputs_published":
+            if (
+                not isinstance(payload["outputs"], list)
+                or not isinstance(payload["artifacts"], list)
+            ):
+                raise self._causal_error()
+            try:
+                for output in payload["outputs"]:
+                    validate_schema("#/$defs/TypedOutput", output)
+                for artifact in payload["artifacts"]:
+                    validate_schema("#/$defs/ArtifactDescriptor", artifact)
+            except ProtocolValidationError as error:
+                raise self._causal_error() from error
         if fact_type == "selection_terminal":
             status = payload["status"]
             if (
@@ -3013,6 +3031,22 @@ class _RunEvidenceLedger:
         self.append("run_terminal", {"status": "interrupted"})
 
 
+class _ArtifactCleanupPreparationFailure(RuntimeError):
+    """Carry the exact cleanup outcome and remaining Artifact ownership."""
+
+    def __init__(
+        self,
+        error: BaseException,
+        artifact_records: dict[
+            str,
+            tuple[dict[str, Any], tuple[str, ...]],
+        ],
+    ) -> None:
+        self.error = error
+        self.artifact_records = artifact_records
+        super().__init__("Artifact cleanup failed during Node publication")
+
+
 class NodeAttemptFinalizer:
     """The sole completion seam for one scheduled Node Execution Attempt."""
 
@@ -3022,10 +3056,62 @@ class NodeAttemptFinalizer:
         ledger: _RunEvidenceLedger,
         result_replay_source: ResultReplaySource,
         materialize_artifacts: _ArtifactMaterializer,
+        object_store: ProjectObjectStore,
     ) -> None:
         self._ledger = ledger
         self._result_replay_source = result_replay_source
         self._materialize_artifacts = materialize_artifacts
+        self._object_store = object_store
+
+    def _publish_typed_outputs(
+        self,
+        *,
+        project_id: str,
+        node_id: str,
+        descriptors: list[dict[str, Any]],
+        admitted_outputs: Mapping[tuple[str, str], AdmittedPortValues],
+    ) -> list[dict[str, Any]]:
+        published: list[dict[str, Any]] = []
+        for descriptor in descriptors:
+            snapshot = admitted_outputs[(node_id, descriptor["output_port"])]
+            value_entries: list[dict[str, Any]] = []
+            for index, value in enumerate(snapshot.values):
+                stored = self._object_store.put_exact(
+                    project_id,
+                    value.canonical_bytes,
+                )
+                if stored.content_digest != value.content_digest:
+                    raise ObjectIntegrityError(stored.content_digest)
+                value_entries.append(
+                    {
+                        "index": index,
+                        "content_digest": value.content_digest,
+                        "size": stored.size,
+                        "object": stored.to_dict(),
+                    }
+                )
+            manifest = {
+                "schema_namespace": PORT_VALUE_MANIFEST_NAMESPACE,
+                "port_type": dict(snapshot.port_type),
+                "multiplicity": snapshot.multiplicity,
+                "content_digest": snapshot.content_digest,
+                "value_count": len(snapshot.values),
+                "values": value_entries,
+            }
+            manifest_object = self._object_store.put_exact(
+                project_id,
+                canonical_json_bytes(manifest),
+            )
+            published.append(
+                {
+                    **descriptor,
+                    "value_count": len(snapshot.values),
+                    "value_manifest_reference": (
+                        manifest_object.content_digest
+                    ),
+                }
+            )
+        return published
 
     @staticmethod
     def _disposition_for_status(
@@ -3278,6 +3364,39 @@ class NodeAttemptFinalizer:
                 current_artifact_bytes=intent.current_artifact_bytes,
             )
         )
+        try:
+            typed_descriptors = self._publish_typed_outputs(
+                project_id=intent.project_id,
+                node_id=intent.node.node_id,
+                descriptors=typed_descriptors,
+                admitted_outputs=intent.admitted_outputs,
+            )
+        except (
+            ObjectIntegrityError,
+            PortValueError,
+            OSError,
+            StoragePathError,
+        ) as publication_error:
+            if artifact_records:
+                try:
+                    self._cleanup_artifacts(
+                        resources=intent.resources,
+                        artifact_records=artifact_records,
+                    )
+                except (
+                    OSError,
+                    RuntimeError,
+                    StoragePathError,
+                ) as cleanup_error:
+                    cleanup_error.add_note(
+                        "Typed Value publication also failed before cleanup: "
+                        f"{type(publication_error).__name__}"
+                    )
+                    raise _ArtifactCleanupPreparationFailure(
+                        cleanup_error,
+                        artifact_records,
+                    ) from publication_error
+            raise
         return (
             _with_result_provenance(
                 typed_descriptors,
@@ -3387,7 +3506,15 @@ class NodeAttemptFinalizer:
                 producer_run_id=intent.run_id,
                 resolution="executed",
             )
-        except (PortValueError, OSError, StoragePathError) as error:
+        except _ArtifactCleanupPreparationFailure as failure:
+            preparation_error = failure.error
+            artifact_records = failure.artifact_records
+        except (
+            ObjectIntegrityError,
+            PortValueError,
+            OSError,
+            StoragePathError,
+        ) as error:
             preparation_error = error
         if intent.cache_eligible and preparation_error is None:
             try:
@@ -3484,7 +3611,15 @@ class NodeAttemptFinalizer:
                 producer_run_id=intent.producer_run_id,
                 resolution="cache_replayed",
             )
-        except (PortValueError, OSError, StoragePathError) as error:
+        except _ArtifactCleanupPreparationFailure as failure:
+            preparation_error = failure.error
+            artifact_records = failure.artifact_records
+        except (
+            ObjectIntegrityError,
+            PortValueError,
+            OSError,
+            StoragePathError,
+        ) as error:
             preparation_error = error
         with self._ledger._ordered_append_scope():
             cancelled = self._finalize_committed_cancellation(
@@ -3832,11 +3967,6 @@ def _read_run_evidence_ledger(
     ):
         ledger.load_transaction(transaction, encoded)
     return ledger
-
-
-def _wire_value(encoded: bytes) -> Any:
-    payload = json.loads(encoded)
-    return payload["value"]
 
 
 def _plain_json(value: Any) -> Any:
@@ -4765,6 +4895,7 @@ class V2RunService:
             result_replay_source
             or _ProjectResultCache(projects, catalog)
         )
+        self._object_store = ProjectObjectStore(projects)
         self._ledger_transaction_store = ledger_transaction_store
         self._runs: dict[tuple[str, str], _RunRecord] = {}
         self._damaged_runs: dict[tuple[str, str], str] = {}
@@ -4952,6 +5083,7 @@ class V2RunService:
                 ledger=ledger,
                 result_replay_source=self._result_replay_source,
                 materialize_artifacts=self._materialize_artifacts,
+                object_store=self._object_store,
             )
         )
         try:
@@ -5436,10 +5568,6 @@ class V2RunService:
                 "output_port": output_port,
                 "port_type": dict(snapshot.port_type),
                 "content_digest": snapshot.content_digest,
-                "values": [
-                    _wire_value(value.canonical_bytes)
-                    for value in snapshot.values
-                ],
             }
             for (node_id, output_port), snapshot in admitted.items()
             if node_id == node.node_id
@@ -6056,6 +6184,7 @@ class V2RunService:
             ledger=ledger,
             result_replay_source=self._result_replay_source,
             materialize_artifacts=self._materialize_artifacts,
+            object_store=self._object_store,
         )
 
         self._runs[(project_id, run_id)] = record
@@ -6935,6 +7064,154 @@ class V2RunService:
     def projection(self, project_id: str, run_id: str) -> dict[str, Any]:
         record = self._require_record(project_id, run_id)
         return record.ledger.projection()
+
+    @staticmethod
+    def _typed_value_integrity_error(
+        descriptor: Mapping[str, Any],
+        value_index: int,
+        *,
+        expected_digest: str,
+        expected_size: int | None = None,
+    ) -> V2RunError:
+        details: dict[str, Any] = {
+            "node_id": descriptor["node_id"],
+            "output_port": descriptor["output_port"],
+            "value_index": value_index,
+            "expected_digest": expected_digest,
+        }
+        if expected_size is not None:
+            details["expected_size"] = expected_size
+        return V2RunError(
+            "typed_value_integrity_mismatch",
+            "Typed Output value failed integrity verification",
+            details=details,
+        )
+
+    def typed_value(
+        self,
+        project_id: str,
+        run_id: str,
+        node_id: str,
+        output_port: str,
+        value_index: int,
+    ) -> tuple[dict[str, Any], bytes]:
+        """Resolve one exact canonical value through committed Run evidence."""
+        record = self._require_record(project_id, run_id)
+        descriptor = next(
+            (
+                output
+                for output in record.ledger.projection()["outputs"]
+                if output["node_id"] == node_id
+                and output["output_port"] == output_port
+            ),
+            None,
+        )
+        if (
+            descriptor is None
+            or type(value_index) is not int
+            or value_index < 0
+            or value_index >= descriptor["value_count"]
+        ):
+            raise V2RunError(
+                "typed_output_not_found",
+                "Typed Output value was not found",
+                details={
+                    "node_id": node_id,
+                    "output_port": output_port,
+                    "value_index": value_index,
+                },
+            )
+        manifest_reference = descriptor["value_manifest_reference"]
+        try:
+            encoded_manifest = self._object_store.read_bounded(
+                project_id,
+                manifest_reference,
+                maximum_size=MAX_PORT_VALUE_MANIFEST_BYTES,
+            )
+            manifest = json.loads(encoded_manifest)
+            if encoded_manifest != canonical_json_bytes(manifest):
+                raise ValueError("Port Value Manifest is not canonical")
+            if (
+                not isinstance(manifest, Mapping)
+                or set(manifest)
+                != {
+                    "schema_namespace",
+                    "port_type",
+                    "multiplicity",
+                    "content_digest",
+                    "value_count",
+                    "values",
+                }
+                or manifest["schema_namespace"]
+                != PORT_VALUE_MANIFEST_NAMESPACE
+                or manifest["port_type"] != descriptor["port_type"]
+                or manifest["content_digest"]
+                != descriptor["content_digest"]
+                or manifest["value_count"] != descriptor["value_count"]
+                or not isinstance(manifest["values"], list)
+                or len(manifest["values"]) != descriptor["value_count"]
+            ):
+                raise ValueError("Port Value Manifest contract is invalid")
+            entry = manifest["values"][value_index]
+            if (
+                not isinstance(entry, Mapping)
+                or set(entry)
+                != {
+                    "index",
+                    "content_digest",
+                    "size",
+                    "object",
+                }
+                or entry["index"] != value_index
+                or type(entry["size"]) is not int
+                or entry["size"] < 0
+                or not isinstance(entry["object"], Mapping)
+                or dict(entry["object"])
+                != {
+                    "content_digest": entry["content_digest"],
+                    "size": entry["size"],
+                }
+            ):
+                raise ValueError("Port Value Manifest entry is invalid")
+        except (
+            ObjectIntegrityError,
+            UnicodeDecodeError,
+            json.JSONDecodeError,
+            TypeError,
+            ValueError,
+        ) as error:
+            raise self._typed_value_integrity_error(
+                descriptor,
+                value_index,
+                expected_digest=manifest_reference,
+            ) from error
+        try:
+            payload = self._object_store.read_exact(
+                project_id,
+                entry["content_digest"],
+                size=entry["size"],
+            )
+        except ObjectIntegrityError as error:
+            raise self._typed_value_integrity_error(
+                descriptor,
+                value_index,
+                expected_digest=entry["content_digest"],
+                expected_size=entry["size"],
+            ) from error
+        metadata = {
+            "typed_value": {
+                "node_id": node_id,
+                "output_port": output_port,
+                "port_type": descriptor["port_type"],
+                "port_content_digest": descriptor["content_digest"],
+                "value_manifest_reference": manifest_reference,
+                "value_index": value_index,
+                "value_count": descriptor["value_count"],
+                "value_content_digest": entry["content_digest"],
+                "size": entry["size"],
+            }
+        }
+        return json.loads(json.dumps(metadata)), payload
 
     def artifact(
         self,

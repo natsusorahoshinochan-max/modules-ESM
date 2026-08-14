@@ -29,6 +29,7 @@ from protein_workbench_public import (
     prepare_run_event_stream_request,
     prepare_rest_request,
     validate_artifact_response,
+    validate_typed_value_response,
     validate_error,
     validate_event,
     validate_request,
@@ -50,6 +51,7 @@ def test_public_protocol_bundle_has_stable_canonical_identity() -> None:
 
     assert bundle["schema_namespace"] == "protein-workbench-public/v2"
     assert PUBLIC_PROTOCOL_NAMESPACE == bundle["schema_namespace"]
+    assert bundle["schema_version"] == "2.2.0"
     assert bundle["identity"] == {
         "canonicalization": "RFC 8785",
         "character_encoding": "UTF-8",
@@ -88,6 +90,7 @@ def test_bundle_closes_every_supported_rest_operation() -> None:
         "save_project_workflow_draft",
         "start_derived_run",
         "start_run",
+        "typed_value_retrieval",
     }
     expected_transports = {
         "artifact_retrieval": (
@@ -134,6 +137,11 @@ def test_bundle_closes_every_supported_rest_operation() -> None:
             "/api/v2/projects/{project_id}/runs:derive",
         ),
         "start_run": ("POST", "/api/v2/projects/{project_id}/runs"),
+        "typed_value_retrieval": (
+            "GET",
+            "/api/v2/projects/{project_id}/runs/{run_id}/outputs/"
+            "{node_id}/{output_port}/values/{value_index}",
+        ),
     }
     assert {
         operation_id: (operation["method"], operation["route"])
@@ -153,6 +161,55 @@ def test_bundle_closes_every_supported_rest_operation() -> None:
     for name, schema in bundle["$defs"].items():
         if schema.get("type") == "object" and not schema.get("x-opaque-value"):
             assert schema.get("additionalProperties") is False, name
+
+
+def test_typed_value_binary_metadata_closes_exact_headers_and_bytes() -> None:
+    body = (
+        b'{"port_type_id":"test.value","port_type_version":"1.0.0",'
+        b'"schema_namespace":"protein-workbench-port-value/v2",'
+        b'"value":"exact"}'
+    )
+    digest = f"sha256:{hashlib.sha256(body).hexdigest()}"
+    metadata = {
+        "typed_value": {
+            "node_id": "node-1",
+            "output_port": "result",
+            "port_type": {
+                "contract_kind": "port_type",
+                "contract_id": "test.value",
+                "contract_version": "1.0.0",
+                "contract_digest": f"sha256:{'3' * 64}",
+            },
+            "port_content_digest": f"sha256:{'1' * 64}",
+            "value_manifest_reference": f"sha256:{'2' * 64}",
+            "value_index": 0,
+            "value_count": 1,
+            "value_content_digest": digest,
+            "size": len(body),
+        }
+    }
+    headers = {
+        "Content-Length": str(len(body)),
+        "Content-Type": "application/json",
+        "Digest": digest,
+        "ETag": f'"{digest}"',
+        "X-Port-Content-Digest": f"sha256:{'1' * 64}",
+        "X-Port-Type-Kind": "port_type",
+        "X-Port-Type-Id": "test.value",
+        "X-Port-Type-Version": "1.0.0",
+        "X-Port-Type-Digest": f"sha256:{'3' * 64}",
+        "X-Value-Count": "1",
+        "X-Value-Index": "0",
+        "X-Value-Manifest-Reference": f"sha256:{'2' * 64}",
+    }
+
+    validate_typed_value_response(metadata, headers, body)
+    missing_port_digest = dict(headers)
+    missing_port_digest.pop("X-Port-Type-Digest")
+    with pytest.raises(ProtocolValidationError):
+        validate_typed_value_response(metadata, missing_port_digest, body)
+    with pytest.raises(ProtocolValidationError):
+        validate_typed_value_response(metadata, headers, body + b"\n")
 
 
 def test_bundle_schema_keyword_vocabulary_is_closed() -> None:
@@ -243,7 +300,7 @@ def test_bundle_freezes_event_replay_close_and_error_vocabulary() -> None:
     }
 
     errors = bundle["structured_errors"]
-    assert errors["vocabulary_version"] == "2.1.0"
+    assert errors["vocabulary_version"] == "2.2.0"
     assert errors["envelope_schema"] == "#/$defs/StructuredErrorEnvelope"
     assert errors["details_max_bytes"] == 16384
     assert errors["redaction_contract"] == {
@@ -273,6 +330,8 @@ def test_bundle_freezes_event_replay_close_and_error_vocabulary() -> None:
         "readiness_rejected",
         "run_not_found",
         "selection_failed",
+        "typed_output_not_found",
+        "typed_value_integrity_mismatch",
         "unsupported_schema_version",
         "workflow_commit_identity_mismatch",
         "workflow_commit_not_found",
@@ -878,6 +937,7 @@ def test_public_identifiers_use_nominal_bundle_schemas() -> None:
             ("RunProjectionRequest", "properties", "project_id"),
             ("RunReceipt", "properties", "project_id"),
             ("SubmitProjectWorkflowRequest", "properties", "project_id"),
+            ("TypedValueRetrievalRequest", "properties", "project_id"),
             ("StartDerivedRunRequest", "properties", "project_id"),
             ("StartRunRequest", "properties", "project_id"),
             ("WorkflowDocument", "properties", "workflow_id"),
@@ -908,6 +968,7 @@ def test_public_identifiers_use_nominal_bundle_schemas() -> None:
             ("RunProjectionRequest", "properties", "run_id"),
             ("RunReceipt", "properties", "run_id"),
             ("StartDerivedRunRequest", "properties", "source_run_id"),
+            ("TypedValueRetrievalRequest", "properties", "run_id"),
         ),
         "NodeInstanceId": (
             ("BlockedNodeDisposition", "properties", "blocked_by", "items"),
@@ -923,6 +984,8 @@ def test_public_identifiers_use_nominal_bundle_schemas() -> None:
             ("SucceededNodeDisposition", "properties", "blocked_by", "items"),
             ("SucceededNodeDisposition", "properties", "node_id"),
             ("TypedOutput", "properties", "node_id"),
+            ("TypedValueDescriptor", "properties", "node_id"),
+            ("TypedValueRetrievalRequest", "properties", "node_id"),
             ("UnsuccessfulNodeDisposition", "properties", "blocked_by", "items"),
             ("UnsuccessfulNodeDisposition", "properties", "node_id"),
             ("WorkflowEdge", "properties", "source_node_id"),

@@ -20,7 +20,6 @@ from core import (
     build_discovered_frozen_catalog,
     verify_module_package_contract,
 )
-from core.port_types import PORT_VALUE_NAMESPACE, canonical_json_bytes
 from core.project import ProjectManager
 from core.server import create_app
 from core.workflow_v2 import WorkflowEdge
@@ -36,7 +35,10 @@ from datatypes import (
 )
 from modules.collection_ops.package import MODULE_PACKAGE
 from modules.selection.package import MODULE_PACKAGE as SELECTION_PACKAGE
-from tests.fixtures.public_v2 import wait_for_testclient_run_terminal
+from tests.fixtures.public_v2 import (
+    decode_service_typed_output_value,
+    wait_for_testclient_run_terminal,
+)
 from tests.fixtures.scientific_operation import build_operation, operation_call
 
 
@@ -612,7 +614,7 @@ def _run_public_collection_workflow(
     operation: str,
     counts: tuple[int, int] = (2, 1),
     connected_partitions: tuple[str, ...] = ("a", "b"),
-) -> tuple[object, dict[str, object], dict[str, object], tuple[dict, ...]]:
+) -> tuple[object, object, dict[str, object], dict[str, object], tuple[dict, ...]]:
     from tests.fixtures.collection_ops_sources.package import (
         MODULE_PACKAGE as SOURCE_PACKAGE,
     )
@@ -757,48 +759,38 @@ def _run_public_collection_workflow(
                 "replay_complete",
             }
         )
-    return catalog, first, second, replay_events
+    return app.state.run_execution_v2, catalog, first, second, replay_events
 
 
 def _decoded_outputs(
+    service: object,
     catalog: object,
     projection: dict[str, object],
 ) -> dict[tuple[str, str], object]:
-    decoded: dict[tuple[str, str], object] = {}
-    for output in projection["outputs"]:
-        reference = output["port_type"]
-        port_type = catalog.require_port_type(
-            reference["contract_id"],
-            reference["contract_version"],
-        )
-        decoded[(output["node_id"], output["output_port"])] = (
-            port_type.decode(
-                canonical_json_bytes(
-                    {
-                        "schema_namespace": PORT_VALUE_NAMESPACE,
-                        "port_type_id": reference["contract_id"],
-                        "port_type_version": reference[
-                            "contract_version"
-                        ],
-                        "value": output["values"][0],
-                    }
-                )
+    return {
+        (output["node_id"], output["output_port"]): (
+            decode_service_typed_output_value(
+                service,
+                catalog,
+                projection,
+                output,
             )
         )
-    return decoded
+        for output in projection["outputs"]
+    }
 
 
 def test_public_pairing_uses_common_parent_not_collection_order(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    catalog, first, _, _ = _run_public_collection_workflow(
+    service, catalog, first, _, _ = _run_public_collection_workflow(
         tmp_path,
         monkeypatch,
         operation="pair_siblings_by_parent",
         counts=(2, 1),
     )
-    decoded = _decoded_outputs(catalog, first)
+    decoded = _decoded_outputs(service, catalog, first)
     subjects = decoded[("lineage-source", "subjects")]
     references = decoded[("lineage-source", "references")]
     pairing = decoded[("collection-op", "pairing")]
@@ -829,7 +821,7 @@ def test_public_candidate_concatenation_preserves_exact_input_candidates(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    catalog, first, second, replay_events = (
+    service, catalog, first, second, replay_events = (
         _run_public_collection_workflow(
             tmp_path,
             monkeypatch,
@@ -837,8 +829,8 @@ def test_public_candidate_concatenation_preserves_exact_input_candidates(
         )
     )
     assert first["status"] == second["status"] == "succeeded"
-    first_values = _decoded_outputs(catalog, first)
-    replay_values = _decoded_outputs(catalog, second)
+    first_values = _decoded_outputs(service, catalog, first)
+    replay_values = _decoded_outputs(service, catalog, second)
     left = first_values[("source-a", "candidates")]
     right = first_values[("source-b", "candidates")]
     concatenated = first_values[("collection-op", "candidates")]
@@ -885,7 +877,7 @@ def test_public_score_merge_preserves_observation_identity_and_partitions(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    catalog, first, second, replay_events = (
+    service, catalog, first, second, replay_events = (
         _run_public_collection_workflow(
             tmp_path,
             monkeypatch,
@@ -893,8 +885,8 @@ def test_public_score_merge_preserves_observation_identity_and_partitions(
         )
     )
     assert first["status"] == second["status"] == "succeeded"
-    first_values = _decoded_outputs(catalog, first)
-    replay_values = _decoded_outputs(catalog, second)
+    first_values = _decoded_outputs(service, catalog, first)
+    replay_values = _decoded_outputs(service, catalog, second)
     left = first_values[("scorer-a", "scores")]
     right = first_values[("scorer-b", "scores")]
     merged = first_values[("collection-op", "scores")]
@@ -964,7 +956,7 @@ def test_public_optional_score_inputs_distinguish_empty_from_absent(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    catalog, empty_first, empty_replay, _ = (
+    service, catalog, empty_first, empty_replay, _ = (
         _run_public_collection_workflow(
             tmp_path / "empty",
             monkeypatch,
@@ -976,13 +968,14 @@ def test_public_optional_score_inputs_distinguish_empty_from_absent(
     assert empty_first["status"] == empty_replay["status"] == "succeeded"
     assert (
         _decoded_outputs(
+            service,
             catalog,
             empty_first,
         )[("collection-op", "scores")].entries
         == ()
     )
 
-    _, absent_first, absent_replay, _ = (
+    _, _, absent_first, absent_replay, _ = (
         _run_public_collection_workflow(
             tmp_path / "absent",
             monkeypatch,
@@ -1041,7 +1034,7 @@ def _run_through_public_rest(
     *,
     catalog: object,
     workflow: WorkflowDocument,
-) -> tuple[dict, tuple[dict, ...]]:
+) -> tuple[object, dict, tuple[dict, ...]]:
     for name in ("PROJECT", "CACHE", "OUTPUT", "RUN"):
         root = tmp_path / name.lower()
         root.mkdir(parents=True)
@@ -1103,7 +1096,7 @@ def _run_through_public_rest(
             "replay_complete",
         }
     )
-    return projection, events
+    return app.state.run_execution_v2, projection, events
 
 
 def _scorer(partition: str, binding: str) -> WorkflowNodeInstance:
@@ -1175,7 +1168,7 @@ def test_public_score_union_fails_closed_on_dynamic_contradictions(
     )
 
     catalog = build_frozen_catalog((MODULE_PACKAGE, SOURCE_PACKAGE))
-    projection, _ = _run_through_public_rest(
+    service, projection, _ = _run_through_public_rest(
         tmp_path,
         monkeypatch,
         catalog=catalog,
@@ -1191,7 +1184,7 @@ def test_public_score_union_fails_closed_on_dynamic_contradictions(
     ]
     if second_binding == "low":
         assert len(merged_outputs) == 1
-        merged = _decoded_outputs(catalog, projection)[
+        merged = _decoded_outputs(service, catalog, projection)[
             ("merge", "scores")
         ]
         assert len(merged.entries) == 1
@@ -1240,7 +1233,7 @@ def test_public_collection_operations_reject_candidate_partition_aliasing(
         contract_lock=(),
     )
 
-    projection, _ = _run_through_public_rest(
+    _, projection, _ = _run_through_public_rest(
         tmp_path,
         monkeypatch,
         catalog=catalog,
@@ -1294,7 +1287,7 @@ def test_public_score_merge_rejects_legacy_subject_free_scores(
         contract_lock=(),
     )
 
-    projection, _ = _run_through_public_rest(
+    _, projection, _ = _run_through_public_rest(
         tmp_path,
         monkeypatch,
         catalog=catalog,

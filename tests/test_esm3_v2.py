@@ -30,7 +30,6 @@ from core import (
     discover_module_packages,
     verify_module_package_contract,
 )
-from core.port_types import canonical_json_bytes
 from core.workflow_v2 import WorkflowEdge
 from datatypes import (
     ExactContractReference,
@@ -42,6 +41,7 @@ from datatypes import (
     ResidueLayout,
     ResidueTrack,
 )
+from tests.fixtures.public_v2 import decode_service_typed_output_value
 
 
 def test_esm_package_owns_generation_and_direct_esmc_representation_nodes() -> None:
@@ -391,7 +391,7 @@ def test_direct_esmc_representation_crosses_public_run_and_engine_seams(
         for item in projection["outputs"]
         if item["node_id"] == "represent"
     )
-    representation = _decode_output(catalog, output)
+    representation = _decode_output(service, catalog, projection, output)
     assert representation == ESMCSequenceRepresentation(
         sequence="ACD",
         residue_ids=None,
@@ -999,21 +999,17 @@ class _StepShorteningProviderClient(_ProviderClient):
         return super().generate(protein, config)
 
 
-def _decode_output(catalog: Any, output: dict[str, Any]) -> Any:
-    reference = output["port_type"]
-    port_type = catalog.require_port_type(
-        reference["contract_id"],
-        reference["contract_version"],
-    )
-    return port_type.decode(
-        canonical_json_bytes(
-            {
-                "schema_namespace": "protein-workbench-port-value/v2",
-                "port_type_id": port_type.type_id,
-                "port_type_version": port_type.version,
-                "value": output["values"][0],
-            }
-        )
+def _decode_output(
+    service: Any,
+    catalog: Any,
+    projection: dict[str, Any],
+    output: dict[str, Any],
+) -> Any:
+    return decode_service_typed_output_value(
+        service,
+        catalog,
+        projection,
+        output,
     )
 
 
@@ -1032,7 +1028,7 @@ def _run_generation(
     safe_environment_fingerprint: str | None = None,
     invalidation_token: str | None = None,
     materialize_confidence: bool = False,
-) -> tuple[Any, dict[str, Any], tuple[dict[str, Any], ...]]:
+) -> tuple[Any, Any, dict[str, Any], tuple[dict[str, Any], ...]]:
     from modules.esm3.package import MODULE_PACKAGE as ESM3_PACKAGE
     from modules.prompt_authoring.package import (
         MODULE_PACKAGE as PROMPT_AUTHORING_PACKAGE,
@@ -1281,7 +1277,7 @@ def _run_generation(
         events = service.public_events(project.id, receipt["run_id"])
     finally:
         service.shutdown()
-    return catalog, projection, events
+    return service, catalog, projection, events
 
 
 def test_readiness_rejects_before_cache_lookup_or_provider_call(
@@ -1378,7 +1374,7 @@ def test_open_binding_factory_receives_its_exact_model(
         created_with.append(kwargs)
         return client
 
-    catalog, projection, events = _run_generation(
+    service, catalog, projection, events = _run_generation(
         tmp_path,
         operation="generate_sequence",
         client=_ProviderClient([]),
@@ -1397,7 +1393,7 @@ def test_open_binding_factory_receives_its_exact_model(
         if item["node_id"] == "generate"
         and item["output_port"] == "sequence_candidates"
     )
-    candidates = _decode_output(catalog, output)
+    candidates = _decode_output(service, catalog, projection, output)
     forbidden = {
         "provider",
         "model",
@@ -1446,7 +1442,7 @@ def _run_generation_from_prompt_fixture(
     client: _ProviderClient,
     num_samples: int = 1,
     binding_route: str = "biohub_medium",
-) -> tuple[Any, dict[str, Any], tuple[dict[str, Any], ...]]:
+) -> tuple[Any, Any, dict[str, Any], tuple[dict[str, Any], ...]]:
     from modules.esm3.package import MODULE_PACKAGE as ESM3_PACKAGE
     from modules.prompt_authoring.package import (
         MODULE_PACKAGE as PROMPT_AUTHORING_PACKAGE,
@@ -1544,7 +1540,7 @@ def _run_generation_from_prompt_fixture(
         events = service.public_events(project.id, receipt["run_id"])
     finally:
         service.shutdown()
-    return catalog, projection, events
+    return service, catalog, projection, events
 
 
 def test_coordinate_conditioned_sequence_returns_prompt_reconstruction(
@@ -1564,7 +1560,7 @@ def test_coordinate_conditioned_sequence_returns_prompt_reconstruction(
         ]
     )
 
-    catalog, projection, _ = _run_generation_from_prompt_fixture(
+    service, catalog, projection, _ = _run_generation_from_prompt_fixture(
         tmp_path,
         operation="generate_sequence",
         mode="coordinate_conditioned",
@@ -1577,13 +1573,19 @@ def test_coordinate_conditioned_sequence_returns_prompt_reconstruction(
         for item in projection["outputs"]
         if item["node_id"] == "generate"
     }
-    sequences = _decode_output(catalog, outputs["sequence_candidates"])
+    sequences = _decode_output(
+        service, catalog, projection, outputs["sequence_candidates"]
+    )
     structures = _decode_output(
+        service,
         catalog,
+        projection,
         outputs["sequence_reconstruction_candidates"],
     )
     confidence_facts = _decode_output(
+        service,
         catalog,
+        projection,
         outputs["confidence_facts"],
     )
     assert len(sequences.items) == len(structures.items) == 1
@@ -1614,7 +1616,7 @@ def test_coordinate_conditioned_paired_generation_retains_reconstruction(
         plddt=torch.tensor([0.7, 0.8, 0.9]),
         pdb_string=_three_residue_pdb(),
     )
-    catalog, projection, _ = _run_generation_from_prompt_fixture(
+    service, catalog, projection, _ = _run_generation_from_prompt_fixture(
         tmp_path,
         operation="generate_paired",
         mode="coordinate_conditioned",
@@ -1627,17 +1629,25 @@ def test_coordinate_conditioned_paired_generation_retains_reconstruction(
         for item in projection["outputs"]
         if item["node_id"] == "generate"
     }
-    sequences = _decode_output(catalog, outputs["sequence_candidates"])
+    sequences = _decode_output(
+        service, catalog, projection, outputs["sequence_candidates"]
+    )
     reconstructions = _decode_output(
+        service,
         catalog,
+        projection,
         outputs["sequence_reconstruction_candidates"],
     )
     counterparts = _decode_output(
+        service,
         catalog,
+        projection,
         outputs["structure_candidates"],
     )
     reconstruction_confidence = _decode_output(
+        service,
         catalog,
+        projection,
         outputs["sequence_reconstruction_confidence_facts"],
     )
     assert len(sequences.items) == 1
@@ -1668,7 +1678,7 @@ def test_sequence_generation_publishes_ordered_complete_candidates(
         ]
     )
 
-    catalog, projection, events = _run_generation(
+    service, catalog, projection, events = _run_generation(
         tmp_path,
         operation="generate_sequence",
         client=client,
@@ -1682,7 +1692,7 @@ def test_sequence_generation_publishes_ordered_complete_candidates(
         if item["node_id"] == "generate"
         and item["output_port"] == "sequence_candidates"
     )
-    candidates = _decode_output(catalog, output)
+    candidates = _decode_output(service, catalog, projection, output)
     assert [candidate.data.sequence for candidate in candidates.items] == [
         "ACD",
         "EFG",
@@ -1715,7 +1725,7 @@ def test_sequence_generation_rejects_a_fully_assigned_track_before_call(
 ) -> None:
     client = _ProviderClient([_ProviderResponse("ACD")])
 
-    _, projection, events = _run_generation(
+    _, _, projection, events = _run_generation(
         tmp_path,
         operation=operation,
         client=client,
@@ -1739,7 +1749,7 @@ def test_sequence_generation_calls_provider_with_explicit_workflow_mask(
 ) -> None:
     client = _ProviderClient([_ProviderResponse("ACD")])
 
-    _, projection, _ = _run_generation(
+    _, _, projection, _ = _run_generation(
         tmp_path,
         operation="generate_sequence",
         client=client,
@@ -1760,7 +1770,7 @@ def test_generation_records_requested_and_sdk_effective_steps_per_call(
         [_ProviderResponse("ACD"), _ProviderResponse("ACD")]
     )
 
-    catalog, projection, _ = _run_generation(
+    service, catalog, projection, _ = _run_generation(
         tmp_path,
         operation="generate_sequence",
         client=client,
@@ -1777,7 +1787,7 @@ def test_generation_records_requested_and_sdk_effective_steps_per_call(
         if item["node_id"] == "generate"
         and item["output_port"] == "sequence_candidates"
     )
-    candidates = _decode_output(catalog, output)
+    candidates = _decode_output(service, catalog, projection, output)
     assert len({id(config) for _, config in client.calls}) == 2
     for candidate in candidates.items:
         assert candidate.metadata[
@@ -1810,7 +1820,7 @@ def test_remote_configured_seed_remains_an_ordinary_result_identity_parameter(
         "_result_identity_descriptor",
         capture_result_identity,
     )
-    _, projection, events = _run_generation(
+    _, _, projection, events = _run_generation(
         tmp_path,
         operation="generate_sequence",
         client=_ProviderClient([_ProviderResponse("ACD")]),
@@ -1858,7 +1868,7 @@ def test_paired_generation_records_track_specific_sdk_effective_steps(
         ]
     )
 
-    catalog, projection, _ = _run_generation(
+    service, catalog, projection, _ = _run_generation(
         tmp_path,
         operation="generate_paired",
         client=client,
@@ -1873,7 +1883,9 @@ def test_paired_generation_records_track_specific_sdk_effective_steps(
         if output["node_id"] == "generate"
         and output["output_port"] == "structure_candidates"
     )
-    structure = _decode_output(catalog, structure_output).items[0]
+    structure = _decode_output(
+        service, catalog, projection, structure_output
+    ).items[0]
     assert structure.metadata["requested_generation_parameters"][
         "num_steps"
     ] == 20
@@ -1929,7 +1941,7 @@ def test_structure_generation_normalizes_exact_confidence_before_publication(
         ]
     )
 
-    catalog, projection, events = _run_generation(
+    service, catalog, projection, events = _run_generation(
         tmp_path,
         operation="generate_structure",
         client=client,
@@ -1944,12 +1956,16 @@ def test_structure_generation_normalizes_exact_confidence_before_publication(
         for item in projection["outputs"]
         if item["node_id"] == "generate"
     }
-    structures = _decode_output(catalog, outputs["structure_candidates"])
+    structures = _decode_output(
+        service, catalog, projection, outputs["structure_candidates"]
+    )
     assert len(structures.items) == 1
     assert structures.items[0].data.pdb_string == _three_residue_pdb()
     assert structures.items[0].metadata["classification"] == "sampled_structure"
     confidence_facts = _decode_output(
+        service,
         catalog,
+        projection,
         outputs["confidence_facts"],
     )
     assert len(confidence_facts.entries) == 1
@@ -1981,7 +1997,9 @@ def test_structure_generation_normalizes_exact_confidence_before_publication(
         if item["node_id"] == "materialize-confidence"
         and item["output_port"] == "observations"
     )
-    observations = _decode_output(catalog, materialized_output)
+    observations = _decode_output(
+        service, catalog, projection, materialized_output
+    )
     by_metric = {
         observation.metric.contract_id: observation
         for observation in observations.entries
@@ -2031,7 +2049,7 @@ def test_structure_generation_publishes_exact_provider_pae_matrix(
         ]
     )
 
-    catalog, projection, _ = _run_generation(
+    service, catalog, projection, _ = _run_generation(
         tmp_path,
         operation="generate_structure",
         client=client,
@@ -2046,7 +2064,9 @@ def test_structure_generation_publishes_exact_provider_pae_matrix(
         if item["node_id"] == "generate"
         and item["output_port"] == "confidence_facts"
     )
-    confidence_facts = _decode_output(catalog, output)
+    confidence_facts = _decode_output(
+        service, catalog, projection, output
+    )
     assert len(confidence_facts.entries) == 1
     assert confidence_facts.entries[0].pae == (
         (0.0, 31.75, 2.0),
@@ -2076,7 +2096,7 @@ def test_paired_generation_publishes_ten_exact_counterparts_and_real_calls(
         )
     client = _ProviderClient(responses)
 
-    catalog, projection, events = _run_generation(
+    service, catalog, projection, events = _run_generation(
         tmp_path,
         operation="generate_paired",
         client=client,
@@ -2089,11 +2109,19 @@ def test_paired_generation_publishes_ten_exact_counterparts_and_real_calls(
         for item in projection["outputs"]
         if item["node_id"] == "generate"
     }
-    sequences = _decode_output(catalog, outputs["sequence_candidates"])
-    structures = _decode_output(catalog, outputs["structure_candidates"])
-    pairing = _decode_output(catalog, outputs["counterpart_pairs"])
+    sequences = _decode_output(
+        service, catalog, projection, outputs["sequence_candidates"]
+    )
+    structures = _decode_output(
+        service, catalog, projection, outputs["structure_candidates"]
+    )
+    pairing = _decode_output(
+        service, catalog, projection, outputs["counterpart_pairs"]
+    )
     confidence_facts = _decode_output(
+        service,
         catalog,
+        projection,
         outputs["confidence_facts"],
     )
     assert len(sequences.items) == len(structures.items) == 10

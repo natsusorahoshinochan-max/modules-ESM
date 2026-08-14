@@ -274,19 +274,13 @@ def test_simplefold_confidence_v2_evaluates_3gb1_exact_assets_without_refold(
         if item["node_id"] == "confidence"
         and item["output_port"] == "confidence_observations"
     )
-    reference = output["port_type"]
-    scores = catalog.require_port_type(
-        reference["contract_id"],
-        reference["contract_version"],
-    ).decode(
-        canonical_json_bytes(
-            {
-                "schema_namespace": "protein-workbench-port-value/v2",
-                "port_type_id": reference["contract_id"],
-                "port_type_version": reference["contract_version"],
-                "value": output["values"][0],
-            }
-        )
+    from tests.fixtures.public_v2 import decode_service_typed_output_value
+
+    scores = decode_service_typed_output_value(
+        service,
+        catalog,
+        projection,
+        output,
     )
     assert type(scores) is ScoreCollection
     assert len(scores.entries) == 2
@@ -296,19 +290,11 @@ def test_simplefold_confidence_v2_evaluates_3gb1_exact_assets_without_refold(
         if item["node_id"] == "axis"
         and item["output_port"] == "residue_axes"
     )
-    axis_reference = axis_output["port_type"]
-    associations = catalog.require_port_type(
-        axis_reference["contract_id"],
-        axis_reference["contract_version"],
-    ).decode(
-        canonical_json_bytes(
-            {
-                "schema_namespace": "protein-workbench-port-value/v2",
-                "port_type_id": axis_reference["contract_id"],
-                "port_type_version": axis_reference["contract_version"],
-                "value": axis_output["values"][0],
-            }
-        )
+    associations = decode_service_typed_output_value(
+        service,
+        catalog,
+        projection,
+        axis_output,
     )
     assert len(associations.entries) == 1
     resolved = associations.entries[0]

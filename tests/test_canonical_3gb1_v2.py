@@ -25,7 +25,6 @@ from core import (
     parse_workflow_document,
     relock_workflow,
 )
-from core.port_types import PORT_VALUE_NAMESPACE, canonical_json_bytes
 from core.server import create_app
 from datatypes import (
     CandidateCollection,
@@ -47,7 +46,10 @@ from tests.fixtures.canonical_3gb1_v2 import (
     controlled_catalog,
     controlled_environment,
 )
-from tests.fixtures.public_v2 import wait_for_testclient_run_terminal
+from tests.fixtures.public_v2 import (
+    retrieve_typed_output_canonical_bytes,
+    wait_for_testclient_run_terminal,
+)
 
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
@@ -249,17 +251,25 @@ def test_invalid_canonical_workflow_is_rejected_before_provider_calls(
 
 
 def _decoded_output(
+    client: TestClient,
     catalog: Any,
     projection: dict[str, Any],
     node_id: str,
     output_port: str,
 ) -> Any:
-    decoded = _decoded_outputs(catalog, projection, node_id, output_port)
+    decoded = _decoded_outputs(
+        client,
+        catalog,
+        projection,
+        node_id,
+        output_port,
+    )
     assert len(decoded) == 1
     return decoded[0]
 
 
 def _decoded_outputs(
+    client: TestClient,
     catalog: Any,
     projection: dict[str, Any],
     node_id: str,
@@ -278,14 +288,15 @@ def _decoded_outputs(
     )
     return tuple(
         codec.decode(
-            canonical_json_bytes({
-                "schema_namespace": PORT_VALUE_NAMESPACE,
-                "port_type_id": reference["contract_id"],
-                "port_type_version": reference["contract_version"],
-                "value": value,
-            })
+            retrieve_typed_output_canonical_bytes(
+                client,
+                projection["project_id"],
+                projection["run_id"],
+                output,
+                value_index,
+            )
         )
-        for value in output["values"]
+        for value_index in range(output["value_count"])
     )
 
 
@@ -522,18 +533,21 @@ def test_canonical_v2_public_protocol_reproduces_scientific_intent(
         )
 
         sequence_candidates = _decoded_output(
+            client,
             catalog,
             first,
             "generate-paired",
             "sequence_candidates",
         )
         structure_candidates = _decoded_output(
+            client,
             catalog,
             first,
             "generate-paired",
             "structure_candidates",
         )
         counterpart_pairs = _decoded_output(
+            client,
             catalog,
             first,
             "generate-paired",
@@ -594,60 +608,70 @@ def test_canonical_v2_public_protocol_reproduces_scientific_intent(
         assert int(visible_backbones.sum().item()) == 46
 
         initial_folds = _decoded_output(
+            client,
             catalog,
             first,
             "fold-sequences",
             "structure_candidates",
         )
         rebound = _decoded_output(
+            client,
             catalog,
             first,
             "rebind-counterparts",
             "pairing",
         )
         canonical_references = _decoded_output(
+            client,
             catalog,
             first,
             "import-3gb1",
             "structure_candidates",
         )
         folded_residue_axes = _decoded_output(
+            client,
             catalog,
             first,
             "resolve-folded-residue-axes",
             "residue_axes",
         )
         generated_residue_axes = _decoded_output(
+            client,
             catalog,
             first,
             "resolve-generated-residue-axes",
             "residue_axes",
         )
         canonical_residue_axes = _decoded_output(
+            client,
             catalog,
             first,
             "resolve-canonical-residue-axes",
             "residue_axes",
         )
         generated_confidence = _decoded_output(
+            client,
             catalog,
             first,
             "materialize-generated-confidence",
             "observations",
         )
         folded_confidence = _decoded_output(
+            client,
             catalog,
             first,
             "materialize-folded-confidence",
             "observations",
         )
         fixed_alignments = _decoded_outputs(
+            client,
             catalog,
             first,
             "align-fixed",
             "alignments",
         )
         paired_alignments = _decoded_outputs(
+            client,
             catalog,
             first,
             "align-paired",
@@ -728,12 +752,14 @@ def test_canonical_v2_public_protocol_reproduces_scientific_intent(
         })
 
         ranked = _decoded_output(
+            client,
             catalog,
             first,
             "rank-candidates",
             "candidates",
         )
         selected = _decoded_output(
+            client,
             catalog,
             first,
             "take-top-three",
@@ -748,6 +774,7 @@ def test_canonical_v2_public_protocol_reproduces_scientific_intent(
             candidate.metadata["parent_index"] for candidate in selected.items
         ] == EXPECTED_TOP_PARENT_INDICES
         selected_residue_axes = _decoded_output(
+            client,
             catalog,
             first,
             "resolve-selected-residue-axes",
@@ -793,6 +820,7 @@ def test_canonical_v2_public_protocol_reproduces_scientific_intent(
         ]
 
         children = _decoded_output(
+            client,
             catalog,
             first,
             "design-children",
@@ -828,12 +856,14 @@ def test_canonical_v2_public_protocol_reproduces_scientific_intent(
         )
 
         final_folds = _decoded_output(
+            client,
             catalog,
             first,
             "fold-final",
             "structure_candidates",
         )
         final_confidence = _decoded_output(
+            client,
             catalog,
             first,
             "materialize-final-confidence",
@@ -951,7 +981,8 @@ def test_canonical_v2_public_protocol_reproduces_scientific_intent(
                     output["output_port"],
                     output["port_type"],
                     output["content_digest"],
-                    output["values"],
+                    output["value_count"],
+                    output["value_manifest_reference"],
                 )
                 for output in projection["outputs"]
             ]

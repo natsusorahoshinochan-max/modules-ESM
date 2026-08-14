@@ -61,6 +61,7 @@ from protein_workbench_public import (
     decode_run_event_stream_request,
     load_bundle,
     validate_artifact_response,
+    validate_typed_value_response,
     validate_error,
     validate_event,
     validate_response,
@@ -748,6 +749,77 @@ def create_app(
             )
         validate_response("run_projection", 200, projection)
         return projection
+
+    @app.get(
+        rest_operations["typed_value_retrieval"]["route"],
+        include_in_schema=False,
+    )
+    async def public_v2_typed_value(
+        request: Request,
+        project_id: str,
+        run_id: str,
+        node_id: str,
+        output_port: str,
+        value_index: int,
+    ) -> Any:
+        try:
+            query_parameters, json_body = await public_rest_wire_sources(
+                request
+            )
+            admitted = decode_rest_request(
+                "typed_value_retrieval",
+                path_parameters={
+                    "project_id": project_id,
+                    "run_id": run_id,
+                    "node_id": node_id,
+                    "output_port": output_port,
+                    "value_index": value_index,
+                },
+                query_parameters=query_parameters,
+                json_body=json_body,
+            )
+            metadata, body = request.app.state.run_execution_v2.typed_value(
+                admitted["project_id"],
+                admitted["run_id"],
+                admitted["node_id"],
+                admitted["output_port"],
+                admitted["value_index"],
+            )
+        except ProtocolValidationError as error:
+            return protocol_error_response(error)
+        except V2RunError as error:
+            return public_error_response(
+                error.code,
+                str(error),
+                error.details,
+            )
+        typed_value = metadata["typed_value"]
+        headers = {
+            "Content-Length": str(typed_value["size"]),
+            "Content-Type": "application/json",
+            "Digest": typed_value["value_content_digest"],
+            "ETag": f'"{typed_value["value_content_digest"]}"',
+            "X-Port-Content-Digest": typed_value[
+                "port_content_digest"
+            ],
+            "X-Port-Type-Kind": typed_value["port_type"][
+                "contract_kind"
+            ],
+            "X-Port-Type-Id": typed_value["port_type"]["contract_id"],
+            "X-Port-Type-Version": typed_value["port_type"][
+                "contract_version"
+            ],
+            "X-Port-Type-Digest": typed_value["port_type"][
+                "contract_digest"
+            ],
+            "X-Value-Count": str(typed_value["value_count"]),
+            "X-Value-Index": str(typed_value["value_index"]),
+            "X-Value-Manifest-Reference": typed_value[
+                "value_manifest_reference"
+            ],
+        }
+        validate_typed_value_response(metadata, headers, body)
+        return Response(content=body, media_type=None, headers=headers)
 
     @app.get(
         rest_operations["artifact_retrieval"]["route"],

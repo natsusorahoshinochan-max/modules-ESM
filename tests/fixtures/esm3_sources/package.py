@@ -48,17 +48,23 @@ class _Source:
             sequence_track = ResidueTrack(["A", "C", "D"], None)
         elif mode == "rich_masked":
             sequence_track = ResidueTrack([None, "C", "D"], None)
-        elif mode == "coordinate_conditioned":
-            sequence_track = ResidueTrack([None, None, None], None)
+        elif mode in {
+            "coordinate_conditioned",
+            "coordinate_conditioned_291",
+        }:
+            length = 291 if mode == "coordinate_conditioned_291" else 3
+            sequence_track = ResidueTrack([None] * length, None)
         else:
             sequence_track = None
         structure_track = None
         visibility_track = None
         if mode in {
             "coordinate_conditioned",
+            "coordinate_conditioned_291",
             "rich_assigned",
             "rich_masked",
         }:
+            length = 291 if mode == "coordinate_conditioned_291" else 3
             structure_track = ResidueTrack(
                 [
                     {
@@ -67,19 +73,24 @@ class _Source:
                         "C": (2.0, 0.0, 0.0),
                         "O": (3.0, 0.0, 0.0),
                     },
-                    None,
-                    None,
+                    *([None] * (length - 1)),
                 ],
                 None,
             )
-            visibility_track = ResidueTrack([True, False, False], None)
+            visibility_track = ResidueTrack(
+                [True, *([False] * (length - 1))],
+                None,
+            )
         rich_prompt = mode in {"rich_assigned", "rich_masked"}
         with self._run_resources.engine_invocation():
+            length = 291 if mode == "coordinate_conditioned_291" else 3
             prompt = ProteinPrompt(
                 target_layout=ResidueLayout(
                     chain_id="A",
-                    length=3,
-                    residue_ids=["A:1", "A:2", "A:3"],
+                    length=length,
+                    residue_ids=[
+                        f"A:{index}" for index in range(1, length + 1)
+                    ],
                 ),
                 sequence_track=sequence_track,
                 structure_track=structure_track,

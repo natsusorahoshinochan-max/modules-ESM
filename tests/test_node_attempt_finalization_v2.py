@@ -9,6 +9,7 @@ import pytest
 
 from core import ProjectManager, ResultReplaySource
 import core.run_execution_v2 as run_execution_v2
+from core.value_admission import AdmittedPortValues, AdmittedValue
 
 
 def _open_attempt_ledger(
@@ -76,6 +77,7 @@ def _finalizer(
     *,
     result_replay_source: ResultReplaySource | None = None,
     materialize_artifacts: run_execution_v2._ArtifactMaterializer | None = None,
+    object_store: run_execution_v2.ProjectObjectStore | None = None,
 ) -> run_execution_v2.NodeAttemptFinalizer:
     if materialize_artifacts is None:
         def default_materializer(**kwargs):
@@ -87,6 +89,10 @@ def _finalizer(
         ledger=ledger,
         result_replay_source=result_replay_source or ResultReplaySource(),
         materialize_artifacts=materialize_artifacts,
+        object_store=(
+            object_store
+            or run_execution_v2.ProjectObjectStore(ledger._projects)
+        ),
     )
 
 
@@ -190,6 +196,107 @@ def test_executed_success_publishes_one_physical_ledger_transaction(
         "node_attempt_terminal",
         "node_disposition",
     ]
+
+
+@pytest.mark.parametrize(
+    "cleanup_error",
+    (None, RuntimeError("fixture cancellation cleanup failure")),
+    ids=("ordinary", "cancel-cleanup-failure"),
+)
+def test_typed_object_failure_cleans_already_materialized_artifact(
+    tmp_path,
+    cleanup_error: RuntimeError | None,
+) -> None:
+    ledger = _open_attempt_ledger(tmp_path, operation_started=True)
+    cancellation_control = None
+    if cleanup_error is not None:
+        ledger.request_cancellation(None)
+        cancellation_control = SimpleNamespace(
+            wait_for_cleanup=lambda: None,
+            cleanup_error=cleanup_error,
+        )
+    artifact_path = tmp_path / "outputs" / "run-1" / "published" / "artifact"
+
+    def materialize(**kwargs):
+        artifact_path.parent.mkdir(parents=True)
+        artifact_path.write_bytes(b"artifact")
+        artifact_path.chmod(0o600)
+        artifact = {
+            "artifact_reference": "artifact",
+            "artifact_kind": "standalone",
+            "node_id": "node-1",
+            "output_port": "artifact",
+            "media_type": "text/plain",
+            "size": 8,
+            "content_digest": "sha256:" + "9" * 64,
+        }
+        return (
+            list(kwargs["admitted_output_descriptors"]),
+            [artifact],
+            {"artifact": (artifact, ("published", "artifact"))},
+        )
+
+    class FailingObjectStore:
+        def put_exact(self, project_id: str, payload: bytes) -> object:
+            del project_id, payload
+            raise run_execution_v2.ObjectIntegrityError(
+                "sha256:" + "8" * 64
+            )
+
+    reference = {
+        "contract_kind": "port_type",
+        "contract_id": "contract_test.text",
+        "contract_version": "1.0.0",
+        "contract_digest": "sha256:" + "7" * 64,
+    }
+    admitted = AdmittedPortValues(
+        port_type=reference,
+        multiplicity="one",
+        values=(
+            AdmittedValue(
+                canonical_bytes=b'{"value":"exact"}',
+                content_digest="sha256:" + "6" * 64,
+                runtime_value="exact",
+            ),
+        ),
+        content_digest="sha256:" + "6" * 64,
+    )
+    finalized = _finalizer(
+        ledger,
+        materialize_artifacts=materialize,
+        object_store=FailingObjectStore(),
+    ).finalize(
+        run_execution_v2.ExecutedNodeSuccess(
+            project_id="project-1",
+            run_id="run-1",
+            execution_plan=SimpleNamespace(),
+            node=SimpleNamespace(node_id="node-1"),
+            resources=SimpleNamespace(
+                run_id="run-1",
+                _output_root=tmp_path / "outputs",
+                _cancellation_control=cancellation_control,
+            ),
+            node_attempt_id="node-attempt-1",
+            operation_attempt_id="operation-1",
+            result_identity="sha256:" + "5" * 64,
+            admitted_output_descriptors=(
+                {
+                    "node_id": "node-1",
+                    "output_port": "text",
+                    "port_type": reference,
+                    "content_digest": admitted.content_digest,
+                },
+            ),
+            admitted_outputs={("node-1", "text"): admitted},
+            cache_eligible=False,
+            current_artifact_count=0,
+            current_artifact_bytes=0,
+        )
+    )
+
+    assert finalized.disposition == "failed"
+    assert ledger.projection()["node_dispositions"][0]["outcome"] == "failed"
+    assert not artifact_path.exists()
 
 
 def test_failed_node_transaction_exposes_no_logical_fact_subset(

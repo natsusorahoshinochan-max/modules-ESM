@@ -26,7 +26,7 @@ _SOURCE_EDGE = (
 def test_masked_insertion_handles_repeated_chain_boundary_choices(
     tmp_path: Path,
 ) -> None:
-    catalog, projection, _ = run_operation(
+    catalog, service, projection, _ = run_operation(
         tmp_path,
         operation="random_insert_masked",
         node_parameters={
@@ -43,7 +43,12 @@ def test_masked_insertion_handles_repeated_chain_boundary_choices(
         for output in projection["outputs"]
         if output["node_id"] == "author"
     }
-    inserted = decoded_output(catalog, outputs["protein_prompt"])
+    inserted = decoded_output(
+        catalog,
+        service,
+        projection,
+        outputs["protein_prompt"],
+    )
     assert inserted.target_layout == ResidueLayout(
         "A,B",
         6,
@@ -77,7 +82,12 @@ def test_masked_insertion_handles_repeated_chain_boundary_choices(
         )
         for annotation in inserted.function_annotations.annotations
     ] == [(2, 3, "A:1", "A:2")]
-    residue_map = decoded_output(catalog, outputs["residue_map"])
+    residue_map = decoded_output(
+        catalog,
+        service,
+        projection,
+        outputs["residue_map"],
+    )
     assert residue_map.mappings == (
         (-1, 0, "insert"),
         (0, 1, "match"),
@@ -91,7 +101,7 @@ def test_masked_insertion_handles_repeated_chain_boundary_choices(
 def test_zero_insertion_and_chain_restriction_are_explicit(
     tmp_path: Path,
 ) -> None:
-    catalog, zero_projection, _ = run_operation(
+    catalog, zero_service, zero_projection, _ = run_operation(
         tmp_path / "zero",
         operation="random_insert_masked",
         node_parameters={
@@ -106,8 +116,18 @@ def test_zero_insertion_and_chain_restriction_are_explicit(
         for output in zero_projection["outputs"]
         if output["node_id"] == "author"
     }
-    zero_prompt = decoded_output(catalog, zero_outputs["protein_prompt"])
-    zero_map = decoded_output(catalog, zero_outputs["residue_map"])
+    zero_prompt = decoded_output(
+        catalog,
+        zero_service,
+        zero_projection,
+        zero_outputs["protein_prompt"],
+    )
+    zero_map = decoded_output(
+        catalog,
+        zero_service,
+        zero_projection,
+        zero_outputs["residue_map"],
+    )
     assert zero_prompt.target_layout == ResidueLayout(
         "A,B",
         3,
@@ -119,7 +139,7 @@ def test_zero_insertion_and_chain_restriction_are_explicit(
         (2, 2, "match"),
     )
 
-    catalog, chain_projection, _ = run_operation(
+    catalog, chain_service, chain_projection, _ = run_operation(
         tmp_path / "chain-b",
         operation="random_insert_masked",
         node_parameters={
@@ -131,6 +151,8 @@ def test_zero_insertion_and_chain_restriction_are_explicit(
     )
     chain_prompt = decoded_output(
         catalog,
+        chain_service,
+        chain_projection,
         next(
             output
             for output in chain_projection["outputs"]
@@ -149,7 +171,7 @@ def test_zero_insertion_and_chain_restriction_are_explicit(
 def test_masked_insertion_rejects_unknown_chain_constraints(
     tmp_path: Path,
 ) -> None:
-    _, projection, _ = run_operation(
+    _, _, projection, _ = run_operation(
         tmp_path,
         operation="random_insert_masked",
         node_parameters={
@@ -166,7 +188,7 @@ def test_masked_insertion_rejects_unknown_chain_constraints(
 def test_masked_insertion_rejects_generated_residue_identity_collision(
     tmp_path: Path,
 ) -> None:
-    _, projection, _ = run_operation(
+    _, _, projection, _ = run_operation(
         tmp_path,
         operation="random_insert_masked",
         node_parameters={
@@ -184,7 +206,7 @@ def test_masked_insertion_rejects_generated_residue_identity_collision(
 def test_canonical_3gb1_insertion_intent_is_an_ordinary_regression(
     tmp_path: Path,
 ) -> None:
-    catalog, projection, _ = run_operation(
+    catalog, service, projection, _ = run_operation(
         tmp_path,
         operation="random_insert_masked",
         node_parameters={
@@ -197,6 +219,8 @@ def test_canonical_3gb1_insertion_intent_is_an_ordinary_regression(
     )
     inserted = decoded_output(
         catalog,
+        service,
+        projection,
         next(
             output
             for output in projection["outputs"]

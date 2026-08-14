@@ -78,7 +78,7 @@ def test_prompt_authoring_registers_three_prompt_nodes_once() -> None:
 def test_function_annotation_keeps_chain_qualified_provenance(
     tmp_path: Path,
 ) -> None:
-    catalog, projection, _ = run_operation(
+    catalog, service, projection, _ = run_operation(
         tmp_path,
         operation="add_function_annotation",
         node_parameters={
@@ -101,7 +101,12 @@ def test_function_annotation_keeps_chain_qualified_provenance(
         for output in projection["outputs"]
         if output["node_id"] == "author"
     )
-    assert decoded_output(catalog, output) == canonical_annotations(
+    assert decoded_output(
+        catalog,
+        service,
+        projection,
+        output,
+    ) == canonical_annotations(
         [{
             "label": "binding_site",
             "start": 1,
@@ -117,7 +122,7 @@ def test_function_annotation_keeps_chain_qualified_provenance(
 def test_prompt_assembly_preserves_every_declared_aligned_track(
     tmp_path: Path,
 ) -> None:
-    catalog, projection, _ = run_operation(
+    catalog, service, projection, _ = run_operation(
         tmp_path,
         operation="assemble_protein_prompt",
         node_parameters={},
@@ -167,7 +172,12 @@ def test_prompt_assembly_preserves_every_declared_aligned_track(
         for output in projection["outputs"]
         if output["node_id"] == "author"
     )
-    assert decoded_output(catalog, output) == ProteinPrompt(
+    assert decoded_output(
+        catalog,
+        service,
+        projection,
+        output,
+    ) == ProteinPrompt(
         target_layout=ResidueLayout(
             "A,B",
             3,
@@ -202,7 +212,7 @@ def test_prompt_assembly_preserves_every_declared_aligned_track(
 def test_generic_sequence_update_preserves_layout_and_unaffected_tracks(
     tmp_path: Path,
 ) -> None:
-    catalog, projection, _ = run_operation(
+    catalog, service, projection, _ = run_operation(
         tmp_path,
         operation="update_prompt_sequence",
         node_parameters={},
@@ -228,7 +238,7 @@ def test_generic_sequence_update_preserves_layout_and_unaffected_tracks(
         for output in projection["outputs"]
         if output["node_id"] == "author"
     )
-    updated = decoded_output(catalog, output)
+    updated = decoded_output(catalog, service, projection, output)
     assert updated.sequence_track == ResidueTrack(["W", "F", "C"], None)
     assert updated.target_layout == ResidueLayout(
         "A,B",
@@ -268,7 +278,7 @@ def test_generic_sequence_update_preserves_layout_and_unaffected_tracks(
 def test_prompt_assembly_keeps_absent_optional_tracks_absent(
     tmp_path: Path,
 ) -> None:
-    catalog, projection, _ = run_operation(
+    catalog, service, projection, _ = run_operation(
         tmp_path,
         operation="assemble_protein_prompt",
         node_parameters={},
@@ -283,7 +293,7 @@ def test_prompt_assembly_keeps_absent_optional_tracks_absent(
         for output in projection["outputs"]
         if output["node_id"] == "author"
     )
-    prompt = decoded_output(catalog, output)
+    prompt = decoded_output(catalog, service, projection, output)
     assert prompt.sequence_track is None
     assert prompt.structure_track is None
     assert prompt.structure_visibility_track is None
@@ -295,7 +305,7 @@ def test_prompt_assembly_keeps_absent_optional_tracks_absent(
 def test_prompt_assembly_rejects_track_from_another_effective_layout(
     tmp_path: Path,
 ) -> None:
-    _, projection, _ = run_operation(
+    _, _, projection, _ = run_operation(
         tmp_path,
         operation="assemble_protein_prompt",
         node_parameters={},
@@ -344,7 +354,7 @@ def test_function_annotation_rejects_invalid_layout_intervals(
     tmp_path: Path,
     annotation: dict[str, str],
 ) -> None:
-    _, projection, _ = run_operation(
+    _, _, projection, _ = run_operation(
         tmp_path,
         operation="add_function_annotation",
         node_parameters={
@@ -371,7 +381,7 @@ def test_prompt_assembly_rejects_noncanonical_function_annotations(
     tmp_path: Path,
     source_fixture: str,
 ) -> None:
-    _, projection, _ = run_operation(
+    _, _, projection, _ = run_operation(
         tmp_path,
         operation="assemble_protein_prompt",
         node_parameters={},
@@ -393,7 +403,7 @@ def test_prompt_assembly_rejects_noncanonical_function_annotations(
 def test_function_annotation_overlap_policy_is_retained_and_enforced(
     tmp_path: Path,
 ) -> None:
-    catalog, allowed, _ = run_operation(
+    catalog, service, allowed, _ = run_operation(
         tmp_path / "allow",
         operation="add_function_annotation",
         node_parameters={
@@ -422,7 +432,7 @@ def test_function_annotation_overlap_policy_is_retained_and_enforced(
         for output in allowed["outputs"]
         if output["node_id"] == "author"
     )
-    annotations = decoded_output(catalog, output)
+    annotations = decoded_output(catalog, service, allowed, output)
     assert [item.label for item in annotations.annotations] == [
         "binding_site",
         "active_site",
@@ -431,7 +441,7 @@ def test_function_annotation_overlap_policy_is_retained_and_enforced(
         item.overlap_policy for item in annotations.annotations
     } == {"allow"}
 
-    _, rejected, _ = run_operation(
+    _, _, rejected, _ = run_operation(
         tmp_path / "reject",
         operation="add_function_annotation",
         node_parameters={
@@ -565,7 +575,7 @@ def test_sequence_update_rejects_length_identity_and_symbol_drift(
     tmp_path: Path,
     source_fixture: str,
 ) -> None:
-    _, projection, _ = run_operation(
+    _, _, projection, _ = run_operation(
         tmp_path,
         operation="update_prompt_sequence",
         node_parameters={},
@@ -741,7 +751,7 @@ def test_multichain_prompt_round_trip_preserves_explicit_esm3_refusal(
 ) -> None:
     from modules.esm3.adapter import protein_prompt_to_provider
 
-    catalog, projection, _ = run_operation(
+    catalog, service, projection, _ = run_operation(
         tmp_path,
         operation="assemble_protein_prompt",
         node_parameters={},
@@ -792,7 +802,7 @@ def test_multichain_prompt_round_trip_preserves_explicit_esm3_refusal(
         for output in projection["outputs"]
         if output["node_id"] == "author"
     )
-    prompt = decoded_output(catalog, output)
+    prompt = decoded_output(catalog, service, projection, output)
     prompt_codec = catalog.require_port_type(
         "protein.prompt",
         PROMPT_PORT_VERSION,

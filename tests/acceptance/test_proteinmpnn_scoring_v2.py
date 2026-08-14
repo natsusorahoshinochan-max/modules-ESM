@@ -18,7 +18,6 @@ from core import (
     WorkflowNodeInstance,
     build_frozen_catalog,
 )
-from core.port_types import canonical_json_bytes
 from core.workflow_v2 import WorkflowEdge
 from datatypes import (
     CandidateCollection,
@@ -71,7 +70,7 @@ def _run(
     edges: tuple[WorkflowEdge, ...],
     binding_id: str,
     binding_version: str,
-) -> tuple[Any, dict[str, Any], tuple[dict[str, Any], ...]]:
+) -> tuple[Any, V2RunService, dict[str, Any], tuple[dict[str, Any], ...]]:
     from modules.proteinmpnn.package import (
         MODULE_PACKAGE as PROTEINMPNN_PACKAGE,
     )
@@ -122,23 +121,26 @@ def _run(
     service.shutdown()
     return (
         catalog,
+        service,
         service.projection(project.id, receipt["run_id"]),
         service.public_events(project.id, receipt["run_id"]),
     )
 
 
-def _decode(catalog: Any, output: dict[str, Any]) -> object:
-    reference = output["port_type"]
-    codec = catalog.require_port_type(
-        reference["contract_id"],
-        reference["contract_version"],
+def _decode(
+    catalog: Any,
+    service: V2RunService,
+    projection: dict[str, Any],
+    output: dict[str, Any],
+) -> object:
+    from tests.fixtures.public_v2 import decode_service_typed_output_value
+
+    return decode_service_typed_output_value(
+        service,
+        catalog,
+        projection,
+        output,
     )
-    return codec.decode(canonical_json_bytes({
-        "schema_namespace": "protein-workbench-port-value/v2",
-        "port_type_id": codec.type_id,
-        "port_type_version": codec.version,
-        "value": output["values"][0],
-    }))
 
 
 def _expected_3gb1_invocation_provenance() -> dict[str, Any]:
@@ -241,7 +243,7 @@ def test_proteinmpnn_v2_scoring_publishes_exact_native_observation(
             "sequence_candidates",
         ),
     )
-    catalog, projection, events = _run(
+    catalog, service, projection, events = _run(
         tmp_path,
         nodes=nodes,
         edges=edges,
@@ -255,7 +257,7 @@ def test_proteinmpnn_v2_scoring_publishes_exact_native_observation(
         for item in projection["outputs"]
         if item["node_id"] == "score"
     )
-    scores = _decode(catalog, output)
+    scores = _decode(catalog, service, projection, output)
     assert type(scores) is ScoreCollection
     assert len(scores.entries) == 1
     observation = scores.entries[0]
@@ -337,7 +339,7 @@ def test_proteinmpnn_v2_sibling_design_remains_exact_and_complete(
             "structure_residue_axes",
         ),
     )
-    catalog, projection, events = _run(
+    catalog, _, projection, events = _run(
         tmp_path,
         nodes=nodes,
         edges=edges,

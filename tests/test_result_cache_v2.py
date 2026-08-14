@@ -26,7 +26,10 @@ from core import (
 from core.server import create_app
 import core.run_execution_v2 as run_execution_v2
 from datatypes import Candidate, CandidateCollection, ProteinSequence
-from tests.fixtures.public_v2 import wait_for_testclient_run_terminal
+from tests.fixtures.public_v2 import (
+    retrieve_typed_output_values,
+    wait_for_testclient_run_terminal,
+)
 from tests.test_run_execution_v2 import (
     _commit_one_node,
     _commit_pipeline,
@@ -345,10 +348,17 @@ def _commit_candidate_node(
     return project_id, _commit_public_workflow(client, project_id, workflow)
 
 
-def _candidate_id(projection: dict[str, Any]) -> str:
-    return projection["outputs"][0]["values"][0]["fields"]["items"][0][
-        "fields"
-    ]["candidate_id"]
+def _candidate_value(
+    client: TestClient,
+    project_id: str,
+    projection: dict[str, Any],
+) -> dict[str, Any]:
+    return retrieve_typed_output_values(
+        client,
+        project_id,
+        projection["run_id"],
+        projection["outputs"][0],
+    )[0]
 
 
 def test_deterministic_result_replays_from_project_cache_after_readiness(
@@ -717,13 +727,23 @@ def test_candidate_identity_is_run_independent_and_preserved_on_replay(
             "candidate-replay",
         )
 
-    candidate_id = _candidate_id(source)
+        source_value = _candidate_value(client, project_id, source)
+        forced_value = _candidate_value(
+            client,
+            project_id,
+            forced_projection,
+        )
+        replayed_value = _candidate_value(client, project_id, replayed)
+
+    candidate_fields = source_value["fields"]["items"][0]["fields"]
+    candidate_id = candidate_fields["candidate_id"]
     assert candidate_id.startswith("candidate-")
-    assert _candidate_id(forced_projection) == candidate_id
-    assert _candidate_id(replayed) == candidate_id
-    candidate_fields = source["outputs"][0]["values"][0]["fields"]["items"][0][
-        "fields"
-    ]
+    assert forced_value["fields"]["items"][0]["fields"][
+        "candidate_id"
+    ] == candidate_id
+    assert replayed_value["fields"]["items"][0]["fields"][
+        "candidate_id"
+    ] == candidate_id
     assert candidate_fields["parent_ids"] == []
     assert candidate_fields["metadata"]["$map"]
     assert calls == [source["run_id"], forced_projection["run_id"]]
@@ -1092,6 +1112,12 @@ def test_changed_implementation_identity_rejects_the_old_workflow_generation(
             compiled,
             "algorithm-a",
         )
+        first_values = retrieve_typed_output_values(
+            first_client,
+            project_id,
+            first["run_id"],
+            first["outputs"][0],
+        )
 
     second_calls: list[str] = []
     with TestClient(
@@ -1114,7 +1140,7 @@ def test_changed_implementation_identity_rejects_the_old_workflow_generation(
             },
         )
 
-    assert first["outputs"][0]["values"] == ["READY"]
+    assert first_values == ["READY"]
     assert rejected.status_code == 409
     assert rejected.json()["error"]["code"] == "contract_digest_mismatch"
     assert rejected.json()["error"]["details"]["issues"][0][

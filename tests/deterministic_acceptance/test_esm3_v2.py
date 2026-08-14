@@ -34,14 +34,14 @@ def test_remote_esm3_all_modes_and_ten_pairs_are_stable_across_runs(
     tmp_path: Path,
 ) -> None:
     first_client = _ProviderClient([_ProviderResponse("ACD")])
-    first_catalog, first_projection, _ = _run_generation(
+    first_service, first_catalog, first_projection, _ = _run_generation(
         tmp_path / "first",
         operation="generate_sequence",
         client=first_client,
         num_samples=1,
     )
     second_client = _ProviderClient([_ProviderResponse("ACD")])
-    second_catalog, second_projection, _ = _run_generation(
+    second_service, second_catalog, second_projection, _ = _run_generation(
         tmp_path / "second",
         operation="generate_sequence",
         client=second_client,
@@ -59,8 +59,18 @@ def test_remote_esm3_all_modes_and_ten_pairs_are_stable_across_runs(
         if output["node_id"] == "generate"
         and output["output_port"] == "sequence_candidates"
     )
-    first_candidates = _decode_output(first_catalog, first_output)
-    second_candidates = _decode_output(second_catalog, second_output)
+    first_candidates = _decode_output(
+        first_service,
+        first_catalog,
+        first_projection,
+        first_output,
+    )
+    second_candidates = _decode_output(
+        second_service,
+        second_catalog,
+        second_projection,
+        second_output,
+    )
     assert first_output["result_identity"] == second_output["result_identity"]
     assert [
         candidate.candidate_id for candidate in first_candidates.items
@@ -70,7 +80,7 @@ def test_remote_esm3_all_modes_and_ten_pairs_are_stable_across_runs(
     assert first_client.calls and second_client.calls
 
     structure_client = _ProviderClient([_structure_response()])
-    _, structure_projection, _ = _run_generation(
+    _, _, structure_projection, _ = _run_generation(
         tmp_path / "structure",
         operation="generate_structure",
         client=structure_client,
@@ -90,7 +100,7 @@ def test_remote_esm3_all_modes_and_ten_pairs_are_stable_across_runs(
             )
         ]
     )
-    paired_catalog, paired_projection, _ = _run_generation(
+    paired_service, paired_catalog, paired_projection, _ = _run_generation(
         tmp_path / "paired",
         operation="generate_paired",
         client=paired_client,
@@ -102,7 +112,9 @@ def test_remote_esm3_all_modes_and_ten_pairs_are_stable_across_runs(
         if output["node_id"] == "generate"
     }
     pairs = _decode_output(
+        paired_service,
         paired_catalog,
+        paired_projection,
         paired_outputs["counterpart_pairs"],
     )
     assert paired_projection["status"] == "succeeded"

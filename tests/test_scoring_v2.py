@@ -58,7 +58,10 @@ from datatypes import (
     ScoreCollection,
     ScoreObservation,
 )
-from tests.fixtures.public_v2 import wait_for_testclient_run_terminal
+from tests.fixtures.public_v2 import (
+    retrieve_typed_output_values,
+    wait_for_testclient_run_terminal,
+)
 from modules.selection.package import MODULE_PACKAGE as SELECTION_PACKAGE
 from modules.structure_prediction.port_types import CONFIDENCE_FACTS_PORT_TYPE
 
@@ -2147,13 +2150,20 @@ def test_run_executes_objectives_and_publishes_effective_provenance(
             started.json()["run_id"],
         )
 
+        candidate_output = next(
+            output
+            for output in projection["outputs"]
+            if output["output_port"] == "candidates"
+        )
+        candidate_value = retrieve_typed_output_values(
+            client,
+            project_id,
+            projection["run_id"],
+            candidate_output,
+        )[0]
+
     assert projection["status"] == "succeeded"
-    candidate_output = next(
-        output
-        for output in projection["outputs"]
-        if output["output_port"] == "candidates"
-    )
-    candidate_items = candidate_output["values"][0]["fields"]["items"]
+    candidate_items = candidate_value["fields"]["items"]
     produced_ids = [
         item["fields"]["candidate_id"] for item in candidate_items
     ]

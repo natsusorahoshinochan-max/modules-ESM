@@ -198,6 +198,54 @@ def open_private_regular_file(
     return descriptor
 
 
+def fsync_private_parent_directory(
+    root: str | Path,
+    relative_parts: tuple[str, ...],
+    *,
+    field: str,
+) -> None:
+    """Confirm durability of an existing contained file's directory entry."""
+    if not relative_parts:
+        raise StoragePathError(field, f"Invalid {field}")
+    absolute_root = _absolute_storage_root(root, field)
+    directory_flags = os.O_RDONLY | getattr(os, "O_DIRECTORY", 0)
+    directory_flags |= getattr(os, "O_NOFOLLOW", 0)
+    current_fd = os.open(absolute_root.anchor, directory_flags)
+    try:
+        for component in absolute_root.parts[1:]:
+            next_fd = os.open(
+                component,
+                directory_flags,
+                dir_fd=current_fd,
+            )
+            os.close(current_fd)
+            current_fd = next_fd
+        root_metadata = os.fstat(current_fd)
+        if (
+            not stat.S_ISDIR(root_metadata.st_mode)
+            or root_metadata.st_uid != os.getuid()
+        ):
+            raise StoragePathError(field, f"Invalid {field}")
+        for component in relative_parts[:-1]:
+            next_fd = os.open(
+                component,
+                directory_flags,
+                dir_fd=current_fd,
+            )
+            metadata = os.fstat(next_fd)
+            if (
+                not stat.S_ISDIR(metadata.st_mode)
+                or metadata.st_uid != os.getuid()
+            ):
+                os.close(next_fd)
+                raise StoragePathError(field, f"Invalid {field}")
+            os.close(current_fd)
+            current_fd = next_fd
+        os.fsync(current_fd)
+    finally:
+        os.close(current_fd)
+
+
 def write_private_new_file(
     root: str | Path,
     relative_parts: tuple[str, ...],
@@ -227,6 +275,7 @@ def write_private_new_file(
                 )
             except FileNotFoundError:
                 os.mkdir(component, mode=0o700, dir_fd=current_fd)
+                os.fsync(current_fd)
                 next_fd = os.open(
                     component,
                     directory_flags,
@@ -243,10 +292,14 @@ def write_private_new_file(
         os.fchmod(current_fd, 0o700)
 
         for component in relative_parts[:-1]:
+            directory_created = False
             try:
                 os.mkdir(component, mode=0o700, dir_fd=current_fd)
+                directory_created = True
             except FileExistsError:
                 pass
+            if directory_created:
+                os.fsync(current_fd)
             next_fd = os.open(
                 component,
                 directory_flags,

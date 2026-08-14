@@ -362,6 +362,17 @@ class ProjectManager:
             )
         return contained_path(base, safe_run_id)
 
+    def object_dir(self, project_id: str) -> Path:
+        """Resolve one Project's shared immutable object namespace."""
+        if self.output_root is None:
+            base = contained_path(self.project_dir(project_id), "outputs")
+        else:
+            base = contained_path(
+                self.output_root,
+                validate_identifier(project_id, "project_id"),
+            )
+        return contained_path(base, "objects")
+
     def run_dir(self, project_id: str, run_id: str) -> Path:
         """Resolve one run's mutable namespace."""
         safe_run_id = validate_identifier(run_id, "run_id")

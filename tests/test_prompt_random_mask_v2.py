@@ -28,7 +28,7 @@ _SOURCE_EDGE = (
 def test_random_mask_clears_only_seeded_assigned_sequence_positions(
     tmp_path: Path,
 ) -> None:
-    catalog, projection, _ = run_operation(
+    catalog, service, projection, _ = run_operation(
         tmp_path,
         operation="random_mask",
         node_parameters={
@@ -46,7 +46,7 @@ def test_random_mask_clears_only_seeded_assigned_sequence_positions(
         for output in projection["outputs"]
         if output["node_id"] == "author"
     )
-    masked = decoded_output(catalog, output)
+    masked = decoded_output(catalog, service, projection, output)
     assert masked.sequence_track == ResidueTrack(["A", None, None], None)
     assert masked.target_layout.residue_ids == ("A:1", "A:2", "B:1")
     assert masked.structure_track == ResidueTrack(
@@ -68,7 +68,7 @@ def test_zero_and_full_masks_preserve_nullable_track_semantics(
 ) -> None:
     outputs = []
     for label, count in (("zero", 0), ("full", 3)):
-        catalog, projection, _ = run_operation(
+        catalog, service, projection, _ = run_operation(
             tmp_path / label,
             operation="random_mask",
             node_parameters={
@@ -82,6 +82,8 @@ def test_zero_and_full_masks_preserve_nullable_track_semantics(
         outputs.append(
             decoded_output(
                 catalog,
+                service,
+                projection,
                 next(
                     output
                     for output in projection["outputs"]
@@ -97,7 +99,7 @@ def test_zero_and_full_masks_preserve_nullable_track_semantics(
         None,
     )
 
-    catalog, structure_projection, _ = run_operation(
+    catalog, structure_service, structure_projection, _ = run_operation(
         tmp_path / "structure",
         operation="random_mask",
         node_parameters={
@@ -110,6 +112,8 @@ def test_zero_and_full_masks_preserve_nullable_track_semantics(
     )
     structure_masked = decoded_output(
         catalog,
+        structure_service,
+        structure_projection,
         next(
             output
             for output in structure_projection["outputs"]
@@ -143,7 +147,7 @@ def test_random_mask_rejects_impossible_counts_and_positions(
     tmp_path: Path,
     parameters: dict[str, object],
 ) -> None:
-    _, projection, _ = run_operation(
+    _, _, projection, _ = run_operation(
         tmp_path,
         operation="random_mask",
         node_parameters=parameters,
@@ -179,7 +183,7 @@ def test_duplicate_mask_positions_fail_during_authoring(
 def test_canonical_3gb1_mask_intent_is_an_ordinary_regression(
     tmp_path: Path,
 ) -> None:
-    catalog, projection, _ = run_operation(
+    catalog, service, projection, _ = run_operation(
         tmp_path,
         operation="random_mask",
         node_parameters={
@@ -193,6 +197,8 @@ def test_canonical_3gb1_mask_intent_is_an_ordinary_regression(
     )
     masked = decoded_output(
         catalog,
+        service,
+        projection,
         next(
             output
             for output in projection["outputs"]

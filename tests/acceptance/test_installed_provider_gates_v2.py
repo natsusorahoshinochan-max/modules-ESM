@@ -155,7 +155,7 @@ def _run_rich_esm3_generation(
     binding_route: str,
     credential_handle: str,
     client_factory: Any,
-) -> tuple[Any, dict[str, Any], tuple[dict[str, Any], ...]]:
+) -> tuple[Any, Any, dict[str, Any], tuple[dict[str, Any], ...]]:
     from core import (
         EnvironmentConfiguration,
         ProjectManager,
@@ -271,7 +271,7 @@ def _run_rich_esm3_generation(
         events = service.public_events(project.id, receipt["run_id"])
     finally:
         service.shutdown()
-    return catalog, projection, events
+    return service, catalog, projection, events
 
 
 def _native_tensor_values(value: Any) -> Any:
@@ -507,7 +507,7 @@ def test_biohub_esm3_all_remote_bindings_execute_exact_methods(
         ):
             binding_id = f"esm3.{operation}.{route}"
             provider_call_start = len(provider_calls)
-            catalog, projection, events = _run_rich_esm3_generation(
+            service, catalog, projection, events = _run_rich_esm3_generation(
                 tmp_path / route / operation,
                 operation=operation,
                 prompt_mode=(
@@ -588,7 +588,9 @@ def test_biohub_esm3_all_remote_bindings_execute_exact_methods(
             )
             if operation == "generate_sequence":
                 sequences = _decode_output(
+                    service,
                     catalog,
+                    projection,
                     outputs["sequence_candidates"],
                 )
                 assert len(sequences.items) == 1
@@ -602,11 +604,15 @@ def test_biohub_esm3_all_remote_bindings_execute_exact_methods(
                 ]
             elif operation == "generate_structure":
                 structures = _decode_output(
+                    service,
                     catalog,
+                    projection,
                     outputs["structure_candidates"],
                 )
                 facts = _decode_output(
+                    service,
                     catalog,
+                    projection,
                     outputs["confidence_facts"],
                 )
                 assert len(structures.items) == 1
@@ -633,19 +639,27 @@ def test_biohub_esm3_all_remote_bindings_execute_exact_methods(
                 )
             else:
                 sequences = _decode_output(
+                    service,
                     catalog,
+                    projection,
                     outputs["sequence_candidates"],
                 )
                 structures = _decode_output(
+                    service,
                     catalog,
+                    projection,
                     outputs["structure_candidates"],
                 )
                 pairing = _decode_output(
+                    service,
                     catalog,
+                    projection,
                     outputs["counterpart_pairs"],
                 )
                 facts = _decode_output(
+                    service,
                     catalog,
+                    projection,
                     outputs["confidence_facts"],
                 )
                 assert len(sequences.items) == len(structures.items) == 1
@@ -764,7 +778,7 @@ def test_biohub_esmfold2_executes_exact_method(
 
         return RecordingESMFold2Client()
 
-    catalog, projection, events = _run_fold(
+    service, catalog, projection, events = _run_fold(
         tmp_path,
         route="remote",
         client=None,
@@ -816,7 +830,11 @@ def test_biohub_esmfold2_executes_exact_method(
     assert started[0]["invocation_provenance"] == {
         "effective_randomness": {"control": "provider_uncontrolled"}
     }
-    structures, observations, facts = _fold_outputs(catalog, projection)
+    structures, observations, facts = _fold_outputs(
+        service,
+        catalog,
+        projection,
+    )
     assert len(structures.items) == 1
     assert structures.items[0].data.pdb_string
     assert observations.entries
@@ -844,7 +862,7 @@ def test_local_esmfold2_executes_exact_method(tmp_path: Path) -> None:
     fingerprint = configured_local_runtime_fingerprint()
     runtime_directory = tmp_path / "runtime"
     runtime_directory.mkdir()
-    catalog, projection, events = _run_fold(
+    service, catalog, projection, events = _run_fold(
         tmp_path,
         route="local",
         client=None,
@@ -876,7 +894,11 @@ def test_local_esmfold2_executes_exact_method(tmp_path: Path) -> None:
         method_digest=method.contract_digest,
         expected_roles=("fold_parent_0_sample_0",),
     )
-    structures, observations, facts = _fold_outputs(catalog, projection)
+    structures, observations, facts = _fold_outputs(
+        service,
+        catalog,
+        projection,
+    )
     assert len(structures.items) == 1
     assert structures.items[0].data.pdb_string
     assert observations.entries
@@ -1094,7 +1116,6 @@ def test_mkdssp_executes_exact_method_through_public_run(
         WorkflowNodeInstance,
         build_frozen_catalog,
     )
-    from core.port_types import canonical_json_bytes
     from core.workflow_v2 import WorkflowEdge
     from modules.protein_io.package import MODULE_PACKAGE as PROTEIN_IO_PACKAGE
     from modules.prompt_authoring.package import (
@@ -1235,20 +1256,13 @@ def test_mkdssp_executes_exact_method_through_public_run(
         for item in projection["outputs"]
         if item["node_id"] == "annotate"
     )
-    reference = output["port_type"]
-    port_type = catalog.require_port_type(
-        reference["contract_id"],
-        reference["contract_version"],
-    )
-    annotation = port_type.decode(
-        canonical_json_bytes(
-            {
-                "schema_namespace": "protein-workbench-port-value/v2",
-                "port_type_id": port_type.type_id,
-                "port_type_version": port_type.version,
-                "value": output["values"][0],
-            }
-        )
+    from tests.fixtures.public_v2 import decode_service_typed_output_value
+
+    annotation = decode_service_typed_output_value(
+        service,
+        catalog,
+        projection,
+        output,
     )
     axis_output = next(
         item
@@ -1256,20 +1270,11 @@ def test_mkdssp_executes_exact_method_through_public_run(
         if item["node_id"] == "resolve-axis"
         and item["output_port"] == "residue_axes"
     )
-    axis_reference = axis_output["port_type"]
-    axis_port_type = catalog.require_port_type(
-        axis_reference["contract_id"],
-        axis_reference["contract_version"],
-    )
-    axis_associations = axis_port_type.decode(
-        canonical_json_bytes(
-            {
-                "schema_namespace": "protein-workbench-port-value/v2",
-                "port_type_id": axis_port_type.type_id,
-                "port_type_version": axis_port_type.version,
-                "value": axis_output["values"][0],
-            }
-        )
+    axis_associations = decode_service_typed_output_value(
+        service,
+        catalog,
+        projection,
+        axis_output,
     )
     association = axis_associations.entries[0]
     assert type(annotation) is DSSPAnnotation

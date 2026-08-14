@@ -12,6 +12,7 @@ from tests.fixtures.prompt_authoring_v2 import (
     prepare_operation,
     run_operation,
 )
+from tests.fixtures.public_v2 import decode_service_typed_output_value
 
 
 _SOURCE_EDGE = (
@@ -30,7 +31,7 @@ def _projected_prompt(
     operation: str,
     parameters: dict[str, Any],
 ) -> tuple[str, object]:
-    _, projection, _ = run_operation(
+    catalog, service, projection, _ = run_operation(
         tmp_path,
         operation=operation,
         node_parameters=parameters,
@@ -42,7 +43,15 @@ def _projected_prompt(
         if output["node_id"] == "author"
         and output["output_port"] == "protein_prompt"
     )
-    return output["result_identity"], output["values"]
+    return (
+        output["result_identity"],
+        decode_service_typed_output_value(
+            service,
+            catalog,
+            projection,
+            output,
+        ),
+    )
 
 
 def test_exact_effective_randomness_replays_byte_equivalent_cached_prompt(
@@ -75,7 +84,17 @@ def test_exact_effective_randomness_replays_byte_equivalent_cached_prompt(
         for output in second["outputs"]
         if output["node_id"] == "author"
     )
-    assert second_output["values"] == first_output["values"]
+    assert decode_service_typed_output_value(
+        prepared.service,
+        prepared.catalog,
+        second,
+        second_output,
+    ) == decode_service_typed_output_value(
+        prepared.service,
+        prepared.catalog,
+        first,
+        first_output,
+    )
     assert second_output["result_identity"] == first_output["result_identity"]
     assert (
         second_output["producer_provenance"]["producer_run_id"]

@@ -621,6 +621,51 @@ def validate_artifact_response(
             )
 
 
+def validate_typed_value_response(
+    metadata: Any,
+    headers: Mapping[str, str],
+    body: bytes,
+) -> None:
+    """Validate exact canonical Typed Output bytes and declared metadata."""
+    validate_schema("#/$defs/TypedValueResponseMetadata", metadata)
+    typed_value = metadata["typed_value"]
+    observed_digest = f"sha256:{hashlib.sha256(body).hexdigest()}"
+    if observed_digest != typed_value["value_content_digest"]:
+        raise ProtocolValidationError(
+            "$.body",
+            "content digest does not match Typed Output value metadata",
+        )
+    if len(body) != typed_value["size"]:
+        raise ProtocolValidationError(
+            "$.body",
+            "content size does not match Typed Output value metadata",
+        )
+    normalized_headers = {name.lower(): value for name, value in headers.items()}
+    expected_headers = {
+        "content-length": str(typed_value["size"]),
+        "content-type": "application/json",
+        "digest": typed_value["value_content_digest"],
+        "etag": f'"{typed_value["value_content_digest"]}"',
+        "x-port-content-digest": typed_value["port_content_digest"],
+        "x-port-type-kind": typed_value["port_type"]["contract_kind"],
+        "x-port-type-id": typed_value["port_type"]["contract_id"],
+        "x-port-type-version": typed_value["port_type"]["contract_version"],
+        "x-port-type-digest": typed_value["port_type"]["contract_digest"],
+        "x-value-count": str(typed_value["value_count"]),
+        "x-value-index": str(typed_value["value_index"]),
+        "x-value-manifest-reference": typed_value[
+            "value_manifest_reference"
+        ],
+    }
+    for name, expected in expected_headers.items():
+        observed = normalized_headers.get(name)
+        if observed != expected:
+            raise ProtocolValidationError(
+                f"$.headers.{name}",
+                f"must equal {expected!r}, got {observed!r}",
+            )
+
+
 def validate_error(payload: Any, *, status: int | None = None) -> None:
     """Validate an error envelope and its code-specific closed details."""
     validate_schema("#/$defs/StructuredErrorEnvelope", payload)

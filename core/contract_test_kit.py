@@ -15,12 +15,7 @@ from core.module_package import (
     ModulePackageRegistration,
     build_frozen_catalog,
 )
-from core.port_types import (
-    PORT_VALUE_NAMESPACE,
-    CatalogBuildError,
-    PortValueError,
-    canonical_json_bytes,
-)
+from core.port_types import CatalogBuildError, PortValueError
 from core.project import ProjectManager
 from core.scoring_v2 import ObservationSelector, SelectionObjective
 from core.run_execution_v2 import (
@@ -207,23 +202,14 @@ class ModulePackageContractReport:
 def _decode_published_value(
     catalog: Any,
     output: Mapping[str, Any],
-    wire_value: Any,
+    canonical_bytes: bytes,
 ) -> Any:
     reference = output["port_type"]
     port_type = catalog.require_port_type(
         reference["contract_id"],
         reference["contract_version"],
     )
-    return port_type.decode(
-        canonical_json_bytes(
-            {
-                "schema_namespace": PORT_VALUE_NAMESPACE,
-                "port_type_id": port_type.type_id,
-                "port_type_version": port_type.version,
-                "value": wire_value,
-            }
-        )
-    )
+    return port_type.decode(canonical_bytes)
 
 
 def _verify_port_cases(
@@ -420,22 +406,41 @@ def _verify_case(
             for output in projection["outputs"]
             if output["node_id"] == "contract-test-node"
         }
+        canonical_values = {
+            port_name: tuple(
+                service.typed_value(
+                    project.id,
+                    receipt["run_id"],
+                    output["node_id"],
+                    output["output_port"],
+                    value_index,
+                )[1]
+                for value_index in range(output["value_count"])
+            )
+            for port_name, output in outputs.items()
+        }
         for port_name, expected in case.expected_scalar_outputs.items():
             output = outputs.get(port_name)
-            if output is None or output["values"] != [expected]:
+            values = canonical_values.get(port_name, ())
+            if (
+                output is None
+                or len(values) != 1
+                or json.loads(values[0])["value"] != expected
+            ):
                 raise ModulePackageConformanceError(
                     f"{case.case_id} output {port_name!r} did not match"
                 )
         for port_name, expected_count in case.expected_candidate_counts.items():
             output = outputs.get(port_name)
-            if output is None or len(output["values"]) != 1:
+            values = canonical_values.get(port_name, ())
+            if output is None or len(values) != 1:
                 raise ModulePackageConformanceError(
                     f"{case.case_id} Candidate output {port_name!r} is missing"
                 )
             decoded = _decode_published_value(
                 catalog,
                 output,
-                output["values"][0],
+                values[0],
             )
             if (
                 not isinstance(decoded, CandidateCollection)
@@ -452,14 +457,15 @@ def _verify_case(
             case.expected_observation_counts.items()
         ):
             output = outputs.get(port_name)
-            if output is None or len(output["values"]) != 1:
+            values = canonical_values.get(port_name, ())
+            if output is None or len(values) != 1:
                 raise ModulePackageConformanceError(
                     f"{case.case_id} Observation output {port_name!r} is missing"
                 )
             decoded = _decode_published_value(
                 catalog,
                 output,
-                output["values"][0],
+                values[0],
             )
             if (
                 not isinstance(decoded, ScoreCollection)

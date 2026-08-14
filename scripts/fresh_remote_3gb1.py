@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from collections import Counter
 import hashlib
 import json
@@ -71,6 +72,7 @@ _PROVIDER_UNCONTROLLED = {
         "control": "provider_uncontrolled",
     }
 }
+TypedValueReader = Callable[[dict[str, Any], int], bytes]
 
 
 def _sha256(payload: bytes) -> str:
@@ -997,12 +999,14 @@ def _decode_output(
     projection: dict[str, Any],
     node_id: str,
     output_port: str,
+    read_value: TypedValueReader,
 ) -> Any:
     values = _decode_output_values(
         catalog,
         projection,
         node_id,
         output_port,
+        read_value,
     )
     if len(values) != 1:
         raise ValueError(
@@ -1016,9 +1020,8 @@ def _decode_output_values(
     projection: dict[str, Any],
     node_id: str,
     output_port: str,
+    read_value: TypedValueReader,
 ) -> tuple[Any, ...]:
-    from core.port_types import PORT_VALUE_NAMESPACE, canonical_json_bytes
-
     output = next(
         item
         for item in projection["outputs"]
@@ -1030,20 +1033,58 @@ def _decode_output_values(
         reference["contract_id"],
         reference["contract_version"],
     )
-    values = output.get("values")
-    if not isinstance(values, list) or not values:
+    if output["value_count"] < 1:
         raise ValueError(f"{node_id}.{output_port} has no public values")
     return tuple(
-        codec.decode(
-            canonical_json_bytes({
-                "schema_namespace": PORT_VALUE_NAMESPACE,
-                "port_type_id": reference["contract_id"],
-                "port_type_version": reference["contract_version"],
-                "value": value,
-            })
-        )
-        for value in values
+        codec.decode(read_value(output, value_index))
+        for value_index in range(output["value_count"])
     )
+
+
+def _retrieve_typed_output_value(
+    client: Any,
+    projection: dict[str, Any],
+    output: dict[str, Any],
+    value_index: int,
+) -> bytes:
+    from protein_workbench_public import (
+        prepare_rest_request,
+        validate_typed_value_response,
+    )
+
+    prepared = prepare_rest_request(
+        "typed_value_retrieval",
+        {
+            "project_id": projection["project_id"],
+            "run_id": projection["run_id"],
+            "node_id": output["node_id"],
+            "output_port": output["output_port"],
+            "value_index": value_index,
+        },
+    )
+    response = client.request(prepared.method, prepared.route)
+    response.raise_for_status()
+    metadata = {
+        "typed_value": {
+            "node_id": output["node_id"],
+            "output_port": output["output_port"],
+            "port_type": output["port_type"],
+            "port_content_digest": output["content_digest"],
+            "value_manifest_reference": output[
+                "value_manifest_reference"
+            ],
+            "value_index": value_index,
+            "value_count": output["value_count"],
+            "value_content_digest": response.headers["digest"],
+            "size": len(response.content),
+        }
+    }
+    validate_typed_value_response(
+        metadata,
+        response.headers,
+        response.content,
+    )
+    return response.content
 
 
 def _collect_events(client: Any, run_id: str) -> list[dict[str, Any]]:
@@ -1231,42 +1272,83 @@ def require_invocation_proof_matches_ledger(
         raise ValueError("Invocation proof does not match retained Run Ledger")
 
 
-def _candidate_lineage(catalog: Any, projection: dict[str, Any]) -> dict[str, Any]:
+def _candidate_lineage(
+    catalog: Any,
+    projection: dict[str, Any],
+    read_value: TypedValueReader,
+) -> dict[str, Any]:
     from collections import Counter as RuntimeCounter
     import torch
 
     paired_sequences = _decode_output(
-        catalog, projection, "generate-paired", "sequence_candidates"
+        catalog,
+        projection,
+        "generate-paired",
+        "sequence_candidates",
+        read_value,
     )
     paired_structures = _decode_output(
-        catalog, projection, "generate-paired", "structure_candidates"
+        catalog,
+        projection,
+        "generate-paired",
+        "structure_candidates",
+        read_value,
     )
     counterparts = _decode_output(
-        catalog, projection, "generate-paired", "counterpart_pairs"
+        catalog,
+        projection,
+        "generate-paired",
+        "counterpart_pairs",
+        read_value,
     )
     prompt = _decode_output(
         catalog,
         projection,
         "override-secondary-structure",
         "protein_prompt",
+        read_value,
     )
     fixed_alignments = _decode_output_values(
-        catalog, projection, "align-fixed", "alignments"
+        catalog,
+        projection,
+        "align-fixed",
+        "alignments",
+        read_value,
     )
     paired_alignments = _decode_output_values(
-        catalog, projection, "align-paired", "alignments"
+        catalog,
+        projection,
+        "align-paired",
+        "alignments",
+        read_value,
     )
     ranked = _decode_output(
-        catalog, projection, "rank-candidates", "candidates"
+        catalog,
+        projection,
+        "rank-candidates",
+        "candidates",
+        read_value,
     )
     selected = _decode_output(
-        catalog, projection, "take-top-three", "candidates"
+        catalog,
+        projection,
+        "take-top-three",
+        "candidates",
+        read_value,
     )
     children = _decode_output(
-        catalog, projection, "design-children", "sequence_candidates"
+        catalog,
+        projection,
+        "design-children",
+        "sequence_candidates",
+        read_value,
     )
     final_folds = _decode_output(
-        catalog, projection, "fold-final", "structure_candidates"
+        catalog,
+        projection,
+        "fold-final",
+        "structure_candidates",
+        read_value,
     )
     selection = projection["selection_results"][0]
     prompt_output = next(
@@ -1753,7 +1835,16 @@ def installed_main() -> int:
             write_checksums(root)
             return 1
 
-        lineage = _candidate_lineage(catalog, successful)
+        lineage = _candidate_lineage(
+            catalog,
+            successful,
+            lambda output, value_index: _retrieve_typed_output_value(
+                client,
+                successful,
+                output,
+                value_index,
+            ),
+        )
         _write_json(root / "candidate-lineage.json", lineage)
         invocation_proof = _invocation_proof(
             catalog_snapshot,

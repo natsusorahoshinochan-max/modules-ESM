@@ -32,7 +32,6 @@ from core import (
     discover_module_packages,
     verify_module_package_contract,
 )
-from core.port_types import canonical_json_bytes
 from core.parameter_contract import (
     ParameterContractDefinitionError,
     validate_parameter_declarations,
@@ -444,7 +443,7 @@ def _run_single_node(
     project_inputs: dict[str, bytes] | None = None,
     project_input_filenames: dict[str, str] | None = None,
     catalog: Any | None = None,
-) -> tuple[Any, dict[str, Any], tuple[dict[str, Any], ...]]:
+) -> tuple[Any, V2RunService, dict[str, Any], tuple[dict[str, Any], ...]]:
     catalog = catalog or build_discovered_frozen_catalog()
     projects = ProjectManager(
         tmp_path / "projects",
@@ -518,13 +517,13 @@ def _run_single_node(
     service.shutdown()
     projection = service.projection(project.id, receipt["run_id"])
     events = service.public_events(project.id, receipt["run_id"])
-    return (catalog, projection, events)
+    return (catalog, service, projection, events)
 
 
 def test_sequence_import_reads_only_one_project_scoped_reference(
     tmp_path: Path,
 ) -> None:
-    catalog, projection, events = _run_single_node(
+    catalog, service, projection, events = _run_single_node(
         tmp_path,
         operation="import_sequence",
         node_parameters={"project_input_ref": "input-sequence-1"},
@@ -539,16 +538,14 @@ def test_sequence_import_reads_only_one_project_scoped_reference(
         for item in projection["outputs"]
         if item["output_port"] == "sequence"
     )
+    from tests.fixtures.public_v2 import decode_service_typed_output_value
+
     port_type = catalog.require_port_type("protein.sequence", "3.0.0")
-    sequence = port_type.decode(
-        canonical_json_bytes(
-            {
-                "schema_namespace": "protein-workbench-port-value/v2",
-                "port_type_id": "protein.sequence",
-                "port_type_version": "3.0.0",
-                "value": output["values"][0],
-            }
-        )
+    sequence = decode_service_typed_output_value(
+        service,
+        catalog,
+        projection,
+        output,
     )
     assert sequence == ProteinSequence(sequence="ACDE")
     assert output["content_digest"] == port_type.content_digest(sequence)
@@ -557,19 +554,11 @@ def test_sequence_import_reads_only_one_project_scoped_reference(
         for item in projection["outputs"]
         if item["output_port"] == "sequence_candidates"
     )
-    candidate_port = catalog.require_port_type(
-        "candidate.collection",
-        "3.0.0",
-    )
-    candidates = candidate_port.decode(
-        canonical_json_bytes(
-            {
-                "schema_namespace": "protein-workbench-port-value/v2",
-                "port_type_id": "candidate.collection",
-                "port_type_version": "3.0.0",
-                "value": candidate_output["values"][0],
-            }
-        )
+    candidates = decode_service_typed_output_value(
+        service,
+        catalog,
+        projection,
+        candidate_output,
     )
     assert type(candidates) is CandidateCollection
     assert candidates.item_type == "protein.sequence"
@@ -591,7 +580,7 @@ def test_sequence_import_reads_only_one_project_scoped_reference(
 def test_sequence_import_rejects_multi_fasta_instead_of_concatenating_records(
     tmp_path: Path,
 ) -> None:
-    _, projection, _ = _run_single_node(
+    _, _, projection, _ = _run_single_node(
         tmp_path,
         operation="import_sequence",
         node_parameters={"project_input_ref": "multi-fasta"},
@@ -607,21 +596,21 @@ def test_sequence_import_rejects_multi_fasta_instead_of_concatenating_records(
 def test_project_input_identity_uses_content_not_opaque_locator(
     tmp_path: Path,
 ) -> None:
-    _, first, first_events = _run_single_node(
+    _, _, first, first_events = _run_single_node(
         tmp_path / "first",
         operation="import_sequence",
         node_parameters={"project_input_ref": "first-reference"},
         project_inputs={"first-reference": b">protein\nACD\n"},
         project_input_filenames={"first-reference": "source-one.fasta"},
     )
-    _, second, second_events = _run_single_node(
+    _, _, second, second_events = _run_single_node(
         tmp_path / "second",
         operation="import_sequence",
         node_parameters={"project_input_ref": "renamed-reference"},
         project_inputs={"renamed-reference": b">protein\nACD\n"},
         project_input_filenames={"renamed-reference": "renamed-source.fa"},
     )
-    _, changed, _ = _run_single_node(
+    _, _, changed, _ = _run_single_node(
         tmp_path / "changed",
         operation="import_sequence",
         node_parameters={"project_input_ref": "renamed-reference"},
@@ -669,14 +658,14 @@ def test_cacheable_project_inputs_are_resolved_before_cache_identity(
         ),
     )
     catalog = build_frozen_catalog((cacheable_package,))
-    _, first, _ = _run_single_node(
+    _, _, first, _ = _run_single_node(
         tmp_path / "first",
         operation="import_sequence",
         node_parameters={"project_input_ref": "same-reference"},
         project_inputs={"same-reference": b">protein\nACD\n"},
         catalog=catalog,
     )
-    _, second, _ = _run_single_node(
+    _, _, second, _ = _run_single_node(
         tmp_path / "second",
         operation="import_sequence",
         node_parameters={"project_input_ref": "same-reference"},
@@ -693,7 +682,7 @@ def test_cacheable_project_inputs_are_resolved_before_cache_identity(
 def test_structure_import_parses_then_port_admits_canonical_project_pdb(
     tmp_path: Path,
 ) -> None:
-    catalog, projection, _ = _run_single_node(
+    catalog, service, projection, _ = _run_single_node(
         tmp_path,
         operation="import_structure",
         node_parameters={"project_input_ref": "input-structure-1"},
@@ -709,15 +698,13 @@ def test_structure_import_parses_then_port_admits_canonical_project_pdb(
     assert projection["status"] == "succeeded"
     output = projection["outputs"][0]
     port_type = catalog.require_port_type("protein.structure", "4.0.0")
-    structure = port_type.decode(
-        canonical_json_bytes(
-            {
-                "schema_namespace": "protein-workbench-port-value/v2",
-                "port_type_id": "protein.structure",
-                "port_type_version": "4.0.0",
-                "value": output["values"][0],
-            }
-        )
+    from tests.fixtures.public_v2 import decode_service_typed_output_value
+
+    structure = decode_service_typed_output_value(
+        service,
+        catalog,
+        projection,
+        output,
     )
     assert structure == ProteinStructure(
         pdb_string=(
@@ -747,7 +734,7 @@ def test_import_port_admission_rejects_noncanonical_sequence_or_structure(
     operation: str,
     payload: bytes,
 ) -> None:
-    _, projection, events = _run_single_node(
+    _, _, projection, events = _run_single_node(
         tmp_path,
         operation=operation,
         node_parameters={"project_input_ref": "malformed-input"},
@@ -792,7 +779,7 @@ def test_import_rejects_private_paths_and_cross_project_references(
         )
     assert rejected.value.code == "compile_rejected"
 
-    _, projection, _ = _run_single_node(
+    _, _, projection, _ = _run_single_node(
         tmp_path / "cross-project",
         operation="import_sequence",
         node_parameters={"project_input_ref": "belongs-to-another-project"},

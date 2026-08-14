@@ -34,6 +34,7 @@ from scripts.fresh_remote_3gb1 import (
     _require_catalog_snapshot_matches_current,
     _require_run_matches_workflow_commit,
     _require_workflow_commit_matches_plan,
+    _retrieve_typed_output_value,
     _validate_run_admission,
     _validate_replay_boundary,
     require_invocation_proof_matches_ledger,
@@ -71,6 +72,10 @@ class _EchoCatalog:
 
 
 def test_decode_output_values_preserves_every_many_port_value() -> None:
+    canonical_values = {
+        0: b'{"value":{"alignment":1}}',
+        1: b'{"value":{"alignment":2}}',
+    }
     projection = {
         "outputs": [{
             "node_id": "align-fixed",
@@ -79,15 +84,21 @@ def test_decode_output_values_preserves_every_many_port_value() -> None:
                 "contract_id": "structure_comparison.alignment_evidence",
                 "contract_version": "4.0.0",
             },
-            "values": [{"alignment": 1}, {"alignment": 2}],
+            "value_count": 2,
+            "value_manifest_reference": f"sha256:{'1' * 64}",
         }]
     }
+
+    def retrieve(output: dict[str, Any], value_index: int) -> bytes:
+        assert output is projection["outputs"][0]
+        return canonical_values[value_index]
 
     assert _decode_output_values(
         _EchoCatalog(),
         projection,
         "align-fixed",
         "alignments",
+        retrieve,
     ) == ({"alignment": 1}, {"alignment": 2})
     with pytest.raises(ValueError, match="exactly one value"):
         _decode_output(
@@ -95,7 +106,72 @@ def test_decode_output_values_preserves_every_many_port_value() -> None:
             projection,
             "align-fixed",
             "alignments",
+            retrieve,
         )
+
+
+def test_fresh_evidence_reads_exact_canonical_value_from_public_route() -> None:
+    import httpx
+
+    body = b'{"value":{"alignment":1}}'
+    value_digest = f"sha256:{hashlib.sha256(body).hexdigest()}"
+    port_type = {
+        "contract_kind": "port_type",
+        "contract_id": "structure_comparison.alignment_evidence",
+        "contract_version": "4.0.0",
+        "contract_digest": f"sha256:{'4' * 64}",
+    }
+    output = {
+        "node_id": "align-fixed",
+        "output_port": "alignments",
+        "port_type": port_type,
+        "content_digest": f"sha256:{'1' * 64}",
+        "value_count": 1,
+        "value_manifest_reference": f"sha256:{'2' * 64}",
+    }
+
+    class Response:
+        content = body
+        headers = httpx.Headers({
+            "Content-Length": str(len(body)),
+            "Content-Type": "application/json",
+            "Digest": value_digest,
+            "ETag": f'"{value_digest}"',
+            "X-Port-Content-Digest": output["content_digest"],
+            "X-Port-Type-Kind": port_type["contract_kind"],
+            "X-Port-Type-Id": port_type["contract_id"],
+            "X-Port-Type-Version": port_type["contract_version"],
+            "X-Port-Type-Digest": port_type["contract_digest"],
+            "X-Value-Count": "1",
+            "X-Value-Index": "0",
+            "X-Value-Manifest-Reference": output[
+                "value_manifest_reference"
+            ],
+        })
+
+        @staticmethod
+        def raise_for_status() -> None:
+            return None
+
+    class Client:
+        @staticmethod
+        def request(method: str, route: str) -> Response:
+            assert method == "GET"
+            assert route == (
+                "/api/v2/projects/canonical-3gb1/runs/run-1/outputs/"
+                "align-fixed/alignments/values/0"
+            )
+            return Response()
+
+    assert _retrieve_typed_output_value(
+        Client(),
+        {
+            "project_id": "canonical-3gb1",
+            "run_id": "run-1",
+        },
+        output,
+        0,
+    ) == body
 
 
 def _digest(path: Path) -> str:

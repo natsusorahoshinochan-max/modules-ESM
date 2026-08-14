@@ -54,7 +54,7 @@ def test_local_esm3_all_generation_modes(
                     environment,
                     model_name=LOCAL_ESM3_MODEL,
                 )
-            catalog, projection, events = _run_generation(
+            service, catalog, projection, events = _run_generation(
                 tmp_path / operation,
                 operation=operation,
                 client=(
@@ -153,27 +153,35 @@ def test_local_esm3_all_generation_modes(
                 for event in events
                 if event["event"]["type"] == "run_terminal"
             ] == ["succeeded"]
-            results[operation] = (catalog, projection)
+            results[operation] = (service, catalog, projection)
     finally:
         if shared_client is not None:
             release_local_esm3_client(shared_client)
 
-    paired_catalog, paired_projection = results["generate_paired"]
+    paired_service, paired_catalog, paired_projection = results[
+        "generate_paired"
+    ]
     paired_outputs = {
         output["output_port"]: output
         for output in paired_projection["outputs"]
         if output["node_id"] == "generate"
     }
     sequences = _decode_output(
+        paired_service,
         paired_catalog,
+        paired_projection,
         paired_outputs["sequence_candidates"],
     )
     structures = _decode_output(
+        paired_service,
         paired_catalog,
+        paired_projection,
         paired_outputs["structure_candidates"],
     )
     pairing = _decode_output(
+        paired_service,
         paired_catalog,
+        paired_projection,
         paired_outputs["counterpart_pairs"],
     )
     assert len(sequences.items) == len(structures.items) == 1

@@ -26,7 +26,6 @@ from core import (
     build_frozen_catalog,
     discover_module_packages,
 )
-from core.port_types import canonical_json_bytes
 from core.workflow_v2 import WorkflowEdge
 from datatypes import (
     Candidate,
@@ -209,21 +208,19 @@ def _two_residue_pdb() -> str:
     )
 
 
-def _decode_output(catalog: Any, output: dict[str, Any]) -> Any:
-    reference = output["port_type"]
-    port_type = catalog.require_port_type(
-        reference["contract_id"],
-        reference["contract_version"],
-    )
-    return port_type.decode(
-        canonical_json_bytes(
-            {
-                "schema_namespace": "protein-workbench-port-value/v2",
-                "port_type_id": port_type.type_id,
-                "port_type_version": port_type.version,
-                "value": output["values"][0],
-            }
-        )
+def _decode_output(
+    catalog: Any,
+    service: V2RunService,
+    projection: dict[str, Any],
+    output: dict[str, Any],
+) -> Any:
+    from tests.fixtures.public_v2 import decode_service_typed_output_value
+
+    return decode_service_typed_output_value(
+        service,
+        catalog,
+        projection,
+        output,
     )
 
 
@@ -332,7 +329,7 @@ def _run_simplefold(
     result_replay_source: ResultReplaySource | None = None,
     environment_values: dict[str, Any] | None = None,
     project_id: str = "simplefold",
-) -> tuple[Any, dict[str, Any], tuple[dict[str, Any], ...]]:
+) -> tuple[Any, V2RunService, dict[str, Any], tuple[dict[str, Any], ...]]:
     from modules.folding.package import MODULE_PACKAGE as FOLDING_PACKAGE
     from modules.structure_prediction.package import (
         MODULE_PACKAGE as STRUCTURE_PREDICTION_PACKAGE,
@@ -456,7 +453,7 @@ def _run_simplefold(
         events = service.public_events(project.id, receipt["run_id"])
     finally:
         service.shutdown()
-    return catalog, projection, events
+    return catalog, service, projection, events
 
 
 def test_simplefold_preserves_high_level_plddt_and_exact_multi_sample_lineage(
@@ -488,7 +485,7 @@ def test_simplefold_preserves_high_level_plddt_and_exact_multi_sample_lineage(
             )
 
     client = Client()
-    catalog, projection, events = _run_simplefold(
+    catalog, service, projection, events = _run_simplefold(
         tmp_path,
         monkeypatch,
         client=client,
@@ -500,9 +497,16 @@ def test_simplefold_preserves_high_level_plddt_and_exact_multi_sample_lineage(
         for output in projection["outputs"]
         if output["node_id"] == "fold"
     }
-    structures = _decode_output(catalog, outputs["structure_candidates"])
+    structures = _decode_output(
+        catalog,
+        service,
+        projection,
+        outputs["structure_candidates"],
+    )
     facts = _decode_output(
         catalog,
+        service,
+        projection,
         outputs["confidence_facts"],
     )
     materialized_output = next(
@@ -513,6 +517,8 @@ def test_simplefold_preserves_high_level_plddt_and_exact_multi_sample_lineage(
     )
     observations = _decode_output(
         catalog,
+        service,
+        projection,
         materialized_output,
     )
     assert len(structures.items) == 2
@@ -927,7 +933,7 @@ def test_source_cache_replay_preserves_noncacheable_simplefold_execution(
 
     client = Client()
     replay = SourceReplay()
-    first_catalog, first_projection, _ = _run_simplefold(
+    first_catalog, first_service, first_projection, _ = _run_simplefold(
         tmp_path,
         monkeypatch,
         client=client,
@@ -935,17 +941,26 @@ def test_source_cache_replay_preserves_noncacheable_simplefold_execution(
         result_replay_source=replay,
     )
 
-    def candidate_id(catalog: Any, projection: dict[str, Any]) -> str:
+    def candidate_id(
+        catalog: Any,
+        service: V2RunService,
+        projection: dict[str, Any],
+    ) -> str:
         output = next(
             item
             for item in projection["outputs"]
             if item["node_id"] == "fold"
             and item["output_port"] == "structure_candidates"
         )
-        return _decode_output(catalog, output).items[0].candidate_id
+        return _decode_output(
+            catalog,
+            service,
+            projection,
+            output,
+        ).items[0].candidate_id
 
     assert first_projection["status"] == "succeeded"
-    assert candidate_id(first_catalog, first_projection)
+    assert candidate_id(first_catalog, first_service, first_projection)
     dispositions = {
         item["node_id"]: item
         for item in first_projection["node_dispositions"]
@@ -1007,21 +1022,39 @@ def test_concurrent_runs_use_disjoint_live_staging_and_stable_identity(
     with ThreadPoolExecutor(max_workers=2) as executor:
         first_future = executor.submit(run, "simplefold-concurrent-a")
         second_future = executor.submit(run, "simplefold-concurrent-b")
-        first_catalog, first_projection, _ = first_future.result(timeout=20)
-        second_catalog, second_projection, _ = second_future.result(timeout=20)
+        first_catalog, first_service, first_projection, _ = (
+            first_future.result(timeout=20)
+        )
+        second_catalog, second_service, second_projection, _ = (
+            second_future.result(timeout=20)
+        )
 
-    def candidate_id(catalog: Any, projection: dict[str, Any]) -> str:
+    def candidate_id(
+        catalog: Any,
+        service: V2RunService,
+        projection: dict[str, Any],
+    ) -> str:
         output = next(
             item
             for item in projection["outputs"]
             if item["node_id"] == "fold"
             and item["output_port"] == "structure_candidates"
         )
-        return _decode_output(catalog, output).items[0].candidate_id
+        return _decode_output(
+            catalog,
+            service,
+            projection,
+            output,
+        ).items[0].candidate_id
 
     assert first_projection["status"] == second_projection["status"] == "succeeded"
-    assert candidate_id(first_catalog, first_projection) == candidate_id(
+    assert candidate_id(
+        first_catalog,
+        first_service,
+        first_projection,
+    ) == candidate_id(
         second_catalog,
+        second_service,
         second_projection,
     )
     assert len(client.staging) == 2
@@ -1067,7 +1100,7 @@ def test_simplefold_cleanup_failure_is_visible_without_masking_provider_failure(
                 [{"per_residue": [71.0, 83.0], "sample_index": 0}],
             )
 
-    _, projection, events = _run_simplefold(
+    _, _, projection, events = _run_simplefold(
         tmp_path,
         monkeypatch,
         client=Client(),

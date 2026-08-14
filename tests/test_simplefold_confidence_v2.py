@@ -23,7 +23,6 @@ from core import (
     build_frozen_catalog,
     discover_module_packages,
 )
-from core.port_types import canonical_json_bytes
 from core.workflow_v2 import WorkflowEdge
 from datatypes import (
     Candidate,
@@ -212,21 +211,19 @@ def _confidence_environment(
     }
 
 
-def _decode_output(catalog: Any, output: dict[str, Any]) -> Any:
-    reference = output["port_type"]
-    port_type = catalog.require_port_type(
-        reference["contract_id"],
-        reference["contract_version"],
-    )
-    return port_type.decode(
-        canonical_json_bytes(
-            {
-                "schema_namespace": "protein-workbench-port-value/v2",
-                "port_type_id": port_type.type_id,
-                "port_type_version": port_type.version,
-                "value": output["values"][0],
-            }
-        )
+def _decode_output(
+    catalog: Any,
+    service: V2RunService,
+    projection: dict[str, Any],
+    output: dict[str, Any],
+) -> Any:
+    from tests.fixtures.public_v2 import decode_service_typed_output_value
+
+    return decode_service_typed_output_value(
+        service,
+        catalog,
+        projection,
+        output,
     )
 
 
@@ -238,7 +235,7 @@ def _run_confidence(
     result_replay_source: ResultReplaySource | None = None,
     environment_values: dict[str, Any] | None = None,
     pdb_string: str | None = None,
-) -> tuple[Any, dict[str, Any], tuple[dict[str, Any], ...]]:
+) -> tuple[Any, V2RunService, dict[str, Any], tuple[dict[str, Any], ...]]:
     from modules.folding.package import MODULE_PACKAGE as FOLDING_PACKAGE
     from modules.structure_transform.package import (
         MODULE_PACKAGE as STRUCTURE_TRANSFORM_PACKAGE,
@@ -355,7 +352,7 @@ def _run_confidence(
         events = service.public_events(project.id, receipt["run_id"])
     finally:
         service.shutdown()
-    return catalog, projection, events
+    return catalog, service, projection, events
 
 
 def test_simplefold_confidence_is_a_separate_fixed_existing_structure_node() -> None:
@@ -549,7 +546,7 @@ def test_direct_head_is_statically_scaled_and_masks_invalid_residues(
             }
 
     client = Client()
-    catalog, projection, events = _run_confidence(
+    catalog, service, projection, events = _run_confidence(
         tmp_path,
         monkeypatch,
         client=client,
@@ -561,7 +558,7 @@ def test_direct_head_is_statically_scaled_and_masks_invalid_residues(
         if item["node_id"] == "confidence"
         and item["output_port"] == "confidence_observations"
     )
-    scores = _decode_output(catalog, output)
+    scores = _decode_output(catalog, service, projection, output)
     assert type(scores) is ScoreCollection
     assert {
         (
@@ -639,7 +636,7 @@ def test_missing_ca_axis_emits_null_and_excludes_it_from_mean(
             }
 
     client = Client()
-    catalog, projection, events = _run_confidence(
+    catalog, service, projection, events = _run_confidence(
         tmp_path,
         monkeypatch,
         client=client,
@@ -653,7 +650,7 @@ def test_missing_ca_axis_emits_null_and_excludes_it_from_mean(
         if item["node_id"] == "confidence"
         and item["output_port"] == "confidence_observations"
     )
-    scores = _decode_output(catalog, output)
+    scores = _decode_output(catalog, service, projection, output)
     by_metric = {
         entry.metric.contract_id: entry.value
         for entry in scores.entries
@@ -1090,7 +1087,7 @@ def test_resolved_asset_digests_are_bound_to_result_contract_identity(
         monkeypatch,
         client=Client(),
     )
-    _catalog, projection, _ = _run_confidence(
+    _catalog, _, projection, _ = _run_confidence(
         tmp_path / "run",
         monkeypatch,
         client=Client(),

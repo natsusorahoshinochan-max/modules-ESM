@@ -1177,22 +1177,17 @@ def _fake_dssp_binary(
 
 def _decode_output(
     catalog: Any,
+    service: V2RunService,
+    projection: dict[str, Any],
     output: dict[str, Any],
 ) -> Any:
-    reference = output["port_type"]
-    port_type = catalog.require_port_type(
-        reference["contract_id"],
-        reference["contract_version"],
-    )
-    return port_type.decode(
-        canonical_json_bytes(
-            {
-                "schema_namespace": "protein-workbench-port-value/v2",
-                "port_type_id": port_type.type_id,
-                "port_type_version": port_type.version,
-                "value": output["values"][0],
-            }
-        )
+    from tests.fixtures.public_v2 import decode_service_typed_output_value
+
+    return decode_service_typed_output_value(
+        service,
+        catalog,
+        projection,
+        output,
     )
 
 
@@ -1205,7 +1200,7 @@ def _run_dssp(
     configured_binary: str | None = None,
     result_replay_source: ResultReplaySource | None = None,
     binary_version: str = "4.6.1",
-) -> tuple[Any, dict[str, Any], tuple[dict[str, Any], ...], str]:
+) -> tuple[Any, V2RunService, dict[str, Any], tuple[dict[str, Any], ...], str]:
     binary = _fake_dssp_binary(
         tmp_path,
         output=dssp_output,
@@ -1332,7 +1327,7 @@ def _run_dssp(
     service.shutdown()
     projection = service.projection(project.id, receipt["run_id"])
     events = service.public_events(project.id, receipt["run_id"])
-    return catalog, projection, events, str(binary)
+    return catalog, service, projection, events, str(binary)
 
 
 def _pdb_ca_line(
@@ -1420,7 +1415,7 @@ fixture Y 4 CYS . 9.5
 #
 """
 
-    catalog, projection, events, private_path = _run_dssp(
+    catalog, service, projection, events, private_path = _run_dssp(
         tmp_path,
         monkeypatch,
         pdb_text=pdb_text,
@@ -1439,8 +1434,13 @@ fixture Y 4 CYS . 9.5
         if item["node_id"] == "resolve-axis"
         and item["output_port"] == "residue_axes"
     )
-    association = _decode_output(catalog, axis_output).entries[0]
-    annotation = _decode_output(catalog, output)
+    association = _decode_output(
+        catalog,
+        service,
+        projection,
+        axis_output,
+    ).entries[0]
+    annotation = _decode_output(catalog, service, projection, output)
     assert annotation.subject == association.subject
     assert annotation.layout == association.residue_axis.layout
     assert annotation.layout.residue_ids == (
@@ -1498,7 +1498,7 @@ def test_dssp_compute_requires_complete_authored_axis_identity(
             "",
         )
     )
-    _, projection, _, _ = _run_dssp(
+    _, _, projection, _, _ = _run_dssp(
         tmp_path,
         monkeypatch,
         pdb_text=pdb_text,
@@ -1536,7 +1536,7 @@ def test_dssp_reconciles_mse_on_authoritative_three_residue_axis(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    catalog, projection, _, _ = _run_dssp(
+    catalog, service, projection, _, _ = _run_dssp(
         tmp_path,
         monkeypatch,
         pdb_text=_FIXTURES["mse_ligand_water"](),
@@ -1572,6 +1572,8 @@ fixture A 3 GLY E 30.0 14.0 2.0 3.0
     assert projection["status"] == "succeeded"
     annotation = _decode_output(
         catalog,
+        service,
+        projection,
         next(
             item
             for item in projection["outputs"]
@@ -1580,6 +1582,8 @@ fixture A 3 GLY E 30.0 14.0 2.0 3.0
     )
     axis_associations = _decode_output(
         catalog,
+        service,
+        projection,
         next(
             item
             for item in projection["outputs"]
@@ -1600,7 +1604,7 @@ def test_environment_only_binary_path_is_available_and_ready(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    _, projection, _, _ = _run_dssp(
+    _, _, projection, _, _ = _run_dssp(
         tmp_path,
         monkeypatch,
         pdb_text=(
@@ -1640,7 +1644,7 @@ def test_dssp_dot_is_coil_and_p_is_preserved(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    catalog, projection, _, _ = _run_dssp(
+    catalog, service, projection, _, _ = _run_dssp(
         tmp_path,
         monkeypatch,
         pdb_text=(
@@ -1683,7 +1687,7 @@ _dssp_struct_summary.z_ca
         for item in projection["outputs"]
         if item["node_id"] == "annotate"
     )
-    annotation = _decode_output(catalog, output)
+    annotation = _decode_output(catalog, service, projection, output)
     assert annotation.secondary_structure == ("C", "P")
 
 
@@ -2270,10 +2274,20 @@ def test_agreement_emits_one_exact_subject_metric_method_observation(
         for output in projection["outputs"]
         if output["node_id"] == "agreement"
     )
-    subjects = _decode_output(catalog, subject_output)
-    references = _decode_output(catalog, reference_output)
-    axis_association = _decode_output(catalog, axis_output).entries[0]
-    scores = _decode_output(catalog, score_output)
+    subjects = _decode_output(catalog, service, projection, subject_output)
+    references = _decode_output(
+        catalog,
+        service,
+        projection,
+        reference_output,
+    )
+    axis_association = _decode_output(
+        catalog,
+        service,
+        projection,
+        axis_output,
+    ).entries[0]
+    scores = _decode_output(catalog, service, projection, score_output)
     assert len(scores.entries) == 1
     observation = scores.entries[0]
     subject = subjects.items[0]

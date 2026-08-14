@@ -38,7 +38,10 @@ from datatypes import (
     ScoreObservation,
 )
 from modules.selection.package import MODULE_PACKAGE
-from tests.fixtures.public_v2 import wait_for_testclient_run_terminal
+from tests.fixtures.public_v2 import (
+    retrieve_typed_output_values,
+    wait_for_testclient_run_terminal,
+)
 from tests.fixtures.scientific_operation import build_operation, operation_call
 
 
@@ -867,9 +870,29 @@ def test_public_execution_is_cache_replay_stable(
                     started.json()["run_id"],
                 )
             )
+        selected_values = []
+        for projection in projections:
+            selected = next(
+                output
+                for output in projection["outputs"]
+                if output["node_id"] == "select"
+                and output["output_port"] == "candidates"
+            )
+            selected_values.append(
+                retrieve_typed_output_values(
+                    client,
+                    project_id,
+                    projection["run_id"],
+                    selected,
+                )[0]
+            )
 
     selected_ids = []
-    for projection in projections:
+    for projection, selected_value in zip(
+        projections,
+        selected_values,
+        strict=True,
+    ):
         assert projection["status"] == "succeeded"
         selected = next(
             output
@@ -879,7 +902,7 @@ def test_public_execution_is_cache_replay_stable(
         )
         ids = [
             value["fields"]["candidate_id"]
-            for value in selected["values"][0]["fields"]["items"]
+            for value in selected_value["fields"]["items"]
         ]
         assert len(ids) == 2
         assert ids == sorted(ids)
@@ -974,20 +997,33 @@ def test_changing_resolved_objective_invalidates_selection_cache(
             request_id="objective-weight-two",
         )
 
-    first_output = next(
-        output
-        for output in first["outputs"]
-        if output["node_id"] == "select"
-    )
-    second_output = next(
-        output
-        for output in second["outputs"]
-        if output["node_id"] == "select"
-    )
+        first_output = next(
+            output
+            for output in first["outputs"]
+            if output["node_id"] == "select"
+        )
+        second_output = next(
+            output
+            for output in second["outputs"]
+            if output["node_id"] == "select"
+        )
+        first_value = retrieve_typed_output_values(
+            client,
+            project_id,
+            first["run_id"],
+            first_output,
+        )[0]
+        second_value = retrieve_typed_output_values(
+            client,
+            project_id,
+            second["run_id"],
+            second_output,
+        )[0]
+
     assert first_output["result_identity"] != second_output["result_identity"]
     assert (
-        first_output["values"][0]["fields"]["collection_id"]
-        != second_output["values"][0]["fields"]["collection_id"]
+        first_value["fields"]["collection_id"]
+        != second_value["fields"]["collection_id"]
     )
     second_selection = next(
         disposition

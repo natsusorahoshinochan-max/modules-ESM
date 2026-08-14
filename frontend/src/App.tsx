@@ -17,6 +17,7 @@ import "@xyflow/react/dist/style.css";
 import "./App.css";
 import WorkflowModuleNode from "./WorkflowModuleNode";
 import ProteinPromptEditor, { type ResidueRow, type FunctionAnnotation } from "./ProteinPromptEditor";
+import TypedOutputExplorer from "./TypedOutputExplorer";
 
 interface ApiParam {
   name: string;
@@ -70,38 +71,6 @@ function groupByCategory(modules: ApiModule[]): Map<string, ApiModule[]> {
     map.set(m.category, list);
   }
   return map;
-}
-
-
-function initNGL(containerId: string, pdbString: string) {
-  if (typeof (window as any).NGL === 'undefined') return;
-  const stage = new (window as any).NGL.Stage(containerId, { backgroundColor: '#f8fafc' });
-  stage.loadFile(new Blob([pdbString], { type: 'text/plain' }), { ext: 'pdb' }).then(function(c: any) {
-    c.addRepresentation('cartoon', { colorScheme: 'chainid' });
-    c.autoView();
-  }).catch(function() {});
-}
-
-function StructureViewer({ pdbString, label }: { pdbString: string | null; label?: string }) {
-  const containerRef = useRef<HTMLDivElement>(null);
-  useEffect(() => {
-    if (!pdbString || !containerRef.current) return;
-    containerRef.current.innerHTML = '';
-    initNGL(containerRef.current.id || 'ngl-container', pdbString);
-  }, [pdbString]);
-  const id = 'ngl-' + Math.random().toString(36).slice(2, 8);
-  return (
-    <div className="viewer-panel">
-      <h3>3D Structure Viewer</h3>
-      {!pdbString ? <p className="empty-hint">Run a workflow to see structures here.</p>
-        : (
-          <>
-            {label && <p style={{fontSize:'11px',color:'#64748b',margin:'0 0 4px'}}>{label}</p>}
-            <div id={id} ref={containerRef} className="ngl-viewport" />
-          </>
-        )}
-    </div>
-  );
 }
 
 
@@ -159,11 +128,7 @@ export default function App() {
   const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const EXECUTION_TIMEOUT_MS = 300_000; // 5 minutes
   const autoSaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const [viewerPdb, setViewerPdb] = useState<string | null>(null);
-  const [viewerLabel, setViewerLabel] = useState<string>("");
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const nodeStatesRef = useRef<NodeStateInfo>({});
-  const projectIdRef = useRef<string | null>(null);
 
   // Fetch modules
   useEffect(() => {
@@ -183,10 +148,6 @@ export default function App() {
 
   useEffect(() => { refreshProjects(); }, [refreshProjects]);
 
-  // Keep ref in sync
-  useEffect(() => { nodeStatesRef.current = nodeStates; }, [nodeStates]);
-  useEffect(() => { projectIdRef.current = projectId; }, [projectId]);
-
   // WebSocket
   const connectWS = useCallback(() => {
     if (wsRef.current?.readyState === WebSocket.OPEN) return;
@@ -202,28 +163,6 @@ export default function App() {
       ) {
         setIsRunning(false);
         if (timeoutRef.current) { clearTimeout(timeoutRef.current); timeoutRef.current = null; }
-        if (data.type === "run_complete") {
-          // Auto-load structures from the last completed node
-          setTimeout(() => {
-            const states = nodeStatesRef.current;
-            const completedNodes = Object.entries(states).filter(([,s]) => s === "completed").map(([id]) => id);
-            // Try nodes in reverse order (last pipeline node first)
-            const tryLoad = async () => {
-              for (const nid of completedNodes.reverse()) {
-                try {
-                  const r = await fetch(`/api/projects/${projectIdRef.current}/nodes/${nid}/output`);
-                  const d = await r.json();
-                  if (d.structures?.length > 0) {
-                    setViewerPdb(d.structures[0].pdb_string);
-                    setViewerLabel(`${d.structures[0].candidate_id} (${nid})`);
-                    return;
-                  }
-                } catch {}
-              }
-            };
-            tryLoad();
-          }, 500);
-        }
       }
     };
     ws.onclose = () => {
@@ -753,7 +692,7 @@ export default function App() {
           />
         );
       })()}
-      <StructureViewer pdbString={viewerPdb} label={viewerLabel} />
+      <TypedOutputExplorer activeProjectId={projectId} />
     </div>
   );
 }

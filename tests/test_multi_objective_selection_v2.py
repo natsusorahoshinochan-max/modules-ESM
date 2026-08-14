@@ -51,7 +51,10 @@ from tests.fixtures.multi_objective_selection_sources.package import (
     PAIRED_PARTITION,
     MODULE_PACKAGE as SOURCE_PACKAGE,
 )
-from tests.fixtures.public_v2 import wait_for_testclient_run_terminal
+from tests.fixtures.public_v2 import (
+    retrieve_typed_output_values,
+    wait_for_testclient_run_terminal,
+)
 from tests.fixtures.scientific_operation import build_operation, operation_call
 
 
@@ -1569,9 +1572,29 @@ def test_public_selection_uses_the_executed_method_and_is_cache_replay_stable(
                     started.json()["run_id"],
                 )
             )
+        selected_values = []
+        for projection in projections:
+            selected_output = next(
+                output
+                for output in projection["outputs"]
+                if output["node_id"] == "select"
+                and output["output_port"] == "candidates"
+            )
+            selected_values.append(
+                retrieve_typed_output_values(
+                    client,
+                    project_id,
+                    projection["run_id"],
+                    selected_output,
+                )[0]
+            )
 
     selected_ids = []
-    for projection in projections:
+    for projection, selected_value in zip(
+        projections,
+        selected_values,
+        strict=True,
+    ):
         assert projection["status"] == "succeeded"
         selection = projection["selection_results"][0]
         assert len(selection["selected_candidate_ids"]) == expected_count
@@ -1583,7 +1606,7 @@ def test_public_selection_uses_the_executed_method_and_is_cache_replay_stable(
         )
         output_ids = [
             item["fields"]["candidate_id"]
-            for item in selected_output["values"][0]["fields"]["items"]
+            for item in selected_value["fields"]["items"]
         ]
         assert selection["selected_candidate_ids"] == output_ids
         assert selection["selection_node_id"] == "select"

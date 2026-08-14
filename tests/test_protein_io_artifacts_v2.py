@@ -20,7 +20,6 @@ from core import (
     build_frozen_catalog,
     builtin_frozen_catalog,
 )
-from core.port_types import canonical_json_bytes
 from core.server import create_app
 from core.workflow_v2 import WorkflowEdge
 from modules.protein_io.package import MODULE_PACKAGE as PROTEIN_IO_PACKAGE
@@ -414,24 +413,18 @@ def test_fifteen_candidate_pdbs_keep_identity_slots_and_cache_rematerialize(
         )
     service.shutdown()
 
-    candidate_port = catalog.require_port_type(
-        "candidate.collection",
-        "3.0.0",
-    )
+    from tests.fixtures.public_v2 import decode_service_typed_output_value
+
     first_candidates_output = next(
         output
         for output in projections[0]["outputs"]
         if output["output_port"] == "structures"
     )
-    candidates = candidate_port.decode(
-        canonical_json_bytes(
-            {
-                "schema_namespace": "protein-workbench-port-value/v2",
-                "port_type_id": "candidate.collection",
-                "port_type_version": "3.0.0",
-                "value": first_candidates_output["values"][0],
-            }
-        )
+    candidates = decode_service_typed_output_value(
+        service,
+        catalog,
+        projections[0],
+        first_candidates_output,
     )
     expected_ids = [candidate.candidate_id for candidate in candidates.items]
     assert len(expected_ids) == len(set(expected_ids)) == 15

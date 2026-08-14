@@ -17,7 +17,6 @@ from core import (
     WorkflowNodeInstance,
     build_frozen_catalog,
 )
-from core.port_types import canonical_json_bytes
 from core.workflow_v2 import WorkflowEdge
 from datatypes import ScoreCollection
 from tests.acceptance.conftest import require_ready
@@ -173,21 +172,13 @@ def test_simplefold_v2_folds_3gb1_through_exact_binding(
         "confidence_facts",
     } == set(outputs)
     structure_output = outputs["structure_candidates"]
-    structure_reference = structure_output["port_type"]
-    structures = catalog.require_port_type(
-        structure_reference["contract_id"],
-        structure_reference["contract_version"],
-    ).decode(
-        canonical_json_bytes(
-            {
-                "schema_namespace": "protein-workbench-port-value/v2",
-                "port_type_id": structure_reference["contract_id"],
-                "port_type_version": structure_reference[
-                    "contract_version"
-                ],
-                "value": structure_output["values"][0],
-            }
-        )
+    from tests.fixtures.public_v2 import decode_service_typed_output_value
+
+    structures = decode_service_typed_output_value(
+        service,
+        catalog,
+        projection,
+        structure_output,
     )
     observation_output = next(
         output
@@ -195,21 +186,11 @@ def test_simplefold_v2_folds_3gb1_through_exact_binding(
         if output["node_id"] == "materialize-confidence"
         and output["output_port"] == "observations"
     )
-    observation_reference = observation_output["port_type"]
-    observations = catalog.require_port_type(
-        observation_reference["contract_id"],
-        observation_reference["contract_version"],
-    ).decode(
-        canonical_json_bytes(
-            {
-                "schema_namespace": "protein-workbench-port-value/v2",
-                "port_type_id": observation_reference["contract_id"],
-                "port_type_version": observation_reference[
-                    "contract_version"
-                ],
-                "value": observation_output["values"][0],
-            }
-        )
+    observations = decode_service_typed_output_value(
+        service,
+        catalog,
+        projection,
+        observation_output,
     )
     assert type(observations) is ScoreCollection
     assert {

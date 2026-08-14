@@ -27,7 +27,10 @@ from tests.fixtures.prompt_authoring_v2 import (
     run_operation,
     wire_value,
 )
-from tests.fixtures.public_v2 import wait_for_testclient_run_terminal
+from tests.fixtures.public_v2 import (
+    retrieve_typed_output_values,
+    wait_for_testclient_run_terminal,
+)
 
 
 def _author_output(projection: dict[str, Any]) -> dict[str, Any]:
@@ -73,7 +76,7 @@ def test_residue_edits_reject_range_chain_and_length_drift(
     tmp_path: Path,
     edits: list[dict[str, object]],
 ) -> None:
-    _, projection, _ = run_operation(
+    _, _, projection, _ = run_operation(
         tmp_path,
         operation="edit_residue_layout",
         node_parameters={"edits": edits},
@@ -104,7 +107,7 @@ def test_track_mapping_rejects_misalignment_and_malformed_maps(
     tmp_path: Path,
     fixture: str,
 ) -> None:
-    _, projection, _ = run_operation(
+    _, _, projection, _ = run_operation(
         tmp_path,
         operation="map_residue_track",
         node_parameters={},
@@ -160,7 +163,7 @@ def test_nominal_tracks_cannot_connect_by_structural_similarity(
 def test_prompt_from_structure_uses_the_resolver_owned_axis(
     tmp_path: Path,
 ) -> None:
-    catalog, projection, _ = run_operation(
+    catalog, service, projection, _ = run_operation(
         tmp_path,
         operation="prompt_from_structure",
         node_parameters={},
@@ -176,7 +179,12 @@ def test_prompt_from_structure_uses_the_resolver_owned_axis(
 
     assert projection["status"] == "succeeded"
     outputs = {
-        output["output_port"]: decoded_output(catalog, output)
+        output["output_port"]: decoded_output(
+            catalog,
+            service,
+            projection,
+            output,
+        )
         for output in projection["outputs"]
         if output["node_id"] == "author"
     }
@@ -195,7 +203,7 @@ def test_prompt_from_structure_uses_the_resolver_owned_axis(
 def test_override_rejects_unknown_residue_without_shifting_positions(
     tmp_path: Path,
 ) -> None:
-    _, projection, _ = run_operation(
+    _, _, projection, _ = run_operation(
         tmp_path,
         operation="override_residue_track",
         node_parameters={
@@ -231,7 +239,7 @@ def test_provider_free_identity_ignores_environment_configuration(
     identities: list[str] = []
     values: list[object] = []
     for label in ("one", "two"):
-        _, projection, events = run_operation(
+        catalog, service, projection, events = run_operation(
             tmp_path / label,
             operation="build_residue_layout",
             node_parameters={
@@ -245,7 +253,7 @@ def test_provider_free_identity_ignores_environment_configuration(
         assert projection["status"] == "succeeded"
         output = _author_output(projection)
         identities.append(output["result_identity"])
-        values.append(output["values"])
+        values.append(decoded_output(catalog, service, projection, output))
         assert "not-result-affecting" not in json.dumps(
             {"projection": projection, "events": events},
             sort_keys=True,
@@ -263,7 +271,7 @@ def test_insertion_deletion_boundaries_and_chain_breaks_remain_explicit(
         4,
         ["A:new", "A:1", "B:1", "B:new"],
     )
-    catalog, edit_projection, _ = run_operation(
+    catalog, edit_service, edit_projection, _ = run_operation(
         tmp_path / "edit",
         operation="edit_residue_layout",
         node_parameters={
@@ -291,7 +299,12 @@ def test_insertion_deletion_boundaries_and_chain_breaks_remain_explicit(
         ),
         source_fixture="boundary-edit",
     )
-    residue_map = decoded_output(catalog, _author_output(edit_projection))
+    residue_map = decoded_output(
+        catalog,
+        edit_service,
+        edit_projection,
+        _author_output(edit_projection),
+    )
     assert residue_map.mappings == (
         (-1, 0, "insert"),
         (0, 1, "match"),
@@ -300,7 +313,7 @@ def test_insertion_deletion_boundaries_and_chain_breaks_remain_explicit(
         (1, -1, "delete"),
     )
 
-    catalog, map_projection, _ = run_operation(
+    catalog, map_service, map_projection, _ = run_operation(
         tmp_path / "map",
         operation="map_residue_track",
         node_parameters={},
@@ -317,6 +330,8 @@ def test_insertion_deletion_boundaries_and_chain_breaks_remain_explicit(
     )
     assert decoded_output(
         catalog,
+        map_service,
+        map_projection,
         _author_output(map_projection),
     ) == AlignedResidueTrack(
         shifted_layout,
@@ -327,7 +342,7 @@ def test_insertion_deletion_boundaries_and_chain_breaks_remain_explicit(
 def test_visibility_track_mapping_keeps_nullable_positions_explicit(
     tmp_path: Path,
 ) -> None:
-    catalog, projection, _ = run_operation(
+    catalog, service, projection, _ = run_operation(
         tmp_path,
         operation="map_residue_track",
         node_parameters={},
@@ -344,6 +359,8 @@ def test_visibility_track_mapping_keeps_nullable_positions_explicit(
 
     assert decoded_output(
         catalog,
+        service,
+        projection,
         _author_output(projection),
     ) == AlignedResidueTrack(
         TARGET_LAYOUT,
@@ -354,7 +371,7 @@ def test_visibility_track_mapping_keeps_nullable_positions_explicit(
 def test_structure_override_accepts_named_atom_coordinates(
     tmp_path: Path,
 ) -> None:
-    catalog, projection, _ = run_operation(
+    catalog, service, projection, _ = run_operation(
         tmp_path,
         operation="override_residue_track",
         node_parameters={
@@ -390,6 +407,8 @@ def test_structure_override_accepts_named_atom_coordinates(
 
     assert decoded_output(
         catalog,
+        service,
+        projection,
         _author_output(projection),
     ) == AlignedResidueTrack(
         TARGET_LAYOUT,
@@ -412,7 +431,7 @@ def test_secondary_structure_layout_shift_regression_is_nominal_and_stable(
         4,
         ["A:new", "A:1", "B:1", "B:new"],
     )
-    catalog, mapped_projection, _ = run_operation(
+    catalog, mapped_service, mapped_projection, _ = run_operation(
         tmp_path / "map",
         operation="map_residue_track",
         node_parameters={},
@@ -429,13 +448,15 @@ def test_secondary_structure_layout_shift_regression_is_nominal_and_stable(
     )
     assert decoded_output(
         catalog,
+        mapped_service,
+        mapped_projection,
         _author_output(mapped_projection),
     ) == AlignedResidueTrack(
         shifted_layout,
         (None, "H", "-", None),
     )
 
-    catalog, overridden_projection, _ = run_operation(
+    catalog, overridden_service, overridden_projection, _ = run_operation(
         tmp_path / "override",
         operation="override_residue_track",
         node_parameters={
@@ -467,6 +488,8 @@ def test_secondary_structure_layout_shift_regression_is_nominal_and_stable(
     )
     assert decoded_output(
         catalog,
+        overridden_service,
+        overridden_projection,
         _author_output(overridden_projection),
     ) == AlignedResidueTrack(
         shifted_layout,
@@ -560,13 +583,20 @@ def test_prompt_authoring_executes_through_the_public_protocol(
             run_id=started["run_id"],
         )
 
-    assert projection["status"] == "succeeded"
-    output = next(
-        output
-        for output in projection["outputs"]
-        if output["node_id"] == "layout"
-    )
-    assert output["values"] == [
+        assert projection["status"] == "succeeded"
+        output = next(
+            output
+            for output in projection["outputs"]
+            if output["node_id"] == "layout"
+        )
+        values = retrieve_typed_output_values(
+            client,
+            project_id,
+            started["run_id"],
+            output,
+        )
+
+    assert values == [
         wire_value(
             "residue.layout",
             ResidueLayout(

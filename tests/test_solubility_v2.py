@@ -25,7 +25,6 @@ from core import (
     build_frozen_catalog,
     verify_module_package_contract,
 )
-from core.port_types import canonical_json_bytes
 from core.workflow_v2 import WorkflowEdge
 
 
@@ -666,21 +665,19 @@ def test_full_readiness_failure_does_not_block_no_tm(
     assert observed == ["full", "no_tm"]
 
 
-def _decode_output(catalog: Any, output: dict[str, Any]) -> Any:
-    reference = output["port_type"]
-    port_type = catalog.require_port_type(
-        reference["contract_id"],
-        reference["contract_version"],
-    )
-    return port_type.decode(
-        canonical_json_bytes(
-            {
-                "schema_namespace": "protein-workbench-port-value/v2",
-                "port_type_id": port_type.type_id,
-                "port_type_version": port_type.version,
-                "value": output["values"][0],
-            }
-        )
+def _decode_output(
+    catalog: Any,
+    service: V2RunService,
+    projection: dict[str, Any],
+    output: dict[str, Any],
+) -> Any:
+    from tests.fixtures.public_v2 import decode_service_typed_output_value
+
+    return decode_service_typed_output_value(
+        service,
+        catalog,
+        projection,
+        output,
     )
 
 
@@ -691,7 +688,7 @@ def _run_soluprot(
     mode: str,
     sequence: str = "ACDEFGHIKLMNPQRSTVWY",
     provider_error: BaseException | None = None,
-) -> tuple[Any, dict[str, Any], tuple[dict[str, Any], ...]]:
+) -> tuple[Any, V2RunService, dict[str, Any], tuple[dict[str, Any], ...]]:
     import modules.solubility.adapter as adapter
     import modules.solubility.package as package
     from modules.solubility.package import MODULE_PACKAGE
@@ -813,7 +810,7 @@ def _run_soluprot(
     finally:
         service.shutdown()
     projection["_fixture_calls"] = calls
-    return catalog, projection, events
+    return catalog, service, projection, events
 
 
 @pytest.mark.parametrize(
@@ -826,7 +823,7 @@ def test_each_soluprot_binding_runs_exact_method_and_formal_observation(
     mode: str,
     expected: float,
 ) -> None:
-    catalog, projection, events = _run_soluprot(
+    catalog, service, projection, events = _run_soluprot(
         tmp_path,
         monkeypatch,
         mode=mode,
@@ -847,8 +844,8 @@ def test_each_soluprot_binding_runs_exact_method_and_formal_observation(
         if output["node_id"] == "source"
         and output["output_port"] == "sequence_candidates"
     )
-    subjects = _decode_output(catalog, source_output)
-    scores = _decode_output(catalog, output)
+    subjects = _decode_output(catalog, service, projection, source_output)
+    scores = _decode_output(catalog, service, projection, output)
     assert len(scores.entries) == 1
     observation = scores.entries[0]
     subject = subjects.items[0]
@@ -894,7 +891,7 @@ def test_soluprot_binding_factory_injects_one_immutable_mode_adapter(
 
     monkeypatch.setattr(package, "LocalSoluProtAdapter", build_adapter)
 
-    _, projection, _ = _run_soluprot(
+    _, _, projection, _ = _run_soluprot(
         tmp_path,
         monkeypatch,
         mode=mode,
@@ -908,12 +905,12 @@ def test_soluprot_method_and_asset_contracts_separate_result_identity(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    _, full, _ = _run_soluprot(
+    _, _, full, _ = _run_soluprot(
         tmp_path / "full",
         monkeypatch,
         mode="full",
     )
-    _, no_tm, _ = _run_soluprot(
+    _, _, no_tm, _ = _run_soluprot(
         tmp_path / "no-tm",
         monkeypatch,
         mode="no_tm",
@@ -936,7 +933,7 @@ def test_invalid_sequence_fails_before_soluprot_engine_invocation(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    catalog, projection, events = _run_soluprot(
+    catalog, _, projection, events = _run_soluprot(
         tmp_path,
         monkeypatch,
         mode="no_tm",
@@ -962,7 +959,7 @@ def test_provider_failure_retains_a_closed_safe_reason_code(
 ) -> None:
     from modules.solubility.adapter import SoluProtProviderNonzeroExit
 
-    catalog, projection, events = _run_soluprot(
+    catalog, _, projection, events = _run_soluprot(
         tmp_path,
         monkeypatch,
         mode="full",

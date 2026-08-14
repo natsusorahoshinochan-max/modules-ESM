@@ -26,6 +26,7 @@ node_parameters:
         - unassigned
         - assigned_sequence
         - coordinate_conditioned
+        - coordinate_conditioned_291
         - rich_masked
         - rich_assigned
     default: unassigned

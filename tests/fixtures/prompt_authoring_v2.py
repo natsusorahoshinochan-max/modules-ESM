@@ -16,14 +16,16 @@ from core import (
     WorkflowNodeInstance,
     build_frozen_catalog,
 )
-from core.port_types import canonical_json_bytes
 from core.workflow_v2 import WorkflowEdge
 from datatypes import ResidueLayout
 from modules.prompt_authoring.package import MODULE_PACKAGE
 from modules.structure_transform.package import (
     MODULE_PACKAGE as STRUCTURE_TRANSFORM_PACKAGE,
 )
-from tests.fixtures.public_v2 import wait_for_service_run_terminal_events
+from tests.fixtures.public_v2 import (
+    decode_service_typed_output_value,
+    wait_for_service_run_terminal_events,
+)
 from tests.fixtures.prompt_authoring_sources.package import (
     MODULE_PACKAGE as SOURCE_PACKAGE,
 )
@@ -60,22 +62,18 @@ def wire_value(type_id: str, value: object) -> object:
     return json.loads(encoded)["value"]
 
 
-def decoded_output(catalog: Any, output: dict[str, Any]) -> object:
+def decoded_output(
+    catalog: Any,
+    service: V2RunService,
+    projection: dict[str, Any],
+    output: dict[str, Any],
+) -> object:
     """Decode one Run Projection value through its published Port contract."""
-    reference = output["port_type"]
-    port_type = catalog.require_port_type(
-        reference["contract_id"],
-        reference["contract_version"],
-    )
-    return port_type.decode(
-        canonical_json_bytes(
-            {
-                "schema_namespace": "protein-workbench-port-value/v2",
-                "port_type_id": reference["contract_id"],
-                "port_type_version": reference["contract_version"],
-                "value": output["values"][0],
-            }
-        )
+    return decode_service_typed_output_value(
+        service,
+        catalog,
+        projection,
+        output,
     )
 
 
@@ -202,7 +200,7 @@ def run_operation(
     source_edges: tuple[WorkflowEdge, ...] = (),
     source_fixture: str = "canonical",
     environment_label: str = "one",
-) -> tuple[Any, dict[str, Any], tuple[dict[str, Any], ...]]:
+) -> tuple[Any, V2RunService, dict[str, Any], tuple[dict[str, Any], ...]]:
     """Compile and execute one production Node through the real v2 services."""
     prepared = prepare_operation(
         tmp_path,
@@ -216,6 +214,6 @@ def run_operation(
         projection, events = prepared.start(
             f"prompt-authoring-{operation}-{environment_label}"
         )
-        return prepared.catalog, projection, events
+        return prepared.catalog, prepared.service, projection, events
     finally:
         prepared.service.shutdown()

@@ -473,21 +473,19 @@ def test_scoring_method_mismatch_fails_compilation_before_provider(
     assert provider.requests == []
 
 
-def _decode_output(catalog: Any, output: dict[str, Any]) -> Any:
-    reference = output["port_type"]
-    port_type = catalog.require_port_type(
-        reference["contract_id"],
-        reference["contract_version"],
-    )
-    return port_type.decode(
-        canonical_json_bytes(
-            {
-                "schema_namespace": "protein-workbench-port-value/v2",
-                "port_type_id": port_type.type_id,
-                "port_type_version": port_type.version,
-                "value": output["values"][0],
-            }
-        )
+def _decode_output(
+    catalog: Any,
+    service: V2RunService,
+    projection: dict[str, Any],
+    output: dict[str, Any],
+) -> Any:
+    from tests.fixtures.public_v2 import decode_service_typed_output_value
+
+    return decode_service_typed_output_value(
+        service,
+        catalog,
+        projection,
+        output,
     )
 
 
@@ -499,7 +497,7 @@ def _run(
     registrations: tuple[Any, ...],
     environment: EnvironmentConfiguration | None = None,
     result_replay_source: ResultReplaySource | None = None,
-) -> tuple[Any, dict[str, Any], tuple[dict[str, Any], ...]]:
+) -> tuple[Any, V2RunService, dict[str, Any], tuple[dict[str, Any], ...]]:
     catalog = build_frozen_catalog(registrations)
     projects = ProjectManager(
         tmp_path / "projects",
@@ -536,6 +534,7 @@ def _run(
         service.shutdown()
         return (
             catalog,
+            service,
             service.projection(project.id, receipt["run_id"]),
             service.public_events(project.id, receipt["run_id"]),
         )
@@ -588,7 +587,7 @@ def test_constraint_authoring_validates_and_publishes_the_complete_contract(
         binding_parameters={},
     )
 
-    catalog, projection, events = _run(
+    catalog, service, projection, events = _run(
         tmp_path,
         nodes=(layout, constraints),
         edges=(WorkflowEdge("layout", "layout", "constraints", "layout"),),
@@ -606,7 +605,12 @@ def test_constraint_authoring_validates_and_publishes_the_complete_contract(
         if item["node_id"] == "constraints"
         and item["output_port"] == "constraints"
     )
-    assert _decode_output(catalog, output) == ProteinMPNNConstraints(
+    assert _decode_output(
+        catalog,
+        service,
+        projection,
+        output,
+    ) == ProteinMPNNConstraints(
         layout=TARGET_LAYOUT,
         designable_residue_ids=["A:1", "B:1", "B:3"],
         fixed_residue_ids=["A:2", "B:2"],
@@ -760,7 +764,7 @@ def test_constraint_authoring_fails_closed_on_layout_or_chain_contradictions(
         ),
     )
 
-    catalog, projection, events = _run(
+    catalog, _, projection, events = _run(
         tmp_path,
         nodes=nodes,
         edges=(WorkflowEdge("layout", "layout", "constraints", "layout"),),
@@ -859,7 +863,7 @@ def test_random_fixed_positions_replays_and_randomness_changes_identity(
                 binding_parameters={},
             ),
         )
-        run_catalog, projection, events = _run(
+        run_catalog, service, projection, events = _run(
             tmp_path,
             nodes=nodes,
             edges=(
@@ -884,6 +888,8 @@ def test_random_fixed_positions_replays_and_randomness_changes_identity(
         )
         return output["result_identity"], _decode_output(
             run_catalog,
+            service,
+            projection,
             output,
         )
 
@@ -1212,7 +1218,7 @@ def test_scoring_emits_one_exact_intrinsic_observation_with_real_attempts(
     provider = _ControlledProteinMPNNProvider()
     _install_test_provider(monkeypatch, provider)
     nodes, edges = _score_workflow()
-    catalog, projection, events = _run(
+    catalog, service, projection, events = _run(
         tmp_path,
         nodes=nodes,
         edges=edges,
@@ -1230,13 +1236,13 @@ def test_scoring_emits_one_exact_intrinsic_observation_with_real_attempts(
         for item in projection["outputs"]
         if item["node_id"] == "score"
     )
-    scores = _decode_output(catalog, output)
+    scores = _decode_output(catalog, service, projection, output)
     subject_output = next(
         item
         for item in projection["outputs"]
         if item["node_id"] == "sequence-source"
     )
-    subjects = _decode_output(catalog, subject_output)
+    subjects = _decode_output(catalog, service, projection, subject_output)
     assert type(scores) is ScoreCollection
     assert len(scores.entries) == 1
     observation = scores.entries[0]
@@ -1397,7 +1403,7 @@ def test_scoring_replay_preserves_the_canonical_binary32_snapshot(
     provider = _ControlledProteinMPNNProvider()
     _install_test_provider(monkeypatch, provider)
     nodes, edges = _score_workflow()
-    run_catalog, projection, events = _run(
+    run_catalog, service, projection, events = _run(
         tmp_path,
         nodes=nodes,
         edges=edges,
@@ -1418,7 +1424,12 @@ def test_scoring_replay_preserves_the_canonical_binary32_snapshot(
         for output in projection["outputs"]
         if output["node_id"] == "score"
     )
-    scores = _decode_output(run_catalog, score_output)
+    scores = _decode_output(
+        run_catalog,
+        service,
+        projection,
+        score_output,
+    )
     assert type(scores) is ScoreCollection
     assert scores.entries[0].value == 1.0
     score_disposition = next(
@@ -1457,7 +1468,7 @@ def test_scoring_rejects_ambiguous_subjects_before_provider_execution(
         ),
         *nodes[1:],
     )
-    catalog, projection, events = _run(
+    catalog, _, projection, events = _run(
         tmp_path,
         nodes=nodes,
         edges=edges,
@@ -2206,7 +2217,7 @@ def test_provider_failure_keeps_durable_residue_projection_started_event(
     provider = Provider()
     _install_test_provider(monkeypatch, provider)
     nodes, edges = _design_workflow()
-    _, projection, events = _run(
+    _, _, projection, events = _run(
         tmp_path,
         nodes=nodes,
         edges=edges,
@@ -2349,8 +2360,8 @@ def test_scoring_replay_preserves_candidate_and_observation_identity_only(
         return (
             score_output,
             events,
-            _decode_output(catalog, score_output),
-            _decode_output(catalog, subject_output),
+            _decode_output(catalog, service, projection, score_output),
+            _decode_output(catalog, service, projection, subject_output),
         )
 
     first_provider = _ControlledProteinMPNNProvider()
@@ -2645,7 +2656,7 @@ def test_design_produces_canonical_three_parent_by_five_child_lineage(
     provider = _ControlledProteinMPNNProvider()
     _install_test_provider(monkeypatch, provider)
     nodes, edges = _design_workflow()
-    catalog, projection, events = _run(
+    catalog, service, projection, events = _run(
         tmp_path,
         nodes=nodes,
         edges=edges,
@@ -2665,7 +2676,7 @@ def test_design_produces_canonical_three_parent_by_five_child_lineage(
         if item["node_id"] == "design"
         and item["output_port"] == "sequence_candidates"
     )
-    candidates = _decode_output(catalog, output)
+    candidates = _decode_output(catalog, service, projection, output)
     assert isinstance(candidates, CandidateCollection)
     assert len(candidates.items) == 15
     parent_groups: dict[str, list[Any]] = {}
@@ -2838,7 +2849,7 @@ def test_design_seed_depends_on_structure_content_and_parent_slot_not_result_ide
             for index in range(transform_depth)
         )
         final_parent_node = f"select-{transform_depth - 1}"
-        catalog, projection, events = _run(
+        catalog, service, projection, events = _run(
             tmp_path / f"depth-{transform_depth}",
             nodes=nodes,
             edges=(
@@ -2876,7 +2887,12 @@ def test_design_seed_depends_on_structure_content_and_parent_slot_not_result_ide
             if output["node_id"] == final_parent_node
             and output["output_port"] == "structure_candidates"
         )
-        parents = _decode_output(catalog, source_output)
+        parents = _decode_output(
+            catalog,
+            service,
+            projection,
+            source_output,
+        )
         assert len(provider.requests) == 1
         return (
             provider.requests[0].seed,
@@ -3045,7 +3061,7 @@ def test_2emo_identity_layout_maps_to_provider_invocation_provenance(
             binding_parameters={},
         ),
     )
-    catalog, projection, events = _run(
+    catalog, service, projection, events = _run(
         tmp_path,
         nodes=nodes,
         edges=(
@@ -3122,7 +3138,7 @@ def test_2emo_identity_layout_maps_to_provider_invocation_provenance(
         if item["node_id"] == "design"
         and item["output_port"] == "sequence_candidates"
     )
-    candidates = _decode_output(catalog, output)
+    candidates = _decode_output(catalog, service, projection, output)
     candidate = candidates.items[0]
     assert candidate.data.residue_ids == request.target_layout.residue_ids
     assert "residue_identity_mapping" not in candidate.metadata
@@ -3523,7 +3539,7 @@ def test_design_requires_one_candidate_parent_and_preserves_its_lineage(
             binding_parameters={},
         ),
     )
-    catalog, projection, events = _run(
+    catalog, service, projection, events = _run(
         tmp_path,
         nodes=nodes,
         edges=(
@@ -3560,7 +3576,7 @@ def test_design_requires_one_candidate_parent_and_preserves_its_lineage(
         for item in projection["outputs"]
         if item["node_id"] == "design"
     )
-    candidates = _decode_output(catalog, output)
+    candidates = _decode_output(catalog, service, projection, output)
     assert len(candidates.items) == 1
     assert len(candidates.items[0].parent_ids) == 1
     assert len(provider.requests) == 1
@@ -3621,7 +3637,7 @@ def test_candidate_design_seed_and_result_ignore_node_instance_rename(
                 binding_parameters={},
             ),
         )
-        catalog, projection, events = _run(
+        catalog, service, projection, events = _run(
             tmp_path,
             nodes=nodes,
             edges=(
@@ -3663,10 +3679,15 @@ def test_candidate_design_seed_and_result_ignore_node_instance_rename(
             if item["node_id"] == "source"
             and item["output_port"] == "structure_candidates"
         )
-        structure = _decode_output(catalog, structure_output).items[0].data
+        structure = _decode_output(
+            catalog,
+            service,
+            projection,
+            structure_output,
+        ).items[0].data
         return (
             output["result_identity"],
-            _decode_output(catalog, output),
+            _decode_output(catalog, service, projection, output),
             provider.requests[0].seed,
             catalog.require_port_type(
                 "protein.structure",
@@ -3725,7 +3746,7 @@ def test_design_replay_is_stable_and_changed_seed_changes_result_identity(
                 binding_parameters=design.binding_parameters,
             ),
         )
-        catalog, projection, events = _run(
+        catalog, service, projection, events = _run(
             tmp_path,
             nodes=nodes,
             edges=edges,
@@ -3744,7 +3765,12 @@ def test_design_replay_is_stable_and_changed_seed_changes_result_identity(
             if item["node_id"] == "design"
             and item["output_port"] == "sequence_candidates"
         )
-        return output["result_identity"], _decode_output(catalog, output)
+        return output["result_identity"], _decode_output(
+            catalog,
+            service,
+            projection,
+            output,
+        )
 
     first_identity, first = run(1603)
     replay_identity, replay = run(1603)

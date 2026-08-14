@@ -34,6 +34,7 @@ SEQUENCE_3GB1 = (
 
 
 def _fold_outputs(
+    service: Any,
     catalog: Any,
     projection: dict[str, Any],
 ) -> tuple[Any, Any, Any]:
@@ -49,9 +50,19 @@ def _fold_outputs(
         and output["output_port"] == "observations"
     )
     return (
-        _decode_output(catalog, outputs["structure_candidates"]),
-        _decode_output(catalog, materialized),
-        _decode_output(catalog, outputs["confidence_facts"]),
+        _decode_output(
+            service,
+            catalog,
+            projection,
+            outputs["structure_candidates"],
+        ),
+        _decode_output(service, catalog, projection, materialized),
+        _decode_output(
+            service,
+            catalog,
+            projection,
+            outputs["confidence_facts"],
+        ),
     )
 
 
@@ -106,7 +117,7 @@ def test_remote_esmfold2_v2_folds_3gb1_through_exact_binding(
                 config=config,
             )
 
-    catalog, projection, events = _run_fold(
+    service, catalog, projection, events = _run_fold(
         tmp_path,
         route="remote",
         client=RecordingClient(),
@@ -127,7 +138,11 @@ def test_remote_esmfold2_v2_folds_3gb1_through_exact_binding(
         "msa_max_depth": 1024,
         "msa_column_mask_rate": 0.1,
     }]
-    structures, observations, facts = _fold_outputs(catalog, projection)
+    structures, observations, facts = _fold_outputs(
+        service,
+        catalog,
+        projection,
+    )
     assert len(structures.items) == 1
     candidate = structures.items[0]
     assert {
@@ -274,7 +289,7 @@ def test_local_esmfold2_v2_source_contract_and_native_result(
     client = LocalBoundary()
     environment = _write_local_runtime_fixture(tmp_path, monkeypatch)
     environment["provider_client"] = client
-    catalog, projection, events = _run_fold(
+    service, catalog, projection, events = _run_fold(
         tmp_path,
         route="local",
         client=client,
@@ -282,7 +297,11 @@ def test_local_esmfold2_v2_source_contract_and_native_result(
     )
 
     assert projection["status"] == "succeeded"
-    structures, observations, facts = _fold_outputs(catalog, projection)
+    structures, observations, facts = _fold_outputs(
+        service,
+        catalog,
+        projection,
+    )
     assert len(client.calls) == 1
     assert client.calls[0][0] == "AG"
     metadata = structures.items[0].metadata
@@ -452,7 +471,7 @@ def test_local_esmfold2_v2_invokes_exact_source_bound_assets(
         "runtime_directory": runtime_directory,
         "resolved_runtime_fingerprint": fingerprint,
     }
-    catalog, projection, events = _run_fold(
+    service, catalog, projection, events = _run_fold(
         tmp_path,
         route="local",
         client=None,
@@ -461,7 +480,11 @@ def test_local_esmfold2_v2_invokes_exact_source_bound_assets(
     )
 
     assert projection["status"] == "succeeded", projection
-    structures, observations, facts = _fold_outputs(catalog, projection)
+    structures, observations, facts = _fold_outputs(
+        service,
+        catalog,
+        projection,
+    )
     assert len(structures.items) == 1
     metadata = structures.items[0].metadata
     assert {

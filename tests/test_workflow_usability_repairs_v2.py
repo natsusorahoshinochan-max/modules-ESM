@@ -16,7 +16,6 @@ from core import (
     WorkflowNodeInstance,
     build_frozen_catalog,
 )
-from core.port_types import canonical_json_bytes
 from core.workflow_v2 import WorkflowEdge
 from datatypes import ProteinPrompt, ProteinStructure, ResidueMap
 from modules.prompt_authoring.package import (
@@ -44,7 +43,7 @@ def _run(
     nodes: tuple[WorkflowNodeInstance, ...],
     edges: tuple[WorkflowEdge, ...],
     registrations: tuple[Any, ...],
-) -> tuple[Any, dict[str, Any]]:
+) -> tuple[Any, V2RunService, dict[str, Any]]:
     catalog = build_frozen_catalog(registrations)
     projects = ProjectManager(
         tmp_path / "projects",
@@ -78,34 +77,24 @@ def _run(
     )
     projection = service.projection(project.id, receipt["run_id"])
     service.shutdown()
-    return catalog, projection
+    return catalog, service, projection
 
 
 def _decoded_outputs(
     catalog: Any,
+    service: V2RunService,
     projection: dict[str, Any],
 ) -> dict[tuple[str, str], object]:
+    from tests.fixtures.public_v2 import decode_service_typed_output_value
+
     decoded: dict[tuple[str, str], object] = {}
     for output in projection["outputs"]:
-        reference = output["port_type"]
-        port_type = catalog.require_port_type(
-            reference["contract_id"],
-            reference["contract_version"],
-        )
         decoded[(output["node_id"], output["output_port"])] = (
-            port_type.decode(
-                canonical_json_bytes(
-                    {
-                        "schema_namespace": (
-                            "protein-workbench-port-value/v2"
-                        ),
-                        "port_type_id": reference["contract_id"],
-                        "port_type_version": reference[
-                            "contract_version"
-                        ],
-                        "value": output["values"][0],
-                    }
-                )
+            decode_service_typed_output_value(
+                service,
+                catalog,
+                projection,
+                output,
             )
         )
     return decoded
@@ -152,7 +141,7 @@ def test_2emo_csh_normalization_preserves_parent_span_and_builds_prompt(
         node_parameters={},
         binding_parameters={},
     )
-    catalog, projection = _run(
+    catalog, service, projection = _run(
         tmp_path,
         nodes=(source, normalize, resolve_axis, prompt),
         edges=(
@@ -184,7 +173,7 @@ def test_2emo_csh_normalization_preserves_parent_span_and_builds_prompt(
     )
 
     assert projection["status"] == "succeeded"
-    outputs = _decoded_outputs(catalog, projection)
+    outputs = _decoded_outputs(catalog, service, projection)
     normalized = outputs[("normalize", "structure")]
     prompt_value = outputs[("prompt", "protein_prompt")]
     assert type(normalized) is ProteinStructure
@@ -280,7 +269,7 @@ def test_2emo_raw_modified_polymer_is_rejected_at_residue_axis_seam(
         node_parameters={},
         binding_parameters={},
     )
-    _, projection = _run(
+    _, _, projection = _run(
         tmp_path,
         nodes=(source, resolve_axis),
         edges=(
@@ -367,7 +356,7 @@ def test_5g53_identity_insertions_preserve_every_modeled_residue_and_track(
         )
         for branch, inserted_ids in branch_insertions.items()
     )
-    catalog, projection = _run(
+    catalog, service, projection = _run(
         tmp_path,
         nodes=(source, select_chain_a, resolve_axis, prompt, *edit_nodes),
         edges=(
@@ -407,7 +396,7 @@ def test_5g53_identity_insertions_preserve_every_modeled_residue_and_track(
     )
 
     assert projection["status"] == "succeeded"
-    outputs = _decoded_outputs(catalog, projection)
+    outputs = _decoded_outputs(catalog, service, projection)
     source_prompt = outputs[("prompt", "protein_prompt")]
     assert type(source_prompt) is ProteinPrompt
     source_ids = source_prompt.target_layout.residue_ids

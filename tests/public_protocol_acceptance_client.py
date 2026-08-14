@@ -15,6 +15,7 @@ from protein_workbench_public import (
     validate_error,
     validate_event,
     validate_response,
+    validate_typed_value_response,
 )
 
 
@@ -105,6 +106,34 @@ class PublicProtocolAcceptanceClient:
             validate_error(response.json(), status=response.status_code)
             raise AssertionError("structured artifact error validation returned")
         validate_artifact_response(metadata, response.headers, response.content)
+        return response.content
+
+    def typed_value(
+        self,
+        request_model: dict[str, Any],
+        output: dict[str, Any],
+    ) -> bytes:
+        prepared = prepare_rest_request("typed_value_retrieval", request_model)
+        response = self._http.request(prepared.method, prepared.route)
+        if response.status_code != 200:
+            validate_error(response.json(), status=response.status_code)
+            raise AssertionError("structured typed-value error validation returned")
+        metadata = {
+            "typed_value": {
+                "node_id": output["node_id"],
+                "output_port": output["output_port"],
+                "port_type": output["port_type"],
+                "port_content_digest": output["content_digest"],
+                "value_manifest_reference": output[
+                    "value_manifest_reference"
+                ],
+                "value_index": request_model["value_index"],
+                "value_count": output["value_count"],
+                "value_content_digest": response.headers["Digest"],
+                "size": len(response.content),
+            }
+        }
+        validate_typed_value_response(metadata, response.headers, response.content)
         return response.content
 
     @staticmethod

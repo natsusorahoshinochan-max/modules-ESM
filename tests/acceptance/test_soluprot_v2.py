@@ -17,7 +17,6 @@ from core import (
     WorkflowNodeInstance,
     build_frozen_catalog,
 )
-from core.port_types import canonical_json_bytes
 from core.workflow_v2 import WorkflowEdge
 from modules.solubility.adapter import (
     configured_runtime_fingerprint,
@@ -85,21 +84,19 @@ def _environment(mode: str) -> dict[str, Any]:
     return environment
 
 
-def _decode_output(catalog: Any, output: dict[str, Any]) -> Any:
-    reference = output["port_type"]
-    port_type = catalog.require_port_type(
-        reference["contract_id"],
-        reference["contract_version"],
-    )
-    return port_type.decode(
-        canonical_json_bytes(
-            {
-                "schema_namespace": "protein-workbench-port-value/v2",
-                "port_type_id": port_type.type_id,
-                "port_type_version": port_type.version,
-                "value": output["values"][0],
-            }
-        )
+def _decode_output(
+    catalog: Any,
+    service: V2RunService,
+    projection: dict[str, Any],
+    output: dict[str, Any],
+) -> Any:
+    from tests.fixtures.public_v2 import decode_service_typed_output_value
+
+    return decode_service_typed_output_value(
+        service,
+        catalog,
+        projection,
+        output,
     )
 
 
@@ -107,7 +104,7 @@ def _run(
     tmp_path: Path,
     *,
     mode: str,
-) -> tuple[Any, dict[str, Any], tuple[dict[str, Any], ...]]:
+) -> tuple[Any, V2RunService, dict[str, Any], tuple[dict[str, Any], ...]]:
     from modules.solubility.package import MODULE_PACKAGE
     from tests.fixtures.folding_sources.package import (
         MODULE_PACKAGE as SOURCE_PACKAGE,
@@ -188,6 +185,7 @@ def _run(
         service.shutdown()
         return (
             catalog,
+            service,
             service.projection(project.id, receipt["run_id"]),
             service.public_events(project.id, receipt["run_id"]),
         )
@@ -244,7 +242,7 @@ def test_model_backed_soluprot_golden_methods(
 
     monkeypatch.setattr(adapter, "invoke_soluprot", record_and_delegate)
 
-    catalog, projection, events = _run(tmp_path, mode=mode)
+    catalog, service, projection, events = _run(tmp_path, mode=mode)
 
     assert projection["status"] == "succeeded", projection
     binding_id = f"solubility.soluprot_{mode}.local"
@@ -253,14 +251,19 @@ def test_model_backed_soluprot_golden_methods(
         for output in projection["outputs"]
         if output["node_id"] == "score"
     )
-    scores = _decode_output(catalog, output)
+    scores = _decode_output(catalog, service, projection, output)
     source_output = next(
         output
         for output in projection["outputs"]
         if output["node_id"] == "source"
         and output["output_port"] == "sequence_candidates"
     )
-    source_candidates = _decode_output(catalog, source_output)
+    source_candidates = _decode_output(
+        catalog,
+        service,
+        projection,
+        source_output,
+    )
     assert len(scores.entries) == len(source_candidates.items) == 2
     assert len(recorded) == 1
     record = recorded[0]

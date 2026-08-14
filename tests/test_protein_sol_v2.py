@@ -19,7 +19,6 @@ from core import (
     build_frozen_catalog,
     verify_module_package_contract,
 )
-from core.port_types import canonical_json_bytes
 from core.workflow_v2 import WorkflowEdge
 from tests.fixtures.public_v2 import wait_for_service_run_terminal_events
 
@@ -494,21 +493,19 @@ def test_calibration_context_is_an_exact_selection_selector() -> None:
     assert resolved == {"candidate-1": observation}
 
 
-def _decode_output(catalog: Any, output: dict[str, Any]) -> Any:
-    reference = output["port_type"]
-    port_type = catalog.require_port_type(
-        reference["contract_id"],
-        reference["contract_version"],
-    )
-    return port_type.decode(
-        canonical_json_bytes(
-            {
-                "schema_namespace": "protein-workbench-port-value/v2",
-                "port_type_id": port_type.type_id,
-                "port_type_version": port_type.version,
-                "value": output["values"][0],
-            }
-        )
+def _decode_output(
+    catalog: Any,
+    service: V2RunService,
+    projection: dict[str, Any],
+    output: dict[str, Any],
+) -> Any:
+    from tests.fixtures.public_v2 import decode_service_typed_output_value
+
+    return decode_service_typed_output_value(
+        service,
+        catalog,
+        projection,
+        output,
     )
 
 
@@ -520,6 +517,7 @@ def _run_protein_sol(
     replay: bool = False,
 ) -> tuple[
     Any,
+    V2RunService,
     tuple[dict[str, Any], ...],
     tuple[tuple[dict[str, Any], ...], ...],
     list[list[str]],
@@ -650,14 +648,14 @@ def _run_protein_sol(
             )
     finally:
         service.shutdown()
-    return catalog, tuple(projections), tuple(event_groups), calls
+    return catalog, service, tuple(projections), tuple(event_groups), calls
 
 
 def test_protein_sol_one_method_publishes_three_calibrated_metrics(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    catalog, (projection,), (events,), calls = _run_protein_sol(
+    catalog, service, (projection,), (events,), calls = _run_protein_sol(
         tmp_path,
         monkeypatch,
     )
@@ -667,14 +665,14 @@ def test_protein_sol_one_method_publishes_three_calibrated_metrics(
     output = next(
         item for item in projection["outputs"] if item["node_id"] == "score"
     )
-    scores = _decode_output(catalog, output)
+    scores = _decode_output(catalog, service, projection, output)
     source_output = next(
         item
         for item in projection["outputs"]
         if item["node_id"] == "source"
         and item["output_port"] == "sequence_candidates"
     )
-    candidates = _decode_output(catalog, source_output)
+    candidates = _decode_output(catalog, service, projection, source_output)
     candidate = candidates.items[0]
     expected_digest = catalog.require_port_type(
         "protein.sequence",
@@ -757,7 +755,7 @@ def test_protein_sol_binding_factory_injects_one_exact_local_adapter(
 
     monkeypatch.setattr(package, "LocalProteinSolAdapter", build_adapter)
 
-    _, (projection,), _, _ = _run_protein_sol(tmp_path, monkeypatch)
+    _, _, (projection,), _, _ = _run_protein_sol(tmp_path, monkeypatch)
 
     assert projection["status"] == "succeeded"
     assert len(constructed) == 1
@@ -767,7 +765,7 @@ def test_protein_sol_rejects_twenty_residues_before_provider_invocation(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    _, (projection,), _, calls = _run_protein_sol(
+    _, _, (projection,), _, calls = _run_protein_sol(
         tmp_path,
         monkeypatch,
         sequence="ACDEFGHIKLMNPQRSTVWY",
@@ -781,7 +779,7 @@ def test_protein_sol_cache_replay_preserves_metrics_and_calibration_without_infe
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    catalog, projections, event_groups, calls = _run_protein_sol(
+    catalog, service, projections, event_groups, calls = _run_protein_sol(
         tmp_path,
         monkeypatch,
         replay=True,
@@ -791,10 +789,14 @@ def test_protein_sol_cache_replay_preserves_metrics_and_calibration_without_infe
     assert first["status"] == replayed["status"] == "succeeded"
     first_scores = _decode_output(
         catalog,
+        service,
+        first,
         next(item for item in first["outputs"] if item["node_id"] == "score"),
     )
     replayed_scores = _decode_output(
         catalog,
+        service,
+        replayed,
         next(
             item for item in replayed["outputs"] if item["node_id"] == "score"
         ),

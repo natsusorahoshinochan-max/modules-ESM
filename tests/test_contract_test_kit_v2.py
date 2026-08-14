@@ -37,7 +37,10 @@ from tests.fixtures.zero_core_packages.synthetic_echo.tests.cases import (
     PORT_CASE,
     SOURCE_EXECUTION_CASE,
 )
-from tests.fixtures.public_v2 import wait_for_testclient_run_terminal
+from tests.fixtures.public_v2 import (
+    retrieve_typed_output_values,
+    wait_for_testclient_run_terminal,
+)
 from tests.fixtures.zero_core_packages.synthetic_echo.tests.invalid_registrations import (
     FALSE_READINESS_PACKAGE,
     INCOMPLETE_PROVENANCE_PACKAGE,
@@ -318,12 +321,18 @@ def test_source_public_journey_discovers_compiles_executes_replays_and_retrieves
             run_id=run_id,
         )
         assert payload["status"] == "succeeded"
-        assert {
-            output["output_port"]: output["values"]
+        text_output = next(
+            output
             for output in payload["outputs"]
             if output["node_id"] == "synthetic-echo"
             and output["output_port"] == "text"
-        } == {"text": ["ECHOECHO"]}
+        )
+        assert retrieve_typed_output_values(
+            client,
+            project_id,
+            run_id,
+            text_output,
+        ) == ["ECHOECHO"]
         assert len(payload["artifact_index"]) == 2
         artifact = next(
             item

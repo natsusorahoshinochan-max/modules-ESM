@@ -1053,17 +1053,28 @@ def test_installed_biohub_esmc_gate(
                 timeout=120,
             )
 
-    assert projection["status"] == "succeeded", projection
-    representation = next(
-        output
-        for output in projection["outputs"]
-        if output["node_id"] == "represent"
-        and output["output_port"] == "representation"
-    )
+            assert projection["status"] == "succeeded", projection
+            representation = next(
+                output
+                for output in projection["outputs"]
+                if output["node_id"] == "represent"
+                and output["output_port"] == "representation"
+            )
+            canonical_value = client.typed_value(
+                {
+                    "project_id": project_id,
+                    "run_id": run_id,
+                    "node_id": representation["node_id"],
+                    "output_port": representation["output_port"],
+                    "value_index": 0,
+                },
+                representation,
+            )
+
     assert representation["port_type"]["contract_id"] == (
         "esm3.esmc_sequence_representation"
     )
-    value = representation["values"][0]
+    value = json.loads(canonical_value)["value"]
     assert value["sequence"].startswith("MTYKLILNGKTL")
     assert len(value["mean_embedding"]) == 1152
     assert all(

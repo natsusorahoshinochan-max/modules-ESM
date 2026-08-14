@@ -19,7 +19,6 @@ from core import (
     WorkflowNodeInstance,
     build_frozen_catalog,
 )
-from core.port_types import canonical_json_bytes
 from core.workflow_v2 import WorkflowEdge
 from modules.solubility.adapter import (
     configured_protein_sol_runtime_fingerprint,
@@ -85,21 +84,19 @@ def _environment() -> dict[str, Any]:
     }
 
 
-def _decode_output(catalog: Any, output: dict[str, Any]) -> Any:
-    reference = output["port_type"]
-    port_type = catalog.require_port_type(
-        reference["contract_id"],
-        reference["contract_version"],
-    )
-    return port_type.decode(
-        canonical_json_bytes(
-            {
-                "schema_namespace": "protein-workbench-port-value/v2",
-                "port_type_id": port_type.type_id,
-                "port_type_version": port_type.version,
-                "value": output["values"][0],
-            }
-        )
+def _decode_output(
+    catalog: Any,
+    service: V2RunService,
+    projection: dict[str, Any],
+    output: dict[str, Any],
+) -> Any:
+    from tests.fixtures.public_v2 import decode_service_typed_output_value
+
+    return decode_service_typed_output_value(
+        service,
+        catalog,
+        projection,
+        output,
     )
 
 
@@ -238,13 +235,18 @@ def test_local_protein_sol_golden_multiple_metrics(
         for output in projection["outputs"]
         if output["node_id"] == "score"
     )
-    scores = _decode_output(catalog, output)
+    scores = _decode_output(catalog, service, projection, output)
     source_output = next(
         output
         for output in projection["outputs"]
         if output["node_id"] == "source"
     )
-    source_candidates = _decode_output(catalog, source_output)
+    source_candidates = _decode_output(
+        catalog,
+        service,
+        projection,
+        source_output,
+    )
     candidate_ids = [
         candidate.candidate_id for candidate in source_candidates.items
     ]

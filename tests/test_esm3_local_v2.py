@@ -513,7 +513,7 @@ def test_local_execution_preserves_remote_scientific_contracts(
     }[response_kind]
     client = _ProviderClient(responses)
 
-    catalog, projection, events = _run_generation(
+    service, catalog, projection, events = _run_generation(
         tmp_path,
         operation=operation,
         client=client,
@@ -537,7 +537,9 @@ def test_local_execution_preserves_remote_scientific_contracts(
         "generate_structure": "structure_candidates",
         "generate_paired": "sequence_candidates",
     }[operation]
-    primary = _decode_output(catalog, outputs[primary_port])
+    primary = _decode_output(
+        service, catalog, projection, outputs[primary_port]
+    )
     assert len(primary.items) == 1
     forbidden = {
         "provider",
@@ -551,7 +553,9 @@ def test_local_execution_preserves_remote_scientific_contracts(
     assert isinstance(primary.items[0].metadata["effective_call_seed"], int)
     assert outputs[primary_port]["result_identity"].startswith("sha256:")
     if operation != "generate_sequence":
-        confidence = _decode_output(catalog, outputs["confidence_facts"])
+        confidence = _decode_output(
+            service, catalog, projection, outputs["confidence_facts"]
+        )
         assert confidence.entries[0].ptm == pytest.approx(0.75)
         assert confidence.entries[0].pae == (
             (0.0, 1.0, 2.0),
@@ -560,10 +564,14 @@ def test_local_execution_preserves_remote_scientific_contracts(
         )
     if operation == "generate_paired":
         structures = _decode_output(
+            service,
             catalog,
+            projection,
             outputs["structure_candidates"],
         )
-        pairing = _decode_output(catalog, outputs["counterpart_pairs"])
+        pairing = _decode_output(
+            service, catalog, projection, outputs["counterpart_pairs"]
+        )
         assert structures.items[0].parent_ids == (
             primary.items[0].candidate_id,
         )
@@ -650,7 +658,7 @@ def test_local_seed_is_declared_result_identity_randomness(
         "_result_identity_descriptor",
         capture_result_identity,
     )
-    _, projection, events = _run_generation(
+    _, _, projection, events = _run_generation(
         tmp_path,
         operation="generate_sequence",
         client=_ProviderClient([_ProviderResponse("ACD")]),
@@ -706,7 +714,7 @@ def test_default_local_client_releases_staged_runtime_after_execution(
         lambda owned: released.append(owned),
     )
 
-    _, projection, _ = _run_generation(
+    _, _, projection, _ = _run_generation(
         tmp_path,
         operation="generate_sequence",
         client=None,
