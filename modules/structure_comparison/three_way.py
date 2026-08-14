@@ -32,6 +32,8 @@ from .domain import (
     ThreeWayConfidenceEvidence,
     ThreeWayConsistencyEvidence,
     classify_three_way_consistency,
+    comparison_is_close,
+    confidence_is_eligible,
 )
 
 
@@ -125,7 +127,7 @@ def _confidence(
         subject=subject,
         method=observation.method,
         mean_residue_plddt=value,
-        eligible=value >= 70.0,
+        eligible=confidence_is_eligible(value),
         score_content_digest=_value_digest(call, port),
     )
 
@@ -191,7 +193,7 @@ def _edge(
         rmsd_method=rmsd.method,
         tm_score_content_digest=_value_digest(call, tm_score_port),
         rmsd_content_digest=_value_digest(call, rmsd_port),
-        close=tm_value >= 0.8 and rmsd_value <= 2.5,
+        close=comparison_is_close(tm_value, rmsd_value),
     )
 
 

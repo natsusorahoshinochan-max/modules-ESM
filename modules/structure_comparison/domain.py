@@ -150,6 +150,16 @@ class ThreeWayConsistencyEvidence:
     subreason: str | None
 
 
+def confidence_is_eligible(mean_residue_plddt: float) -> bool:
+    """Apply the exact inclusive confidence threshold."""
+    return mean_residue_plddt >= 70.0
+
+
+def comparison_is_close(tm_score: float, rmsd_angstrom: float) -> bool:
+    """Apply both exact inclusive pairwise-closeness thresholds."""
+    return tm_score >= 0.8 and rmsd_angstrom <= 2.5
+
+
 def classify_three_way_consistency(
     confidences: tuple[ThreeWayConfidenceEvidence, ...],
     edges: tuple[ThreeWayComparisonEdge, ...],

@@ -6,7 +6,7 @@ from importlib.metadata import version
 
 from core import CatalogContract, MethodDefinition
 from datatypes import ExactContractReference
-from modules.folding.package import (
+from modules.folding.contracts import (
     REMOTE_ESMFOLD2_FOLD_METHOD,
     SIMPLEFOLD_FOLD_METHOD,
 )

@@ -23,11 +23,11 @@ from modules.provider_contract import (
     validate_installed_provider_checkout,
 )
 from datatypes import ProteinSequence, ProteinStructure
-from .simplefold_contract import SIMPLEFOLD_FOLDING_ARTIFACTS
-
-
-SIMPLEFOLD_MODEL = "simplefold_100M"
-SIMPLEFOLD_DEVICE = "cpu"
+from .simplefold_contract import (
+    SIMPLEFOLD_DEVICE,
+    SIMPLEFOLD_FOLDING_ARTIFACTS,
+    SIMPLEFOLD_MODEL,
+)
 
 
 class _SimpleFoldNativeScore(TypedDict):

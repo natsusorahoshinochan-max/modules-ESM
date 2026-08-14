@@ -22,6 +22,8 @@ from .domain import (
     ThreeWayConfidenceEvidence,
     ThreeWayConsistencyEvidence,
     classify_three_way_consistency,
+    comparison_is_close,
+    confidence_is_eligible,
 )
 
 
@@ -84,7 +86,8 @@ def _validate_confidences(value: ThreeWayConsistencyEvidence) -> None:
             or not math.isfinite(float(item.mean_residue_plddt))
             or not 0 <= float(item.mean_residue_plddt) <= 100
             or type(item.eligible) is not bool
-            or item.eligible != (item.mean_residue_plddt >= 70.0)
+            or item.eligible
+            != confidence_is_eligible(float(item.mean_residue_plddt))
             or type(item.score_content_digest) is not str
             or _DIGEST.fullmatch(item.score_content_digest) is None
         ):
@@ -117,7 +120,10 @@ def _validate_edge(
         or float(edge.rmsd_angstrom) < 0
         or type(edge.close) is not bool
         or edge.close
-        != (edge.tm_score >= 0.8 and edge.rmsd_angstrom <= 2.5)
+        != comparison_is_close(
+            float(edge.tm_score),
+            float(edge.rmsd_angstrom),
+        )
     ):
         raise ValueError("three-way comparison edge is not canonical")
     digests = (

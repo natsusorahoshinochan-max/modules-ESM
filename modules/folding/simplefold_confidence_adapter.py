@@ -33,22 +33,12 @@ from datatypes import (
     StructureAxisSegment,
 )
 from .adapter import normalize_residue_plddt
-
-
-SIMPLEFOLD_CONFIDENCE_ARTIFACTS = (
-    "ccd.pkl",
-    "plddt.ckpt",
-    "simplefold_1.6B.ckpt",
-)
-SIMPLEFOLD_CONFIDENCE_ESM2_ARTIFACTS = (
-    "esm2_t36_3B_UR50D.pt",
-)
-SIMPLEFOLD_CONFIDENCE_DEVICE = "cpu"
-SIMPLEFOLD_CONFIDENCE_FEATURIZATION = (
-    "simplefold-existing-structure-featurization/v2"
-)
-SIMPLEFOLD_CONFIDENCE_ADAPTER = (
-    "protein-workbench-simplefold-confidence-adapter/v2"
+from .simplefold_contract import (
+    SIMPLEFOLD_CONFIDENCE_ADAPTER,
+    SIMPLEFOLD_CONFIDENCE_ARTIFACTS,
+    SIMPLEFOLD_CONFIDENCE_DEVICE,
+    SIMPLEFOLD_CONFIDENCE_ESM2_ARTIFACTS,
+    SIMPLEFOLD_CONFIDENCE_FEATURIZATION,
 )
 
 
