@@ -22,10 +22,10 @@
   Run-scoped event stream、bounded Run Projection、single-value retrieval 与
   Artifact retrieval；Vite `/api` proxy 支持 WebSocket upgrade，legacy `/ws`
   proxy、旧 canvas consumer 与 dead `ProteinPromptEditor` 已删除。
-- Frontend current public journeys、Selection semantics exact roundtrip、typed
-  array/object parameter editing、Typed Output/Artifact retrieval 与 proxy contract：
-  `5 passed`；Oxlint、TypeScript 与 production build 通过，Vite transformed
-  `179 modules`。
+- Frontend current public journeys、Selection semantics exact roundtrip、sparse
+  Draft Open→Add→Save→Commit 的 Node Instance ID 唯一性、typed array/object
+  parameter editing、Typed Output/Artifact retrieval 与 proxy contract：`6 passed`；
+  Oxlint、TypeScript 与 production build 通过，Vite transformed `179 modules`。
 - Tickets 01–11 cumulative Node finalization、object publication/collection、
   Result Cache、Run/restart/cancellation、Selection、Workflow Compiler/Commit、
   public protocol、Protein I/O 与 ESM-3 regressions：`488 passed, 3 deselected`。

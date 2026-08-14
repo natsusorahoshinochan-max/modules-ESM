@@ -300,4 +300,82 @@ describe("current public workflow journey", () => {
       selection_objectives: selectionObjectives,
     });
   });
+
+  it("allocates an unoccupied Node Instance ID after opening a sparse draft", async () => {
+    let savedWorkflow: { nodes: Array<{ node_id: string }> } | null = null;
+    let committedWorkflow: { nodes: Array<{ node_id: string }> } | null = null;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = String(input);
+        if (url === "/api/v2/catalog") return jsonResponse(catalog);
+        if (url.endsWith("/workflow/draft") && init === undefined) {
+          return jsonResponse({
+            draft_revision: 4,
+            workflow: {
+              schema_version: "2.1.0",
+              workflow_id: "project-one",
+              nodes: [
+                {
+                  node_id: "node_1",
+                  node_type_id: "test.predict",
+                  node_type_version: "1.0.0",
+                  binding_id: "test.remote",
+                  binding_version: "1.0.0",
+                  node_parameters: {},
+                  binding_parameters: {},
+                },
+              ],
+              edges: [],
+              contract_lock: [],
+              observation_selectors: [],
+              selection_objectives: [],
+            },
+          });
+        }
+        if (url.endsWith("/workflow/draft") && init?.method === "PUT") {
+          savedWorkflow = JSON.parse(String(init.body)).workflow;
+          return jsonResponse({
+            draft_revision: 5,
+            workflow: savedWorkflow,
+          });
+        }
+        if (url.endsWith("/workflow:commit")) {
+          committedWorkflow = JSON.parse(String(init?.body)).workflow;
+          return jsonResponse({
+            workflow_commit_id: "commit-one",
+            source_draft_revision: 5,
+          });
+        }
+        if (url.endsWith("/runs")) return jsonResponse({ run_id: "run-one" });
+        throw new Error(`Unexpected request ${url}`);
+      }),
+    );
+
+    render(<App />);
+    fireEvent.click(await screen.findByText("Open"));
+    await waitFor(() =>
+      expect((screen.getByText("Save Draft") as HTMLButtonElement).disabled).toBe(
+        false,
+      ),
+    );
+    fireEvent.click(screen.getByText("+ Add Node"));
+    fireEvent.click(
+      await screen.findByRole("button", { name: /test\.local@1\.0\.0/i }),
+    );
+
+    fireEvent.click(screen.getByText("Save Draft"));
+    await waitFor(() => expect(savedWorkflow).not.toBeNull());
+    fireEvent.click(screen.getByText("▶ Run Workflow"));
+    await waitFor(() => expect(committedWorkflow).not.toBeNull());
+
+    const savedNodeIds = savedWorkflow!.nodes.map((node) => node.node_id);
+    const committedNodeIds = committedWorkflow!.nodes.map(
+      (node) => node.node_id,
+    );
+    expect(savedNodeIds).toEqual(["node_1", "node_0"]);
+    expect(new Set(savedNodeIds).size).toBe(savedNodeIds.length);
+    expect(committedNodeIds).toEqual(savedNodeIds);
+    expect(new Set(committedNodeIds).size).toBe(committedNodeIds.length);
+  });
 });

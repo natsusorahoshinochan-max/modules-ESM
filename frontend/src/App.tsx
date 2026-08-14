@@ -73,13 +73,19 @@ function nodeStyle(state: string, available: boolean) {
   };
 }
 
+function firstUnoccupiedNodeId(nodes: Node<WorkflowNodeData>[]): string {
+  const occupiedNodeIds = new Set(nodes.map((node) => node.id));
+  let index = 0;
+  while (occupiedNodeIds.has(`node_${index}`)) index += 1;
+  return `node_${index}`;
+}
+
 export default function App() {
   const [nodes, setNodes, onNodesChange] =
     useNodesState<Node<WorkflowNodeData>>([]);
   const [edges, setEdges, onEdgesChange] = useEdgesState<Edge>([]);
   const [nodeTypeViews, setNodeTypeViews] = useState<NodeTypeView[]>([]);
   const [menuOpen, setMenuOpen] = useState(false);
-  const [nodeIdCounter, setNodeIdCounter] = useState(0);
   const [nodeStates, setNodeStates] = useState<NodeStateInfo>({});
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
   const [isRunning, setIsRunning] = useState(false);
@@ -245,7 +251,6 @@ export default function App() {
           markerEnd: { type: MarkerType.ArrowClosed },
         })),
       );
-      setNodeIdCounter(loadedNodes.length);
     } catch (failure) {
       setError((failure as Error).message);
     }
@@ -364,7 +369,6 @@ export default function App() {
       binding: BindingView,
       overrides: Record<string, unknown> = {},
     ) => {
-      const id = `node_${nodeIdCounter}`;
       const data: WorkflowNodeData = {
         nodeTypeId: nodeType.node_type_id,
         nodeTypeVersion: nodeType.node_type_version,
@@ -385,20 +389,25 @@ export default function App() {
         label: `${nodeType.display_name} [idle]`,
         category: nodeType.category,
       };
-      setNodeIdCounter((current) => current + 1);
-      setNodes((current) => [
-        ...current,
-        {
-          id,
-          type: "workflowNode",
-          position: { x: 100 + Math.random() * 300, y: 100 + Math.random() * 200 },
-          data,
-          style: nodeStyle("idle", binding.available),
-        },
-      ]);
+      setNodes((current) => {
+        const id = firstUnoccupiedNodeId(current);
+        return [
+          ...current,
+          {
+            id,
+            type: "workflowNode",
+            position: {
+              x: 100 + Math.random() * 300,
+              y: 100 + Math.random() * 200,
+            },
+            data,
+            style: nodeStyle("idle", binding.available),
+          },
+        ];
+      });
       setMenuOpen(false);
     },
-    [nodeIdCounter, setNodes],
+    [setNodes],
   );
 
   const handleImport = useCallback(
