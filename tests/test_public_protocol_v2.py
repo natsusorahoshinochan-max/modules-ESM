@@ -315,7 +315,6 @@ def test_bundle_freezes_event_replay_close_and_error_vocabulary() -> None:
         "artifact_limit_exceeded",
         "artifact_not_found",
         "binding_unavailable",
-        "cache_identity_conflict",
         "cancellation_conflict",
         "compile_rejected",
         "contract_digest_mismatch",
@@ -326,10 +325,12 @@ def test_bundle_freezes_event_replay_close_and_error_vocabulary() -> None:
         "invalid_cursor",
         "malformed_request",
         "node_execution_failed",
+        "node_publication_failed",
         "project_not_found",
         "project_input_not_found",
         "protocol_mismatch",
         "readiness_rejected",
+        "result_identity_conflict",
         "run_not_found",
         "selection_failed",
         "typed_output_not_found",
@@ -353,6 +354,34 @@ def test_bundle_freezes_event_replay_close_and_error_vocabulary() -> None:
         }
         assert isinstance(definition["retryable"], bool)
         assert definition["details_schema"].startswith("#/$defs/")
+
+
+def test_failed_node_attempt_event_requires_exact_failure_origin() -> None:
+    failed = {
+        "type": "node_attempt_terminal",
+        "node_attempt_id": "node-attempt-1",
+        "status": "failed",
+        "resolution": "executed",
+        "failure_origin": "publication",
+    }
+    validate_schema("#/$defs/NodeAttemptTerminalEvent", failed)
+    with pytest.raises(ProtocolValidationError):
+        validate_schema(
+            "#/$defs/NodeAttemptTerminalEvent",
+            {
+                key: value
+                for key, value in failed.items()
+                if key != "failure_origin"
+            },
+        )
+    with pytest.raises(ProtocolValidationError):
+        validate_schema(
+            "#/$defs/NodeAttemptTerminalEvent",
+            {
+                **failed,
+                "status": "succeeded",
+            },
+        )
 
 
 def test_engine_invocation_provenance_is_closed_and_residue_typed() -> None:

@@ -578,18 +578,6 @@
       ],
       "type": "object"
     },
-    "CacheIdentityConflictDetails": {
-      "additionalProperties": false,
-      "properties": {
-        "result_identity": {
-          "$ref": "#/$defs/Digest"
-        }
-      },
-      "required": [
-        "result_identity"
-      ],
-      "type": "object"
-    },
     "CompileErrorDetails": {
       "additionalProperties": false,
       "properties": {
@@ -1094,34 +1082,81 @@
       "type": "object"
     },
     "NodeAttemptTerminalEvent": {
-      "additionalProperties": false,
-      "properties": {
-        "error": {
-          "$ref": "#/$defs/StructuredError"
+      "oneOf": [
+        {
+          "additionalProperties": false,
+          "properties": {
+            "error": {
+              "$ref": "#/$defs/StructuredError"
+            },
+            "failure_origin": {
+              "enum": [
+                "operation",
+                "publication",
+                "result_identity"
+              ]
+            },
+            "node_attempt_id": {
+              "$ref": "#/$defs/Identifier"
+            },
+            "resolution": {
+              "enum": [
+                "executed",
+                "cache_replayed"
+              ]
+            },
+            "status": {
+              "const": "failed"
+            },
+            "type": {
+              "const": "node_attempt_terminal"
+            }
+          },
+          "required": [
+            "type",
+            "node_attempt_id",
+            "status",
+            "resolution",
+            "failure_origin"
+          ],
+          "type": "object"
         },
-        "node_attempt_id": {
-          "$ref": "#/$defs/Identifier"
-        },
-        "resolution": {
-          "enum": [
-            "executed",
-            "cache_replayed"
-          ]
-        },
-        "status": {
-          "$ref": "#/$defs/TerminalAttemptStatus"
-        },
-        "type": {
-          "const": "node_attempt_terminal"
+        {
+          "additionalProperties": false,
+          "properties": {
+            "error": {
+              "$ref": "#/$defs/StructuredError"
+            },
+            "node_attempt_id": {
+              "$ref": "#/$defs/Identifier"
+            },
+            "resolution": {
+              "enum": [
+                "executed",
+                "cache_replayed"
+              ]
+            },
+            "status": {
+              "enum": [
+                "succeeded",
+                "cancelled",
+                "interrupted",
+                "outcome_unknown"
+              ]
+            },
+            "type": {
+              "const": "node_attempt_terminal"
+            }
+          },
+          "required": [
+            "type",
+            "node_attempt_id",
+            "status",
+            "resolution"
+          ],
+          "type": "object"
         }
-      },
-      "required": [
-        "type",
-        "node_attempt_id",
-        "status",
-        "resolution"
-      ],
-      "type": "object"
+      ]
     },
     "NodeDispositionEvent": {
       "additionalProperties": false,
@@ -1136,6 +1171,26 @@
       "required": [
         "type",
         "disposition"
+      ],
+      "type": "object"
+    },
+    "NodePublicationFailureDetails": {
+      "additionalProperties": false,
+      "properties": {
+        "node_id": {
+          "$ref": "#/$defs/NodeInstanceId"
+        },
+        "publication_stage": {
+          "enum": [
+            "typed_value_object",
+            "artifact_object",
+            "manifest"
+          ]
+        }
+      },
+      "required": [
+        "node_id",
+        "publication_stage"
       ],
       "type": "object"
     },
@@ -2848,6 +2903,18 @@
       ],
       "type": "object"
     },
+    "ResultIdentityConflictDetails": {
+      "additionalProperties": false,
+      "properties": {
+        "result_identity": {
+          "$ref": "#/$defs/Digest"
+        }
+      },
+      "required": [
+        "result_identity"
+      ],
+      "type": "object"
+    },
     "ResultProducerProvenance": {
       "additionalProperties": false,
       "properties": {
@@ -3929,12 +3996,6 @@
         "http_status": 409,
         "retryable": false
       },
-      "cache_identity_conflict": {
-        "code": "cache_identity_conflict",
-        "details_schema": "#/$defs/CacheIdentityConflictDetails",
-        "http_status": 409,
-        "retryable": false
-      },
       "compile_rejected": {
         "code": "compile_rejected",
         "details_schema": "#/$defs/CompileErrorDetails",
@@ -3989,6 +4050,12 @@
         "http_status": 500,
         "retryable": false
       },
+      "node_publication_failed": {
+        "code": "node_publication_failed",
+        "details_schema": "#/$defs/NodePublicationFailureDetails",
+        "http_status": 500,
+        "retryable": false
+      },
       "project_not_found": {
         "code": "project_not_found",
         "details_schema": "#/$defs/ResourceNotFoundDetails",
@@ -4012,6 +4079,12 @@
         "details_schema": "#/$defs/BindingErrorDetails",
         "http_status": 503,
         "retryable": true
+      },
+      "result_identity_conflict": {
+        "code": "result_identity_conflict",
+        "details_schema": "#/$defs/ResultIdentityConflictDetails",
+        "http_status": 409,
+        "retryable": false
       },
       "run_not_found": {
         "code": "run_not_found",

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import threading
 from types import SimpleNamespace
 
 import pytest
@@ -11,10 +12,32 @@ from core import ProjectManager, ResultReplaySource
 import core.run_execution_v2 as run_execution_v2
 
 
+class _ResultIdentityPlanFacts:
+    def __init__(self, marker: str) -> None:
+        self._marker = marker
+
+    def cache_contract_metadata(self) -> dict[str, object]:
+        return {
+            "result_identity_plan_facts": {
+                "schema_namespace": self._marker,
+            }
+        }
+
+
+def _node(
+    marker: str = "fixture-result-identity-plan/v1",
+) -> SimpleNamespace:
+    return SimpleNamespace(
+        node_id="node-1",
+        result_identity_plan_facts=_ResultIdentityPlanFacts(marker),
+    )
+
+
 def _open_attempt_ledger(
     tmp_path,
     *,
     operation_started: bool,
+    run_id: str = "run-1",
     transaction_store: run_execution_v2.LedgerTransactionStore | None = None,
 ) -> run_execution_v2._RunEvidenceLedger:
     workflow_commit_id = "workflow-commit-" + "0" * 64
@@ -27,7 +50,7 @@ def _open_attempt_ledger(
     ledger = run_execution_v2._RunEvidenceLedger(
         ProjectManager(tmp_path / "projects"),
         "project-1",
-        "run-1",
+        run_id,
         (plan_node,),
         transaction_store,
     )
@@ -35,7 +58,7 @@ def _open_attempt_ledger(
         "run_scope_bound",
         {
             "project_id": "project-1",
-            "run_id": "run-1",
+            "run_id": run_id,
             "workflow_commit_id": workflow_commit_id,
             "workflow_commit_revision": 1,
             "workflow_digest": "sha256:" + "2" * 64,
@@ -75,22 +98,24 @@ def _finalizer(
     ledger: run_execution_v2._RunEvidenceLedger,
     *,
     result_replay_source: ResultReplaySource | None = None,
-    materialize_artifacts: run_execution_v2._ArtifactMaterializer | None = None,
     object_store: run_execution_v2.ProjectObjectStore | None = None,
+    result_identity_authority: (
+        run_execution_v2.ProjectResultIdentityAuthority | None
+    ) = None,
 ) -> run_execution_v2.NodeAttemptFinalizer:
-    if materialize_artifacts is None:
-        def default_materializer(**kwargs):
-            return list(kwargs["admitted_output_descriptors"]), []
-
-        materialize_artifacts = default_materializer
-
+    resolved_object_store = (
+        object_store
+        or run_execution_v2.ProjectObjectStore(ledger._projects)
+    )
     return run_execution_v2.NodeAttemptFinalizer(
         ledger=ledger,
         result_replay_source=result_replay_source or ResultReplaySource(),
-        materialize_artifacts=materialize_artifacts,
-        object_store=(
-            object_store
-            or run_execution_v2.ProjectObjectStore(ledger._projects)
+        object_store=resolved_object_store,
+        result_identity_authority=(
+            result_identity_authority
+            or run_execution_v2.ProjectResultIdentityAuthority(
+                resolved_object_store
+            )
         ),
     )
 
@@ -124,7 +149,7 @@ def test_executed_success_is_finalized_with_outputs_and_disposition(
             project_id="project-1",
             run_id="run-1",
             execution_plan=SimpleNamespace(),
-            node=SimpleNamespace(node_id="node-1"),
+            node=_node(),
             resources=SimpleNamespace(
                 run_id="run-1",
                 _output_root=tmp_path / "outputs",
@@ -136,8 +161,6 @@ def test_executed_success_is_finalized_with_outputs_and_disposition(
             admitted_output_descriptors=(),
             admitted_outputs={},
             cache_eligible=False,
-            current_artifact_count=0,
-            current_artifact_bytes=0,
         )
     )
 
@@ -163,7 +186,7 @@ def test_executed_success_publishes_one_physical_ledger_transaction(
             project_id="project-1",
             run_id="run-1",
             execution_plan=SimpleNamespace(),
-            node=SimpleNamespace(node_id="node-1"),
+            node=_node(),
             resources=SimpleNamespace(
                 run_id="run-1",
                 _output_root=tmp_path / "outputs",
@@ -175,8 +198,6 @@ def test_executed_success_publishes_one_physical_ledger_transaction(
             admitted_output_descriptors=(),
             admitted_outputs={},
             cache_eligible=False,
-            current_artifact_count=0,
-            current_artifact_bytes=0,
         )
     )
 
@@ -197,24 +218,154 @@ def test_executed_success_publishes_one_physical_ledger_transaction(
     ]
 
 
+def test_project_publication_lock_serializes_conflicting_result_claims(
+    tmp_path,
+) -> None:
+    ledgers = {
+        run_id: _open_attempt_ledger(
+            tmp_path,
+            operation_started=True,
+            run_id=run_id,
+        )
+        for run_id in ("run-a", "run-b")
+    }
+    object_store = run_execution_v2.ProjectObjectStore(
+        ledgers["run-a"]._projects
+    )
+    authority = run_execution_v2.ProjectResultIdentityAuthority(object_store)
+    barrier = threading.Barrier(2)
+    outcomes: dict[str, str] = {}
+
+    def publish(run_id: str, marker: str) -> None:
+        barrier.wait()
+        finalized = _finalizer(
+            ledgers[run_id],
+            object_store=object_store,
+            result_identity_authority=authority,
+        ).finalize(
+            run_execution_v2.ExecutedNodeSuccess(
+                project_id="project-1",
+                run_id=run_id,
+                execution_plan=SimpleNamespace(),
+                node=_node(marker),
+                resources=SimpleNamespace(
+                    run_id=run_id,
+                    _output_root=tmp_path / "outputs",
+                    _cancellation_control=None,
+                ),
+                node_attempt_id="node-attempt-1",
+                operation_attempt_id="operation-1",
+                result_identity="sha256:" + "d" * 64,
+                admitted_output_descriptors=(),
+                admitted_outputs={},
+                cache_eligible=False,
+            )
+        )
+        outcomes[run_id] = finalized.disposition
+
+    threads = (
+        threading.Thread(target=publish, args=("run-a", "manifest-a")),
+        threading.Thread(target=publish, args=("run-b", "manifest-b")),
+    )
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join()
+
+    assert sorted(outcomes.values()) == ["failed", "succeeded"]
+    failed_ledger = next(
+        ledger
+        for run_id, ledger in ledgers.items()
+        if outcomes[run_id] == "failed"
+    )
+    operation_terminal = next(
+        fact
+        for fact in failed_ledger.facts
+        if fact["fact_type"] == "operation_attempt_terminal"
+    )
+    node_terminal = next(
+        fact
+        for fact in failed_ledger.facts
+        if fact["fact_type"] == "node_attempt_terminal"
+    )
+    assert operation_terminal["payload"] == {
+        "operation_attempt_id": "operation-1",
+        "status": "succeeded",
+    }
+    assert node_terminal["payload"]["failure_origin"] == "result_identity"
+    assert node_terminal["payload"]["error"]["code"] == (
+        "result_identity_conflict"
+    )
+
+
+def test_same_result_identity_and_manifest_publish_across_runs(
+    tmp_path,
+) -> None:
+    ledgers = {
+        run_id: _open_attempt_ledger(
+            tmp_path,
+            operation_started=True,
+            run_id=run_id,
+        )
+        for run_id in ("run-a", "run-b")
+    }
+    object_store = run_execution_v2.ProjectObjectStore(
+        ledgers["run-a"]._projects
+    )
+    authority = run_execution_v2.ProjectResultIdentityAuthority(object_store)
+
+    dispositions = []
+    for run_id, ledger in ledgers.items():
+        finalized = _finalizer(
+            ledger,
+            object_store=object_store,
+            result_identity_authority=authority,
+        ).finalize(
+            run_execution_v2.ExecutedNodeSuccess(
+                project_id="project-1",
+                run_id=run_id,
+                execution_plan=SimpleNamespace(),
+                node=_node(),
+                resources=SimpleNamespace(
+                    run_id=run_id,
+                    _output_root=tmp_path / "outputs",
+                    _cancellation_control=None,
+                ),
+                node_attempt_id="node-attempt-1",
+                operation_attempt_id="operation-1",
+                result_identity="sha256:" + "d" * 64,
+                admitted_output_descriptors=(),
+                admitted_outputs={},
+                cache_eligible=False,
+            )
+        )
+        dispositions.append(finalized.disposition)
+
+    assert dispositions == ["succeeded", "succeeded"]
+
+
 def test_artifact_object_failure_publishes_no_artifact_or_output(
     tmp_path,
 ) -> None:
     ledger = _open_attempt_ledger(tmp_path, operation_started=True)
+    artifact_body = b"artifact-write-failure"
 
-    def fail_artifact_object_publication(**_kwargs):
-        raise run_execution_v2.ObjectIntegrityError(
-            "sha256:" + "8" * 64
-        )
+    class FailingArtifactObjectStore(run_execution_v2.ProjectObjectStore):
+        def put_exact(self, project_id, payload):
+            if payload == artifact_body:
+                raise OSError("fixture artifact object failure")
+            return super().put_exact(project_id, payload)
+
+    object_store = FailingArtifactObjectStore(ledger._projects)
     finalized = _finalizer(
         ledger,
-        materialize_artifacts=fail_artifact_object_publication,
+        object_store=object_store,
     ).finalize(
         run_execution_v2.ExecutedNodeSuccess(
             project_id="project-1",
             run_id="run-1",
             execution_plan=SimpleNamespace(),
-            node=SimpleNamespace(node_id="node-1"),
+            node=_node(),
             resources=SimpleNamespace(
                 run_id="run-1",
                 _cancellation_control=None,
@@ -225,8 +376,21 @@ def test_artifact_object_failure_publishes_no_artifact_or_output(
             admitted_output_descriptors=(),
             admitted_outputs={},
             cache_eligible=False,
-            current_artifact_count=0,
-            current_artifact_bytes=0,
+            artifact_publication_plan=(
+                run_execution_v2.AdmittedArtifactPublicationPlan(
+                    artifact_output_ports=("structure",),
+                    publications=(
+                        run_execution_v2.AdmittedArtifactPublication(
+                            output_port="structure",
+                            artifact_kind="standalone",
+                            body=artifact_body,
+                            media_type="chemical/x-pdb",
+                            filename="structure.pdb",
+                            candidate_id=None,
+                        ),
+                    ),
+                )
+            ),
         )
     )
 
@@ -234,6 +398,25 @@ def test_artifact_object_failure_publishes_no_artifact_or_output(
     assert ledger.projection()["node_dispositions"][0]["outcome"] == "failed"
     assert ledger.projection()["artifact_index"] == []
     assert ledger.projection()["outputs"] == []
+    operation_terminal = next(
+        fact
+        for fact in ledger.facts
+        if fact["fact_type"] == "operation_attempt_terminal"
+    )
+    node_terminal = next(
+        fact
+        for fact in ledger.facts
+        if fact["fact_type"] == "node_attempt_terminal"
+    )
+    assert operation_terminal["payload"]["status"] == "succeeded"
+    assert node_terminal["payload"]["failure_origin"] == "publication"
+    assert node_terminal["payload"]["error"]["code"] == (
+        "node_publication_failed"
+    )
+    assert node_terminal["payload"]["error"]["details"] == {
+        "node_id": "node-1",
+        "publication_stage": "artifact_object",
+    }
 
 
 def test_failed_node_transaction_exposes_no_logical_fact_subset(
@@ -264,14 +447,20 @@ def test_failed_node_transaction_exposes_no_logical_fact_subset(
         transaction_store=FailNodeConclusion(),
     )
     before = ledger.facts
+    object_store = run_execution_v2.ProjectObjectStore(ledger._projects)
+    authority = run_execution_v2.ProjectResultIdentityAuthority(object_store)
 
     with pytest.raises(run_execution_v2.V2RunError) as rejected:
-        _finalizer(ledger).finalize(
+        _finalizer(
+            ledger,
+            object_store=object_store,
+            result_identity_authority=authority,
+        ).finalize(
             run_execution_v2.ExecutedNodeSuccess(
                 project_id="project-1",
                 run_id="run-1",
                 execution_plan=SimpleNamespace(),
-                node=SimpleNamespace(node_id="node-1"),
+                node=_node(),
                 resources=SimpleNamespace(
                     run_id="run-1",
                     _output_root=tmp_path / "outputs",
@@ -283,8 +472,6 @@ def test_failed_node_transaction_exposes_no_logical_fact_subset(
                 admitted_output_descriptors=(),
                 admitted_outputs={},
                 cache_eligible=False,
-                current_artifact_count=0,
-                current_artifact_bytes=0,
             )
         )
 
@@ -325,32 +512,16 @@ def test_artifact_object_remains_unpublished_when_transaction_fails(
     )
     object_store = run_execution_v2.ProjectObjectStore(ledger._projects)
     artifact_body = b"exact artifact bytes"
-    stored = object_store.put_exact("project-1", artifact_body)
-    artifact = {
-        "artifact_reference": "artifact-1",
-        "artifact_kind": "standalone",
-        "node_id": "node-1",
-        "output_port": "structure",
-        "media_type": "chemical/x-pdb",
-        "filename": "structure.pdb",
-        "size": stored.size,
-        "content_digest": stored.content_digest,
-    }
-
-    def materialize(**_kwargs):
-        return [], [artifact]
-
     with pytest.raises(run_execution_v2.V2RunError) as rejected:
         _finalizer(
             ledger,
-            materialize_artifacts=materialize,
             object_store=object_store,
         ).finalize(
             run_execution_v2.ExecutedNodeSuccess(
                 project_id="project-1",
                 run_id="run-1",
                 execution_plan=SimpleNamespace(),
-                node=SimpleNamespace(node_id="node-1"),
+                node=_node(),
                 resources=SimpleNamespace(
                     run_id="run-1",
                     _cancellation_control=None,
@@ -361,8 +532,21 @@ def test_artifact_object_remains_unpublished_when_transaction_fails(
                 admitted_output_descriptors=(),
                 admitted_outputs={},
                 cache_eligible=False,
-                current_artifact_count=0,
-                current_artifact_bytes=0,
+                artifact_publication_plan=(
+                    run_execution_v2.AdmittedArtifactPublicationPlan(
+                        artifact_output_ports=("structure",),
+                        publications=(
+                            run_execution_v2.AdmittedArtifactPublication(
+                                output_port="structure",
+                                artifact_kind="standalone",
+                                body=artifact_body,
+                                media_type="chemical/x-pdb",
+                                filename="structure.pdb",
+                                candidate_id=None,
+                            ),
+                        ),
+                    )
+                ),
             )
         )
 
@@ -371,8 +555,9 @@ def test_artifact_object_remains_unpublished_when_transaction_fails(
     assert ledger.projection()["outputs"] == []
     assert object_store.read_exact(
         "project-1",
-        stored.content_digest,
-        size=stored.size,
+        "sha256:"
+        "334e3a1d10a0a00a0a6c77ce4272cff103dd46564b51cf3b36becf01571685ba",
+        size=len(artifact_body),
     ) == artifact_body
     assert not list(tmp_path.rglob("published/*"))
 
@@ -406,14 +591,20 @@ def test_unacknowledged_commit_is_hidden_until_restart_reads_durable_file(
         transaction_store=PublishThenLoseAcknowledgement(),
     )
     before = ledger.facts
+    object_store = run_execution_v2.ProjectObjectStore(ledger._projects)
+    authority = run_execution_v2.ProjectResultIdentityAuthority(object_store)
 
     with pytest.raises(run_execution_v2.V2RunError) as rejected:
-        _finalizer(ledger).finalize(
+        _finalizer(
+            ledger,
+            object_store=object_store,
+            result_identity_authority=authority,
+        ).finalize(
             run_execution_v2.ExecutedNodeSuccess(
                 project_id="project-1",
                 run_id="run-1",
                 execution_plan=SimpleNamespace(),
-                node=SimpleNamespace(node_id="node-1"),
+                node=_node(),
                 resources=SimpleNamespace(
                     run_id="run-1",
                     _output_root=tmp_path / "outputs",
@@ -425,8 +616,6 @@ def test_unacknowledged_commit_is_hidden_until_restart_reads_durable_file(
                 admitted_output_descriptors=(),
                 admitted_outputs={},
                 cache_eligible=False,
-                current_artifact_count=0,
-                current_artifact_bytes=0,
             )
         )
 
@@ -446,6 +635,45 @@ def test_unacknowledged_commit_is_hidden_until_restart_reads_durable_file(
     ]
     assert restarted.projection()["node_dispositions"][0]["outcome"] == (
         "succeeded"
+    )
+
+    conflicting = _open_attempt_ledger(
+        tmp_path,
+        operation_started=True,
+        run_id="run-2",
+    )
+    conflict = _finalizer(
+        conflicting,
+        object_store=object_store,
+        result_identity_authority=authority,
+    ).finalize(
+        run_execution_v2.ExecutedNodeSuccess(
+            project_id="project-1",
+            run_id="run-2",
+            execution_plan=SimpleNamespace(),
+            node=_node("conflicting-manifest"),
+            resources=SimpleNamespace(
+                run_id="run-2",
+                _output_root=tmp_path / "outputs",
+                _cancellation_control=None,
+            ),
+            node_attempt_id="node-attempt-1",
+            operation_attempt_id="operation-1",
+            result_identity="sha256:" + "6" * 64,
+            admitted_output_descriptors=(),
+            admitted_outputs={},
+            cache_eligible=False,
+        )
+    )
+    assert conflict.disposition == "failed"
+    assert conflicting.projection()["outputs"] == []
+    conflict_terminal = next(
+        fact
+        for fact in conflicting.facts
+        if fact["fact_type"] == "node_attempt_terminal"
+    )
+    assert conflict_terminal["payload"]["failure_origin"] == (
+        "result_identity"
     )
 
 
@@ -478,7 +706,7 @@ def test_acknowledged_commit_reloads_after_reducer_advance_failure(
             project_id="project-1",
             run_id="run-1",
             execution_plan=SimpleNamespace(),
-            node=SimpleNamespace(node_id="node-1"),
+            node=_node(),
             resources=SimpleNamespace(
                 run_id="run-1",
                 _output_root=tmp_path / "outputs",
@@ -490,8 +718,6 @@ def test_acknowledged_commit_reloads_after_reducer_advance_failure(
             admitted_output_descriptors=(),
             admitted_outputs={},
             cache_eligible=False,
-            current_artifact_count=0,
-            current_artifact_bytes=0,
         )
     )
 
@@ -560,7 +786,7 @@ def test_reducer_advance_and_reload_failure_reports_evidence_unavailable(
                 project_id="project-1",
                 run_id="run-1",
                 execution_plan=SimpleNamespace(),
-                node=SimpleNamespace(node_id="node-1"),
+                node=_node(),
                 resources=SimpleNamespace(
                     run_id="run-1",
                     _output_root=tmp_path / "outputs",
@@ -572,8 +798,6 @@ def test_reducer_advance_and_reload_failure_reports_evidence_unavailable(
                 admitted_output_descriptors=(),
                 admitted_outputs={},
                 cache_eligible=False,
-                current_artifact_count=0,
-                current_artifact_bytes=0,
             )
         )
 
@@ -627,7 +851,7 @@ def test_node_events_appear_only_after_the_whole_transaction_is_durable(
             project_id="project-1",
             run_id="run-1",
             execution_plan=SimpleNamespace(),
-            node=SimpleNamespace(node_id="node-1"),
+            node=_node(),
             resources=SimpleNamespace(
                 run_id="run-1",
                 _output_root=tmp_path / "outputs",
@@ -639,8 +863,6 @@ def test_node_events_appear_only_after_the_whole_transaction_is_durable(
             admitted_output_descriptors=(),
             admitted_outputs={},
             cache_eligible=False,
-            current_artifact_count=0,
-            current_artifact_bytes=0,
         )
     )
 
@@ -665,7 +887,7 @@ def test_reader_rejects_a_v4_node_conclusion_split_across_transactions(
             project_id="project-1",
             run_id="run-1",
             execution_plan=SimpleNamespace(),
-            node=SimpleNamespace(node_id="node-1"),
+            node=_node(),
             resources=SimpleNamespace(
                 run_id="run-1",
                 _output_root=tmp_path / "outputs",
@@ -677,8 +899,6 @@ def test_reader_rejects_a_v4_node_conclusion_split_across_transactions(
             admitted_output_descriptors=(),
             admitted_outputs={},
             cache_eligible=False,
-            current_artifact_count=0,
-            current_artifact_bytes=0,
         )
     )
     ledger_dir = _ledger_transaction_paths(tmp_path)[0].parent
@@ -737,157 +957,60 @@ def test_executed_non_success_is_finalized_without_outputs(tmp_path) -> None:
     assert ledger.facts[-2]["payload"]["resolution"] == "executed"
 
 
-def test_cache_validation_storage_failure_closes_the_executed_node(
+def test_cache_publish_storage_failure_keeps_committed_node_success(
     tmp_path,
 ) -> None:
-    class UnreadableCache(ResultReplaySource):
-        def validate_publish(self, **_kwargs) -> None:
-            raise OSError("fixture cache storage failure")
-
-    ledger = _open_attempt_ledger(tmp_path, operation_started=True)
-    finalized = _finalizer(
-        ledger,
-        result_replay_source=UnreadableCache(),
-    ).finalize(
-        run_execution_v2.ExecutedNodeSuccess(
-            project_id="project-1",
-            run_id="run-1",
-            execution_plan=SimpleNamespace(),
-            node=SimpleNamespace(node_id="node-1"),
-            resources=SimpleNamespace(
-                run_id="run-1",
-                _output_root=tmp_path / "outputs",
-                _cancellation_control=None,
-            ),
-            node_attempt_id="node-attempt-1",
-            operation_attempt_id="operation-1",
-            result_identity="sha256:" + "8" * 64,
-            admitted_output_descriptors=(),
-            admitted_outputs={},
-            cache_eligible=True,
-            current_artifact_count=0,
-            current_artifact_bytes=0,
-        )
-    )
-
-    assert finalized.disposition == "failed"
-    assert ledger.projection()["node_dispositions"][0]["outcome"] == "failed"
-    assert ledger.projection()["outputs"] == []
-
-
-def test_committed_cancellation_wins_over_cache_validation_conflict(
-    tmp_path,
-) -> None:
-    ledger = _open_attempt_ledger(tmp_path, operation_started=True)
-
-    class CancelThenConflict(ResultReplaySource):
-        def validate_publish(self, **_kwargs) -> None:
-            decision = ledger.request_cancellation(None)
-            assert decision["outcome"] == "cancellation_requested"
-            raise run_execution_v2.V2RunError(
-                "cache_identity_conflict",
-                "Fixture conflict after committed cancellation",
-                details={"result_identity": "sha256:" + "a" * 64},
-            )
-
-    finalized = _finalizer(
-        ledger,
-        result_replay_source=CancelThenConflict(),
-    ).finalize(
-        run_execution_v2.ExecutedNodeSuccess(
-            project_id="project-1",
-            run_id="run-1",
-            execution_plan=SimpleNamespace(),
-            node=SimpleNamespace(node_id="node-1"),
-            resources=SimpleNamespace(
-                run_id="run-1",
-                _output_root=tmp_path / "outputs",
-                _cancellation_control=None,
-            ),
-            node_attempt_id="node-attempt-1",
-            operation_attempt_id="operation-1",
-            result_identity="sha256:" + "a" * 64,
-            admitted_output_descriptors=(),
-            admitted_outputs={},
-            cache_eligible=True,
-            current_artifact_count=0,
-            current_artifact_bytes=0,
-        )
-    )
-
-    assert finalized.disposition == "cancelled"
-    assert ledger.projection()["node_dispositions"] == [
-        {
-            "node_id": "node-1",
-            "outcome": "cancelled",
-            "blocked_by": [],
-            "terminal_sequence": ledger.projection()["node_dispositions"][0][
-                "terminal_sequence"
-            ],
-        }
-    ]
-    assert ledger.projection()["outputs"] == []
-    assert [fact["payload"]["status"] for fact in ledger.facts[-3:-1]] == [
-        "cancelled",
-        "cancelled",
-    ]
-
-
-def test_cache_publish_storage_failure_remains_fail_fast(tmp_path) -> None:
     class UnreadableOnPublish(ResultReplaySource):
         def publish(self, **_kwargs):
             raise OSError("fixture cache publish storage failure")
 
     ledger = _open_attempt_ledger(tmp_path, operation_started=True)
-    with pytest.raises(OSError, match="cache publish storage failure"):
-        _finalizer(
-            ledger,
-            result_replay_source=UnreadableOnPublish(),
-        ).finalize(
-            run_execution_v2.ExecutedNodeSuccess(
-                project_id="project-1",
+    finalized = _finalizer(
+        ledger,
+        result_replay_source=UnreadableOnPublish(),
+    ).finalize(
+        run_execution_v2.ExecutedNodeSuccess(
+            project_id="project-1",
+            run_id="run-1",
+            execution_plan=SimpleNamespace(),
+            node=_node(),
+            resources=SimpleNamespace(
                 run_id="run-1",
-                execution_plan=SimpleNamespace(),
-                node=SimpleNamespace(node_id="node-1"),
-                resources=SimpleNamespace(
-                    run_id="run-1",
-                    _output_root=tmp_path / "outputs",
-                    _cancellation_control=None,
-                ),
-                node_attempt_id="node-attempt-1",
-                operation_attempt_id="operation-1",
-                result_identity="sha256:" + "b" * 64,
-                admitted_output_descriptors=(),
-                admitted_outputs={},
-                cache_eligible=True,
-                current_artifact_count=0,
-                current_artifact_bytes=0,
-            )
+                _output_root=tmp_path / "outputs",
+                _cancellation_control=None,
+            ),
+            node_attempt_id="node-attempt-1",
+            operation_attempt_id="operation-1",
+            result_identity="sha256:" + "b" * 64,
+            admitted_output_descriptors=(),
+            admitted_outputs={},
+            cache_eligible=True,
         )
+    )
 
-    assert not any(
-        fact["fact_type"].endswith("_terminal")
-        or fact["fact_type"] == "node_disposition"
-        for fact in ledger.facts
+    assert finalized.disposition == "succeeded"
+    assert ledger.projection()["node_dispositions"][0]["outcome"] == (
+        "succeeded"
     )
 
 
 def test_local_finalization_invariant_failure_is_not_coerced(tmp_path) -> None:
     ledger = _open_attempt_ledger(tmp_path, operation_started=True)
 
-    def invalid_materializer(**_kwargs):
-        raise TypeError("fixture local invariant")
+    class InvalidObjectStore(run_execution_v2.ProjectObjectStore):
+        def put_exact(self, project_id, payload):
+            raise TypeError("fixture local invariant")
 
     with pytest.raises(TypeError, match="fixture local invariant"):
         _finalizer(
             ledger,
-            materialize_artifacts=invalid_materializer,
+            object_store=InvalidObjectStore(ledger._projects),
         ).finalize(
             run_execution_v2.ExecutedNodeSuccess(
                 project_id="project-1",
                 run_id="run-1",
                 execution_plan=SimpleNamespace(),
-                node=SimpleNamespace(node_id="node-1"),
+                node=_node(),
                 resources=SimpleNamespace(
                     run_id="run-1",
                     _output_root=tmp_path / "outputs",
@@ -899,8 +1022,6 @@ def test_local_finalization_invariant_failure_is_not_coerced(tmp_path) -> None:
                 admitted_output_descriptors=(),
                 admitted_outputs={},
                 cache_eligible=False,
-                current_artifact_count=0,
-                current_artifact_bytes=0,
             )
         )
 
@@ -918,7 +1039,7 @@ def test_cache_replay_success_has_no_operation_attempt(tmp_path) -> None:
             project_id="project-1",
             run_id="run-1",
             execution_plan=SimpleNamespace(),
-            node=SimpleNamespace(node_id="node-1"),
+            node=_node(),
             resources=SimpleNamespace(
                 run_id="run-1",
                 _output_root=tmp_path / "outputs",
@@ -929,8 +1050,6 @@ def test_cache_replay_success_has_no_operation_attempt(tmp_path) -> None:
             producer_run_id="producer-run",
             admitted_output_descriptors=(),
             admitted_outputs={},
-            current_artifact_count=0,
-            current_artifact_bytes=0,
         )
     )
 
@@ -965,7 +1084,7 @@ def test_cache_replay_cancellation_cleanup_failure_retains_resolution(
             project_id="project-1",
             run_id="run-1",
             execution_plan=SimpleNamespace(),
-            node=SimpleNamespace(node_id="node-1"),
+            node=_node(),
             resources=SimpleNamespace(
                 run_id="run-1",
                 _output_root=tmp_path / "outputs",
@@ -976,8 +1095,6 @@ def test_cache_replay_cancellation_cleanup_failure_retains_resolution(
             producer_run_id="producer-run",
             admitted_output_descriptors=(),
             admitted_outputs={},
-            current_artifact_count=0,
-            current_artifact_bytes=0,
         )
     )
 

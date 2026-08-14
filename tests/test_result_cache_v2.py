@@ -20,7 +20,6 @@ from core import (
     ReadinessResult,
     ResultReplaySource,
     ScientificOperationFactory,
-    V2RunError,
     builtin_frozen_catalog,
 )
 from core.server import create_app
@@ -31,13 +30,15 @@ from tests.fixtures.public_v2 import (
     wait_for_testclient_run_terminal,
 )
 from tests.test_run_execution_v2 import (
+    _artifact_catalog,
+    _commit_artifact_node,
     _commit_one_node,
     _commit_pipeline,
     _commit_public_workflow,
     _contract,
     _direct_catalog,
+    _object_path,
     _pipeline_catalog,
-    _transaction_has_fact,
 )
 
 
@@ -422,6 +423,131 @@ def test_deterministic_result_replays_from_project_cache_after_readiness(
     assert "engine_invocation_started" not in replay_event_types
 
 
+def test_cache_v4_is_reference_only_and_ledger_commits_node_result_manifest(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    calls: list[str] = []
+    cache_root = tmp_path / "cache"
+    run_root = tmp_path / "runs"
+    monkeypatch.setenv(
+        "PROTEIN_WORKBENCH_PROJECT_ROOT",
+        str(tmp_path / "projects"),
+    )
+    monkeypatch.setenv("PROTEIN_WORKBENCH_CACHE_ROOT", str(cache_root))
+    monkeypatch.setenv("PROTEIN_WORKBENCH_RUN_ROOT", str(run_root))
+    monkeypatch.setenv(
+        "PROTEIN_WORKBENCH_OUTPUT_ROOT",
+        str(tmp_path / "outputs"),
+    )
+    app = create_app(
+        frozen_catalog_override=_direct_catalog(calls, cacheable=True),
+        v2_environment_configuration={
+            ("test.direct.local", "2.1.0"): {
+                "values": {"credential": "credential-value"},
+            }
+        },
+    )
+
+    with TestClient(app) as client:
+        project_id, compiled = _commit_one_node(client)
+        first, _ = _start_run(client, project_id, compiled, "manifest-source")
+
+    result_identity = first["outputs"][0]["result_identity"]
+    digest = result_identity.removeprefix("sha256:")
+    cache_path = cache_root / project_id / "v4" / "results" / f"{digest}.json"
+    entry = json.loads(cache_path.read_bytes())
+    assert entry == {
+        "schema_namespace": "protein-workbench-cache-entry/v4",
+        "result_identity": result_identity,
+        "result_contract_metadata": entry["result_contract_metadata"],
+        "producer": {
+            "producer_run_id": first["run_id"],
+            "producer_node_id": "direct",
+        },
+        "node_result_manifest": entry["node_result_manifest"],
+        "outputs": entry["outputs"],
+    }
+    assert "encoded_values" not in json.dumps(entry)
+    assert entry["outputs"] == [
+        {
+            "output_port": "text",
+            "value_manifest": entry["outputs"][0]["value_manifest"],
+        }
+    ]
+
+    publication = next(
+        fact
+        for transaction_path in sorted(
+            (run_root / project_id / first["run_id"] / "ledger").glob("*.json")
+        )
+        for fact in json.loads(transaction_path.read_bytes())["facts"]
+        if fact["fact_type"] == "outputs_published"
+    )
+    assert publication["payload"]["result_identity"] == result_identity
+    assert publication["payload"]["node_result_manifest"] == entry[
+        "node_result_manifest"
+    ]
+
+
+def test_node_result_manifest_covers_ordinary_and_artifact_output_ports(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    cache_root = tmp_path / "cache"
+    output_root = tmp_path / "outputs"
+    monkeypatch.setenv(
+        "PROTEIN_WORKBENCH_PROJECT_ROOT",
+        str(tmp_path / "projects"),
+    )
+    monkeypatch.setenv("PROTEIN_WORKBENCH_CACHE_ROOT", str(cache_root))
+    monkeypatch.setenv("PROTEIN_WORKBENCH_RUN_ROOT", str(tmp_path / "runs"))
+    monkeypatch.setenv("PROTEIN_WORKBENCH_OUTPUT_ROOT", str(output_root))
+    app = create_app(
+        frozen_catalog_override=_artifact_catalog(
+            [],
+            cacheable=True,
+            include_ordinary_output=True,
+        )
+    )
+
+    with TestClient(app) as client:
+        project_id, compiled = _commit_artifact_node(client)
+        first, _ = _start_run(client, project_id, compiled, "artifact-source")
+        replayed, _ = _start_run(client, project_id, compiled, "artifact-replay")
+
+    entry_path = next((cache_root / project_id / "v4").rglob("*.json"))
+    entry = json.loads(entry_path.read_bytes())
+    manifest_reference = entry["node_result_manifest"]
+    manifest = json.loads(
+        _object_path(
+            output_root,
+            project_id,
+            manifest_reference["content_digest"],
+        ).read_bytes()
+    )
+
+    assert [output["output_port"] for output in manifest["outputs"]] == [
+        "summary",
+        "structure",
+    ]
+    assert [output["output_port"] for output in entry["outputs"]] == [
+        "summary",
+        "structure",
+    ]
+    assert [output["output_port"] for output in first["outputs"]] == [
+        "summary"
+    ]
+    assert [artifact["output_port"] for artifact in first["artifact_index"]] == [
+        "structure"
+    ]
+    assert replayed["node_dispositions"][0]["resolution"] == "cache_replayed"
+    assert replayed["outputs"][0]["producer_provenance"][
+        "producer_run_id"
+    ] == first["run_id"]
+    assert replayed["artifact_index"][0]["output_port"] == "structure"
+
+
 def test_project_cache_reuses_admitted_canonical_bytes_without_reencoding(
     tmp_path,
     monkeypatch,
@@ -469,13 +595,13 @@ def test_project_cache_reuses_admitted_canonical_bytes_without_reencoding(
     ]
 
 
-def test_replay_without_identity_bound_producer_provenance_is_rejected(
+def test_cache_publication_failure_does_not_change_node_or_run_success(
     tmp_path,
     monkeypatch,
 ) -> None:
-    class AmbiguousReplay(ResultReplaySource):
-        def lookup(self, **_kwargs: Any):
-            return {"text": "AMBIGUOUS"}
+    class UnavailableOnPublish(ResultReplaySource):
+        def publish(self, **_kwargs: Any) -> None:
+            raise OSError("fixture cache publication failure")
 
     monkeypatch.setenv(
         "PROTEIN_WORKBENCH_PROJECT_ROOT",
@@ -488,7 +614,7 @@ def test_replay_without_identity_bound_producer_provenance_is_rejected(
     )
     app = create_app(
         frozen_catalog_override=_direct_catalog([], cacheable=True),
-        v2_result_replay_source=AmbiguousReplay(),
+        v2_result_replay_source=UnavailableOnPublish(),
         v2_environment_configuration={
             ("test.direct.local", "2.1.0"): {
                 "values": {"credential": "credential-value"},
@@ -502,61 +628,7 @@ def test_replay_without_identity_bound_producer_provenance_is_rejected(
             client,
             project_id,
             compiled,
-            "ambiguous-replay",
-        )
-
-    terminal = next(
-        item["event"]
-        for item in events
-        if item["event"]["type"] == "node_attempt_terminal"
-    )
-    assert projection["status"] == "failed"
-    assert projection["outputs"] == []
-    assert terminal["error"]["code"] == "cache_identity_conflict"
-    assert not any(
-        item["event"]["type"] == "operation_attempt_started"
-        for item in events
-    )
-
-
-def test_publication_conflict_closes_node_and_run_as_failed(
-    tmp_path,
-    monkeypatch,
-) -> None:
-    class ConflictOnPublish(ResultReplaySource):
-        def publish(self, **kwargs: Any):
-            raise V2RunError(
-                "cache_identity_conflict",
-                "Fixture publication conflict",
-                details={"result_identity": kwargs["result_identity"]},
-            )
-
-    monkeypatch.setenv(
-        "PROTEIN_WORKBENCH_PROJECT_ROOT",
-        str(tmp_path / "projects"),
-    )
-    monkeypatch.setenv("PROTEIN_WORKBENCH_RUN_ROOT", str(tmp_path / "runs"))
-    monkeypatch.setenv(
-        "PROTEIN_WORKBENCH_OUTPUT_ROOT",
-        str(tmp_path / "outputs"),
-    )
-    app = create_app(
-        frozen_catalog_override=_direct_catalog([], cacheable=True),
-        v2_result_replay_source=ConflictOnPublish(),
-        v2_environment_configuration={
-            ("test.direct.local", "2.1.0"): {
-                "values": {"credential": "credential-value"},
-            }
-        },
-    )
-
-    with TestClient(app) as client:
-        project_id, compiled = _commit_one_node(client)
-        projection, events = _start_run(
-            client,
-            project_id,
-            compiled,
-            "publish-conflict",
+            "cache-publication-failure",
         )
 
     public_events = [item["event"] for item in events]
@@ -573,61 +645,25 @@ def test_publication_conflict_closes_node_and_run_as_failed(
     run_terminal = next(
         item for item in public_events if item["type"] == "run_terminal"
     )
-    assert projection["status"] == "failed"
-    assert projection["outputs"] == []
-    assert operation_terminal["status"] == "failed"
-    assert operation_terminal["error"]["code"] == "cache_identity_conflict"
-    assert node_terminal["status"] == "failed"
-    assert node_terminal["error"]["code"] == "cache_identity_conflict"
-    assert run_terminal["status"] == "failed"
+    assert projection["status"] == "succeeded"
+    assert len(projection["outputs"]) == 1
+    assert operation_terminal["status"] == "succeeded"
+    assert node_terminal["status"] == "succeeded"
+    assert run_terminal["status"] == "succeeded"
 
 
-def test_stale_manifest_cannot_unlock_provisional_cache_entry(
+def test_invalid_current_cache_entry_cannot_roll_back_forced_node_success(
     tmp_path,
     monkeypatch,
 ) -> None:
     calls: list[str] = []
-    failure = {"enabled": True}
     cache_root = tmp_path / "cache"
-    run_root = tmp_path / "runs"
-    original_write = run_execution_v2.write_private_new_file
-    original_remove = run_execution_v2.remove_private_regular_file
-
-    def fail_first_disposition(root, relative_parts, payload, *, field):
-        if (
-            failure["enabled"]
-            and field == "run_ledger"
-            and _transaction_has_fact(payload, "node_disposition")
-        ):
-            raise OSError("fixture evidence store failure")
-        return original_write(
-            root,
-            relative_parts,
-            payload,
-            field=field,
-        )
-
-    def leave_provisional_entry(root, relative_parts, *, field):
-        if failure["enabled"] and field == "result_cache_entry":
-            raise OSError("fixture rollback failure")
-        return original_remove(root, relative_parts, field=field)
-
-    monkeypatch.setattr(
-        run_execution_v2,
-        "write_private_new_file",
-        fail_first_disposition,
-    )
-    monkeypatch.setattr(
-        run_execution_v2,
-        "remove_private_regular_file",
-        leave_provisional_entry,
-    )
     monkeypatch.setenv(
         "PROTEIN_WORKBENCH_PROJECT_ROOT",
         str(tmp_path / "projects"),
     )
     monkeypatch.setenv("PROTEIN_WORKBENCH_CACHE_ROOT", str(cache_root))
-    monkeypatch.setenv("PROTEIN_WORKBENCH_RUN_ROOT", str(run_root))
+    monkeypatch.setenv("PROTEIN_WORKBENCH_RUN_ROOT", str(tmp_path / "runs"))
     monkeypatch.setenv(
         "PROTEIN_WORKBENCH_OUTPUT_ROOT",
         str(tmp_path / "outputs"),
@@ -643,43 +679,32 @@ def test_stale_manifest_cannot_unlock_provisional_cache_entry(
 
     with TestClient(app) as client:
         project_id, compiled = _commit_one_node(client)
-        failed = client.post(
-            f"/api/v2/projects/{project_id}/runs",
+        source, _ = _start_run(client, project_id, compiled, "cache-source")
+        cache_entry = next((cache_root / project_id / "v4").rglob("*.json"))
+        cache_entry.write_bytes(b'{"invalid":"current cache entry"}')
+        derived = client.post(
+            f"/api/v2/projects/{project_id}/runs:derive",
             json={
-                "workflow_commit_id": compiled["workflow_commit_id"],
-                "client_request_id": "provisional-cache",
+                "source_run_id": source["run_id"],
+                "policy": "force_selected",
+                "node_ids": ["direct"],
+                "client_request_id": "forced-after-cache-damage",
             },
         )
-        assert failed.status_code == 503
-        provisional = next(
-            (cache_root / project_id / "v3").rglob("*.json")
-        )
-        failed_run_dir = next((run_root / project_id).iterdir())
-        manifest_path = failed_run_dir / "manifest.json"
-        manifest = json.loads(manifest_path.read_bytes())
-        manifest["status"] = "succeeded"
-        manifest["node_dispositions"] = [
-            {
-                "node_id": "direct",
-                "outcome": "succeeded",
-                "resolution": "executed",
-                "blocked_by": [],
-                "terminal_sequence": 999,
-            }
-        ]
-        manifest_path.write_text(json.dumps(manifest))
-        failure["enabled"] = False
-        recovered, _ = _start_run(
+        assert derived.status_code == 202
+        forced = wait_for_testclient_run_terminal(
             client,
             project_id,
-            compiled,
-            "ledger-gated-recovery",
+            derived.json()["run_id"],
         )
 
-    assert provisional.is_file()
-    assert recovered["status"] == "failed"
-    assert recovered["node_dispositions"][0]["outcome"] == "failed"
-    assert calls.count("execute:test.direct.local") == 1
+    assert forced["status"] == "succeeded"
+    assert forced["node_dispositions"][0]["resolution"] == "executed"
+    assert [call for call in calls if call == "execute:test.direct.local"] == [
+        "execute:test.direct.local",
+        "execute:test.direct.local",
+    ]
+    assert cache_entry.read_bytes() == b'{"invalid":"current cache entry"}'
 
 
 def test_candidate_identity_is_run_independent_and_preserved_on_replay(
@@ -896,11 +921,11 @@ def test_same_result_identity_is_physically_isolated_between_projects(
         "execute:test.direct.local",
     ]
     assert (
-        len(list((cache_root / first_project / "v3").rglob("*.json")))
+            len(list((cache_root / first_project / "v4").rglob("*.json")))
         == 1
     )
     assert (
-        len(list((cache_root / second_project / "v3").rglob("*.json")))
+            len(list((cache_root / second_project / "v4").rglob("*.json")))
         == 1
     )
 
@@ -1037,12 +1062,18 @@ def test_presentation_only_contract_change_cannot_replay_from_old_generation(
         path.name: path.read_bytes()
         for path in sorted(producer_ledger.glob("*.json"))
     }
+    cache_entry = next((cache_root / project_id / "v4").rglob("*.json"))
+    cache_entry.unlink()
+    cache_entry.parent.rmdir()
+    cache_entry.parent.parent.rmdir()
+    cache_entry.parent.parent.parent.rmdir()
 
     second_calls: list[str] = []
     active_catalog = _direct_catalog(
         second_calls,
         cacheable=True,
         node_title="Renamed UI label",
+        execution_output="CONFLICT",
     )
     assert producer_catalog.contract_digest != active_catalog.contract_digest
     with TestClient(
@@ -1058,6 +1089,35 @@ def test_presentation_only_contract_change_cannot_replay_from_old_generation(
                 "client_request_id": "presentation-contract-change",
             },
         )
+        current_workflow = {
+            "schema_version": "2.1.0",
+            "workflow_id": project_id,
+            "nodes": [
+                {
+                    "node_id": "direct",
+                    "node_type_id": "test.direct",
+                    "node_type_version": "2.1.0",
+                    "binding_id": "test.direct.local",
+                    "binding_version": "2.1.0",
+                    "node_parameters": {},
+                    "binding_parameters": {},
+                }
+            ],
+            "edges": [],
+            "contract_lock": [],
+        }
+        current = _commit_public_workflow(
+            second_client,
+            project_id,
+            current_workflow,
+            expected_draft_revision=1,
+        )
+        conflicted, events = _start_run(
+            second_client,
+            project_id,
+            current,
+            "presentation-current-conflict",
+        )
 
     assert rejected.status_code == 409
     assert rejected.json()["error"]["code"] == "contract_digest_mismatch"
@@ -1071,7 +1131,16 @@ def test_presentation_only_contract_change_cannot_replay_from_old_generation(
     }
     assert first["node_dispositions"][0]["resolution"] == "executed"
     assert "execute:test.direct.local" in first_calls
-    assert second_calls == []
+    terminal = next(
+        item["event"]
+        for item in events
+        if item["event"]["type"] == "node_attempt_terminal"
+    )
+    assert conflicted["status"] == "failed"
+    assert terminal["failure_origin"] == "result_identity"
+    assert terminal["error"]["code"] == "result_identity_conflict"
+    assert "execute:test.direct.local" in second_calls
+    assert not (cache_root / project_id).exists()
     assert before == after
 
 
@@ -1218,7 +1287,7 @@ def test_changed_scientific_parameter_changes_result_identity_and_misses(
     assert second["node_dispositions"][0]["resolution"] == "executed"
     assert "parameters:{'scientific_label': 'alpha'}" in calls
     assert "parameters:{'scientific_label': 'beta'}" in calls
-    assert len(list((cache_root / project_id / "v3").rglob("*.json"))) == 2
+    assert len(list((cache_root / project_id / "v4").rglob("*.json"))) == 2
 
 
 def test_typed_codec_corruption_never_replays_or_overwrites(
@@ -1248,16 +1317,22 @@ def test_typed_codec_corruption_never_replays_or_overwrites(
         project_id, compiled = _commit_one_node(client)
         _start_run(client, project_id, compiled, "populate")
         entry = next(
-            (cache_root / project_id / "v3").rglob("*.json")
+            (cache_root / project_id / "v4").rglob("*.json")
         )
         entry.write_bytes(b'{"not":"a typed codec entry"}')
-        second, _ = _start_run(client, project_id, compiled, "corrupt")
+        rejected = client.post(
+            f"/api/v2/projects/{project_id}/runs",
+            json={
+                "workflow_commit_id": compiled["workflow_commit_id"],
+                "client_request_id": "corrupt",
+            },
+        )
 
-    assert second["node_dispositions"][0]["resolution"] == "executed"
+    assert rejected.status_code == 500
+    assert rejected.json()["error"]["code"] == "internal_error"
     assert [
         item for item in calls if item == "execute:test.direct.local"
     ] == [
-        "execute:test.direct.local",
         "execute:test.direct.local",
     ]
     assert entry.read_bytes() == b'{"not":"a typed codec entry"}'
@@ -1709,7 +1784,7 @@ def test_legacy_pickle_cache_is_never_loaded_or_rewritten(
     assert legacy_entry.read_bytes() == b"legacy-pickle-must-not-be-read"
 
 
-def test_v2_json_cache_is_not_loaded_or_migrated(
+def test_v3_json_cache_is_not_loaded_or_migrated(
     tmp_path,
     monkeypatch,
 ) -> None:
@@ -1736,14 +1811,14 @@ def test_v2_json_cache_is_not_loaded_or_migrated(
 
     with TestClient(app) as client:
         project_id, compiled = _commit_one_node(client)
-        _start_run(client, project_id, compiled, "populate-v3")
+        _start_run(client, project_id, compiled, "populate-v4")
         current_entry = next(
-            (cache_root / project_id / "v3").rglob("*.json")
+            (cache_root / project_id / "v4").rglob("*.json")
         )
         legacy_entry = (
             cache_root
             / project_id
-            / "v2"
+            / "v3"
             / "results"
             / current_entry.name
         )
@@ -1756,13 +1831,13 @@ def test_v2_json_cache_is_not_loaded_or_migrated(
             client,
             project_id,
             compiled,
-            "ignore-v2-entry",
+            "ignore-v3-entry",
         )
 
     assert replay_attempt["node_dispositions"][0]["resolution"] == "executed"
     assert calls.count("execute:test.direct.local") == 2
     assert legacy_entry.read_bytes() == legacy_bytes
-    assert next((cache_root / project_id / "v3").rglob("*.json")).is_file()
+    assert next((cache_root / project_id / "v4").rglob("*.json")).is_file()
 
 
 def test_conflicting_output_for_one_result_identity_fails_without_overwrite(
@@ -1796,9 +1871,12 @@ def test_conflicting_output_for_one_result_identity_fails_without_overwrite(
         project_id, compiled = _commit_one_node(client)
         source, _ = _start_run(client, project_id, compiled, "source")
         original_entry = next(
-            (cache_root / project_id / "v3").rglob("*.json")
+            (cache_root / project_id / "v4").rglob("*.json")
         )
-        original_bytes = original_entry.read_bytes()
+        original_entry.unlink()
+        original_entry.parent.rmdir()
+        original_entry.parent.parent.rmdir()
+        original_entry.parent.parent.parent.rmdir()
         state["value"] = "CONFLICT"
         forced = client.post(
             f"/api/v2/projects/{project_id}/runs:derive",
@@ -1826,7 +1904,269 @@ def test_conflicting_output_for_one_result_identity_fails_without_overwrite(
         for item in events
         if item["event"]["type"] == "node_attempt_terminal"
     )
+    operation_terminal = next(
+        item["event"]
+        for item in events
+        if item["event"]["type"] == "operation_attempt_terminal"
+    )
     assert projection["status"] == "failed"
     assert projection["outputs"] == []
-    assert terminal["error"]["code"] == "cache_identity_conflict"
-    assert original_entry.read_bytes() == original_bytes
+    assert operation_terminal["status"] == "succeeded"
+    assert "error" not in operation_terminal
+    assert terminal["failure_origin"] == "result_identity"
+    assert terminal["error"]["code"] == "result_identity_conflict"
+    assert not (cache_root / project_id).exists()
+
+
+def test_restart_rebuilds_result_identity_authority_without_cache(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    state = {"value": "READY"}
+    project_root = tmp_path / "projects"
+    cache_root = tmp_path / "cache"
+    run_root = tmp_path / "runs"
+    monkeypatch.setenv("PROTEIN_WORKBENCH_PROJECT_ROOT", str(project_root))
+    monkeypatch.setenv("PROTEIN_WORKBENCH_CACHE_ROOT", str(cache_root))
+    monkeypatch.setenv("PROTEIN_WORKBENCH_RUN_ROOT", str(run_root))
+    monkeypatch.setenv(
+        "PROTEIN_WORKBENCH_OUTPUT_ROOT",
+        str(tmp_path / "outputs"),
+    )
+    environment = {
+        ("test.direct.local", "2.1.0"): {
+            "values": {"credential": "credential-value"},
+        }
+    }
+
+    with TestClient(
+        create_app(
+            frozen_catalog_override=_direct_catalog(
+                [],
+                cacheable=True,
+                execution_output=lambda: state["value"],
+            ),
+            v2_environment_configuration=environment,
+        )
+    ) as first_client:
+        project_id, compiled = _commit_one_node(first_client)
+        source, _ = _start_run(
+            first_client,
+            project_id,
+            compiled,
+            "restart-source",
+        )
+        cache_entry = next(
+            (cache_root / project_id / "v4").rglob("*.json")
+        )
+        cache_entry.unlink()
+        cache_entry.parent.rmdir()
+        cache_entry.parent.parent.rmdir()
+        cache_entry.parent.parent.parent.rmdir()
+
+    state["value"] = "CONFLICT"
+    with TestClient(
+        create_app(
+            frozen_catalog_override=_direct_catalog(
+                [],
+                cacheable=True,
+                execution_output=lambda: state["value"],
+            ),
+            v2_environment_configuration=environment,
+        )
+    ) as restarted_client:
+        active = restarted_client.get(
+            f"/api/v2/projects/{project_id}/workflow/active-commit"
+        )
+        assert active.status_code == 200
+        conflicted, events = _start_run(
+            restarted_client,
+            project_id,
+            active.json(),
+            "restart-conflict",
+        )
+
+    assert source["status"] == "succeeded"
+    assert conflicted["status"] == "failed"
+    terminal = next(
+        event["event"]
+        for event in events
+        if event["event"]["type"] == "node_attempt_terminal"
+    )
+    assert terminal["failure_origin"] == "result_identity"
+    assert terminal["error"]["code"] == "result_identity_conflict"
+    assert not (cache_root / project_id).exists()
+
+
+def test_damaged_committed_manifest_blocks_project_identity_publication(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    project_root = tmp_path / "projects"
+    cache_root = tmp_path / "cache"
+    run_root = tmp_path / "runs"
+    output_root = tmp_path / "outputs"
+    monkeypatch.setenv("PROTEIN_WORKBENCH_PROJECT_ROOT", str(project_root))
+    monkeypatch.setenv("PROTEIN_WORKBENCH_CACHE_ROOT", str(cache_root))
+    monkeypatch.setenv("PROTEIN_WORKBENCH_RUN_ROOT", str(run_root))
+    monkeypatch.setenv("PROTEIN_WORKBENCH_OUTPUT_ROOT", str(output_root))
+    environment = {
+        ("test.direct.local", "2.1.0"): {
+            "values": {"credential": "credential-value"},
+        }
+    }
+
+    with TestClient(
+        create_app(
+            frozen_catalog_override=_direct_catalog([], cacheable=True),
+            v2_environment_configuration=environment,
+        )
+    ) as first_client:
+        project_id, compiled = _commit_one_node(first_client)
+        source, _ = _start_run(
+            first_client,
+            project_id,
+            compiled,
+            "damaged-manifest-source",
+        )
+
+    publication = next(
+        fact
+        for path in sorted(
+            (run_root / project_id / source["run_id"] / "ledger").glob(
+                "*.json"
+            )
+        )
+        for fact in json.loads(path.read_bytes())["facts"]
+        if fact["fact_type"] == "outputs_published"
+    )
+    manifest_reference = publication["payload"]["node_result_manifest"]
+    _object_path(
+        output_root,
+        project_id,
+        manifest_reference["content_digest"],
+    ).unlink()
+    cache_entry = next((cache_root / project_id / "v4").rglob("*.json"))
+    cache_entry.unlink()
+    cache_entry.parent.rmdir()
+    cache_entry.parent.parent.rmdir()
+    cache_entry.parent.parent.parent.rmdir()
+
+    with TestClient(
+        create_app(
+            frozen_catalog_override=_direct_catalog([], cacheable=True),
+            v2_environment_configuration=environment,
+        )
+    ) as restarted:
+        active = restarted.get(
+            f"/api/v2/projects/{project_id}/workflow/active-commit"
+        )
+        assert active.status_code == 200
+        rejected = restarted.post(
+            f"/api/v2/projects/{project_id}/runs",
+            json={
+                "workflow_commit_id": active.json()["workflow_commit_id"],
+                "client_request_id": "damaged-manifest-retry",
+            },
+        )
+
+    assert rejected.status_code == 503
+    assert rejected.json()["error"]["code"] == "evidence_unavailable"
+
+
+@pytest.mark.parametrize(
+    "damaged_fact_type",
+    ("outputs_published", "run_terminal"),
+)
+def test_damaged_transaction_blocks_incomplete_project_authority(
+    tmp_path,
+    monkeypatch,
+    damaged_fact_type: str,
+) -> None:
+    state = {"value": "READY"}
+    project_root = tmp_path / "projects"
+    cache_root = tmp_path / "cache"
+    run_root = tmp_path / "runs"
+    monkeypatch.setenv("PROTEIN_WORKBENCH_PROJECT_ROOT", str(project_root))
+    monkeypatch.setenv("PROTEIN_WORKBENCH_CACHE_ROOT", str(cache_root))
+    monkeypatch.setenv("PROTEIN_WORKBENCH_RUN_ROOT", str(run_root))
+    monkeypatch.setenv(
+        "PROTEIN_WORKBENCH_OUTPUT_ROOT",
+        str(tmp_path / "outputs"),
+    )
+    environment = {
+        ("test.direct.local", "2.1.0"): {
+            "values": {"credential": "credential-value"},
+        }
+    }
+
+    with TestClient(
+        create_app(
+            frozen_catalog_override=_direct_catalog(
+                [],
+                cacheable=True,
+                execution_output=lambda: state["value"],
+            ),
+            v2_environment_configuration=environment,
+        )
+    ) as first_client:
+        project_id, compiled = _commit_one_node(first_client)
+        source, _ = _start_run(
+            first_client,
+            project_id,
+            compiled,
+            "damaged-later-source",
+        )
+
+    ledger_paths = sorted(
+        (run_root / project_id / source["run_id"] / "ledger").glob(
+            "*.json"
+        )
+    )
+    assert any(
+        fact["fact_type"] == "outputs_published"
+        for path in ledger_paths
+        for fact in json.loads(path.read_bytes())["facts"]
+    )
+    damaged_path = next(
+        path
+        for path in ledger_paths
+        if any(
+            fact["fact_type"] == damaged_fact_type
+            for fact in json.loads(path.read_bytes())["facts"]
+        )
+    )
+    damaged_path.write_bytes(b'{"damaged":"current transaction"}')
+    cache_entry = next((cache_root / project_id / "v4").rglob("*.json"))
+    cache_entry.unlink()
+    cache_entry.parent.rmdir()
+    cache_entry.parent.parent.rmdir()
+    cache_entry.parent.parent.parent.rmdir()
+    state["value"] = "CONFLICT"
+
+    with TestClient(
+        create_app(
+            frozen_catalog_override=_direct_catalog(
+                [],
+                cacheable=True,
+                execution_output=lambda: state["value"],
+            ),
+            v2_environment_configuration=environment,
+        )
+    ) as restarted:
+        active = restarted.get(
+            f"/api/v2/projects/{project_id}/workflow/active-commit"
+        )
+        assert active.status_code == 200
+        rejected = restarted.post(
+            f"/api/v2/projects/{project_id}/runs",
+            json={
+                "workflow_commit_id": active.json()["workflow_commit_id"],
+                "client_request_id": (
+                    f"damaged-{damaged_fact_type}-conflict"
+                ),
+            },
+        )
+
+    assert rejected.status_code == 503
+    assert rejected.json()["error"]["code"] == "evidence_unavailable"

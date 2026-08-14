@@ -468,7 +468,7 @@ validation、安全 redaction、durable persistence 与 monotonic sequence 分�
 v2 使用全仓库统一 schema namespace：
 
 ```text
-protein-workbench-cache/v2
+protein-workbench-cache/v3
 ```
 
 Result Identity 是 run-independent 的 canonical identity，包含所有会影响结果的 resolved
@@ -485,23 +485,26 @@ Project ID、Run ID、Node Instance ID、凭据、private paths、timestamps、U
 只影响性能的环境选择不进入 Result Identity。若任何结果相关 identity 无法可靠解析，
 该 Binding 禁用 cross-Run caching，而不是产生不完整 key。
 
-全局的是 identity schema；v2 初始物理 Cache 仍归一个 Project 所有，不进行跨 Project
-查找或 replay。Cache 只存储经 Port Type codec 编码的完整、成功、validated、
-cache-eligible typed scientific values，不存文件路径。失败、取消、中断、partial、
-uncontrolled stochastic、身份不足的远端结果，以及必须依赖 standalone artifact 的
-export 结果不可缓存。
+全局的是 identity schema；物理 authority、object store 与 Cache 均归一个 Project 所有，
+不进行跨 Project 查找或 replay。committed Run Ledgers 通过 Node Result Manifest 对
+Result Identity 提供权威映射；manifest 固定 compiler-owned contract metadata，并引用普通
+与 artifact-capable Port 的 canonical value manifests。相同 Result Identity 只有在 manifest
+相等时才允许跨 Run 发布，任何冲突都是 `result_identity_conflict`。
 
-Cache replay 记录当前 Run 的 materialization 与 producer provenance，但不复制旧
-Availability、Readiness、Operation Attempt 或 Engine Invocation。相同 Result Identity
-出现不同 output digest 是 `cache_identity_conflict`，必须失败，不采用 first-write-wins。
+Cache v4 只保存已提交 Node Result Manifest 与 immutable objects 的引用，不内嵌或 base64
+复制 typed scientific values。replay 保留 original producer provenance，并记录当前 Run 的
+materialization，但不复制旧 Availability、Readiness、Operation Attempt 或 Engine
+Invocation。Cache absence 是 miss；无效的当前 entry 立即失败；Cache publication 失败不
+回滚已提交的 Node success。失败、取消、中断、partial、uncontrolled stochastic、身份不足
+的远端结果，以及必须依赖 standalone artifact 的 export 结果不可缓存。
 
 Candidate identity 从 producer Result Identity、output slot/sample identity、parent
 Candidate identities 与 content digest 稳定派生；不使用 Run UUID，也不只使用 content
 digest。Cache replay 保留 Candidate identity；相同 Candidate identity 对应冲突 content
 或 lineage 时 fail closed。
 
-相关决定见
-[ADR-0031](./adr/0031-result-identity-and-project-scoped-cache.md)。
+相关决定见 [ADR-0031](./adr/0031-result-identity-and-project-scoped-cache.md) 与
+[ADR-0039](./adr/0039-node-outcomes-publish-atomically-through-immutable-value-objects.md)。
 
 ## 9. 首次发布前的破坏性重置
 

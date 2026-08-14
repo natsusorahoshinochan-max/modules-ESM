@@ -258,7 +258,7 @@ class _ControllableReplay(ResultReplaySource):
     def lookup(self, *, node, **kwargs):
         self.lookups.append(node.node_id)
         if self.enabled:
-            outputs = {"text": "REPLAYED"}
+            outputs = {"text": "READY"}
             return ResultReplayHit(
                 result_identity=kwargs["result_identity"],
                 producer_run_id="fixture-producer",

@@ -799,7 +799,21 @@ def _pipeline_catalog(
                 ),
             ],
             "parameter_groups": [],
-            "node_parameters": {},
+            "node_parameters": (
+                {
+                    "source_variant": {
+                        "parameter_scope": "scientific",
+                        "scientific_meaning": (
+                            "Distinct source identity for Candidate conflict "
+                            "fixtures"
+                        ),
+                        "value_contract": {"type": "string"},
+                        "required": True,
+                    }
+                }
+                if candidate_conflict_probe
+                else {}
+            ),
         },
     )
     sink = _contract(
@@ -1132,6 +1146,7 @@ def _artifact_catalog(
     collection: bool = False,
     artifact_payloads: tuple[bytes, ...] = (b"MODEL        1\nEND\n",),
     cacheable: bool = False,
+    include_ordinary_output: bool = False,
 ) -> FrozenCatalog:
     builtin = builtin_frozen_catalog()
     artifact_port_type = PROTEIN_IO_PACKAGE.port_types[0]
@@ -1142,6 +1157,37 @@ def _artifact_catalog(
         artifact_port_type = replace(
             artifact_port_type,
             runtime_validator=lambda _value: None,
+        )
+    output_contracts = [
+        {
+            "name": "structure",
+            "port_type": artifact_port_type.reference(),
+            "required": True,
+            "multiplicity": "many" if collection else "one",
+            "scientific_meaning": "Published PDB structure",
+            **(
+                {
+                    "artifact_kind": artifact_kind,
+                    "artifact_media_type": "chemical/x-pdb",
+                }
+                if artifact_kind is not None
+                else {}
+            ),
+        }
+    ]
+    if include_ordinary_output:
+        output_contracts.insert(
+            0,
+            {
+                "name": "summary",
+                "port_type": builtin.require_port_type(
+                    "text",
+                    "2.1.0",
+                ).reference(),
+                "required": True,
+                "multiplicity": "one",
+                "scientific_meaning": "Deterministic artifact summary",
+            },
         )
     method = _contract(
         "method",
@@ -1163,21 +1209,7 @@ def _artifact_catalog(
             "summary": "Publishes one deterministic PDB artifact.",
             "category": "contract_test",
             "inputs": [],
-            "outputs": [{
-                    "name": "structure",
-                    "port_type": artifact_port_type.reference(),
-                    "required": True,
-                    "multiplicity": "many" if collection else "one",
-                    "scientific_meaning": "Published PDB structure",
-                    **(
-                        {
-                            "artifact_kind": artifact_kind,
-                            "artifact_media_type": "chemical/x-pdb",
-                        }
-                        if artifact_kind is not None
-                        else {}
-                    ),
-                }],
+            "outputs": output_contracts,
             "parameter_groups": [],
             "node_parameters": {},
         },
@@ -1245,11 +1277,14 @@ def _artifact_catalog(
                 )
                 for index, payload in enumerate(artifact_payloads)
             ]
-            return {
+            outputs: dict[str, Any] = {
                 "structure": (
                     payload_values if collection else payload_values[0]
                 )
             }
+            if include_ordinary_output:
+                outputs["summary"] = "READY"
+            return outputs
 
     def factory(context: OperationContext) -> ArtifactImplementation:
         return ArtifactImplementation(context.resources)
@@ -1960,7 +1995,7 @@ def test_restart_does_not_publish_unclosed_cache_replay_output(
 
 
 @pytest.mark.parametrize("cache_failure", ("lookup_error", "invalid_value"))
-def test_cache_boundary_failure_does_not_execute_provider(
+def test_cache_invariant_failure_fails_fast_without_executing_provider(
     tmp_path,
     monkeypatch,
     cache_failure: str,
@@ -2006,14 +2041,9 @@ def test_cache_boundary_failure_does_not_execute_provider(
                 "client_request_id": f"cache-failure-{cache_failure}",
             },
         )
-        assert started.status_code == 202
-        projection = wait_for_testclient_run_terminal(
-            client,
-            project_id=project_id,
-            run_id=started.json()["run_id"],
-        )
+        assert started.status_code == 500
+        assert started.json()["error"]["code"] == "internal_error"
 
-    assert projection["status"] == "failed"
     assert calls == [
         "readiness:test.direct.local",
         "cache-lookup",
@@ -3329,7 +3359,11 @@ def test_cross_input_candidate_identity_closes_runtime_before_sink_side_effects(
                     "node_type_version": "2.1.0",
                     "binding_id": binding_id,
                     "binding_version": "2.1.0",
-                    "node_parameters": {},
+                    "node_parameters": (
+                        {"source_variant": node_id}
+                        if node_type_id == "test.pipeline.source"
+                        else {}
+                    ),
                     "binding_parameters": {},
                 }
                 for node_id, node_type_id, binding_id in (
@@ -3538,7 +3572,12 @@ def test_artifact_publication_requires_explicit_node_port_opt_in(
     monkeypatch.setenv("PROTEIN_WORKBENCH_RUN_ROOT", str(tmp_path / "runs"))
     monkeypatch.setenv("PROTEIN_WORKBENCH_OUTPUT_ROOT", str(tmp_path / "outputs"))
     app = create_app(
-        frozen_catalog_override=_artifact_catalog([], artifact_kind=None)
+        frozen_catalog_override=_artifact_catalog(
+            [],
+            artifact_kind=None,
+            collection=True,
+            artifact_payloads=(),
+        )
     )
 
     with TestClient(app) as client:
@@ -3555,10 +3594,26 @@ def test_artifact_publication_requires_explicit_node_port_opt_in(
             project_id,
             response.json()["run_id"],
         )
+        events = client.app.state.run_execution_v2.public_events(
+            project_id,
+            response.json()["run_id"],
+        )
 
     assert response.status_code == 202
     assert projection["status"] == "failed"
     assert projection["artifact_index"] == []
+    operation_terminal = next(
+        item["event"]
+        for item in events
+        if item["event"]["type"] == "operation_attempt_terminal"
+    )
+    node_terminal = next(
+        item["event"]
+        for item in events
+        if item["event"]["type"] == "node_attempt_terminal"
+    )
+    assert operation_terminal["status"] == "failed"
+    assert node_terminal["failure_origin"] == "operation"
 
 
 def test_artifact_object_write_failure_publishes_no_node_values(
@@ -3600,10 +3655,37 @@ def test_artifact_object_write_failure_publishes_no_node_values(
             project_id,
             started.json()["run_id"],
         )
+        events = client.app.state.run_execution_v2.public_events(
+            project_id,
+            started.json()["run_id"],
+        )
 
     assert projection["status"] == "failed"
     assert projection["artifact_index"] == []
     assert projection["outputs"] == []
+    operation_terminal = next(
+        item["event"]
+        for item in events
+        if item["event"]["type"] == "operation_attempt_terminal"
+    )
+    node_terminal = next(
+        item["event"]
+        for item in events
+        if item["event"]["type"] == "node_attempt_terminal"
+    )
+    assert operation_terminal["status"] == "succeeded"
+    assert node_terminal["failure_origin"] == "publication"
+    publication_error = dict(node_terminal["error"])
+    assert publication_error.pop("correlation_id").startswith("incident-")
+    assert publication_error == {
+        "code": "node_publication_failed",
+        "message": "Node result publication failed",
+        "retryable": False,
+        "details": {
+            "node_id": "artifact",
+            "publication_stage": "artifact_object",
+        },
+    }
     assert not any(
         fact["fact_type"] in {"artifact_published", "outputs_published"}
         for fact in _durable_facts(tmp_path / "runs")
@@ -3786,6 +3868,10 @@ def test_run_artifact_count_and_aggregate_size_are_bounded(
         fact["fact_type"] == "artifact_published"
         for fact in _durable_facts(tmp_path / "runs")
     )
+    assert next(
+        fact for fact in _durable_facts(tmp_path / "runs")
+        if fact["fact_type"] == "operation_attempt_terminal"
+    )["payload"]["status"] == "failed"
 
     monkeypatch.setattr(run_execution_v2, "MAX_ARTIFACTS_PER_RUN", 2)
     aggregate_root = tmp_path / "aggregate-runs"
@@ -3823,7 +3909,11 @@ def test_run_artifact_count_and_aggregate_size_are_bounded(
     unreferenced_objects = list(
         (tmp_path / "outputs").rglob("objects/v1/sha256/*/*")
     )
-    assert [path.read_bytes() for path in unreferenced_objects] == [b"12345"]
+    assert unreferenced_objects == []
+    assert next(
+        fact for fact in _durable_facts(aggregate_root)
+        if fact["fact_type"] == "operation_attempt_terminal"
+    )["payload"]["status"] == "failed"
     assert not list((tmp_path / "outputs").rglob("published/*"))
 
 

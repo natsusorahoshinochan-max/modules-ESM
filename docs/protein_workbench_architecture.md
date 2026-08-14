@@ -546,13 +546,29 @@ digest 使用同一个 compiler-owned canonical projection。
 
 ### 13.2 Cache
 
-Cache 是 Project-scoped、可重新生成的优化，不是科学证据源。Cache value 必须引用 active exact contracts、Result Identity、canonical output digest 和 producer provenance。
+Project-scoped committed Run Ledgers 是 Result Identity 到 Node Result Manifest 的唯一
+authority。每个 Node Result Manifest 固定 compiler-owned contract metadata，并按 Port
+顺序引用 ordinary 与 artifact-capable output 的 Port Value Manifest。authority index 可
+完全从当前 Ledger 重建；同一 identity 只有在 manifest 相等时才允许跨 Run 发布，冲突
+统一为 `result_identity_conflict`。比较 manifest、提交 Node conclusion transaction 与推进
+index 由同一 Project publication lock 串行化。
+
+Cache v4 是 Project-scoped、可重新生成的 replay index，不是科学证据源。entry 只引用
+committed Node Result Manifest 与 immutable value objects，记录 original producer，不复制
+canonical values 或 base64 payload。replay 另行记录 current Run materialization，不复制旧
+Availability、Readiness、Operation Attempt 或 Engine Invocation。Cache 不存在表示 miss；
+存在但无效的当前 entry 立即失败。Cache publication 发生在 Ledger success 之后，失败不会
+回滚或改写已提交的 Node success。
 
 旧 schema、旧 generation、pickle/path legacy entry 或 digest 不一致项不迁移、不猜测、不作为当前 evidence。用户可以清除单个结果或整个 Project Cache。
 
 ### 13.3 Run Evidence Ledger
 
 Run Evidence Ledger 是 Node Execution Attempt、Operation Attempt、Engine Invocation、Cache replay、Artifact 和 terminal outcome 的唯一有序 durable source。公共 manifest 和 lifecycle event stream 只能由 Ledger 投影，不存在独立 provider-evidence writer。
+
+一次 Node outcome publication 使用一个物理 Ledger transaction，保留 Operation terminal、
+output descriptors、Artifact descriptors、Node terminal 与 disposition 等独立 logical facts。
+immutable object bytes 必须先 durable；transaction 提交前没有任何 output 或 Artifact 可见。
 
 每个开始的 Engine Invocation 恰有一个 terminal fact，其 `engine_identity` 必须是 resolved
 exact Method contract digest，并由 Execution Plan 绑定；Operation 或 Adapter 不能提供或覆盖

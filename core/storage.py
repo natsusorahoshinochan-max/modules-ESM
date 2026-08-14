@@ -267,6 +267,7 @@ def write_private_new_file(
     created = False
     try:
         for component in absolute_root.parts[1:]:
+            directory_created = False
             try:
                 next_fd = os.open(
                     component,
@@ -274,8 +275,13 @@ def write_private_new_file(
                     dir_fd=current_fd,
                 )
             except FileNotFoundError:
-                os.mkdir(component, mode=0o700, dir_fd=current_fd)
-                os.fsync(current_fd)
+                try:
+                    os.mkdir(component, mode=0o700, dir_fd=current_fd)
+                    directory_created = True
+                except FileExistsError:
+                    pass
+                if directory_created:
+                    os.fsync(current_fd)
                 next_fd = os.open(
                     component,
                     directory_flags,
