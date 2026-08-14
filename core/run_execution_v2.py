@@ -5,6 +5,7 @@ from __future__ import annotations
 import base64
 import binascii
 from collections.abc import Callable, Iterator, Mapping
+from copy import deepcopy
 from contextlib import contextmanager
 from dataclasses import dataclass, field, fields, is_dataclass, replace
 from datetime import datetime, timezone
@@ -93,11 +94,14 @@ READINESS_ATTESTATION_NAMESPACE = (
 )
 RESULT_IDENTITY_NAMESPACE = "protein-workbench-cache/v3"
 RESULT_CACHE_ENTRY_NAMESPACE = "protein-workbench-cache-entry/v3"
-RUN_LEDGER_SCHEMA_VERSION = "3.0.0"
+RUN_LEDGER_TRANSACTION_NAMESPACE = (
+    "protein-workbench-run-ledger-transaction/v4"
+)
+RUN_LEDGER_SCHEMA_VERSION = "4.0.0"
 MAX_ARTIFACTS_PER_RUN = 2_048
 MAX_ARTIFACT_SIZE_BYTES = 64 * 1024 * 1024
 MAX_ARTIFACT_BYTES_PER_RUN = 256 * 1024 * 1024
-MAX_LEDGER_FACT_BYTES = 4 * 1024 * 1024
+MAX_LEDGER_TRANSACTION_BYTES = 4 * 1024 * 1024
 MAX_BACKGROUND_RUNS = 8
 FAST_RUN_COMPLETION_GRACE_SECONDS = 0.25
 CANCELLATION_TERM_GRACE_SECONDS = 0.25
@@ -1334,6 +1338,73 @@ def _parse_plan_evidence(
     return tuple(parsed)
 
 
+@dataclass(frozen=True, slots=True)
+class ProposedFact:
+    """One typed logical fact proposed for a Ledger transaction."""
+
+    fact_type: str
+    payload: Mapping[str, Any]
+
+
+@dataclass(frozen=True, slots=True)
+class CommittedFactRange:
+    """The acknowledged contiguous logical facts from one commit."""
+
+    first_sequence: int
+    last_sequence: int
+    facts: tuple[Mapping[str, Any], ...]
+
+
+class LedgerTransactionStore(Protocol):
+    """Publish one already-canonical physical Ledger transaction."""
+
+    def publish(
+        self,
+        *,
+        root: Path,
+        relative_parts: tuple[str, ...],
+        payload: bytes,
+    ) -> None: ...
+
+
+class FilesystemLedgerTransactionStore:
+    """Production owner-only atomic filesystem transaction publisher."""
+
+    def publish(
+        self,
+        *,
+        root: Path,
+        relative_parts: tuple[str, ...],
+        payload: bytes,
+    ) -> None:
+        write_private_new_file(
+            root,
+            relative_parts,
+            payload,
+            field="run_ledger",
+        )
+
+
+@dataclass(slots=True)
+class _LedgerReducerState:
+    facts: list[dict[str, Any]]
+    node_attempts: dict[str, dict[str, Any]]
+    node_attempt_by_node: dict[str, str]
+    operations: dict[str, dict[str, Any]]
+    invocations: dict[str, dict[str, Any]]
+    dispositions: dict[str, dict[str, Any]]
+    outputs_published: set[str]
+    run_admitted: bool
+    run_started: bool
+    selection_required: bool
+    expected_selection_terminal_keys: tuple[str, ...]
+    selection_terminals: list[dict[str, Any]]
+    selection_terminal_keys: set[str]
+    run_terminal: bool
+    cancellation_sequence: int | None
+    restart_reconciled: bool
+
+
 class _RunEvidenceLedger:
     """Schema-checked, causally closed owner-only facts for one Run."""
 
@@ -1343,6 +1414,7 @@ class _RunEvidenceLedger:
         project_id: str,
         run_id: str,
         plan_nodes: tuple[_PlanNodeEvidence, ...],
+        transaction_store: LedgerTransactionStore | None = None,
     ) -> None:
         run_dir = projects.run_dir(project_id, run_id)
         self._root = run_dir.parent
@@ -1402,8 +1474,55 @@ class _RunEvidenceLedger:
         self._run_terminal = False
         self._cancellation_sequence: int | None = None
         self._restart_reconciled = False
+        self._transaction_count = 0
+        self._committed_fact_count = 0
+        self._transaction_store = (
+            transaction_store or FilesystemLedgerTransactionStore()
+        )
         self._condition = threading.Condition(threading.RLock())
         self._projection_error: BaseException | None = None
+
+    def _capture_reducer_state(self) -> _LedgerReducerState:
+        return _LedgerReducerState(
+            facts=list(self._facts),
+            node_attempts=deepcopy(self._node_attempts),
+            node_attempt_by_node=dict(self._node_attempt_by_node),
+            operations=deepcopy(self._operations),
+            invocations=deepcopy(self._invocations),
+            dispositions=deepcopy(self._dispositions),
+            outputs_published=set(self._outputs_published),
+            run_admitted=self._run_admitted,
+            run_started=self._run_started,
+            selection_required=self._selection_required,
+            expected_selection_terminal_keys=(
+                self._expected_selection_terminal_keys
+            ),
+            selection_terminals=deepcopy(self._selection_terminals),
+            selection_terminal_keys=set(self._selection_terminal_keys),
+            run_terminal=self._run_terminal,
+            cancellation_sequence=self._cancellation_sequence,
+            restart_reconciled=self._restart_reconciled,
+        )
+
+    def _install_reducer_state(self, state: _LedgerReducerState) -> None:
+        self._facts = state.facts
+        self._node_attempts = state.node_attempts
+        self._node_attempt_by_node = state.node_attempt_by_node
+        self._operations = state.operations
+        self._invocations = state.invocations
+        self._dispositions = state.dispositions
+        self._outputs_published = state.outputs_published
+        self._run_admitted = state.run_admitted
+        self._run_started = state.run_started
+        self._selection_required = state.selection_required
+        self._expected_selection_terminal_keys = (
+            state.expected_selection_terminal_keys
+        )
+        self._selection_terminals = state.selection_terminals
+        self._selection_terminal_keys = state.selection_terminal_keys
+        self._run_terminal = state.run_terminal
+        self._cancellation_sequence = state.cancellation_sequence
+        self._restart_reconciled = state.restart_reconciled
 
     @property
     def facts(self) -> tuple[dict[str, Any], ...]:
@@ -1413,7 +1532,7 @@ class _RunEvidenceLedger:
     @property
     def cursor(self) -> str:
         with self._condition:
-            return self._cursor_at(len(self._facts))
+            return self._cursor_at(self._committed_fact_count)
 
     @property
     def terminal(self) -> bool:
@@ -2424,69 +2543,221 @@ class _RunEvidenceLedger:
             ) from error
         self._projection_error = None
 
-    def append(self, fact_type: str, payload: Mapping[str, Any]) -> dict[str, Any]:
-        with self._condition:
-            sequence = len(self._facts) + 1
-            safe_payload = sanitize_public_value(dict(payload))
-            fact = {
-                "schema_version": RUN_LEDGER_SCHEMA_VERSION,
-                "sequence": sequence,
-                "recorded_at": run_timestamp(),
-                "fact_type": fact_type,
-                "payload": safe_payload,
-            }
-            self._validate_schema(fact_type, safe_payload)
-            self._validate_causality(fact_type, safe_payload)
-            event = _public_event_from_fact(
-                project_id=self._project_id,
-                run_id=self._run_id,
-                fact=fact,
+    def _stage_facts(
+        self,
+        facts: tuple[dict[str, Any], ...],
+    ) -> _LedgerReducerState:
+        for fact in facts:
+            self._validate_schema(fact["fact_type"], fact["payload"])
+        self._validate_transaction_boundary(facts)
+        prior_state = self._capture_reducer_state()
+        try:
+            for fact in facts:
+                fact_type = fact["fact_type"]
+                payload = fact["payload"]
+                self._validate_causality(fact_type, payload)
+                event = _public_event_from_fact(
+                    project_id=self._project_id,
+                    run_id=self._run_id,
+                    fact=fact,
+                )
+                if event is not None:
+                    try:
+                        validate_event(event)
+                    except ProtocolValidationError as error:
+                        raise V2RunError(
+                            "evidence_unavailable",
+                            "Required Run evidence failed public schema validation",
+                            details={"last_durable_cursor": self.cursor},
+                        ) from error
+                retained = deepcopy(fact)
+                self._facts.append(retained)
+                self._apply(fact_type, payload)
+            return self._capture_reducer_state()
+        finally:
+            self._install_reducer_state(prior_state)
+
+    def _validate_transaction_boundary(
+        self,
+        facts: tuple[dict[str, Any], ...],
+    ) -> None:
+        operation_terminals = [
+            fact
+            for fact in facts
+            if fact["fact_type"] == "operation_attempt_terminal"
+        ]
+        node_terminals = [
+            fact
+            for fact in facts
+            if fact["fact_type"] == "node_attempt_terminal"
+        ]
+        publications = [
+            fact
+            for fact in facts
+            if fact["fact_type"]
+            in {"artifact_published", "outputs_published"}
+        ]
+        dispositions = [
+            fact
+            for fact in facts
+            if fact["fact_type"] == "node_disposition"
+        ]
+        if not (operation_terminals or node_terminals or publications):
+            return
+        if (
+            len(operation_terminals) > 1
+            or len(node_terminals) != 1
+            or len(dispositions) != 1
+        ):
+            raise self._causal_error()
+        node_terminal = node_terminals[0]["payload"]
+        attempt = self._node_attempts.get(
+            node_terminal["node_attempt_id"]
+        )
+        if (
+            attempt is None
+            or dispositions[0]["payload"]["node_id"] != attempt["node_id"]
+        ):
+            raise self._causal_error()
+        terminal_succeeded = node_terminal["status"] == "succeeded"
+        output_publications = [
+            fact
+            for fact in publications
+            if fact["fact_type"] == "outputs_published"
+        ]
+        publication_node_ids = {
+            (
+                fact["payload"]["node_id"]
+                if fact["fact_type"] == "outputs_published"
+                else fact["payload"]["artifact"]["node_id"]
             )
-            if event is not None:
-                try:
-                    validate_event(event)
-                except ProtocolValidationError as error:
-                    raise V2RunError(
-                        "evidence_unavailable",
-                        "Required Run evidence failed public schema validation",
-                        details={"last_durable_cursor": self.cursor},
-                    ) from error
-            encoded = canonical_json_bytes(fact)
-            if len(encoded) > MAX_LEDGER_FACT_BYTES:
+            for fact in publications
+        }
+        if (
+            terminal_succeeded != (len(output_publications) == 1)
+            or (not terminal_succeeded and publications)
+            or publication_node_ids - {attempt["node_id"]}
+        ):
+            raise self._causal_error()
+        artifact_publications = [
+            fact["payload"]["artifact"]
+            for fact in publications
+            if fact["fact_type"] == "artifact_published"
+        ]
+        if output_publications and (
+            output_publications[0]["payload"]["artifacts"]
+            != artifact_publications
+        ):
+            raise self._causal_error()
+        open_operations = [
+            operation_id
+            for operation_id, operation in self._operations.items()
+            if (
+                operation["node_attempt_id"]
+                == node_terminal["node_attempt_id"]
+                and operation["terminal"] is None
+            )
+        ]
+        if (
+            bool(open_operations) != bool(operation_terminals)
+            or (
+                operation_terminals
+                and operation_terminals[0]["payload"][
+                    "operation_attempt_id"
+                ]
+                not in open_operations
+            )
+        ):
+            raise self._causal_error()
+        expected_fact_types = [
+            *(
+                ("operation_attempt_terminal",)
+                if operation_terminals
+                else ()
+            ),
+            *("artifact_published" for _ in artifact_publications),
+            *(("outputs_published",) if terminal_succeeded else ()),
+            "node_attempt_terminal",
+            "node_disposition",
+        ]
+        if [fact["fact_type"] for fact in facts] != expected_fact_types:
+            raise self._causal_error()
+
+    def commit(
+        self,
+        logical_facts: tuple[ProposedFact, ...],
+    ) -> CommittedFactRange:
+        """Validate and durably publish one atomic logical transition."""
+        if not logical_facts:
+            raise ValueError("Run Ledger transaction must contain facts")
+        with self._condition:
+            first_sequence = len(self._facts) + 1
+            facts = tuple(
+                {
+                    "sequence": first_sequence + offset,
+                    "recorded_at": run_timestamp(),
+                    "fact_type": proposed.fact_type,
+                    "payload": sanitize_public_value(dict(proposed.payload)),
+                }
+                for offset, proposed in enumerate(logical_facts)
+            )
+            staged_state = self._stage_facts(facts)
+            transaction_sequence = self._transaction_count + 1
+            transaction = {
+                "schema_namespace": RUN_LEDGER_TRANSACTION_NAMESPACE,
+                "schema_version": RUN_LEDGER_SCHEMA_VERSION,
+                "project_id": self._project_id,
+                "run_id": self._run_id,
+                "transaction_sequence": transaction_sequence,
+                "first_fact_sequence": first_sequence,
+                "last_fact_sequence": facts[-1]["sequence"],
+                "committed_at": run_timestamp(),
+                "facts": list(facts),
+            }
+            encoded = canonical_json_bytes(transaction)
+            if len(encoded) > MAX_LEDGER_TRANSACTION_BYTES:
                 raise V2RunError(
                     "evidence_unavailable",
-                    "Required Run evidence exceeds the durable fact bound",
+                    "Required Run evidence exceeds the durable transaction bound",
                     details={"last_durable_cursor": self.cursor},
                 )
             try:
-                write_private_new_file(
-                    self._root,
-                    (
+                self._transaction_store.publish(
+                    root=self._root,
+                    relative_parts=(
                         self._run_id,
                         "ledger",
-                        f"{sequence:020d}.json",
+                        f"{transaction_sequence:020d}.json",
                     ),
-                    encoded,
-                    field="run_ledger",
+                    payload=encoded,
                 )
             except (OSError, StoragePathError) as error:
                 raise V2RunError(
                     "evidence_unavailable",
-                    "Required Run evidence could not be persisted safely",
+                    "Required Run evidence transaction could not be acknowledged",
                     details={"last_durable_cursor": self.cursor},
                 ) from error
-            self._facts.append(fact)
-            self._apply(fact_type, safe_payload)
-            for _ in range(2):
-                try:
-                    self._refresh_projections()
-                except (OSError, StoragePathError) as error:
-                    self._projection_error = error
-                else:
-                    self._projection_error = None
-                    break
+            self._install_reducer_state(staged_state)
+            self._transaction_count = transaction_sequence
+            self._committed_fact_count = facts[-1]["sequence"]
+            try:
+                self._refresh_projections()
+            except (OSError, StoragePathError) as error:
+                self._projection_error = error
+            else:
+                self._projection_error = None
             self._condition.notify_all()
-            return json.loads(json.dumps(fact))
+            retained = tuple(deepcopy(fact) for fact in facts)
+            return CommittedFactRange(
+                first_sequence=first_sequence,
+                last_sequence=facts[-1]["sequence"],
+                facts=retained,
+            )
+
+    def append(self, fact_type: str, payload: Mapping[str, Any]) -> dict[str, Any]:
+        """Commit one logical fact through the sole transaction interface."""
+        committed = self.commit((ProposedFact(fact_type, payload),))
+        return dict(committed.facts[0])
 
     @contextmanager
     def _ordered_append_scope(self) -> Iterator[None]:
@@ -2509,40 +2780,68 @@ class _RunEvidenceLedger:
             self.append(fact_type, {**identity, "status": status})
             return status
 
-    def load_fact(self, fact: Mapping[str, Any], encoded: bytes) -> None:
+    def load_transaction(
+        self,
+        transaction: Mapping[str, Any],
+        encoded: bytes,
+    ) -> None:
         with self._condition:
             if (
-                not isinstance(fact, Mapping)
-                or set(fact)
+                not isinstance(transaction, Mapping)
+                or set(transaction)
                 != {
+                    "schema_namespace",
                     "schema_version",
-                    "sequence",
-                    "recorded_at",
-                    "fact_type",
-                    "payload",
+                    "project_id",
+                    "run_id",
+                    "transaction_sequence",
+                    "first_fact_sequence",
+                    "last_fact_sequence",
+                    "committed_at",
+                    "facts",
                 }
-                or fact["schema_version"] != RUN_LEDGER_SCHEMA_VERSION
-                or fact["sequence"] != len(self._facts) + 1
-                or not isinstance(fact["recorded_at"], str)
-                or not isinstance(fact["fact_type"], str)
-                or not isinstance(fact["payload"], Mapping)
-                or canonical_json_bytes(dict(fact)) != encoded
+                or transaction["schema_namespace"]
+                != RUN_LEDGER_TRANSACTION_NAMESPACE
+                or transaction["schema_version"] != RUN_LEDGER_SCHEMA_VERSION
+                or transaction["project_id"] != self._project_id
+                or transaction["run_id"] != self._run_id
+                or type(transaction["transaction_sequence"]) is not int
+                or transaction["transaction_sequence"]
+                != self._transaction_count + 1
+                or type(transaction["first_fact_sequence"]) is not int
+                or transaction["first_fact_sequence"] != len(self._facts) + 1
+                or type(transaction["last_fact_sequence"]) is not int
+                or not isinstance(transaction["committed_at"], str)
+                or not isinstance(transaction["facts"], list)
+                or not transaction["facts"]
+                or transaction["last_fact_sequence"]
+                != transaction["first_fact_sequence"]
+                + len(transaction["facts"])
+                - 1
+                or canonical_json_bytes(dict(transaction)) != encoded
             ):
                 raise self._causal_error()
-            fact_type = fact["fact_type"]
-            payload = dict(fact["payload"])
-            self._validate_schema(fact_type, payload)
-            self._validate_causality(fact_type, payload)
-            event = _public_event_from_fact(
-                project_id=self._project_id,
-                run_id=self._run_id,
-                fact=fact,
-            )
-            if event is not None:
-                validate_event(event)
-            retained = json.loads(json.dumps(fact))
-            self._facts.append(retained)
-            self._apply(fact_type, payload)
+            facts: list[dict[str, Any]] = []
+            for expected_sequence, fact in enumerate(
+                transaction["facts"],
+                start=transaction["first_fact_sequence"],
+            ):
+                if (
+                    not isinstance(fact, Mapping)
+                    or set(fact)
+                    != {"sequence", "recorded_at", "fact_type", "payload"}
+                    or type(fact["sequence"]) is not int
+                    or fact["sequence"] != expected_sequence
+                    or not isinstance(fact["recorded_at"], str)
+                    or not isinstance(fact["fact_type"], str)
+                    or not isinstance(fact["payload"], Mapping)
+                ):
+                    raise self._causal_error()
+                facts.append(deepcopy(dict(fact)))
+            staged_state = self._stage_facts(tuple(facts))
+            self._install_reducer_state(staged_state)
+            self._transaction_count = transaction["transaction_sequence"]
+            self._committed_fact_count = transaction["last_fact_sequence"]
 
     def public_events(
         self,
@@ -2772,31 +3071,41 @@ class NodeAttemptFinalizer:
                 "status": intent.status,
                 "error": dict(intent.public_error),
             }
+            facts: list[ProposedFact] = []
             if intent.operation_attempt_id is not None:
-                self._ledger.append(
-                    "operation_attempt_terminal",
-                    {
-                        "operation_attempt_id": intent.operation_attempt_id,
-                        **terminal_payload,
-                    },
+                facts.append(
+                    ProposedFact(
+                        "operation_attempt_terminal",
+                        {
+                            "operation_attempt_id": (
+                                intent.operation_attempt_id
+                            ),
+                            **terminal_payload,
+                        },
+                    )
                 )
-            self._ledger.append(
-                "node_attempt_terminal",
-                {
-                    "node_attempt_id": intent.node_attempt_id,
-                    "resolution": resolution,
-                    **terminal_payload,
-                },
-            )
             disposition = self._disposition_for_status(intent.status)
-            self._ledger.append(
-                "node_disposition",
-                {
-                    "node_id": intent.node_id,
-                    "outcome": disposition,
-                    "blocked_by": [],
-                },
+            facts.extend(
+                (
+                    ProposedFact(
+                        "node_attempt_terminal",
+                        {
+                            "node_attempt_id": intent.node_attempt_id,
+                            "resolution": resolution,
+                            **terminal_payload,
+                        },
+                    ),
+                    ProposedFact(
+                        "node_disposition",
+                        {
+                            "node_id": intent.node_id,
+                            "outcome": disposition,
+                            "blocked_by": [],
+                        },
+                    ),
+                )
             )
+            self._ledger.commit(tuple(facts))
             return FinalizedNode(disposition=disposition)
 
     def _finalize_termination(
@@ -2805,34 +3114,44 @@ class NodeAttemptFinalizer:
     ) -> FinalizedNode:
         with self._ledger._ordered_append_scope():
             disposition = self._disposition_for_status(intent.status)
+            facts: list[ProposedFact] = []
             if intent.node_attempt_id is not None:
                 terminal_payload: dict[str, Any] = {"status": intent.status}
                 if intent.public_error is not None:
                     terminal_payload["error"] = dict(intent.public_error)
                 if intent.operation_attempt_id is not None:
-                    self._ledger.append(
-                        "operation_attempt_terminal",
+                    facts.append(
+                        ProposedFact(
+                            "operation_attempt_terminal",
+                            {
+                                "operation_attempt_id": (
+                                    intent.operation_attempt_id
+                                ),
+                                **terminal_payload,
+                            },
+                        )
+                    )
+                facts.append(
+                    ProposedFact(
+                        "node_attempt_terminal",
                         {
-                            "operation_attempt_id": intent.operation_attempt_id,
+                            "node_attempt_id": intent.node_attempt_id,
+                            "resolution": intent.resolution,
                             **terminal_payload,
                         },
                     )
-                self._ledger.append(
-                    "node_attempt_terminal",
+                )
+            facts.append(
+                ProposedFact(
+                    "node_disposition",
                     {
-                        "node_attempt_id": intent.node_attempt_id,
-                        "resolution": intent.resolution,
-                        **terminal_payload,
+                        "node_id": intent.node_id,
+                        "outcome": disposition,
+                        "blocked_by": [],
                     },
                 )
-            self._ledger.append(
-                "node_disposition",
-                {
-                    "node_id": intent.node_id,
-                    "outcome": disposition,
-                    "blocked_by": [],
-                },
             )
+            self._ledger.commit(tuple(facts))
             return FinalizedNode(disposition=disposition)
 
     def _finalize_durable_success(
@@ -2840,14 +3159,18 @@ class NodeAttemptFinalizer:
         intent: DurableSucceededNode,
     ) -> FinalizedNode:
         with self._ledger._ordered_append_scope():
-            self._ledger.append(
-                "node_disposition",
-                {
-                    "node_id": intent.node_id,
-                    "outcome": "succeeded",
-                    "resolution": intent.resolution,
-                    "blocked_by": [],
-                },
+            self._ledger.commit(
+                (
+                    ProposedFact(
+                        "node_disposition",
+                        {
+                            "node_id": intent.node_id,
+                            "outcome": "succeeded",
+                            "resolution": intent.resolution,
+                            "blocked_by": [],
+                        },
+                    ),
+                )
             )
             return FinalizedNode(disposition="succeeded")
 
@@ -2857,25 +3180,33 @@ class NodeAttemptFinalizer:
     ) -> FinalizedNode:
         with self._ledger._ordered_append_scope():
             disposition = self._disposition_for_status(intent.status)
-            self._ledger.append(
-                "node_disposition",
-                {
-                    "node_id": intent.node_id,
-                    "outcome": disposition,
-                    "blocked_by": [],
-                },
+            self._ledger.commit(
+                (
+                    ProposedFact(
+                        "node_disposition",
+                        {
+                            "node_id": intent.node_id,
+                            "outcome": disposition,
+                            "blocked_by": [],
+                        },
+                    ),
+                )
             )
             return FinalizedNode(disposition=disposition)
 
     def _finalize_blocked(self, intent: BlockedNode) -> FinalizedNode:
         with self._ledger._ordered_append_scope():
-            self._ledger.append(
-                "node_disposition",
-                {
-                    "node_id": intent.node_id,
-                    "outcome": "blocked",
-                    "blocked_by": list(intent.blocked_by),
-                },
+            self._ledger.commit(
+                (
+                    ProposedFact(
+                        "node_disposition",
+                        {
+                            "node_id": intent.node_id,
+                            "outcome": "blocked",
+                            "blocked_by": list(intent.blocked_by),
+                        },
+                    ),
+                )
             )
             return FinalizedNode(disposition="blocked")
 
@@ -2915,7 +3246,7 @@ class NodeAttemptFinalizer:
             str,
             tuple[Mapping[str, Any], tuple[str, ...]],
         ],
-        ) -> FinalizedNode:
+    ) -> FinalizedNode:
         if artifact_records:
             try:
                 self._cleanup_artifacts(
@@ -3034,44 +3365,51 @@ class NodeAttemptFinalizer:
             tuple[Mapping[str, Any], tuple[str, ...]],
         ],
     ) -> FinalizedNode:
+        facts: list[ProposedFact] = []
         if context.operation_attempt_id is not None:
-            self._ledger.append(
-                "operation_attempt_terminal",
-                {
-                    "operation_attempt_id": context.operation_attempt_id,
-                    "status": "succeeded",
-                },
+            facts.append(
+                ProposedFact(
+                    "operation_attempt_terminal",
+                    {
+                        "operation_attempt_id": context.operation_attempt_id,
+                        "status": "succeeded",
+                    },
+                )
             )
-        for artifact in artifacts:
-            self._ledger.append(
-                "artifact_published",
-                {"artifact": artifact},
+        facts.extend(
+            ProposedFact("artifact_published", {"artifact": artifact})
+            for artifact in artifacts
+        )
+        facts.extend(
+            (
+                ProposedFact(
+                    "outputs_published",
+                    {
+                        "node_id": context.node_id,
+                        "outputs": typed_descriptors,
+                        "artifacts": artifacts,
+                    },
+                ),
+                ProposedFact(
+                    "node_attempt_terminal",
+                    {
+                        "node_attempt_id": context.node_attempt_id,
+                        "status": "succeeded",
+                        "resolution": context.resolution,
+                    },
+                ),
+                ProposedFact(
+                    "node_disposition",
+                    {
+                        "node_id": context.node_id,
+                        "outcome": "succeeded",
+                        "resolution": context.resolution,
+                        "blocked_by": [],
+                    },
+                ),
             )
-        self._ledger.append(
-            "outputs_published",
-            {
-                "node_id": context.node_id,
-                "outputs": typed_descriptors,
-                "artifacts": artifacts,
-            },
         )
-        self._ledger.append(
-            "node_attempt_terminal",
-            {
-                "node_attempt_id": context.node_attempt_id,
-                "status": "succeeded",
-                "resolution": context.resolution,
-            },
-        )
-        self._ledger.append(
-            "node_disposition",
-            {
-                "node_id": context.node_id,
-                "outcome": "succeeded",
-                "resolution": context.resolution,
-                "blocked_by": [],
-            },
-        )
+        self._ledger.commit(tuple(facts))
         return FinalizedNode(
             disposition="succeeded",
             admitted_outputs=admitted_outputs,
@@ -3509,8 +3847,9 @@ def _read_run_evidence_ledger(
     projects: ProjectManager,
     project_id: str,
     run_id: str,
+    transaction_store: LedgerTransactionStore | None = None,
 ) -> _RunEvidenceLedger | None:
-    """Load and causally validate one Run's append-only evidence facts."""
+    """Load and causally validate one Run's physical transactions."""
     run_dir = projects.run_dir(project_id, run_id)
     ledger_dir = run_dir / "ledger"
     if (
@@ -3518,26 +3857,28 @@ def _read_run_evidence_ledger(
         or ledger_dir.is_symlink()
     ):
         return None
-    fact_paths = sorted(ledger_dir.glob("*.json"))
-    if not fact_paths:
+    transaction_paths = sorted(ledger_dir.glob("*.json"))
+    if not transaction_paths:
         return None
-    encoded_facts: list[bytes] = []
-    parsed_facts: list[Mapping[str, Any]] = []
-    for expected_sequence, path in enumerate(fact_paths, start=1):
+    encoded_transactions: list[bytes] = []
+    parsed_transactions: list[Mapping[str, Any]] = []
+    for expected_sequence, path in enumerate(transaction_paths, start=1):
         if path.name != f"{expected_sequence:020d}.json":
-            raise RuntimeError("Run Ledger sequence is not contiguous")
+            raise RuntimeError(
+                "Run Ledger transaction sequence is not contiguous"
+            )
         encoded = _read_stable_private_file(
             run_dir.parent,
             (run_id, "ledger", path.name),
             field="run_ledger",
-            maximum_size=MAX_LEDGER_FACT_BYTES,
+            maximum_size=MAX_LEDGER_TRANSACTION_BYTES,
         )
         parsed = json.loads(encoded)
         if not isinstance(parsed, Mapping):
-            raise RuntimeError("Run Ledger fact is invalid")
-        encoded_facts.append(encoded)
-        parsed_facts.append(parsed)
-    first = parsed_facts[0]
+            raise RuntimeError("Run Ledger transaction is invalid")
+        encoded_transactions.append(encoded)
+        parsed_transactions.append(parsed)
+    first = parsed_transactions[0]["facts"][0]
     plan_nodes = _parse_plan_evidence(
         first["payload"]["plan_nodes"]
     )
@@ -3546,13 +3887,14 @@ def _read_run_evidence_ledger(
         project_id,
         run_id,
         plan_nodes,
+        transaction_store,
     )
-    for fact, encoded in zip(
-        parsed_facts,
-        encoded_facts,
+    for transaction, encoded in zip(
+        parsed_transactions,
+        encoded_transactions,
         strict=True,
     ):
-        ledger.load_fact(fact, encoded)
+        ledger.load_transaction(transaction, encoded)
     return ledger
 
 
@@ -4477,6 +4819,7 @@ class V2RunService:
         authoring: WorkflowAuthoringService,
         environment: EnvironmentConfiguration,
         result_replay_source: ResultReplaySource | None = None,
+        ledger_transaction_store: LedgerTransactionStore | None = None,
     ) -> None:
         self._projects = projects
         self._catalog = catalog
@@ -4486,6 +4829,7 @@ class V2RunService:
             result_replay_source
             or _ProjectResultCache(projects, catalog)
         )
+        self._ledger_transaction_store = ledger_transaction_store
         self._runs: dict[tuple[str, str], _RunRecord] = {}
         self._damaged_runs: dict[tuple[str, str], str] = {}
         self._inactive_runs: dict[tuple[str, str], str] = {}
@@ -4594,7 +4938,7 @@ class V2RunService:
             return None
         try:
             encoded = candidate.read_bytes()
-            if len(encoded) > MAX_LEDGER_FACT_BYTES:
+            if len(encoded) > MAX_LEDGER_TRANSACTION_BYTES:
                 return None
             payload = json.loads(encoded)
         except (OSError, json.JSONDecodeError):
@@ -4606,7 +4950,7 @@ class V2RunService:
             return None
         if isinstance(observed, (str, int)):
             return str(observed)[:64]
-        return "unknown"
+        return None if ledger_files else "unknown"
 
     def _load_persisted_runs(self) -> None:
         for project_id, run_id, run_parent in self._run_directories():
@@ -4624,7 +4968,6 @@ class V2RunService:
                 self._load_persisted_run(
                     project_id,
                     run_id,
-                    run_parent,
                 )
             except (
                 ContractResolutionError,
@@ -4648,44 +4991,15 @@ class V2RunService:
         self,
         project_id: str,
         run_id: str,
-        run_parent: Path,
     ) -> None:
-        ledger_dir = run_parent / run_id / "ledger"
-        fact_paths = sorted(ledger_dir.glob("*.json"))
-        if not fact_paths:
-            return
-        encoded_facts: list[bytes] = []
-        parsed_facts: list[Mapping[str, Any]] = []
-        for expected_sequence, path in enumerate(fact_paths, start=1):
-            if path.name != f"{expected_sequence:020d}.json":
-                raise RuntimeError("Run Ledger sequence is not contiguous")
-            encoded = _read_stable_private_file(
-                run_parent,
-                (run_id, "ledger", path.name),
-                field="run_ledger",
-                maximum_size=MAX_LEDGER_FACT_BYTES,
-            )
-            parsed = json.loads(encoded)
-            if not isinstance(parsed, Mapping):
-                raise RuntimeError("Run Ledger fact is invalid")
-            encoded_facts.append(encoded)
-            parsed_facts.append(parsed)
-        first = parsed_facts[0]
-        plan_nodes = self._parse_plan_evidence(
-            first["payload"]["plan_nodes"]
-        )
-        ledger = _RunEvidenceLedger(
+        ledger = _read_run_evidence_ledger(
             self._projects,
             project_id,
             run_id,
-            plan_nodes,
+            self._ledger_transaction_store,
         )
-        for fact, encoded in zip(
-            parsed_facts,
-            encoded_facts,
-            strict=True,
-        ):
-            ledger.load_fact(fact, encoded)
+        if ledger is None:
+            return
         if not ledger.started:
             return
         if (
@@ -5719,6 +6033,7 @@ class V2RunService:
                 project_id,
                 run_id,
                 plan_evidence,
+                self._ledger_transaction_store,
             )
         except (OSError, StoragePathError) as error:
             raise V2RunError(

@@ -66,6 +66,21 @@ from tests.fixtures.public_v2 import wait_for_testclient_run_terminal
 from tests.fixtures.result_replay_v2 import admitted_replay_outputs
 
 
+def _transaction_has_fact(payload: bytes, fact_type: str) -> bool:
+    transaction = json.loads(payload)
+    return any(
+        fact["fact_type"] == fact_type for fact in transaction["facts"]
+    )
+
+
+def _durable_facts(root) -> list[dict[str, Any]]:
+    return [
+        fact
+        for path in sorted(root.rglob("ledger/*.json"))
+        for fact in json.loads(path.read_text())["facts"]
+    ]
+
+
 def _contract(
     contract_kind: str,
     contract_id: str,
@@ -1832,7 +1847,7 @@ def test_restart_does_not_publish_unclosed_cache_replay_output(
     def pause_before_attempt_terminal(root, relative_parts, payload, *, field):
         if (
             field == "run_ledger"
-            and json.loads(payload)["fact_type"] == "node_attempt_terminal"
+            and _transaction_has_fact(payload, "node_attempt_terminal")
             and not paused.is_set()
         ):
             paused.set()
@@ -1910,7 +1925,6 @@ def test_restart_does_not_publish_unclosed_cache_replay_output(
         if event["event"]["type"] == "node_attempt_terminal"
     )
     assert node_terminal["status"] == "interrupted"
-    assert node_terminal["resolution"] == "cache_replayed"
     assert projection["status"] == "interrupted"
     assert projection["outputs"] == []
     assert projection["artifact_index"] == []
@@ -2884,9 +2898,9 @@ def test_reusable_proof_is_cached_only_after_durable_attestation(
 
     assert calls == [False, False, True]
     readiness_facts = [
-        json.loads(path.read_text())
-        for path in (tmp_path / "runs").rglob("ledger/*.json")
-        if json.loads(path.read_text())["fact_type"] == "readiness_attested"
+        fact
+        for fact in _durable_facts(tmp_path / "runs")
+        if fact["fact_type"] == "readiness_attested"
     ]
     assert {
         fact["payload"]["proof_reference"]["reuse_kind"]
@@ -2902,32 +2916,27 @@ def test_reusable_proof_is_cached_only_after_durable_attestation(
     )
 
 
-def test_node_success_is_not_published_when_disposition_commit_fails(
+def test_public_run_exposes_no_node_subset_when_transaction_commit_fails(
     tmp_path,
     monkeypatch,
 ) -> None:
+    class FailNodeConclusionTransaction:
+        def __init__(self) -> None:
+            self.filesystem = (
+                run_execution_v2.FilesystemLedgerTransactionStore()
+            )
+
+        def publish(self, *, root, relative_parts, payload) -> None:
+            if _transaction_has_fact(payload, "node_disposition"):
+                raise OSError("fixture evidence store failure")
+            self.filesystem.publish(
+                root=root,
+                relative_parts=relative_parts,
+                payload=payload,
+            )
+
     calls: list[str] = []
     cache_root = tmp_path / "cache"
-    original_write = run_execution_v2.write_private_new_file
-
-    def fail_disposition(root, relative_parts, payload, *, field):
-        if (
-            field == "run_ledger"
-            and json.loads(payload)["fact_type"] == "node_disposition"
-        ):
-            raise OSError("fixture evidence store failure")
-        return original_write(
-            root,
-            relative_parts,
-            payload,
-            field=field,
-        )
-
-    monkeypatch.setattr(
-        run_execution_v2,
-        "write_private_new_file",
-        fail_disposition,
-    )
     monkeypatch.setenv("PROTEIN_WORKBENCH_PROJECT_ROOT", str(tmp_path / "projects"))
     monkeypatch.setenv("PROTEIN_WORKBENCH_RUN_ROOT", str(tmp_path / "runs"))
     monkeypatch.setenv("PROTEIN_WORKBENCH_OUTPUT_ROOT", str(tmp_path / "outputs"))
@@ -2939,6 +2948,7 @@ def test_node_success_is_not_published_when_disposition_commit_fails(
                 "values": {"credential": "credential-value"},
             }
         },
+        _v2_ledger_transaction_store=FailNodeConclusionTransaction(),
     )
 
     with TestClient(app) as client:
@@ -2953,12 +2963,16 @@ def test_node_success_is_not_published_when_disposition_commit_fails(
 
     assert response.status_code == 503
     assert response.json()["error"]["code"] == "evidence_unavailable"
-    facts = [
-        json.loads(path.read_text())
-        for path in (tmp_path / "runs").rglob("ledger/*.json")
-    ]
+    facts = _durable_facts(tmp_path / "runs")
     assert not any(
-        fact["fact_type"] in {"node_disposition", "run_terminal"}
+        fact["fact_type"]
+        in {
+            "operation_attempt_terminal",
+            "outputs_published",
+            "node_attempt_terminal",
+            "node_disposition",
+            "run_terminal",
+        }
         for fact in facts
     )
     assert not list(cache_root.rglob("*.json"))
@@ -3439,10 +3453,7 @@ def test_invalid_output_never_publishes_success_or_a_public_result(
             "blocked_by": ["source"],
         },
     ]
-    durable_facts = [
-        json.loads(path.read_text())
-        for path in sorted((tmp_path / "runs").rglob("ledger/*.json"))
-    ]
+    durable_facts = _durable_facts(tmp_path / "runs")
     assert not any(
         fact["fact_type"] == "outputs_published"
         or (
@@ -3627,8 +3638,8 @@ def test_invalid_candidate_artifact_identifier_leaves_no_stored_payload(
     assert projection["artifact_index"] == []
     assert list(output_root.rglob("published/*")) == []
     assert not any(
-        json.loads(path.read_text())["fact_type"] == "artifact_published"
-        for path in run_root.rglob("ledger/*.json")
+        fact["fact_type"] == "artifact_published"
+        for fact in _durable_facts(run_root)
     )
 
 
@@ -3668,8 +3679,8 @@ def test_run_artifact_count_and_aggregate_size_are_bounded(
     assert count_projection["status"] == "failed"
     assert count_projection["artifact_index"] == []
     assert not any(
-        json.loads(path.read_text())["fact_type"] == "artifact_published"
-        for path in (tmp_path / "runs").rglob("ledger/*.json")
+        fact["fact_type"] == "artifact_published"
+        for fact in _durable_facts(tmp_path / "runs")
     )
 
     monkeypatch.setattr(run_execution_v2, "MAX_ARTIFACTS_PER_RUN", 2)
@@ -3702,8 +3713,8 @@ def test_run_artifact_count_and_aggregate_size_are_bounded(
     assert aggregate_projection["status"] == "failed"
     assert aggregate_projection["artifact_index"] == []
     assert sum(
-        json.loads(path.read_text())["fact_type"] == "artifact_published"
-        for path in aggregate_root.rglob("ledger/*.json")
+        fact["fact_type"] == "artifact_published"
+        for fact in _durable_facts(aggregate_root)
     ) == 0
     published_files = list(
         (tmp_path / "outputs").rglob("published/*")
@@ -3802,7 +3813,17 @@ def test_success_ledger_projects_validated_events_and_opaque_artifact(
         assert payload["ledger_cursor"] == projected_events[-1]["cursor"]
 
     fact_paths = sorted(run_root.rglob("ledger/*.json"))
-    facts = [json.loads(path.read_text()) for path in fact_paths]
+    transactions = [json.loads(path.read_text()) for path in fact_paths]
+    facts = _durable_facts(run_root)
+    assert [
+        transaction["transaction_sequence"] for transaction in transactions
+    ] == list(range(1, len(transactions) + 1))
+    assert all(
+        transaction["schema_namespace"]
+        == "protein-workbench-run-ledger-transaction/v4"
+        and transaction["schema_version"] == "4.0.0"
+        for transaction in transactions
+    )
     assert [fact["sequence"] for fact in facts] == list(
         range(1, len(facts) + 1)
     )
@@ -3811,6 +3832,23 @@ def test_success_ledger_projects_validated_events_and_opaque_artifact(
         "readiness_attested",
         "engine_invocation_started",
     } <= {fact["fact_type"] for fact in facts}
+    node_transaction = next(
+        transaction
+        for transaction in transactions
+        if any(
+            fact["fact_type"] == "node_disposition"
+            for fact in transaction["facts"]
+        )
+    )
+    assert [
+        fact["fact_type"] for fact in node_transaction["facts"]
+    ] == [
+        "operation_attempt_terminal",
+        "artifact_published",
+        "outputs_published",
+        "node_attempt_terminal",
+        "node_disposition",
+    ]
     assert all(stat.S_IMODE(path.stat().st_mode) == 0o600 for path in fact_paths)
     assert all(
         stat.S_IMODE(path.stat().st_mode) == 0o700
@@ -4140,11 +4178,13 @@ def test_restart_isolates_an_active_generation_run_with_a_damaged_lock_digest(
 
     ledger_dir = run_root / project_id / run_id / "ledger"
     scope_path = ledger_dir / "00000000000000000001.json"
-    scope_fact = json.loads(scope_path.read_bytes())
-    scope_fact["payload"]["contract_lock_digest"] = (
+    scope_transaction = json.loads(scope_path.read_bytes())
+    scope_transaction["facts"][0]["payload"]["contract_lock_digest"] = (
         "sha256:" + "0" * 64
     )
-    scope_path.write_bytes(run_execution_v2.canonical_json_bytes(scope_fact))
+    scope_path.write_bytes(
+        run_execution_v2.canonical_json_bytes(scope_transaction)
+    )
     before = {
         path.name: path.read_bytes()
         for path in sorted(ledger_dir.glob("*.json"))
@@ -4217,8 +4257,8 @@ def test_restart_isolates_active_generation_run_with_damaged_resolved_contracts(
 
     ledger_dir = run_root / project_id / run_id / "ledger"
     scope_path = ledger_dir / "00000000000000000001.json"
-    scope_fact = json.loads(scope_path.read_bytes())
-    scope = scope_fact["payload"]
+    scope_transaction = json.loads(scope_path.read_bytes())
+    scope = scope_transaction["facts"][0]["payload"]
     if damage_kind == "changed_digest":
         scope["resolved_contracts"][0]["contract_digest"] = (
             "sha256:" + "0" * 64
@@ -4246,7 +4286,9 @@ def test_restart_isolates_active_generation_run_with_damaged_resolved_contracts(
             "entries": scope["resolved_contracts"],
         }
     )
-    scope_path.write_bytes(run_execution_v2.canonical_json_bytes(scope_fact))
+    scope_path.write_bytes(
+        run_execution_v2.canonical_json_bytes(scope_transaction)
+    )
     before = {
         path.name: path.read_bytes()
         for path in sorted(ledger_dir.glob("*.json"))
@@ -4352,6 +4394,74 @@ def test_restart_isolates_one_damaged_ledger_without_hiding_healthy_runs(
     assert isolated.status_code == 503
     validate_error(isolated.json(), status=503)
     assert isolated.json()["error"]["code"] == "evidence_unavailable"
+
+
+def test_restart_rejects_prior_development_ledger_schema_as_unsupported(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    project_root = tmp_path / "projects"
+    run_root = tmp_path / "runs"
+    monkeypatch.setenv("PROTEIN_WORKBENCH_PROJECT_ROOT", str(project_root))
+    monkeypatch.setenv("PROTEIN_WORKBENCH_RUN_ROOT", str(run_root))
+    monkeypatch.setenv(
+        "PROTEIN_WORKBENCH_OUTPUT_ROOT",
+        str(tmp_path / "outputs"),
+    )
+    catalog = _direct_catalog([])
+    environment = {
+        ("test.direct.local", "2.1.0"): {
+            "values": {"credential": "credential-value"},
+        }
+    }
+    with TestClient(
+        create_app(
+            frozen_catalog_override=catalog,
+            v2_environment_configuration=environment,
+        )
+    ) as first:
+        project_id, compiled = _commit_one_node(first)
+        started = first.post(
+            f"/api/v2/projects/{project_id}/runs",
+            json={
+                "workflow_commit_id": compiled["workflow_commit_id"],
+                "client_request_id": "prior-ledger-schema",
+            },
+        )
+        run_id = started.json()["run_id"]
+        wait_for_testclient_run_terminal(first, project_id, run_id)
+
+    ledger_dir = run_root / project_id / run_id / "ledger"
+    first_transaction = json.loads(
+        (ledger_dir / "00000000000000000001.json").read_bytes()
+    )
+    prior_fact = {
+        "schema_version": "3.0.0",
+        **first_transaction["facts"][0],
+    }
+    for path in ledger_dir.glob("*.json"):
+        path.unlink()
+    (ledger_dir / "00000000000000000001.json").write_bytes(
+        run_execution_v2.canonical_json_bytes(prior_fact)
+    )
+
+    with TestClient(
+        create_app(
+            frozen_catalog_override=catalog,
+            v2_environment_configuration=environment,
+        )
+    ) as restarted:
+        rejected = restarted.get(
+            f"/api/v2/projects/{project_id}/runs/{run_id}"
+        )
+
+    assert rejected.status_code == 400
+    assert rejected.json()["error"]["code"] == "unsupported_schema_version"
+    assert rejected.json()["error"]["details"] == {
+        "artifact_kind": "run_evidence",
+        "expected_schema_version": "4.0.0",
+        "received_schema_version": "3.0.0",
+    }
 
 
 def test_running_event_reconnect_switches_from_replay_to_live_without_loss(
@@ -4915,9 +5025,9 @@ def test_projection_failure_leaves_facts_intact_and_restart_rebuilds_outputs(
             "node_disposition",
             "node_attempt_started",
             "node_attempt_terminal",
-            "succeeded",
-            "succeeded",
-            1,
+            "interrupted",
+            "interrupted",
+            0,
         ),
     ),
 )
@@ -4939,7 +5049,7 @@ def test_restart_reconciliation_closes_each_started_outer_attempt(
     def pause_before_next_attempt(root, relative_parts, payload, *, field):
         if (
             field == "run_ledger"
-            and json.loads(payload)["fact_type"] == blocked_fact_type
+            and _transaction_has_fact(payload, blocked_fact_type)
             and not paused.is_set()
             and not release.is_set()
         ):

@@ -37,6 +37,7 @@ from core.project import (
 from core.run_execution_v2 import (
     EnvironmentConfiguration,
     ResultReplaySource,
+    LedgerTransactionStore,
     V2RunError,
     V2RunService,
     run_timestamp,
@@ -77,6 +78,7 @@ def create_app(
         Mapping[tuple[str, str], Mapping[str, Any]] | None
     ) = None,
     v2_result_replay_source: ResultReplaySource | None = None,
+    _v2_ledger_transaction_store: LedgerTransactionStore | None = None,
     _v2_wait_for_workers_on_shutdown: bool = True,
     _install_canonical_seed: bool | None = None,
 ) -> FastAPI:
@@ -132,6 +134,7 @@ def create_app(
             app.state.workflow_authoring_v2,
             EnvironmentConfiguration(v2_environment_configuration),
             v2_result_replay_source,
+            _v2_ledger_transaction_store,
         )
         yield
         if _v2_wait_for_workers_on_shutdown:

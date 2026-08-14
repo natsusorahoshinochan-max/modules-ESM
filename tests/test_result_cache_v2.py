@@ -34,6 +34,7 @@ from tests.test_run_execution_v2 import (
     _contract,
     _direct_catalog,
     _pipeline_catalog,
+    _transaction_has_fact,
 )
 
 
@@ -586,7 +587,7 @@ def test_stale_manifest_cannot_unlock_provisional_cache_entry(
         if (
             failure["enabled"]
             and field == "run_ledger"
-            and json.loads(payload)["fact_type"] == "node_disposition"
+            and _transaction_has_fact(payload, "node_disposition")
         ):
             raise OSError("fixture evidence store failure")
         return original_write(

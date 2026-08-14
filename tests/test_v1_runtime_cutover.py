@@ -143,7 +143,7 @@ def test_legacy_persisted_workflow_is_not_adopted_and_run_is_rejected(
         assert run.json()["error"]["code"] == "unsupported_schema_version"
         assert run.json()["error"]["details"] == {
             "artifact_kind": "run_evidence",
-            "expected_schema_version": "3.0.0",
+            "expected_schema_version": "4.0.0",
             "received_schema_version": "1",
         }
 
