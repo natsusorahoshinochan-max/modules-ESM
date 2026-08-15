@@ -4,7 +4,7 @@
 
 **Blocked by:** 14 — 准备 source-bound 5G53 科学验收
 
-**Status:** completed
+**Status:** in-progress
 
 - [x] 保留 canonical 3GB1 现有科学合同：10 个 paired ESM-3 Candidates、top 3 selection、每个 selected parent 的 5 个 ProteinMPNN designs（3×5，共 15 个）、15 个最终 folds/Artifacts 和 exact lineage/provenance，并将其全部切换到 descriptor/retrieval public contract。
 - [x] 1PGA、2EMO、3GB1 和 5G53 分别具有 clean-source、zero-skip、retain-evidence acceptance tier；四个 tiers 的静态收集、input digests、current Catalog references 和 public journey contracts 全部通过，本 ticket 不执行 Provider calls。
@@ -16,6 +16,10 @@
 - [x] 冻结 checkout 前的完整 provider-free repository matrix 全部通过：`routine`、`examples-v2`、`deterministic-acceptance`、`scientific-repro`、`local-esmfold2-v2-contract`、`installed-package`、`provider-isolation`、`security-failure`，以及 frontend Oxlint 和 TypeScript/build。
 
 ## Completion evidence
+
+The evidence below is invalidated by the documented controller-entrypoint
+failure discovered immediately before Ticket 16. It remains only as a record
+of the superseded run and cannot authorize a generation.
 
 - Frozen generation controller：精确 11 个 installed Provider tiers 后接 1PGA、2EMO、canonical 3GB1、5G53；单 child 串行、清除 `PYTEST_ADDOPTS`、无 xdist/重试，失败 result 先持久化再永久终止 generation。
 - Generation authority：非自引用地绑定 clean completion commit、单次构建的 wheel/sdist、public bundle、current Catalog、四个 source/workflow digests、有效 Provider configuration、经 contract owner 重验的本地 assets、exact tier contracts/order 和每次 retained result digest。
