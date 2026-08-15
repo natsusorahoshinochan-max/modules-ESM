@@ -215,12 +215,12 @@ class ESMFold2FoldingImplementation:
     ) -> int:
         digest = hashlib.sha256(
             (
-                "protein-workbench-esmfold2-call/v2\0"
+                "protein-workbench-esmfold2-call/v3\0"
                 f"{effective_seed}\0{parent_content_digest}\0"
                 f"{parent_index}\0{sample_index}"
             ).encode()
         ).digest()
-        return int.from_bytes(digest[:7], "big") % 9_007_199_254_740_992
+        return int.from_bytes(digest[:4], "big")
 
     @staticmethod
     def _parent_references(

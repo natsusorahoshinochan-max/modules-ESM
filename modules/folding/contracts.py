@@ -32,6 +32,7 @@ from .simplefold_contract import (
 
 
 FOLD_METHOD_VERSION = "4.0.0"
+LOCAL_ESMFOLD2_METHOD_VERSION = "5.0.0"
 CONFIDENCE_METHOD_VERSION = "3.0.0"
 
 
@@ -85,7 +86,7 @@ def _method(route: str) -> MethodDefinition:
         )
     return MethodDefinition(
         method_id="folding.fold.esmfold2_hf_1ebf0e3",
-        version=FOLD_METHOD_VERSION,
+        version=LOCAL_ESMFOLD2_METHOD_VERSION,
         algorithm_identity={
             "name": "ESMFold2 sequence-to-structure diffusion",
             "num_loops": 20,
@@ -96,8 +97,11 @@ def _method(route: str) -> MethodDefinition:
             "msa_column_mask_rate": 0.1,
             "include_pae": True,
             "randomness_contract": (
-                "exact Torch seed derived from configured base seed, canonical "
-                "parent sequence content digest, and parent-sample slot"
+                "exact 32-bit seed derived by protein-workbench-esmfold2-call/v3 "
+                "SHA-256 from configured base seed, canonical parent sequence "
+                "content digest, and parent-sample slot; the first four digest "
+                "bytes are interpreted as one unsigned big-endian integer for "
+                "the provider's Python, NumPy MT19937, and Torch seed context"
             ),
         },
         model_identity={

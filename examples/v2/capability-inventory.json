@@ -126,8 +126,8 @@
     {
       "contract_kind": "binding",
       "contract_id": "folding.fold.esmfold2_local",
-      "contract_version": "6.0.0",
-      "contract_digest": "sha256:9331bf637d6e70ea4eed20e1e65152a95f2b2d2dc96f3ff7a96c7e2fb819fb49"
+      "contract_version": "7.0.0",
+      "contract_digest": "sha256:9df5915a11c299e4caad2a658655e5ebdbb90d26ac27d45a81dfe897255980e2"
     },
     {
       "contract_kind": "binding",
@@ -618,8 +618,8 @@
     {
       "contract_kind": "method",
       "contract_id": "folding.fold.esmfold2_hf_1ebf0e3",
-      "contract_version": "4.0.0",
-      "contract_digest": "sha256:013f91c4b3651e5c3481559c277a2d09a0df5395d81039158b06a9a56c764452"
+      "contract_version": "5.0.0",
+      "contract_digest": "sha256:30c5861b60820adb44ec118635c8b7d247e6a720a334038365b1595ef82b2c32"
     },
     {
       "contract_kind": "method",

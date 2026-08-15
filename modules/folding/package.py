@@ -34,6 +34,7 @@ from modules.provider_contract import (
 from .contracts import (
     CONFIDENCE_METHOD_VERSION,
     FOLD_METHOD_VERSION,
+    LOCAL_ESMFOLD2_METHOD_VERSION,
     LOCAL_ESMFOLD2_FOLD_METHOD,
     REMOTE_ESMFOLD2_FOLD_METHOD,
     SIMPLEFOLD_CONFIDENCE_METHOD,
@@ -82,9 +83,10 @@ from .simplefold_contract import (
 )
 
 
-_PACKAGE_VERSION = "5.0.0"
+_PACKAGE_VERSION = "6.0.0"
 _FOLD_NODE_BINDING_VERSION = "6.0.0"
 _REMOTE_FOLD_BINDING_VERSION = "7.0.0"
+_LOCAL_ESMFOLD2_BINDING_VERSION = "7.0.0"
 _CONFIDENCE_NODE_BINDING_VERSION = "4.0.0"
 _METRIC_VERSIONS = {
     "structure.ptm": "2.1.0",
@@ -313,7 +315,7 @@ def _binding(route: str) -> ExecutionBindingDefinition:
             "randomness_evidence": "provider_uncontrolled",
         }
     else:
-        binding_version = _FOLD_NODE_BINDING_VERSION
+        binding_version = _LOCAL_ESMFOLD2_BINDING_VERSION
         binding_id = "folding.fold.esmfold2_local"
         method_id = "folding.fold.esmfold2_hf_1ebf0e3"
         model = LOCAL_ESMFOLD2_MODEL
@@ -386,7 +388,7 @@ def _binding(route: str) -> ExecutionBindingDefinition:
             "device": LOCAL_DEVICE,
             "torch_version": LOCAL_TORCH_VERSION,
             "transformers_source_revision": TRANSFORMERS_REVISION,
-            "seed_control": "torch_local",
+            "seed_control": "python_numpy_mt19937_torch_shared",
             "cache_policy": "runtime-device-specific_folding_not_cacheable",
         }
         adapter_details = {
@@ -394,8 +396,9 @@ def _binding(route: str) -> ExecutionBindingDefinition:
             "native_scale": "[0,1]_multiply_100",
             "engine_identity": "exact_method_contract_digest",
             "randomness_evidence": "exact_seed",
+            "provider_seed_domain": "unsigned_32_bit",
         }
-        seed_control = "torch_local"
+        seed_control = "python_numpy_mt19937_torch_shared"
         seed_scope = "scientific-input-content-and-parent-sample-slot"
     return ExecutionBindingDefinition(
         binding_id=binding_id,
@@ -405,7 +408,15 @@ def _binding(route: str) -> ExecutionBindingDefinition:
             "folding.fold",
             _FOLD_NODE_BINDING_VERSION,
         ),
-        method=ContractIdentity("method", method_id, FOLD_METHOD_VERSION),
+        method=ContractIdentity(
+            "method",
+            method_id,
+            (
+                FOLD_METHOD_VERSION
+                if route == "remote"
+                else LOCAL_ESMFOLD2_METHOD_VERSION
+            ),
+        ),
         binding_parameters={},
         execution_route="adapter",
         factory=ScientificOperationFactory(
@@ -438,6 +449,7 @@ def _binding(route: str) -> ExecutionBindingDefinition:
                     binding_version,
                     {
                         "provider_seed_control": seed_control,
+                        "provider_seed_domain": "unsigned_32_bit",
                         "seed_scope": seed_scope,
                         "sample_order": "parent-then-zero-based-sample",
                     },

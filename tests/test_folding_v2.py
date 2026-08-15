@@ -45,7 +45,8 @@ from tests.fixtures.public_v2 import decode_service_typed_output_value
 
 _FOLD_NODE_VERSION = "6.0.0"
 _REMOTE_FOLD_BINDING_VERSION = "7.0.0"
-_LOCAL_FOLD_BINDING_VERSION = "6.0.0"
+_LOCAL_FOLD_BINDING_VERSION = "7.0.0"
+_SIMPLEFOLD_BINDING_VERSION = "6.0.0"
 
 
 def _esmfold2_binding_version(route: str) -> str:
@@ -319,6 +320,21 @@ def test_remote_and_local_esmfold2_are_explicit_bindings_of_one_node() -> None:
     assert local.descriptor["implementation_identity"]["model"] == (
         "biohub/ESMFold2"
     )
+    assert local.descriptor["method"]["contract_version"] == "5.0.0"
+    assert local.descriptor["route_behavior"]["parameters"][
+        "provider_seed_domain"
+    ] == "unsigned_32_bit"
+    assert local.descriptor["implementation_identity"]["seed_control"] == (
+        "python_numpy_mt19937_torch_shared"
+    )
+    local_method = catalog.require_contract(
+        "method",
+        "folding.fold.esmfold2_hf_1ebf0e3",
+        "5.0.0",
+    )
+    assert "protein-workbench-esmfold2-call/v3" in local_method.descriptor[
+        "algorithm_identity"
+    ]["randomness_contract"]
 
     node = catalog.require_contract(
         "node_type",
@@ -790,7 +806,7 @@ def test_all_folding_axes_validate_before_any_provider_invocation() -> None:
         ),
         (
             "folding.fold.simplefold_local",
-            _LOCAL_FOLD_BINDING_VERSION,
+            _SIMPLEFOLD_BINDING_VERSION,
             {"num_steps": 10},
             SimpleFoldFoldingImplementation,
         ),
@@ -979,6 +995,13 @@ def test_esmfold_call_seed_uses_candidate_content_not_candidate_identity() -> No
         MODULE_PACKAGE as STRUCTURE_TRANSFORM_PACKAGE,
     )
 
+    assert ESMFold2FoldingImplementation._call_seed(
+        1603,
+        "sha256:" + "0" * 64,
+        0,
+        0,
+    ) == 299_330_669
+
     class Adapter:
         def __init__(self) -> None:
             self.seeds: list[int] = []
@@ -1007,7 +1030,7 @@ def test_esmfold_call_seed_uses_candidate_content_not_candidate_identity() -> No
         catalog,
         "folding.fold.esmfold2_local",
         object(),
-        binding_version="6.0.0",
+        binding_version="7.0.0",
     )
 
     def observed(candidate_id: str, sequence: str) -> int:
@@ -1026,7 +1049,7 @@ def test_esmfold_call_seed_uses_candidate_content_not_candidate_identity() -> No
             operation_call(
                 catalog=catalog,
                 binding_id="folding.fold.esmfold2_local",
-                binding_version="6.0.0",
+                binding_version="7.0.0",
                 inputs={
                     "sequence_candidates": CandidateCollection(
                         "parents",
@@ -1044,6 +1067,7 @@ def test_esmfold_call_seed_uses_candidate_content_not_candidate_identity() -> No
     renamed = observed("candidate-renamed", "AG")
     changed_content = observed("candidate-a", "AA")
 
+    assert 0 <= original <= 4_294_967_295
     assert original == renamed
     assert original != changed_content
 
@@ -1586,7 +1610,7 @@ def test_remote_and_local_bindings_pass_shared_contract_test_kit(
         ModulePackageContractCase(
             case_id="simplefold-local",
             binding_id="folding.fold.simplefold_local",
-            binding_version=_LOCAL_FOLD_BINDING_VERSION,
+            binding_version=_SIMPLEFOLD_BINDING_VERSION,
             binding_parameters={"num_steps": 10},
             environment_values=simplefold_environment,
             expected_candidate_counts={
