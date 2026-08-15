@@ -83,7 +83,7 @@ SOLUPROT_RUNTIME_DISTRIBUTIONS = {
 }
 SOLUPROT_PERL_VERSION = "v5.34.1"
 SOLUPROT_PERL_SHA256 = (
-    "abda2bfd23a6c9a8e57adf2291f0aea4abd8faf440558ee49fe4ced55e8d9ad0"
+    "626702a74f85d2664872f6a7aa9b639306a2035211d442a24ea32ef0d48c8afd"
 )
 SOLUPROT_MODEL_SHA256 = {
     "full": "20ec7d95ee71b31e1ad8e1ff66ad3b966d675bfcf877196dba1db6a3cbbf7e2b",
@@ -142,7 +142,7 @@ PROTEIN_SOL_BASH_VERSION = (
     "GNU bash, version 3.2.57(1)-release (arm64-apple-darwin25)"
 )
 PROTEIN_SOL_BASH_SHA256 = (
-    "fde343ee184953c1fa1185abddeaa8be61c6acbebae4eb54db5d6b55b09a5755"
+    "a4c638ae036d92d55661de7d50896ec630145acaa3afeb1818ef4fc4e0ee45a7"
 )
 PROTEIN_SOL_SOURCE_SHA256 = {
     "fasta_seq_reformat_export.pl": (

@@ -915,7 +915,7 @@
       "contract_kind": "binding",
       "contract_id": "solubility.protein_sol.local",
       "contract_version": "4.0.0",
-      "contract_digest": "sha256:3776a2b4898ad5d4a1c32e0fdd0034a04b4cacda65ff5883e8a0a34e530ebc95"
+      "contract_digest": "sha256:d85100acc539af970981f2807e61b9b49be74388fedf8f3480165261a97b3f94"
     },
     {
       "contract_kind": "binding",
