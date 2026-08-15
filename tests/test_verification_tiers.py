@@ -533,6 +533,7 @@ def test_examples_and_scientific_tiers_execute_without_parallel_evidence(
     env["PROTEIN_WORKBENCH_PROVIDER_CALL_EVIDENCE"] = str(
         tmp_path / "must-not-exist.jsonl"
     )
+    env["PYTEST_ADDOPTS"] = "--this-option-must-not-reach-pytest"
 
     examples = _run_verifier("examples-v2", env=env)
     scientific = _run_verifier("scientific-repro", env=env)

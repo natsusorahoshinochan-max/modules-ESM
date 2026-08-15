@@ -7,6 +7,7 @@ from dataclasses import dataclass, replace
 import hashlib
 import importlib.metadata
 import json
+import os
 from pathlib import Path
 from typing import Any, cast
 
@@ -37,6 +38,10 @@ _PROVIDER_CHAIN_IDS = tuple(
     "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789"
 )
 _PROVIDER_BACKBONE_ATOMS = ("N", "CA", "C", "O")
+_INSTALLED_GATE_RESIDENT_MODELS: dict[
+    tuple[str, float, Path | None],
+    tuple[Any, Any],
+] = {}
 
 
 @dataclass(frozen=True, slots=True)
@@ -436,10 +441,16 @@ class LocalProteinMPNNAdapter:
         self._environment = environment
         self._resources = resources
         self._provider_factory = provider_factory
-        self._resident_models: dict[
-            tuple[str, float, Path | None],
-            tuple[Any, Any],
-        ] = {}
+        if (
+            os.environ.get("PROTEIN_WORKBENCH_VERIFICATION_TIER")
+            == "installed-proteinmpnn"
+        ):
+            self._resident_models = _INSTALLED_GATE_RESIDENT_MODELS
+        else:
+            self._resident_models: dict[
+                tuple[str, float, Path | None],
+                tuple[Any, Any],
+            ] = {}
 
     def design(
         self,

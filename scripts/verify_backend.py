@@ -571,6 +571,7 @@ def run(tier_name: str, pytest_override: tuple[str, ...]) -> int:
             )
         env.pop("PROTEIN_WORKBENCH_PROVIDER_CALL_EVIDENCE", None)
         env.pop("PROTEIN_WORKBENCH_PROVIDER_EVIDENCE_SCOPE", None)
+        env.pop("PYTEST_ADDOPTS", None)
 
         command = [
             sys.executable,

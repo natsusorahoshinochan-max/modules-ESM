@@ -241,24 +241,49 @@ def _git_authority() -> tuple[str, bool]:
 
 
 def _configuration_identities() -> dict[str, dict[str, str]]:
+    from modules.provider_contract import local_esm3_snapshot_root
+
     identities: dict[str, dict[str, str]] = {}
     for tier_name, variables in PROVIDER_CONFIGURATION_CONTRACTS.items():
         configured: dict[str, str] = {}
+        if tier_name == "installed-local-esm3":
+            snapshot = local_esm3_snapshot_root().resolve(strict=True)
+            if os.environ.get("HF_HUB_CACHE"):
+                variable = "HF_HUB_CACHE"
+            elif os.environ.get("HF_HOME"):
+                variable = "HF_HOME"
+            else:
+                variable = "HF_HOME_DEFAULT"
+            observed = snapshot.stat()
+            configured[variable] = _sha256(_canonical_bytes({
+                "effective_snapshot": str(snapshot),
+                "filesystem_identity": {
+                    "device": observed.st_dev,
+                    "inode": observed.st_ino,
+                    "mode": observed.st_mode,
+                    "modified_ns": observed.st_mtime_ns,
+                },
+            }))
+            identities[tier_name] = configured
+            continue
         for variable in variables:
             value = os.environ.get(variable)
-            if value is not None:
-                identity: dict[str, Any] = {"configured_value": value}
-                path = Path(value)
-                if path.is_absolute() and path.exists():
-                    observed = path.stat()
-                    identity["filesystem_identity"] = {
-                        "device": observed.st_dev,
-                        "inode": observed.st_ino,
-                        "mode": observed.st_mode,
-                        "size": observed.st_size,
-                        "modified_ns": observed.st_mtime_ns,
-                    }
-                configured[variable] = _sha256(_canonical_bytes(identity))
+            if value is None:
+                raise RuntimeError(
+                    f"acceptance generation requires explicit {variable}"
+                )
+            path = Path(value).expanduser().resolve(strict=True)
+            observed = path.stat()
+            configured[variable] = _sha256(_canonical_bytes({
+                "configured_value": str(path),
+                "filesystem_identity": {
+                    "device": observed.st_dev,
+                    "inode": observed.st_ino,
+                    "mode": observed.st_mode,
+                    "size": observed.st_size,
+                    "modified_ns": observed.st_mtime_ns,
+                },
+            }))
         identities[tier_name] = configured
     return identities
 
@@ -268,34 +293,146 @@ def _provider_asset_identities() -> dict[str, Any]:
     from modules.esm3.local_adapter import (
         configured_runtime_fingerprint as local_esm3_fingerprint,
     )
-    from modules.folding.adapter import configured_local_runtime_fingerprint
+    from modules.folding.adapter import (
+        LOCAL_DEVICE,
+        LOCAL_ESMC_REVISION,
+        LOCAL_ESMFOLD2_REVISION,
+        configured_local_runtime_fingerprint,
+        resolve_local_runtime,
+    )
     from modules.folding.simplefold_adapter import (
+        SIMPLEFOLD_DEVICE,
         configured_runtime_fingerprint as simplefold_folding_fingerprint,
+        validate_simplefold_folding_environment,
     )
     from modules.folding.simplefold_confidence_adapter import (
+        SIMPLEFOLD_CONFIDENCE_DEVICE,
         configured_runtime_fingerprint as simplefold_confidence_fingerprint,
+        validate_simplefold_confidence_environment,
     )
     from modules.proteinmpnn.adapter import (
+        PROTEINMPNN_DEVICE,
         configured_runtime_fingerprint as proteinmpnn_fingerprint,
+        proteinmpnn_readiness,
     )
+    from modules.provider_contract import validate_local_esm3_snapshot
     from modules.solubility.adapter import (
         configured_protein_sol_runtime_fingerprint,
         configured_runtime_fingerprint as soluprot_fingerprint,
+        validate_protein_sol_environment,
+        validate_soluprot_environment,
     )
-    from modules.structure_annotation.adapter import mkdssp_provider_identity
+    from modules.structure_annotation.adapter import (
+        mkdssp_provider_identity,
+        mkdssp_readiness,
+    )
+
+    def required_path(variable: str) -> Path:
+        value = os.environ.get(variable)
+        if value is None:
+            raise RuntimeError(
+                f"acceptance generation requires explicit {variable}"
+            )
+        return Path(value).expanduser().resolve(strict=True)
+
+    validate_local_esm3_snapshot.cache_clear()
+    validate_local_esm3_snapshot()
+    local_esmfold2_fingerprint = configured_local_runtime_fingerprint()
+    resolve_local_runtime({
+        "model_snapshot_path": required_path(
+            "PROTEIN_WORKBENCH_ESMFOLD2_MODEL_ROOT"
+        ),
+        "model_snapshot_revision": LOCAL_ESMFOLD2_REVISION,
+        "language_model_snapshot_path": required_path(
+            "PROTEIN_WORKBENCH_ESMFOLD2_ESMC_MODEL_ROOT"
+        ),
+        "language_model_snapshot_revision": LOCAL_ESMC_REVISION,
+        "runtime_directory": PROJECT_ROOT,
+        "device": LOCAL_DEVICE,
+        "resolved_runtime_fingerprint": local_esmfold2_fingerprint,
+    })
+    proteinmpnn_identity = proteinmpnn_fingerprint()
+    if not proteinmpnn_readiness({
+        "device": PROTEINMPNN_DEVICE,
+        "provider_root": required_path(
+            "PROTEIN_WORKBENCH_PROTEINMPNN_ROOT"
+        ),
+        "resolved_runtime_fingerprint": proteinmpnn_identity,
+    }).passing:
+        raise RuntimeError("frozen ProteinMPNN assets are unavailable")
+    simplefold_roots = {
+        "model_root": required_path(
+            "PROTEIN_WORKBENCH_SIMPLEFOLD_MODEL_ROOT"
+        ),
+        "esm2_source_root": required_path(
+            "PROTEIN_WORKBENCH_SIMPLEFOLD_ESM2_ROOT"
+        ),
+        "esm2_model_root": required_path(
+            "PROTEIN_WORKBENCH_SIMPLEFOLD_ESM2_MODEL_ROOT"
+        ),
+    }
+    simplefold_folding_identity = simplefold_folding_fingerprint()
+    validate_simplefold_folding_environment({
+        **simplefold_roots,
+        "device": SIMPLEFOLD_DEVICE,
+        "resolved_runtime_fingerprint": simplefold_folding_identity,
+    })
+    simplefold_confidence_identity = simplefold_confidence_fingerprint()
+    validate_simplefold_confidence_environment({
+        **simplefold_roots,
+        "device": SIMPLEFOLD_CONFIDENCE_DEVICE,
+        "resolved_runtime_fingerprint": simplefold_confidence_identity,
+    })
+    soluprot_root = required_path("PROTEIN_WORKBENCH_SOLUPROT_ROOT")
+    soluprot_identities = {
+        mode: soluprot_fingerprint(mode)
+        for mode in ("full", "no_tm")
+    }
+    for mode, identity in soluprot_identities.items():
+        soluprot_environment: dict[str, Any] = {
+            "python_executable": (
+                soluprot_root / "var/environments/soluprot/bin/python"
+            ),
+            "wheel_path": (
+                soluprot_root
+                / "vendor/packages/soluprot-1.1.0-py3-none-any.whl"
+            ),
+            "site_packages_root": (
+                soluprot_root
+                / "var/environments/soluprot/lib/python3.12/site-packages"
+            ),
+            "usearch_executable": (
+                soluprot_root / "var/tools/soluprot/usearch"
+            ),
+            "resolved_runtime_fingerprint": identity,
+        }
+        if mode == "full":
+            soluprot_environment.update({
+                "tmhmm_root": soluprot_root / "var/tools/soluprot/tmhmm",
+                "perl_executable": Path("/usr/bin/perl"),
+            })
+        validate_soluprot_environment(soluprot_environment, mode=mode)
+    protein_sol_identity = configured_protein_sol_runtime_fingerprint()
+    validate_protein_sol_environment({
+        "source_root": required_path("PROTEIN_WORKBENCH_PROTEIN_SOL_ROOT"),
+        "bash_executable": Path("/bin/bash"),
+        "perl_executable": Path("/usr/bin/perl"),
+        "resolved_runtime_fingerprint": protein_sol_identity,
+    })
+    if not mkdssp_readiness({
+        "dssp_binary": str(required_path("PROTEIN_WORKBENCH_MKDSSP_BINARY")),
+    }).passing:
+        raise RuntimeError("frozen mkdssp assets are unavailable")
 
     return {
         "local_esm3": local_esm3_fingerprint(device="cpu"),
-        "local_esmfold2": configured_local_runtime_fingerprint(),
+        "local_esmfold2": local_esmfold2_fingerprint,
         "mkdssp": mkdssp_provider_identity(),
-        "proteinmpnn": proteinmpnn_fingerprint(),
-        "simplefold_folding": simplefold_folding_fingerprint(),
-        "simplefold_confidence": simplefold_confidence_fingerprint(),
-        "soluprot": {
-            "full": soluprot_fingerprint("full"),
-            "no_tm": soluprot_fingerprint("no_tm"),
-        },
-        "protein_sol": configured_protein_sol_runtime_fingerprint(),
+        "proteinmpnn": proteinmpnn_identity,
+        "simplefold_folding": simplefold_folding_identity,
+        "simplefold_confidence": simplefold_confidence_identity,
+        "soluprot": soluprot_identities,
+        "protein_sol": protein_sol_identity,
     }
 
 
@@ -400,6 +537,8 @@ def run_through(root: Path, through: str) -> dict[str, Any]:
     expected_prefix = list(ACCEPTANCE_TIER_ORDER[: len(completed)])
     if completed != expected_prefix:
         raise RuntimeError("acceptance results are not one contiguous prefix")
+    if manifest["results"] and manifest["results"][-1]["outcome"] != "passed":
+        raise RuntimeError("acceptance generation is terminated")
     target_index = ACCEPTANCE_TIER_ORDER.index(through)
     if target_index < len(completed) - 1:
         raise RuntimeError("acceptance tier has already been passed")
@@ -425,8 +564,7 @@ def run_through(root: Path, through: str) -> dict[str, Any]:
             check=False,
         )
         print(completed_process.stdout, end="", flush=True)
-        if completed_process.returncode != 0:
-            raise RuntimeError(f"acceptance tier failed: {tier_name}")
+        _assert_authority(root, manifest)
         matches = re.findall(
             r"^RETAINED VERIFICATION RESULT: (.+)$",
             completed_process.stdout,
@@ -435,14 +573,19 @@ def run_through(root: Path, through: str) -> dict[str, Any]:
         if len(matches) != 1:
             raise RuntimeError("verification result location is unavailable")
         result_dir = Path(matches[0]).resolve()
+        outcome = (
+            "passed" if completed_process.returncode == 0 else "failed"
+        )
         manifest["results"].append({
             "tier": tier_name,
             "ordinal": len(manifest["results"]),
             "evidence_bundle_digest": _directory_digest(result_dir),
             "verification_result": result_dir.relative_to(root).as_posix(),
-            "outcome": "passed",
+            "outcome": outcome,
         })
         _write_manifest(root / "generation.json", manifest)
+        if outcome == "failed":
+            raise RuntimeError(f"acceptance tier failed: {tier_name}")
     return manifest
 
 

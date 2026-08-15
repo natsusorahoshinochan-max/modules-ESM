@@ -250,14 +250,17 @@ never passes xdist, and never retries a tier or Workflow. The same frozen
 installed artifacts are supplied to every tier. Any source, artifact, protocol,
 Catalog, input, Workflow, Provider asset/configuration, tier contract, or result
 prefix change invalidates the generation instead of being combined with older
-evidence.
+evidence. A failed tier is retained in the manifest with its evidence digest
+and permanently terminates that generation; a new generation is required to
+run it again.
 
 Local-model tiers are separate child processes. Within a child, one resident
 instance of each exact local model is reused for all calls made by its operation
 stage; the child must exit before the controller starts the next tier. The local
 ESM-3 gate shares one client across paired, sequence, and structure generation.
-ProteinMPNN reuses one resident model across every parent handled by one design
-or scoring stage, then releases that stage-owned residency before a later
+The installed ProteinMPNN gate shares one resident model across every Adapter,
+Operation, and test in that exact gate process. Source-bound Workflows keep
+ProteinMPNN residency operation-scoped, so it is released before a later
 Protein-Sol stage begins.
 
 ## Deterministic public-protocol acceptance

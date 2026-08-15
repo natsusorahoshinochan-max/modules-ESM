@@ -126,6 +126,83 @@ def _one(
     return values[0]
 
 
+def _assert_live_node_contracts(
+    root: Path,
+    projection: dict[str, Any],
+    expected: dict[str, tuple[int, str | None]],
+) -> dict[str, tuple[dict[str, Any], ...]]:
+    catalog = build_discovered_frozen_catalog()
+    workflow = _load(root, "workflow.json")
+    nodes = {node["node_id"]: node for node in workflow["nodes"]}
+    messages = _load(root, "events.json")
+    events = tuple(message["event"] for message in messages)
+    node_by_attempt = {
+        event["node_attempt_id"]: event["node_id"]
+        for event in events
+        if event["type"] == "node_attempt_started"
+    }
+    node_by_operation = {
+        event["operation_attempt_id"]: node_by_attempt[
+            event["node_attempt_id"]
+        ]
+        for event in events
+        if event["type"] == "operation_attempt_started"
+    }
+    terminal_by_invocation = {
+        event["invocation_id"]: event
+        for event in events
+        if event["type"] == "engine_invocation_terminal"
+    }
+    dispositions = {
+        item["node_id"]: item for item in projection["node_dispositions"]
+    }
+    result: dict[str, tuple[dict[str, Any], ...]] = {}
+    for node_id, (expected_count, randomness_control) in expected.items():
+        node = nodes[node_id]
+        binding = catalog.require_contract(
+            "binding",
+            node["binding_id"],
+            node["binding_version"],
+        )
+        assert dispositions[node_id]["outcome"] == "succeeded"
+        assert dispositions[node_id]["resolution"] == "executed"
+        assert any(
+            event["type"] == "readiness_attested"
+            and event["binding"] == binding.reference()
+            and event["conclusion"] == "passing"
+            for event in events
+        )
+        invocations = tuple(
+            event
+            for event in events
+            if event["type"] == "engine_invocation_started"
+            and node_by_operation[event["operation_attempt_id"]] == node_id
+        )
+        assert len(invocations) == expected_count
+        assert all(
+            invocation["engine_identity"]
+            == binding.descriptor["method"]["contract_digest"]
+            and terminal_by_invocation[invocation["invocation_id"]]["status"]
+            == "succeeded"
+            for invocation in invocations
+        )
+        if randomness_control is None:
+            assert all(
+                "invocation_provenance" not in invocation
+                for invocation in invocations
+            )
+        else:
+            assert all(
+                invocation["invocation_provenance"][
+                    "effective_randomness"
+                ]["control"]
+                == randomness_control
+                for invocation in invocations
+            )
+        result[node_id] = invocations
+    return result
+
+
 def _assert_common_bundle(root: Path, tier_name: str) -> dict[str, Any]:
     contract = CONTRACTS[tier_name]
     receipt = _load(root, "source-bound-receipt.json")
@@ -182,6 +259,28 @@ def _assert_common_bundle(root: Path, tier_name: str) -> dict[str, Any]:
 
 def _assert_science(root: Path, tier_name: str, projection: dict[str, Any]) -> None:
     if tier_name == "fresh-1pga":
+        live_invocations = _assert_live_node_contracts(
+            root,
+            projection,
+            {
+                "fold-esmfold2": (1, "provider_uncontrolled"),
+                "fold-simplefold": (1, "exact_seed"),
+            },
+        )
+        workflow_nodes = {
+            node["node_id"]: node for node in _load(root, "workflow.json")["nodes"]
+        }
+        assert workflow_nodes["fold-esmfold2"]["node_parameters"] == {
+            "effective_seed": 1075001,
+            "num_samples": 1,
+        }
+        assert workflow_nodes["fold-simplefold"]["node_parameters"] == {
+            "effective_seed": 1075002,
+            "num_samples": 1,
+        }
+        assert workflow_nodes["fold-simplefold"]["binding_parameters"] == {
+            "num_steps": 50,
+        }
         input_candidates = _one(
             root, projection, "import-input", "structure_candidates"
         )
@@ -214,6 +313,13 @@ def _assert_science(root: Path, tier_name: str, projection: dict[str, Any]) -> N
         assert len(pairing.entries) == 1
         assert esmfold2.items[0].parent_ids == simplefold.items[0].parent_ids == (
             sequence.items[0].candidate_id,
+        )
+        assert simplefold.items[0].metadata["configured_base_seed"] == 1075002
+        assert simplefold.items[0].metadata["num_steps"] == 50
+        assert live_invocations["fold-simplefold"][0][
+            "invocation_provenance"
+        ]["effective_randomness"]["effective_seed"] == (
+            simplefold.items[0].metadata["effective_call_seed"]
         )
         assert pairing.entries[0].subject.candidate_id == (
             esmfold2.items[0].candidate_id
@@ -268,6 +374,28 @@ def _assert_science(root: Path, tier_name: str, projection: dict[str, Any]) -> N
             for edge in consistency.edges
         )
     elif tier_name == "fresh-2emo":
+        live_invocations = _assert_live_node_contracts(
+            root,
+            projection,
+            {
+                "design-sequences": (1, "exact_seed"),
+                "fold-esmfold2": (8, "provider_uncontrolled"),
+                "score-protein-sol": (1, None),
+            },
+        )
+        workflow_nodes = {
+            node["node_id"]: node for node in _load(root, "workflow.json")["nodes"]
+        }
+        assert workflow_nodes["design-sequences"]["node_parameters"] == {
+            "effective_seed": 2066001,
+            "num_sequences": 8,
+            "temperature": 0.1,
+            "backbone_noise": 0,
+        }
+        assert workflow_nodes["fold-esmfold2"]["node_parameters"] == {
+            "effective_seed": 2066002,
+            "num_samples": 1,
+        }
         normalizations = _one(
             root,
             projection,
@@ -319,6 +447,12 @@ def _assert_science(root: Path, tier_name: str, projection: dict[str, Any]) -> N
             "A:67",
             "A:68",
         )
+        axis = axes.entries[0].residue_axis
+        fixed_span = tuple(
+            axis.layout.residue_ids.index(residue_id)
+            for residue_id in ("A:65", "A:66", "A:67")
+        )
+        assert axis.sequence[fixed_span[0] : fixed_span[-1] + 1] == "SHG"
         assert all(
             type(value) is CandidateCollection
             for value in (
@@ -347,6 +481,20 @@ def _assert_science(root: Path, tier_name: str, projection: dict[str, Any]) -> N
             and "constraint_digest" in design.metadata
             for design in designs.items
         )
+        assert all(
+            "".join(design.data.sequence[index] for index in fixed_span)
+            == "SHG"
+            for design in designs.items
+        )
+        assert live_invocations["design-sequences"][0][
+            "invocation_provenance"
+        ]["effective_randomness"]["effective_seed"] == (
+            designs.items[0].metadata["effective_call_seed"]
+        )
+        assert tuple(
+            invocation["engine_role"]
+            for invocation in live_invocations["score-protein-sol"]
+        ) == ("protein_sol_sequence_prediction",)
         design_ids = {design.candidate_id for design in designs.items}
         fold_ids = {fold.candidate_id for fold in folds.items}
         assert all(
@@ -424,6 +572,25 @@ def _assert_science(root: Path, tier_name: str, projection: dict[str, Any]) -> N
         )
         assert 0 <= len(passing.items) <= 8
     else:
+        live_invocations = _assert_live_node_contracts(
+            root,
+            projection,
+            {
+                "generate-shorter-8": (4, "provider_uncontrolled"),
+                "fold-shorter-8": (2, "provider_uncontrolled"),
+                "generate-numbering-implied-12": (
+                    4,
+                    "provider_uncontrolled",
+                ),
+                "fold-numbering-implied-12": (2, "provider_uncontrolled"),
+                "generate-longer-16": (4, "provider_uncontrolled"),
+                "fold-longer-16": (2, "provider_uncontrolled"),
+            },
+        )
+        assert live_invocations
+        workflow_nodes = {
+            node["node_id"]: node for node in _load(root, "workflow.json")["nodes"]
+        }
         axes = _one(root, projection, "resolve-reference", "residue_axes")
         sequences = _one(root, projection, "merge-sequences", "candidates")
         counterparts = _one(
@@ -507,6 +674,50 @@ def _assert_science(root: Path, tier_name: str, projection: dict[str, Any]) -> N
             )
             assert type(branch_pairing) is PairwiseCandidateMapping
             assert len(branch_sequences.items) == len(branch_pairing.entries) == 2
+            expected_seed = {
+                "shorter-8": 5353008,
+                "numbering-implied-12": 5353012,
+                "longer-16": 5353016,
+            }[branch]
+            assert workflow_nodes[f"generate-{branch}"]["node_parameters"] == {
+                "effective_seed": expected_seed,
+                "num_samples": 2,
+                "num_steps": 20,
+                "temperature": 0.7,
+                "top_p": 1.0,
+                "schedule": "cosine",
+                "strategy": "random",
+                "temperature_annealing": True,
+            }
+            assert workflow_nodes[f"fold-{branch}"]["node_parameters"] == {
+                "effective_seed": 5353999,
+                "num_samples": 1,
+            }
+            expected_generation_parameters = {
+                "num_steps": 20,
+                "temperature": 0.7,
+                "top_p": 1.0,
+                "schedule": "cosine",
+                "strategy": "random",
+                "temperature_annealing": True,
+            }
+            assert all(
+                sequence.metadata["requested_generation_parameters"]
+                == expected_generation_parameters
+                and sequence.metadata["effective_generation_parameters"]
+                == {"sequence": expected_generation_parameters}
+                for sequence in branch_sequences.items
+            )
+            assert all(
+                counterpart.metadata["requested_generation_parameters"]
+                == expected_generation_parameters
+                and counterpart.metadata["effective_generation_parameters"]
+                == {
+                    "sequence": expected_generation_parameters,
+                    "structure": expected_generation_parameters,
+                }
+                for counterpart in branch_counterparts.items
+            )
             assert tuple(
                 counterpart.parent_ids
                 for counterpart in branch_counterparts.items
@@ -535,6 +746,31 @@ def _assert_science(root: Path, tier_name: str, projection: dict[str, Any]) -> N
                 counterpart.candidate_id
                 for counterpart in branch_counterparts.items
             )
+            confidence_facts = _one(
+                root,
+                projection,
+                f"generate-{branch}",
+                "confidence_facts",
+            )
+            reconstruction_confidence = _one(
+                root,
+                projection,
+                f"generate-{branch}",
+                "sequence_reconstruction_confidence_facts",
+            )
+            assert {
+                fact.prediction_key for fact in confidence_facts.entries
+            } == {
+                candidate.metadata["prediction_key"]
+                for candidate in branch_counterparts.items
+            }
+            assert {
+                fact.prediction_key
+                for fact in reconstruction_confidence.entries
+            } == {
+                candidate.metadata["prediction_key"]
+                for candidate in branch_reconstructions.items
+            }
             quality = _one(
                 root,
                 projection,
@@ -543,6 +779,15 @@ def _assert_science(root: Path, tier_name: str, projection: dict[str, Any]) -> N
             )
             assert type(quality) is InsertedLoopEvaluationCollection
             assert len(quality.entries) == 2
+            assert {
+                evidence.subject.candidate_id for evidence in quality.entries
+            } == {fold.candidate_id for fold in branch_folds.items}
+            assert {
+                evidence.counterpart.candidate_id for evidence in quality.entries
+            } == {
+                counterpart.candidate_id
+                for counterpart in branch_counterparts.items
+            }
             for evidence in quality.entries:
                 assert len(evidence.resolved_core_residue_ids) == 283
                 assert len(evidence.loop_residue_ids) == length - 283
@@ -595,6 +840,10 @@ def _assert_science(root: Path, tier_name: str, projection: dict[str, Any]) -> N
         assert type(passing) is CandidateCollection
         assert {item.candidate_id for item in passing.items} == accepted_fold_ids
         assert len(projection["artifact_index"]) == 6
+        assert [
+            artifact["candidate_id"]
+            for artifact in projection["artifact_index"]
+        ] == [fold.candidate_id for fold in folds.items]
 
 
 def _run_fresh(

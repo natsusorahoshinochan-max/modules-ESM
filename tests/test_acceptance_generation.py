@@ -106,6 +106,36 @@ def test_all_source_bound_tiers_collect_exactly_one_zero_skip_journey() -> None:
     assert all(selector in collected.stdout for selector in selectors)
 
 
+def test_configuration_identity_binds_only_effective_explicit_inputs(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    import scripts.acceptance_generation as generation
+    from modules.provider_contract import LOCAL_ESM3_SNAPSHOT_REVISION
+
+    configured_path = tmp_path / "configured"
+    configured_path.write_text("configured", encoding="utf-8")
+    for variables in generation.PROVIDER_CONFIGURATION_CONTRACTS.values():
+        for variable in variables:
+            if variable not in {"HF_HUB_CACHE", "HF_HOME"}:
+                monkeypatch.setenv(variable, str(configured_path))
+    hub_cache = tmp_path / "hub"
+    snapshot = (
+        hub_cache
+        / "models--biohub--esm3-sm-open-v1"
+        / "snapshots"
+        / LOCAL_ESM3_SNAPSHOT_REVISION
+    )
+    snapshot.mkdir(parents=True)
+    monkeypatch.setenv("HF_HUB_CACHE", str(hub_cache))
+    monkeypatch.setenv("HF_HOME", str(tmp_path / "shadowed-hf-home"))
+
+    identities = generation._configuration_identities()
+
+    assert set(identities["installed-local-esm3"]) == {"HF_HUB_CACHE"}
+    assert all(identities[tier] for tier in ACCEPTANCE_TIER_ORDER)
+
+
 def test_controller_records_only_one_strictly_serial_contiguous_prefix(
     tmp_path: Path,
     monkeypatch,
@@ -122,9 +152,7 @@ def test_controller_records_only_one_strictly_serial_contiguous_prefix(
         "source_revision": "a" * 40,
         "source_dirty": False,
         "installed_artifacts": generation._artifact_records(artifact_root),
-        "provider_configuration_identities": (
-            generation._configuration_identities()
-        ),
+        "provider_configuration_identities": {"frozen": "configuration"},
         "provider_asset_identities": {"frozen": "assets"},
         "results": [],
     }
@@ -159,6 +187,18 @@ def test_controller_records_only_one_strictly_serial_contiguous_prefix(
         "_provider_asset_identities",
         lambda: {"frozen": "assets"},
     )
+    monkeypatch.setattr(
+        generation,
+        "_configuration_identities",
+        lambda: {"frozen": "configuration"},
+    )
+    authority_checks = 0
+
+    def assert_authority(_root, _manifest):
+        nonlocal authority_checks
+        authority_checks += 1
+
+    monkeypatch.setattr(generation, "_assert_authority", assert_authority)
     observed: list[str] = []
     active_children = 0
 
@@ -186,6 +226,7 @@ def test_controller_records_only_one_strictly_serial_contiguous_prefix(
     assert observed == list(generation.INSTALLED_PROVIDER_TIER_ORDER[:2])
     assert [item["tier"] for item in completed["results"]] == observed
     assert all(item["outcome"] == "passed" for item in completed["results"])
+    assert authority_checks == 5
 
 
 def test_start_freezes_clean_head_without_self_referential_revision(
@@ -208,6 +249,11 @@ def test_start_freezes_clean_head_without_self_referential_revision(
         "_provider_asset_identities",
         lambda: {"frozen": "assets"},
     )
+    monkeypatch.setattr(
+        generation,
+        "_configuration_identities",
+        lambda: {"frozen": "configuration"},
+    )
 
     def build(command, **_kwargs):
         artifact_root = Path(command[-1])
@@ -225,3 +271,56 @@ def test_start_freezes_clean_head_without_self_referential_revision(
     assert manifest["results"] == []
     assert "manifest_digest" not in manifest
     assert json.loads((root / "generation.json").read_bytes()) == manifest
+
+
+def test_failed_tier_is_retained_and_terminates_without_retry(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    import pytest
+    import scripts.acceptance_generation as generation
+
+    root = tmp_path / "generation"
+    artifact_root = root / "artifacts"
+    artifact_root.mkdir(parents=True)
+    (artifact_root / "protein_workbench.whl").write_bytes(b"wheel")
+    (artifact_root / "protein_workbench.tar.gz").write_bytes(b"sdist")
+    manifest = {
+        **generation.generation_definition(),
+        "source_revision": "c" * 40,
+        "source_dirty": False,
+        "installed_artifacts": generation._artifact_records(artifact_root),
+        "provider_configuration_identities": {"frozen": "configuration"},
+        "provider_asset_identities": {"frozen": "assets"},
+        "results": [],
+    }
+    (root / "generation.json").write_bytes(
+        generation._canonical_bytes(manifest)
+    )
+    monkeypatch.setattr(generation, "_assert_authority", lambda *_args: None)
+    calls = 0
+
+    def fail_child(command, **_kwargs):
+        nonlocal calls
+        calls += 1
+        tier_name = command[-1]
+        result_dir = root / "tier-results" / tier_name / "failed"
+        result_dir.mkdir(parents=True)
+        (result_dir / "evidence.json").write_text(tier_name)
+        return SimpleNamespace(
+            returncode=1,
+            stdout=f"RETAINED VERIFICATION RESULT: {result_dir}\n",
+        )
+
+    monkeypatch.setattr(generation.subprocess, "run", fail_child)
+    first_tier = generation.ACCEPTANCE_TIER_ORDER[0]
+
+    with pytest.raises(RuntimeError, match="acceptance tier failed"):
+        generation.run_through(root, first_tier)
+    retained = json.loads((root / "generation.json").read_bytes())
+    assert [(item["tier"], item["outcome"]) for item in retained["results"]] == [
+        (first_tier, "failed")
+    ]
+    with pytest.raises(RuntimeError, match="generation is terminated"):
+        generation.run_through(root, first_tier)
+    assert calls == 1
