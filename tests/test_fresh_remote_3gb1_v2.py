@@ -246,6 +246,52 @@ def _digest(path: Path) -> str:
     return "sha256:" + hashlib.sha256(path.read_bytes()).hexdigest()
 
 
+def require_explicit_proteinmpnn_root() -> Path:
+    """Resolve the one explicitly configured canonical 3GB1 provider root."""
+    configured = os.environ.get("PROTEIN_WORKBENCH_PROTEINMPNN_ROOT")
+    if not configured:
+        raise RuntimeError(
+            "fresh canonical 3GB1 requires explicit "
+            "PROTEIN_WORKBENCH_PROTEINMPNN_ROOT"
+        )
+    configured_root = Path(configured)
+    if not configured_root.is_absolute():
+        raise ValueError(
+            "PROTEIN_WORKBENCH_PROTEINMPNN_ROOT must be absolute"
+        )
+    resolved_root = configured_root.resolve(strict=True)
+    if not resolved_root.is_dir():
+        raise NotADirectoryError(resolved_root)
+    return resolved_root
+
+
+def test_fresh_3gb1_requires_one_explicit_absolute_proteinmpnn_root(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.delenv("PROTEIN_WORKBENCH_PROTEINMPNN_ROOT", raising=False)
+    with pytest.raises(RuntimeError, match="requires explicit"):
+        require_explicit_proteinmpnn_root()
+
+    relative_root = Path("relative-proteinmpnn")
+    (tmp_path / relative_root).mkdir()
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv(
+        "PROTEIN_WORKBENCH_PROTEINMPNN_ROOT",
+        str(relative_root),
+    )
+    with pytest.raises(ValueError, match="must be absolute"):
+        require_explicit_proteinmpnn_root()
+
+    explicit_root = tmp_path / "explicit-proteinmpnn"
+    explicit_root.mkdir()
+    monkeypatch.setenv(
+        "PROTEIN_WORKBENCH_PROTEINMPNN_ROOT",
+        str(explicit_root),
+    )
+    assert require_explicit_proteinmpnn_root() == explicit_root.resolve()
+
+
 def _catalog_snapshot() -> dict[str, object]:
     return build_discovered_frozen_catalog().public_snapshot(
         protocol_digest=bundle_digest()
@@ -907,6 +953,7 @@ def test_fresh_remote_3gb1_installed_public_run_retains_auditable_bundle(
     installed_artifact: InstalledArtifact,
     tmp_path: Path,
 ) -> None:
+    proteinmpnn_root = require_explicit_proteinmpnn_root()
     expected_revision = os.environ.get(
         "PROTEIN_WORKBENCH_FRESH_SOURCE_REVISION"
     )
@@ -939,16 +986,6 @@ def test_fresh_remote_3gb1_installed_public_run_retains_auditable_bundle(
     token_file = validate_biohub_token_file(
         configured_token or PROJECT_ROOT / "keys" / "esmkey.txt"
     )
-    proteinmpnn_root = Path(
-        os.environ.get(
-            "PROTEIN_WORKBENCH_PROTEINMPNN_ROOT",
-            (
-                "/Users/sorachan/Documents/ESM-workflow/"
-                "third_party/ProteinMPNN"
-            ),
-        )
-    ).resolve()
-    assert proteinmpnn_root.is_dir() and not proteinmpnn_root.is_symlink()
 
     source_receipt = {
         "schema_namespace": SCHEMA_NAMESPACE,
