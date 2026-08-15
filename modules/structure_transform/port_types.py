@@ -23,6 +23,8 @@ from datatypes import (
 from datatypes.protein import residue_identity_chain
 
 from .domain import (
+    CandidateNormalizationFact,
+    CandidateNormalizationFactCollection,
     CandidateModifiedResidueNormalizationAssociation,
     CandidateModifiedResidueNormalizationAssociations,
     CandidateResolvedResidueAxisAssociation,
@@ -32,6 +34,7 @@ from .domain import (
 
 RESOLVED_AXIS_VERSION = "4.0.0"
 CANDIDATE_ASSOCIATION_VERSION = "5.0.0"
+NORMALIZATION_FACTS_VERSION = "1.0.0"
 _NORMALIZATION_VERSION = "3.0.0"
 _BUILTINS = builtin_frozen_catalog()
 _STRUCTURE_CODEC = _BUILTINS.require_port_type(
@@ -261,6 +264,37 @@ def normalizations_from_wire(
     result = ModifiedResidueNormalizationCollection(entries=decoded)
     validate_normalizations(result, require_nonempty=require_nonempty)
     return result
+
+
+MODIFIED_RESIDUE_NORMALIZATIONS_PORT_TYPE = PortTypeDefinition(
+    type_id="structure_transform.modified_residue_normalizations",
+    version=_NORMALIZATION_VERSION,
+    validator=BehaviorReference(
+        "structure_transform.modified_residue_normalizations/validate",
+        _NORMALIZATION_VERSION,
+        {
+            "accepted_value_kind": (
+                "modified_residue_normalization_collection"
+            ),
+            "provenance": "component-parent-atom-map",
+            "parent_sequence": "20-standard-amino-acid-alphabet",
+            "atom_mapping": "unique-source-and-parent-target-atoms",
+        },
+    ),
+    codec=BehaviorReference(
+        "structure_transform.modified_residue_normalizations/codec",
+        _NORMALIZATION_VERSION,
+        {"canonicalization": "RFC 8785"},
+    ),
+    content_identity=BehaviorReference(
+        "structure_transform.modified_residue_normalizations/content",
+        _NORMALIZATION_VERSION,
+        {"digest": "SHA-256"},
+    ),
+    runtime_validator=validate_normalizations,
+    runtime_to_wire=normalizations_to_wire,
+    runtime_from_wire=normalizations_from_wire,
+)
 
 
 def _validate_residue_coordinates(
@@ -1034,6 +1068,99 @@ def _candidate_axis_references(
         )
         for entry in value.entries
     )
+
+
+def _validate_normalization_facts(value: object) -> None:
+    if type(value) is not CandidateNormalizationFactCollection:
+        raise ValueError("candidate normalization facts have the wrong type")
+    for entry in value.entries:
+        validate_normalizations(entry.normalizations)
+    normalized = CandidateNormalizationFactCollection(value.entries)
+    if normalized != value:
+        raise ValueError("candidate normalization facts are not canonical")
+
+
+def _normalization_facts_to_wire(value: object) -> object:
+    assert type(value) is CandidateNormalizationFactCollection
+    return {
+        "entries": [
+            {
+                "normalization_key": entry.normalization_key,
+                "structure_content_digest": entry.structure_content_digest,
+                "normalizations": normalizations_to_wire(entry.normalizations),
+            }
+            for entry in value.entries
+        ]
+    }
+
+
+def _normalization_facts_from_wire(value: object) -> object:
+    decoded = _closed_dict(
+        value,
+        {"entries"},
+        subject="candidate normalization facts",
+    )
+    if not isinstance(decoded["entries"], list):
+        raise ValueError("candidate normalization fact entries must be a list")
+    entries: list[CandidateNormalizationFact] = []
+    for item in decoded["entries"]:
+        item = _closed_dict(
+            item,
+            {
+                "normalization_key",
+                "structure_content_digest",
+                "normalizations",
+            },
+            subject="candidate normalization fact",
+        )
+        if (
+            type(item["normalization_key"]) is not str
+            or type(item["structure_content_digest"]) is not str
+        ):
+            raise ValueError("candidate normalization fact fields are invalid")
+        entries.append(
+            CandidateNormalizationFact(
+                normalization_key=item["normalization_key"],
+                structure_content_digest=item["structure_content_digest"],
+                normalizations=normalizations_from_wire(item["normalizations"]),
+            )
+        )
+    keys = [entry.normalization_key for entry in entries]
+    if len(set(keys)) != len(keys) or keys != sorted(keys):
+        raise ValueError(
+            "candidate normalization fact entries are not canonically ordered"
+        )
+    result = CandidateNormalizationFactCollection(tuple(entries))
+    _validate_normalization_facts(result)
+    return result
+
+
+CANDIDATE_NORMALIZATION_FACTS_PORT_TYPE = PortTypeDefinition(
+    type_id="structure_transform.candidate_normalization_facts",
+    version=NORMALIZATION_FACTS_VERSION,
+    validator=BehaviorReference(
+        "structure_transform.candidate_normalization_facts/validate",
+        NORMALIZATION_FACTS_VERSION,
+        {
+            "accepted_value_kind": "candidate_normalization_fact_collection",
+            "candidate_identity": "materialized-only-after-admission",
+            "entry_key": "normalization_key",
+        },
+    ),
+    codec=BehaviorReference(
+        "structure_transform.candidate_normalization_facts/codec",
+        NORMALIZATION_FACTS_VERSION,
+        {"canonicalization": "RFC 8785", "entry_order": "normalization_key"},
+    ),
+    content_identity=BehaviorReference(
+        "structure_transform.candidate_normalization_facts/content",
+        NORMALIZATION_FACTS_VERSION,
+        {"digest": "SHA-256", "digest_input": "canonical_codec_bytes"},
+    ),
+    runtime_validator=_validate_normalization_facts,
+    runtime_to_wire=_normalization_facts_to_wire,
+    runtime_from_wire=_normalization_facts_from_wire,
+)
 
 
 CANDIDATE_NORMALIZATION_ASSOCIATIONS_PORT_TYPE = PortTypeDefinition(

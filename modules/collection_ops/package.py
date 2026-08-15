@@ -33,6 +33,8 @@ _OPERATIONS = (
     "pair_siblings_by_parent",
     "rebind_candidate_pairing",
     "take_candidates",
+    "select_children_by_parent",
+    "intersect_candidates",
 )
 
 
@@ -69,6 +71,13 @@ def _method(operation: str) -> MethodDefinition:
             "parent_pairing",
         ],
         "take_candidates": ["candidates"],
+        "select_children_by_parent": ["candidates", "parents"],
+        "intersect_candidates": [
+            "candidates_a",
+            "candidates_b",
+            "candidates_c",
+            "candidates_d",
+        ],
     }[operation]
     duplicate_policy = {
         "concat_candidates": "reject-candidate-partition-collision",
@@ -76,6 +85,8 @@ def _method(operation: str) -> MethodDefinition:
         "pair_siblings_by_parent": "one-sibling-per-common-parent",
         "rebind_candidate_pairing": "complete-one-to-one-parent-composition",
         "take_candidates": "preserve-exact-ordered-prefix",
+        "select_children_by_parent": "exact-single-parent-membership",
+        "intersect_candidates": "exact-candidate-equality",
     }[operation]
     algorithm_identity: dict[str, object] = {
         "name": operation,
@@ -192,6 +203,8 @@ MODULE_PACKAGE = ModulePackageRegistration(
         DefinitionResource("definitions/pair_siblings_by_parent.yaml"),
         DefinitionResource("definitions/rebind_candidate_pairing.yaml"),
         DefinitionResource("definitions/take_candidates.yaml"),
+        DefinitionResource("definitions/select_children_by_parent.yaml"),
+        DefinitionResource("definitions/intersect_candidates.yaml"),
     ),
     methods=tuple(_method(operation) for operation in _OPERATIONS),
     bindings=tuple(_binding(operation) for operation in _OPERATIONS),

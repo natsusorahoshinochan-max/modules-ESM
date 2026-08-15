@@ -1,0 +1,28 @@
+schema_version: "2.1.0"
+node_type_id: collection_ops.select_children_by_parent
+version: "3.0.0"
+title: Select child Candidates by exact parent membership
+summary: Retains exact child Candidates whose sole lineage parent belongs to the supplied parent Candidate subset.
+category: collection
+inputs:
+  - name: candidates
+    port_type_id: candidate.collection
+    port_type_version: "3.0.0"
+    required: true
+    multiplicity: one
+    scientific_meaning: Exact child Candidate population to subset without changing identity or order.
+  - name: parents
+    port_type_id: candidate.collection
+    port_type_version: "3.0.0"
+    required: true
+    multiplicity: one
+    scientific_meaning: Exact selected parent Candidate subset defining retained children.
+outputs:
+  - name: candidates
+    port_type_id: candidate.collection
+    port_type_version: "3.0.0"
+    required: true
+    multiplicity: one
+    scientific_meaning: Exact input children whose one lineage parent occurs in the supplied parent subset.
+parameter_groups: []
+node_parameters: {}

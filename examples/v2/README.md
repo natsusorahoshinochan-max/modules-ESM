@@ -34,3 +34,15 @@ comparisons with exact evidence references. Only the two prediction Methods
 provide pLDDT confidence; the input coordinate B-factor field remains
 uninterpreted. Provider-free public REST/WebSocket acceptance uses lawful
 controlled Binding clients and never invokes a remote Provider or local model.
+
+`source-bound-2emo.workflow.json` is the exact 224-residue acceptance Workflow
+for `pdbs/2EMO.pdb` (SHA-256
+`6ef4ef3102a71793373b5767b9a1a1cbbc324996527d1c9b3e7ebd00cf7b6700`).
+It materializes the CSH A:66 parent-span normalization as A:65–A:67 `SHG`,
+retains the explicit A:64–A:68 residue correspondence, and generates eight
+ProteinMPNN sequence Candidates before one ESMFold2 sample per Candidate. Four
+independent filters apply reference-normalized TM-score, Cα RMSD, mean pLDDT,
+and Protein-Sol scaled observations; their exact Candidate intersection may be
+empty without turning the scientific result into a failed Run. Provider-free
+public REST/WebSocket acceptance uses lawful controlled Binding clients and
+does not invoke a remote Provider or load ProteinMPNN or Protein-Sol.

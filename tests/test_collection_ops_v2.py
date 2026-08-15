@@ -12,6 +12,7 @@ from starlette.websockets import WebSocketDisconnect
 
 from core import (
     ModulePackageContractCase,
+    OperationCall,
     SelectionInput,
     SelectionObjective,
     WorkflowDocument,
@@ -40,6 +41,7 @@ from tests.fixtures.public_v2 import (
     wait_for_testclient_run_terminal,
 )
 from tests.fixtures.scientific_operation import build_operation, operation_call
+from modules.collection_ops.implementation import CollectionOpsImplementation
 
 
 VERSION = "2.1.0"
@@ -48,6 +50,50 @@ SCORE_NODE_VERSION = "4.0.0"
 PAIRING_METHOD_VERSION = "3.0.0"
 SOURCE_NODE_VERSION = CANDIDATE_NODE_VERSION
 SCORER_NODE_VERSION = SCORE_NODE_VERSION
+
+
+def test_candidate_intersection_and_child_selection_preserve_exact_candidates() -> None:
+    parents = CandidateCollection(
+        "passing-parents",
+        "protein.sequence",
+        (Candidate("parent-a", ProteinSequence("AAAA")),),
+    )
+    children = CandidateCollection(
+        "children",
+        "protein.sequence",
+        (
+            Candidate("child-a", ProteinSequence("AAAA"), ("parent-a",)),
+            Candidate("child-b", ProteinSequence("AAAA"), ("parent-b",)),
+        ),
+    )
+    selected = CollectionOpsImplementation("select_children_by_parent").execute(
+        OperationCall(
+            inputs={"candidates": children, "parents": parents},
+            node_parameters={},
+            binding_parameters={},
+            input_content_digests={},
+        )
+    )["candidates"]
+    assert tuple(item.candidate_id for item in selected.items) == ("child-a",)
+
+    intersection = CollectionOpsImplementation("intersect_candidates").execute(
+        OperationCall(
+            inputs={
+                "candidates_a": children,
+                "candidates_b": selected,
+                    "candidates_c": CandidateCollection(
+                        "empty",
+                        "protein.sequence",
+                    (),
+                ),
+            },
+            node_parameters={},
+            binding_parameters={},
+            input_content_digests={},
+        )
+    )["candidates"]
+    assert intersection.item_type == "protein.sequence"
+    assert intersection.items == ()
 
 
 def _assert_workflow_commit_owner(
@@ -136,16 +182,22 @@ def test_public_catalog_has_exact_collection_operation_nodes() -> None:
         ("binding", "collection_ops.pair_siblings_by_parent.direct"),
         ("binding", "collection_ops.rebind_candidate_pairing.direct"),
         ("binding", "collection_ops.take_candidates.direct"),
+        ("binding", "collection_ops.intersect_candidates.direct"),
+        ("binding", "collection_ops.select_children_by_parent.direct"),
         ("method", "collection_ops.concat_candidates.method"),
         ("method", "collection_ops.merge_scores.method"),
         ("method", "collection_ops.pair_siblings_by_parent.method"),
         ("method", "collection_ops.rebind_candidate_pairing.method"),
         ("method", "collection_ops.take_candidates.method"),
+        ("method", "collection_ops.intersect_candidates.method"),
+        ("method", "collection_ops.select_children_by_parent.method"),
         ("node_type", "collection_ops.concat_candidates"),
         ("node_type", "collection_ops.merge_scores"),
         ("node_type", "collection_ops.pair_siblings_by_parent"),
         ("node_type", "collection_ops.rebind_candidate_pairing"),
         ("node_type", "collection_ops.take_candidates"),
+        ("node_type", "collection_ops.intersect_candidates"),
+        ("node_type", "collection_ops.select_children_by_parent"),
     }
     assert not any(
         "aggregate" in contract_id for _, contract_id in contracts
@@ -182,6 +234,8 @@ def test_collection_ports_and_score_union_are_closed_and_versioned() -> None:
         "pair_siblings_by_parent",
         "rebind_candidate_pairing",
         "take_candidates",
+        "intersect_candidates",
+        "select_children_by_parent",
     }
     for operation in candidate_only_operations:
         node = contracts[("node_type", f"collection_ops.{operation}")]
@@ -497,6 +551,62 @@ def test_all_collection_nodes_pass_the_shared_contract_test_kit(
             ),
         ),
     )
+    select_children_case = ModulePackageContractCase(
+        case_id="collection-ops-select-children-by-parent",
+        node_type_id="collection_ops.select_children_by_parent",
+        node_type_version=CANDIDATE_NODE_VERSION,
+        binding_id="collection_ops.select_children_by_parent.direct",
+        binding_version=CANDIDATE_NODE_VERSION,
+        node_parameters={},
+        binding_parameters={},
+        environment_values={},
+        safe_environment_fingerprint="provider-free",
+        invalidation_token="collection-ops-select-children-v1",
+        workflow_nodes=(lineage_source,),
+        workflow_edges=(
+            WorkflowEdge(
+                "lineage-source",
+                "subjects",
+                "contract-test-node",
+                "candidates",
+            ),
+            WorkflowEdge(
+                "lineage-source",
+                "parents",
+                "contract-test-node",
+                "parents",
+            ),
+        ),
+        expected_candidate_counts={"candidates": 2},
+    )
+    intersect_case = ModulePackageContractCase(
+        case_id="collection-ops-intersect-candidates",
+        node_type_id="collection_ops.intersect_candidates",
+        node_type_version=CANDIDATE_NODE_VERSION,
+        binding_id="collection_ops.intersect_candidates.direct",
+        binding_version=CANDIDATE_NODE_VERSION,
+        node_parameters={},
+        binding_parameters={},
+        environment_values={},
+        safe_environment_fingerprint="provider-free",
+        invalidation_token="collection-ops-intersect-v1",
+        workflow_nodes=(source_a,),
+        workflow_edges=(
+            WorkflowEdge(
+                "source-a",
+                "candidates",
+                "contract-test-node",
+                "candidates_a",
+            ),
+            WorkflowEdge(
+                "source-a",
+                "candidates",
+                "contract-test-node",
+                "candidates_b",
+            ),
+        ),
+        expected_candidate_counts={"candidates": 1},
+    )
 
     report = verify_module_package_contract(
         MODULE_PACKAGE,
@@ -506,12 +616,16 @@ def test_all_collection_nodes_pass_the_shared_contract_test_kit(
             pair_case,
             rebind_case,
             take_case,
+            select_children_case,
+            intersect_case,
         ),
         supporting_registrations=(SOURCE_PACKAGE,),
         work_root=tmp_path,
     )
 
     assert [case.status for case in report.case_reports] == [
+        "succeeded",
+        "succeeded",
         "succeeded",
         "succeeded",
         "succeeded",

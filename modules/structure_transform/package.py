@@ -26,7 +26,10 @@ from .implementation import (
     ExtractBackboneImplementation,
     ExtractSequenceCandidatesImplementation,
     ExtractSequenceImplementation,
+    MaterializeCandidateNormalizationsImplementation,
+    NormalizeCshParentSpanCandidatesImplementation,
     NormalizeCshParentSpanImplementation,
+    ProjectSingleResidueAxisImplementation,
     ResolveCandidateResidueAxesImplementation,
     ResolveResidueAxisImplementation,
     SelectCandidateChainsImplementation,
@@ -34,20 +37,18 @@ from .implementation import (
     validate_backbone_structure,
 )
 from .port_types import (
+    CANDIDATE_NORMALIZATION_FACTS_PORT_TYPE,
     CANDIDATE_ASSOCIATION_VERSION,
     CANDIDATE_NORMALIZATION_ASSOCIATIONS_PORT_TYPE,
     CANDIDATE_RESOLVED_AXIS_ASSOCIATIONS_PORT_TYPE,
+    MODIFIED_RESIDUE_NORMALIZATIONS_PORT_TYPE,
     RESOLVED_AXIS_PORT_TYPE,
     RESOLVED_AXIS_VERSION,
-    normalizations_from_wire as _normalizations_from_wire,
-    normalizations_to_wire as _normalizations_to_wire,
-    validate_normalizations as _validate_normalizations,
 )
 
 
 _VERSION = "2.1.0"
 _BACKBONE_PORT_VERSION = "4.0.0"
-_NORMALIZATION_PORT_VERSION = "3.0.0"
 _CANDIDATE_NODE_VERSION = "3.0.0"
 _STRUCTURE_NODE_VERSION = "4.0.0"
 _NORMALIZE_CSH_NODE_VERSION = "5.0.0"
@@ -60,6 +61,9 @@ _OPERATIONS = (
     "extract_sequence",
     "extract_sequence_candidates",
     "normalize_csh_parent_span",
+    "normalize_csh_parent_span_candidates",
+    "materialize_candidate_normalizations",
+    "project_single_residue_axis",
     "resolve_residue_axis",
     "resolve_candidate_residue_axes",
     "backbone_to_structure",
@@ -71,6 +75,9 @@ _NODE_BINDING_VERSIONS = {
     "extract_sequence": _STRUCTURE_NODE_VERSION,
     "extract_sequence_candidates": _CANDIDATE_NODE_VERSION,
     "normalize_csh_parent_span": _NORMALIZE_CSH_NODE_VERSION,
+    "normalize_csh_parent_span_candidates": "1.0.0",
+    "materialize_candidate_normalizations": "1.0.0",
+    "project_single_residue_axis": "1.0.0",
     "resolve_residue_axis": RESOLVED_AXIS_VERSION,
     "resolve_candidate_residue_axes": CANDIDATE_ASSOCIATION_VERSION,
     "backbone_to_structure": _STRUCTURE_NODE_VERSION,
@@ -83,6 +90,9 @@ _METHOD_VERSIONS = {
     "extract_sequence": "3.0.0",
     "extract_sequence_candidates": "3.0.0",
     "normalize_csh_parent_span": _NORMALIZE_CSH_METHOD_VERSION,
+    "normalize_csh_parent_span_candidates": "1.0.0",
+    "materialize_candidate_normalizations": "1.0.0",
+    "project_single_residue_axis": "1.0.0",
     "resolve_residue_axis": _RESOLVE_AXIS_METHOD_VERSION,
     "resolve_candidate_residue_axes": _RESOLVE_AXIS_METHOD_VERSION,
 }
@@ -93,6 +103,13 @@ _IMPLEMENTATIONS = {
     "extract_sequence": ExtractSequenceImplementation,
     "extract_sequence_candidates": ExtractSequenceCandidatesImplementation,
     "normalize_csh_parent_span": NormalizeCshParentSpanImplementation,
+    "normalize_csh_parent_span_candidates": (
+        NormalizeCshParentSpanCandidatesImplementation
+    ),
+    "materialize_candidate_normalizations": (
+        MaterializeCandidateNormalizationsImplementation
+    ),
+    "project_single_residue_axis": ProjectSingleResidueAxisImplementation,
     "resolve_residue_axis": ResolveResidueAxisImplementation,
     "resolve_candidate_residue_axes": ResolveCandidateResidueAxesImplementation,
     "backbone_to_structure": BackboneToStructureImplementation,
@@ -178,6 +195,25 @@ def _method(operation: str) -> MethodDefinition:
                 "require-exact-per-chain-component-count-and-expand-to-SER-HIS-GLY"
             ),
             "rewritten_SEQRES": "PDB-v3.3-80-column-13-components-per-record",
+        },
+        "normalize_csh_parent_span_candidates": {
+            "name": "candidate-aware-explicit-CSH-parent-span-normalization",
+            "scalar_normalization": "normalize_csh_parent_span.method@4.0.0",
+            "cardinality": "one-normalized-child-per-input-Candidate",
+            "lineage": "exact-input-structure-parent",
+            "normalization_evidence": "subjectless-output-slot-keyed-facts",
+            "collection_position": "not-scientific-correspondence",
+        },
+        "materialize_candidate_normalizations": {
+            "name": "exact-normalization-fact-Candidate-materialization",
+            "join": "normalization-key-and-admitted-content-digest",
+            "candidate_coverage": "complete-bijection",
+            "association": "exact-CandidateDataReference",
+        },
+        "project_single_residue_axis": {
+            "name": "singleton-exact-reference-residue-axis-projection",
+            "cardinality": "exactly-one-Candidate-and-one-association",
+            "join": "exact-CandidateDataReference",
         },
         "resolve_residue_axis": {
             "name": "resolved-protein-residue-axis",
@@ -310,6 +346,9 @@ MODULE_PACKAGE = ModulePackageRegistration(
         DefinitionResource("definitions/extract_sequence.yaml"),
         DefinitionResource("definitions/extract_sequence_candidates.yaml"),
         DefinitionResource("definitions/normalize_csh_parent_span.yaml"),
+        DefinitionResource("definitions/normalize_csh_parent_span_candidates.yaml"),
+        DefinitionResource("definitions/materialize_candidate_normalizations.yaml"),
+        DefinitionResource("definitions/project_single_residue_axis.yaml"),
         DefinitionResource("definitions/resolve_residue_axis.yaml"),
         DefinitionResource("definitions/resolve_candidate_residue_axes.yaml"),
         DefinitionResource("definitions/backbone_to_structure.yaml"),
@@ -352,37 +391,10 @@ MODULE_PACKAGE = ModulePackageRegistration(
             runtime_to_wire=_backbone_to_wire,
             runtime_from_wire=_backbone_from_wire,
         ),
-        PortTypeDefinition(
-            type_id="structure_transform.modified_residue_normalizations",
-            version=_NORMALIZATION_PORT_VERSION,
-            validator=BehaviorReference(
-                "structure_transform.modified_residue_normalizations/validate",
-                _NORMALIZATION_PORT_VERSION,
-                {
-                    "accepted_value_kind": (
-                        "modified_residue_normalization_collection"
-                    ),
-                    "provenance": "component-parent-atom-map",
-                    "parent_sequence": "20-standard-amino-acid-alphabet",
-                    "atom_mapping": "unique-source-and-parent-target-atoms",
-                },
-            ),
-            codec=BehaviorReference(
-                "structure_transform.modified_residue_normalizations/codec",
-                _NORMALIZATION_PORT_VERSION,
-                {"canonicalization": "RFC 8785"},
-            ),
-            content_identity=BehaviorReference(
-                "structure_transform.modified_residue_normalizations/content",
-                _NORMALIZATION_PORT_VERSION,
-                {"digest": "SHA-256"},
-            ),
-            runtime_validator=_validate_normalizations,
-            runtime_to_wire=_normalizations_to_wire,
-            runtime_from_wire=_normalizations_from_wire,
-        ),
+        MODIFIED_RESIDUE_NORMALIZATIONS_PORT_TYPE,
         RESOLVED_AXIS_PORT_TYPE,
         CANDIDATE_NORMALIZATION_ASSOCIATIONS_PORT_TYPE,
+        CANDIDATE_NORMALIZATION_FACTS_PORT_TYPE,
         CANDIDATE_RESOLVED_AXIS_ASSOCIATIONS_PORT_TYPE,
     ),
 )

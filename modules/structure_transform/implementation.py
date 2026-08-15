@@ -27,10 +27,13 @@ from datatypes import (
 )
 
 from .domain import (
+    CandidateNormalizationFact,
+    CandidateNormalizationFactCollection,
     CandidateModifiedResidueNormalizationAssociation,
     CandidateModifiedResidueNormalizationAssociations,
     CandidateResolvedResidueAxisAssociation,
     CandidateResolvedResidueAxisAssociations,
+    normalization_key,
 )
 
 
@@ -1418,6 +1421,176 @@ class StructureTransformImplementation:
         inputs = call.inputs
         node_parameters = call.node_parameters
         binding_parameters = call.binding_parameters
+        if self._operation == "normalize_csh_parent_span_candidates":
+            if (
+                binding_parameters
+                or node_parameters
+                or set(inputs) != {"structure_candidates"}
+            ):
+                raise ValueError(
+                    "Candidate CSH normalization inputs are invalid"
+                )
+            candidates_and_references = _candidate_structures_and_references(call)
+            normalized_candidates = []
+            facts = []
+            from .port_types import (
+                MODIFIED_RESIDUE_NORMALIZATIONS_PORT_TYPE,
+            )
+
+            with self._run_resources.engine_invocation():
+                for output_slot, (candidate, _) in enumerate(
+                    candidates_and_references
+                ):
+                    normalized, normalizations = normalize_csh_parent_span(
+                        candidate.data
+                    )
+                    structure_digest = _STRUCTURE_CONTENT_TYPE.content_digest(
+                        normalized
+                    )
+                    normalizations_digest = (
+                        MODIFIED_RESIDUE_NORMALIZATIONS_PORT_TYPE.content_digest(
+                            normalizations
+                        )
+                    )
+                    key = normalization_key(
+                        output_role="structure_candidates",
+                        output_slot=output_slot,
+                        structure_content_digest=structure_digest,
+                        normalizations_content_digest=normalizations_digest,
+                    )
+                    normalized_candidates.append(
+                        Candidate(
+                            candidate_id=f"normalized-csh-{output_slot}",
+                            data=normalized,
+                            parent_ids=(candidate.candidate_id,),
+                            metadata={
+                                "transform": (
+                                    "structure_transform."
+                                    "normalize_csh_parent_span_candidates"
+                                ),
+                                "normalization_key": key,
+                            },
+                        )
+                    )
+                    facts.append(
+                        CandidateNormalizationFact(
+                            normalization_key=key,
+                            structure_content_digest=structure_digest,
+                            normalizations=normalizations,
+                        )
+                    )
+            result = {
+                "structure_candidates": CandidateCollection(
+                    collection_id="normalized-csh-structure-candidates",
+                    item_type="protein.structure",
+                    items=tuple(normalized_candidates),
+                ),
+                "normalization_facts": CandidateNormalizationFactCollection(
+                    tuple(facts)
+                ),
+            }
+            return result
+        if self._operation == "materialize_candidate_normalizations":
+            if (
+                binding_parameters
+                or node_parameters
+                or set(inputs)
+                != {"structure_candidates", "normalization_facts"}
+            ):
+                raise ValueError(
+                    "Candidate normalization materialization inputs are invalid"
+                )
+            candidates_and_references = _candidate_structures_and_references(call)
+            facts = inputs["normalization_facts"]
+            if type(facts) is not CandidateNormalizationFactCollection:
+                raise ValueError(
+                    "normalization_facts must be an exact admitted collection"
+                )
+            facts_by_key = {
+                fact.normalization_key: fact for fact in facts.entries
+            }
+            candidate_keys = {
+                candidate.metadata.get("normalization_key")
+                for candidate, _ in candidates_and_references
+            }
+            if (
+                None in candidate_keys
+                or len(candidate_keys) != len(candidates_and_references)
+                or candidate_keys != set(facts_by_key)
+            ):
+                raise ValueError(
+                    "Candidates and normalization facts must form one complete key set"
+                )
+            with self._run_resources.engine_invocation():
+                associations = []
+                for output_slot, (candidate, reference) in enumerate(
+                    candidates_and_references
+                ):
+                    key = candidate.metadata["normalization_key"]
+                    assert type(key) is str
+                    fact = facts_by_key[key]
+                    output_port = candidate.metadata.get("output_port")
+                    sample_slot = candidate.metadata.get("sample_slot")
+                    if output_port != "structure_candidates" or sample_slot != (
+                        f"0:{output_slot}"
+                    ):
+                        raise ValueError(
+                            "normalized Candidate output slot metadata is incomplete"
+                        )
+                    from .port_types import (
+                        MODIFIED_RESIDUE_NORMALIZATIONS_PORT_TYPE,
+                    )
+
+                    expected_key = normalization_key(
+                        output_role=output_port,
+                        output_slot=output_slot,
+                        structure_content_digest=reference.content_digest,
+                        normalizations_content_digest=(
+                            MODIFIED_RESIDUE_NORMALIZATIONS_PORT_TYPE.content_digest(
+                                fact.normalizations
+                            )
+                        ),
+                    )
+                    if (
+                        fact.structure_content_digest != reference.content_digest
+                        or key != expected_key
+                    ):
+                        raise ValueError(
+                            "normalization fact contradicts admitted Candidate content"
+                        )
+                    associations.append(
+                        CandidateModifiedResidueNormalizationAssociation(
+                            subject=reference,
+                            normalizations=fact.normalizations,
+                        )
+                    )
+            return {
+                "modified_residue_normalizations": (
+                    CandidateModifiedResidueNormalizationAssociations(
+                        tuple(associations)
+                    )
+                )
+            }
+        if self._operation == "project_single_residue_axis":
+            if (
+                binding_parameters
+                or node_parameters
+                or set(inputs) != {"structure_candidates", "residue_axes"}
+            ):
+                raise ValueError("single residue-axis projection inputs are invalid")
+            candidates_and_references = _candidate_structures_and_references(call)
+            axes = inputs["residue_axes"]
+            if (
+                len(candidates_and_references) != 1
+                or type(axes) is not CandidateResolvedResidueAxisAssociations
+                or len(axes.entries) != 1
+                or axes.entries[0].subject != candidates_and_references[0][1]
+            ):
+                raise ValueError(
+                    "single residue-axis projection requires one exact association"
+                )
+            with self._run_resources.engine_invocation():
+                return {"residue_axis": axes.entries[0].residue_axis}
         if self._operation == "extract_sequence_candidates":
             if (
                 binding_parameters
@@ -1666,6 +1839,22 @@ class NormalizeCshParentSpanImplementation(
     StructureTransformImplementation
 ):
     _operation = "normalize_csh_parent_span"
+
+
+class NormalizeCshParentSpanCandidatesImplementation(
+    StructureTransformImplementation
+):
+    _operation = "normalize_csh_parent_span_candidates"
+
+
+class MaterializeCandidateNormalizationsImplementation(
+    StructureTransformImplementation
+):
+    _operation = "materialize_candidate_normalizations"
+
+
+class ProjectSingleResidueAxisImplementation(StructureTransformImplementation):
+    _operation = "project_single_residue_axis"
 
 
 class ResolveResidueAxisImplementation(StructureTransformImplementation):

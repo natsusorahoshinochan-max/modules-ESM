@@ -4,10 +4,16 @@ from __future__ import annotations
 
 from contextlib import nullcontext
 from dataclasses import replace
+import json
 
 import pytest
 
-from core import InputContentDigests, OperationCall, PortValueError
+from core import (
+    InputContentDigests,
+    OperationCall,
+    PortValueError,
+    canonical_json_bytes,
+)
 from datatypes import (
     Candidate,
     CandidateCollection,
@@ -16,18 +22,22 @@ from datatypes import (
     ProteinStructure,
 )
 from modules.structure_transform import (
+    CandidateNormalizationFactCollection,
     CandidateModifiedResidueNormalizationAssociation,
     CandidateModifiedResidueNormalizationAssociations,
     CandidateResolvedResidueAxisAssociation,
     CandidateResolvedResidueAxisAssociations,
 )
 from modules.structure_transform.implementation import (
+    MaterializeCandidateNormalizationsImplementation,
+    NormalizeCshParentSpanCandidatesImplementation,
     ResolveCandidateResidueAxesImplementation,
     normalize_csh_parent_span,
     resolve_residue_axis,
 )
 from modules.structure_transform.port_types import (
     CANDIDATE_NORMALIZATION_ASSOCIATIONS_PORT_TYPE,
+    CANDIDATE_NORMALIZATION_FACTS_PORT_TYPE,
     CANDIDATE_RESOLVED_AXIS_ASSOCIATIONS_PORT_TYPE,
 )
 from tests.fixtures.structure_transform_sources.package import _FIXTURES
@@ -154,6 +164,127 @@ def test_candidate_normalization_port_is_exact_and_not_position_addressed() -> N
             CandidateModifiedResidueNormalizationAssociations(
                 entries=(associations.entries[0], associations.entries[0])
             )
+        )
+
+
+def test_candidate_csh_normalization_materializes_after_candidate_admission() -> None:
+    raw_structure = ProteinStructure(_FIXTURES["csh"]())
+    raw_reference = _structure_reference("raw-csh", raw_structure)
+    candidates = CandidateCollection(
+        collection_id="raw-structures",
+        item_type="protein.structure",
+        items=(Candidate("raw-csh", raw_structure),),
+    )
+    normalized_outputs = NormalizeCshParentSpanCandidatesImplementation(
+        _RunResources()
+    ).execute(
+        OperationCall(
+            inputs={"structure_candidates": candidates},
+            node_parameters={},
+            binding_parameters={},
+            input_content_digests={
+                "structure_candidates": InputContentDigests(
+                    port_type_id="candidate.collection",
+                    value_content_digests=("sha256:" + ("e" * 64),),
+                    candidate_data=(raw_reference,),
+                )
+            },
+        )
+    )
+    normalized = normalized_outputs["structure_candidates"]
+    facts = normalized_outputs["normalization_facts"]
+
+    assert len(normalized.items) == 1
+    assert normalized.items[0].parent_ids == ("raw-csh",)
+    assert type(facts) is CandidateNormalizationFactCollection
+    assert facts.entries[0].normalizations.entries[0].parent_sequence == "SHG"
+    assert facts.entries[0].normalizations.entries[0].parent_residue_ids == (
+        "A:65",
+        "A:66",
+        "A:67",
+    )
+
+    admitted_candidate = replace(
+        normalized.items[0],
+        candidate_id="admitted-normalized-csh",
+        metadata={
+            **normalized.items[0].metadata,
+            "output_port": "structure_candidates",
+            "sample_slot": "0:0",
+        },
+    )
+    admitted_reference = _structure_reference(
+        admitted_candidate.candidate_id,
+        admitted_candidate.data,
+    )
+    associations = MaterializeCandidateNormalizationsImplementation(
+        _RunResources()
+    ).execute(
+        OperationCall(
+            inputs={
+                "structure_candidates": CandidateCollection(
+                    collection_id=normalized.collection_id,
+                    item_type=normalized.item_type,
+                    items=(admitted_candidate,),
+                ),
+                "normalization_facts": facts,
+            },
+            node_parameters={},
+            binding_parameters={},
+            input_content_digests={
+                "structure_candidates": InputContentDigests(
+                    port_type_id="candidate.collection",
+                    value_content_digests=("sha256:" + ("f" * 64),),
+                    candidate_data=(admitted_reference,),
+                )
+            },
+        )
+    )["modified_residue_normalizations"]
+
+    assert associations.entries[0].subject == admitted_reference
+    assert associations.entries[0].normalizations == facts.entries[0].normalizations
+
+
+def test_candidate_normalization_facts_reject_noncanonical_wire_order() -> None:
+    raw_structure = ProteinStructure(_FIXTURES["csh"]())
+    raw_reference = _structure_reference("raw-csh", raw_structure)
+    outputs = NormalizeCshParentSpanCandidatesImplementation(
+        _RunResources()
+    ).execute(
+        OperationCall(
+            inputs={
+                "structure_candidates": CandidateCollection(
+                    collection_id="raw-structures",
+                    item_type="protein.structure",
+                    items=(
+                        Candidate("raw-csh-a", raw_structure),
+                        Candidate("raw-csh-b", raw_structure),
+                    ),
+                )
+            },
+            node_parameters={},
+            binding_parameters={},
+            input_content_digests={
+                "structure_candidates": InputContentDigests(
+                    port_type_id="candidate.collection",
+                    value_content_digests=("sha256:" + ("e" * 64),),
+                    candidate_data=(
+                        replace(raw_reference, candidate_id="raw-csh-a"),
+                        replace(raw_reference, candidate_id="raw-csh-b"),
+                    ),
+                )
+            },
+        )
+    )
+    facts = outputs["normalization_facts"]
+    wire = json.loads(
+        CANDIDATE_NORMALIZATION_FACTS_PORT_TYPE.encode(facts)
+    )
+    wire["value"]["entries"].reverse()
+
+    with pytest.raises(PortValueError, match="canonically ordered"):
+        CANDIDATE_NORMALIZATION_FACTS_PORT_TYPE.decode(
+            canonical_json_bytes(wire)
         )
 
 

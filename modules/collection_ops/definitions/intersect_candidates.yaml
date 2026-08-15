@@ -1,0 +1,40 @@
+schema_version: "2.1.0"
+node_type_id: collection_ops.intersect_candidates
+version: "3.0.0"
+title: Intersect exact Candidate subsets
+summary: Retains Candidates that occur with exact identity, content, lineage, and metadata in every connected input subset.
+category: collection
+inputs:
+  - name: candidates_a
+    port_type_id: candidate.collection
+    port_type_version: "3.0.0"
+    required: false
+    multiplicity: one
+    scientific_meaning: First Candidate subset and output-order authority.
+  - name: candidates_b
+    port_type_id: candidate.collection
+    port_type_version: "3.0.0"
+    required: false
+    multiplicity: one
+    scientific_meaning: Candidate subset intersected by exact Candidate equality.
+  - name: candidates_c
+    port_type_id: candidate.collection
+    port_type_version: "3.0.0"
+    required: false
+    multiplicity: one
+    scientific_meaning: Candidate subset intersected by exact Candidate equality.
+  - name: candidates_d
+    port_type_id: candidate.collection
+    port_type_version: "3.0.0"
+    required: false
+    multiplicity: one
+    scientific_meaning: Candidate subset intersected by exact Candidate equality.
+outputs:
+  - name: candidates
+    port_type_id: candidate.collection
+    port_type_version: "3.0.0"
+    required: true
+    multiplicity: one
+    scientific_meaning: Exact Candidate intersection in candidates_a order, including the lawful empty result.
+parameter_groups: []
+node_parameters: {}

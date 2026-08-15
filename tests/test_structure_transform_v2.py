@@ -45,10 +45,16 @@ from datatypes import (
     StructureResidueCoordinates,
 )
 from modules.structure_transform import (
+    CandidateNormalizationFact,
+    CandidateNormalizationFactCollection,
     CandidateModifiedResidueNormalizationAssociation,
     CandidateModifiedResidueNormalizationAssociations,
     CandidateResolvedResidueAxisAssociation,
     CandidateResolvedResidueAxisAssociations,
+    normalization_key,
+)
+from modules.structure_transform.port_types import (
+    MODIFIED_RESIDUE_NORMALIZATIONS_PORT_TYPE,
 )
 from modules.structure_transform.package import MODULE_PACKAGE
 from modules.structure_transform.implementation import (
@@ -178,6 +184,35 @@ _CANDIDATE_RESOLVED_AXES = CandidateResolvedResidueAxisAssociations(
         ),
     )
 )
+_CSH_NORMALIZATIONS = ModifiedResidueNormalizationCollection(entries=(
+    ModifiedResidueNormalization(
+        component_id="CSH",
+        observed_residue_id="A:66",
+        parent_residue_ids=("A:65", "A:66", "A:67"),
+        parent_sequence="SHG",
+        atom_mappings=(
+            ModifiedResidueAtomMapping("CA1", "A:65", "CA"),
+            ModifiedResidueAtomMapping("CA2", "A:66", "CA"),
+            ModifiedResidueAtomMapping("CA3", "A:67", "CA"),
+        ),
+    ),
+))
+_NORMALIZATION_FACTS = CandidateNormalizationFactCollection(entries=(
+    CandidateNormalizationFact(
+        normalization_key=normalization_key(
+            output_role="structure_candidates",
+            output_slot=0,
+            structure_content_digest=_RESOLVED_AXIS_SUBJECT.content_digest,
+            normalizations_content_digest=(
+                MODIFIED_RESIDUE_NORMALIZATIONS_PORT_TYPE.content_digest(
+                    _CSH_NORMALIZATIONS
+                )
+            ),
+        ),
+        structure_content_digest=_RESOLVED_AXIS_SUBJECT.content_digest,
+        normalizations=_CSH_NORMALIZATIONS,
+    ),
+))
 
 
 class _RunResources:
@@ -563,6 +598,9 @@ def test_structure_transform_publishes_all_exact_transforms_and_bridge() -> None
         "definitions/extract_sequence.yaml",
         "definitions/extract_sequence_candidates.yaml",
         "definitions/normalize_csh_parent_span.yaml",
+        "definitions/normalize_csh_parent_span_candidates.yaml",
+        "definitions/materialize_candidate_normalizations.yaml",
+        "definitions/project_single_residue_axis.yaml",
         "definitions/resolve_residue_axis.yaml",
         "definitions/resolve_candidate_residue_axes.yaml",
         "definitions/backbone_to_structure.yaml",
@@ -606,6 +644,18 @@ def test_structure_transform_publishes_all_exact_transforms_and_bridge() -> None
         (
             "structure_transform.normalize_csh_parent_span",
             NORMALIZE_CSH_VERSION,
+        ),
+        (
+            "structure_transform.normalize_csh_parent_span_candidates",
+            "1.0.0",
+        ),
+        (
+            "structure_transform.materialize_candidate_normalizations",
+            "1.0.0",
+        ),
+        (
+            "structure_transform.project_single_residue_axis",
+            "1.0.0",
         ),
         ("structure_transform.resolve_residue_axis", STRUCTURE_VERSION),
         (
@@ -1011,6 +1061,79 @@ def test_all_nodes_pass_the_shared_contract_test_kit(
             "structure",
         ),),
     )
+    candidate_normalization_case = ModulePackageContractCase(
+        case_id="structure-transform-normalize-csh-parent-span-candidates",
+        node_type_id=(
+            "structure_transform.normalize_csh_parent_span_candidates"
+        ),
+        node_type_version="1.0.0",
+        binding_id=(
+            "structure_transform.normalize_csh_parent_span_candidates.direct"
+        ),
+        binding_version="1.0.0",
+        node_parameters={},
+        binding_parameters={},
+        environment_values={},
+        safe_environment_fingerprint="provider-free",
+        invalidation_token="structure-transform-normalize-csh-candidates-v1",
+        workflow_nodes=(csh_source,),
+        workflow_edges=(WorkflowEdge(
+            "source",
+            "structure_candidates",
+            "contract-test-node",
+            "structure_candidates",
+        ),),
+    )
+    normalize_candidates_node = WorkflowNodeInstance(
+        node_id="normalize-candidates",
+        node_type_id=(
+            "structure_transform.normalize_csh_parent_span_candidates"
+        ),
+        node_type_version="1.0.0",
+        binding_id=(
+            "structure_transform.normalize_csh_parent_span_candidates.direct"
+        ),
+        binding_version="1.0.0",
+        node_parameters={},
+        binding_parameters={},
+    )
+    materialize_normalizations_case = ModulePackageContractCase(
+        case_id="structure-transform-materialize-candidate-normalizations",
+        node_type_id=(
+            "structure_transform.materialize_candidate_normalizations"
+        ),
+        node_type_version="1.0.0",
+        binding_id=(
+            "structure_transform.materialize_candidate_normalizations.direct"
+        ),
+        binding_version="1.0.0",
+        node_parameters={},
+        binding_parameters={},
+        environment_values={},
+        safe_environment_fingerprint="provider-free",
+        invalidation_token="structure-transform-materialize-normalizations-v1",
+        workflow_nodes=(csh_source, normalize_candidates_node),
+        workflow_edges=(
+            WorkflowEdge(
+                "source",
+                "structure_candidates",
+                "normalize-candidates",
+                "structure_candidates",
+            ),
+            WorkflowEdge(
+                "normalize-candidates",
+                "structure_candidates",
+                "contract-test-node",
+                "structure_candidates",
+            ),
+            WorkflowEdge(
+                "normalize-candidates",
+                "normalization_facts",
+                "contract-test-node",
+                "normalization_facts",
+            ),
+        ),
+    )
     backbone_node = WorkflowNodeInstance(
         node_id="extract-backbone",
         node_type_id="structure_transform.extract_backbone",
@@ -1093,6 +1216,39 @@ def test_all_nodes_pass_the_shared_contract_test_kit(
             "structure_candidates",
         ),),
     )
+    project_single_axis_case = ModulePackageContractCase(
+        case_id="structure-transform-project-single-residue-axis",
+        node_type_id="structure_transform.project_single_residue_axis",
+        node_type_version="1.0.0",
+        binding_id="structure_transform.project_single_residue_axis.direct",
+        binding_version="1.0.0",
+        node_parameters={},
+        binding_parameters={},
+        environment_values={},
+        safe_environment_fingerprint="provider-free",
+        invalidation_token="structure-transform-project-single-axis-v1",
+        workflow_nodes=(_SOURCE, resolve_candidate_axes_node),
+        workflow_edges=(
+            WorkflowEdge(
+                "source",
+                "structure_candidates",
+                "resolve-candidate-axes",
+                "structure_candidates",
+            ),
+            WorkflowEdge(
+                "source",
+                "structure_candidates",
+                "contract-test-node",
+                "structure_candidates",
+            ),
+            WorkflowEdge(
+                "resolve-candidate-axes",
+                "residue_axes",
+                "contract-test-node",
+                "residue_axes",
+            ),
+        ),
+    )
     report = verify_module_package_contract(
         MODULE_PACKAGE,
         execution_cases=(
@@ -1101,9 +1257,12 @@ def test_all_nodes_pass_the_shared_contract_test_kit(
             candidate_selection_case,
             candidate_extraction_case,
             normalization_case,
+            candidate_normalization_case,
+            materialize_normalizations_case,
             bridge_case,
             residue_axis_case,
             candidate_residue_axis_case,
+            project_single_axis_case,
         ),
         port_cases=(
             ModulePackagePortCase(
@@ -1155,6 +1314,12 @@ def test_all_nodes_pass_the_shared_contract_test_kit(
                     )
                 ]),
                 (object(), ModifiedResidueNormalizationCollection()),
+            ),
+            ModulePackagePortCase(
+                "structure_transform.candidate_normalization_facts",
+                "1.0.0",
+                _NORMALIZATION_FACTS,
+                (object(),),
             ),
             ModulePackagePortCase(
                 "structure_transform.resolved_residue_axis",
@@ -1228,13 +1393,14 @@ def test_all_nodes_pass_the_shared_contract_test_kit(
 
     assert [case.status for case in report.case_reports] == [
         "succeeded"
-    ] * 9
+    ] * 12
     assert report.verified_port_types == (
         "structure_transform.backbone_structure@4.0.0",
         (
             "structure_transform."
             "candidate_modified_residue_normalization_associations@5.0.0"
         ),
+        "structure_transform.candidate_normalization_facts@1.0.0",
         (
             "structure_transform."
             "candidate_resolved_residue_axis_associations@5.0.0"

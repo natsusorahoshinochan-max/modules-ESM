@@ -1,0 +1,28 @@
+schema_version: "2.1.0"
+node_type_id: structure_transform.project_single_residue_axis
+version: "1.0.0"
+title: Project a singleton Candidate residue axis
+summary: Projects one exact candidate-associated residue axis to its scalar value for reference authoring.
+category: structure_transform
+inputs:
+  - name: structure_candidates
+    port_type_id: candidate.collection
+    port_type_version: "3.0.0"
+    required: true
+    multiplicity: one
+    scientific_meaning: Exact singleton structure Candidate population.
+  - name: residue_axes
+    port_type_id: structure_transform.candidate_resolved_residue_axis_associations
+    port_type_version: "5.0.0"
+    required: true
+    multiplicity: one
+    scientific_meaning: Exact singleton residue-axis association for the same structure Candidate.
+outputs:
+  - name: residue_axis
+    port_type_id: structure_transform.resolved_residue_axis
+    port_type_version: "4.0.0"
+    required: true
+    multiplicity: one
+    scientific_meaning: The exact resolved axis associated with the singleton Candidate.
+parameter_groups: []
+node_parameters: {}

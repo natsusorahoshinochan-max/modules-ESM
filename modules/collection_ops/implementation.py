@@ -18,7 +18,15 @@ from datatypes import (
 )
 
 
-_CANDIDATE_PORTS = ("candidates_a", "candidates_b", "candidates_c")
+_CONCAT_CANDIDATE_PORTS = (
+    "candidates_a",
+    "candidates_b",
+    "candidates_c",
+)
+_INTERSECTION_PORTS = (
+    *_CONCAT_CANDIDATE_PORTS,
+    "candidates_d",
+)
 _SCORE_PORTS = ("scores_a", "scores_b", "scores_c")
 
 
@@ -52,6 +60,14 @@ class CollectionOpsImplementation:
                     call.node_parameters,
                 )
             }
+        if self._operation == "select_children_by_parent":
+            self._require_no_node_parameters(call.node_parameters)
+            return {
+                "candidates": self._select_children_by_parent(call.inputs)
+            }
+        if self._operation == "intersect_candidates":
+            self._require_no_node_parameters(call.node_parameters)
+            return {"candidates": self._intersect_candidates(call.inputs)}
         raise RuntimeError("unknown collection operation")
 
     @staticmethod
@@ -62,6 +78,73 @@ class CollectionOpsImplementation:
             raise ValueError(
                 "this collection operation does not accept Node parameters"
             )
+
+    @staticmethod
+    def _select_children_by_parent(
+        inputs: Mapping[str, Any],
+    ) -> CandidateCollection:
+        if set(inputs) != {"candidates", "parents"}:
+            raise ValueError(
+                "child selection requires exact candidates and parents inputs"
+            )
+        candidates = inputs["candidates"]
+        parents = inputs["parents"]
+        if (
+            type(candidates) is not CandidateCollection
+            or type(parents) is not CandidateCollection
+        ):
+            raise ValueError("child selection inputs must be Candidate Collections")
+        parent_ids = {candidate.candidate_id for candidate in parents.items}
+        selected = []
+        for candidate in candidates.items:
+            if len(candidate.parent_ids) != 1:
+                raise ValueError(
+                    "each child Candidate must have exactly one parent"
+                )
+            if candidate.parent_ids[0] in parent_ids:
+                selected.append(candidate)
+        return CandidateCollection(
+            collection_id="collection-ops-children-of-selected-parents",
+            item_type=candidates.item_type,
+            items=tuple(selected),
+        )
+
+    @staticmethod
+    def _intersect_candidates(
+        inputs: Mapping[str, Any],
+    ) -> CandidateCollection:
+        supplied = [
+            inputs[port] for port in _INTERSECTION_PORTS if port in inputs
+        ]
+        if len(supplied) < 2:
+            raise ValueError(
+                "Candidate intersection requires at least two connected inputs"
+            )
+        if any(type(value) is not CandidateCollection for value in supplied):
+            raise ValueError(
+                "Candidate intersection inputs must be Candidate Collections"
+            )
+        first = supplied[0]
+        assert type(first) is CandidateCollection
+        if any(value.item_type != first.item_type for value in supplied[1:]):
+            raise ValueError("Candidate intersection requires one exact item type")
+        identities = [
+            {candidate.candidate_id: candidate for candidate in value.items}
+            for value in supplied
+        ]
+        selected = [
+            candidate
+            for candidate in first.items
+            if all(
+                index.get(candidate.candidate_id) == candidate
+                for index in identities[1:]
+            )
+        ]
+        return CandidateCollection(
+            collection_id="collection-ops-intersected-candidates",
+            item_type=first.item_type,
+            items=tuple(selected),
+        )
 
     @staticmethod
     def _take_candidates(
@@ -300,7 +383,7 @@ class CollectionOpsImplementation:
     ) -> CandidateCollection:
         supplied = [
             (port, inputs[port])
-            for port in _CANDIDATE_PORTS
+            for port in _CONCAT_CANDIDATE_PORTS
             if port in inputs
         ]
         if not supplied:

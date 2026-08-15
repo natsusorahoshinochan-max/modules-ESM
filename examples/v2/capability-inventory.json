@@ -23,6 +23,12 @@
     },
     {
       "contract_kind": "binding",
+      "contract_id": "collection_ops.intersect_candidates.direct",
+      "contract_version": "3.0.0",
+      "contract_digest": "sha256:303c78da18e253dbcf6afe6e71431811154888f7591c33d564e6c6092199d8b1"
+    },
+    {
+      "contract_kind": "binding",
       "contract_id": "collection_ops.merge_scores.direct",
       "contract_version": "4.0.0",
       "contract_digest": "sha256:52cefdd39824b8c43019cb5cf92939ec63bc5133c4fbdbccc46b539c924e5dcd"
@@ -38,6 +44,12 @@
       "contract_id": "collection_ops.rebind_candidate_pairing.direct",
       "contract_version": "3.0.0",
       "contract_digest": "sha256:9bdc167dd8c0f1193c2cf154e5e40132e64ab0d3e6ce3f8207cefdc2798ee84c"
+    },
+    {
+      "contract_kind": "binding",
+      "contract_id": "collection_ops.select_children_by_parent.direct",
+      "contract_version": "3.0.0",
+      "contract_digest": "sha256:8f51b7e0d84ddb8d1d51fe57d8c6ede50038ca07f49dea3e28a0c9630abaea90"
     },
     {
       "contract_kind": "binding",
@@ -431,9 +443,27 @@
     },
     {
       "contract_kind": "binding",
+      "contract_id": "structure_transform.materialize_candidate_normalizations.direct",
+      "contract_version": "1.0.0",
+      "contract_digest": "sha256:65896ac149bc793d9b85ab57ed70878c5043e6ed6e3f51e3bb4157b06db786f6"
+    },
+    {
+      "contract_kind": "binding",
       "contract_id": "structure_transform.normalize_csh_parent_span.direct",
       "contract_version": "5.0.0",
       "contract_digest": "sha256:ef76f90eeabc5bbdd423d5b29bd938031ed7f307c5d60bc2288fa7ba44abadc0"
+    },
+    {
+      "contract_kind": "binding",
+      "contract_id": "structure_transform.normalize_csh_parent_span_candidates.direct",
+      "contract_version": "1.0.0",
+      "contract_digest": "sha256:4dfd5bd93ed3c6d7e745e47e9a6d2999c22cd2980babba54f81237e9d0ef89be"
+    },
+    {
+      "contract_kind": "binding",
+      "contract_id": "structure_transform.project_single_residue_axis.direct",
+      "contract_version": "1.0.0",
+      "contract_digest": "sha256:ec39bddc1fc5c338c39f068f6744e4014a2d0deeace294a7512c6d50b8c1b395"
     },
     {
       "contract_kind": "binding",
@@ -467,6 +497,12 @@
     },
     {
       "contract_kind": "method",
+      "contract_id": "collection_ops.intersect_candidates.method",
+      "contract_version": "2.1.0",
+      "contract_digest": "sha256:63ce981e08539e297676296a34d987902b00f31811cfb251ab049446861a2446"
+    },
+    {
+      "contract_kind": "method",
       "contract_id": "collection_ops.merge_scores.method",
       "contract_version": "2.1.0",
       "contract_digest": "sha256:e64cf8476aeb299ec39d073fd533ef34374dea4838cc734fb4c80222ac6bba6a"
@@ -482,6 +518,12 @@
       "contract_id": "collection_ops.rebind_candidate_pairing.method",
       "contract_version": "3.0.0",
       "contract_digest": "sha256:6f8c1a32e81187a95a83e388cfe1c3b227680d3e7665a7f681162365dd3c3fb7"
+    },
+    {
+      "contract_kind": "method",
+      "contract_id": "collection_ops.select_children_by_parent.method",
+      "contract_version": "2.1.0",
+      "contract_digest": "sha256:515211a03933dab3a5f6049d4211c58af1b495c8685b50c6528c692ca36cf86e"
     },
     {
       "contract_kind": "method",
@@ -851,9 +893,27 @@
     },
     {
       "contract_kind": "method",
+      "contract_id": "structure_transform.materialize_candidate_normalizations.method",
+      "contract_version": "1.0.0",
+      "contract_digest": "sha256:74b48b005694378ae8b6bfcb478317a650a2ac308bd96b946f0381e30b82c3da"
+    },
+    {
+      "contract_kind": "method",
       "contract_id": "structure_transform.normalize_csh_parent_span.method",
       "contract_version": "4.0.0",
       "contract_digest": "sha256:1a5c37edaa576424c193da412420ba10e7549106de44c153c3003d1894583751"
+    },
+    {
+      "contract_kind": "method",
+      "contract_id": "structure_transform.normalize_csh_parent_span_candidates.method",
+      "contract_version": "1.0.0",
+      "contract_digest": "sha256:8430c2e197b1d609f6b7856504994240ed9aa6489bf2a5909d34768455386429"
+    },
+    {
+      "contract_kind": "method",
+      "contract_id": "structure_transform.project_single_residue_axis.method",
+      "contract_version": "1.0.0",
+      "contract_digest": "sha256:3f29c6089d593012460a4d6a13c2854a2f35bb1f44149401b4e4877f007e8e17"
     },
     {
       "contract_kind": "method",
@@ -971,6 +1031,12 @@
     },
     {
       "contract_kind": "node_type",
+      "contract_id": "collection_ops.intersect_candidates",
+      "contract_version": "3.0.0",
+      "contract_digest": "sha256:47e1b249ed7bc1ece1c4ab6d6874acf88172db64f20ccad33892f95c3db13f71"
+    },
+    {
+      "contract_kind": "node_type",
       "contract_id": "collection_ops.merge_scores",
       "contract_version": "4.0.0",
       "contract_digest": "sha256:62f8477bdb6305a3aa88338421e74d3371af3e7ca7c2c4c70b5510e981107fc0"
@@ -986,6 +1052,12 @@
       "contract_id": "collection_ops.rebind_candidate_pairing",
       "contract_version": "3.0.0",
       "contract_digest": "sha256:5e50ee6f2707eb6c8b093a6d51503bdfe71591ad0259ee7c7d36bf4207431e01"
+    },
+    {
+      "contract_kind": "node_type",
+      "contract_id": "collection_ops.select_children_by_parent",
+      "contract_version": "3.0.0",
+      "contract_digest": "sha256:7f93d4051c2b342e4a71ce20d628edb16e87e8e94fa1f7cb4b7d1163813b8504"
     },
     {
       "contract_kind": "node_type",
@@ -1313,9 +1385,27 @@
     },
     {
       "contract_kind": "node_type",
+      "contract_id": "structure_transform.materialize_candidate_normalizations",
+      "contract_version": "1.0.0",
+      "contract_digest": "sha256:9df550ef86b040bf0e26cc710059378ea752175d61e9330689b5db5acb8d06b9"
+    },
+    {
+      "contract_kind": "node_type",
       "contract_id": "structure_transform.normalize_csh_parent_span",
       "contract_version": "5.0.0",
       "contract_digest": "sha256:fc70c3d38dc32dd5a846ff5da6db5e079219bc00f0f4a01c4252f4911645aa8d"
+    },
+    {
+      "contract_kind": "node_type",
+      "contract_id": "structure_transform.normalize_csh_parent_span_candidates",
+      "contract_version": "1.0.0",
+      "contract_digest": "sha256:ec99fd74abe2d596de0d5d6230e51ce0e48ab7bc0b945b1349ae626938e95f65"
+    },
+    {
+      "contract_kind": "node_type",
+      "contract_id": "structure_transform.project_single_residue_axis",
+      "contract_version": "1.0.0",
+      "contract_digest": "sha256:e1c5bc94de31d8deb91f7ef83695ad2cbf40df080f53c99f25b344ac99cc4ce8"
     },
     {
       "contract_kind": "node_type",
