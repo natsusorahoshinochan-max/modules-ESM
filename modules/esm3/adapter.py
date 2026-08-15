@@ -335,7 +335,7 @@ def require_provider_protein(result: Any, operation: str) -> Any:
     if isinstance(result, ESMProteinError):
         raise RuntimeError(
             f"ESM-3 provider operation {operation} failed with a provider error"
-        )
+        ) from result
     return result
 
 

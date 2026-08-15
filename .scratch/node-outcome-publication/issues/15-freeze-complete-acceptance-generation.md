@@ -4,7 +4,7 @@
 
 **Blocked by:** 14 — 准备 source-bound 5G53 科学验收
 
-**Status:** completed
+**Status:** in-progress
 
 - [x] 保留 canonical 3GB1 现有科学合同：10 个 paired ESM-3 Candidates、top 3 selection、每个 selected parent 的 5 个 ProteinMPNN designs（3×5，共 15 个）、15 个最终 folds/Artifacts 和 exact lineage/provenance，并将其全部切换到 descriptor/retrieval public contract。
 - [x] 1PGA、2EMO、3GB1 和 5G53 分别具有 clean-source、zero-skip、retain-evidence acceptance tier；四个 tiers 的静态收集、input digests、current Catalog references 和 public journey contracts 全部通过；generation freeze 不执行 live selectors，一次独立的误选 Provider 事件按下文审计且不作为验收证据。
@@ -52,3 +52,19 @@ retained only to preserve its provenance. It is not current acceptance evidence.
 - RED→GREEN 与双轴复审：固定输入 seed 精确为 `299330669`，并断言所有派生值在 `0..2^32-1`、Candidate rename 不改变 seed、内容改变必须改变 seed；provider-free focused selection `46 passed`。Standards 与 Spec 先后 `APPROVED`，无剩余 finding。
 - Current cumulative re-freeze gates：`routine` 1308 passed / 48 deselected；`examples-v2` 12 passed；`deterministic-acceptance` 8 passed；`scientific-repro` 1 passed；`local-esmfold2-v2-contract` 6 passed；`installed-package` 3 passed；`provider-isolation` 16 passed；`security-failure` 10 passed；frontend Oxlint passed，`tsc -b && vite build` passed（179 modules）；`compileall` 与 `git diff --check` passed。全部门禁严格串行，未加载本地模型、未进入 Ticket 16。
 - Non-acceptance audit incident：focused 命令曾误选两个 `live_provider` tests；临时 Ledger 与测试的 exact call assertions 证明 Biohub ESM-3 执行 8 次、Biohub ESMFold2 执行 1 次，共 9 次成功 remote Provider calls。它们不属于 acceptance generation、不写入 generation manifest、未用于任何 completion/Ticket 16 evidence；其余本轮门禁均使用精确 provider-free tiers，且事故后未再调用 Provider 或加载模型。
+
+### Reopened after repeated Biohub ESM-3 generation failures
+
+The `19d3284...` completion is superseded as current acceptance evidence. Two
+independent generations at that exact clean HEAD, artifact, Catalog, protocol,
+assets, and configuration both retained `installed-biohub-esmc=passed` and then
+terminated `installed-biohub-esm3=failed` with durable `AttributeError`. The
+first failed during Biohub medium `generate_structure`; the second failed during
+the Biohub medium paired `structure_child`. Both generation roots and their
+prefixes remain immutable and must not be retried, edited, or combined.
+
+- Controlled reproduction budget：一次 temporary untracked installed-wheel reproduction 驱动完整 8-invocation public journey；8 个 requests 与 8 个 responses 全部精确记录，所有 responses 都是官方 `esm.sdk.api.ESMProtein`，测试 `1 passed`。raw output 保存在 `verification-results/ticket15-biohub-esm3-controlled-reproduction-19d3284/raw-output.txt`，SHA-256 `d3f3fffc69f0749a43f7a2fa2db3985702f55a52dad53c1a05faed552c312d46`。该 reproduction 未进入 generation manifest，之后不再调用 Provider。
+- Provider-call audit：最初误选 live tests 为 ESM-3 8 calls + remote ESMFold2 1 call；generation 外 direct ESM-3 diagnostic 为 1 call；第一次完整 uninstrumented ESM-3 diagnostic 为 8 calls；本次唯一 controlled reproduction 为 8 calls。一次 diagnostic interpreter 预备失败发生在 import 前且为 0 calls。以上均不是 acceptance evidence；两个 Ticket 16 failed generations 的 retained results 独立保存在各自 generation root。
+- Official-contract audit：pinned SDK 的 `ProteinType` 明确包含 `ESMProteinError`，Forge `generate()` 与 `__generate_protein()` 明确返回 `ESMProtein | ESMProteinError`，且 ADR-0015 要求 returned error member 成为 Operation failure。production Adapter 已拥有该分类边界；installed acceptance `RecordingESM3Client` 却在返回 Adapter 前访问 `.sequence/.ptm/.plddt/.pae`，静态违反官方 union。
+- Provider-free RED→GREEN：使用官方 `ESMProteinError(503, "provider unavailable")` 精确复现同一 `AttributeError: 'ESMProteinError' object has no attribute 'sequence'`。修复只让 recorder 原样转发 documented error member，并由现有 Adapter 转为明确 `RuntimeError` Operation failure；官方 error object 作为 exception cause 保留。没有 schema guessing、response repair、fallback、retry、cross-check 或额外 Provider validation。
+- Contract scope：ESM-3 scientific Method、Execution Binding、Node Type、request、normal successful-response translation 与 package contract 均未改变，因此不创建虚假的 Method/Binding version cascade；当前变更只恢复既有 documented provider non-success 和 acceptance harness 语义。focused provider-free suites `39 passed`。

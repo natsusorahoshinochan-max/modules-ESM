@@ -331,6 +331,89 @@ def _record_esm3_provider_call(
     }
 
 
+class _RecordingESM3Client:
+    def __init__(
+        self,
+        *,
+        delegate: Any,
+        route: str,
+        model_name: str,
+        provider_calls: list[dict[str, Any]],
+    ) -> None:
+        self._delegate = delegate
+        self._route = route
+        self._model_name = model_name
+        self._provider_calls = provider_calls
+
+    def generate(self, protein: Any, config: Any) -> Any:
+        from esm.sdk.api import ESMProteinError
+
+        call = _record_esm3_provider_call(
+            route=self._route,
+            model_name=self._model_name,
+            protein=protein,
+            config=config,
+        )
+        self._provider_calls.append(call)
+        result = self._delegate.generate(protein, config)
+        if isinstance(result, ESMProteinError):
+            return result
+        call.update(
+            {
+                "effective_num_steps": config.num_steps,
+                "native_sequence": result.sequence,
+                "native_ptm": _native_tensor_values(result.ptm),
+                "native_plddt": _native_tensor_values(result.plddt),
+                "native_pae": _native_tensor_values(result.pae),
+            }
+        )
+        return result
+
+
+def test_recording_esm3_client_preserves_documented_non_success_for_adapter(
+) -> None:
+    from esm.sdk.api import ESMProtein, ESMProteinError, GenerationConfig
+    from modules.esm3.adapter import call_remote_provider
+
+    provider_error = ESMProteinError(
+        error_code=503,
+        error_msg="provider unavailable",
+    )
+
+    class Delegate:
+        def generate(self, protein: Any, config: Any) -> Any:
+            del protein, config
+            return provider_error
+
+    provider_calls: list[dict[str, Any]] = []
+    client = _RecordingESM3Client(
+        delegate=Delegate(),
+        route="biohub_medium",
+        model_name="esm3-medium-2024-08",
+        provider_calls=provider_calls,
+    )
+    with pytest.raises(
+        RuntimeError,
+        match=(
+            "ESM-3 provider operation generate\\(track=sequence\\) "
+            "failed with a provider error"
+        ),
+    ) as captured:
+        call_remote_provider(
+            client,
+            ESMProtein(sequence="_"),
+            GenerationConfig(track="sequence", num_steps=1),
+            "generate(track=sequence)",
+        )
+
+    assert captured.value.__cause__ is provider_error
+    assert len(provider_calls) == 1
+    assert provider_calls[0]["route"] == "biohub_medium"
+    assert provider_calls[0]["track"] == "sequence"
+    assert provider_calls[0]["sequence"] == "_"
+    assert "native_sequence" not in provider_calls[0]
+
+
 def _assert_rich_prompt_translation(call: dict[str, Any]) -> None:
     assert call["secondary_structure"] == "GC_"
     assert call["sasa"] == [0.0, 16.4, None]
@@ -475,30 +558,12 @@ def test_biohub_esm3_all_remote_bindings_execute_exact_methods(
                 max_retry_attempts=1,
             )
 
-            class RecordingESM3Client:
-                def generate(self, protein: Any, config: Any) -> Any:
-                    call = _record_esm3_provider_call(
-                        route=route,
-                        model_name=model_name,
-                        protein=protein,
-                        config=config,
-                    )
-                    provider_calls.append(call)
-                    result = delegate.generate(protein, config)
-                    call.update(
-                        {
-                            "effective_num_steps": config.num_steps,
-                            "native_sequence": result.sequence,
-                            "native_ptm": _native_tensor_values(result.ptm),
-                            "native_plddt": _native_tensor_values(
-                                result.plddt
-                            ),
-                            "native_pae": _native_tensor_values(result.pae),
-                        }
-                    )
-                    return result
-
-            return RecordingESM3Client()
+            return _RecordingESM3Client(
+                delegate=delegate,
+                route=route,
+                model_name=model_name,
+                provider_calls=provider_calls,
+            )
 
         for operation in (
             "generate_sequence",
