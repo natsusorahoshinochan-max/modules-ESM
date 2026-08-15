@@ -4,7 +4,7 @@
 
 **Blocked by:** 14 — 准备 source-bound 5G53 科学验收
 
-**Status:** in-progress
+**Status:** completed
 
 - [x] 保留 canonical 3GB1 现有科学合同：10 个 paired ESM-3 Candidates、top 3 selection、每个 selected parent 的 5 个 ProteinMPNN designs（3×5，共 15 个）、15 个最终 folds/Artifacts 和 exact lineage/provenance，并将其全部切换到 descriptor/retrieval public contract。
 - [x] 1PGA、2EMO、3GB1 和 5G53 分别具有 clean-source、zero-skip、retain-evidence acceptance tier；四个 tiers 的静态收集、input digests、current Catalog references 和 public journey contracts 全部通过，本 ticket 不执行 Provider calls。
@@ -17,16 +17,12 @@
 
 ## Completion evidence
 
-The evidence below was valid for the superseded runtime-asset identity, but is
-invalidated by the exact macOS 26.6 Perl/Bash bytes admitted during the ESMC-6B
-asset re-freeze. It cannot authorize the new generation until the complete
-matrix is rerun on the replacement clean revision.
-
 - Frozen generation controller：`modules.acceptance_verification` 是 controller 与 verifier 共享且随 artifact 安装的唯一 tier authority；精确 11 个 installed Provider tiers 后接 1PGA、2EMO、canonical 3GB1、5G53。controller 单 child 串行、清除 `PYTEST_ADDOPTS`、无 xdist/重试，失败 result 先持久化再永久终止 generation。
 - Documented entrypoint：新增回归从 `sys.path` 移除 repository root，经 `scripts/acceptance_generation.py` 的 parser `start` 路径真实构建 wheel/sdist 并生成 exact 11+4 manifest；built wheel 含 `modules/acceptance_verification.py`。生产代码没有 `sys.path` 修改、兼容路径或 fallback。
 - Generation authority：非自引用地绑定 clean completion commit、单次构建的 wheel/sdist、public bundle、current Catalog、四个 source/workflow digests、有效 Provider configuration、经 contract owner 重验的本地 assets、exact tier contracts/order 和每次 retained result digest。
+- Exact asset re-freeze：按 owner contract provision `biohub/ESMC-6B@45b0fa5d7fb06faefbd5e3b89bdcef35d564e79a` 的 11 个 manifest objects；ESMFold2 owner admission 得到 `sha256:fba1f5f47122ab623f4a4bbfd3011622e7f7a954dbdd80238bea95bcb396d8db`。完整 configuration/asset preflight 同时闭合 local ESM-3、mkdssp、ProteinMPNN、SimpleFold、SoluProt、Protein-Sol 及 exact macOS 26.6 Perl/Bash identities；没有替代 revision、fallback、Provider call 或 model load。
 - Source-bound public contracts：四条 live selectors 静态精确收集；1PGA、2EMO、3GB1、5G53 的 descriptor/retrieval、readiness、Method/invocation、randomness、lineage、confidence、PAE、comparison/filter、Artifact association 与 scientific Evidence 均由 current public journey 断言；本 ticket 未执行 live selectors。
 - Local-model residency：local ESM-3 gate 跨三种 generation modes 复用一个 client；installed ProteinMPNN gate 跨全部 Adapter/Operation/test 复用一个 resident model，source-bound ProteinMPNN 仍在切换 Protein-Sol 前释放 operation-scoped residency。
-- Reopened focused verification：isolated CLI/artifact-build、tier authority、verifier 及 core provider-boundary regressions `26 passed`；`compileall` 与 `git diff --check` passed。Standards 与 Spec 两轴在最终 seam 上串行复审，均 `APPROVED`，无剩余 finding。
+- Re-freeze focused verification：SoluProt、Protein-Sol、2EMO、acceptance controller 和 repository example cascade `59 passed`；`compileall` 与 `git diff --check` passed。Standards 与 Spec 两轴在 exact runtime-asset seam 上串行复审，均 `APPROVED`，无剩余 finding。
 - 完整后端矩阵：`routine` 1307 passed / 48 deselected；`examples-v2` 12 passed；`deterministic-acceptance` 8 passed；`scientific-repro` 1 passed；`local-esmfold2-v2-contract` 6 passed；`installed-package` 3 passed；`provider-isolation` 16 passed；`security-failure` 10 passed。
 - Frontend：Oxlint passed；`tsc -b && vite build` passed（179 modules）。全部验证严格串行，使用约定的 SoluProt root 与 loopback `NO_PROXY`；未调用 Provider、未加载本地模型、未进入 Ticket 16。
