@@ -238,7 +238,6 @@ def _configuration_identities() -> dict[str, dict[str, str]]:
             configured[variable] = _sha256(_canonical_bytes({
                 "effective_snapshot": str(snapshot),
                 "filesystem_identity": {
-                    "device": observed.st_dev,
                     "inode": observed.st_ino,
                     "mode": observed.st_mode,
                     "modified_ns": observed.st_mtime_ns,
@@ -257,7 +256,6 @@ def _configuration_identities() -> dict[str, dict[str, str]]:
             configured[variable] = _sha256(_canonical_bytes({
                 "configured_value": str(path),
                 "filesystem_identity": {
-                    "device": observed.st_dev,
                     "inode": observed.st_ino,
                     "mode": observed.st_mode,
                     "size": observed.st_size,

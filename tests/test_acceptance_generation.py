@@ -214,6 +214,69 @@ def test_configuration_identity_binds_only_effective_explicit_inputs(
     assert all(identities[tier] for tier in ACCEPTANCE_TIER_ORDER)
 
 
+def test_configuration_identity_is_stable_across_filesystem_device_renumbering(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    import scripts.acceptance_generation as generation
+    from modules.provider_contract import LOCAL_ESM3_SNAPSHOT_REVISION
+
+    configured_path = tmp_path / "configured"
+    configured_path.write_text("configured", encoding="utf-8")
+    for variables in generation.PROVIDER_CONFIGURATION_CONTRACTS.values():
+        for variable in variables:
+            if variable not in {"HF_HUB_CACHE", "HF_HOME"}:
+                monkeypatch.setenv(variable, str(configured_path))
+    hub_cache = tmp_path / "hub"
+    snapshot = (
+        hub_cache
+        / "models--biohub--esm3-sm-open-v1"
+        / "snapshots"
+        / LOCAL_ESM3_SNAPSHOT_REVISION
+    )
+    snapshot.mkdir(parents=True)
+    monkeypatch.setenv("HF_HUB_CACHE", str(hub_cache))
+    monkeypatch.delenv("HF_HOME", raising=False)
+
+    before_reboot = generation._configuration_identities()
+    original_stat = Path.stat
+
+    def stat_after_device_renumbering(path: Path, *args, **kwargs):
+        observed = original_stat(path, *args, **kwargs)
+        return SimpleNamespace(
+            st_dev=observed.st_dev + 1,
+            st_ino=observed.st_ino,
+            st_mode=observed.st_mode,
+            st_size=observed.st_size,
+            st_mtime_ns=observed.st_mtime_ns,
+        )
+
+    monkeypatch.setattr(Path, "stat", stat_after_device_renumbering)
+
+    assert generation._configuration_identities() == before_reboot
+
+    for stable_field in ("st_ino", "st_mode", "st_size", "st_mtime_ns"):
+        def stat_after_stable_identity_change(
+            path: Path,
+            *args,
+            _stable_field: str = stable_field,
+            **kwargs,
+        ):
+            observed = original_stat(path, *args, **kwargs)
+            values = {
+                "st_dev": observed.st_dev,
+                "st_ino": observed.st_ino,
+                "st_mode": observed.st_mode,
+                "st_size": observed.st_size,
+                "st_mtime_ns": observed.st_mtime_ns,
+            }
+            values[_stable_field] += 1
+            return SimpleNamespace(**values)
+
+        monkeypatch.setattr(Path, "stat", stat_after_stable_identity_change)
+        assert generation._configuration_identities() != before_reboot
+
+
 def test_controller_records_only_one_strictly_serial_contiguous_prefix(
     tmp_path: Path,
     monkeypatch,
