@@ -4,7 +4,7 @@
 
 **Blocked by:** 14 — 准备 source-bound 5G53 科学验收
 
-**Status:** completed
+**Status:** in-progress
 
 - [x] 保留 canonical 3GB1 现有科学合同：10 个 paired ESM-3 Candidates、top 3 selection、每个 selected parent 的 5 个 ProteinMPNN designs（3×5，共 15 个）、15 个最终 folds/Artifacts 和 exact lineage/provenance，并将其全部切换到 descriptor/retrieval public contract。
 - [x] 1PGA、2EMO、3GB1 和 5G53 分别具有 clean-source、zero-skip、retain-evidence acceptance tier；四个 tiers 的静态收集、input digests、current Catalog references 和 public journey contracts 全部通过，本 ticket 不执行 Provider calls。
@@ -21,6 +21,12 @@ The generation authority at revision `7b6bd301591a7351cbfbdf95168b564fccd1de88`
 is superseded and is not acceptance evidence. Its canonical 3GB1 gate inferred a
 foreign-workspace ProteinMPNN root when the required configuration was absent,
 so its manifest and all revision-bound completion results are invalid.
+
+The generation authority at revision `c8326c3f43c72e2d59fb9f0b998dc9f0664eb08d`
+is also superseded and is not acceptance evidence. Its immutable execution
+stopped at the local ESMFold2 tier because the derived call seed exceeded the
+official input builder's exact NumPy MT19937 seed domain; that manifest and its
+retained prefix remain failure evidence and must not be retried or edited.
 
 - Frozen generation controller：`modules.acceptance_verification` 是 controller 与 verifier 共享且随 artifact 安装的唯一 tier authority；精确 11 个 installed Provider tiers 后接 1PGA、2EMO、canonical 3GB1、5G53。controller 单 child 串行、清除 `PYTEST_ADDOPTS`、无 xdist/重试，失败 result 先持久化再永久终止 generation。
 - Documented entrypoint：新增回归从 `sys.path` 移除 repository root，经 `scripts/acceptance_generation.py` 的 parser `start` 路径真实构建 wheel/sdist 并生成 exact 11+4 manifest；built wheel 含 `modules/acceptance_verification.py`。生产代码没有 `sys.path` 修改、兼容路径或 fallback。
