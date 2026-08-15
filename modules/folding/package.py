@@ -47,6 +47,7 @@ from .adapter import (
     LOCAL_DEVICE,
     LOCAL_ESMC_ARTIFACT_SHA256,
     LOCAL_ESMC_MODEL,
+    LOCAL_ESMC_PRECISION,
     LOCAL_ESMC_REVISION,
     LOCAL_ESMFOLD2_ARTIFACT_SHA256,
     LOCAL_ESMFOLD2_MODEL,
@@ -83,10 +84,10 @@ from .simplefold_contract import (
 )
 
 
-_PACKAGE_VERSION = "6.0.0"
+_PACKAGE_VERSION = "7.0.0"
 _FOLD_NODE_BINDING_VERSION = "6.0.0"
 _REMOTE_FOLD_BINDING_VERSION = "7.0.0"
-_LOCAL_ESMFOLD2_BINDING_VERSION = "7.0.0"
+_LOCAL_ESMFOLD2_BINDING_VERSION = "8.0.0"
 _CONFIDENCE_NODE_BINDING_VERSION = "4.0.0"
 _METRIC_VERSIONS = {
     "structure.ptm": "2.1.0",
@@ -359,6 +360,7 @@ def _binding(route: str) -> ExecutionBindingDefinition:
                 "language_model_snapshot": {
                     "source": LOCAL_ESMC_MODEL,
                     "snapshot_revision": LOCAL_ESMC_REVISION,
+                    "precision": LOCAL_ESMC_PRECISION,
                     "artifact_sha256": dict(
                         sorted(LOCAL_ESMC_ARTIFACT_SHA256.items())
                     ),
@@ -385,6 +387,7 @@ def _binding(route: str) -> ExecutionBindingDefinition:
             "model_snapshot_revision": LOCAL_ESMFOLD2_REVISION,
             "language_model": LOCAL_ESMC_MODEL,
             "language_model_snapshot_revision": LOCAL_ESMC_REVISION,
+            "language_model_precision": LOCAL_ESMC_PRECISION,
             "device": LOCAL_DEVICE,
             "torch_version": LOCAL_TORCH_VERSION,
             "transformers_source_revision": TRANSFORMERS_REVISION,
@@ -397,6 +400,7 @@ def _binding(route: str) -> ExecutionBindingDefinition:
             "engine_identity": "exact_method_contract_digest",
             "randomness_evidence": "exact_seed",
             "provider_seed_domain": "unsigned_32_bit",
+            "language_model_precision": LOCAL_ESMC_PRECISION,
         }
         seed_control = "python_numpy_mt19937_torch_shared"
         seed_scope = "scientific-input-content-and-parent-sample-slot"

@@ -15,6 +15,7 @@ from .esmfold2_contract import (
     ESM_SDK_REVISION,
     LOCAL_ESMC_ARTIFACT_SHA256,
     LOCAL_ESMC_MODEL,
+    LOCAL_ESMC_PRECISION,
     LOCAL_ESMC_REVISION,
     LOCAL_ESMFOLD2_ARTIFACT_SHA256,
     LOCAL_ESMFOLD2_MODEL,
@@ -32,7 +33,7 @@ from .simplefold_contract import (
 
 
 FOLD_METHOD_VERSION = "4.0.0"
-LOCAL_ESMFOLD2_METHOD_VERSION = "5.0.0"
+LOCAL_ESMFOLD2_METHOD_VERSION = "6.0.0"
 CONFIDENCE_METHOD_VERSION = "3.0.0"
 
 
@@ -110,6 +111,7 @@ def _method(route: str) -> MethodDefinition:
             "snapshot_revision": LOCAL_ESMFOLD2_REVISION,
             "language_model": LOCAL_ESMC_MODEL,
             "language_model_snapshot_revision": LOCAL_ESMC_REVISION,
+            "language_model_precision": LOCAL_ESMC_PRECISION,
         },
         checkpoint_identity={
             "kind": "immutable_huggingface_snapshots",

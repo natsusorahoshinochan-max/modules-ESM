@@ -22,6 +22,7 @@ from .esmfold2_contract import (
     LOCAL_DEVICE,
     LOCAL_ESMC_ARTIFACT_SHA256,
     LOCAL_ESMC_MODEL,
+    LOCAL_ESMC_PRECISION,
     LOCAL_ESMC_REVISION,
     LOCAL_ESMFOLD2_ARTIFACT_SHA256,
     LOCAL_ESMFOLD2_MODEL,
@@ -175,7 +176,7 @@ def configured_local_runtime_fingerprint() -> str:
     return canonical_sha256(
         {
             "schema_namespace": (
-                "protein-workbench-local-esmfold2-runtime/v2"
+                "protein-workbench-local-esmfold2-runtime/v3"
             ),
             "model": LOCAL_ESMFOLD2_MODEL,
             "model_snapshot_revision": LOCAL_ESMFOLD2_REVISION,
@@ -184,6 +185,7 @@ def configured_local_runtime_fingerprint() -> str:
             ),
             "language_model": LOCAL_ESMC_MODEL,
             "language_model_snapshot_revision": LOCAL_ESMC_REVISION,
+            "language_model_precision": LOCAL_ESMC_PRECISION,
             "language_model_artifact_sha256": dict(
                 sorted(LOCAL_ESMC_ARTIFACT_SHA256.items())
             ),
@@ -517,6 +519,7 @@ def load_local_engine(
         runtime.model_snapshot_path,
         config=configuration,
         local_files_only=True,
+        esmc_precision=LOCAL_ESMC_PRECISION,
     ).to(runtime.device).eval()
     builder = _local_input_builder(ESMFold2InputBuilder, runtime)
 

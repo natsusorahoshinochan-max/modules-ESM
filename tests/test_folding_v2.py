@@ -45,7 +45,7 @@ from tests.fixtures.public_v2 import decode_service_typed_output_value
 
 _FOLD_NODE_VERSION = "6.0.0"
 _REMOTE_FOLD_BINDING_VERSION = "7.0.0"
-_LOCAL_FOLD_BINDING_VERSION = "7.0.0"
+_LOCAL_FOLD_BINDING_VERSION = "8.0.0"
 _SIMPLEFOLD_BINDING_VERSION = "6.0.0"
 
 
@@ -320,7 +320,13 @@ def test_remote_and_local_esmfold2_are_explicit_bindings_of_one_node() -> None:
     assert local.descriptor["implementation_identity"]["model"] == (
         "biohub/ESMFold2"
     )
-    assert local.descriptor["method"]["contract_version"] == "5.0.0"
+    assert local.descriptor["method"]["contract_version"] == "6.0.0"
+    assert local.descriptor["implementation_identity"][
+        "language_model_precision"
+    ] == "fp32"
+    assert local.descriptor["route_behavior"]["parameters"][
+        "language_model_precision"
+    ] == "fp32"
     assert local.descriptor["route_behavior"]["parameters"][
         "provider_seed_domain"
     ] == "unsigned_32_bit"
@@ -330,7 +336,7 @@ def test_remote_and_local_esmfold2_are_explicit_bindings_of_one_node() -> None:
     local_method = catalog.require_contract(
         "method",
         "folding.fold.esmfold2_hf_1ebf0e3",
-        "5.0.0",
+        "6.0.0",
     )
     assert "protein-workbench-esmfold2-call/v3" in local_method.descriptor[
         "algorithm_identity"
@@ -604,6 +610,83 @@ def test_local_readiness_validates_both_exact_snapshots(
         proof_source="direct-observation",
         reason_code="local_runtime_unavailable",
     )
+
+
+def test_local_esmfold2_loads_esmc_at_exact_cpu_float32_precision(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import modules.folding.adapter as adapter
+    from transformers.models.esmfold2.configuration_esmfold2 import (
+        ESMFold2Config,
+    )
+    from transformers.models.esmfold2.modeling_esmfold2 import ESMFold2Model
+
+    calls: dict[str, Any] = {}
+
+    class Configuration:
+        esmc_id = "unset"
+
+    class Model:
+        def to(self, device: str) -> "Model":
+            calls["device"] = device
+            return self
+
+        def eval(self) -> "Model":
+            calls["eval"] = True
+            return self
+
+    def load_configuration(path: Path, **kwargs: Any) -> Configuration:
+        calls["configuration"] = (path, kwargs)
+        return Configuration()
+
+    def load_model(path: Path, **kwargs: Any) -> Model:
+        calls["model"] = (path, kwargs)
+        return Model()
+
+    monkeypatch.setattr(
+        ESMFold2Config,
+        "from_pretrained",
+        staticmethod(load_configuration),
+    )
+    monkeypatch.setattr(
+        ESMFold2Model,
+        "from_pretrained",
+        staticmethod(load_model),
+    )
+    monkeypatch.setattr(
+        adapter,
+        "_local_input_builder",
+        lambda builder_type, runtime: object(),
+    )
+    runtime = adapter.LocalESMFold2Runtime(
+        model_snapshot_path=tmp_path / "esmfold2",
+        language_model_snapshot_path=tmp_path / "esmc",
+        runtime_directory=tmp_path / "runtime",
+        device="cpu",
+        safe_fingerprint="exact-fixture",
+    )
+
+    adapter.load_local_engine({}, runtime)
+
+    assert calls["configuration"] == (
+        runtime.model_snapshot_path,
+        {"local_files_only": True},
+    )
+    model_path, model_kwargs = calls["model"]
+    assert model_path == runtime.model_snapshot_path
+    assert set(model_kwargs) == {
+        "config",
+        "local_files_only",
+        "esmc_precision",
+    }
+    assert model_kwargs["local_files_only"] is True
+    assert model_kwargs["esmc_precision"] == "fp32"
+    assert model_kwargs["config"].esmc_id == str(
+        runtime.language_model_snapshot_path
+    )
+    assert calls["device"] == "cpu"
+    assert calls["eval"] is True
 
 
 def test_native_plddt_is_statically_scaled_and_projects_protein_tokens() -> None:
@@ -1030,7 +1113,7 @@ def test_esmfold_call_seed_uses_candidate_content_not_candidate_identity() -> No
         catalog,
         "folding.fold.esmfold2_local",
         object(),
-        binding_version="7.0.0",
+        binding_version="8.0.0",
     )
 
     def observed(candidate_id: str, sequence: str) -> int:
@@ -1049,7 +1132,7 @@ def test_esmfold_call_seed_uses_candidate_content_not_candidate_identity() -> No
             operation_call(
                 catalog=catalog,
                 binding_id="folding.fold.esmfold2_local",
-                binding_version="7.0.0",
+                binding_version="8.0.0",
                 inputs={
                     "sequence_candidates": CandidateCollection(
                         "parents",

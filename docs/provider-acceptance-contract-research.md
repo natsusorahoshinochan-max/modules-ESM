@@ -189,13 +189,13 @@ Adapter 虽读取 `label_seq_id`，实际却用 `label_asym_id + label_comp_id +
 
 本地实现的固定调用由 [ESMFold2 processor](https://github.com/Biohub/esm/blob/917af90b624535eed1e072d343c717e3ec11fef4/esm/models/esmfold2/processor.py#L327-L419) 定义：seed context、LM dropout、model args 和 no-grad 都是结果身份的一部分；raw model 到 `MolecularComplexResult` 的 pLDDT/pTM/PAE 解码见 [processor decode](https://github.com/Biohub/esm/blob/917af90b624535eed1e072d343c717e3ec11fef4/esm/models/esmfold2/processor.py#L237-L325)。
 
-当前 [folding adapter](../modules/folding/adapter.py) 的 remote 路径调用官方 `client.fold(sequence, model_name=..., config=...)`，固定 model `esmfold2-fast-2026-05`，FoldingConfig 包含 PAE、100 sampling steps、20 recycles/loops、dropout、LM mask、MSA depth/column mask等；随机性记录为 `provider_uncontrolled`。local 路径固定 SDK revision、snapshot/artifact digests、device，并构造 chain A 的 `ProteinInput`/`StructurePredictionInput`，用固定 fold 参数与 seed 调 `ESMFold2InputBuilder.fold`。
+当前 [folding adapter](../modules/folding/adapter.py) 的 remote 路径调用官方 `client.fold(sequence, model_name=..., config=...)`，固定 model `esmfold2-fast-2026-05`，FoldingConfig 包含 PAE、100 sampling steps、20 recycles/loops、dropout、LM mask、MSA depth/column mask等；随机性记录为 `provider_uncontrolled`。local 路径固定 SDK revision、snapshot/artifact digests、CPU device 和 ESMC `fp32` precision，并构造 chain A 的 `ProteinInput`/`StructurePredictionInput`，用固定 fold 参数与 seed 调 `ESMFold2InputBuilder.fold`。
 
 ### gate 必须证明
 
 **Biohub ESMFold2**：record-and-delegate observer 应记录实际 sequence、model name 和 FoldingConfig 全字段，同时委托真实 client；断言 SDK/model/url/token/timeout/retry identity、官方 error union、provider-uncontrolled randomness、输出 structure/residue axis、pLDDT `[0,1] -> [0,100]`、pTM 原尺度和 PAE `Å`/axis。
 
-**local ESMFold2**：observer 应包裹真实 `ESMFold2InputBuilder.fold`，证明实际 `ProteinInput`、chain A、没有 MSA、loops/steps/samples/seed/dropout/mask/config 与 Method 完全一致；真实加载的 snapshot、checkpoint、CCD/data assets、device 和 SDK commit 必须在 readiness/evidence 中闭合。对固定短序列或 3GB1 fixture 记录 deterministic structure/confidence digest，而不只断言输出非空。
+**local ESMFold2**：observer 应包裹真实 `ESMFold2InputBuilder.fold`，证明实际 `ProteinInput`、chain A、没有 MSA、loops/steps/samples/seed/dropout/mask/config 与 Method 完全一致；真实加载的 snapshot、checkpoint、CCD/data assets、device、ESMC precision 和 SDK commit 必须在 readiness/evidence 中闭合。对固定短序列或 3GB1 fixture 记录 deterministic structure/confidence digest，而不只断言输出非空。
 
 当前 [remote/local installed gates](../tests/acceptance/test_installed_provider_gates_v2.py) 已证明公共 Binding、Method、role、seed/provenance 和真实执行，remote 另有 3GB1 shape/range acceptance；但它们没有观察实际 config，也没有用精确输出捕获单位、axis 或 tensor projection 漂移。
 

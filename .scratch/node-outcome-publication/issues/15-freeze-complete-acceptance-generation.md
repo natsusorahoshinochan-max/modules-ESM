@@ -70,3 +70,21 @@ prefixes remain immutable and must not be retried, edited, or combined.
 - Contract scope：ESM-3 scientific Method、Execution Binding、Node Type、request、normal successful-response translation 与 package contract 均未改变，因此不创建虚假的 Method/Binding version cascade；当前变更只恢复既有 documented provider non-success 和 acceptance harness 语义。focused provider-free suites `39 passed`。
 - Final dual-axis review：Standards 与 Spec 均 `APPROVED`，确认 recorder 只原样转交官方 union error member，owning Adapter 将其转为既有 Operation failure 并保留 exact cause；无 defensive response handling、repair、retry、fallback 或科学合同/版本变更。
 - Final cumulative provider-free gates：`routine` 1309 passed / 48 deselected；`examples-v2` 12 passed；`deterministic-acceptance` 8 passed；`scientific-repro` 1 passed；`local-esmfold2-v2-contract` 6 passed；`installed-package` 3 passed；`provider-isolation` 16 passed；`security-failure` 10 passed；frontend Oxlint passed，`tsc -b && vite build` passed（179 modules）；`compileall` 与 `git diff --check` passed。全部门禁严格串行，`HF_HUB_OFFLINE=1`，未调用 Provider、未加载本地模型、未进入 Ticket 16。
+
+### Reopened after the local ESMFold2 CPU precision failure
+
+The `2401739c5da4a385f6d0216b94c5747b71a1bdac` completion and frozen
+generation are superseded and are not current acceptance evidence. That
+immutable generation retained four passed prefix tiers, then terminated at
+`installed-local-esmfold2=failed`; its manifest remains at
+`verification-results/acceptance-generation-2401739-ticket15-reboot-stable-refreeze/generation.json`
+with SHA-256
+`4cfcda2547dd6aeb5700bb4a02863afb15856eb41693d7254d255d72e6214ad4`.
+It must not be retried, edited, or combined with a later generation.
+
+- Controlled diagnosis：在 failed generation 之外只运行一次 exact installed local ESMFold2 diagnostic，单 child、单模型实例且无并发；实际 call seed 为 `3806398562`，forward 终止于 `RuntimeError: expected m1 and m2 to have the same dtype, but got: c10::BFloat16 != float`。raw output 保存在 `verification-results/ticket15-local-esmfold2-controlled-diagnostic-2401739/raw-output.txt`，SHA-256 为 `b51d1b3d7b0cf49e29b7bc83a80247c768c3c6fc27c03a7c8a7f0463e1a7d05d`；该 diagnostic 不是 acceptance evidence，模型进程已退出。
+- Scientific contract repair：pinned transformers ESMFold2 loader 的官方 `esmc_precision` 参数从 CPU 上不合法的 implicit `bf16` default 切换为 exact `fp32`。ESMC snapshot、ESMFold2 snapshot、device、种子、fold 参数、输出语义与资产 digests 均不变；没有 catch、fallback、retry、Provider response repair 或模型替换。
+- Exact identity cascade：precision 纳入 Method model identity、Binding readiness/implementation/route identity 和 `protein-workbench-local-esmfold2-runtime/v3` fingerprint。local Method `folding.fold.esmfold2_hf_1ebf0e3` 升至 `6.0.0`，local Binding `folding.fold.esmfold2_local` 升至 `8.0.0`，folding package 升至 `7.0.0`；remote ESMFold2、SimpleFold 和 shared fold Node Type 版本不变。current Catalog、capability inventory 和 repository Workflow lock 已整体更新。
+- TDD seams：public Method/Binding/FrozenCatalog contract、official installed engine-load precision seam、runtime fingerprint/readiness evidence 与 capability/version cascade 均由 provider-free tests 闭合；focused selection `36 passed / 7 deselected`，明确排除 `live_provider` 和 `local_provider`。
+- Current cumulative provider-free gates：`routine` 1311 passed / 48 deselected；`examples-v2` 12 passed；`deterministic-acceptance` 8 passed；`scientific-repro` 1 passed；`local-esmfold2-v2-contract` 6 passed；`installed-package` 3 passed；`provider-isolation` 16 passed；`security-failure` 10 passed；frontend Oxlint passed，`tsc -b && vite build` passed（179 modules）；`compileall` 与 `git diff --check` passed。provider-isolation 的第一次 invocation 因执行 shell 未传入必需的 `PROTEIN_WORKBENCH_SOLUPROT_ROOT` 而不是 gate evidence；显式使用与 superseded manifest identity 匹配的 trusted root 后精确重跑为 16 passed。全部有效门禁严格串行，`HF_HUB_OFFLINE=1`，未调用 Provider、未加载本地模型、未进入 Ticket 16。
+- New freeze boundary：新 authority 必须由本 Ticket 的 clean completion commit 通过 `scripts/acceptance_generation.py start` 创建，以避免 source revision 自引用。`start` 只构建 wheel/sdist、验证 Provider assets/configuration 并写入无 result 的 manifest；Ticket 15 不执行任何 Ticket 16 Provider tier。

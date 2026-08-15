@@ -62,7 +62,7 @@ def test_simplefold_is_one_explicit_binding_of_the_shared_folding_node() -> None
     esmfold2 = catalog.require_contract(
         "binding",
         "folding.fold.esmfold2_local",
-        "7.0.0",
+        "8.0.0",
     )
     assert simplefold.descriptor["node_type"] == esmfold2.descriptor["node_type"]
     assert simplefold.descriptor["execution_route"] == "adapter"
@@ -179,7 +179,7 @@ def test_simplefold_readiness_validates_assets_without_hiding_siblings(
     assert catalog.require_contract(
         "binding",
         "folding.fold.esmfold2_local",
-        "7.0.0",
+        "8.0.0",
     )
     snapshots = {
         item["binding"]["contract_id"]: item

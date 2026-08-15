@@ -332,13 +332,13 @@ def test_local_esmfold2_v2_source_contract_and_native_result(
         if event["event"]["type"] == "readiness_attested"
         and event["event"]["binding"]["contract_id"]
         == "folding.fold.esmfold2_local"
-        and event["event"]["binding"]["contract_version"] == "7.0.0"
+        and event["event"]["binding"]["contract_version"] == "8.0.0"
         and event["event"]["conclusion"] == "passing"
     )
     binding = catalog.require_contract(
         "binding",
         "folding.fold.esmfold2_local",
-        "7.0.0",
+        "8.0.0",
     )
     method_ref = binding.descriptor["method"]
     method = catalog.require_contract(
@@ -533,13 +533,13 @@ def test_local_esmfold2_v2_invokes_exact_source_bound_assets(
         if event["event"]["type"] == "readiness_attested"
         and event["event"]["binding"]["contract_id"]
         == "folding.fold.esmfold2_local"
-        and event["event"]["binding"]["contract_version"] == "7.0.0"
+        and event["event"]["binding"]["contract_version"] == "8.0.0"
         and event["event"]["conclusion"] == "passing"
     )
     binding = catalog.require_contract(
         "binding",
         "folding.fold.esmfold2_local",
-        "7.0.0",
+        "8.0.0",
     )
     method_ref = binding.descriptor["method"]
     method = catalog.require_contract(

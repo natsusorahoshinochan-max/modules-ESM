@@ -302,7 +302,7 @@ def test_folding_and_confidence_materialization_use_fact_then_score_generations(
     }
     for binding_id, binding_version in (
         ("folding.fold.esmfold2_remote", "7.0.0"),
-        ("folding.fold.esmfold2_local", "7.0.0"),
+        ("folding.fold.esmfold2_local", "8.0.0"),
         ("folding.fold.simplefold_local", "6.0.0"),
     ):
         binding = catalog.require_contract(
@@ -311,7 +311,7 @@ def test_folding_and_confidence_materialization_use_fact_then_score_generations(
             binding_version,
         )
         assert binding.descriptor["method"]["contract_version"] == (
-            "5.0.0"
+            "6.0.0"
             if binding_id == "folding.fold.esmfold2_local"
             else "4.0.0"
         )

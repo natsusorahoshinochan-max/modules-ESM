@@ -409,7 +409,9 @@ featurization、source、Adapter 或 scale 变化都建立新 Method/Binding。
 
 在 `folding` 包中增加本地 Binding、Adapter、Availability/Readiness 声明和合同测试；
 共享折叠 Node Definition。若它与远程路径使用同一科学 Method，Method 可共享；部署与
-implementation identity 仍由不同 Binding 固定。无需修改 `core/`。
+implementation identity 仍由不同 Binding 固定。当前本地 Binding 固定 CPU device，并将
+ESMC language-model precision 固定为 `fp32`；precision 属于 Method、Binding 与 runtime
+fingerprint，而不是由运行时默认值推断。无需修改 `core/`。
 
 ### 6.2 本地 ESM-3
 
