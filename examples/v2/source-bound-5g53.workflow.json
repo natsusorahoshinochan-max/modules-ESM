@@ -1,0 +1,3057 @@
+{
+  "schema_version": "2.1.0",
+  "workflow_id": "source-bound-5g53",
+  "nodes": [
+    {
+      "node_id": "import-input",
+      "node_type_id": "protein_io.import_structure",
+      "node_type_version": "5.0.0",
+      "binding_id": "protein_io.import_structure.direct",
+      "binding_version": "5.0.0",
+      "node_parameters": {
+        "project_input_ref": "5G53.pdb"
+      },
+      "binding_parameters": {}
+    },
+    {
+      "node_id": "select-chain-a",
+      "node_type_id": "structure_transform.select_candidate_chains",
+      "node_type_version": "3.0.0",
+      "binding_id": "structure_transform.select_candidate_chains.direct",
+      "binding_version": "3.0.0",
+      "node_parameters": {
+        "chain_ids": [
+          "A"
+        ]
+      },
+      "binding_parameters": {}
+    },
+    {
+      "node_id": "resolve-reference",
+      "node_type_id": "structure_transform.resolve_candidate_residue_axes",
+      "node_type_version": "5.0.0",
+      "binding_id": "structure_transform.resolve_candidate_residue_axes.direct",
+      "binding_version": "5.0.0",
+      "node_parameters": {},
+      "binding_parameters": {}
+    },
+    {
+      "node_id": "project-reference-axis",
+      "node_type_id": "structure_transform.project_single_residue_axis",
+      "node_type_version": "1.0.0",
+      "binding_id": "structure_transform.project_single_residue_axis.direct",
+      "binding_version": "1.0.0",
+      "node_parameters": {},
+      "binding_parameters": {}
+    },
+    {
+      "node_id": "author-base-prompt",
+      "node_type_id": "prompt_authoring.prompt_from_structure",
+      "node_type_version": "5.0.0",
+      "binding_id": "prompt_authoring.prompt_from_structure.direct",
+      "binding_version": "5.0.0",
+      "node_parameters": {},
+      "binding_parameters": {}
+    },
+    {
+      "node_id": "insert-shorter-8",
+      "node_type_id": "prompt_authoring.insert_masked_residues",
+      "node_type_version": "3.0.0",
+      "binding_id": "prompt_authoring.insert_masked_residues.direct",
+      "binding_version": "3.0.0",
+      "node_parameters": {
+        "insertions": [
+          {
+            "after_residue_id": "A:211",
+            "before_residue_id": "A:224",
+            "inserted_residue_ids": [
+              "A:gap211_224.short.01",
+              "A:gap211_224.short.02",
+              "A:gap211_224.short.03",
+              "A:gap211_224.short.04",
+              "A:gap211_224.short.05",
+              "A:gap211_224.short.06",
+              "A:gap211_224.short.07",
+              "A:gap211_224.short.08"
+            ]
+          }
+        ]
+      },
+      "binding_parameters": {}
+    },
+    {
+      "node_id": "generate-shorter-8",
+      "node_type_id": "esm3.generate_paired",
+      "node_type_version": "7.0.0",
+      "binding_id": "esm3.generate_paired.biohub_medium",
+      "binding_version": "7.0.0",
+      "node_parameters": {
+        "effective_seed": 5353008,
+        "num_samples": 2,
+        "num_steps": 20,
+        "temperature": 0.7,
+        "top_p": 1.0,
+        "schedule": "cosine",
+        "strategy": "random",
+        "temperature_annealing": true
+      },
+      "binding_parameters": {}
+    },
+    {
+      "node_id": "materialize-generation-confidence-shorter-8",
+      "node_type_id": "structure_prediction.materialize_confidence",
+      "node_type_version": "1.0.0",
+      "binding_id": "structure_prediction.materialize_confidence.direct",
+      "binding_version": "1.0.0",
+      "node_parameters": {},
+      "binding_parameters": {}
+    },
+    {
+      "node_id": "fold-shorter-8",
+      "node_type_id": "folding.fold",
+      "node_type_version": "6.0.0",
+      "binding_id": "folding.fold.esmfold2_remote",
+      "binding_version": "7.0.0",
+      "node_parameters": {
+        "effective_seed": 5353999,
+        "num_samples": 1
+      },
+      "binding_parameters": {}
+    },
+    {
+      "node_id": "materialize-confidence-shorter-8",
+      "node_type_id": "structure_prediction.materialize_confidence",
+      "node_type_version": "1.0.0",
+      "binding_id": "structure_prediction.materialize_confidence.direct",
+      "binding_version": "1.0.0",
+      "node_parameters": {},
+      "binding_parameters": {}
+    },
+    {
+      "node_id": "resolve-folds-shorter-8",
+      "node_type_id": "structure_transform.resolve_candidate_residue_axes",
+      "node_type_version": "5.0.0",
+      "binding_id": "structure_transform.resolve_candidate_residue_axes.direct",
+      "binding_version": "5.0.0",
+      "node_parameters": {},
+      "binding_parameters": {}
+    },
+    {
+      "node_id": "resolve-counterparts-shorter-8",
+      "node_type_id": "structure_transform.resolve_candidate_residue_axes",
+      "node_type_version": "5.0.0",
+      "binding_id": "structure_transform.resolve_candidate_residue_axes.direct",
+      "binding_version": "5.0.0",
+      "node_parameters": {},
+      "binding_parameters": {}
+    },
+    {
+      "node_id": "align-core-shorter-8",
+      "node_type_id": "structure_comparison.align_fixed_reference",
+      "node_type_version": "4.0.0",
+      "binding_id": "structure_comparison.align_fixed_reference.sequence_primary_affine",
+      "binding_version": "4.0.0",
+      "node_parameters": {},
+      "binding_parameters": {}
+    },
+    {
+      "node_id": "tm-core-shorter-8",
+      "node_type_id": "structure_comparison.tm_score_fixed_reference",
+      "node_type_version": "5.0.0",
+      "binding_id": "structure_comparison.tm_score_fixed_reference.from_alignment_evidence",
+      "binding_version": "5.0.0",
+      "node_parameters": {},
+      "binding_parameters": {}
+    },
+    {
+      "node_id": "rmsd-core-shorter-8",
+      "node_type_id": "structure_comparison.rmsd_fixed_reference",
+      "node_type_version": "5.0.0",
+      "binding_id": "structure_comparison.rmsd_fixed_reference.from_alignment_evidence",
+      "binding_version": "5.0.0",
+      "node_parameters": {},
+      "binding_parameters": {}
+    },
+    {
+      "node_id": "pair-fold-counterpart-shorter-8",
+      "node_type_id": "collection_ops.rebind_candidate_pairing",
+      "node_type_version": "3.0.0",
+      "binding_id": "collection_ops.rebind_candidate_pairing.direct",
+      "binding_version": "3.0.0",
+      "node_parameters": {},
+      "binding_parameters": {}
+    },
+    {
+      "node_id": "align-counterpart-shorter-8",
+      "node_type_id": "structure_comparison.align_counterparts",
+      "node_type_version": "4.0.0",
+      "binding_id": "structure_comparison.align_counterparts.sequence_primary_affine",
+      "binding_version": "4.0.0",
+      "node_parameters": {},
+      "binding_parameters": {}
+    },
+    {
+      "node_id": "tm-counterpart-shorter-8",
+      "node_type_id": "structure_comparison.tm_score_counterparts",
+      "node_type_version": "5.0.0",
+      "binding_id": "structure_comparison.tm_score_counterparts.from_alignment_evidence",
+      "binding_version": "5.0.0",
+      "node_parameters": {},
+      "binding_parameters": {}
+    },
+    {
+      "node_id": "rmsd-counterpart-shorter-8",
+      "node_type_id": "structure_comparison.rmsd_counterparts",
+      "node_type_version": "5.0.0",
+      "binding_id": "structure_comparison.rmsd_counterparts.from_alignment_evidence",
+      "binding_version": "5.0.0",
+      "node_parameters": {},
+      "binding_parameters": {}
+    },
+    {
+      "node_id": "evaluate-shorter-8",
+      "node_type_id": "structure_comparison.evaluate_inserted_loop",
+      "node_type_version": "1.0.0",
+      "binding_id": "structure_comparison.evaluate_inserted_loop.direct",
+      "binding_version": "1.0.0",
+      "node_parameters": {
+        "resolved_core_residue_ids": [
+          "A:6",
+          "A:7",
+          "A:8",
+          "A:9",
+          "A:10",
+          "A:11",
+          "A:12",
+          "A:13",
+          "A:14",
+          "A:15",
+          "A:16",
+          "A:17",
+          "A:18",
+          "A:19",
+          "A:20",
+          "A:21",
+          "A:22",
+          "A:23",
+          "A:24",
+          "A:25",
+          "A:26",
+          "A:27",
+          "A:28",
+          "A:29",
+          "A:30",
+          "A:31",
+          "A:32",
+          "A:33",
+          "A:34",
+          "A:35",
+          "A:36",
+          "A:37",
+          "A:38",
+          "A:39",
+          "A:40",
+          "A:41",
+          "A:42",
+          "A:43",
+          "A:44",
+          "A:45",
+          "A:46",
+          "A:47",
+          "A:48",
+          "A:49",
+          "A:50",
+          "A:51",
+          "A:52",
+          "A:53",
+          "A:54",
+          "A:55",
+          "A:56",
+          "A:57",
+          "A:58",
+          "A:59",
+          "A:60",
+          "A:61",
+          "A:62",
+          "A:63",
+          "A:64",
+          "A:65",
+          "A:66",
+          "A:67",
+          "A:68",
+          "A:69",
+          "A:70",
+          "A:71",
+          "A:72",
+          "A:73",
+          "A:74",
+          "A:75",
+          "A:76",
+          "A:77",
+          "A:78",
+          "A:79",
+          "A:80",
+          "A:81",
+          "A:82",
+          "A:83",
+          "A:84",
+          "A:85",
+          "A:86",
+          "A:87",
+          "A:88",
+          "A:89",
+          "A:90",
+          "A:91",
+          "A:92",
+          "A:93",
+          "A:94",
+          "A:95",
+          "A:96",
+          "A:97",
+          "A:98",
+          "A:99",
+          "A:100",
+          "A:101",
+          "A:102",
+          "A:103",
+          "A:104",
+          "A:105",
+          "A:106",
+          "A:107",
+          "A:108",
+          "A:109",
+          "A:110",
+          "A:111",
+          "A:112",
+          "A:113",
+          "A:114",
+          "A:115",
+          "A:116",
+          "A:117",
+          "A:118",
+          "A:119",
+          "A:120",
+          "A:121",
+          "A:122",
+          "A:123",
+          "A:124",
+          "A:125",
+          "A:126",
+          "A:127",
+          "A:128",
+          "A:129",
+          "A:130",
+          "A:131",
+          "A:132",
+          "A:133",
+          "A:134",
+          "A:135",
+          "A:136",
+          "A:137",
+          "A:138",
+          "A:139",
+          "A:140",
+          "A:141",
+          "A:142",
+          "A:143",
+          "A:144",
+          "A:145",
+          "A:146",
+          "A:159",
+          "A:160",
+          "A:161",
+          "A:162",
+          "A:163",
+          "A:164",
+          "A:165",
+          "A:166",
+          "A:167",
+          "A:168",
+          "A:169",
+          "A:170",
+          "A:171",
+          "A:172",
+          "A:173",
+          "A:174",
+          "A:175",
+          "A:176",
+          "A:177",
+          "A:178",
+          "A:179",
+          "A:180",
+          "A:181",
+          "A:182",
+          "A:183",
+          "A:184",
+          "A:185",
+          "A:186",
+          "A:187",
+          "A:188",
+          "A:189",
+          "A:190",
+          "A:191",
+          "A:192",
+          "A:193",
+          "A:194",
+          "A:195",
+          "A:196",
+          "A:197",
+          "A:198",
+          "A:199",
+          "A:200",
+          "A:201",
+          "A:202",
+          "A:203",
+          "A:204",
+          "A:205",
+          "A:206",
+          "A:207",
+          "A:208",
+          "A:209",
+          "A:210",
+          "A:211",
+          "A:224",
+          "A:225",
+          "A:226",
+          "A:227",
+          "A:228",
+          "A:229",
+          "A:230",
+          "A:231",
+          "A:232",
+          "A:233",
+          "A:234",
+          "A:235",
+          "A:236",
+          "A:237",
+          "A:238",
+          "A:239",
+          "A:240",
+          "A:241",
+          "A:242",
+          "A:243",
+          "A:244",
+          "A:245",
+          "A:246",
+          "A:247",
+          "A:248",
+          "A:249",
+          "A:250",
+          "A:251",
+          "A:252",
+          "A:253",
+          "A:254",
+          "A:255",
+          "A:256",
+          "A:257",
+          "A:258",
+          "A:259",
+          "A:260",
+          "A:261",
+          "A:262",
+          "A:263",
+          "A:264",
+          "A:265",
+          "A:266",
+          "A:267",
+          "A:268",
+          "A:269",
+          "A:270",
+          "A:271",
+          "A:272",
+          "A:273",
+          "A:274",
+          "A:275",
+          "A:276",
+          "A:277",
+          "A:278",
+          "A:279",
+          "A:280",
+          "A:281",
+          "A:282",
+          "A:283",
+          "A:284",
+          "A:285",
+          "A:286",
+          "A:287",
+          "A:288",
+          "A:289",
+          "A:290",
+          "A:291",
+          "A:292",
+          "A:293",
+          "A:294",
+          "A:295",
+          "A:296",
+          "A:297",
+          "A:298",
+          "A:299",
+          "A:300",
+          "A:301",
+          "A:302",
+          "A:303",
+          "A:304",
+          "A:305",
+          "A:306",
+          "A:307",
+          "A:308",
+          "A:309",
+          "A:310",
+          "A:311",
+          "A:312"
+        ],
+        "loop_residue_ids": [
+          "A:gap211_224.short.01",
+          "A:gap211_224.short.02",
+          "A:gap211_224.short.03",
+          "A:gap211_224.short.04",
+          "A:gap211_224.short.05",
+          "A:gap211_224.short.06",
+          "A:gap211_224.short.07",
+          "A:gap211_224.short.08"
+        ],
+        "left_junction_residue_id": "A:211",
+        "right_junction_residue_id": "A:224",
+        "resolved_core_tm_score_minimum": 0.75,
+        "resolved_core_rmsd_angstrom_maximum": 3.0,
+        "counterpart_tm_score_minimum": 0.7,
+        "counterpart_rmsd_angstrom_maximum": 3.5,
+        "resolved_core_mean_plddt_minimum": 70.0,
+        "junction_cn_distance_angstrom_minimum": 1.15,
+        "junction_cn_distance_angstrom_maximum": 1.55,
+        "loop_core_nonbonded_distance_angstrom_minimum": 2.0
+      },
+      "binding_parameters": {}
+    },
+    {
+      "node_id": "insert-numbering-implied-12",
+      "node_type_id": "prompt_authoring.insert_masked_residues",
+      "node_type_version": "3.0.0",
+      "binding_id": "prompt_authoring.insert_masked_residues.direct",
+      "binding_version": "3.0.0",
+      "node_parameters": {
+        "insertions": [
+          {
+            "after_residue_id": "A:211",
+            "before_residue_id": "A:224",
+            "inserted_residue_ids": [
+              "A:212",
+              "A:213",
+              "A:214",
+              "A:215",
+              "A:216",
+              "A:217",
+              "A:218",
+              "A:219",
+              "A:220",
+              "A:221",
+              "A:222",
+              "A:223"
+            ]
+          }
+        ]
+      },
+      "binding_parameters": {}
+    },
+    {
+      "node_id": "generate-numbering-implied-12",
+      "node_type_id": "esm3.generate_paired",
+      "node_type_version": "7.0.0",
+      "binding_id": "esm3.generate_paired.biohub_medium",
+      "binding_version": "7.0.0",
+      "node_parameters": {
+        "effective_seed": 5353012,
+        "num_samples": 2,
+        "num_steps": 20,
+        "temperature": 0.7,
+        "top_p": 1.0,
+        "schedule": "cosine",
+        "strategy": "random",
+        "temperature_annealing": true
+      },
+      "binding_parameters": {}
+    },
+    {
+      "node_id": "materialize-generation-confidence-numbering-implied-12",
+      "node_type_id": "structure_prediction.materialize_confidence",
+      "node_type_version": "1.0.0",
+      "binding_id": "structure_prediction.materialize_confidence.direct",
+      "binding_version": "1.0.0",
+      "node_parameters": {},
+      "binding_parameters": {}
+    },
+    {
+      "node_id": "fold-numbering-implied-12",
+      "node_type_id": "folding.fold",
+      "node_type_version": "6.0.0",
+      "binding_id": "folding.fold.esmfold2_remote",
+      "binding_version": "7.0.0",
+      "node_parameters": {
+        "effective_seed": 5353999,
+        "num_samples": 1
+      },
+      "binding_parameters": {}
+    },
+    {
+      "node_id": "materialize-confidence-numbering-implied-12",
+      "node_type_id": "structure_prediction.materialize_confidence",
+      "node_type_version": "1.0.0",
+      "binding_id": "structure_prediction.materialize_confidence.direct",
+      "binding_version": "1.0.0",
+      "node_parameters": {},
+      "binding_parameters": {}
+    },
+    {
+      "node_id": "resolve-folds-numbering-implied-12",
+      "node_type_id": "structure_transform.resolve_candidate_residue_axes",
+      "node_type_version": "5.0.0",
+      "binding_id": "structure_transform.resolve_candidate_residue_axes.direct",
+      "binding_version": "5.0.0",
+      "node_parameters": {},
+      "binding_parameters": {}
+    },
+    {
+      "node_id": "resolve-counterparts-numbering-implied-12",
+      "node_type_id": "structure_transform.resolve_candidate_residue_axes",
+      "node_type_version": "5.0.0",
+      "binding_id": "structure_transform.resolve_candidate_residue_axes.direct",
+      "binding_version": "5.0.0",
+      "node_parameters": {},
+      "binding_parameters": {}
+    },
+    {
+      "node_id": "align-core-numbering-implied-12",
+      "node_type_id": "structure_comparison.align_fixed_reference",
+      "node_type_version": "4.0.0",
+      "binding_id": "structure_comparison.align_fixed_reference.sequence_primary_affine",
+      "binding_version": "4.0.0",
+      "node_parameters": {},
+      "binding_parameters": {}
+    },
+    {
+      "node_id": "tm-core-numbering-implied-12",
+      "node_type_id": "structure_comparison.tm_score_fixed_reference",
+      "node_type_version": "5.0.0",
+      "binding_id": "structure_comparison.tm_score_fixed_reference.from_alignment_evidence",
+      "binding_version": "5.0.0",
+      "node_parameters": {},
+      "binding_parameters": {}
+    },
+    {
+      "node_id": "rmsd-core-numbering-implied-12",
+      "node_type_id": "structure_comparison.rmsd_fixed_reference",
+      "node_type_version": "5.0.0",
+      "binding_id": "structure_comparison.rmsd_fixed_reference.from_alignment_evidence",
+      "binding_version": "5.0.0",
+      "node_parameters": {},
+      "binding_parameters": {}
+    },
+    {
+      "node_id": "pair-fold-counterpart-numbering-implied-12",
+      "node_type_id": "collection_ops.rebind_candidate_pairing",
+      "node_type_version": "3.0.0",
+      "binding_id": "collection_ops.rebind_candidate_pairing.direct",
+      "binding_version": "3.0.0",
+      "node_parameters": {},
+      "binding_parameters": {}
+    },
+    {
+      "node_id": "align-counterpart-numbering-implied-12",
+      "node_type_id": "structure_comparison.align_counterparts",
+      "node_type_version": "4.0.0",
+      "binding_id": "structure_comparison.align_counterparts.sequence_primary_affine",
+      "binding_version": "4.0.0",
+      "node_parameters": {},
+      "binding_parameters": {}
+    },
+    {
+      "node_id": "tm-counterpart-numbering-implied-12",
+      "node_type_id": "structure_comparison.tm_score_counterparts",
+      "node_type_version": "5.0.0",
+      "binding_id": "structure_comparison.tm_score_counterparts.from_alignment_evidence",
+      "binding_version": "5.0.0",
+      "node_parameters": {},
+      "binding_parameters": {}
+    },
+    {
+      "node_id": "rmsd-counterpart-numbering-implied-12",
+      "node_type_id": "structure_comparison.rmsd_counterparts",
+      "node_type_version": "5.0.0",
+      "binding_id": "structure_comparison.rmsd_counterparts.from_alignment_evidence",
+      "binding_version": "5.0.0",
+      "node_parameters": {},
+      "binding_parameters": {}
+    },
+    {
+      "node_id": "evaluate-numbering-implied-12",
+      "node_type_id": "structure_comparison.evaluate_inserted_loop",
+      "node_type_version": "1.0.0",
+      "binding_id": "structure_comparison.evaluate_inserted_loop.direct",
+      "binding_version": "1.0.0",
+      "node_parameters": {
+        "resolved_core_residue_ids": [
+          "A:6",
+          "A:7",
+          "A:8",
+          "A:9",
+          "A:10",
+          "A:11",
+          "A:12",
+          "A:13",
+          "A:14",
+          "A:15",
+          "A:16",
+          "A:17",
+          "A:18",
+          "A:19",
+          "A:20",
+          "A:21",
+          "A:22",
+          "A:23",
+          "A:24",
+          "A:25",
+          "A:26",
+          "A:27",
+          "A:28",
+          "A:29",
+          "A:30",
+          "A:31",
+          "A:32",
+          "A:33",
+          "A:34",
+          "A:35",
+          "A:36",
+          "A:37",
+          "A:38",
+          "A:39",
+          "A:40",
+          "A:41",
+          "A:42",
+          "A:43",
+          "A:44",
+          "A:45",
+          "A:46",
+          "A:47",
+          "A:48",
+          "A:49",
+          "A:50",
+          "A:51",
+          "A:52",
+          "A:53",
+          "A:54",
+          "A:55",
+          "A:56",
+          "A:57",
+          "A:58",
+          "A:59",
+          "A:60",
+          "A:61",
+          "A:62",
+          "A:63",
+          "A:64",
+          "A:65",
+          "A:66",
+          "A:67",
+          "A:68",
+          "A:69",
+          "A:70",
+          "A:71",
+          "A:72",
+          "A:73",
+          "A:74",
+          "A:75",
+          "A:76",
+          "A:77",
+          "A:78",
+          "A:79",
+          "A:80",
+          "A:81",
+          "A:82",
+          "A:83",
+          "A:84",
+          "A:85",
+          "A:86",
+          "A:87",
+          "A:88",
+          "A:89",
+          "A:90",
+          "A:91",
+          "A:92",
+          "A:93",
+          "A:94",
+          "A:95",
+          "A:96",
+          "A:97",
+          "A:98",
+          "A:99",
+          "A:100",
+          "A:101",
+          "A:102",
+          "A:103",
+          "A:104",
+          "A:105",
+          "A:106",
+          "A:107",
+          "A:108",
+          "A:109",
+          "A:110",
+          "A:111",
+          "A:112",
+          "A:113",
+          "A:114",
+          "A:115",
+          "A:116",
+          "A:117",
+          "A:118",
+          "A:119",
+          "A:120",
+          "A:121",
+          "A:122",
+          "A:123",
+          "A:124",
+          "A:125",
+          "A:126",
+          "A:127",
+          "A:128",
+          "A:129",
+          "A:130",
+          "A:131",
+          "A:132",
+          "A:133",
+          "A:134",
+          "A:135",
+          "A:136",
+          "A:137",
+          "A:138",
+          "A:139",
+          "A:140",
+          "A:141",
+          "A:142",
+          "A:143",
+          "A:144",
+          "A:145",
+          "A:146",
+          "A:159",
+          "A:160",
+          "A:161",
+          "A:162",
+          "A:163",
+          "A:164",
+          "A:165",
+          "A:166",
+          "A:167",
+          "A:168",
+          "A:169",
+          "A:170",
+          "A:171",
+          "A:172",
+          "A:173",
+          "A:174",
+          "A:175",
+          "A:176",
+          "A:177",
+          "A:178",
+          "A:179",
+          "A:180",
+          "A:181",
+          "A:182",
+          "A:183",
+          "A:184",
+          "A:185",
+          "A:186",
+          "A:187",
+          "A:188",
+          "A:189",
+          "A:190",
+          "A:191",
+          "A:192",
+          "A:193",
+          "A:194",
+          "A:195",
+          "A:196",
+          "A:197",
+          "A:198",
+          "A:199",
+          "A:200",
+          "A:201",
+          "A:202",
+          "A:203",
+          "A:204",
+          "A:205",
+          "A:206",
+          "A:207",
+          "A:208",
+          "A:209",
+          "A:210",
+          "A:211",
+          "A:224",
+          "A:225",
+          "A:226",
+          "A:227",
+          "A:228",
+          "A:229",
+          "A:230",
+          "A:231",
+          "A:232",
+          "A:233",
+          "A:234",
+          "A:235",
+          "A:236",
+          "A:237",
+          "A:238",
+          "A:239",
+          "A:240",
+          "A:241",
+          "A:242",
+          "A:243",
+          "A:244",
+          "A:245",
+          "A:246",
+          "A:247",
+          "A:248",
+          "A:249",
+          "A:250",
+          "A:251",
+          "A:252",
+          "A:253",
+          "A:254",
+          "A:255",
+          "A:256",
+          "A:257",
+          "A:258",
+          "A:259",
+          "A:260",
+          "A:261",
+          "A:262",
+          "A:263",
+          "A:264",
+          "A:265",
+          "A:266",
+          "A:267",
+          "A:268",
+          "A:269",
+          "A:270",
+          "A:271",
+          "A:272",
+          "A:273",
+          "A:274",
+          "A:275",
+          "A:276",
+          "A:277",
+          "A:278",
+          "A:279",
+          "A:280",
+          "A:281",
+          "A:282",
+          "A:283",
+          "A:284",
+          "A:285",
+          "A:286",
+          "A:287",
+          "A:288",
+          "A:289",
+          "A:290",
+          "A:291",
+          "A:292",
+          "A:293",
+          "A:294",
+          "A:295",
+          "A:296",
+          "A:297",
+          "A:298",
+          "A:299",
+          "A:300",
+          "A:301",
+          "A:302",
+          "A:303",
+          "A:304",
+          "A:305",
+          "A:306",
+          "A:307",
+          "A:308",
+          "A:309",
+          "A:310",
+          "A:311",
+          "A:312"
+        ],
+        "loop_residue_ids": [
+          "A:212",
+          "A:213",
+          "A:214",
+          "A:215",
+          "A:216",
+          "A:217",
+          "A:218",
+          "A:219",
+          "A:220",
+          "A:221",
+          "A:222",
+          "A:223"
+        ],
+        "left_junction_residue_id": "A:211",
+        "right_junction_residue_id": "A:224",
+        "resolved_core_tm_score_minimum": 0.75,
+        "resolved_core_rmsd_angstrom_maximum": 3.0,
+        "counterpart_tm_score_minimum": 0.7,
+        "counterpart_rmsd_angstrom_maximum": 3.5,
+        "resolved_core_mean_plddt_minimum": 70.0,
+        "junction_cn_distance_angstrom_minimum": 1.15,
+        "junction_cn_distance_angstrom_maximum": 1.55,
+        "loop_core_nonbonded_distance_angstrom_minimum": 2.0
+      },
+      "binding_parameters": {}
+    },
+    {
+      "node_id": "insert-longer-16",
+      "node_type_id": "prompt_authoring.insert_masked_residues",
+      "node_type_version": "3.0.0",
+      "binding_id": "prompt_authoring.insert_masked_residues.direct",
+      "binding_version": "3.0.0",
+      "node_parameters": {
+        "insertions": [
+          {
+            "after_residue_id": "A:211",
+            "before_residue_id": "A:224",
+            "inserted_residue_ids": [
+              "A:gap211_224.long.01",
+              "A:gap211_224.long.02",
+              "A:gap211_224.long.03",
+              "A:gap211_224.long.04",
+              "A:gap211_224.long.05",
+              "A:gap211_224.long.06",
+              "A:gap211_224.long.07",
+              "A:gap211_224.long.08",
+              "A:gap211_224.long.09",
+              "A:gap211_224.long.10",
+              "A:gap211_224.long.11",
+              "A:gap211_224.long.12",
+              "A:gap211_224.long.13",
+              "A:gap211_224.long.14",
+              "A:gap211_224.long.15",
+              "A:gap211_224.long.16"
+            ]
+          }
+        ]
+      },
+      "binding_parameters": {}
+    },
+    {
+      "node_id": "generate-longer-16",
+      "node_type_id": "esm3.generate_paired",
+      "node_type_version": "7.0.0",
+      "binding_id": "esm3.generate_paired.biohub_medium",
+      "binding_version": "7.0.0",
+      "node_parameters": {
+        "effective_seed": 5353016,
+        "num_samples": 2,
+        "num_steps": 20,
+        "temperature": 0.7,
+        "top_p": 1.0,
+        "schedule": "cosine",
+        "strategy": "random",
+        "temperature_annealing": true
+      },
+      "binding_parameters": {}
+    },
+    {
+      "node_id": "materialize-generation-confidence-longer-16",
+      "node_type_id": "structure_prediction.materialize_confidence",
+      "node_type_version": "1.0.0",
+      "binding_id": "structure_prediction.materialize_confidence.direct",
+      "binding_version": "1.0.0",
+      "node_parameters": {},
+      "binding_parameters": {}
+    },
+    {
+      "node_id": "fold-longer-16",
+      "node_type_id": "folding.fold",
+      "node_type_version": "6.0.0",
+      "binding_id": "folding.fold.esmfold2_remote",
+      "binding_version": "7.0.0",
+      "node_parameters": {
+        "effective_seed": 5353999,
+        "num_samples": 1
+      },
+      "binding_parameters": {}
+    },
+    {
+      "node_id": "materialize-confidence-longer-16",
+      "node_type_id": "structure_prediction.materialize_confidence",
+      "node_type_version": "1.0.0",
+      "binding_id": "structure_prediction.materialize_confidence.direct",
+      "binding_version": "1.0.0",
+      "node_parameters": {},
+      "binding_parameters": {}
+    },
+    {
+      "node_id": "resolve-folds-longer-16",
+      "node_type_id": "structure_transform.resolve_candidate_residue_axes",
+      "node_type_version": "5.0.0",
+      "binding_id": "structure_transform.resolve_candidate_residue_axes.direct",
+      "binding_version": "5.0.0",
+      "node_parameters": {},
+      "binding_parameters": {}
+    },
+    {
+      "node_id": "resolve-counterparts-longer-16",
+      "node_type_id": "structure_transform.resolve_candidate_residue_axes",
+      "node_type_version": "5.0.0",
+      "binding_id": "structure_transform.resolve_candidate_residue_axes.direct",
+      "binding_version": "5.0.0",
+      "node_parameters": {},
+      "binding_parameters": {}
+    },
+    {
+      "node_id": "align-core-longer-16",
+      "node_type_id": "structure_comparison.align_fixed_reference",
+      "node_type_version": "4.0.0",
+      "binding_id": "structure_comparison.align_fixed_reference.sequence_primary_affine",
+      "binding_version": "4.0.0",
+      "node_parameters": {},
+      "binding_parameters": {}
+    },
+    {
+      "node_id": "tm-core-longer-16",
+      "node_type_id": "structure_comparison.tm_score_fixed_reference",
+      "node_type_version": "5.0.0",
+      "binding_id": "structure_comparison.tm_score_fixed_reference.from_alignment_evidence",
+      "binding_version": "5.0.0",
+      "node_parameters": {},
+      "binding_parameters": {}
+    },
+    {
+      "node_id": "rmsd-core-longer-16",
+      "node_type_id": "structure_comparison.rmsd_fixed_reference",
+      "node_type_version": "5.0.0",
+      "binding_id": "structure_comparison.rmsd_fixed_reference.from_alignment_evidence",
+      "binding_version": "5.0.0",
+      "node_parameters": {},
+      "binding_parameters": {}
+    },
+    {
+      "node_id": "pair-fold-counterpart-longer-16",
+      "node_type_id": "collection_ops.rebind_candidate_pairing",
+      "node_type_version": "3.0.0",
+      "binding_id": "collection_ops.rebind_candidate_pairing.direct",
+      "binding_version": "3.0.0",
+      "node_parameters": {},
+      "binding_parameters": {}
+    },
+    {
+      "node_id": "align-counterpart-longer-16",
+      "node_type_id": "structure_comparison.align_counterparts",
+      "node_type_version": "4.0.0",
+      "binding_id": "structure_comparison.align_counterparts.sequence_primary_affine",
+      "binding_version": "4.0.0",
+      "node_parameters": {},
+      "binding_parameters": {}
+    },
+    {
+      "node_id": "tm-counterpart-longer-16",
+      "node_type_id": "structure_comparison.tm_score_counterparts",
+      "node_type_version": "5.0.0",
+      "binding_id": "structure_comparison.tm_score_counterparts.from_alignment_evidence",
+      "binding_version": "5.0.0",
+      "node_parameters": {},
+      "binding_parameters": {}
+    },
+    {
+      "node_id": "rmsd-counterpart-longer-16",
+      "node_type_id": "structure_comparison.rmsd_counterparts",
+      "node_type_version": "5.0.0",
+      "binding_id": "structure_comparison.rmsd_counterparts.from_alignment_evidence",
+      "binding_version": "5.0.0",
+      "node_parameters": {},
+      "binding_parameters": {}
+    },
+    {
+      "node_id": "evaluate-longer-16",
+      "node_type_id": "structure_comparison.evaluate_inserted_loop",
+      "node_type_version": "1.0.0",
+      "binding_id": "structure_comparison.evaluate_inserted_loop.direct",
+      "binding_version": "1.0.0",
+      "node_parameters": {
+        "resolved_core_residue_ids": [
+          "A:6",
+          "A:7",
+          "A:8",
+          "A:9",
+          "A:10",
+          "A:11",
+          "A:12",
+          "A:13",
+          "A:14",
+          "A:15",
+          "A:16",
+          "A:17",
+          "A:18",
+          "A:19",
+          "A:20",
+          "A:21",
+          "A:22",
+          "A:23",
+          "A:24",
+          "A:25",
+          "A:26",
+          "A:27",
+          "A:28",
+          "A:29",
+          "A:30",
+          "A:31",
+          "A:32",
+          "A:33",
+          "A:34",
+          "A:35",
+          "A:36",
+          "A:37",
+          "A:38",
+          "A:39",
+          "A:40",
+          "A:41",
+          "A:42",
+          "A:43",
+          "A:44",
+          "A:45",
+          "A:46",
+          "A:47",
+          "A:48",
+          "A:49",
+          "A:50",
+          "A:51",
+          "A:52",
+          "A:53",
+          "A:54",
+          "A:55",
+          "A:56",
+          "A:57",
+          "A:58",
+          "A:59",
+          "A:60",
+          "A:61",
+          "A:62",
+          "A:63",
+          "A:64",
+          "A:65",
+          "A:66",
+          "A:67",
+          "A:68",
+          "A:69",
+          "A:70",
+          "A:71",
+          "A:72",
+          "A:73",
+          "A:74",
+          "A:75",
+          "A:76",
+          "A:77",
+          "A:78",
+          "A:79",
+          "A:80",
+          "A:81",
+          "A:82",
+          "A:83",
+          "A:84",
+          "A:85",
+          "A:86",
+          "A:87",
+          "A:88",
+          "A:89",
+          "A:90",
+          "A:91",
+          "A:92",
+          "A:93",
+          "A:94",
+          "A:95",
+          "A:96",
+          "A:97",
+          "A:98",
+          "A:99",
+          "A:100",
+          "A:101",
+          "A:102",
+          "A:103",
+          "A:104",
+          "A:105",
+          "A:106",
+          "A:107",
+          "A:108",
+          "A:109",
+          "A:110",
+          "A:111",
+          "A:112",
+          "A:113",
+          "A:114",
+          "A:115",
+          "A:116",
+          "A:117",
+          "A:118",
+          "A:119",
+          "A:120",
+          "A:121",
+          "A:122",
+          "A:123",
+          "A:124",
+          "A:125",
+          "A:126",
+          "A:127",
+          "A:128",
+          "A:129",
+          "A:130",
+          "A:131",
+          "A:132",
+          "A:133",
+          "A:134",
+          "A:135",
+          "A:136",
+          "A:137",
+          "A:138",
+          "A:139",
+          "A:140",
+          "A:141",
+          "A:142",
+          "A:143",
+          "A:144",
+          "A:145",
+          "A:146",
+          "A:159",
+          "A:160",
+          "A:161",
+          "A:162",
+          "A:163",
+          "A:164",
+          "A:165",
+          "A:166",
+          "A:167",
+          "A:168",
+          "A:169",
+          "A:170",
+          "A:171",
+          "A:172",
+          "A:173",
+          "A:174",
+          "A:175",
+          "A:176",
+          "A:177",
+          "A:178",
+          "A:179",
+          "A:180",
+          "A:181",
+          "A:182",
+          "A:183",
+          "A:184",
+          "A:185",
+          "A:186",
+          "A:187",
+          "A:188",
+          "A:189",
+          "A:190",
+          "A:191",
+          "A:192",
+          "A:193",
+          "A:194",
+          "A:195",
+          "A:196",
+          "A:197",
+          "A:198",
+          "A:199",
+          "A:200",
+          "A:201",
+          "A:202",
+          "A:203",
+          "A:204",
+          "A:205",
+          "A:206",
+          "A:207",
+          "A:208",
+          "A:209",
+          "A:210",
+          "A:211",
+          "A:224",
+          "A:225",
+          "A:226",
+          "A:227",
+          "A:228",
+          "A:229",
+          "A:230",
+          "A:231",
+          "A:232",
+          "A:233",
+          "A:234",
+          "A:235",
+          "A:236",
+          "A:237",
+          "A:238",
+          "A:239",
+          "A:240",
+          "A:241",
+          "A:242",
+          "A:243",
+          "A:244",
+          "A:245",
+          "A:246",
+          "A:247",
+          "A:248",
+          "A:249",
+          "A:250",
+          "A:251",
+          "A:252",
+          "A:253",
+          "A:254",
+          "A:255",
+          "A:256",
+          "A:257",
+          "A:258",
+          "A:259",
+          "A:260",
+          "A:261",
+          "A:262",
+          "A:263",
+          "A:264",
+          "A:265",
+          "A:266",
+          "A:267",
+          "A:268",
+          "A:269",
+          "A:270",
+          "A:271",
+          "A:272",
+          "A:273",
+          "A:274",
+          "A:275",
+          "A:276",
+          "A:277",
+          "A:278",
+          "A:279",
+          "A:280",
+          "A:281",
+          "A:282",
+          "A:283",
+          "A:284",
+          "A:285",
+          "A:286",
+          "A:287",
+          "A:288",
+          "A:289",
+          "A:290",
+          "A:291",
+          "A:292",
+          "A:293",
+          "A:294",
+          "A:295",
+          "A:296",
+          "A:297",
+          "A:298",
+          "A:299",
+          "A:300",
+          "A:301",
+          "A:302",
+          "A:303",
+          "A:304",
+          "A:305",
+          "A:306",
+          "A:307",
+          "A:308",
+          "A:309",
+          "A:310",
+          "A:311",
+          "A:312"
+        ],
+        "loop_residue_ids": [
+          "A:gap211_224.long.01",
+          "A:gap211_224.long.02",
+          "A:gap211_224.long.03",
+          "A:gap211_224.long.04",
+          "A:gap211_224.long.05",
+          "A:gap211_224.long.06",
+          "A:gap211_224.long.07",
+          "A:gap211_224.long.08",
+          "A:gap211_224.long.09",
+          "A:gap211_224.long.10",
+          "A:gap211_224.long.11",
+          "A:gap211_224.long.12",
+          "A:gap211_224.long.13",
+          "A:gap211_224.long.14",
+          "A:gap211_224.long.15",
+          "A:gap211_224.long.16"
+        ],
+        "left_junction_residue_id": "A:211",
+        "right_junction_residue_id": "A:224",
+        "resolved_core_tm_score_minimum": 0.75,
+        "resolved_core_rmsd_angstrom_maximum": 3.0,
+        "counterpart_tm_score_minimum": 0.7,
+        "counterpart_rmsd_angstrom_maximum": 3.5,
+        "resolved_core_mean_plddt_minimum": 70.0,
+        "junction_cn_distance_angstrom_minimum": 1.15,
+        "junction_cn_distance_angstrom_maximum": 1.55,
+        "loop_core_nonbonded_distance_angstrom_minimum": 2.0
+      },
+      "binding_parameters": {}
+    },
+    {
+      "node_id": "merge-sequences",
+      "node_type_id": "collection_ops.concat_candidates",
+      "node_type_version": "3.0.0",
+      "binding_id": "collection_ops.concat_candidates.direct",
+      "binding_version": "3.0.0",
+      "node_parameters": {},
+      "binding_parameters": {}
+    },
+    {
+      "node_id": "merge-counterparts",
+      "node_type_id": "collection_ops.concat_candidates",
+      "node_type_version": "3.0.0",
+      "binding_id": "collection_ops.concat_candidates.direct",
+      "binding_version": "3.0.0",
+      "node_parameters": {},
+      "binding_parameters": {}
+    },
+    {
+      "node_id": "merge-reconstructions",
+      "node_type_id": "collection_ops.concat_candidates",
+      "node_type_version": "3.0.0",
+      "binding_id": "collection_ops.concat_candidates.direct",
+      "binding_version": "3.0.0",
+      "node_parameters": {},
+      "binding_parameters": {}
+    },
+    {
+      "node_id": "merge-folds",
+      "node_type_id": "collection_ops.concat_candidates",
+      "node_type_version": "3.0.0",
+      "binding_id": "collection_ops.concat_candidates.direct",
+      "binding_version": "3.0.0",
+      "node_parameters": {},
+      "binding_parameters": {}
+    },
+    {
+      "node_id": "merge-passing",
+      "node_type_id": "collection_ops.concat_candidates",
+      "node_type_version": "3.0.0",
+      "binding_id": "collection_ops.concat_candidates.direct",
+      "binding_version": "3.0.0",
+      "node_parameters": {},
+      "binding_parameters": {}
+    },
+    {
+      "node_id": "merge-counterpart-pairings",
+      "node_type_id": "collection_ops.concat_pairings",
+      "node_type_version": "3.0.0",
+      "binding_id": "collection_ops.concat_pairings.direct",
+      "binding_version": "3.0.0",
+      "node_parameters": {},
+      "binding_parameters": {}
+    },
+    {
+      "node_id": "merge-fold-counterpart-pairings",
+      "node_type_id": "collection_ops.concat_pairings",
+      "node_type_version": "3.0.0",
+      "binding_id": "collection_ops.concat_pairings.direct",
+      "binding_version": "3.0.0",
+      "node_parameters": {},
+      "binding_parameters": {}
+    },
+    {
+      "node_id": "export-folds",
+      "node_type_id": "protein_io.export_structure",
+      "node_type_version": "5.0.0",
+      "binding_id": "protein_io.export_structure.direct",
+      "binding_version": "5.0.0",
+      "node_parameters": {},
+      "binding_parameters": {}
+    }
+  ],
+  "edges": [
+    {
+      "source_node_id": "import-input",
+      "source_port": "structure_candidates",
+      "target_node_id": "select-chain-a",
+      "target_port": "structure_candidates"
+    },
+    {
+      "source_node_id": "select-chain-a",
+      "source_port": "structure_candidates",
+      "target_node_id": "resolve-reference",
+      "target_port": "structure_candidates"
+    },
+    {
+      "source_node_id": "select-chain-a",
+      "source_port": "structure_candidates",
+      "target_node_id": "project-reference-axis",
+      "target_port": "structure_candidates"
+    },
+    {
+      "source_node_id": "resolve-reference",
+      "source_port": "residue_axes",
+      "target_node_id": "project-reference-axis",
+      "target_port": "residue_axes"
+    },
+    {
+      "source_node_id": "project-reference-axis",
+      "source_port": "residue_axis",
+      "target_node_id": "author-base-prompt",
+      "target_port": "residue_axis"
+    },
+    {
+      "source_node_id": "author-base-prompt",
+      "source_port": "protein_prompt",
+      "target_node_id": "insert-shorter-8",
+      "target_port": "protein_prompt"
+    },
+    {
+      "source_node_id": "insert-shorter-8",
+      "source_port": "protein_prompt",
+      "target_node_id": "generate-shorter-8",
+      "target_port": "protein_prompt"
+    },
+    {
+      "source_node_id": "generate-shorter-8",
+      "source_port": "structure_candidates",
+      "target_node_id": "materialize-generation-confidence-shorter-8",
+      "target_port": "structure_candidates"
+    },
+    {
+      "source_node_id": "generate-shorter-8",
+      "source_port": "confidence_facts",
+      "target_node_id": "materialize-generation-confidence-shorter-8",
+      "target_port": "confidence_facts"
+    },
+    {
+      "source_node_id": "generate-shorter-8",
+      "source_port": "sequence_candidates",
+      "target_node_id": "fold-shorter-8",
+      "target_port": "sequence_candidates"
+    },
+    {
+      "source_node_id": "fold-shorter-8",
+      "source_port": "structure_candidates",
+      "target_node_id": "materialize-confidence-shorter-8",
+      "target_port": "structure_candidates"
+    },
+    {
+      "source_node_id": "fold-shorter-8",
+      "source_port": "confidence_facts",
+      "target_node_id": "materialize-confidence-shorter-8",
+      "target_port": "confidence_facts"
+    },
+    {
+      "source_node_id": "fold-shorter-8",
+      "source_port": "structure_candidates",
+      "target_node_id": "resolve-folds-shorter-8",
+      "target_port": "structure_candidates"
+    },
+    {
+      "source_node_id": "generate-shorter-8",
+      "source_port": "structure_candidates",
+      "target_node_id": "resolve-counterparts-shorter-8",
+      "target_port": "structure_candidates"
+    },
+    {
+      "source_node_id": "fold-shorter-8",
+      "source_port": "structure_candidates",
+      "target_node_id": "align-core-shorter-8",
+      "target_port": "subjects"
+    },
+    {
+      "source_node_id": "resolve-folds-shorter-8",
+      "source_port": "residue_axes",
+      "target_node_id": "align-core-shorter-8",
+      "target_port": "subject_residue_axes"
+    },
+    {
+      "source_node_id": "select-chain-a",
+      "source_port": "structure_candidates",
+      "target_node_id": "align-core-shorter-8",
+      "target_port": "references"
+    },
+    {
+      "source_node_id": "resolve-reference",
+      "source_port": "residue_axes",
+      "target_node_id": "align-core-shorter-8",
+      "target_port": "reference_residue_axes"
+    },
+    {
+      "source_node_id": "align-core-shorter-8",
+      "source_port": "alignments",
+      "target_node_id": "tm-core-shorter-8",
+      "target_port": "alignments"
+    },
+    {
+      "source_node_id": "fold-shorter-8",
+      "source_port": "structure_candidates",
+      "target_node_id": "tm-core-shorter-8",
+      "target_port": "subjects"
+    },
+    {
+      "source_node_id": "select-chain-a",
+      "source_port": "structure_candidates",
+      "target_node_id": "tm-core-shorter-8",
+      "target_port": "references"
+    },
+    {
+      "source_node_id": "align-core-shorter-8",
+      "source_port": "alignments",
+      "target_node_id": "rmsd-core-shorter-8",
+      "target_port": "alignments"
+    },
+    {
+      "source_node_id": "fold-shorter-8",
+      "source_port": "structure_candidates",
+      "target_node_id": "rmsd-core-shorter-8",
+      "target_port": "subjects"
+    },
+    {
+      "source_node_id": "select-chain-a",
+      "source_port": "structure_candidates",
+      "target_node_id": "rmsd-core-shorter-8",
+      "target_port": "references"
+    },
+    {
+      "source_node_id": "fold-shorter-8",
+      "source_port": "structure_candidates",
+      "target_node_id": "pair-fold-counterpart-shorter-8",
+      "target_port": "subjects"
+    },
+    {
+      "source_node_id": "generate-shorter-8",
+      "source_port": "sequence_candidates",
+      "target_node_id": "pair-fold-counterpart-shorter-8",
+      "target_port": "parents"
+    },
+    {
+      "source_node_id": "generate-shorter-8",
+      "source_port": "structure_candidates",
+      "target_node_id": "pair-fold-counterpart-shorter-8",
+      "target_port": "references"
+    },
+    {
+      "source_node_id": "generate-shorter-8",
+      "source_port": "counterpart_pairs",
+      "target_node_id": "pair-fold-counterpart-shorter-8",
+      "target_port": "parent_pairing"
+    },
+    {
+      "source_node_id": "fold-shorter-8",
+      "source_port": "structure_candidates",
+      "target_node_id": "align-counterpart-shorter-8",
+      "target_port": "subjects"
+    },
+    {
+      "source_node_id": "resolve-folds-shorter-8",
+      "source_port": "residue_axes",
+      "target_node_id": "align-counterpart-shorter-8",
+      "target_port": "subject_residue_axes"
+    },
+    {
+      "source_node_id": "generate-shorter-8",
+      "source_port": "structure_candidates",
+      "target_node_id": "align-counterpart-shorter-8",
+      "target_port": "references"
+    },
+    {
+      "source_node_id": "resolve-counterparts-shorter-8",
+      "source_port": "residue_axes",
+      "target_node_id": "align-counterpart-shorter-8",
+      "target_port": "reference_residue_axes"
+    },
+    {
+      "source_node_id": "pair-fold-counterpart-shorter-8",
+      "source_port": "pairing",
+      "target_node_id": "align-counterpart-shorter-8",
+      "target_port": "pairing"
+    },
+    {
+      "source_node_id": "align-counterpart-shorter-8",
+      "source_port": "alignments",
+      "target_node_id": "tm-counterpart-shorter-8",
+      "target_port": "alignments"
+    },
+    {
+      "source_node_id": "fold-shorter-8",
+      "source_port": "structure_candidates",
+      "target_node_id": "tm-counterpart-shorter-8",
+      "target_port": "subjects"
+    },
+    {
+      "source_node_id": "generate-shorter-8",
+      "source_port": "structure_candidates",
+      "target_node_id": "tm-counterpart-shorter-8",
+      "target_port": "references"
+    },
+    {
+      "source_node_id": "pair-fold-counterpart-shorter-8",
+      "source_port": "pairing",
+      "target_node_id": "tm-counterpart-shorter-8",
+      "target_port": "pairing"
+    },
+    {
+      "source_node_id": "align-counterpart-shorter-8",
+      "source_port": "alignments",
+      "target_node_id": "rmsd-counterpart-shorter-8",
+      "target_port": "alignments"
+    },
+    {
+      "source_node_id": "fold-shorter-8",
+      "source_port": "structure_candidates",
+      "target_node_id": "rmsd-counterpart-shorter-8",
+      "target_port": "subjects"
+    },
+    {
+      "source_node_id": "generate-shorter-8",
+      "source_port": "structure_candidates",
+      "target_node_id": "rmsd-counterpart-shorter-8",
+      "target_port": "references"
+    },
+    {
+      "source_node_id": "pair-fold-counterpart-shorter-8",
+      "source_port": "pairing",
+      "target_node_id": "rmsd-counterpart-shorter-8",
+      "target_port": "pairing"
+    },
+    {
+      "source_node_id": "fold-shorter-8",
+      "source_port": "structure_candidates",
+      "target_node_id": "evaluate-shorter-8",
+      "target_port": "subjects"
+    },
+    {
+      "source_node_id": "resolve-folds-shorter-8",
+      "source_port": "residue_axes",
+      "target_node_id": "evaluate-shorter-8",
+      "target_port": "subject_residue_axes"
+    },
+    {
+      "source_node_id": "select-chain-a",
+      "source_port": "structure_candidates",
+      "target_node_id": "evaluate-shorter-8",
+      "target_port": "references"
+    },
+    {
+      "source_node_id": "generate-shorter-8",
+      "source_port": "structure_candidates",
+      "target_node_id": "evaluate-shorter-8",
+      "target_port": "counterparts"
+    },
+    {
+      "source_node_id": "pair-fold-counterpart-shorter-8",
+      "source_port": "pairing",
+      "target_node_id": "evaluate-shorter-8",
+      "target_port": "counterpart_pairing"
+    },
+    {
+      "source_node_id": "align-core-shorter-8",
+      "source_port": "alignments",
+      "target_node_id": "evaluate-shorter-8",
+      "target_port": "resolved_core_alignments"
+    },
+    {
+      "source_node_id": "tm-core-shorter-8",
+      "source_port": "scores",
+      "target_node_id": "evaluate-shorter-8",
+      "target_port": "resolved_core_tm_scores"
+    },
+    {
+      "source_node_id": "rmsd-core-shorter-8",
+      "source_port": "scores",
+      "target_node_id": "evaluate-shorter-8",
+      "target_port": "resolved_core_rmsd_scores"
+    },
+    {
+      "source_node_id": "align-counterpart-shorter-8",
+      "source_port": "alignments",
+      "target_node_id": "evaluate-shorter-8",
+      "target_port": "counterpart_alignments"
+    },
+    {
+      "source_node_id": "tm-counterpart-shorter-8",
+      "source_port": "scores",
+      "target_node_id": "evaluate-shorter-8",
+      "target_port": "counterpart_tm_scores"
+    },
+    {
+      "source_node_id": "rmsd-counterpart-shorter-8",
+      "source_port": "scores",
+      "target_node_id": "evaluate-shorter-8",
+      "target_port": "counterpart_rmsd_scores"
+    },
+    {
+      "source_node_id": "materialize-confidence-shorter-8",
+      "source_port": "observations",
+      "target_node_id": "evaluate-shorter-8",
+      "target_port": "confidence_observations"
+    },
+    {
+      "source_node_id": "author-base-prompt",
+      "source_port": "protein_prompt",
+      "target_node_id": "insert-numbering-implied-12",
+      "target_port": "protein_prompt"
+    },
+    {
+      "source_node_id": "insert-numbering-implied-12",
+      "source_port": "protein_prompt",
+      "target_node_id": "generate-numbering-implied-12",
+      "target_port": "protein_prompt"
+    },
+    {
+      "source_node_id": "generate-numbering-implied-12",
+      "source_port": "structure_candidates",
+      "target_node_id": "materialize-generation-confidence-numbering-implied-12",
+      "target_port": "structure_candidates"
+    },
+    {
+      "source_node_id": "generate-numbering-implied-12",
+      "source_port": "confidence_facts",
+      "target_node_id": "materialize-generation-confidence-numbering-implied-12",
+      "target_port": "confidence_facts"
+    },
+    {
+      "source_node_id": "generate-numbering-implied-12",
+      "source_port": "sequence_candidates",
+      "target_node_id": "fold-numbering-implied-12",
+      "target_port": "sequence_candidates"
+    },
+    {
+      "source_node_id": "fold-numbering-implied-12",
+      "source_port": "structure_candidates",
+      "target_node_id": "materialize-confidence-numbering-implied-12",
+      "target_port": "structure_candidates"
+    },
+    {
+      "source_node_id": "fold-numbering-implied-12",
+      "source_port": "confidence_facts",
+      "target_node_id": "materialize-confidence-numbering-implied-12",
+      "target_port": "confidence_facts"
+    },
+    {
+      "source_node_id": "fold-numbering-implied-12",
+      "source_port": "structure_candidates",
+      "target_node_id": "resolve-folds-numbering-implied-12",
+      "target_port": "structure_candidates"
+    },
+    {
+      "source_node_id": "generate-numbering-implied-12",
+      "source_port": "structure_candidates",
+      "target_node_id": "resolve-counterparts-numbering-implied-12",
+      "target_port": "structure_candidates"
+    },
+    {
+      "source_node_id": "fold-numbering-implied-12",
+      "source_port": "structure_candidates",
+      "target_node_id": "align-core-numbering-implied-12",
+      "target_port": "subjects"
+    },
+    {
+      "source_node_id": "resolve-folds-numbering-implied-12",
+      "source_port": "residue_axes",
+      "target_node_id": "align-core-numbering-implied-12",
+      "target_port": "subject_residue_axes"
+    },
+    {
+      "source_node_id": "select-chain-a",
+      "source_port": "structure_candidates",
+      "target_node_id": "align-core-numbering-implied-12",
+      "target_port": "references"
+    },
+    {
+      "source_node_id": "resolve-reference",
+      "source_port": "residue_axes",
+      "target_node_id": "align-core-numbering-implied-12",
+      "target_port": "reference_residue_axes"
+    },
+    {
+      "source_node_id": "align-core-numbering-implied-12",
+      "source_port": "alignments",
+      "target_node_id": "tm-core-numbering-implied-12",
+      "target_port": "alignments"
+    },
+    {
+      "source_node_id": "fold-numbering-implied-12",
+      "source_port": "structure_candidates",
+      "target_node_id": "tm-core-numbering-implied-12",
+      "target_port": "subjects"
+    },
+    {
+      "source_node_id": "select-chain-a",
+      "source_port": "structure_candidates",
+      "target_node_id": "tm-core-numbering-implied-12",
+      "target_port": "references"
+    },
+    {
+      "source_node_id": "align-core-numbering-implied-12",
+      "source_port": "alignments",
+      "target_node_id": "rmsd-core-numbering-implied-12",
+      "target_port": "alignments"
+    },
+    {
+      "source_node_id": "fold-numbering-implied-12",
+      "source_port": "structure_candidates",
+      "target_node_id": "rmsd-core-numbering-implied-12",
+      "target_port": "subjects"
+    },
+    {
+      "source_node_id": "select-chain-a",
+      "source_port": "structure_candidates",
+      "target_node_id": "rmsd-core-numbering-implied-12",
+      "target_port": "references"
+    },
+    {
+      "source_node_id": "fold-numbering-implied-12",
+      "source_port": "structure_candidates",
+      "target_node_id": "pair-fold-counterpart-numbering-implied-12",
+      "target_port": "subjects"
+    },
+    {
+      "source_node_id": "generate-numbering-implied-12",
+      "source_port": "sequence_candidates",
+      "target_node_id": "pair-fold-counterpart-numbering-implied-12",
+      "target_port": "parents"
+    },
+    {
+      "source_node_id": "generate-numbering-implied-12",
+      "source_port": "structure_candidates",
+      "target_node_id": "pair-fold-counterpart-numbering-implied-12",
+      "target_port": "references"
+    },
+    {
+      "source_node_id": "generate-numbering-implied-12",
+      "source_port": "counterpart_pairs",
+      "target_node_id": "pair-fold-counterpart-numbering-implied-12",
+      "target_port": "parent_pairing"
+    },
+    {
+      "source_node_id": "fold-numbering-implied-12",
+      "source_port": "structure_candidates",
+      "target_node_id": "align-counterpart-numbering-implied-12",
+      "target_port": "subjects"
+    },
+    {
+      "source_node_id": "resolve-folds-numbering-implied-12",
+      "source_port": "residue_axes",
+      "target_node_id": "align-counterpart-numbering-implied-12",
+      "target_port": "subject_residue_axes"
+    },
+    {
+      "source_node_id": "generate-numbering-implied-12",
+      "source_port": "structure_candidates",
+      "target_node_id": "align-counterpart-numbering-implied-12",
+      "target_port": "references"
+    },
+    {
+      "source_node_id": "resolve-counterparts-numbering-implied-12",
+      "source_port": "residue_axes",
+      "target_node_id": "align-counterpart-numbering-implied-12",
+      "target_port": "reference_residue_axes"
+    },
+    {
+      "source_node_id": "pair-fold-counterpart-numbering-implied-12",
+      "source_port": "pairing",
+      "target_node_id": "align-counterpart-numbering-implied-12",
+      "target_port": "pairing"
+    },
+    {
+      "source_node_id": "align-counterpart-numbering-implied-12",
+      "source_port": "alignments",
+      "target_node_id": "tm-counterpart-numbering-implied-12",
+      "target_port": "alignments"
+    },
+    {
+      "source_node_id": "fold-numbering-implied-12",
+      "source_port": "structure_candidates",
+      "target_node_id": "tm-counterpart-numbering-implied-12",
+      "target_port": "subjects"
+    },
+    {
+      "source_node_id": "generate-numbering-implied-12",
+      "source_port": "structure_candidates",
+      "target_node_id": "tm-counterpart-numbering-implied-12",
+      "target_port": "references"
+    },
+    {
+      "source_node_id": "pair-fold-counterpart-numbering-implied-12",
+      "source_port": "pairing",
+      "target_node_id": "tm-counterpart-numbering-implied-12",
+      "target_port": "pairing"
+    },
+    {
+      "source_node_id": "align-counterpart-numbering-implied-12",
+      "source_port": "alignments",
+      "target_node_id": "rmsd-counterpart-numbering-implied-12",
+      "target_port": "alignments"
+    },
+    {
+      "source_node_id": "fold-numbering-implied-12",
+      "source_port": "structure_candidates",
+      "target_node_id": "rmsd-counterpart-numbering-implied-12",
+      "target_port": "subjects"
+    },
+    {
+      "source_node_id": "generate-numbering-implied-12",
+      "source_port": "structure_candidates",
+      "target_node_id": "rmsd-counterpart-numbering-implied-12",
+      "target_port": "references"
+    },
+    {
+      "source_node_id": "pair-fold-counterpart-numbering-implied-12",
+      "source_port": "pairing",
+      "target_node_id": "rmsd-counterpart-numbering-implied-12",
+      "target_port": "pairing"
+    },
+    {
+      "source_node_id": "fold-numbering-implied-12",
+      "source_port": "structure_candidates",
+      "target_node_id": "evaluate-numbering-implied-12",
+      "target_port": "subjects"
+    },
+    {
+      "source_node_id": "resolve-folds-numbering-implied-12",
+      "source_port": "residue_axes",
+      "target_node_id": "evaluate-numbering-implied-12",
+      "target_port": "subject_residue_axes"
+    },
+    {
+      "source_node_id": "select-chain-a",
+      "source_port": "structure_candidates",
+      "target_node_id": "evaluate-numbering-implied-12",
+      "target_port": "references"
+    },
+    {
+      "source_node_id": "generate-numbering-implied-12",
+      "source_port": "structure_candidates",
+      "target_node_id": "evaluate-numbering-implied-12",
+      "target_port": "counterparts"
+    },
+    {
+      "source_node_id": "pair-fold-counterpart-numbering-implied-12",
+      "source_port": "pairing",
+      "target_node_id": "evaluate-numbering-implied-12",
+      "target_port": "counterpart_pairing"
+    },
+    {
+      "source_node_id": "align-core-numbering-implied-12",
+      "source_port": "alignments",
+      "target_node_id": "evaluate-numbering-implied-12",
+      "target_port": "resolved_core_alignments"
+    },
+    {
+      "source_node_id": "tm-core-numbering-implied-12",
+      "source_port": "scores",
+      "target_node_id": "evaluate-numbering-implied-12",
+      "target_port": "resolved_core_tm_scores"
+    },
+    {
+      "source_node_id": "rmsd-core-numbering-implied-12",
+      "source_port": "scores",
+      "target_node_id": "evaluate-numbering-implied-12",
+      "target_port": "resolved_core_rmsd_scores"
+    },
+    {
+      "source_node_id": "align-counterpart-numbering-implied-12",
+      "source_port": "alignments",
+      "target_node_id": "evaluate-numbering-implied-12",
+      "target_port": "counterpart_alignments"
+    },
+    {
+      "source_node_id": "tm-counterpart-numbering-implied-12",
+      "source_port": "scores",
+      "target_node_id": "evaluate-numbering-implied-12",
+      "target_port": "counterpart_tm_scores"
+    },
+    {
+      "source_node_id": "rmsd-counterpart-numbering-implied-12",
+      "source_port": "scores",
+      "target_node_id": "evaluate-numbering-implied-12",
+      "target_port": "counterpart_rmsd_scores"
+    },
+    {
+      "source_node_id": "materialize-confidence-numbering-implied-12",
+      "source_port": "observations",
+      "target_node_id": "evaluate-numbering-implied-12",
+      "target_port": "confidence_observations"
+    },
+    {
+      "source_node_id": "author-base-prompt",
+      "source_port": "protein_prompt",
+      "target_node_id": "insert-longer-16",
+      "target_port": "protein_prompt"
+    },
+    {
+      "source_node_id": "insert-longer-16",
+      "source_port": "protein_prompt",
+      "target_node_id": "generate-longer-16",
+      "target_port": "protein_prompt"
+    },
+    {
+      "source_node_id": "generate-longer-16",
+      "source_port": "structure_candidates",
+      "target_node_id": "materialize-generation-confidence-longer-16",
+      "target_port": "structure_candidates"
+    },
+    {
+      "source_node_id": "generate-longer-16",
+      "source_port": "confidence_facts",
+      "target_node_id": "materialize-generation-confidence-longer-16",
+      "target_port": "confidence_facts"
+    },
+    {
+      "source_node_id": "generate-longer-16",
+      "source_port": "sequence_candidates",
+      "target_node_id": "fold-longer-16",
+      "target_port": "sequence_candidates"
+    },
+    {
+      "source_node_id": "fold-longer-16",
+      "source_port": "structure_candidates",
+      "target_node_id": "materialize-confidence-longer-16",
+      "target_port": "structure_candidates"
+    },
+    {
+      "source_node_id": "fold-longer-16",
+      "source_port": "confidence_facts",
+      "target_node_id": "materialize-confidence-longer-16",
+      "target_port": "confidence_facts"
+    },
+    {
+      "source_node_id": "fold-longer-16",
+      "source_port": "structure_candidates",
+      "target_node_id": "resolve-folds-longer-16",
+      "target_port": "structure_candidates"
+    },
+    {
+      "source_node_id": "generate-longer-16",
+      "source_port": "structure_candidates",
+      "target_node_id": "resolve-counterparts-longer-16",
+      "target_port": "structure_candidates"
+    },
+    {
+      "source_node_id": "fold-longer-16",
+      "source_port": "structure_candidates",
+      "target_node_id": "align-core-longer-16",
+      "target_port": "subjects"
+    },
+    {
+      "source_node_id": "resolve-folds-longer-16",
+      "source_port": "residue_axes",
+      "target_node_id": "align-core-longer-16",
+      "target_port": "subject_residue_axes"
+    },
+    {
+      "source_node_id": "select-chain-a",
+      "source_port": "structure_candidates",
+      "target_node_id": "align-core-longer-16",
+      "target_port": "references"
+    },
+    {
+      "source_node_id": "resolve-reference",
+      "source_port": "residue_axes",
+      "target_node_id": "align-core-longer-16",
+      "target_port": "reference_residue_axes"
+    },
+    {
+      "source_node_id": "align-core-longer-16",
+      "source_port": "alignments",
+      "target_node_id": "tm-core-longer-16",
+      "target_port": "alignments"
+    },
+    {
+      "source_node_id": "fold-longer-16",
+      "source_port": "structure_candidates",
+      "target_node_id": "tm-core-longer-16",
+      "target_port": "subjects"
+    },
+    {
+      "source_node_id": "select-chain-a",
+      "source_port": "structure_candidates",
+      "target_node_id": "tm-core-longer-16",
+      "target_port": "references"
+    },
+    {
+      "source_node_id": "align-core-longer-16",
+      "source_port": "alignments",
+      "target_node_id": "rmsd-core-longer-16",
+      "target_port": "alignments"
+    },
+    {
+      "source_node_id": "fold-longer-16",
+      "source_port": "structure_candidates",
+      "target_node_id": "rmsd-core-longer-16",
+      "target_port": "subjects"
+    },
+    {
+      "source_node_id": "select-chain-a",
+      "source_port": "structure_candidates",
+      "target_node_id": "rmsd-core-longer-16",
+      "target_port": "references"
+    },
+    {
+      "source_node_id": "fold-longer-16",
+      "source_port": "structure_candidates",
+      "target_node_id": "pair-fold-counterpart-longer-16",
+      "target_port": "subjects"
+    },
+    {
+      "source_node_id": "generate-longer-16",
+      "source_port": "sequence_candidates",
+      "target_node_id": "pair-fold-counterpart-longer-16",
+      "target_port": "parents"
+    },
+    {
+      "source_node_id": "generate-longer-16",
+      "source_port": "structure_candidates",
+      "target_node_id": "pair-fold-counterpart-longer-16",
+      "target_port": "references"
+    },
+    {
+      "source_node_id": "generate-longer-16",
+      "source_port": "counterpart_pairs",
+      "target_node_id": "pair-fold-counterpart-longer-16",
+      "target_port": "parent_pairing"
+    },
+    {
+      "source_node_id": "fold-longer-16",
+      "source_port": "structure_candidates",
+      "target_node_id": "align-counterpart-longer-16",
+      "target_port": "subjects"
+    },
+    {
+      "source_node_id": "resolve-folds-longer-16",
+      "source_port": "residue_axes",
+      "target_node_id": "align-counterpart-longer-16",
+      "target_port": "subject_residue_axes"
+    },
+    {
+      "source_node_id": "generate-longer-16",
+      "source_port": "structure_candidates",
+      "target_node_id": "align-counterpart-longer-16",
+      "target_port": "references"
+    },
+    {
+      "source_node_id": "resolve-counterparts-longer-16",
+      "source_port": "residue_axes",
+      "target_node_id": "align-counterpart-longer-16",
+      "target_port": "reference_residue_axes"
+    },
+    {
+      "source_node_id": "pair-fold-counterpart-longer-16",
+      "source_port": "pairing",
+      "target_node_id": "align-counterpart-longer-16",
+      "target_port": "pairing"
+    },
+    {
+      "source_node_id": "align-counterpart-longer-16",
+      "source_port": "alignments",
+      "target_node_id": "tm-counterpart-longer-16",
+      "target_port": "alignments"
+    },
+    {
+      "source_node_id": "fold-longer-16",
+      "source_port": "structure_candidates",
+      "target_node_id": "tm-counterpart-longer-16",
+      "target_port": "subjects"
+    },
+    {
+      "source_node_id": "generate-longer-16",
+      "source_port": "structure_candidates",
+      "target_node_id": "tm-counterpart-longer-16",
+      "target_port": "references"
+    },
+    {
+      "source_node_id": "pair-fold-counterpart-longer-16",
+      "source_port": "pairing",
+      "target_node_id": "tm-counterpart-longer-16",
+      "target_port": "pairing"
+    },
+    {
+      "source_node_id": "align-counterpart-longer-16",
+      "source_port": "alignments",
+      "target_node_id": "rmsd-counterpart-longer-16",
+      "target_port": "alignments"
+    },
+    {
+      "source_node_id": "fold-longer-16",
+      "source_port": "structure_candidates",
+      "target_node_id": "rmsd-counterpart-longer-16",
+      "target_port": "subjects"
+    },
+    {
+      "source_node_id": "generate-longer-16",
+      "source_port": "structure_candidates",
+      "target_node_id": "rmsd-counterpart-longer-16",
+      "target_port": "references"
+    },
+    {
+      "source_node_id": "pair-fold-counterpart-longer-16",
+      "source_port": "pairing",
+      "target_node_id": "rmsd-counterpart-longer-16",
+      "target_port": "pairing"
+    },
+    {
+      "source_node_id": "fold-longer-16",
+      "source_port": "structure_candidates",
+      "target_node_id": "evaluate-longer-16",
+      "target_port": "subjects"
+    },
+    {
+      "source_node_id": "resolve-folds-longer-16",
+      "source_port": "residue_axes",
+      "target_node_id": "evaluate-longer-16",
+      "target_port": "subject_residue_axes"
+    },
+    {
+      "source_node_id": "select-chain-a",
+      "source_port": "structure_candidates",
+      "target_node_id": "evaluate-longer-16",
+      "target_port": "references"
+    },
+    {
+      "source_node_id": "generate-longer-16",
+      "source_port": "structure_candidates",
+      "target_node_id": "evaluate-longer-16",
+      "target_port": "counterparts"
+    },
+    {
+      "source_node_id": "pair-fold-counterpart-longer-16",
+      "source_port": "pairing",
+      "target_node_id": "evaluate-longer-16",
+      "target_port": "counterpart_pairing"
+    },
+    {
+      "source_node_id": "align-core-longer-16",
+      "source_port": "alignments",
+      "target_node_id": "evaluate-longer-16",
+      "target_port": "resolved_core_alignments"
+    },
+    {
+      "source_node_id": "tm-core-longer-16",
+      "source_port": "scores",
+      "target_node_id": "evaluate-longer-16",
+      "target_port": "resolved_core_tm_scores"
+    },
+    {
+      "source_node_id": "rmsd-core-longer-16",
+      "source_port": "scores",
+      "target_node_id": "evaluate-longer-16",
+      "target_port": "resolved_core_rmsd_scores"
+    },
+    {
+      "source_node_id": "align-counterpart-longer-16",
+      "source_port": "alignments",
+      "target_node_id": "evaluate-longer-16",
+      "target_port": "counterpart_alignments"
+    },
+    {
+      "source_node_id": "tm-counterpart-longer-16",
+      "source_port": "scores",
+      "target_node_id": "evaluate-longer-16",
+      "target_port": "counterpart_tm_scores"
+    },
+    {
+      "source_node_id": "rmsd-counterpart-longer-16",
+      "source_port": "scores",
+      "target_node_id": "evaluate-longer-16",
+      "target_port": "counterpart_rmsd_scores"
+    },
+    {
+      "source_node_id": "materialize-confidence-longer-16",
+      "source_port": "observations",
+      "target_node_id": "evaluate-longer-16",
+      "target_port": "confidence_observations"
+    },
+    {
+      "source_node_id": "generate-shorter-8",
+      "source_port": "sequence_candidates",
+      "target_node_id": "merge-sequences",
+      "target_port": "candidates_a"
+    },
+    {
+      "source_node_id": "generate-numbering-implied-12",
+      "source_port": "sequence_candidates",
+      "target_node_id": "merge-sequences",
+      "target_port": "candidates_b"
+    },
+    {
+      "source_node_id": "generate-longer-16",
+      "source_port": "sequence_candidates",
+      "target_node_id": "merge-sequences",
+      "target_port": "candidates_c"
+    },
+    {
+      "source_node_id": "generate-shorter-8",
+      "source_port": "structure_candidates",
+      "target_node_id": "merge-counterparts",
+      "target_port": "candidates_a"
+    },
+    {
+      "source_node_id": "generate-numbering-implied-12",
+      "source_port": "structure_candidates",
+      "target_node_id": "merge-counterparts",
+      "target_port": "candidates_b"
+    },
+    {
+      "source_node_id": "generate-longer-16",
+      "source_port": "structure_candidates",
+      "target_node_id": "merge-counterparts",
+      "target_port": "candidates_c"
+    },
+    {
+      "source_node_id": "generate-shorter-8",
+      "source_port": "sequence_reconstruction_candidates",
+      "target_node_id": "merge-reconstructions",
+      "target_port": "candidates_a"
+    },
+    {
+      "source_node_id": "generate-numbering-implied-12",
+      "source_port": "sequence_reconstruction_candidates",
+      "target_node_id": "merge-reconstructions",
+      "target_port": "candidates_b"
+    },
+    {
+      "source_node_id": "generate-longer-16",
+      "source_port": "sequence_reconstruction_candidates",
+      "target_node_id": "merge-reconstructions",
+      "target_port": "candidates_c"
+    },
+    {
+      "source_node_id": "fold-shorter-8",
+      "source_port": "structure_candidates",
+      "target_node_id": "merge-folds",
+      "target_port": "candidates_a"
+    },
+    {
+      "source_node_id": "fold-numbering-implied-12",
+      "source_port": "structure_candidates",
+      "target_node_id": "merge-folds",
+      "target_port": "candidates_b"
+    },
+    {
+      "source_node_id": "fold-longer-16",
+      "source_port": "structure_candidates",
+      "target_node_id": "merge-folds",
+      "target_port": "candidates_c"
+    },
+    {
+      "source_node_id": "evaluate-shorter-8",
+      "source_port": "passing_candidates",
+      "target_node_id": "merge-passing",
+      "target_port": "candidates_a"
+    },
+    {
+      "source_node_id": "evaluate-numbering-implied-12",
+      "source_port": "passing_candidates",
+      "target_node_id": "merge-passing",
+      "target_port": "candidates_b"
+    },
+    {
+      "source_node_id": "evaluate-longer-16",
+      "source_port": "passing_candidates",
+      "target_node_id": "merge-passing",
+      "target_port": "candidates_c"
+    },
+    {
+      "source_node_id": "generate-shorter-8",
+      "source_port": "counterpart_pairs",
+      "target_node_id": "merge-counterpart-pairings",
+      "target_port": "pairing_a"
+    },
+    {
+      "source_node_id": "pair-fold-counterpart-shorter-8",
+      "source_port": "pairing",
+      "target_node_id": "merge-fold-counterpart-pairings",
+      "target_port": "pairing_a"
+    },
+    {
+      "source_node_id": "generate-numbering-implied-12",
+      "source_port": "counterpart_pairs",
+      "target_node_id": "merge-counterpart-pairings",
+      "target_port": "pairing_b"
+    },
+    {
+      "source_node_id": "pair-fold-counterpart-numbering-implied-12",
+      "source_port": "pairing",
+      "target_node_id": "merge-fold-counterpart-pairings",
+      "target_port": "pairing_b"
+    },
+    {
+      "source_node_id": "generate-longer-16",
+      "source_port": "counterpart_pairs",
+      "target_node_id": "merge-counterpart-pairings",
+      "target_port": "pairing_c"
+    },
+    {
+      "source_node_id": "pair-fold-counterpart-longer-16",
+      "source_port": "pairing",
+      "target_node_id": "merge-fold-counterpart-pairings",
+      "target_port": "pairing_c"
+    },
+    {
+      "source_node_id": "merge-folds",
+      "source_port": "candidates",
+      "target_node_id": "export-folds",
+      "target_port": "structures"
+    }
+  ],
+  "observation_selectors": [],
+  "selection_objectives": [],
+  "contract_lock": [
+    {
+      "contract_kind": "binding",
+      "contract_id": "collection_ops.concat_candidates.direct",
+      "contract_version": "3.0.0",
+      "contract_digest": "sha256:1dded77878a201075f0eab47ba4faf2ce18ac6936ca0aecc39b103b9a946f6c8"
+    },
+    {
+      "contract_kind": "binding",
+      "contract_id": "collection_ops.concat_pairings.direct",
+      "contract_version": "3.0.0",
+      "contract_digest": "sha256:c81550a678efb33a532c81cb25b934c1adf18c2a2d3b2c1fff6c18e5ccaa95d0"
+    },
+    {
+      "contract_kind": "binding",
+      "contract_id": "collection_ops.rebind_candidate_pairing.direct",
+      "contract_version": "3.0.0",
+      "contract_digest": "sha256:9bdc167dd8c0f1193c2cf154e5e40132e64ab0d3e6ce3f8207cefdc2798ee84c"
+    },
+    {
+      "contract_kind": "binding",
+      "contract_id": "esm3.generate_paired.biohub_medium",
+      "contract_version": "7.0.0",
+      "contract_digest": "sha256:fd67c0f55575aa85beb8be6232ad734bbb78f9d0f549766b85c7a6eafc503545"
+    },
+    {
+      "contract_kind": "binding",
+      "contract_id": "folding.fold.esmfold2_remote",
+      "contract_version": "7.0.0",
+      "contract_digest": "sha256:cb0781ac3f9e4b42e54c6fa84b96c68169282f91fb2762e14b889e4b4f5748e4"
+    },
+    {
+      "contract_kind": "binding",
+      "contract_id": "prompt_authoring.insert_masked_residues.direct",
+      "contract_version": "3.0.0",
+      "contract_digest": "sha256:a8439db7d35f1764a3078a87967966e1b09d62f50820ac4438d0ca23e1cbdff4"
+    },
+    {
+      "contract_kind": "binding",
+      "contract_id": "prompt_authoring.prompt_from_structure.direct",
+      "contract_version": "5.0.0",
+      "contract_digest": "sha256:e181723c32acb5bb92d8981513d35081f1d53880e44361fa78aec0cbb907881f"
+    },
+    {
+      "contract_kind": "binding",
+      "contract_id": "protein_io.export_structure.direct",
+      "contract_version": "5.0.0",
+      "contract_digest": "sha256:618cb7c27898112f131699b7443de36b442bc6dc53dbe83d038da042cc6421ad"
+    },
+    {
+      "contract_kind": "binding",
+      "contract_id": "protein_io.import_structure.direct",
+      "contract_version": "5.0.0",
+      "contract_digest": "sha256:3cb50990f4d369ff1fcd57d3e8925152a75f8f7b894a8c1a538f8d0767eb9eed"
+    },
+    {
+      "contract_kind": "binding",
+      "contract_id": "structure_comparison.align_counterparts.sequence_primary_affine",
+      "contract_version": "4.0.0",
+      "contract_digest": "sha256:e2c13dada2ad29d4ca20da3ad9ffa1c21f3efdf0dfd95cb05ba5214d8e802a0c"
+    },
+    {
+      "contract_kind": "binding",
+      "contract_id": "structure_comparison.align_fixed_reference.sequence_primary_affine",
+      "contract_version": "4.0.0",
+      "contract_digest": "sha256:e700524ca26e715b03680b3150da0f683060711e58e156691a87a981e9d5f540"
+    },
+    {
+      "contract_kind": "binding",
+      "contract_id": "structure_comparison.evaluate_inserted_loop.direct",
+      "contract_version": "1.0.0",
+      "contract_digest": "sha256:8db8b4650e294414931bc8929dc55a361915d90977d1d5651fb37e8f0593e5c2"
+    },
+    {
+      "contract_kind": "binding",
+      "contract_id": "structure_comparison.rmsd_counterparts.from_alignment_evidence",
+      "contract_version": "5.0.0",
+      "contract_digest": "sha256:fef310704e4692dfe0624109e35611ff7da985782e9f55e4770f4c9369f996ff"
+    },
+    {
+      "contract_kind": "binding",
+      "contract_id": "structure_comparison.rmsd_fixed_reference.from_alignment_evidence",
+      "contract_version": "5.0.0",
+      "contract_digest": "sha256:6a18447e835b0ab3dedac4079b68e5b3175ca20c2b7b6dc0e70ace62ab4320f3"
+    },
+    {
+      "contract_kind": "binding",
+      "contract_id": "structure_comparison.tm_score_counterparts.from_alignment_evidence",
+      "contract_version": "5.0.0",
+      "contract_digest": "sha256:473f56f9c25a9c59810e1b058f10245f78dbd55589fca05a94ff231d68a29efb"
+    },
+    {
+      "contract_kind": "binding",
+      "contract_id": "structure_comparison.tm_score_fixed_reference.from_alignment_evidence",
+      "contract_version": "5.0.0",
+      "contract_digest": "sha256:f730fb4aa94fd0f5a0e7d4ce741f552636195d255c9789551e2d8a1b6fde1a0a"
+    },
+    {
+      "contract_kind": "binding",
+      "contract_id": "structure_prediction.materialize_confidence.direct",
+      "contract_version": "1.0.0",
+      "contract_digest": "sha256:86de8ef9c5ecb9f86ef490cad1304d60b3e81b566c6a735c7fa1886324060021"
+    },
+    {
+      "contract_kind": "binding",
+      "contract_id": "structure_transform.project_single_residue_axis.direct",
+      "contract_version": "1.0.0",
+      "contract_digest": "sha256:ec39bddc1fc5c338c39f068f6744e4014a2d0deeace294a7512c6d50b8c1b395"
+    },
+    {
+      "contract_kind": "binding",
+      "contract_id": "structure_transform.resolve_candidate_residue_axes.direct",
+      "contract_version": "5.0.0",
+      "contract_digest": "sha256:c2899e7a2ed9da8d303f5094a11a672d1c7b9521c719003ba3805d397617d499"
+    },
+    {
+      "contract_kind": "binding",
+      "contract_id": "structure_transform.select_candidate_chains.direct",
+      "contract_version": "3.0.0",
+      "contract_digest": "sha256:430e50efb0e7094b1fc76b930bd04facbc463c569d18ed9361d0b0617b7e7e8f"
+    },
+    {
+      "contract_kind": "method",
+      "contract_id": "collection_ops.concat_candidates.method",
+      "contract_version": "2.1.0",
+      "contract_digest": "sha256:476bdbaef3b6676e108cf4d56d566430b53e72a965234075451bb118be13ff02"
+    },
+    {
+      "contract_kind": "method",
+      "contract_id": "collection_ops.concat_pairings.method",
+      "contract_version": "3.0.0",
+      "contract_digest": "sha256:3c55f4f10eed2380496ddd11e30d1d1cdda2a1d3830c86276c475b6f0144518a"
+    },
+    {
+      "contract_kind": "method",
+      "contract_id": "collection_ops.rebind_candidate_pairing.method",
+      "contract_version": "3.0.0",
+      "contract_digest": "sha256:6f8c1a32e81187a95a83e388cfe1c3b227680d3e7665a7f681162365dd3c3fb7"
+    },
+    {
+      "contract_kind": "method",
+      "contract_id": "esm3.generate_paired.esm3_medium_2024_08",
+      "contract_version": "5.0.0",
+      "contract_digest": "sha256:8fee8cf6dbaa98ccdf39ba1f2e2a7e8be1fa270856c043e19dbc9f5bf9a30607"
+    },
+    {
+      "contract_kind": "method",
+      "contract_id": "folding.fold.esmfold2_fast_biohub_2026_05",
+      "contract_version": "4.0.0",
+      "contract_digest": "sha256:96ba1f830ca71c844cc1ea506e6b60a327b5cf4c17bd0bfc2143b25bf669bee8"
+    },
+    {
+      "contract_kind": "method",
+      "contract_id": "prompt_authoring.insert_masked_residues.method",
+      "contract_version": "2.1.0",
+      "contract_digest": "sha256:32ea05f518633fe2a1969c65eb9437372a6a19bff0825abc71084e42d88bf122"
+    },
+    {
+      "contract_kind": "method",
+      "contract_id": "prompt_authoring.prompt_from_structure.method",
+      "contract_version": "3.0.0",
+      "contract_digest": "sha256:819b14e1305fc52ed0e960dc23c34f14395ca3f63a7f542fb31ee505c1215fb1"
+    },
+    {
+      "contract_kind": "method",
+      "contract_id": "protein_io.export_structure.method",
+      "contract_version": "2.1.0",
+      "contract_digest": "sha256:22e482b413d06a2e1ac6c6ea1c4f42a4b8a564501b4b612c49e5e71b1549e950"
+    },
+    {
+      "contract_kind": "method",
+      "contract_id": "protein_io.import_structure.method",
+      "contract_version": "2.1.0",
+      "contract_digest": "sha256:6c237f98e33b331a781ef348ac26d6955e12f9985d0b798805181bfdfd7f8b52"
+    },
+    {
+      "contract_kind": "method",
+      "contract_id": "structure_comparison.inserted_loop.exact_evidence_gate",
+      "contract_version": "1.0.0",
+      "contract_digest": "sha256:a0e9424768a73ea292266e934c65df9e57f66a65544b4bf66d6cdd1eed084d6a"
+    },
+    {
+      "contract_kind": "method",
+      "contract_id": "structure_comparison.rmsd.from_alignment_evidence.method",
+      "contract_version": "3.0.0",
+      "contract_digest": "sha256:e3fd0502f31ddf8c029ffd862673dbadbcb7e19a844c39fd742d1ca591e7dd99"
+    },
+    {
+      "contract_kind": "method",
+      "contract_id": "structure_comparison.sequence_primary_affine_svd.method",
+      "contract_version": "3.0.0",
+      "contract_digest": "sha256:863f98c327e008e9e5da820470a7c5a6ef72c5911e699cd06487f797e731bb53"
+    },
+    {
+      "contract_kind": "method",
+      "contract_id": "structure_comparison.tm_score.reference_axis_normalized.method",
+      "contract_version": "3.0.0",
+      "contract_digest": "sha256:b3149ada26856dd1f06c9bcdc228c712a5abf1671b3c219b3c03556c2e8b3625"
+    },
+    {
+      "contract_kind": "method",
+      "contract_id": "structure_prediction.materialize_confidence.exact_reference_join",
+      "contract_version": "1.0.0",
+      "contract_digest": "sha256:20157dc9def4fc79cb9f57182eade975ea281b192888a3af985fb2432ce16569"
+    },
+    {
+      "contract_kind": "method",
+      "contract_id": "structure_transform.project_single_residue_axis.method",
+      "contract_version": "1.0.0",
+      "contract_digest": "sha256:3f29c6089d593012460a4d6a13c2854a2f35bb1f44149401b4e4877f007e8e17"
+    },
+    {
+      "contract_kind": "method",
+      "contract_id": "structure_transform.resolve_candidate_residue_axes.method",
+      "contract_version": "3.0.0",
+      "contract_digest": "sha256:f898caefe627a24386bc573606c0a5cae766a30b11f6f78aa64e60cedb78ceff"
+    },
+    {
+      "contract_kind": "method",
+      "contract_id": "structure_transform.select_candidate_chains.method",
+      "contract_version": "3.0.0",
+      "contract_digest": "sha256:34682ee5c5dc30fd418526384fae8d308b89b3932d66a9fc557bf8f1ed290a4c"
+    },
+    {
+      "contract_kind": "metric",
+      "contract_id": "structure.pae",
+      "contract_version": "3.0.0",
+      "contract_digest": "sha256:8b56f157ce05a2add518b1ab3d7f1860c4b861b98b36cac55db1ba215ff6b36c"
+    },
+    {
+      "contract_kind": "metric",
+      "contract_id": "structure.plddt.mean_residue",
+      "contract_version": "3.0.0",
+      "contract_digest": "sha256:f51b9e5fbba31a1a9dbe6c5d724d9f500d1e2ce5d0889d812c82fe73b147399f"
+    },
+    {
+      "contract_kind": "metric",
+      "contract_id": "structure.plddt.per_residue",
+      "contract_version": "3.0.0",
+      "contract_digest": "sha256:25f6cf829620778f7ac889cea552b64132b3123acaece94df03e0be9a679391c"
+    },
+    {
+      "contract_kind": "metric",
+      "contract_id": "structure.ptm",
+      "contract_version": "2.1.0",
+      "contract_digest": "sha256:f58dc87c4199d10aaaa5c4babeba12147e51628475c0738290d63ee530a5f506"
+    },
+    {
+      "contract_kind": "metric",
+      "contract_id": "structure_comparison.rmsd",
+      "contract_version": "3.0.0",
+      "contract_digest": "sha256:dcb428d5d2e9e9d91511004c539d281dd136a964edb7cc7c2a5d9dbda86d5f44"
+    },
+    {
+      "contract_kind": "metric",
+      "contract_id": "structure_comparison.tm_score",
+      "contract_version": "3.0.0",
+      "contract_digest": "sha256:6bbd756040cb0856c6a89d0953826a2cd09002766a5e8257ea24e0e8636b3cb8"
+    },
+    {
+      "contract_kind": "node_type",
+      "contract_id": "collection_ops.concat_candidates",
+      "contract_version": "3.0.0",
+      "contract_digest": "sha256:22deea81734ec782e5ddc45bf4e2ba3e874d2ea73a71121f4b34c9d9531c288c"
+    },
+    {
+      "contract_kind": "node_type",
+      "contract_id": "collection_ops.concat_pairings",
+      "contract_version": "3.0.0",
+      "contract_digest": "sha256:8aee34ea1b7997d32421764b1e2e41f59fbab97087315b3cb5b9e0b3b5dd44f0"
+    },
+    {
+      "contract_kind": "node_type",
+      "contract_id": "collection_ops.rebind_candidate_pairing",
+      "contract_version": "3.0.0",
+      "contract_digest": "sha256:5e50ee6f2707eb6c8b093a6d51503bdfe71591ad0259ee7c7d36bf4207431e01"
+    },
+    {
+      "contract_kind": "node_type",
+      "contract_id": "esm3.generate_paired",
+      "contract_version": "7.0.0",
+      "contract_digest": "sha256:3f202de8eb8a96025f0914b2a86665e9a8c11421470cf78d7d11291168a40b26"
+    },
+    {
+      "contract_kind": "node_type",
+      "contract_id": "folding.fold",
+      "contract_version": "6.0.0",
+      "contract_digest": "sha256:a035be76549d73bd861577478eec02edea5391f19c5a0633855f69e586cef9e9"
+    },
+    {
+      "contract_kind": "node_type",
+      "contract_id": "prompt_authoring.insert_masked_residues",
+      "contract_version": "3.0.0",
+      "contract_digest": "sha256:c50f91aeb56bdb7810897bbec5df0a1a1c8e2175d57f9d4d724a317389e4e109"
+    },
+    {
+      "contract_kind": "node_type",
+      "contract_id": "prompt_authoring.prompt_from_structure",
+      "contract_version": "5.0.0",
+      "contract_digest": "sha256:2cb1ff0946f4cf022e038e8230feed82198d78dbc706d35894c808f653ec67b5"
+    },
+    {
+      "contract_kind": "node_type",
+      "contract_id": "protein_io.export_structure",
+      "contract_version": "5.0.0",
+      "contract_digest": "sha256:3faf7b41fb15fc49601f607dbe59119f5019cea4c07881615729c3227d5a7a7a"
+    },
+    {
+      "contract_kind": "node_type",
+      "contract_id": "protein_io.import_structure",
+      "contract_version": "5.0.0",
+      "contract_digest": "sha256:3df132307350727bca70afe3e8db7f448d3a641fae5490958f7b56b9b86d3d76"
+    },
+    {
+      "contract_kind": "node_type",
+      "contract_id": "structure_comparison.align_counterparts",
+      "contract_version": "4.0.0",
+      "contract_digest": "sha256:f3f4270c3613831f48251920dda9f5d7966955756b66c24d1407fa09d59f7e65"
+    },
+    {
+      "contract_kind": "node_type",
+      "contract_id": "structure_comparison.align_fixed_reference",
+      "contract_version": "4.0.0",
+      "contract_digest": "sha256:52bd2688b020c4a047e393ae1251eed97a9d6e314835c3e422a52098376c6837"
+    },
+    {
+      "contract_kind": "node_type",
+      "contract_id": "structure_comparison.evaluate_inserted_loop",
+      "contract_version": "1.0.0",
+      "contract_digest": "sha256:915ad1296a8d0c6810aabbc14149b71c89bd6898886db66d812a0299980b4856"
+    },
+    {
+      "contract_kind": "node_type",
+      "contract_id": "structure_comparison.rmsd_counterparts",
+      "contract_version": "5.0.0",
+      "contract_digest": "sha256:46bdf9a771d9eb462f7edca6b30bdc39edd02e0442bfe3777039a65bf4885bf4"
+    },
+    {
+      "contract_kind": "node_type",
+      "contract_id": "structure_comparison.rmsd_fixed_reference",
+      "contract_version": "5.0.0",
+      "contract_digest": "sha256:f86dc88b776d9d9da8068d491e46c2a89cfe584e0840957581fa7e673c2b2fe3"
+    },
+    {
+      "contract_kind": "node_type",
+      "contract_id": "structure_comparison.tm_score_counterparts",
+      "contract_version": "5.0.0",
+      "contract_digest": "sha256:54101a9d224d9e2970f90fc313fedb6023cd3358ee40a3a42a4775e397588baf"
+    },
+    {
+      "contract_kind": "node_type",
+      "contract_id": "structure_comparison.tm_score_fixed_reference",
+      "contract_version": "5.0.0",
+      "contract_digest": "sha256:b89f4e6013ed3422c8426ebd7fa5bdb48cb3d3c404069ea4f277c4f0cc580125"
+    },
+    {
+      "contract_kind": "node_type",
+      "contract_id": "structure_prediction.materialize_confidence",
+      "contract_version": "1.0.0",
+      "contract_digest": "sha256:aa9a7e1387c2806fb3fa270dc7efa5ea624665871f867d4fb0dbe3a9f8b91f08"
+    },
+    {
+      "contract_kind": "node_type",
+      "contract_id": "structure_transform.project_single_residue_axis",
+      "contract_version": "1.0.0",
+      "contract_digest": "sha256:e1c5bc94de31d8deb91f7ef83695ad2cbf40df080f53c99f25b344ac99cc4ce8"
+    },
+    {
+      "contract_kind": "node_type",
+      "contract_id": "structure_transform.resolve_candidate_residue_axes",
+      "contract_version": "5.0.0",
+      "contract_digest": "sha256:03eda6d7af5bce3f46e6136f0cbcbc7e95de690bc54961a4e877f4317570046a"
+    },
+    {
+      "contract_kind": "node_type",
+      "contract_id": "structure_transform.select_candidate_chains",
+      "contract_version": "3.0.0",
+      "contract_digest": "sha256:dfefa188d0cee527b4a64d82e0e84bcaf1b010dacd65def2730b73787a3d5107"
+    },
+    {
+      "contract_kind": "port_type",
+      "contract_id": "candidate.collection",
+      "contract_version": "3.0.0",
+      "contract_digest": "sha256:e900457e8e059f4f15469e7673fa3156d0f51e060fc8235daf07fc3ce5954812"
+    },
+    {
+      "contract_kind": "port_type",
+      "contract_id": "candidate.pairing",
+      "contract_version": "3.0.0",
+      "contract_digest": "sha256:20a3e7771705d5d160342a7b3b5c5a311ed224a002c441bd5c2d4eae4d3ee5cf"
+    },
+    {
+      "contract_kind": "port_type",
+      "contract_id": "protein.prompt",
+      "contract_version": "3.0.0",
+      "contract_digest": "sha256:6e95a89810d7cba459009d6b798b9d9290180af0c020d868ad8bd3bc72ef7b44"
+    },
+    {
+      "contract_kind": "port_type",
+      "contract_id": "protein.structure",
+      "contract_version": "4.0.0",
+      "contract_digest": "sha256:329ebc4c4f2c3323afa7577999882ef51a7588e5803be4d2b0da5d6e07fe8e0b"
+    },
+    {
+      "contract_kind": "port_type",
+      "contract_id": "protein_io.artifact_payload",
+      "contract_version": "2.1.0",
+      "contract_digest": "sha256:6f24a7784a0ca0ee6a58e72c1ffadfa02e7ac7cde4abf87d08c3bb75a2f5b4a1"
+    },
+    {
+      "contract_kind": "port_type",
+      "contract_id": "residue.layout",
+      "contract_version": "3.0.0",
+      "contract_digest": "sha256:c0b66618ee52d36bda8f857cb422f195152ecfebfc4ed48a45e3924edacb08fd"
+    },
+    {
+      "contract_kind": "port_type",
+      "contract_id": "residue.map",
+      "contract_version": "3.0.0",
+      "contract_digest": "sha256:49fb91759842c064b47b337dc1c6568b1e3035b6965286dcd29a95bcf6525b52"
+    },
+    {
+      "contract_kind": "port_type",
+      "contract_id": "score.collection",
+      "contract_version": "4.0.0",
+      "contract_digest": "sha256:369193274cf356a6814a81a15d9261467c6eac8768888cfe2643fe5f605d385e"
+    },
+    {
+      "contract_kind": "port_type",
+      "contract_id": "structure_comparison.alignment_evidence",
+      "contract_version": "4.0.0",
+      "contract_digest": "sha256:efb95ad8d5dc6410871c33bd3946af884a975086821933da1f18ca677a34789a"
+    },
+    {
+      "contract_kind": "port_type",
+      "contract_id": "structure_comparison.inserted_loop_evaluation",
+      "contract_version": "1.0.0",
+      "contract_digest": "sha256:4bc9919979fa1d938679facf0641bc926938c6a9dc99ffa02db0e94ebb562320"
+    },
+    {
+      "contract_kind": "port_type",
+      "contract_id": "structure_prediction.confidence_facts",
+      "contract_version": "1.0.0",
+      "contract_digest": "sha256:f8cab44a554f5263c6869bbb34be577a6bbea5e292f7305c1d5902dab5a1c01c"
+    },
+    {
+      "contract_kind": "port_type",
+      "contract_id": "structure_transform.candidate_modified_residue_normalization_associations",
+      "contract_version": "5.0.0",
+      "contract_digest": "sha256:28b2879d5c993c64fc27ece8359541a6a344490eb4e1816e0dea6a86f84f3510"
+    },
+    {
+      "contract_kind": "port_type",
+      "contract_id": "structure_transform.candidate_resolved_residue_axis_associations",
+      "contract_version": "5.0.0",
+      "contract_digest": "sha256:3d333e0d98d2cc97c58e7ef0a4a3fdd3618a30d96547d1ca831108ab68e6f353"
+    },
+    {
+      "contract_kind": "port_type",
+      "contract_id": "structure_transform.resolved_residue_axis",
+      "contract_version": "4.0.0",
+      "contract_digest": "sha256:0a91e67ef2c9bebfa9793dd10358a4bbe3ad187f9987159cd0f9a767233fc890"
+    }
+  ]
+}

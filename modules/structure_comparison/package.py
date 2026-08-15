@@ -30,12 +30,14 @@ from .contracts import (
     RMSD_FROM_EVIDENCE_METHOD,
     SEQUENCE_PRIMARY_AFFINE_METHOD,
     STRUCTURE_FIRST_TM_ALIGN_METHOD,
+    INSERTED_LOOP_EVALUATION_METHOD,
     THREE_WAY_CONSISTENCY_METHOD,
     TM_SCORE_FROM_EVIDENCE_METHOD,
     VERSION,
 )
 from .implementation import StructureComparisonImplementation
 from .port_types import ALIGNMENT_EVIDENCE_PORT_TYPE
+from .inserted_loop_port import INSERTED_LOOP_EVALUATION_PORT_TYPE
 from .three_way_port import THREE_WAY_CONSISTENCY_PORT_TYPE
 
 
@@ -73,6 +75,65 @@ def _build_three_way(context: OperationContext) -> ScientificOperation:
     from .three_way import ThreeWayConsistencyImplementation
 
     return ThreeWayConsistencyImplementation(context.method)
+
+
+def _build_inserted_loop(
+    context: OperationContext,
+) -> ScientificOperation:
+    from .inserted_loop import EvaluateInsertedLoopImplementation
+
+    del context
+    return EvaluateInsertedLoopImplementation()
+
+
+INSERTED_LOOP_BINDING = ExecutionBindingDefinition(
+    binding_id="structure_comparison.evaluate_inserted_loop.direct",
+    version="1.0.0",
+    node_type=ContractIdentity(
+        "node_type",
+        "structure_comparison.evaluate_inserted_loop",
+        "1.0.0",
+    ),
+    method=INSERTED_LOOP_EVALUATION_METHOD.identity,
+    binding_parameters={},
+    execution_route="direct",
+    factory=ScientificOperationFactory(
+        behavior=BehaviorReference(
+            "structure_comparison.evaluate_inserted_loop.direct/factory",
+            "1.0.0",
+            {"execution_route": "direct"},
+        ),
+        build=_build_inserted_loop,
+    ),
+    availability=AvailabilityDeclaration(
+        behavior=BehaviorReference(
+            "structure_comparison.evaluate_inserted_loop.direct/availability",
+            "1.0.0",
+            {"observation": "startup"},
+        ),
+        prerequisites={},
+        check=_available,
+    ),
+    readiness=ReadinessDeclaration(
+        behavior=BehaviorReference(
+            "structure_comparison.evaluate_inserted_loop.direct/readiness",
+            "1.0.0",
+            {"observation": "per-run"},
+        ),
+        prerequisites={},
+        check=_ready,
+    ),
+    deterministic=True,
+    cacheable=True,
+    implementation_identity={
+        "name": "structure_comparison.evaluate_inserted_loop.direct",
+        "source": "repository-owned",
+        "candidate_association": "exact-CandidateDataReference",
+        "prediction_to_structure_mapping": "exact-residue-order",
+        "raw_structure_parsing": False,
+        "missing_scoped_evidence": "fail",
+    },
+)
 
 
 THREE_WAY_CONSISTENCY_BINDING = ExecutionBindingDefinition(
@@ -303,6 +364,7 @@ MODULE_PACKAGE = ModulePackageRegistration(
         DefinitionResource("definitions/tm_score_fixed_reference.yaml"),
         DefinitionResource("definitions/tm_score_counterparts.yaml"),
         DefinitionResource("definitions/classify_three_way_consistency.yaml"),
+        DefinitionResource("definitions/evaluate_inserted_loop.yaml"),
     ),
     metric_definitions=(
         DefinitionResource("definitions/rmsd_metric.yaml"),
@@ -312,6 +374,7 @@ MODULE_PACKAGE = ModulePackageRegistration(
         *ALIGNMENT_METHODS,
         *METRIC_METHODS,
         THREE_WAY_CONSISTENCY_METHOD,
+        INSERTED_LOOP_EVALUATION_METHOD,
     ),
     utility_transforms=(
         _tm_score_utility("fixed_reference"),
@@ -373,9 +436,11 @@ MODULE_PACKAGE = ModulePackageRegistration(
             pairing_mode="per_subject_counterpart",
         ),
         THREE_WAY_CONSISTENCY_BINDING,
+        INSERTED_LOOP_BINDING,
     ),
     port_types=(
         ALIGNMENT_EVIDENCE_PORT_TYPE,
         THREE_WAY_CONSISTENCY_PORT_TYPE,
+        INSERTED_LOOP_EVALUATION_PORT_TYPE,
     ),
 )

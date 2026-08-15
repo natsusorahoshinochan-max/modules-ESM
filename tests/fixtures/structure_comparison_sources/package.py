@@ -68,6 +68,7 @@ def _structure(
         (1.0, 2.0, 3.0),
     )
     lines = []
+    serial = 1
     for index, (amino_acid, coordinate) in enumerate(
         zip(sequence, base, strict=True),
         start=1,
@@ -75,14 +76,119 @@ def _structure(
         x = coordinate[0] + translation[0]
         y = coordinate[1] + translation[1]
         z = coordinate[2] + translation[2]
-        line = (
-            f"ATOM  {index:5d}  CA  {_RESIDUE_NAMES[amino_acid]} "
-            f"{chain_id}{index:4d}    "
-            f"{x:8.3f}{y:8.3f}{z:8.3f}"
-            "  1.00 20.00           C"
-        )
-        lines.append(line.ljust(80))
+        for atom_name, dx, dy, element in (
+            ("N", -1.2, 0.0, "N"),
+            ("CA", 0.0, 0.0, "C"),
+            ("C", 1.2, 0.0, "C"),
+            ("O", 1.2, 2.2, "O"),
+        ):
+            line = (
+                f"ATOM  {serial:5d} {atom_name:^4s} "
+                f"{_RESIDUE_NAMES[amino_acid]} {chain_id}{index:4d}    "
+                f"{x + dx:8.3f}{y + dy:8.3f}{z:8.3f}"
+                f"  1.00 20.00          {element:>2s}"
+            )
+            lines.append(line.ljust(80))
+            serial += 1
     return ProteinStructure("\n".join((*lines, "TER", "END", "")))
+
+
+def _inserted_loop_structure(*, with_loop: bool) -> ProteinStructure:
+    sequence = "AGAST" if with_loop else "AGST"
+    ca_coordinates = (
+        (
+            (0.0, 0.0, 0.0),
+            (3.8, 0.0, 0.0),
+            (9.4, 4.0, 0.0),
+            (15.0, 0.0, 0.0),
+            (18.8, 0.0, 0.0),
+        )
+        if with_loop
+        else (
+            (0.0, 0.0, 0.0),
+            (3.8, 0.0, 0.0),
+            (15.0, 0.0, 0.0),
+            (18.8, 0.0, 0.0),
+        )
+    )
+    lines: list[str] = []
+    serial = 1
+    for index, (amino_acid, ca) in enumerate(
+        zip(sequence, ca_coordinates, strict=True),
+        start=1,
+    ):
+        if with_loop and index == 3:
+            atoms = (
+                ("N", (6.35, 0.0, 0.0), "N"),
+                ("CA", ca, "C"),
+                ("C", (12.45, 0.0, 0.0), "C"),
+                ("O", (11.5, 2.5, 0.0), "O"),
+            )
+        else:
+            atoms = (
+                ("N", (ca[0] - 1.2, ca[1], ca[2]), "N"),
+                ("CA", ca, "C"),
+                ("C", (ca[0] + 1.2, ca[1], ca[2]), "C"),
+                ("O", (ca[0] + 1.2, ca[1] + 2.2, ca[2]), "O"),
+            )
+        for atom_name, coordinate, element in atoms:
+            line = (
+                f"ATOM  {serial:5d} {atom_name:^4s} "
+                f"{_RESIDUE_NAMES[amino_acid]} A{index:4d}    "
+                f"{coordinate[0]:8.3f}{coordinate[1]:8.3f}"
+                f"{coordinate[2]:8.3f}  1.00 20.00          {element:>2s}"
+            )
+            lines.append(line.ljust(80))
+            serial += 1
+    return ProteinStructure("\n".join((*lines, "TER", "END", "")))
+
+
+class _InsertedLoopSource:
+    def __init__(self, resources: object) -> None:
+        self._resources = resources
+
+    def execute(self, call: OperationCall) -> dict[str, object]:
+        if call.inputs or call.node_parameters or call.binding_parameters:
+            raise ValueError("inserted-loop source accepts no inputs or parameters")
+        reference = Candidate("reference", _inserted_loop_structure(with_loop=False))
+        sequence = Candidate(
+            "sequence",
+            ProteinSequence(
+                "AGAST",
+                residue_ids=("A:1", "A:2", "A:loop", "A:3", "A:4"),
+            ),
+            parent_ids=(reference.candidate_id,),
+        )
+        subject = Candidate(
+            "subject",
+            _inserted_loop_structure(with_loop=True),
+            parent_ids=(sequence.candidate_id,),
+        )
+        counterpart = Candidate(
+            "counterpart",
+            _inserted_loop_structure(with_loop=True),
+            parent_ids=(sequence.candidate_id,),
+        )
+        with self._resources.engine_invocation():
+            return {
+                "subjects": CandidateCollection(
+                    "inserted-loop-subjects", "protein.structure", (subject,)
+                ),
+                "references": CandidateCollection(
+                    "inserted-loop-references", "protein.structure", (reference,)
+                ),
+                "counterparts": CandidateCollection(
+                    "inserted-loop-counterparts",
+                    "protein.structure",
+                    (counterpart,),
+                ),
+                "sequence_parents": CandidateCollection(
+                    "inserted-loop-sequences", "protein.sequence", (sequence,)
+                ),
+                "pairing": CandidatePairingIntent(
+                    entries=(CandidatePairingIntentEntry("subject", "counterpart"),)
+                ),
+            }
 
 
 def mse_structure_axis_fixture() -> ProteinStructure:
@@ -302,14 +408,54 @@ class _ConfidenceSource:
             }
 
 
+class _PerResidueConfidenceSource:
+    def __init__(self, context: OperationContext) -> None:
+        self._method = context.method
+        self._metric = context.produced_observations[0].metric
+        self._resources = context.resources
+
+    def execute(self, call: OperationCall) -> dict[str, object]:
+        if call.node_parameters or call.binding_parameters:
+            raise ValueError("per-residue confidence source accepts no parameters")
+        structures = call.inputs["structures"]
+        facts = call.inputs["confidence_facts"]
+        assert type(structures) is CandidateCollection
+        assert type(facts) is ConfidenceFactCollection
+        if len(structures.items) != 1 or len(facts.entries) != 1:
+            raise ValueError("per-residue confidence source requires one prediction")
+        subject = call.input_content_digests["structures"].candidate_data[0]
+        fact = facts.entries[0]
+        if fact.structure_content_digest != subject.content_digest:
+            raise ValueError("confidence fact does not identify the structure")
+        with self._resources.engine_invocation():
+            return {
+                "observations": ScoreCollection(
+                    "prediction-confidence",
+                    (
+                        ScoreObservation(
+                            subject=subject,
+                            metric=self._metric,
+                            method=self._method,
+                            context=IntrinsicObservationContext(),
+                            value=tuple(fact.plddt_per_residue),
+                            residue_axis=prediction_axis_reference(
+                                fact.prediction_axis
+                            ),
+                            source_partition="prediction_confidence",
+                        ),
+                    ),
+                )
+            }
+
+
 class _ConfidenceFactSource:
     def __init__(self, context: OperationContext) -> None:
         self._method = context.method
         self._resources = context.resources
 
     def execute(self, call: OperationCall) -> dict[str, object]:
-        if call.node_parameters or call.binding_parameters:
-            raise ValueError("confidence-fact source accepts no parameters")
+        if call.binding_parameters:
+            raise ValueError("confidence-fact source accepts no Binding parameters")
         structures = call.inputs["structures"]
         prediction_axis = call.inputs["prediction_axis"]
         assert type(structures) is CandidateCollection
@@ -322,6 +468,11 @@ class _ConfidenceFactSource:
         axis_digest = PREDICTION_RESIDUE_AXIS_PORT_TYPE.content_digest(
             prediction_axis
         )
+        missing_loop = call.node_parameters["missing_loop_plddt"]
+        plddt = tuple(
+            None if missing_loop and residue_id == "A:loop" else 90.0
+            for residue_id in prediction_axis.layout.residue_ids or ()
+        )
         fact = ConfidenceFact(
             prediction_key=prediction_key(
                 output_role="structure_candidates",
@@ -331,7 +482,7 @@ class _ConfidenceFactSource:
             ),
             structure_content_digest=structure_reference.content_digest,
             prediction_axis=prediction_axis,
-            plddt_per_residue=(90.0,) * 75,
+            plddt_per_residue=plddt,
             ptm=None,
             pae=None,
         )
@@ -357,6 +508,9 @@ class _PredictionAxisSource:
             raise ValueError("prediction-axis source requires one sequence")
         candidate = sequences.items[0]
         assert type(candidate.data) is ProteinSequence
+        residue_ids = tuple(candidate.data.residue_ids or ())
+        if len(residue_ids) != len(candidate.data):
+            raise ValueError("prediction-axis source requires exact residue identities")
         reference = call.input_content_digests[
             "sequence_parents"
         ].candidate_data[0]
@@ -366,8 +520,8 @@ class _PredictionAxisSource:
                     source=reference,
                     layout=ResidueLayout(
                         "A",
-                        75,
-                        tuple(f"A:{index}" for index in range(1, 76)),
+                        len(candidate.data),
+                        residue_ids,
                     ),
                     sequence=candidate.data,
                 )
@@ -376,6 +530,10 @@ class _PredictionAxisSource:
 
 def _build_three_way_source(context: OperationContext) -> _ThreeWaySource:
     return _ThreeWaySource(context.resources)
+
+
+def _build_inserted_loop_source(context: OperationContext) -> _InsertedLoopSource:
+    return _InsertedLoopSource(context.resources)
 
 
 def _build_prediction_axis_source(
@@ -394,6 +552,12 @@ def _build_simplefold_confidence_source(
     context: OperationContext,
 ) -> _ConfidenceSource:
     return _ConfidenceSource(context)
+
+
+def _build_inserted_loop_confidence_source(
+    context: OperationContext,
+) -> _PerResidueConfidenceSource:
+    return _PerResidueConfidenceSource(context)
 
 
 def _build_confidence_fact_source(
@@ -449,6 +613,7 @@ MODULE_PACKAGE = ModulePackageRegistration(
     package_module=__package__,
     node_definitions=(
         DefinitionResource("definition.yaml"),
+        DefinitionResource("inserted_loop_source.yaml"),
         DefinitionResource("three_way_source.yaml"),
         DefinitionResource("prediction_axis_source.yaml"),
         DefinitionResource("prediction_confidence_fact_source.yaml"),
@@ -527,6 +692,13 @@ MODULE_PACKAGE = ModulePackageRegistration(
             },
         ),
         _fixture_binding(
+            binding_id="contract_test.inserted_loop_source.fixture",
+            node_type_id="contract_test.inserted_loop_source",
+            method_id="contract_test.structure_comparison_source.method",
+            factory_name="contract_test.inserted_loop_source/factory",
+            build=_build_inserted_loop_source,
+        ),
+        _fixture_binding(
             binding_id="contract_test.1pga_three_way_source.fixture",
             node_type_id="contract_test.1pga_three_way_source",
             method_id="contract_test.structure_comparison_source.method",
@@ -539,6 +711,30 @@ MODULE_PACKAGE = ModulePackageRegistration(
             method_id="contract_test.structure_comparison_source.method",
             factory_name="contract_test.prediction_axis_source/factory",
             build=_build_prediction_axis_source,
+        ),
+        _fixture_binding(
+            binding_id="contract_test.inserted_loop_confidence_source.fixture",
+            node_type_id="contract_test.prediction_confidence_source",
+            method_id="folding.fold.esmfold2_fast_biohub_2026_05",
+            factory_name="contract_test.inserted_loop_confidence_source/factory",
+            build=_build_inserted_loop_confidence_source,
+            produced_observations=(
+                ProducedObservationDefinition(
+                    output_port="observations",
+                    output_partition="prediction_confidence",
+                    metric=ContractIdentity(
+                        "metric", "structure.plddt.per_residue", "3.0.0"
+                    ),
+                    context_profile={"kind": "intrinsic"},
+                    subject_grain="candidate",
+                    source_role="subject",
+                    subject_direction="input",
+                    subject_port="structures",
+                    axis_direction="input",
+                    axis_port="confidence_facts",
+                    guaranteed_multiplicity="one",
+                ),
+            ),
         ),
         _fixture_binding(
             binding_id="contract_test.esmfold2_confidence_source.fixture",

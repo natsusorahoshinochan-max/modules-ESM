@@ -28,6 +28,7 @@ _INTERSECTION_PORTS = (
     "candidates_d",
 )
 _SCORE_PORTS = ("scores_a", "scores_b", "scores_c")
+_PAIRING_PORTS = ("pairing_a", "pairing_b", "pairing_c")
 
 
 class CollectionOpsImplementation:
@@ -47,6 +48,9 @@ class CollectionOpsImplementation:
         if self._operation == "merge_scores":
             self._require_no_node_parameters(call.node_parameters)
             return {"scores": self._merge_scores(call.inputs)}
+        if self._operation == "concat_pairings":
+            self._require_no_node_parameters(call.node_parameters)
+            return {"pairing": self._concat_pairings(call.inputs)}
         if self._operation == "rebind_candidate_pairing":
             self._require_no_node_parameters(call.node_parameters)
             return {"pairing": self._rebind_candidate_pairing(call)}
@@ -468,3 +472,39 @@ class CollectionOpsImplementation:
                 for observation, _ in observations.values()
             ],
         )
+
+    @staticmethod
+    def _concat_pairings(
+        inputs: Mapping[str, Any],
+    ) -> PairwiseCandidateMapping:
+        supplied = [
+            (port, inputs[port])
+            for port in _PAIRING_PORTS
+            if port in inputs
+        ]
+        if not supplied:
+            raise ValueError(
+                "Candidate pairing concatenation requires at least one "
+                "connected pairing"
+            )
+        entries: list[PairwiseCandidateMatch] = []
+        subject_sources: dict[CandidateDataReference, str] = {}
+        reference_sources: dict[CandidateDataReference, str] = {}
+        for port, pairing in supplied:
+            if type(pairing) is not PairwiseCandidateMapping:
+                raise ValueError(f"{port} is not an exact Candidate pairing")
+            for entry in pairing.entries:
+                if entry.subject in subject_sources:
+                    raise ValueError(
+                        "Candidate pairing subject occurs in more than one "
+                        f"input partition: {subject_sources[entry.subject]}, {port}"
+                    )
+                if entry.reference in reference_sources:
+                    raise ValueError(
+                        "Candidate pairing reference occurs in more than one "
+                        f"input partition: {reference_sources[entry.reference]}, {port}"
+                    )
+                subject_sources[entry.subject] = port
+                reference_sources[entry.reference] = port
+                entries.append(entry)
+        return PairwiseCandidateMapping(tuple(entries))

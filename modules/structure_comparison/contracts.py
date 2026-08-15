@@ -15,6 +15,38 @@ from modules.folding.contracts import (
 VERSION = "3.0.0"
 
 
+def method_reference(method: MethodDefinition) -> ExactContractReference:
+    """Return the exact reference carried by scientific evidence."""
+    digest = CatalogContract(
+        contract_kind="method",
+        contract_id=method.method_id,
+        contract_version=method.version,
+        descriptor=method.descriptor_template(),
+    ).contract_digest
+    return ExactContractReference(
+        contract_kind="method",
+        contract_id=method.method_id,
+        contract_version=method.version,
+        contract_digest=digest,
+    )
+
+
+REMOTE_ESMFOLD2_FOLD_METHOD_REFERENCE = method_reference(
+    REMOTE_ESMFOLD2_FOLD_METHOD
+)
+
+
+def _reference_descriptor(
+    reference: ExactContractReference,
+) -> dict[str, str]:
+    return {
+        "contract_kind": reference.contract_kind,
+        "contract_id": reference.contract_id,
+        "contract_version": reference.contract_version,
+        "contract_digest": reference.contract_digest,
+    }
+
+
 SEQUENCE_PRIMARY_AFFINE_METHOD = MethodDefinition(
     method_id="structure_comparison.sequence_primary_affine_svd.method",
     version=VERSION,
@@ -241,6 +273,78 @@ THREE_WAY_CONSISTENCY_METHOD = MethodDefinition(
 )
 
 
+INSERTED_LOOP_EVALUATION_METHOD = MethodDefinition(
+    method_id="structure_comparison.inserted_loop.exact_evidence_gate",
+    version="1.0.0",
+    algorithm_identity={
+        "name": "inserted-loop-exact-evidence-gate",
+        "subject_mapping": {
+            "prediction_axis": "folding-confidence-prediction-input-axis",
+            "structure_axis": "exact-subject-resolved-structure-axis",
+            "correspondence": "one-to-one-residue-order",
+            "collection_join": "CandidateDataReference",
+        },
+        "resolved_core": {
+            "identity_source": "declared-chain-qualified-residue-identities",
+            "comparison": "exact-fixed-reference-alignment-evidence",
+            "plddt": (
+                "require-all-scoped-values;fsum(scoped-values)/"
+                "scoped-residue-count"
+            ),
+        },
+        "inserted_loop": {
+            "identity_source": "declared-chain-qualified-residue-identities",
+            "plddt": (
+                "require-all-scoped-values;fsum(scoped-values)/"
+                "scoped-residue-count"
+            ),
+        },
+        "junctions": {
+            "left": "left-flank-C-to-first-loop-N",
+            "right": "last-loop-C-to-right-flank-N",
+            "distance": "Euclidean",
+        },
+        "loop_core_clash": {
+            "atom_population": "resolved-axis-non-hydrogen-named-atoms",
+            "distance": "minimum-Euclidean-loop-to-resolved-core",
+            "excluded_pairs": "two-direct-junction-peptide-C-N-bonds",
+        },
+        "counterpart": "exact-per-subject-CandidateDataReference-pairing",
+        "confidence_method": _reference_descriptor(
+            REMOTE_ESMFOLD2_FOLD_METHOD_REFERENCE
+        ),
+        "missing_scoped_evidence": "fail",
+        "acceptance": "logical-and-of-five-declared-gates",
+    },
+    model_identity={"kind": "none"},
+    checkpoint_identity={"kind": "none"},
+    featurization_identity={
+        "candidate_association": "exact-CandidateDataReference",
+        "prediction_axis": (
+            "structure_prediction.prediction_residue_axis@1.0.0"
+        ),
+        "structure_axis": "structure_transform.resolved_residue_axis@4.0.0",
+        "alignment_evidence": (
+            "structure_comparison.alignment_evidence@4.0.0"
+        ),
+        "confidence": {
+            "metric": "structure.plddt.per_residue@3.0.0",
+            "method": _reference_descriptor(
+                REMOTE_ESMFOLD2_FOLD_METHOD_REFERENCE
+            ),
+        },
+    },
+    source_identity={"kind": "repository-owned"},
+    scale_contract={
+        "tm_score": "dimensionless-reference-axis-normalized",
+        "rmsd": "angstrom",
+        "plddt": "zero-to-100",
+        "junction_distance": "angstrom",
+        "nonbonded_distance": "angstrom",
+    },
+)
+
+
 ALIGNMENT_METHODS = (
     SEQUENCE_PRIMARY_AFFINE_METHOD,
     STRUCTURE_FIRST_TM_ALIGN_METHOD,
@@ -250,22 +354,6 @@ METRIC_METHODS = (
     RMSD_FROM_EVIDENCE_METHOD,
     TM_SCORE_FROM_EVIDENCE_METHOD,
 )
-
-
-def method_reference(method: MethodDefinition) -> ExactContractReference:
-    """Return the exact reference carried by one alignment evidence value."""
-    digest = CatalogContract(
-        contract_kind="method",
-        contract_id=method.method_id,
-        contract_version=method.version,
-        descriptor=method.descriptor_template(),
-    ).contract_digest
-    return ExactContractReference(
-        contract_kind="method",
-        contract_id=method.method_id,
-        contract_version=method.version,
-        contract_digest=digest,
-    )
 
 
 SEQUENCE_PRIMARY_AFFINE_METHOD_REFERENCE = method_reference(
@@ -283,7 +371,7 @@ TM_SCORE_FROM_EVIDENCE_METHOD_REFERENCE = method_reference(
 THREE_WAY_CONSISTENCY_METHOD_REFERENCE = method_reference(
     THREE_WAY_CONSISTENCY_METHOD
 )
-REMOTE_ESMFOLD2_FOLD_METHOD_REFERENCE = method_reference(
-    REMOTE_ESMFOLD2_FOLD_METHOD
+INSERTED_LOOP_EVALUATION_METHOD_REFERENCE = method_reference(
+    INSERTED_LOOP_EVALUATION_METHOD
 )
 SIMPLEFOLD_FOLD_METHOD_REFERENCE = method_reference(SIMPLEFOLD_FOLD_METHOD)

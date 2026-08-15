@@ -5,14 +5,20 @@ from __future__ import annotations
 from dataclasses import replace
 from contextlib import contextmanager
 from pathlib import Path
+from typing import Any
 
 import numpy as np
 import pytest
 
 from core import (
+    EnvironmentConfiguration,
     ModulePackageContractCase,
     ModulePackagePortCase,
     PortValueError,
+    ProjectManager,
+    V2RunService,
+    WorkflowAuthoringService,
+    WorkflowDocument,
     WorkflowNodeInstance,
     build_frozen_catalog,
     builtin_frozen_catalog,
@@ -33,6 +39,7 @@ from modules.structure_comparison.alignment import (
     align_resolved_axes,
 )
 from modules.structure_comparison.contracts import (
+    INSERTED_LOOP_EVALUATION_METHOD_REFERENCE,
     REMOTE_ESMFOLD2_FOLD_METHOD_REFERENCE,
     RMSD_FROM_EVIDENCE_METHOD_REFERENCE,
     SEQUENCE_PRIMARY_AFFINE_METHOD,
@@ -45,6 +52,11 @@ from modules.structure_comparison.contracts import (
 )
 from modules.structure_comparison.domain import (
     AlignmentSegmentMapEntry,
+    AtomPairDistanceEvidence,
+    InsertedLoopCandidateEvidence,
+    InsertedLoopEvaluationCollection,
+    InsertedLoopThresholds,
+    ResidueIdentityCorrespondence,
     StructureAlignmentEvidence,
     ThreeWayComparisonEdge,
     ThreeWayConfidenceEvidence,
@@ -925,6 +937,7 @@ def test_structure_comparison_catalog_has_only_active_split_paths() -> None:
         ("structure_comparison.align_single", "4.0.0"),
         ("structure_comparison.align_fixed_reference", "4.0.0"),
         ("structure_comparison.align_counterparts", "4.0.0"),
+        ("structure_comparison.evaluate_inserted_loop", "1.0.0"),
         (
             "structure_comparison.classify_three_way_consistency",
             "1.0.0",
@@ -967,6 +980,10 @@ def test_structure_comparison_catalog_has_only_active_split_paths() -> None:
             "1.0.0",
         ),
         (
+            "structure_comparison.evaluate_inserted_loop.direct",
+            "1.0.0",
+        ),
+        (
             "structure_comparison.rmsd_fixed_reference."
             "from_alignment_evidence",
             "5.0.0",
@@ -997,6 +1014,7 @@ def test_structure_comparison_catalog_has_only_active_split_paths() -> None:
         "structure_comparison.align_fixed_reference",
         "structure_comparison.align_counterparts",
         "structure_comparison.classify_three_way_consistency",
+        "structure_comparison.evaluate_inserted_loop",
         "structure_comparison.rmsd_fixed_reference",
         "structure_comparison.rmsd_counterparts",
         "structure_comparison.tm_score_fixed_reference",
@@ -1058,7 +1076,8 @@ def test_structure_comparison_catalog_has_only_active_split_paths() -> None:
         for contract in contracts
         if contract.contract_id.endswith(".direct")
     } == {
-        "structure_comparison.classify_three_way_consistency.direct"
+        "structure_comparison.classify_three_way_consistency.direct",
+        "structure_comparison.evaluate_inserted_loop.direct",
     }
     assert not any(
         "batch_tm_score" in contract.contract_id for contract in contracts
@@ -1264,6 +1283,291 @@ def _three_way_node(
         ),
         binding_parameters={},
     )
+
+
+def _inserted_loop_ctk_case(
+    *,
+    missing_loop_plddt: bool = False,
+    confidence_binding_id: str = (
+        "contract_test.inserted_loop_confidence_source.fixture"
+    ),
+) -> ModulePackageContractCase:
+    def operation_node(
+        node_id: str,
+        node_type_id: str,
+        version: str,
+        binding_id: str,
+        parameters: dict[str, object] | None = None,
+    ) -> WorkflowNodeInstance:
+        return WorkflowNodeInstance(
+            node_id=node_id,
+            node_type_id=node_type_id,
+            node_type_version=version,
+            binding_id=binding_id,
+            binding_version=version,
+            node_parameters=parameters or {},
+            binding_parameters={},
+        )
+
+    source = operation_node(
+        "loop-source",
+        "contract_test.inserted_loop_source",
+        "4.0.0",
+        "contract_test.inserted_loop_source.fixture",
+    )
+    subject_axis = operation_node(
+        "loop-subject-axis",
+        "structure_transform.resolve_candidate_residue_axes",
+        "5.0.0",
+        "structure_transform.resolve_candidate_residue_axes.direct",
+    )
+    reference_axis = replace(subject_axis, node_id="loop-reference-axis")
+    counterpart_axis = replace(subject_axis, node_id="loop-counterpart-axis")
+    core_alignment = operation_node(
+        "loop-core-alignment",
+        "structure_comparison.align_fixed_reference",
+        "4.0.0",
+        "structure_comparison.align_fixed_reference.sequence_primary_affine",
+        {"pin_matching_chain_ids": False},
+    )
+    core_tm = operation_node(
+        "loop-core-tm",
+        "structure_comparison.tm_score_fixed_reference",
+        "5.0.0",
+        "structure_comparison.tm_score_fixed_reference.from_alignment_evidence",
+    )
+    core_rmsd = operation_node(
+        "loop-core-rmsd",
+        "structure_comparison.rmsd_fixed_reference",
+        "5.0.0",
+        "structure_comparison.rmsd_fixed_reference.from_alignment_evidence",
+    )
+    counterpart_alignment = operation_node(
+        "loop-counterpart-alignment",
+        "structure_comparison.align_counterparts",
+        "4.0.0",
+        "structure_comparison.align_counterparts.sequence_primary_affine",
+        {"pin_matching_chain_ids": False},
+    )
+    counterpart_tm = operation_node(
+        "loop-counterpart-tm",
+        "structure_comparison.tm_score_counterparts",
+        "5.0.0",
+        "structure_comparison.tm_score_counterparts.from_alignment_evidence",
+    )
+    counterpart_rmsd = operation_node(
+        "loop-counterpart-rmsd",
+        "structure_comparison.rmsd_counterparts",
+        "5.0.0",
+        "structure_comparison.rmsd_counterparts.from_alignment_evidence",
+    )
+    prediction_axis = operation_node(
+        "loop-prediction-axis",
+        "contract_test.prediction_axis_source",
+        "4.0.0",
+        "contract_test.prediction_axis_source.fixture",
+    )
+    confidence_facts = operation_node(
+        "loop-confidence-facts",
+        "contract_test.prediction_confidence_fact_source",
+        "4.0.0",
+        "contract_test.esmfold2_confidence_fact_source.fixture",
+        {"missing_loop_plddt": missing_loop_plddt},
+    )
+    confidence = operation_node(
+        "loop-confidence",
+        "contract_test.prediction_confidence_source",
+        "4.0.0",
+        confidence_binding_id,
+    )
+    edges = (
+        WorkflowEdge("loop-source", "subjects", "loop-subject-axis", "structure_candidates"),
+        WorkflowEdge("loop-source", "references", "loop-reference-axis", "structure_candidates"),
+        WorkflowEdge("loop-source", "counterparts", "loop-counterpart-axis", "structure_candidates"),
+        WorkflowEdge("loop-source", "subjects", "loop-core-alignment", "subjects"),
+        WorkflowEdge("loop-subject-axis", "residue_axes", "loop-core-alignment", "subject_residue_axes"),
+        WorkflowEdge("loop-source", "references", "loop-core-alignment", "references"),
+        WorkflowEdge("loop-reference-axis", "residue_axes", "loop-core-alignment", "reference_residue_axes"),
+        WorkflowEdge("loop-core-alignment", "alignments", "loop-core-tm", "alignments"),
+        WorkflowEdge("loop-source", "subjects", "loop-core-tm", "subjects"),
+        WorkflowEdge("loop-source", "references", "loop-core-tm", "references"),
+        WorkflowEdge("loop-core-alignment", "alignments", "loop-core-rmsd", "alignments"),
+        WorkflowEdge("loop-source", "subjects", "loop-core-rmsd", "subjects"),
+        WorkflowEdge("loop-source", "references", "loop-core-rmsd", "references"),
+        WorkflowEdge("loop-source", "subjects", "loop-counterpart-alignment", "subjects"),
+        WorkflowEdge("loop-subject-axis", "residue_axes", "loop-counterpart-alignment", "subject_residue_axes"),
+        WorkflowEdge("loop-source", "counterparts", "loop-counterpart-alignment", "references"),
+        WorkflowEdge("loop-counterpart-axis", "residue_axes", "loop-counterpart-alignment", "reference_residue_axes"),
+        WorkflowEdge("loop-source", "pairing", "loop-counterpart-alignment", "pairing"),
+        WorkflowEdge("loop-counterpart-alignment", "alignments", "loop-counterpart-tm", "alignments"),
+        WorkflowEdge("loop-source", "subjects", "loop-counterpart-tm", "subjects"),
+        WorkflowEdge("loop-source", "counterparts", "loop-counterpart-tm", "references"),
+        WorkflowEdge("loop-source", "pairing", "loop-counterpart-tm", "pairing"),
+        WorkflowEdge("loop-counterpart-alignment", "alignments", "loop-counterpart-rmsd", "alignments"),
+        WorkflowEdge("loop-source", "subjects", "loop-counterpart-rmsd", "subjects"),
+        WorkflowEdge("loop-source", "counterparts", "loop-counterpart-rmsd", "references"),
+        WorkflowEdge("loop-source", "pairing", "loop-counterpart-rmsd", "pairing"),
+        WorkflowEdge("loop-source", "sequence_parents", "loop-prediction-axis", "sequence_parents"),
+        WorkflowEdge("loop-source", "subjects", "loop-confidence-facts", "structures"),
+        WorkflowEdge("loop-prediction-axis", "prediction_axis", "loop-confidence-facts", "prediction_axis"),
+        WorkflowEdge("loop-source", "subjects", "loop-confidence", "structures"),
+        WorkflowEdge("loop-confidence-facts", "confidence_facts", "loop-confidence", "confidence_facts"),
+        WorkflowEdge("loop-source", "subjects", "contract-test-node", "subjects"),
+        WorkflowEdge("loop-subject-axis", "residue_axes", "contract-test-node", "subject_residue_axes"),
+        WorkflowEdge("loop-source", "references", "contract-test-node", "references"),
+        WorkflowEdge("loop-source", "counterparts", "contract-test-node", "counterparts"),
+        WorkflowEdge("loop-source", "pairing", "contract-test-node", "counterpart_pairing"),
+        WorkflowEdge("loop-core-alignment", "alignments", "contract-test-node", "resolved_core_alignments"),
+        WorkflowEdge("loop-core-tm", "scores", "contract-test-node", "resolved_core_tm_scores"),
+        WorkflowEdge("loop-core-rmsd", "scores", "contract-test-node", "resolved_core_rmsd_scores"),
+        WorkflowEdge("loop-counterpart-alignment", "alignments", "contract-test-node", "counterpart_alignments"),
+        WorkflowEdge("loop-counterpart-tm", "scores", "contract-test-node", "counterpart_tm_scores"),
+        WorkflowEdge("loop-counterpart-rmsd", "scores", "contract-test-node", "counterpart_rmsd_scores"),
+        WorkflowEdge("loop-confidence", "observations", "contract-test-node", "confidence_observations"),
+    )
+    return ModulePackageContractCase(
+        case_id="evaluate-inserted-loop",
+        node_type_id="structure_comparison.evaluate_inserted_loop",
+        node_type_version="1.0.0",
+        binding_id="structure_comparison.evaluate_inserted_loop.direct",
+        binding_version="1.0.0",
+        node_parameters={
+            "resolved_core_residue_ids": ["A:1", "A:2", "A:3", "A:4"],
+            "loop_residue_ids": ["A:loop"],
+            "left_junction_residue_id": "A:2",
+            "right_junction_residue_id": "A:3",
+            "resolved_core_tm_score_minimum": 0.75,
+            "resolved_core_rmsd_angstrom_maximum": 3.0,
+            "counterpart_tm_score_minimum": 0.70,
+            "counterpart_rmsd_angstrom_maximum": 3.5,
+            "resolved_core_mean_plddt_minimum": 70.0,
+            "junction_cn_distance_angstrom_minimum": 1.15,
+            "junction_cn_distance_angstrom_maximum": 1.55,
+            "loop_core_nonbonded_distance_angstrom_minimum": 2.0,
+        },
+        binding_parameters={},
+        environment_values={},
+        safe_environment_fingerprint="provider-free",
+        invalidation_token="evaluate-inserted-loop-v1",
+        workflow_nodes=(
+            source,
+            subject_axis,
+            reference_axis,
+            counterpart_axis,
+            core_alignment,
+            core_tm,
+            core_rmsd,
+            counterpart_alignment,
+            counterpart_tm,
+            counterpart_rmsd,
+            prediction_axis,
+            confidence_facts,
+            confidence,
+        ),
+        workflow_edges=edges,
+        expected_candidate_counts={"passing_candidates": 1},
+    )
+
+
+def _run_inserted_loop_failure_case(
+    case: ModulePackageContractCase,
+    tmp_path: Path,
+) -> dict[str, Any]:
+    support = (
+        TRANSFORM_PACKAGE,
+        SOURCE_PACKAGE,
+        COLLECTION_OPS_PACKAGE,
+        STRUCTURE_PREDICTION_PACKAGE,
+    )
+    catalog = build_frozen_catalog((MODULE_PACKAGE, *support))
+    manager = ProjectManager(
+        tmp_path / "projects",
+        cache_root=tmp_path / "cache",
+        output_root=tmp_path / "outputs",
+        run_root=tmp_path / "runs",
+    )
+    project = manager.create(case.case_id)
+    authoring = WorkflowAuthoringService(manager, catalog)
+    workflow = WorkflowDocument(
+        schema_version="2.1.0",
+        workflow_id=project.id,
+        nodes=(
+            *case.workflow_nodes,
+            WorkflowNodeInstance(
+                node_id="contract-test-node",
+                node_type_id=case.node_type_id,
+                node_type_version=case.node_type_version,
+                binding_id=case.binding_id,
+                binding_version=case.binding_version,
+                node_parameters=case.node_parameters,
+                binding_parameters=case.binding_parameters,
+            ),
+        ),
+        edges=case.workflow_edges,
+        contract_lock=(),
+        observation_selectors=(),
+        selection_objectives=(),
+    )
+    committed = authoring.commit(
+        project.id,
+        expected_draft_revision=0,
+        workflow=workflow,
+    )
+    service = V2RunService(
+        manager,
+        catalog,
+        authoring,
+        EnvironmentConfiguration({}),
+    )
+    try:
+        receipt = service.start_background(
+            project.id,
+            workflow_commit_id=committed.workflow_commit_id,
+            client_request_id=case.case_id,
+        )
+        service.shutdown()
+        projection = service.projection(project.id, receipt["run_id"])
+    finally:
+        service.shutdown()
+
+    return projection
+
+
+def _assert_inserted_loop_failure(projection: dict[str, Any]) -> None:
+    assert projection["status"] == "failed"
+    assert next(
+        disposition
+        for disposition in projection["node_dispositions"]
+        if disposition["node_id"] == "contract-test-node"
+    )["outcome"] == "failed"
+    assert not any(
+        output["node_id"] == "contract-test-node"
+        for output in projection["outputs"]
+    )
+
+
+def test_inserted_loop_rejects_lawful_missing_loop_scoped_plddt(
+    tmp_path: Path,
+) -> None:
+    projection = _run_inserted_loop_failure_case(
+        _inserted_loop_ctk_case(missing_loop_plddt=True),
+        tmp_path,
+    )
+    _assert_inserted_loop_failure(projection)
+
+
+def test_inserted_loop_rejects_the_wrong_confidence_metric(
+    tmp_path: Path,
+) -> None:
+    projection = _run_inserted_loop_failure_case(
+        _inserted_loop_ctk_case(
+            confidence_binding_id=(
+                "contract_test.esmfold2_confidence_source.fixture"
+            )
+        ),
+        tmp_path,
+    )
+    _assert_inserted_loop_failure(projection)
 
 
 def _three_way_ctk_case() -> ModulePackageContractCase:
@@ -1637,6 +1941,162 @@ def test_three_way_port_requires_tuples_and_exact_method_references() -> None:
         )
 
 
+def _inserted_loop_port_case() -> ModulePackagePortCase:
+    left_junction = AtomPairDistanceEvidence(
+        "A:2",
+        "A:2",
+        "C",
+        (0.0, 0.0, 0.0),
+        "A:loop",
+        "A:3",
+        "N",
+        (1.35, 0.0, 0.0),
+        1.35,
+    )
+    right_junction = AtomPairDistanceEvidence(
+        "A:loop",
+        "A:3",
+        "C",
+        (0.0, 0.0, 0.0),
+        "A:3",
+        "A:4",
+        "N",
+        (1.35, 0.0, 0.0),
+        1.35,
+    )
+    minimum_distance = AtomPairDistanceEvidence(
+        "A:loop",
+        "A:3",
+        "CA",
+        (0.0, 0.0, 0.0),
+        "A:1",
+        "A:1",
+        "CA",
+        (2.0, 0.0, 0.0),
+        2.0,
+    )
+    loop_evidence = InsertedLoopEvaluationCollection(
+        (
+            InsertedLoopCandidateEvidence(
+                subject=CandidateDataReference(
+                    "loop-subject",
+                    "protein.structure",
+                    "sha256:" + "4" * 64,
+                ),
+                reference=CandidateDataReference(
+                    "loop-reference",
+                    "protein.structure",
+                    "sha256:" + "5" * 64,
+                ),
+                counterpart=CandidateDataReference(
+                    "loop-counterpart",
+                    "protein.structure",
+                    "sha256:" + "6" * 64,
+                ),
+                prediction_axis_content_digest="sha256:" + "7" * 64,
+                structure_axis_content_digest="sha256:" + "8" * 64,
+                prediction_to_structure_correspondence=(
+                    ResidueIdentityCorrespondence("A:1", "A:1"),
+                    ResidueIdentityCorrespondence("A:2", "A:2"),
+                    ResidueIdentityCorrespondence("A:loop", "A:3"),
+                    ResidueIdentityCorrespondence("A:3", "A:4"),
+                    ResidueIdentityCorrespondence("A:4", "A:5"),
+                ),
+                resolved_core_residue_ids=("A:1", "A:2", "A:3", "A:4"),
+                loop_residue_ids=("A:loop",),
+                resolved_core_alignment_content_digest="sha256:" + "9" * 64,
+                counterpart_alignment_content_digest="sha256:" + "a" * 64,
+                resolved_core_tm_score=1.0,
+                resolved_core_rmsd_angstrom=0.0,
+                counterpart_tm_score=1.0,
+                counterpart_rmsd_angstrom=0.0,
+                confidence_collection_content_digest="sha256:" + "b" * 64,
+                confidence_method=REMOTE_ESMFOLD2_FOLD_METHOD_REFERENCE,
+                resolved_core_mean_plddt=90.0,
+                loop_mean_plddt=80.0,
+                left_junction=left_junction,
+                right_junction=right_junction,
+                minimum_loop_core_nonbonded_distance=minimum_distance,
+                thresholds=InsertedLoopThresholds(
+                    0.75, 3.0, 0.70, 3.5, 70.0, 1.15, 1.55, 2.0
+                ),
+                resolved_core_passed=True,
+                counterpart_passed=True,
+                confidence_passed=True,
+                junctions_passed=True,
+                clash_passed=True,
+                accepted=True,
+                method=INSERTED_LOOP_EVALUATION_METHOD_REFERENCE,
+            ),
+        )
+    )
+    return ModulePackagePortCase(
+        "structure_comparison.inserted_loop_evaluation",
+        "1.0.0",
+        loop_evidence,
+        (
+            object(),
+            replace(
+                loop_evidence,
+                entries=(replace(loop_evidence.entries[0], accepted=False),),
+            ),
+            replace(
+                loop_evidence,
+                entries=(
+                    replace(
+                        loop_evidence.entries[0],
+                        left_junction=replace(
+                            left_junction,
+                            left_structure_residue_id="A:4",
+                        ),
+                    ),
+                ),
+            ),
+            replace(
+                loop_evidence,
+                entries=(
+                    replace(
+                        loop_evidence.entries[0],
+                        left_junction=AtomPairDistanceEvidence(
+                            "A:1",
+                            "A:1",
+                            "C",
+                            (0.0, 0.0, 0.0),
+                            "A:loop",
+                            "A:3",
+                            "N",
+                            (1.35, 0.0, 0.0),
+                            1.35,
+                        ),
+                    ),
+                ),
+            ),
+            replace(
+                loop_evidence,
+                entries=(
+                    replace(
+                        loop_evidence.entries[0],
+                        minimum_loop_core_nonbonded_distance=replace(
+                            minimum_distance,
+                            left_atom_name="H",
+                            right_atom_name="H",
+                        ),
+                    ),
+                ),
+            ),
+            replace(
+                loop_evidence,
+                entries=(
+                    replace(
+                        loop_evidence.entries[0],
+                        confidence_method=SEQUENCE_PRIMARY_AFFINE_METHOD_REFERENCE,
+                    ),
+                ),
+            ),
+        ),
+    )
+
+
 def test_structure_comparison_contract_test_kit(
     tmp_path: Path,
 ) -> None:
@@ -1719,9 +2179,10 @@ def test_structure_comparison_contract_test_kit(
                 ("fixed_reference", "fixed_reference"),
                 ("per_subject_counterpart", "counterparts"),
             )
-        ),
-        _three_way_ctk_case(),
-    )
+            ),
+            _three_way_ctk_case(),
+            _inserted_loop_ctk_case(),
+        )
 
     support = (
         TRANSFORM_PACKAGE,
@@ -1842,6 +2303,7 @@ def test_structure_comparison_contract_test_kit(
         classification="three_way_consistent",
         subreason=None,
     )
+    inserted_loop_port_case = _inserted_loop_port_case()
 
     report = verify_module_package_contract(
         MODULE_PACKAGE,
@@ -1853,16 +2315,17 @@ def test_structure_comparison_contract_test_kit(
                 evidence,
                 (object(), replace(evidence, correspondence=())),
             ),
-            ModulePackagePortCase(
-                "structure_comparison.three_way_consistency",
+                ModulePackagePortCase(
+                    "structure_comparison.three_way_consistency",
                 "1.0.0",
                 consistency,
                 (object(), replace(consistency, classification="all_disagree")),
-            ),
+                ),
+                inserted_loop_port_case,
         ),
         supporting_registrations=support,
         work_root=tmp_path,
     )
 
-    assert len(report.case_reports) == 9
+    assert len(report.case_reports) == 10
     assert {case.status for case in report.case_reports} == {"succeeded"}

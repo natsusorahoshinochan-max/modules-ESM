@@ -24,5 +24,16 @@ outputs:
     required: true
     multiplicity: one
     scientific_meaning: One exact Method-specific subjectless prediction-confidence fact.
-parameter_groups: []
-node_parameters: {}
+parameter_groups:
+  - id: missingness
+    title: Fixture missingness
+    parameters:
+      - missing_loop_plddt
+node_parameters:
+  missing_loop_plddt:
+    parameter_scope: scientific
+    scientific_meaning: Publish a lawful null pLDDT value only for A:loop.
+    required: false
+    default: false
+    value_contract:
+      type: boolean

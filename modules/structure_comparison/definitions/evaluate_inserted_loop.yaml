@@ -1,0 +1,213 @@
+schema_version: "2.1.0"
+node_type_id: structure_comparison.evaluate_inserted_loop
+version: "1.0.0"
+title: Evaluate an inserted loop with exact structural evidence
+summary: Closes fixed-reference core preservation, explicit counterpart agreement, residue-scoped confidence, junction geometry, and nonbonded loop/core distance for each independently folded Candidate.
+category: structure_comparison
+inputs:
+  - name: subjects
+    port_type_id: candidate.collection
+    port_type_version: "3.0.0"
+    required: true
+    multiplicity: one
+    scientific_meaning: Independently folded structure Candidates that are the exact subjects of every conclusion.
+  - name: subject_residue_axes
+    port_type_id: structure_transform.candidate_resolved_residue_axis_associations
+    port_type_version: "5.0.0"
+    required: true
+    multiplicity: one
+    scientific_meaning: Complete exact-subject output-structure axes used for named-atom geometry.
+  - name: references
+    port_type_id: candidate.collection
+    port_type_version: "3.0.0"
+    required: true
+    multiplicity: one
+    scientific_meaning: Exactly one original resolved-core structure Candidate.
+  - name: counterparts
+    port_type_id: candidate.collection
+    port_type_version: "3.0.0"
+    required: true
+    multiplicity: one
+    scientific_meaning: Structure Candidates generated as the explicit counterparts of the sequence parents.
+  - name: counterpart_pairing
+    port_type_id: candidate.pairing
+    port_type_version: "3.0.0"
+    required: true
+    multiplicity: one
+    scientific_meaning: Complete one-to-one independently-folded-subject to generated-counterpart mapping.
+  - name: resolved_core_alignments
+    port_type_id: structure_comparison.alignment_evidence
+    port_type_version: "4.0.0"
+    required: true
+    multiplicity: many
+    scientific_meaning: Exact fixed-reference alignment Evidence whose reference correspondence is the declared resolved core.
+  - name: resolved_core_tm_scores
+    port_type_id: score.collection
+    port_type_version: "4.0.0"
+    required: true
+    multiplicity: one
+    scientific_meaning: Reference-axis-normalized TM-score Observations derived from the resolved-core alignment Evidence.
+  - name: resolved_core_rmsd_scores
+    port_type_id: score.collection
+    port_type_version: "4.0.0"
+    required: true
+    multiplicity: one
+    scientific_meaning: C-alpha RMSD Observations derived from the resolved-core alignment Evidence.
+  - name: counterpart_alignments
+    port_type_id: structure_comparison.alignment_evidence
+    port_type_version: "4.0.0"
+    required: true
+    multiplicity: many
+    scientific_meaning: Exact per-subject counterpart alignment Evidence.
+  - name: counterpart_tm_scores
+    port_type_id: score.collection
+    port_type_version: "4.0.0"
+    required: true
+    multiplicity: one
+    scientific_meaning: Reference-axis-normalized TM-score Observations derived from counterpart alignment Evidence.
+  - name: counterpart_rmsd_scores
+    port_type_id: score.collection
+    port_type_version: "4.0.0"
+    required: true
+    multiplicity: one
+    scientific_meaning: C-alpha RMSD Observations derived from counterpart alignment Evidence.
+  - name: confidence_observations
+    port_type_id: score.collection
+    port_type_version: "4.0.0"
+    required: true
+    multiplicity: one
+    scientific_meaning: Exact folding confidence Observations carrying each subject's prediction-input residue axis and per-residue pLDDT.
+outputs:
+  - name: quality_evidence
+    port_type_id: structure_comparison.inserted_loop_evaluation
+    port_type_version: "1.0.0"
+    required: true
+    multiplicity: one
+    scientific_meaning: One closed conclusion per subject with exact participants, residue correspondence, values, atom pairs, thresholds, and gate results.
+  - name: passing_candidates
+    port_type_id: candidate.collection
+    port_type_version: "3.0.0"
+    required: true
+    multiplicity: one
+    scientific_meaning: Original subject Candidates for which all five declared gates pass, preserving input order; this collection may be empty.
+parameter_groups:
+  - id: residue_scopes
+    title: Exact residue scopes and junctions
+    parameters:
+      - resolved_core_residue_ids
+      - loop_residue_ids
+      - left_junction_residue_id
+      - right_junction_residue_id
+  - id: thresholds
+    title: Scientific acceptance thresholds
+    parameters:
+      - resolved_core_tm_score_minimum
+      - resolved_core_rmsd_angstrom_maximum
+      - counterpart_tm_score_minimum
+      - counterpart_rmsd_angstrom_maximum
+      - resolved_core_mean_plddt_minimum
+      - junction_cn_distance_angstrom_minimum
+      - junction_cn_distance_angstrom_maximum
+      - loop_core_nonbonded_distance_angstrom_minimum
+node_parameters:
+  resolved_core_residue_ids:
+    parameter_scope: scientific
+    scientific_meaning: Ordered chain-qualified prediction-axis identities defining the complete resolved core.
+    required: true
+    value_contract:
+      type: array
+      minItems: 1
+      maxItems: 10000
+      uniqueItems: true
+      items:
+        type: string
+        minLength: 1
+        maxLength: 128
+  loop_residue_ids:
+    parameter_scope: scientific
+    scientific_meaning: Ordered chain-qualified prediction-axis identities defining only the inserted loop.
+    required: true
+    value_contract:
+      type: array
+      minItems: 1
+      maxItems: 10000
+      uniqueItems: true
+      items:
+        type: string
+        minLength: 1
+        maxLength: 128
+  left_junction_residue_id:
+    parameter_scope: scientific
+    scientific_meaning: Exact resolved-core residue immediately before the inserted loop.
+    required: true
+    value_contract:
+      type: string
+      minLength: 1
+      maxLength: 128
+  right_junction_residue_id:
+    parameter_scope: scientific
+    scientific_meaning: Exact resolved-core residue immediately after the inserted loop.
+    required: true
+    value_contract:
+      type: string
+      minLength: 1
+      maxLength: 128
+  resolved_core_tm_score_minimum:
+    parameter_scope: scientific
+    scientific_meaning: Inclusive minimum reference-axis-normalized TM-score for resolved-core preservation.
+    required: true
+    value_contract:
+      type: number
+      minimum: 0
+      maximum: 1
+  resolved_core_rmsd_angstrom_maximum:
+    parameter_scope: scientific
+    scientific_meaning: Inclusive maximum resolved-core C-alpha RMSD in angstroms.
+    required: true
+    value_contract:
+      type: number
+      minimum: 0
+  counterpart_tm_score_minimum:
+    parameter_scope: scientific
+    scientific_meaning: Inclusive minimum reference-axis-normalized TM-score against the exact generated counterpart.
+    required: true
+    value_contract:
+      type: number
+      minimum: 0
+      maximum: 1
+  counterpart_rmsd_angstrom_maximum:
+    parameter_scope: scientific
+    scientific_meaning: Inclusive maximum C-alpha RMSD against the exact generated counterpart in angstroms.
+    required: true
+    value_contract:
+      type: number
+      minimum: 0
+  resolved_core_mean_plddt_minimum:
+    parameter_scope: scientific
+    scientific_meaning: Inclusive minimum mean-residue pLDDT over exactly the declared resolved-core identities.
+    required: true
+    value_contract:
+      type: number
+      minimum: 0
+      maximum: 100
+  junction_cn_distance_angstrom_minimum:
+    parameter_scope: scientific
+    scientific_meaning: Inclusive minimum C-N distance at both inserted-loop junctions in angstroms.
+    required: true
+    value_contract:
+      type: number
+      minimum: 0
+  junction_cn_distance_angstrom_maximum:
+    parameter_scope: scientific
+    scientific_meaning: Inclusive maximum C-N distance at both inserted-loop junctions in angstroms.
+    required: true
+    value_contract:
+      type: number
+      minimum: 0
+  loop_core_nonbonded_distance_angstrom_minimum:
+    parameter_scope: scientific
+    scientific_meaning: Inclusive minimum loop/core nonbonded heavy-atom distance after excluding the two direct junction peptide C-N bonds.
+    required: true
+    value_contract:
+      type: number
+      minimum: 0

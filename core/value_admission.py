@@ -436,6 +436,19 @@ def normalize_scientific_outputs(
         for value in inputs.values()
         for candidate in _candidate_values(value)
     }
+    input_pairing_references: dict[str, CandidateDataReference] = {}
+    for value in inputs.values():
+        if type(value) is not PairwiseCandidateMapping:
+            continue
+        for entry in value.entries:
+            for reference in (entry.subject, entry.reference):
+                known = input_pairing_references.get(reference.candidate_id)
+                if known is not None and known != reference:
+                    raise PortValueError(
+                        "Candidate pairing inputs contradict one exact "
+                        "Candidate reference"
+                    )
+                input_pairing_references[reference.candidate_id] = reference
     propagated_output_port: str | None = None
     propagated_references: Mapping[str, CandidateDataReference] = (
         MappingProxyType({})
@@ -618,9 +631,16 @@ def normalize_scientific_outputs(
     ) -> CandidateDataReference:
         candidate = input_candidates.get(reference.candidate_id)
         if candidate is None:
-            raise PortValueError(
-                "Candidate pairing names an unknown input Candidate reference"
-            )
+            expected = input_pairing_references.get(reference.candidate_id)
+            if expected is None:
+                raise PortValueError(
+                    "Candidate pairing names an unknown input Candidate reference"
+                )
+            if reference != expected:
+                raise PortValueError(
+                    "Candidate pairing conflicts with an admitted input pairing"
+                )
+            return expected
         data_type_id = _candidate_data_type_id(candidate.data)
         if data_type_id is None:
             raise PortValueError(

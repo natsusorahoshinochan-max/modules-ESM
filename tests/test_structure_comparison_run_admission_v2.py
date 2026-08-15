@@ -24,6 +24,8 @@ from tests.test_structure_comparison_v2 import (
     STRUCTURE_PREDICTION_PACKAGE,
     TRANSFORM_PACKAGE,
     _ctk_case,
+    _inserted_loop_ctk_case,
+    _inserted_loop_port_case,
     _three_way_consistency_value,
     _three_way_ctk_case,
 )
@@ -83,6 +85,7 @@ def _execution_cases() -> tuple[ModulePackageContractCase, ...]:
             )
         ),
         _three_way_ctk_case(),
+        _inserted_loop_ctk_case(),
     )
 
 
@@ -112,6 +115,7 @@ def _verify_comparison_package(
                     ),
                 ),
             ),
+            _inserted_loop_port_case(),
         ),
         supporting_registrations=(
             TRANSFORM_PACKAGE,
@@ -128,7 +132,7 @@ def test_real_v2_run_admits_exact_structure_alignment_evidence(
 ) -> None:
     report = _verify_comparison_package(tmp_path)
 
-    assert len(report.case_reports) == 9
+    assert len(report.case_reports) == 10
     assert {case.status for case in report.case_reports} == {"succeeded"}
 
 

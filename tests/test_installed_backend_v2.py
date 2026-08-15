@@ -372,9 +372,11 @@ def test_built_artifact_is_reproducible_complete_and_fixture_free(
         "examples/v2/repository-capabilities.workflow.json",
         "examples/v2/source-bound-1pga.workflow.json",
         "examples/v2/source-bound-2emo.workflow.json",
+        "examples/v2/source-bound-5g53.workflow.json",
         "pdbs/1PGA-75-gen1_0690.pdb",
         "pdbs/2EMO.pdb",
         "pdbs/3GB1.pdb",
+        "pdbs/5G53.pdb",
         "protein_workbench_public/resources/v2/bundle.json",
     }
     assert required <= names

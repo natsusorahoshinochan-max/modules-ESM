@@ -1,0 +1,34 @@
+schema_version: "2.1.0"
+node_type_id: collection_ops.concat_pairings
+version: "3.0.0"
+title: Concatenate exact Candidate pairings
+summary: Concatenates up to three explicit one-to-one Candidate pairings in declared Port order without deriving correspondence from collection position.
+category: collection_ops
+inputs:
+  - name: pairing_a
+    port_type_id: candidate.pairing
+    port_type_version: "3.0.0"
+    required: false
+    multiplicity: one
+    scientific_meaning: First exact Candidate pairing partition.
+  - name: pairing_b
+    port_type_id: candidate.pairing
+    port_type_version: "3.0.0"
+    required: false
+    multiplicity: one
+    scientific_meaning: Second exact Candidate pairing partition.
+  - name: pairing_c
+    port_type_id: candidate.pairing
+    port_type_version: "3.0.0"
+    required: false
+    multiplicity: one
+    scientific_meaning: Third exact Candidate pairing partition.
+outputs:
+  - name: pairing
+    port_type_id: candidate.pairing
+    port_type_version: "3.0.0"
+    required: true
+    multiplicity: one
+    scientific_meaning: Complete concatenated one-to-one pairing in pairing_a, pairing_b, pairing_c and within-partition order.
+parameter_groups: []
+node_parameters: {}

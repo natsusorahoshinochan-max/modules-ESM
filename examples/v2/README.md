@@ -46,3 +46,19 @@ and Protein-Sol scaled observations; their exact Candidate intersection may be
 empty without turning the scientific result into a failed Run. Provider-free
 public REST/WebSocket acceptance uses lawful controlled Binding clients and
 does not invoke a remote Provider or load ProteinMPNN or Protein-Sol.
+
+`source-bound-5g53.workflow.json` is the exact source-bound loop-insertion
+acceptance Workflow for `pdbs/5G53.pdb` (SHA-256
+`a928fad49a755050d981bb9e02c94ca29e1ba09b92f129c71bb95e98a35e3537`).
+It imports the four-chain source bytes with HETATM records and provenance,
+selects chain A explicitly, and retains the 283-residue reference axis with
+the A:146-to-A:159 and A:211-to-A:224 discontinuities. Three paired ESM3
+branches insert 8, 12, or 16 residues only at the second discontinuity, with
+two samples per branch and exact seeds and generation parameters. ESMFold2
+folds all six designed counterparts. The Workflow publishes reference-core
+and counterpart alignment scores, resolved-core and inserted-loop confidence,
+junction geometry, and clash evidence before applying the declared scientific
+gates. A scientifically valid zero-pass result remains a successful Run.
+Provider-free public REST/WebSocket acceptance uses lawful controlled Binding
+clients with reconstruction and both full-PAE confidence paths; it invokes no
+remote Provider or local model.

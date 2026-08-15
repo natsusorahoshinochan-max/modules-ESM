@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import math
 
 from datatypes import CandidateDataReference, ExactContractReference
 
@@ -148,6 +149,150 @@ class ThreeWayConsistencyEvidence:
     edges: tuple[ThreeWayComparisonEdge, ...]
     classification: str
     subreason: str | None
+
+
+@dataclass(frozen=True, slots=True)
+class ResidueIdentityCorrespondence:
+    """One positional prediction-input to output-structure residue mapping."""
+
+    prediction_residue_id: str
+    structure_residue_id: str
+
+
+@dataclass(frozen=True, slots=True)
+class AtomPairDistanceEvidence:
+    """One exact atom pair and its Euclidean distance in angstroms."""
+
+    left_prediction_residue_id: str
+    left_structure_residue_id: str
+    left_atom_name: str
+    left_coordinate: Vector3
+    right_prediction_residue_id: str
+    right_structure_residue_id: str
+    right_atom_name: str
+    right_coordinate: Vector3
+    distance_angstrom: float
+
+
+@dataclass(frozen=True, slots=True)
+class InsertedLoopThresholds:
+    """The complete threshold contract for inserted-loop acceptance."""
+
+    resolved_core_tm_score_minimum: float
+    resolved_core_rmsd_angstrom_maximum: float
+    counterpart_tm_score_minimum: float
+    counterpart_rmsd_angstrom_maximum: float
+    resolved_core_mean_plddt_minimum: float
+    junction_cn_distance_angstrom_minimum: float
+    junction_cn_distance_angstrom_maximum: float
+    loop_core_nonbonded_distance_angstrom_minimum: float
+
+
+@dataclass(frozen=True, slots=True)
+class InsertedLoopCandidateEvidence:
+    """Closed evidence and conclusion for one independently folded Candidate."""
+
+    subject: CandidateDataReference
+    reference: CandidateDataReference
+    counterpart: CandidateDataReference
+    prediction_axis_content_digest: str
+    structure_axis_content_digest: str
+    prediction_to_structure_correspondence: tuple[
+        ResidueIdentityCorrespondence, ...
+    ]
+    resolved_core_residue_ids: tuple[str, ...]
+    loop_residue_ids: tuple[str, ...]
+    resolved_core_alignment_content_digest: str
+    counterpart_alignment_content_digest: str
+    resolved_core_tm_score: float
+    resolved_core_rmsd_angstrom: float
+    counterpart_tm_score: float
+    counterpart_rmsd_angstrom: float
+    confidence_collection_content_digest: str
+    confidence_method: ExactContractReference
+    resolved_core_mean_plddt: float
+    loop_mean_plddt: float
+    left_junction: AtomPairDistanceEvidence
+    right_junction: AtomPairDistanceEvidence
+    minimum_loop_core_nonbonded_distance: AtomPairDistanceEvidence
+    thresholds: InsertedLoopThresholds
+    resolved_core_passed: bool
+    counterpart_passed: bool
+    confidence_passed: bool
+    junctions_passed: bool
+    clash_passed: bool
+    accepted: bool
+    method: ExactContractReference
+
+
+@dataclass(frozen=True, slots=True)
+class InsertedLoopEvaluationCollection:
+    """Canonical exact-subject collection of inserted-loop conclusions."""
+
+    entries: tuple[InsertedLoopCandidateEvidence, ...]
+
+    def __post_init__(self) -> None:
+        entries = tuple(self.entries)
+        object.__setattr__(
+            self,
+            "entries",
+            tuple(
+                sorted(
+                    entries,
+                    key=lambda entry: (
+                        entry.subject.candidate_id,
+                        entry.subject.data_type_id,
+                        entry.subject.content_digest,
+                    ),
+                )
+            ),
+        )
+
+
+def inserted_loop_gate_results(
+    evidence: InsertedLoopCandidateEvidence,
+) -> tuple[bool, bool, bool, bool, bool, bool]:
+    """Apply the exact inclusive inserted-loop gate contract."""
+    thresholds = evidence.thresholds
+    resolved_core = (
+        evidence.resolved_core_tm_score
+        >= thresholds.resolved_core_tm_score_minimum
+        and evidence.resolved_core_rmsd_angstrom
+        <= thresholds.resolved_core_rmsd_angstrom_maximum
+    )
+    counterpart = (
+        evidence.counterpart_tm_score
+        >= thresholds.counterpart_tm_score_minimum
+        and evidence.counterpart_rmsd_angstrom
+        <= thresholds.counterpart_rmsd_angstrom_maximum
+    )
+    confidence = (
+        evidence.resolved_core_mean_plddt
+        >= thresholds.resolved_core_mean_plddt_minimum
+    )
+    junctions = all(
+        thresholds.junction_cn_distance_angstrom_minimum
+        <= item.distance_angstrom
+        <= thresholds.junction_cn_distance_angstrom_maximum
+        for item in (evidence.left_junction, evidence.right_junction)
+    )
+    clash = (
+        evidence.minimum_loop_core_nonbonded_distance.distance_angstrom
+        >= thresholds.loop_core_nonbonded_distance_angstrom_minimum
+    )
+    return (
+        resolved_core,
+        counterpart,
+        confidence,
+        junctions,
+        clash,
+        all((resolved_core, counterpart, confidence, junctions, clash)),
+    )
+
+
+def atom_pair_distance(value: AtomPairDistanceEvidence) -> float:
+    """Recompute one distance from the exact coordinate evidence."""
+    return math.dist(value.left_coordinate, value.right_coordinate)
 
 
 def confidence_is_eligible(mean_residue_plddt: float) -> bool:

@@ -178,6 +178,7 @@ def test_public_catalog_has_exact_collection_operation_nodes() -> None:
 
     assert set(contracts) == {
         ("binding", "collection_ops.concat_candidates.direct"),
+        ("binding", "collection_ops.concat_pairings.direct"),
         ("binding", "collection_ops.merge_scores.direct"),
         ("binding", "collection_ops.pair_siblings_by_parent.direct"),
         ("binding", "collection_ops.rebind_candidate_pairing.direct"),
@@ -185,6 +186,7 @@ def test_public_catalog_has_exact_collection_operation_nodes() -> None:
         ("binding", "collection_ops.intersect_candidates.direct"),
         ("binding", "collection_ops.select_children_by_parent.direct"),
         ("method", "collection_ops.concat_candidates.method"),
+        ("method", "collection_ops.concat_pairings.method"),
         ("method", "collection_ops.merge_scores.method"),
         ("method", "collection_ops.pair_siblings_by_parent.method"),
         ("method", "collection_ops.rebind_candidate_pairing.method"),
@@ -192,6 +194,7 @@ def test_public_catalog_has_exact_collection_operation_nodes() -> None:
         ("method", "collection_ops.intersect_candidates.method"),
         ("method", "collection_ops.select_children_by_parent.method"),
         ("node_type", "collection_ops.concat_candidates"),
+        ("node_type", "collection_ops.concat_pairings"),
         ("node_type", "collection_ops.merge_scores"),
         ("node_type", "collection_ops.pair_siblings_by_parent"),
         ("node_type", "collection_ops.rebind_candidate_pairing"),
@@ -203,6 +206,7 @@ def test_public_catalog_has_exact_collection_operation_nodes() -> None:
         "aggregate" in contract_id for _, contract_id in contracts
     )
     for operation in (
+        "concat_pairings",
         "pair_siblings_by_parent",
         "rebind_candidate_pairing",
     ):
@@ -231,6 +235,7 @@ def test_collection_ports_and_score_union_are_closed_and_versioned() -> None:
 
     candidate_only_operations = {
         "concat_candidates",
+        "concat_pairings",
         "pair_siblings_by_parent",
         "rebind_candidate_pairing",
         "take_candidates",
@@ -524,6 +529,27 @@ def test_all_collection_nodes_pass_the_shared_contract_test_kit(
             ),
         ),
     )
+    concat_pairings_case = ModulePackageContractCase(
+        case_id="collection-ops-concat-pairings",
+        node_type_id="collection_ops.concat_pairings",
+        node_type_version=CANDIDATE_NODE_VERSION,
+        binding_id="collection_ops.concat_pairings.direct",
+        binding_version=CANDIDATE_NODE_VERSION,
+        node_parameters={},
+        binding_parameters={},
+        environment_values={},
+        safe_environment_fingerprint="provider-free",
+        invalidation_token="collection-ops-concat-pairings-v1",
+        workflow_nodes=(lineage_source,),
+        workflow_edges=(
+            WorkflowEdge(
+                "lineage-source",
+                "parent_pairing",
+                "contract-test-node",
+                "pairing_a",
+            ),
+        ),
+    )
     pair_case = ModulePackageContractCase(
         case_id="collection-ops-pair-siblings-by-parent",
         node_type_id="collection_ops.pair_siblings_by_parent",
@@ -613,6 +639,7 @@ def test_all_collection_nodes_pass_the_shared_contract_test_kit(
         execution_cases=(
             candidate_case,
             score_case,
+            concat_pairings_case,
             pair_case,
             rebind_case,
             take_case,
@@ -624,6 +651,7 @@ def test_all_collection_nodes_pass_the_shared_contract_test_kit(
     )
 
     assert [case.status for case in report.case_reports] == [
+        "succeeded",
         "succeeded",
         "succeeded",
         "succeeded",

@@ -413,6 +413,7 @@ def test_production_catalog_advertises_only_cohesive_v2_capabilities() -> None:
             "structure_comparison.classify_three_way_consistency",
             "1.0.0",
         ),
+        ("structure_comparison.evaluate_inserted_loop", "1.0.0"),
         ("structure_comparison.rmsd_counterparts", "5.0.0"),
         ("structure_comparison.rmsd_fixed_reference", "5.0.0"),
         ("structure_comparison.tm_score_counterparts", "5.0.0"),
@@ -445,6 +446,10 @@ def test_production_catalog_advertises_only_cohesive_v2_capabilities() -> None:
         ),
         (
             "structure_comparison.classify_three_way_consistency.direct",
+            "1.0.0",
+        ),
+        (
+            "structure_comparison.evaluate_inserted_loop.direct",
             "1.0.0",
         ),
         (
@@ -518,7 +523,7 @@ def test_routine_example_verification_is_pure_and_provider_free(
             build_discovered_frozen_catalog().contract_digest
         ),
         "package_count": 12,
-        "node_type_count": 68,
+        "node_type_count": 70,
         "workflow_count": len(PRODUCTION_WORKFLOW_PATHS),
     }
     assert all(not any(root.iterdir()) for root in isolated_roots.values())

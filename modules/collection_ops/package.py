@@ -30,6 +30,7 @@ _SCORE_NODE_BINDING_VERSION = "4.0.0"
 _OPERATIONS = (
     "concat_candidates",
     "merge_scores",
+    "concat_pairings",
     "pair_siblings_by_parent",
     "rebind_candidate_pairing",
     "take_candidates",
@@ -63,6 +64,7 @@ def _method(operation: str) -> MethodDefinition:
             "candidates_c",
         ],
         "merge_scores": ["scores_a", "scores_b", "scores_c"],
+        "concat_pairings": ["pairing_a", "pairing_b", "pairing_c"],
         "pair_siblings_by_parent": ["subjects", "references"],
         "rebind_candidate_pairing": [
             "subjects",
@@ -82,6 +84,7 @@ def _method(operation: str) -> MethodDefinition:
     duplicate_policy = {
         "concat_candidates": "reject-candidate-partition-collision",
         "merge_scores": "deduplicate-identical-observation-only",
+        "concat_pairings": "reject-subject-or-reference-partition-collision",
         "pair_siblings_by_parent": "one-sibling-per-common-parent",
         "rebind_candidate_pairing": "complete-one-to-one-parent-composition",
         "take_candidates": "preserve-exact-ordered-prefix",
@@ -95,6 +98,7 @@ def _method(operation: str) -> MethodDefinition:
         "duplicate_policy": duplicate_policy,
     }
     if operation in {
+        "concat_pairings",
         "pair_siblings_by_parent",
         "rebind_candidate_pairing",
     }:
@@ -108,7 +112,11 @@ def _method(operation: str) -> MethodDefinition:
         version=(
             _PAIRING_METHOD_VERSION
             if operation
-            in {"pair_siblings_by_parent", "rebind_candidate_pairing"}
+            in {
+                "concat_pairings",
+                "pair_siblings_by_parent",
+                "rebind_candidate_pairing",
+            }
             else _METHOD_VERSION
         ),
         algorithm_identity=algorithm_identity,
@@ -150,7 +158,11 @@ def _binding(operation: str) -> ExecutionBindingDefinition:
             (
                 _PAIRING_METHOD_VERSION
                 if operation
-                in {"pair_siblings_by_parent", "rebind_candidate_pairing"}
+                in {
+                    "concat_pairings",
+                    "pair_siblings_by_parent",
+                    "rebind_candidate_pairing",
+                }
                 else _METHOD_VERSION
             ),
         ),
@@ -200,6 +212,7 @@ MODULE_PACKAGE = ModulePackageRegistration(
     node_definitions=(
         DefinitionResource("definitions/concat_candidates.yaml"),
         DefinitionResource("definitions/merge_scores.yaml"),
+        DefinitionResource("definitions/concat_pairings.yaml"),
         DefinitionResource("definitions/pair_siblings_by_parent.yaml"),
         DefinitionResource("definitions/rebind_candidate_pairing.yaml"),
         DefinitionResource("definitions/take_candidates.yaml"),
