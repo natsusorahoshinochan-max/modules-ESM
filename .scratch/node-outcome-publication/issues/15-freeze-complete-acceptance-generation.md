@@ -4,7 +4,7 @@
 
 **Blocked by:** 14 — 准备 source-bound 5G53 科学验收
 
-**Status:** in-progress
+**Status:** completed
 
 - [x] 保留 canonical 3GB1 现有科学合同：10 个 paired ESM-3 Candidates、top 3 selection、每个 selected parent 的 5 个 ProteinMPNN designs（3×5，共 15 个）、15 个最终 folds/Artifacts 和 exact lineage/provenance，并将其全部切换到 descriptor/retrieval public contract。
 - [x] 1PGA、2EMO、3GB1 和 5G53 分别具有 clean-source、zero-skip、retain-evidence acceptance tier；四个 tiers 的静态收集、input digests、current Catalog references 和 public journey contracts 全部通过；generation freeze 不执行 live selectors，一次独立的误选 Provider 事件按下文审计且不作为验收证据。
@@ -68,3 +68,5 @@ prefixes remain immutable and must not be retried, edited, or combined.
 - Official-contract audit：pinned SDK 的 `ProteinType` 明确包含 `ESMProteinError`，Forge `generate()` 与 `__generate_protein()` 明确返回 `ESMProtein | ESMProteinError`，且 ADR-0015 要求 returned error member 成为 Operation failure。production Adapter 已拥有该分类边界；installed acceptance `RecordingESM3Client` 却在返回 Adapter 前访问 `.sequence/.ptm/.plddt/.pae`，静态违反官方 union。
 - Provider-free RED→GREEN：使用官方 `ESMProteinError(503, "provider unavailable")` 精确复现同一 `AttributeError: 'ESMProteinError' object has no attribute 'sequence'`。修复只让 recorder 原样转发 documented error member，并由现有 Adapter 转为明确 `RuntimeError` Operation failure；官方 error object 作为 exception cause 保留。没有 schema guessing、response repair、fallback、retry、cross-check 或额外 Provider validation。
 - Contract scope：ESM-3 scientific Method、Execution Binding、Node Type、request、normal successful-response translation 与 package contract 均未改变，因此不创建虚假的 Method/Binding version cascade；当前变更只恢复既有 documented provider non-success 和 acceptance harness 语义。focused provider-free suites `39 passed`。
+- Final dual-axis review：Standards 与 Spec 均 `APPROVED`，确认 recorder 只原样转交官方 union error member，owning Adapter 将其转为既有 Operation failure 并保留 exact cause；无 defensive response handling、repair、retry、fallback 或科学合同/版本变更。
+- Final cumulative provider-free gates：`routine` 1309 passed / 48 deselected；`examples-v2` 12 passed；`deterministic-acceptance` 8 passed；`scientific-repro` 1 passed；`local-esmfold2-v2-contract` 6 passed；`installed-package` 3 passed；`provider-isolation` 16 passed；`security-failure` 10 passed；frontend Oxlint passed，`tsc -b && vite build` passed（179 modules）；`compileall` 与 `git diff --check` passed。全部门禁严格串行，`HF_HUB_OFFLINE=1`，未调用 Provider、未加载本地模型、未进入 Ticket 16。
