@@ -273,6 +273,7 @@ def test_remote_and_local_esmfold2_are_explicit_bindings_of_one_node() -> None:
         for registration in discover_module_packages()
     }
     registration = registrations["folding"]
+    assert registration.package_version == "7.0.0"
     assert {
         resource.resource for resource in registration.node_definitions
     } == {
@@ -327,6 +328,9 @@ def test_remote_and_local_esmfold2_are_explicit_bindings_of_one_node() -> None:
     assert local.descriptor["route_behavior"]["parameters"][
         "language_model_precision"
     ] == "fp32"
+    assert local.descriptor["readiness_declaration"]["prerequisites"][
+        "language_model_snapshot"
+    ]["precision"] == "fp32"
     assert local.descriptor["route_behavior"]["parameters"][
         "provider_seed_domain"
     ] == "unsigned_32_bit"
@@ -338,6 +342,9 @@ def test_remote_and_local_esmfold2_are_explicit_bindings_of_one_node() -> None:
         "folding.fold.esmfold2_hf_1ebf0e3",
         "6.0.0",
     )
+    assert local_method.descriptor["model_identity"][
+        "language_model_precision"
+    ] == "fp32"
     assert "protein-workbench-esmfold2-call/v3" in local_method.descriptor[
         "algorithm_identity"
     ]["randomness_contract"]
@@ -606,6 +613,25 @@ def test_local_readiness_validates_both_exact_snapshots(
     )
     rejected = adapter.local_readiness(environment)
     assert rejected == ReadinessResult(
+        False,
+        proof_source="direct-observation",
+        reason_code="local_runtime_unavailable",
+    )
+
+
+def test_local_readiness_rejects_fingerprint_from_other_esmc_precision(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import modules.folding.adapter as adapter
+
+    environment = _write_local_runtime_fixture(tmp_path, monkeypatch)
+    fp32_fingerprint = environment["resolved_runtime_fingerprint"]
+
+    monkeypatch.setattr(adapter, "LOCAL_ESMC_PRECISION", "bf16")
+
+    assert adapter.configured_local_runtime_fingerprint() != fp32_fingerprint
+    assert adapter.local_readiness(environment) == ReadinessResult(
         False,
         proof_source="direct-observation",
         reason_code="local_runtime_unavailable",
