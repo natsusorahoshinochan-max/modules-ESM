@@ -39,7 +39,10 @@ use mode `0700` and files use mode `0600`.
 | Installed SimpleFold confidence | `.venv/bin/python scripts/verify_backend.py installed-simplefold-confidence` | Invokes the installed exact confidence asset closure and proves direct-confidence output without refolding. |
 | Installed SoluProt | `.venv/bin/python scripts/verify_backend.py installed-soluprot` | Invokes both full and no-TM locked SoluProt methods and checks their exact observations and terminal evidence. |
 | Installed Protein-Sol | `.venv/bin/python scripts/verify_backend.py installed-protein-sol` | Invokes the source-bound Protein-Sol model for multiple sequences and all three declared Metrics. |
-| Fresh remote 3GB1 | `.venv/bin/python scripts/verify_backend.py fresh-remote-3gb1` | Runs the clean-source canonical scientific Workflow without historical Cache. Its baseline is 48 logical Engine Invocations, so it is release evidence rather than a substitute for the smaller exact-Binding gates. |
+| Fresh source-bound 1PGA | `.venv/bin/python scripts/verify_backend.py fresh-1pga` | Runs the clean-source installed 1PGA Workflow and retains the complete three-way structure, confidence, pairing, retrieval, and classification evidence. |
+| Fresh source-bound 2EMO | `.venv/bin/python scripts/verify_backend.py fresh-2emo` | Runs the clean-source installed 2EMO Workflow and retains exact CSH normalization, ProteinMPNN, ESMFold2, Protein-Sol, four-filter, and public evidence. |
+| Fresh canonical 3GB1 | `.venv/bin/python scripts/verify_backend.py fresh-canonical-3gb1` | Runs the clean-source canonical scientific Workflow without historical Cache. Its baseline is 48 logical Engine Invocations, so it is release evidence rather than a substitute for the smaller exact-Binding gates. |
+| Fresh source-bound 5G53 | `.venv/bin/python scripts/verify_backend.py fresh-5g53` | Runs the clean-source installed 5G53 Workflow and retains all six paired candidates, reconstruction, both PAE-bearing confidence collections, loop evidence, retrieval, and artifacts. |
 | Provider route isolation | `.venv/bin/python scripts/verify_backend.py provider-isolation` | Exercises exact model/data identity, configuration invalidation, stale Readiness, reusable-proof identity, and isolation of actual Provider routes. |
 | Local integrity and failure closure | `.venv/bin/python scripts/verify_backend.py security-failure` | Exercises accidental path/data-loss prevention, credential redaction, process cleanup, Project/Run isolation, Cache conflict, and durable-evidence failure. This is not an attacker-hardening tier. |
 
@@ -63,7 +66,7 @@ translation contract and cannot replace that invocation.
 
 The verifier exposes no v1 provider-evidence, mocked-workflow,
 aggregate-provider, or generic live-provider tier. It does expose the exact
-clean-source `fresh-remote-3gb1` release tier. Every Provider gate consumes
+four exact clean-source release tiers. Every Provider gate consumes
 current Run Evidence Ledger facts; an Adapter-owned JSONL stream,
 readiness-only result, historical manifest, skip, or Cache-only replay cannot
 satisfy it. A fixed expected call count is useful only together with exact
@@ -222,6 +225,40 @@ are derived from that Ledger. There is no parallel provider-evidence writer.
 Run Projection contains only bounded Typed Output descriptors. Exact canonical
 values are retrieved individually through the Run-scoped v2 Typed Value route;
 they are never embedded in the projection or lifecycle WebSocket stream.
+
+## Frozen acceptance generation
+
+The release authority is one clean source commit, not a committed file that
+tries to contain its own commit hash. After the Ticket 15 completion commit,
+start one generation and run only its next contiguous prefix:
+
+```bash
+.venv/bin/python scripts/acceptance_generation.py start verification-results/acceptance-generation
+.venv/bin/python scripts/acceptance_generation.py run-through verification-results/acceptance-generation installed-protein-sol
+.venv/bin/python scripts/acceptance_generation.py run-through verification-results/acceptance-generation fresh-1pga
+.venv/bin/python scripts/acceptance_generation.py run-through verification-results/acceptance-generation fresh-2emo
+.venv/bin/python scripts/acceptance_generation.py run-through verification-results/acceptance-generation fresh-canonical-3gb1
+.venv/bin/python scripts/acceptance_generation.py run-through verification-results/acceptance-generation fresh-5g53
+```
+
+`generation.json` binds the source revision, one reproducibly built wheel and
+sdist, public protocol and Catalog identities, all four input and Workflow
+digests, path-free Provider Environment Configuration identities, exact tier
+and local-asset runtime identities, exact selectors and tier order, and each
+retained result bundle digest. The controller uses one blocking child at a time,
+never passes xdist, and never retries a tier or Workflow. The same frozen
+installed artifacts are supplied to every tier. Any source, artifact, protocol,
+Catalog, input, Workflow, Provider asset/configuration, tier contract, or result
+prefix change invalidates the generation instead of being combined with older
+evidence.
+
+Local-model tiers are separate child processes. Within a child, one resident
+instance of each exact local model is reused for all calls made by its operation
+stage; the child must exit before the controller starts the next tier. The local
+ESM-3 gate shares one client across paired, sequence, and structure generation.
+ProteinMPNN reuses one resident model across every parent handled by one design
+or scoring stage, then releases that stage-owned residency before a later
+Protein-Sol stage begins.
 
 ## Deterministic public-protocol acceptance
 

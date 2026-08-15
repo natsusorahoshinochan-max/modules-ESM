@@ -23,6 +23,7 @@ from protein_workbench_public import (
     bundle_digest,
 )
 from scripts.fresh_remote_3gb1 import (
+    CANONICAL_INPUT_CONTENT_DIGEST,
     PROJECT_ID,
     PROTEINMPNN_BINDING_ID,
     PROTEINMPNN_BINDING_VERSION,
@@ -959,6 +960,7 @@ def test_fresh_remote_3gb1_installed_public_run_retains_auditable_bundle(
             build_discovered_frozen_catalog().contract_digest
         ),
         "workflow_id": PROJECT_ID,
+        "input_content_digest": CANONICAL_INPUT_CONTENT_DIGEST,
         "workflow_content_digest": _digest(WORKFLOW_PATH),
         "installed_artifacts": [
             {
@@ -1015,5 +1017,5 @@ def test_fresh_remote_3gb1_installed_public_run_retains_auditable_bundle(
     summary = validate_evidence_bundle(evidence_root)
     assert summary["source_revision"] == observed_revision
     assert summary["artifact_count"] == 15
-    assert summary["run_count"] >= 1
+    assert summary["run_count"] == 1
     assert stat.S_IMODE(evidence_root.stat().st_mode) & 0o077 == 0

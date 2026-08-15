@@ -161,7 +161,17 @@ def _build_artifacts(output_dir: Path) -> tuple[Path, Path]:
 @pytest.fixture(scope="session")
 def installed_artifact(tmp_path_factory: pytest.TempPathFactory) -> InstalledArtifact:
     root = tmp_path_factory.mktemp("installed-v2-artifact")
-    wheel, sdist = _build_artifacts(root / "dist")
+    frozen_artifact_dir = os.environ.get(
+        "PROTEIN_WORKBENCH_FROZEN_ARTIFACT_DIR"
+    )
+    if frozen_artifact_dir is None:
+        wheel, sdist = _build_artifacts(root / "dist")
+    else:
+        artifact_root = Path(frozen_artifact_dir).resolve()
+        wheels = tuple(artifact_root.glob("*.whl"))
+        sdists = tuple(artifact_root.glob("*.tar.gz"))
+        assert len(wheels) == len(sdists) == 1
+        wheel, sdist = wheels[0], sdists[0]
     environment = root / "environment"
     subprocess.run(
         [

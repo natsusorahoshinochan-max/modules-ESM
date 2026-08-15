@@ -598,7 +598,9 @@ def test_source_bound_2emo_public_journey_closes_exact_evidence(
         return LocalProteinMPNNAdapter(
             environment=kwargs["environment"],
             resources=kwargs["resources"],
-            provider_factory=lambda _environment, _directory: proteinmpnn,
+            provider_factory=(
+                lambda _environment, _directory, _models: proteinmpnn
+            ),
         )
 
     monkeypatch.setattr(

@@ -11,7 +11,12 @@ def verification_uses_shared_process_group() -> bool:
     """Keep the fresh gate in its supervisor-owned process group."""
     return (
         os.environ.get("PROTEIN_WORKBENCH_VERIFICATION_TIER")
-        == "fresh-remote-3gb1"
+        in {
+            "fresh-1pga",
+            "fresh-2emo",
+            "fresh-canonical-3gb1",
+            "fresh-5g53",
+        }
         and os.environ.get("PROTEIN_WORKBENCH_PROCESS_CONTAINMENT")
         == "shared_process_group"
     )

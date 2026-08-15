@@ -477,9 +477,30 @@ class _LocalProteinMPNNProvider:
         self,
         temp_dir: str | Path | None = None,
         provider_root: Path | None = None,
+        model_cache: dict[
+            tuple[str, float, Path | None],
+            tuple[Any, Any],
+        ] | None = None,
     ) -> None:
         self._temp_dir = temp_dir
         self._provider_root = provider_root
+        self._model_cache = model_cache if model_cache is not None else {}
+
+    def _resident_model(
+        self,
+        model_name: str,
+        backbone_noise: float,
+    ) -> tuple[Any, Any]:
+        key = (model_name, backbone_noise, self._provider_root)
+        resident = self._model_cache.get(key)
+        if resident is None:
+            resident = _load_model(
+                model_name,
+                backbone_noise,
+                self._provider_root,
+            )
+            self._model_cache[key] = resident
+        return resident
 
     def parse_structure(self, pdb_string: str) -> list[dict[str, Any]]:
         return _parse_structure(
@@ -495,10 +516,9 @@ class _LocalProteinMPNNProvider:
 
         with torch.random.fork_rng():
             torch.manual_seed(request.seed)
-            model, device = _load_model(
+            model, device = self._resident_model(
                 request.model_name,
                 request.backbone_noise,
-                self._provider_root,
             )
             batch = _featurize(
                 request,
@@ -539,10 +559,9 @@ class _LocalProteinMPNNProvider:
 
         with torch.random.fork_rng():
             torch.manual_seed(request.seed)
-            model, device = _load_model(
+            model, device = self._resident_model(
                 request.model_name,
                 request.backbone_noise,
-                self._provider_root,
             )
             batch = _featurize(
                 request,

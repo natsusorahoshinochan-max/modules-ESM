@@ -452,7 +452,7 @@ def test_canonical_v2_public_protocol_reproduces_scientific_intent(
             environment=kwargs["environment"],
             resources=kwargs["resources"],
             provider_factory=(
-                lambda _environment, _directory: proteinmpnn
+                lambda _environment, _directory, _models: proteinmpnn
             ),
         ),
     )
@@ -532,6 +532,28 @@ def test_canonical_v2_public_protocol_reproduces_scientific_intent(
             disposition["outcome"] == "succeeded"
             for disposition in first["node_dispositions"]
         )
+        for output in first["outputs"]:
+            assert "values" not in output
+            assert {
+                "node_id",
+                "output_port",
+                "port_type",
+                "content_digest",
+                "value_count",
+                "value_manifest_reference",
+                "result_identity",
+                "materialization",
+                "producer_provenance",
+            } <= set(output)
+            for value_index in range(output["value_count"]):
+                canonical = retrieve_typed_output_canonical_bytes(
+                    client,
+                    first["project_id"],
+                    first["run_id"],
+                    output,
+                    value_index,
+                )
+                assert canonical
 
         sequence_candidates = _decoded_output(
             client,

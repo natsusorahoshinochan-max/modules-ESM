@@ -49,7 +49,10 @@ def test_every_public_tier_has_only_existing_v2_test_targets() -> None:
     assert set(TIERS) == {
         "deterministic-acceptance",
         "examples-v2",
-        "fresh-remote-3gb1",
+        "fresh-1pga",
+        "fresh-2emo",
+        "fresh-canonical-3gb1",
+        "fresh-5g53",
         "installed-biohub-esm3",
         "installed-biohub-esmc",
         "installed-biohub-esmfold2",
@@ -94,8 +97,64 @@ def test_required_installed_provider_tiers_fail_on_any_skip() -> None:
         "installed-simplefold-confidence",
         "installed-simplefold-folding",
         "installed-soluprot",
-        "fresh-remote-3gb1",
+        "fresh-1pga",
+        "fresh-2emo",
+        "fresh-canonical-3gb1",
+        "fresh-5g53",
     }
+
+
+def test_complete_acceptance_generation_is_exact_and_retains_evidence() -> None:
+    from scripts.acceptance_generation import (
+        ACCEPTANCE_TIER_ORDER,
+        INPUT_DIGESTS,
+        INSTALLED_PROVIDER_TIER_ORDER,
+        SOURCE_BOUND_TIER_ORDER,
+    )
+
+    assert INSTALLED_PROVIDER_TIER_ORDER == (
+        "installed-biohub-esmc",
+        "installed-biohub-esm3",
+        "installed-biohub-esmfold2",
+        "installed-local-esm3",
+        "installed-local-esmfold2",
+        "installed-mkdssp",
+        "installed-proteinmpnn",
+        "installed-simplefold-folding",
+        "installed-simplefold-confidence",
+        "installed-soluprot",
+        "installed-protein-sol",
+    )
+    assert SOURCE_BOUND_TIER_ORDER == (
+        "fresh-1pga",
+        "fresh-2emo",
+        "fresh-canonical-3gb1",
+        "fresh-5g53",
+    )
+    assert ACCEPTANCE_TIER_ORDER == (
+        *INSTALLED_PROVIDER_TIER_ORDER,
+        *SOURCE_BOUND_TIER_ORDER,
+    )
+    assert INPUT_DIGESTS == {
+        "fresh-1pga": (
+            "d4392068a70cd5cb21f1598a83b6eff29f829d510ae808be0f62f35a6d01dc30"
+        ),
+        "fresh-2emo": (
+            "6ef4ef3102a71793373b5767b9a1a1cbbc324996527d1c9b3e7ebd00cf7b6700"
+        ),
+        "fresh-canonical-3gb1": (
+            "ee623d3d9fd77a131895dc367c31ac8d7266b1d4f241b56325170e5f62ed7811"
+        ),
+        "fresh-5g53": (
+            "a928fad49a755050d981bb9e02c94ca29e1ba09b92f129c71bb95e98a35e3537"
+        ),
+    }
+    assert all(
+        TIERS[name].zero_skip
+        and TIERS[name].clean_source
+        and TIERS[name].retain_evidence_bundle
+        for name in ACCEPTANCE_TIER_ORDER
+    )
 
 
 def test_installed_provider_tiers_select_exact_outer_gates() -> None:

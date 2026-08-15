@@ -349,10 +349,15 @@ def read_biohub_token(project_dir: str | None = None) -> str:
     else:
         if (
             os.environ.get("PROTEIN_WORKBENCH_VERIFICATION_TIER")
-            == "fresh-remote-3gb1"
+            in {
+                "fresh-1pga",
+                "fresh-2emo",
+                "fresh-canonical-3gb1",
+                "fresh-5g53",
+            }
         ):
             raise FileNotFoundError(
-                "Fresh remote gate requires an explicit Biohub token file"
+                "Fresh source-bound gate requires an explicit Biohub token file"
             )
         candidates = [Path("keys/esmkey.txt")]
         if project_dir:

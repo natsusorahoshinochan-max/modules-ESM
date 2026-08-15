@@ -42,24 +42,20 @@ def test_local_esm3_all_generation_modes(
         "resolved_runtime_fingerprint": fingerprint,
     }
     results = {}
-    shared_client = None
+    shared_client = load_local_esm3_client(
+        environment,
+        model_name=LOCAL_ESM3_MODEL,
+    )
     try:
         for operation, sequence in (
             ("generate_paired", None),
             ("generate_sequence", None),
             ("generate_structure", "ACD"),
         ):
-            if operation != "generate_paired" and shared_client is None:
-                shared_client = load_local_esm3_client(
-                    environment,
-                    model_name=LOCAL_ESM3_MODEL,
-                )
             service, catalog, projection, events = _run_generation(
                 tmp_path / operation,
                 operation=operation,
-                client=(
-                    None if operation == "generate_paired" else shared_client
-                ),
+                client=shared_client,
                 num_samples=1,
                 sequence=sequence,
                 binding_route="local_open",

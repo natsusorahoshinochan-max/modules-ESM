@@ -210,6 +210,7 @@ def configured_runtime_fingerprint() -> str:
 def _provider_for_environment(
     environment: Mapping[str, Any],
     staging_directory: Path,
+    model_cache: dict[tuple[str, float, Path | None], tuple[Any, Any]],
 ) -> ProteinMPNNProvider:
     """Resolve the declared provider seam without accepting Workflow paths."""
     client = environment.get("provider_client")
@@ -220,6 +221,7 @@ def _provider_for_environment(
     return _LocalProteinMPNNProvider(
         temp_dir=staging_directory,
         provider_root=cast(Path, environment["provider_root"]),
+        model_cache=model_cache,
     )
 
 
@@ -423,13 +425,21 @@ class LocalProteinMPNNAdapter:
         environment: Mapping[str, Any],
         resources: RunResources,
         provider_factory: Callable[
-            [Mapping[str, Any], Path],
+            [
+                Mapping[str, Any],
+                Path,
+                dict[tuple[str, float, Path | None], tuple[Any, Any]],
+            ],
             ProteinMPNNProvider,
         ] = _provider_for_environment,
     ) -> None:
         self._environment = environment
         self._resources = resources
         self._provider_factory = provider_factory
+        self._resident_models: dict[
+            tuple[str, float, Path | None],
+            tuple[Any, Any],
+        ] = {}
 
     def design(
         self,
@@ -450,6 +460,7 @@ class LocalProteinMPNNAdapter:
             provider = self._provider_factory(
                 self._environment,
                 staging_directory,
+                self._resident_models,
             )
             request = _prepare_local_design_request(
                 provider=provider,
@@ -493,6 +504,7 @@ class LocalProteinMPNNAdapter:
             provider = self._provider_factory(
                 self._environment,
                 staging_directory,
+                self._resident_models,
             )
             request = _prepare_local_scoring_request(
                 provider=provider,

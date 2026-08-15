@@ -960,7 +960,7 @@ def _controlled_adapter(
     return LocalProteinMPNNAdapter(
         environment={},
         resources=resources or _AdapterResources(),
-        provider_factory=lambda _environment, _directory: provider,
+        provider_factory=lambda _environment, _directory, _models: provider,
     )
 
 
@@ -1075,7 +1075,9 @@ def _install_test_provider(
         return LocalProteinMPNNAdapter(
             environment=kwargs["environment"],
             resources=kwargs["resources"],
-            provider_factory=lambda _environment, _directory: provider,
+            provider_factory=(
+                lambda _environment, _directory, _models: provider
+            ),
         )
 
     monkeypatch.setattr(
@@ -4072,3 +4074,31 @@ def test_proteinmpnn_passes_the_shared_contract_test_kit(
         "succeeded",
         "succeeded",
     ]
+
+
+def test_local_provider_reuses_one_resident_model_for_exact_operation_stage(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import modules.proteinmpnn.provider_runtime as provider_runtime
+
+    constructed: list[object] = []
+
+    def load_model(
+        model_name: str,
+        backbone_noise: float,
+        provider_root: Path | None,
+    ) -> tuple[object, object]:
+        model = object()
+        constructed.append(model)
+        return model, (model_name, backbone_noise, provider_root)
+
+    monkeypatch.setattr(provider_runtime, "_load_model", load_model)
+    provider = provider_runtime._LocalProteinMPNNProvider(
+        provider_root=tmp_path,
+    )
+    first = provider._resident_model("v_48_020", 0.0)
+    second = provider._resident_model("v_48_020", 0.0)
+
+    assert first is second
+    assert len(constructed) == 1

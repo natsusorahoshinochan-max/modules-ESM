@@ -137,6 +137,8 @@ TIERS = {
             "test_installed_biohub_esmc_gate"
         ),),
         zero_skip=True,
+        clean_source=True,
+        retain_evidence_bundle=True,
     ),
     "installed-biohub-esm3": Tier(
         ((
@@ -145,6 +147,8 @@ TIERS = {
         ),),
         timeout_seconds=40 * 60,
         zero_skip=True,
+        clean_source=True,
+        retain_evidence_bundle=True,
     ),
     "installed-biohub-esmfold2": Tier(
         ((
@@ -153,6 +157,8 @@ TIERS = {
         ),),
         timeout_seconds=35 * 60,
         zero_skip=True,
+        clean_source=True,
+        retain_evidence_bundle=True,
     ),
     "installed-local-esm3": Tier(
         ((
@@ -160,6 +166,8 @@ TIERS = {
             "test_installed_local_esm3_gate"
         ),),
         zero_skip=True,
+        clean_source=True,
+        retain_evidence_bundle=True,
     ),
     "installed-local-esmfold2": Tier(
         ((
@@ -168,6 +176,8 @@ TIERS = {
         ),),
         timeout_seconds=105 * 60,
         zero_skip=True,
+        clean_source=True,
+        retain_evidence_bundle=True,
     ),
     "installed-proteinmpnn": Tier(
         ((
@@ -176,6 +186,8 @@ TIERS = {
         ),),
         timeout_seconds=75 * 60,
         zero_skip=True,
+        clean_source=True,
+        retain_evidence_bundle=True,
     ),
     "installed-mkdssp": Tier(
         ((
@@ -183,6 +195,8 @@ TIERS = {
             "test_installed_mkdssp_gate"
         ),),
         zero_skip=True,
+        clean_source=True,
+        retain_evidence_bundle=True,
     ),
     "installed-simplefold-folding": Tier(
         ((
@@ -190,6 +204,8 @@ TIERS = {
             "test_installed_simplefold_folding_gate"
         ),),
         zero_skip=True,
+        clean_source=True,
+        retain_evidence_bundle=True,
     ),
     "installed-simplefold-confidence": Tier(
         ((
@@ -197,6 +213,8 @@ TIERS = {
             "test_installed_simplefold_confidence_gate"
         ),),
         zero_skip=True,
+        clean_source=True,
+        retain_evidence_bundle=True,
     ),
     "installed-soluprot": Tier(
         ((
@@ -204,6 +222,8 @@ TIERS = {
             "test_installed_soluprot_gate"
         ),),
         zero_skip=True,
+        clean_source=True,
+        retain_evidence_bundle=True,
     ),
     "installed-protein-sol": Tier(
         ((
@@ -211,14 +231,46 @@ TIERS = {
             "test_installed_protein_sol_gate"
         ),),
         zero_skip=True,
+        clean_source=True,
+        retain_evidence_bundle=True,
     ),
-    "fresh-remote-3gb1": Tier(
+    "fresh-1pga": Tier(
+        ((
+            "tests/test_fresh_source_bound_acceptance_v2.py::"
+            "test_fresh_1pga_installed_public_run_retains_auditable_bundle"
+        ),),
+        timeout_seconds=120 * 60,
+        zero_skip=True,
+        clean_source=True,
+        retain_evidence_bundle=True,
+    ),
+    "fresh-2emo": Tier(
+        ((
+            "tests/test_fresh_source_bound_acceptance_v2.py::"
+            "test_fresh_2emo_installed_public_run_retains_auditable_bundle"
+        ),),
+        timeout_seconds=180 * 60,
+        zero_skip=True,
+        clean_source=True,
+        retain_evidence_bundle=True,
+    ),
+    "fresh-canonical-3gb1": Tier(
         ((
             "tests/test_fresh_remote_3gb1_v2.py::"
             "test_fresh_remote_3gb1_installed_public_run_"
             "retains_auditable_bundle"
         ),),
         timeout_seconds=90 * 60,
+        zero_skip=True,
+        clean_source=True,
+        retain_evidence_bundle=True,
+    ),
+    "fresh-5g53": Tier(
+        ((
+            "tests/test_fresh_source_bound_acceptance_v2.py::"
+            "test_fresh_5g53_installed_public_run_retains_auditable_bundle"
+        ),),
+        timeout_seconds=180 * 60,
         zero_skip=True,
         clean_source=True,
         retain_evidence_bundle=True,
@@ -494,7 +546,7 @@ def run(tier_name: str, pytest_override: tuple[str, ...]) -> int:
     if tier.clean_source and dirty:
         print(
             "BACKEND VERIFICATION RESULT: failed "
-            "(fresh remote tier requires a clean source revision)",
+            "(acceptance tier requires a clean source revision)",
             flush=True,
         )
         return 1
@@ -512,8 +564,10 @@ def run(tier_name: str, pytest_override: tuple[str, ...]) -> int:
         env["PROTEIN_WORKBENCH_VERIFICATION_TIER"] = tier_name
         if tier.retain_evidence_bundle:
             env["PROTEIN_WORKBENCH_FRESH_SOURCE_REVISION"] = revision
+            evidence_staging = staging_root / "acceptance-evidence"
+            evidence_staging.mkdir(mode=0o700)
             env["PROTEIN_WORKBENCH_FRESH_EVIDENCE_STAGING"] = str(
-                staging_root / "fresh-remote-3gb1-evidence"
+                evidence_staging
             )
         env.pop("PROTEIN_WORKBENCH_PROVIDER_CALL_EVIDENCE", None)
         env.pop("PROTEIN_WORKBENCH_PROVIDER_EVIDENCE_SCOPE", None)
@@ -600,7 +654,27 @@ def run(tier_name: str, pytest_override: tuple[str, ...]) -> int:
         )
         result_dir.mkdir(parents=True, mode=0o700)
         result_dir.chmod(0o700)
-        evidence_staging = staging_root / "fresh-remote-3gb1-evidence"
+        evidence_staging = staging_root / "acceptance-evidence"
+        if tier.retain_evidence_bundle:
+            _write_private(
+                evidence_staging / "tier-result.json",
+                json.dumps(
+                    {
+                        "schema_namespace": (
+                            "protein-workbench-verification-tier-result/v1"
+                        ),
+                        "tier": tier_name,
+                        "source_revision": revision,
+                        "tests": tests,
+                        "failures": failures,
+                        "skipped": skipped,
+                        "passed": passed,
+                    },
+                    sort_keys=True,
+                    separators=(",", ":"),
+                ).encode()
+                + b"\n",
+            )
         if (
             tier.retain_evidence_bundle
             and evidence_staging.is_dir()

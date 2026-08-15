@@ -15,9 +15,12 @@ import time
 from typing import Any
 
 
-SCHEMA_NAMESPACE = "protein-workbench-fresh-remote-3gb1/v2"
+SCHEMA_NAMESPACE = "protein-workbench-fresh-canonical-3gb1/v1"
 PROJECT_ID = "canonical-3gb1"
 VERSION = "2.1.0"
+CANONICAL_INPUT_CONTENT_DIGEST = (
+    "sha256:ee623d3d9fd77a131895dc367c31ac8d7266b1d4f241b56325170e5f62ed7811"
+)
 PROTEINMPNN_BINDING_VERSION = "9.0.0"
 PROTEINMPNN_METHOD_VERSION = "5.0.0"
 PROTEINMPNN_BINDING_ID = "proteinmpnn.design.local"
@@ -801,11 +804,18 @@ def validate_evidence_bundle(root: Path) -> dict[str, Any]:
     _verify_checksums(root)
 
     source = _load_json(root / "source-receipt.json")
+    canonical_input = (
+        Path(__file__).resolve().parent.parent / "pdbs" / "3GB1.pdb"
+    )
     if (
         source.get("schema_namespace") != SCHEMA_NAMESPACE
         or source.get("source_dirty") is not False
         or not re.fullmatch(r"[0-9a-f]{40}", source.get("source_revision", ""))
         or source.get("installed_imports_outside_source") is not True
+        or source.get("input_content_digest")
+        != CANONICAL_INPUT_CONTENT_DIGEST
+        or _sha256(canonical_input.read_bytes())
+        != CANONICAL_INPUT_CONTENT_DIGEST
     ):
         raise ValueError("source or installed artifact receipt is not clean")
     for artifact in source.get("installed_artifacts", []):
@@ -875,9 +885,10 @@ def validate_evidence_bundle(root: Path) -> dict[str, Any]:
     run_index = _load_json(root / "run-index.json")
     run_ids = run_index.get("run_ids", [])
     if (
-        not run_ids
-        or run_index.get("successful_run_id") != run_ids[-1]
-        or len(run_ids) != len(set(run_ids))
+        len(run_ids) != 1
+        or run_index.get("successful_run_id") != run_ids[0]
+        or run_index.get("retry_policy") != "none"
+        or run_index.get("sdk_hidden_retry_attempts") != 1
         or run_index.get("workflow_commit_id")
         != workflow_commit["workflow_commit_id"]
         or run_index.get("workflow_commit_revision")
@@ -891,11 +902,7 @@ def validate_evidence_bundle(root: Path) -> dict[str, Any]:
         admission = _load_json(root / "runs" / run_id / "admission.json")
         manifest = _load_json(root / "runs" / run_id / "manifest.json")
         messages = _load_json(root / "runs" / run_id / "events.json")
-        validate_response(
-            "start_run" if index == 0 else "start_derived_run",
-            202,
-            admission,
-        )
+        validate_response("start_run", 202, admission)
         validate_response("run_projection", 200, run)
         for message in messages:
             validate_event(message)
@@ -907,11 +914,8 @@ def validate_evidence_bundle(root: Path) -> dict[str, Any]:
             manifest,
             workflow_commit,
         )
-        if index == 0:
-            if "derived_from_run_id" in run:
-                raise ValueError("fresh Run cannot claim a historical parent")
-        elif run.get("derived_from_run_id") != run_ids[index - 1]:
-            raise ValueError("provider retry is not a newly derived Run")
+        if "derived_from_run_id" in run:
+            raise ValueError("fresh Run cannot claim a historical parent")
         _validate_run_closure(
             run,
             messages,
@@ -922,8 +926,6 @@ def validate_evidence_bundle(root: Path) -> dict[str, Any]:
         event_sets.append(messages)
     if runs[-1]["status"] != "succeeded":
         raise ValueError("fresh remote canonical Run did not succeed")
-    if any(run["status"] == "succeeded" for run in runs[:-1]):
-        raise ValueError("a successful Run was retried without a provider failure")
 
     final = runs[-1]
     expected_nodes = {node["node_id"] for node in workflow["nodes"]}
@@ -1761,87 +1763,54 @@ def installed_main() -> int:
             catalog,
         )
 
-        run_ids: list[str] = []
-        projections: list[dict[str, Any]] = []
-        events_by_run: list[list[dict[str, Any]]] = []
         started = client.post(
             f"/api/v2/projects/{PROJECT_ID}/runs",
             json={
                 "workflow_commit_id": workflow_commit[
                     "workflow_commit_id"
                 ],
-                "client_request_id": "fresh-remote-3gb1-0",
+                "client_request_id": "fresh-canonical-3gb1",
             },
         )
         started.raise_for_status()
         admission = started.json()
         run_id = admission["run_id"]
         run_root = Path(os.environ["PROTEIN_WORKBENCH_RUN_ROOT"])
-        for retry_index in range(4):
-            projection = _wait_terminal(
-                client,
-                run_id,
-                timeout_seconds=75 * 60,
-            )
-            events = _collect_events(client, run_id)
-            run_ids.append(run_id)
-            projections.append(projection)
-            events_by_run.append(events)
-            _write_json(
-                root / "runs" / run_id / "projection.json",
-                projection,
-            )
-            _write_json(
-                root / "runs" / run_id / "admission.json",
-                admission,
-            )
-            manifest = _load_json(
-                run_root / PROJECT_ID / run_id / "manifest.json"
-            )
-            _write_json(
-                root / "runs" / run_id / "manifest.json",
-                manifest,
-            )
-            _write_json(root / "runs" / run_id / "events.json", events)
-            if projection["status"] == "succeeded":
-                break
-            failed_nodes = [
-                disposition["node_id"]
-                for disposition in projection["node_dispositions"]
-                if disposition["outcome"] == "failed"
-            ]
-            if not failed_nodes or retry_index == 3:
-                break
-            time.sleep(5 * (retry_index + 1))
-            derived = client.post(
-                f"/api/v2/projects/{PROJECT_ID}/runs:derive",
-                json={
-                    "source_run_id": run_id,
-                    "policy": "retry_failed",
-                    "node_ids": failed_nodes,
-                    "client_request_id": (
-                        f"fresh-remote-3gb1-derived-{retry_index + 1}"
-                    ),
-                },
-            )
-            derived.raise_for_status()
-            admission = derived.json()
-            run_id = admission["run_id"]
-
-        successful = projections[-1]
+        successful = _wait_terminal(
+            client,
+            run_id,
+            timeout_seconds=75 * 60,
+        )
+        events = _collect_events(client, run_id)
+        _write_json(
+            root / "runs" / run_id / "projection.json",
+            successful,
+        )
+        _write_json(
+            root / "runs" / run_id / "admission.json",
+            admission,
+        )
+        manifest = _load_json(
+            run_root / PROJECT_ID / run_id / "manifest.json"
+        )
+        _write_json(
+            root / "runs" / run_id / "manifest.json",
+            manifest,
+        )
+        _write_json(root / "runs" / run_id / "events.json", events)
         _write_json(root / "run-index.json", {
             "schema_namespace": SCHEMA_NAMESPACE,
             "workflow_commit_id": workflow_commit["workflow_commit_id"],
             "workflow_commit_revision": workflow_commit[
                 "workflow_commit_revision"
             ],
-            "run_ids": run_ids,
+            "run_ids": [run_id],
             "successful_run_id": (
                 successful["run_id"]
                 if successful["status"] == "succeeded"
                 else None
             ),
-            "retry_policy": "new-derived-run-retry_failed",
+            "retry_policy": "none",
             "sdk_hidden_retry_attempts": 1,
         })
         if successful["status"] != "succeeded":
@@ -1874,7 +1843,7 @@ def installed_main() -> int:
         invocation_proof = _invocation_proof(
             catalog_snapshot,
             locked_workflow,
-            list(zip(projections, events_by_run, strict=True)),
+            [(successful, events)],
         )
         _write_json(root / "invocation-proof.json", invocation_proof)
 
