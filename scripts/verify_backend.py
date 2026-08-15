@@ -22,6 +22,8 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 
+from core.acceptance_verification import ACCEPTANCE_TIER_CONTRACTS
+
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 ROOT_VARIABLES = (
@@ -131,150 +133,16 @@ TIERS = {
             "test_installed_backend_completes_full_public_v2_journey"
         ),
     )),
-    "installed-biohub-esmc": Tier(
-        ((
-            "tests/test_installed_backend_v2.py::"
-            "test_installed_biohub_esmc_gate"
-        ),),
-        zero_skip=True,
-        clean_source=True,
-        retain_evidence_bundle=True,
-    ),
-    "installed-biohub-esm3": Tier(
-        ((
-            "tests/test_installed_backend_v2.py::"
-            "test_installed_biohub_esm3_gate"
-        ),),
-        timeout_seconds=40 * 60,
-        zero_skip=True,
-        clean_source=True,
-        retain_evidence_bundle=True,
-    ),
-    "installed-biohub-esmfold2": Tier(
-        ((
-            "tests/test_installed_backend_v2.py::"
-            "test_installed_biohub_esmfold2_gate"
-        ),),
-        timeout_seconds=35 * 60,
-        zero_skip=True,
-        clean_source=True,
-        retain_evidence_bundle=True,
-    ),
-    "installed-local-esm3": Tier(
-        ((
-            "tests/test_installed_backend_v2.py::"
-            "test_installed_local_esm3_gate"
-        ),),
-        zero_skip=True,
-        clean_source=True,
-        retain_evidence_bundle=True,
-    ),
-    "installed-local-esmfold2": Tier(
-        ((
-            "tests/test_installed_backend_v2.py::"
-            "test_installed_local_esmfold2_gate"
-        ),),
-        timeout_seconds=105 * 60,
-        zero_skip=True,
-        clean_source=True,
-        retain_evidence_bundle=True,
-    ),
-    "installed-proteinmpnn": Tier(
-        ((
-            "tests/test_installed_backend_v2.py::"
-            "test_installed_proteinmpnn_gate"
-        ),),
-        timeout_seconds=75 * 60,
-        zero_skip=True,
-        clean_source=True,
-        retain_evidence_bundle=True,
-    ),
-    "installed-mkdssp": Tier(
-        ((
-            "tests/test_installed_backend_v2.py::"
-            "test_installed_mkdssp_gate"
-        ),),
-        zero_skip=True,
-        clean_source=True,
-        retain_evidence_bundle=True,
-    ),
-    "installed-simplefold-folding": Tier(
-        ((
-            "tests/test_installed_backend_v2.py::"
-            "test_installed_simplefold_folding_gate"
-        ),),
-        zero_skip=True,
-        clean_source=True,
-        retain_evidence_bundle=True,
-    ),
-    "installed-simplefold-confidence": Tier(
-        ((
-            "tests/test_installed_backend_v2.py::"
-            "test_installed_simplefold_confidence_gate"
-        ),),
-        zero_skip=True,
-        clean_source=True,
-        retain_evidence_bundle=True,
-    ),
-    "installed-soluprot": Tier(
-        ((
-            "tests/test_installed_backend_v2.py::"
-            "test_installed_soluprot_gate"
-        ),),
-        zero_skip=True,
-        clean_source=True,
-        retain_evidence_bundle=True,
-    ),
-    "installed-protein-sol": Tier(
-        ((
-            "tests/test_installed_backend_v2.py::"
-            "test_installed_protein_sol_gate"
-        ),),
-        zero_skip=True,
-        clean_source=True,
-        retain_evidence_bundle=True,
-    ),
-    "fresh-1pga": Tier(
-        ((
-            "tests/test_fresh_source_bound_acceptance_v2.py::"
-            "test_fresh_1pga_installed_public_run_retains_auditable_bundle"
-        ),),
-        timeout_seconds=120 * 60,
-        zero_skip=True,
-        clean_source=True,
-        retain_evidence_bundle=True,
-    ),
-    "fresh-2emo": Tier(
-        ((
-            "tests/test_fresh_source_bound_acceptance_v2.py::"
-            "test_fresh_2emo_installed_public_run_retains_auditable_bundle"
-        ),),
-        timeout_seconds=180 * 60,
-        zero_skip=True,
-        clean_source=True,
-        retain_evidence_bundle=True,
-    ),
-    "fresh-canonical-3gb1": Tier(
-        ((
-            "tests/test_fresh_remote_3gb1_v2.py::"
-            "test_fresh_remote_3gb1_installed_public_run_"
-            "retains_auditable_bundle"
-        ),),
-        timeout_seconds=90 * 60,
-        zero_skip=True,
-        clean_source=True,
-        retain_evidence_bundle=True,
-    ),
-    "fresh-5g53": Tier(
-        ((
-            "tests/test_fresh_source_bound_acceptance_v2.py::"
-            "test_fresh_5g53_installed_public_run_retains_auditable_bundle"
-        ),),
-        timeout_seconds=180 * 60,
-        zero_skip=True,
-        clean_source=True,
-        retain_evidence_bundle=True,
-    ),
+    **{
+        name: Tier(
+            contract.pytest_arguments,
+            timeout_seconds=contract.timeout_seconds,
+            zero_skip=True,
+            clean_source=True,
+            retain_evidence_bundle=True,
+        )
+        for name, contract in ACCEPTANCE_TIER_CONTRACTS.items()
+    },
     "provider-isolation": Tier((
         (
             "tests/test_folding_v2.py::"

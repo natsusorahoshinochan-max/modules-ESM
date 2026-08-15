@@ -14,33 +14,16 @@ import subprocess
 import sys
 from typing import Any
 
+from core.acceptance_verification import (
+    ACCEPTANCE_TIER_CONTRACTS,
+    ACCEPTANCE_TIER_ORDER,
+    INSTALLED_PROVIDER_TIER_ORDER,
+    SOURCE_BOUND_TIER_ORDER,
+)
+
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 SCHEMA_NAMESPACE = "protein-workbench-acceptance-generation/v1"
-
-INSTALLED_PROVIDER_TIER_ORDER = (
-    "installed-biohub-esmc",
-    "installed-biohub-esm3",
-    "installed-biohub-esmfold2",
-    "installed-local-esm3",
-    "installed-local-esmfold2",
-    "installed-mkdssp",
-    "installed-proteinmpnn",
-    "installed-simplefold-folding",
-    "installed-simplefold-confidence",
-    "installed-soluprot",
-    "installed-protein-sol",
-)
-SOURCE_BOUND_TIER_ORDER = (
-    "fresh-1pga",
-    "fresh-2emo",
-    "fresh-canonical-3gb1",
-    "fresh-5g53",
-)
-ACCEPTANCE_TIER_ORDER = (
-    *INSTALLED_PROVIDER_TIER_ORDER,
-    *SOURCE_BOUND_TIER_ORDER,
-)
 
 INPUT_DIGESTS = {
     "fresh-1pga": (
@@ -174,7 +157,6 @@ def generation_definition() -> dict[str, Any]:
     """Return the source-owned acceptance definition without runtime results."""
     from core import build_discovered_frozen_catalog
     from protein_workbench_public import bundle_digest
-    from scripts.verify_backend import TIERS
 
     return {
         "schema_namespace": SCHEMA_NAMESPACE,
@@ -200,15 +182,13 @@ def generation_definition() -> dict[str, Any]:
         },
         "tier_contracts": {
             name: {
-                "pytest_arguments": list(TIERS[name].pytest_arguments),
-                "timeout_seconds": TIERS[name].timeout_seconds,
-                "zero_skip": TIERS[name].zero_skip,
-                "clean_source": TIERS[name].clean_source,
-                "retain_evidence_bundle": TIERS[
-                    name
-                ].retain_evidence_bundle,
+                "pytest_arguments": list(contract.pytest_arguments),
+                "timeout_seconds": contract.timeout_seconds,
+                "zero_skip": True,
+                "clean_source": True,
+                "retain_evidence_bundle": True,
             }
-            for name in ACCEPTANCE_TIER_ORDER
+            for name, contract in ACCEPTANCE_TIER_CONTRACTS.items()
         },
         "execution": {
             "child_processes": "one_at_a_time",

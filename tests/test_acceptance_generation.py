@@ -7,6 +7,7 @@ import json
 from pathlib import Path
 import subprocess
 import sys
+import textwrap
 from types import SimpleNamespace
 
 from core import build_discovered_frozen_catalog, parse_workflow_document
@@ -76,6 +77,83 @@ def test_generation_definition_binds_one_complete_order_and_public_generation() 
         and "-n" not in contract["pytest_arguments"]
         for contract in definition["tier_contracts"].values()
     )
+
+
+def test_documented_script_boundary_builds_the_exact_generation_definition(
+    tmp_path: Path,
+) -> None:
+    generation_root = tmp_path / "generation"
+    result_path = tmp_path / "result.json"
+    launcher = textwrap.dedent(
+        """
+        import importlib.util
+        import json
+        from pathlib import Path
+        import sys
+
+        project_root = Path(sys.argv[1]).resolve()
+        script_path = project_root / "scripts" / "acceptance_generation.py"
+        sys.path = [
+            entry
+            for entry in sys.path
+            if Path(entry or ".").resolve() != project_root
+        ]
+        spec = importlib.util.spec_from_file_location(
+            "acceptance_generation_documented_script",
+            script_path,
+        )
+        module = importlib.util.module_from_spec(spec)
+        sys.modules[spec.name] = module
+        spec.loader.exec_module(module)
+        module._git_authority = lambda: ("d" * 40, False)
+        module._configuration_identities = lambda: {"frozen": "configuration"}
+        module._provider_asset_identities = lambda: {"frozen": "assets"}
+        generation_root = Path(sys.argv[2])
+        result_path = Path(sys.argv[3])
+        sys.argv = [str(script_path), "start", str(generation_root)]
+        assert module.main() == 0
+        manifest = json.loads(
+            (generation_root / "generation.json").read_text()
+        )
+        result_path.write_text(json.dumps({
+            "installed_order": list(module.INSTALLED_PROVIDER_TIER_ORDER),
+            "tier_order": manifest["tier_order"],
+            "artifact_kinds": [
+                artifact["kind"]
+                for artifact in manifest["installed_artifacts"]
+            ],
+            "repo_root_on_sys_path": any(
+                Path(entry or ".").resolve() == project_root
+                for entry in sys.path
+            ),
+        }))
+        """
+    )
+
+    completed = subprocess.run(
+        [
+            sys.executable,
+            "-c",
+            launcher,
+            str(PROJECT_ROOT),
+            str(generation_root),
+            str(result_path),
+        ],
+        cwd=PROJECT_ROOT,
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+
+    assert completed.returncode == 0, completed.stdout + completed.stderr
+    result = json.loads(result_path.read_text(encoding="utf-8"))
+    assert result == {
+        "installed_order": list(ACCEPTANCE_TIER_ORDER[:11]),
+        "tier_order": list(ACCEPTANCE_TIER_ORDER),
+        "artifact_kinds": ["wheel", "sdist"],
+        "repo_root_on_sys_path": False,
+    }
+    assert (generation_root / "generation.json").is_file()
 
 
 def test_all_source_bound_tiers_collect_exactly_one_zero_skip_journey() -> None:
