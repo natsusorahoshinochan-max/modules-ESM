@@ -14,7 +14,7 @@ import subprocess
 import sys
 from typing import Any
 
-from core.acceptance_verification import (
+from modules.acceptance_verification import (
     ACCEPTANCE_TIER_CONTRACTS,
     ACCEPTANCE_TIER_ORDER,
     INSTALLED_PROVIDER_TIER_ORDER,

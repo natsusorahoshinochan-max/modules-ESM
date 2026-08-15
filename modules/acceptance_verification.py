@@ -1,4 +1,4 @@
-"""Source-owned contracts for one complete frozen acceptance generation."""
+"""Module-owned contracts for one complete frozen acceptance generation."""
 
 from __future__ import annotations
 

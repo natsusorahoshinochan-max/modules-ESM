@@ -22,7 +22,7 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 
-from core.acceptance_verification import ACCEPTANCE_TIER_CONTRACTS
+from modules.acceptance_verification import ACCEPTANCE_TIER_CONTRACTS
 
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
