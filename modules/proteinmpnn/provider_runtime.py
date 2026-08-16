@@ -515,11 +515,11 @@ class _LocalProteinMPNNProvider:
         import torch
 
         with torch.random.fork_rng():
-            torch.manual_seed(request.seed)
             model, device = self._resident_model(
                 request.model_name,
                 request.backbone_noise,
             )
+            torch.manual_seed(request.seed)
             batch = _featurize(
                 request,
                 device,
@@ -558,11 +558,11 @@ class _LocalProteinMPNNProvider:
         import torch
 
         with torch.random.fork_rng():
-            torch.manual_seed(request.seed)
             model, device = self._resident_model(
                 request.model_name,
                 request.backbone_noise,
             )
+            torch.manual_seed(request.seed)
             batch = _featurize(
                 request,
                 device,

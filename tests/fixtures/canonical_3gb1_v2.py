@@ -22,7 +22,7 @@ from datatypes import ProteinSequence
 
 VERSION = "2.1.0"
 REMOTE_BINDING_VERSION = "7.0.0"
-PROTEINMPNN_BINDING_VERSION = "9.0.0"
+PROTEINMPNN_BINDING_VERSION = "10.0.0"
 PROVIDER_BINDINGS = frozenset({
     "esm3.generate_paired.biohub_medium",
     "folding.fold.esmfold2_remote",

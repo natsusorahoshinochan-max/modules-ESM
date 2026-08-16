@@ -88,3 +88,21 @@ It must not be retried, edited, or combined with a later generation.
 - TDD seams：public Method/Binding/FrozenCatalog contract、official installed engine-load precision seam、runtime fingerprint/readiness evidence 与 capability/version cascade 均由 provider-free tests 闭合。针对双轴审查发现的唯一 partial test-closure finding，在 isolated `2401739` worktree 中新 package/fingerprint tests 精确 RED 为 2 failed，当前 implementation GREEN 为 3 passed；最终 focused selection `37 passed / 7 deselected`，明确排除 `live_provider` 和 `local_provider`。
 - Current cumulative provider-free gates：`routine` 1312 passed / 48 deselected；`examples-v2` 12 passed；`deterministic-acceptance` 8 passed；`scientific-repro` 1 passed；`local-esmfold2-v2-contract` 6 passed；`installed-package` 3 passed；`provider-isolation` 16 passed；`security-failure` 10 passed；frontend Oxlint passed，`tsc -b && vite build` passed（179 modules）；`compileall` 与 `git diff --check` passed。provider-isolation 的第一次 invocation 因执行 shell 未传入必需的 `PROTEIN_WORKBENCH_SOLUPROT_ROOT` 而不是 gate evidence；显式使用与 superseded manifest identity 匹配的 trusted root 后精确重跑为 16 passed。全部有效门禁严格串行，`HF_HUB_OFFLINE=1`，未调用 Provider、未加载本地模型、未进入 Ticket 16。
 - New freeze boundary：新 authority 必须由本 Ticket 的 clean completion commit 通过 `scripts/acceptance_generation.py start` 创建，以避免 source revision 自引用。`start` 只构建 wheel/sdist、验证 Provider assets/configuration 并写入无 result 的 manifest；Ticket 15 不执行任何 Ticket 16 Provider tier。
+
+### Reopened after the installed ProteinMPNN RNG failure
+
+The `fcf4374117279111aeae13af40074a1ff1730b5c` completion and frozen
+generation are superseded and are not current acceptance evidence. That
+immutable generation retained six passed prefix tiers and then terminated at
+`installed-proteinmpnn=failed`; its manifest remains at
+`verification-results/acceptance-generation-fcf4374-ticket15-esmfold2-fp32-refreeze/generation.json`
+with SHA-256
+`6303b64fa999c748fe2a63d8d195b701b257ce3c57677e42810c8999b2aa815d`.
+It must not be retried, edited, or combined with a later generation.
+
+- Scientific contract repair：ProteinMPNN design 和 score 现在先解析/复用单一 resident model，再将 exact call seed 应用于 Torch RNG。因此首次冷加载时的 upstream model construction 即使消耗 Torch randomness，也不再改变随后 design sampling 或 score decoding order；冷模型与已驻留模型对同一 request 的结果一致。没有 retry、fallback、第二模型实例、Provider response repair 或新随机源。
+- Exact identity cascade：seed application order 是 Method 与 Binding 的结果影响身份。design Method `proteinmpnn.design.v_48_020_8907e667` 和 score Method `proteinmpnn.score.v_48_020_8907e667` 均升至 `6.0.0`，design Binding `proteinmpnn.design.local` 升至 `10.0.0`，score Binding `proteinmpnn.score.local` 升至 `7.0.0`，ProteinMPNN package 升至 `6.0.0`；科学 Node Types 未变。current Catalog、capability inventory、repository Workflows、source-bound scripts 与 fixtures 已原子更新。
+- TDD public seams：provider runtime 回归分别在同一请求下比较冷 score/design、先驻留后首次 warm 调用和后续 warm 调用，能精确暴露旧 seed-before-load 实现；Package/Catalog public contract 锁定 Method/Binding/package cascade；installed acceptance 继续通过 public Run 和 Typed Value retrieval 验证 exact outputs。没有新的 implementation-coupled seam。
+- Final serial review：production Python 审查与 tests/scripts/generated-locks 的 Standards/Spec 双轴审查均 `APPROVED`，0 findings。后者确认冷/热 RNG 回归会对旧实现失败、public retrieval 修复闭合、Node Type 保持不变且全部 generated locks 一致。
+- Final cumulative provider-free gates：`routine` 1315 passed / 48 deselected；`examples-v2` 12 passed；`deterministic-acceptance` 8 passed；`scientific-repro` 1 passed；`local-esmfold2-v2-contract` 6 passed；`installed-package` 3 passed；`provider-isolation` 16 passed；`security-failure` 10 passed；frontend Oxlint passed，`tsc -b && vite build` passed（179 modules）；`compileall` 与 `git diff --check` passed。全部验证严格串行，`HF_HUB_OFFLINE=1`，未调用 Provider、未加载本地模型、未进入 Ticket 16。
+- New freeze boundary：从本次 clean completion commit 只执行 `scripts/acceptance_generation.py start`，使 manifest 绑定新 source/artifacts/Catalog/configuration/assets 且保持 `results=[]`。任何 `run-next` 或 `run-through` 均属于 Ticket 16，不得在本 ticket 执行。

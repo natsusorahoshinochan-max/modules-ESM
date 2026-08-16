@@ -637,7 +637,7 @@ def test_source_bound_2emo_public_journey_closes_exact_evidence(
     from modules.proteinmpnn.adapter import configured_runtime_fingerprint
 
     environment = {
-        ("proteinmpnn.design.local", "9.0.0"): {
+        ("proteinmpnn.design.local", "10.0.0"): {
             "values": {
                 "device": "cpu",
                 "resolved_runtime_fingerprint": configured_runtime_fingerprint(),

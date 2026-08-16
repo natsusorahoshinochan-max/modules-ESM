@@ -48,21 +48,27 @@ from .domain import (
 )
 
 
-_PACKAGE_VERSION = "5.0.0"
+_PACKAGE_VERSION = "6.0.0"
 _CONSTRAINTS_VERSION = "4.0.0"
 _SCORE_METRIC_VERSION = "3.0.0"
 _OPERATIONS = ("constraints", "random_fixed_positions", "design", "score")
-_NODE_BINDING_VERSIONS = {
+_NODE_VERSIONS = {
     "constraints": "4.0.0",
     "random_fixed_positions": "4.0.0",
     "design": "9.0.0",
     "score": "6.0.0",
 }
+_BINDING_VERSIONS = {
+    "constraints": "4.0.0",
+    "random_fixed_positions": "4.0.0",
+    "design": "10.0.0",
+    "score": "7.0.0",
+}
 _METHOD_VERSIONS = {
     "constraints": "3.0.0",
     "random_fixed_positions": "3.0.0",
-    "design": "5.0.0",
-    "score": "5.0.0",
+    "design": "6.0.0",
+    "score": "6.0.0",
 }
 
 
@@ -291,6 +297,7 @@ def _method(operation: str) -> MethodDefinition:
                 "provider_operation": "score_sequence",
                 "decoding_order": "fixed-local-torch-seed",
                 "decoding_order_seed": 42,
+                "seed_application": "after-resident-model-resolution",
             },
             model_identity={
                 "model": PROTEINMPNN_MODEL,
@@ -353,6 +360,7 @@ def _method(operation: str) -> MethodDefinition:
                 "call_seed": (
                     "sha256-effective-seed-parent-structure-content-parent-slot"
                 ),
+                "seed_application": "after-resident-model-resolution",
             },
             model_identity={
                 "model": PROTEINMPNN_MODEL,
@@ -460,7 +468,7 @@ def _resolve_design_randomness(
 
 
 def _binding(operation: str) -> ExecutionBindingDefinition:
-    version = _NODE_BINDING_VERSIONS[operation]
+    version = _BINDING_VERSIONS[operation]
     is_design = operation == "design"
     is_model = operation in {"design", "score"}
     randomness_parameters = (
@@ -509,7 +517,7 @@ def _binding(operation: str) -> ExecutionBindingDefinition:
         node_type=ContractIdentity(
             "node_type",
             f"proteinmpnn.{operation}",
-            version,
+            _NODE_VERSIONS[operation],
         ),
         method=ContractIdentity(
             "method",
@@ -542,6 +550,9 @@ def _binding(operation: str) -> ExecutionBindingDefinition:
                     "device": PROTEINMPNN_DEVICE,
                     "structure_projection": (
                         "resolved-axis-segment-provider-native-staging-v2"
+                    ),
+                    "seed_application": (
+                        "after-resident-model-resolution"
                     ),
                 },
             )
@@ -625,6 +636,7 @@ def _binding(operation: str) -> ExecutionBindingDefinition:
                     if is_design
                     else "fixed_scoring_seed_42"
                 ),
+                "seed_application": "after-resident-model-resolution",
                 "scientific_call_seed": (
                     "effective-seed-plus-structure-content-plus-parent-slot"
                     if is_design

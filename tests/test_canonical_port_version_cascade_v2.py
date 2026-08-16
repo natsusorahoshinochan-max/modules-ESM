@@ -226,27 +226,55 @@ def test_proteinmpnn_cascade_uses_exact_axis_and_score_generations() -> None:
     ) is None
 
     expected = {
-        "constraints": ("4.0.0", "3.0.0", "3.0.0"),
-        "random_fixed_positions": ("4.0.0", "3.0.0", "3.0.0"),
-        "design": ("9.0.0", "5.0.0", "8.0.0"),
-        "score": ("6.0.0", "5.0.0", "5.0.0"),
+        "constraints": (
+            "4.0.0",
+            "4.0.0",
+            "3.0.0",
+            "3.0.0",
+            "3.0.0",
+        ),
+        "random_fixed_positions": (
+            "4.0.0",
+            "4.0.0",
+            "3.0.0",
+            "3.0.0",
+            "3.0.0",
+        ),
+        "design": (
+            "9.0.0",
+            "10.0.0",
+            "6.0.0",
+            "8.0.0",
+            "9.0.0",
+        ),
+        "score": (
+            "6.0.0",
+            "7.0.0",
+            "6.0.0",
+            "5.0.0",
+            "6.0.0",
+        ),
     }
     for operation, (
-        contract_version,
+        node_version,
+        binding_version,
         method_version,
-        legacy_version,
+        legacy_node_version,
+        legacy_binding_version,
     ) in expected.items():
         node_id = f"proteinmpnn.{operation}"
-        catalog.require_contract("node_type", node_id, contract_version)
+        catalog.require_contract("node_type", node_id, node_version)
         binding = catalog.require_contract(
-            "binding", f"{node_id}.local", contract_version
+            "binding", f"{node_id}.local", binding_version
         )
         assert binding.descriptor["method"][
             "contract_version"
         ] == method_version
-        assert catalog.get_contract("node_type", node_id, legacy_version) is None
         assert catalog.get_contract(
-            "binding", f"{node_id}.local", legacy_version
+            "node_type", node_id, legacy_node_version
+        ) is None
+        assert catalog.get_contract(
+            "binding", f"{node_id}.local", legacy_binding_version
         ) is None
 
     for operation in ("constraints", "random_fixed_positions"):

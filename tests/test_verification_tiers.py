@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import ast
 import io
 import json
 import os
@@ -78,6 +79,38 @@ def test_every_public_tier_has_only_existing_v2_test_targets() -> None:
             target = PROJECT_ROOT / argument.split("::", 1)[0]
             assert target.exists(), argument
     assert not (PROJECT_ROOT / "modules" / "provider_evidence.py").exists()
+
+
+def test_proteinmpnn_gate_consumes_the_public_value_retrieval_helper_contract(
+) -> None:
+    failures: list[str] = []
+    for relative_path in (
+        "tests/acceptance/test_proteinmpnn_scoring_v2.py",
+        "tests/acceptance/test_installed_provider_gates_v2.py",
+    ):
+        tree = ast.parse((PROJECT_ROOT / relative_path).read_text())
+        for node in ast.walk(tree):
+            if (
+                isinstance(node, ast.Assign)
+                and isinstance(node.value, ast.Call)
+                and isinstance(node.value.func, ast.Name)
+                and node.value.func.id == "_run"
+                and isinstance(node.targets[0], ast.Tuple)
+                and len(node.targets[0].elts) != 4
+            ):
+                failures.append(
+                    f"{relative_path}:{node.lineno}: _run result arity"
+                )
+            if (
+                isinstance(node, ast.Call)
+                and isinstance(node.func, ast.Name)
+                and node.func.id == "_decode"
+                and len(node.args) != 4
+            ):
+                failures.append(
+                    f"{relative_path}:{node.lineno}: _decode argument arity"
+                )
+    assert failures == []
 
 
 def test_required_installed_provider_tiers_fail_on_any_skip() -> None:

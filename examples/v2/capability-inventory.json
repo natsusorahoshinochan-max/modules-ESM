@@ -252,8 +252,8 @@
     {
       "contract_kind": "binding",
       "contract_id": "proteinmpnn.design.local",
-      "contract_version": "9.0.0",
-      "contract_digest": "sha256:d2cb27d5481aeb1ebd6227f56f1949b11d768ad294f39e1069843637d92aaa89"
+      "contract_version": "10.0.0",
+      "contract_digest": "sha256:f7f8158b1c3a253d30c1f6d5577cf1dc2d80bbdfd7ee9a561a3801218ddaf2fd"
     },
     {
       "contract_kind": "binding",
@@ -264,8 +264,8 @@
     {
       "contract_kind": "binding",
       "contract_id": "proteinmpnn.score.local",
-      "contract_version": "6.0.0",
-      "contract_digest": "sha256:e9fd35e942297838aa0b4da1d4b03b14238ddbd1d2ce44ad76b2df96d5c3178d"
+      "contract_version": "7.0.0",
+      "contract_digest": "sha256:1d719477470348cff581cba3eeda4642be8cdc5ae41da4448fec6cc630dcbe61"
     },
     {
       "contract_kind": "binding",
@@ -738,8 +738,8 @@
     {
       "contract_kind": "method",
       "contract_id": "proteinmpnn.design.v_48_020_8907e667",
-      "contract_version": "5.0.0",
-      "contract_digest": "sha256:350975671bbe626203265078eaebbc17bb81a3eaa2b5089ad5e76584986579df"
+      "contract_version": "6.0.0",
+      "contract_digest": "sha256:440dbf5bb5d5b3113d97746450eb33b213838e99ab358288a40662b215807520"
     },
     {
       "contract_kind": "method",
@@ -750,8 +750,8 @@
     {
       "contract_kind": "method",
       "contract_id": "proteinmpnn.score.v_48_020_8907e667",
-      "contract_version": "5.0.0",
-      "contract_digest": "sha256:70f84f4c49c67636f59b10c50815c17bf33e97778e57c9613da47c9b751d4774"
+      "contract_version": "6.0.0",
+      "contract_digest": "sha256:13d4b890404f4b689b1eaf0ac871d820b5fee44ed76a9b3bc3f656ede6c49493"
     },
     {
       "contract_kind": "method",

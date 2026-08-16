@@ -1013,7 +1013,7 @@ def test_proteinmpnn_design_and_score_execute_exact_methods(
             node_type_id="proteinmpnn.design",
             node_type_version="9.0.0",
             binding_id="proteinmpnn.design.local",
-            binding_version="9.0.0",
+            binding_version="10.0.0",
             node_parameters={
                 "effective_seed": 1603,
                 "num_sequences": 1,
@@ -1023,7 +1023,7 @@ def test_proteinmpnn_design_and_score_execute_exact_methods(
             binding_parameters={},
         ),
     )
-    design_catalog, design_projection, design_events = _run(
+    design_catalog, design_service, design_projection, design_events = _run(
         tmp_path / "design",
         nodes=design_nodes,
         edges=(
@@ -1047,20 +1047,20 @@ def test_proteinmpnn_design_and_score_execute_exact_methods(
             ),
         ),
         binding_id="proteinmpnn.design.local",
-        binding_version="9.0.0",
+        binding_version="10.0.0",
     )
     assert design_projection["status"] == "succeeded", design_events
     design_method = _method_for_binding(
         design_catalog,
         "proteinmpnn.design.local",
-        "9.0.0",
+        "10.0.0",
     )
     design_started = _assert_exact_execution(
         projection=design_projection,
         events=design_events,
         node_id="design",
         binding_id="proteinmpnn.design.local",
-        binding_version="9.0.0",
+        binding_version="10.0.0",
         method_digest=design_method.contract_digest,
         expected_roles=("design_parent_0",),
     )
@@ -1069,7 +1069,12 @@ def test_proteinmpnn_design_and_score_execute_exact_methods(
         for item in design_projection["outputs"]
         if item["node_id"] == "design"
     )
-    designed = _decode(design_catalog, design_output)
+    designed = _decode(
+        design_catalog,
+        design_service,
+        design_projection,
+        design_output,
+    )
     assert type(designed) is CandidateCollection
     assert len(designed.items) == 1
     assert designed.items[0].parent_ids
@@ -1094,12 +1099,12 @@ def test_proteinmpnn_design_and_score_execute_exact_methods(
             node_type_id="proteinmpnn.score",
             node_type_version="6.0.0",
             binding_id="proteinmpnn.score.local",
-            binding_version="6.0.0",
+            binding_version="7.0.0",
             node_parameters={},
             binding_parameters={},
         ),
     )
-    score_catalog, score_projection, score_events = _run(
+    score_catalog, score_service, score_projection, score_events = _run(
         tmp_path / "score",
         nodes=score_nodes,
         edges=(
@@ -1135,20 +1140,20 @@ def test_proteinmpnn_design_and_score_execute_exact_methods(
             ),
         ),
         binding_id="proteinmpnn.score.local",
-        binding_version="6.0.0",
+        binding_version="7.0.0",
     )
     assert score_projection["status"] == "succeeded", score_events
     score_method = _method_for_binding(
         score_catalog,
         "proteinmpnn.score.local",
-        "6.0.0",
+        "7.0.0",
     )
     _assert_exact_execution(
         projection=score_projection,
         events=score_events,
         node_id="score",
         binding_id="proteinmpnn.score.local",
-        binding_version="6.0.0",
+        binding_version="7.0.0",
         method_digest=score_method.contract_digest,
         expected_roles=("score_subject",),
     )
@@ -1157,7 +1162,12 @@ def test_proteinmpnn_design_and_score_execute_exact_methods(
         for item in score_projection["outputs"]
         if item["node_id"] == "score"
     )
-    scores = _decode(score_catalog, score_output)
+    scores = _decode(
+        score_catalog,
+        score_service,
+        score_projection,
+        score_output,
+    )
     assert type(scores) is ScoreCollection
     assert len(scores.entries) == 1
     assert scores.entries[0].method.contract_digest == (

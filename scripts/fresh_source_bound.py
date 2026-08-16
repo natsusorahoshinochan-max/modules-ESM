@@ -170,7 +170,7 @@ def _environment(tier_name: str) -> tuple[dict[tuple[str, str], Any], bytes]:
         protein_sol_fingerprint = (
             configured_protein_sol_runtime_fingerprint()
         )
-        environment[("proteinmpnn.design.local", "9.0.0")] = {
+        environment[("proteinmpnn.design.local", "10.0.0")] = {
             "values": {
                 "device": PROTEINMPNN_DEVICE,
                 "provider_root": Path(

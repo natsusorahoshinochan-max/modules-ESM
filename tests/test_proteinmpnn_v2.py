@@ -152,7 +152,7 @@ def test_proteinmpnn_is_one_package_with_four_independent_nodes() -> None:
 
     registration = registrations["proteinmpnn"]
     assert registration.package_module == "modules.proteinmpnn"
-    assert registration.package_version == "5.0.0"
+    assert registration.package_version == "6.0.0"
     assert {
         resource.resource for resource in registration.node_definitions
     } == {
@@ -188,8 +188,8 @@ def test_proteinmpnn_is_one_package_with_four_independent_nodes() -> None:
         "proteinmpnn.design.v_48_020_8907e667",
         "proteinmpnn.score.v_48_020_8907e667",
     ):
-        assert catalog.get_contract("method", contract_id, "5.0.0") is not None
-        assert catalog.get_contract("method", contract_id, "4.0.0") is None
+        assert catalog.get_contract("method", contract_id, "6.0.0") is not None
+        assert catalog.get_contract("method", contract_id, "5.0.0") is None
 
     active_v4_contracts = {
         ("port_type", "proteinmpnn.constraints"),
@@ -201,18 +201,24 @@ def test_proteinmpnn_is_one_package_with_four_independent_nodes() -> None:
     for kind, contract_id in active_v4_contracts:
         assert catalog.get_contract(kind, contract_id, "4.0.0") is not None
         assert catalog.get_contract(kind, contract_id, "3.0.0") is None
-    for kind, contract_id in (
-        ("node_type", "proteinmpnn.design"),
-        ("binding", "proteinmpnn.design.local"),
-    ):
-        assert catalog.get_contract(kind, contract_id, "9.0.0") is not None
-        assert catalog.get_contract(kind, contract_id, "8.0.0") is None
-    for kind, contract_id in (
-        ("node_type", "proteinmpnn.score"),
-        ("binding", "proteinmpnn.score.local"),
-    ):
-        assert catalog.get_contract(kind, contract_id, "6.0.0") is not None
-        assert catalog.get_contract(kind, contract_id, "5.0.0") is None
+    assert catalog.get_contract(
+        "node_type", "proteinmpnn.design", "9.0.0"
+    ) is not None
+    assert catalog.get_contract(
+        "binding", "proteinmpnn.design.local", "10.0.0"
+    ) is not None
+    assert catalog.get_contract(
+        "binding", "proteinmpnn.design.local", "9.0.0"
+    ) is None
+    assert catalog.get_contract(
+        "node_type", "proteinmpnn.score", "6.0.0"
+    ) is not None
+    assert catalog.get_contract(
+        "binding", "proteinmpnn.score.local", "7.0.0"
+    ) is not None
+    assert catalog.get_contract(
+        "binding", "proteinmpnn.score.local", "6.0.0"
+    ) is None
 
 
 def test_scoring_binding_fixes_exact_method_metric_and_observation_scope() -> None:
@@ -230,12 +236,12 @@ def test_scoring_binding_fixes_exact_method_metric_and_observation_scope() -> No
     binding = catalog.require_contract(
         "binding",
         "proteinmpnn.score.local",
-        "6.0.0",
+        "7.0.0",
     )
     method = catalog.require_contract(
         "method",
         "proteinmpnn.score.v_48_020_8907e667",
-        "5.0.0",
+        "6.0.0",
     )
     metric = catalog.require_contract(
         "metric",
@@ -437,7 +443,7 @@ def test_scoring_method_mismatch_fails_compilation_before_provider(
             node_type_id=score.node_type_id,
             node_type_version=score.node_type_version,
             binding_id="proteinmpnn.design.local",
-            binding_version="9.0.0",
+            binding_version="10.0.0",
             node_parameters={},
             binding_parameters={},
         ),
@@ -1114,8 +1120,8 @@ def _proteinmpnn_environment(
                 "invalidation_token": "proteinmpnn-fixture-v1",
             }
             for binding_id, version in (
-                ("proteinmpnn.design.local", "9.0.0"),
-                ("proteinmpnn.score.local", "6.0.0"),
+                ("proteinmpnn.design.local", "10.0.0"),
+                ("proteinmpnn.score.local", "7.0.0"),
             )
         }
     )
@@ -1166,7 +1172,7 @@ def _score_workflow() -> tuple[
                 node_type_id="proteinmpnn.score",
                 node_type_version="6.0.0",
                 binding_id="proteinmpnn.score.local",
-                binding_version="6.0.0",
+                binding_version="7.0.0",
                 node_parameters={},
                 binding_parameters={},
             ),
@@ -1383,7 +1389,7 @@ def test_scoring_replay_preserves_the_canonical_binary32_snapshot(
                             method=reference(
                                 "method",
                                 "proteinmpnn.score.v_48_020_8907e667",
-                                "5.0.0",
+                                "6.0.0",
                             ),
                             context=IntrinsicObservationContext(),
                             value=1.0,
@@ -1488,7 +1494,7 @@ def test_scoring_rejects_ambiguous_subjects_before_provider_execution(
     score_method_digest = catalog.require_contract(
         "method",
         "proteinmpnn.score.v_48_020_8907e667",
-        "5.0.0",
+        "6.0.0",
     ).contract_digest
     assert all(
         event["event"]["type"] != "engine_invocation_started"
@@ -2407,7 +2413,7 @@ def test_scoring_replay_preserves_candidate_and_observation_identity_only(
     score_method_digest = catalog.require_contract(
         "method",
         "proteinmpnn.score.v_48_020_8907e667",
-        "5.0.0",
+        "6.0.0",
     ).contract_digest
     assert all(
         item["event"]["type"] != "engine_invocation_started"
@@ -2485,7 +2491,7 @@ def _design_workflow() -> tuple[
             node_type_id="proteinmpnn.design",
             node_type_version="9.0.0",
             binding_id="proteinmpnn.design.local",
-            binding_version="9.0.0",
+            binding_version="10.0.0",
             node_parameters={
                 "effective_seed": 1603,
                 "num_sequences": 5,
@@ -2719,7 +2725,7 @@ def test_design_produces_canonical_three_parent_by_five_child_lineage(
     design_method_digest = catalog.require_contract(
         "method",
         "proteinmpnn.design.v_48_020_8907e667",
-        "5.0.0",
+        "6.0.0",
     ).contract_digest
     design_started = [
         event["event"]
@@ -2831,7 +2837,7 @@ def test_design_seed_depends_on_structure_content_and_parent_slot_not_result_ide
                 node_type_id="proteinmpnn.design",
                 node_type_version="9.0.0",
                 binding_id="proteinmpnn.design.local",
-                binding_version="9.0.0",
+                binding_version="10.0.0",
                 node_parameters={
                     "effective_seed": 1603,
                     "num_sequences": 1,
@@ -3053,7 +3059,7 @@ def test_2emo_identity_layout_maps_to_provider_invocation_provenance(
             node_type_id="proteinmpnn.design",
             node_type_version="9.0.0",
             binding_id="proteinmpnn.design.local",
-            binding_version="9.0.0",
+            binding_version="10.0.0",
             node_parameters={
                 "effective_seed": 1603,
                 "num_sequences": 1,
@@ -3196,7 +3202,7 @@ def test_design_binding_fixes_model_source_checkpoint_and_runtime_identity(
     binding = catalog.require_contract(
         "binding",
         "proteinmpnn.design.local",
-        "9.0.0",
+        "10.0.0",
     )
     node = catalog.require_contract(
         "node_type",
@@ -3531,7 +3537,7 @@ def test_design_requires_one_candidate_parent_and_preserves_its_lineage(
             node_type_id="proteinmpnn.design",
             node_type_version="9.0.0",
             binding_id="proteinmpnn.design.local",
-            binding_version="9.0.0",
+            binding_version="10.0.0",
             node_parameters={
                 "effective_seed": 1603,
                 "num_sequences": 1,
@@ -3629,7 +3635,7 @@ def test_candidate_design_seed_and_result_ignore_node_instance_rename(
                 node_type_id="proteinmpnn.design",
                 node_type_version="9.0.0",
                 binding_id="proteinmpnn.design.local",
-                binding_version="9.0.0",
+                binding_version="10.0.0",
                 node_parameters={
                     "effective_seed": 1603,
                     "num_sequences": 1,
@@ -3938,7 +3944,7 @@ def test_proteinmpnn_passes_the_shared_contract_test_kit(
             node_type_id="proteinmpnn.design",
             node_type_version="9.0.0",
             binding_id="proteinmpnn.design.local",
-            binding_version="9.0.0",
+            binding_version="10.0.0",
             node_parameters={
                 "effective_seed": 1603,
                 "num_sequences": 5,
@@ -3991,7 +3997,7 @@ def test_proteinmpnn_passes_the_shared_contract_test_kit(
             node_type_id="proteinmpnn.score",
             node_type_version="6.0.0",
             binding_id="proteinmpnn.score.local",
-            binding_version="6.0.0",
+            binding_version="7.0.0",
             node_parameters={},
             binding_parameters={},
             environment_values={
@@ -4102,6 +4108,84 @@ def test_local_provider_reuses_one_resident_model_for_exact_operation_stage(
 
     assert first is second
     assert len(constructed) == 1
+
+
+def test_exact_score_seed_is_independent_of_resident_model_load_history(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import torch
+
+    import modules.proteinmpnn.provider_runtime as provider_runtime
+
+    class Request:
+        seed = 42
+        model_name = "v_48_020"
+        backbone_noise = 0.0
+
+    def load_model(*_args: object) -> tuple[object, torch.device]:
+        # The pinned model constructor consumes Torch randomness before its
+        # checkpoint replaces the randomly initialized parameters.
+        torch.randn(17)
+        return object(), torch.device("cpu")
+
+    def compute_score(*_args: object) -> float:
+        return float(torch.randn(()))
+
+    monkeypatch.setattr(provider_runtime, "_load_model", load_model)
+    monkeypatch.setattr(provider_runtime, "_featurize", lambda *_args: {})
+    monkeypatch.setattr(
+        provider_runtime,
+        "_sequence_in_provider_chain_order",
+        lambda *_args: "A",
+    )
+    monkeypatch.setattr(provider_runtime, "_compute_score", compute_score)
+
+    cold_provider = provider_runtime._LocalProteinMPNNProvider()
+    cold_score = cold_provider.score(Request(), ProteinSequence("A"))
+    warm_provider = provider_runtime._LocalProteinMPNNProvider()
+    warm_provider._resident_model("v_48_020", 0.0)
+    first_warm_score = warm_provider.score(Request(), ProteinSequence("A"))
+    second_warm_score = warm_provider.score(Request(), ProteinSequence("A"))
+
+    assert cold_score == first_warm_score == second_warm_score
+
+
+def test_exact_design_seed_is_independent_of_resident_model_load_history(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import torch
+
+    import modules.proteinmpnn.provider_runtime as provider_runtime
+
+    class Request:
+        seed = 1603
+        model_name = "v_48_020"
+        backbone_noise = 0.0
+        reference_sequences = None
+        num_sequences = 1
+        temperature = 0.1
+        omit_amino_acids = ["X"]
+
+    def load_model(*_args: object) -> tuple[object, torch.device]:
+        torch.randn(17)
+        return object(), torch.device("cpu")
+
+    def run_design(*_args: object) -> list[ProteinSequence]:
+        symbol = "A" if float(torch.randn(())) < 0 else "G"
+        return [ProteinSequence(symbol)]
+
+    monkeypatch.setattr(provider_runtime, "_load_model", load_model)
+    monkeypatch.setattr(provider_runtime, "_featurize", lambda *_args: {})
+    monkeypatch.setattr(provider_runtime, "_run_design", run_design)
+
+    cold_provider = provider_runtime._LocalProteinMPNNProvider()
+    cold_design = cold_provider.design(Request())
+    warm_provider = provider_runtime._LocalProteinMPNNProvider()
+    warm_provider._resident_model("v_48_020", 0.0)
+    first_warm_design = warm_provider.design(Request())
+    second_warm_design = warm_provider.design(Request())
+
+    assert cold_design == first_warm_design == second_warm_design
 
 
 def test_installed_gate_reuses_one_resident_model_across_adapters(

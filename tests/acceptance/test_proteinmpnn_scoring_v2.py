@@ -206,7 +206,7 @@ def test_proteinmpnn_v2_scoring_publishes_exact_native_observation(
             node_type_id="proteinmpnn.score",
             node_type_version="6.0.0",
             binding_id="proteinmpnn.score.local",
-            binding_version="6.0.0",
+            binding_version="7.0.0",
             node_parameters={},
             binding_parameters={},
         ),
@@ -248,7 +248,7 @@ def test_proteinmpnn_v2_scoring_publishes_exact_native_observation(
         nodes=nodes,
         edges=edges,
         binding_id="proteinmpnn.score.local",
-        binding_version="6.0.0",
+        binding_version="7.0.0",
     )
 
     assert projection["status"] == "succeeded", events
@@ -309,7 +309,7 @@ def test_proteinmpnn_v2_sibling_design_remains_exact_and_complete(
             node_type_id="proteinmpnn.design",
             node_type_version="9.0.0",
             binding_id="proteinmpnn.design.local",
-            binding_version="9.0.0",
+            binding_version="10.0.0",
             node_parameters={
                 "effective_seed": 1603,
                 "num_sequences": 1,
@@ -339,12 +339,12 @@ def test_proteinmpnn_v2_sibling_design_remains_exact_and_complete(
             "structure_residue_axes",
         ),
     )
-    catalog, _, projection, events = _run(
+    catalog, service, projection, events = _run(
         tmp_path,
         nodes=nodes,
         edges=edges,
         binding_id="proteinmpnn.design.local",
-        binding_version="9.0.0",
+        binding_version="10.0.0",
     )
 
     assert projection["status"] == "succeeded", events
@@ -353,7 +353,7 @@ def test_proteinmpnn_v2_sibling_design_remains_exact_and_complete(
         for item in projection["outputs"]
         if item["node_id"] == "design"
     )
-    candidates = _decode(catalog, output)
+    candidates = _decode(catalog, service, projection, output)
     assert type(candidates) is CandidateCollection
     assert candidates.item_type == "protein.sequence"
     assert len(candidates.items) == 1
@@ -391,7 +391,12 @@ def test_proteinmpnn_v2_sibling_design_remains_exact_and_complete(
         for item in projection["outputs"]
         if item["node_id"] == "source"
     )
-    source_candidates = _decode(catalog, source_output)
+    source_candidates = _decode(
+        catalog,
+        service,
+        projection,
+        source_output,
+    )
     assert type(source_candidates) is CandidateCollection
     assert candidate.parent_ids == (
         source_candidates.items[0].candidate_id,
