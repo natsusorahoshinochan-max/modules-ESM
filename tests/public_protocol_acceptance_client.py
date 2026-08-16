@@ -31,6 +31,7 @@ class PublicProtocolAcceptanceClient:
         self._http = httpx.Client(
             base_url=base_url.rstrip("/"),
             transport=transport,
+            trust_env=False,
         )
 
     def __enter__(self) -> Self:

@@ -45,6 +45,9 @@ SOURCE_CATALOG_BYTES = SOURCE_CATALOG.catalog_descriptor_bytes
 SOURCE_CATALOG_DIGEST = SOURCE_CATALOG.contract_digest
 SOURCE_PROTOCOL_BYTES = bundle_bytes()
 SOURCE_PROTOCOL_DIGEST = bundle_digest()
+LOOPBACK_URL_OPENER = urllib.request.build_opener(
+    urllib.request.ProxyHandler({})
+)
 BIOHUB_ESMC_GATE_VERSION = "5.0.0"
 BIOHUB_ESMC_METHOD_VERSION = "3.0.0"
 REQUIRED_PROVIDER_CASES = {
@@ -285,7 +288,7 @@ def _wait_for_server(port: int, process: subprocess.Popen[str]) -> None:
         if process.poll() is not None:
             break
         try:
-            with urllib.request.urlopen(
+            with LOOPBACK_URL_OPENER.open(
                 f"http://127.0.0.1:{port}/api/v2/protocol",
                 timeout=1,
             ) as response:
@@ -293,8 +296,18 @@ def _wait_for_server(port: int, process: subprocess.Popen[str]) -> None:
                     return
         except OSError:
             time.sleep(0.05)
-    output = process.communicate(timeout=5)[0]
+    output = _stop_server(process)
     pytest.fail(f"installed backend did not start:\n{output}")
+
+
+def _stop_server(process: subprocess.Popen[str]) -> str:
+    if process.poll() is None:
+        process.terminate()
+    try:
+        return process.communicate(timeout=10)[0]
+    except subprocess.TimeoutExpired:
+        process.kill()
+        return process.communicate(timeout=5)[0]
 
 
 def _wait_terminal(
@@ -334,6 +347,7 @@ def _collect_run_events(
         f"ws://127.0.0.1:{port}{stream.route}",
         open_timeout=5,
         close_timeout=5,
+        proxy=None,
     ) as websocket:
         while True:
             message = json.loads(websocket.recv(timeout=30))
@@ -498,7 +512,19 @@ for statement in ast.walk(target):
 def test_installed_backend_completes_full_public_v2_journey(
     installed_artifact: InstalledArtifact,
     tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    for variable in (
+        "HTTP_PROXY",
+        "HTTPS_PROXY",
+        "ALL_PROXY",
+        "http_proxy",
+        "https_proxy",
+        "all_proxy",
+    ):
+        monkeypatch.setenv(variable, "http://127.0.0.1:1")
+    for variable in ("NO_PROXY", "no_proxy"):
+        monkeypatch.delenv(variable, raising=False)
     port = _free_port()
     env = os.environ.copy()
     env.pop("PYTHONPATH", None)
@@ -526,7 +552,7 @@ def test_installed_backend_completes_full_public_v2_journey(
     try:
         _wait_for_server(port, server)
         base_url = f"http://127.0.0.1:{port}"
-        with urllib.request.urlopen(
+        with LOOPBACK_URL_OPENER.open(
             f"{base_url}/api/v2/protocol",
             timeout=2,
         ) as response:
@@ -652,6 +678,7 @@ def test_installed_backend_completes_full_public_v2_journey(
                 f"ws://127.0.0.1:{port}{stream.route}",
                 open_timeout=5,
                 close_timeout=5,
+                proxy=None,
             ) as websocket:
                 while True:
                     message = json.loads(websocket.recv(timeout=5))
@@ -706,6 +733,7 @@ def test_installed_backend_completes_full_public_v2_journey(
                 artifact_request.method,
                 f"{base_url}{artifact_request.route}",
                 timeout=5,
+                trust_env=False,
             )
             retrieved.raise_for_status()
             payload = retrieved.content
@@ -780,13 +808,7 @@ def test_installed_backend_completes_full_public_v2_journey(
             assert derived_projection["derived_from_run_id"] == first["run_id"]
             assert derived_projection["status"] == "cancelled"
     finally:
-        if server.poll() is None:
-            server.terminate()
-        try:
-            server.communicate(timeout=10)
-        except subprocess.TimeoutExpired:
-            server.kill()
-            server.communicate(timeout=5)
+        _stop_server(server)
 
 
 def _copy_external_acceptance_tree(destination: Path) -> Path:
@@ -992,13 +1014,7 @@ if __name__ == "__main__":
         _wait_for_server(port, server)
         yield port, f"http://127.0.0.1:{port}"
     finally:
-        if server.poll() is None:
-            server.terminate()
-        try:
-            server.communicate(timeout=10)
-        except subprocess.TimeoutExpired:
-            server.kill()
-            server.communicate(timeout=5)
+        _stop_server(server)
 
 
 def _assert_installed_esmc_catalog(

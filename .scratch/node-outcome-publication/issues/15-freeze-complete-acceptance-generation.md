@@ -177,3 +177,24 @@ generation must not be retried, edited, or combined with later evidence.
 - TDD and serial review：focused provider-free selection `59 passed / 2 deselected`；isolated installed import regression通过。Python reviewer 与随后独立 code reviewer 严格串行，均 `APPROVED`、0 findings，确认 exact owner、regression seam 与无 version cascade；均未运行 Provider/model。
 - Final cumulative provider-free gates：`routine` 1317 passed / 49 deselected；`examples-v2` 12 passed；`deterministic-acceptance` 8 passed；`scientific-repro` 1 passed；`local-esmfold2-v2-contract` 6 passed；`installed-package` 4 passed；`provider-isolation` 16 passed；`security-failure` 10 passed；frontend Oxlint passed，`tsc -b && vite build` passed（179 modules）；`compileall`、`git diff --check` 和 immutable failed-authority digest check passed。全部有效门禁严格串行，使用 loopback `NO_PROXY`、`HF_HUB_OFFLINE=1` 和 manifest-matching SoluProt root；没有运行新的 Provider gate或加载模型。
 - New freeze boundary：新 authority 必须从本 Ticket 的 clean completion commit 仅通过 `scripts/acceptance_generation.py start` 创建，保持 15 个 exact tiers、`results=[]` 且无 `tier-results/`。任何 `run-next` 或 `run-through` 都属于 Ticket 16。
+
+### Reopened after the installed-package loopback startup failure
+
+The `1b5dd652d3ee45f915bb3807029ab5a96bb7c6a7` completion and frozen
+generation are superseded as the current Ticket 15 authority. Its immutable
+manifest remains at
+`verification-results/acceptance-generation-1b5dd65-ticket15-simplefold-confidence-import-refreeze/generation.json`,
+has SHA-256
+`7cdb325f33bcb4f01d1f495f196468654728774f7f80ecc0ee57a6dced4b52ab`,
+and retains all 11 installed Provider tiers as passed. The subsequent
+provider-free completion matrix retained `installed-package` as 3 passed / 1
+failed at
+`verification-results/installed-package/20260816T110410.686082Z-37865-98e70b9e4adb59b5`.
+The generation and its evidence must not be edited or combined with the next
+authority.
+
+- Root cause and lifecycle audit：installed `core.server` 已实际监听 loopback，且 direct protocol request 立即返回 200；wheel digest、installed origin、Catalog startup 与 child lifecycle 均无异常，server 没有 descendant/resource-tracker 持有 stdout pipe。completion test 的 urllib、httpx 和 WebSocket clients 错误继承了 macOS ambient proxy，在没有 `NO_PROXY` 时无法观察已就绪的 loopback server；30 秒后 `_wait_for_server` 又对仍运行的 process 直接 `communicate(timeout=5)`，因此表面终止于 cleanup timeout。
+- Deterministic RED→GREEN：existing installed public journey 主动设置不可达 HTTP/HTTPS/ALL proxy 并删除 `NO_PROXY`，使 startup、protocol fetch、bundle-driven REST、WebSocket、Artifact retrieval 与 cleanup 由一个真实 frozen-wheel seam 覆盖。旧实现稳定 RED 为 `TimeoutExpired`（39.38 秒）；修复后同一 frozen authority 连续两次 GREEN（9.31 秒、9.27 秒）。最小 live probe 同时证明 ambient urllib/httpx 失败而 proxy-free clients 在同一 server 上返回 200。
+- Repair and ownership：acceptance harness 的 loopback urllib opener 使用空 proxy map，shared public acceptance client 使用 `trust_env=False`，WebSocket 使用 `proxy=None`，direct Artifact retrieval 同样不读取环境 proxy。唯一 `_stop_server` owner 先 terminate、drain merged stdout/stderr，超时才 kill；startup failure 不再对运行中的 server 调用 `communicate`。没有 retry、timeout 延长、fallback、production 改动或 scientific/Method/Binding/Node Type/Catalog identity 变化。
+- Serial review and final provider-free gates：Python review 与独立 Standards/Spec code review 严格串行，均 `APPROVED`、0 findings。`routine` 1317 passed / 49 deselected；`examples-v2` 12 passed；`deterministic-acceptance` 8 passed；`scientific-repro` 1 passed；`local-esmfold2-v2-contract` 6 passed；`installed-package` 4 passed；`provider-isolation` 16 passed；`security-failure` 10 passed；frontend Oxlint passed，`tsc -b && vite build` passed（179 modules）。全部有效验证严格串行，`HF_HUB_OFFLINE=1`，未调用 Provider、未加载本地模型。
+- New freeze boundary：新 authority 必须从本 Ticket 的 clean completion commit 仅通过 `scripts/acceptance_generation.py start` 创建，保持 15 个 exact tiers、`results=[]` 且无 `tier-results/`。任何 `run-next` 或 `run-through` 都属于 Ticket 16。
