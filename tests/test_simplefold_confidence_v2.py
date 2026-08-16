@@ -205,7 +205,7 @@ def _confidence_environment(
         "model_root": model_root,
         "esm2_model_root": esm2_model_root,
         "esm2_source_root": esm2_source_root,
-        "device": adapter.SIMPLEFOLD_CONFIDENCE_DEVICE,
+        "device": contract.SIMPLEFOLD_CONFIDENCE_DEVICE,
         "resolved_runtime_fingerprint": fingerprint,
         "provider_client": client,
         "private_token": "must-never-publish",

@@ -1640,7 +1640,7 @@ def test_remote_and_local_bindings_pass_shared_contract_test_kit(
         "model_root": simplefold_model_root,
         "esm2_model_root": simplefold_esm2_models,
         "esm2_source_root": simplefold_esm2_source,
-        "device": confidence_adapter.SIMPLEFOLD_CONFIDENCE_DEVICE,
+        "device": simplefold_contract.SIMPLEFOLD_CONFIDENCE_DEVICE,
         "resolved_runtime_fingerprint": (
             confidence_adapter.configured_runtime_fingerprint()
         ),

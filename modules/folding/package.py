@@ -70,14 +70,14 @@ from .simplefold_adapter import (
 )
 from .simplefold_confidence_adapter import (
     LocalSimpleFoldConfidenceAdapter,
-    SIMPLEFOLD_CONFIDENCE_ADAPTER,
-    SIMPLEFOLD_CONFIDENCE_DEVICE,
-    SIMPLEFOLD_CONFIDENCE_FEATURIZATION,
     configured_runtime_fingerprint as confidence_runtime_fingerprint,
     simplefold_confidence_readiness,
     simplefold_confidence_runtime_structurally_available,
 )
 from .simplefold_contract import (
+    SIMPLEFOLD_CONFIDENCE_ADAPTER,
+    SIMPLEFOLD_CONFIDENCE_DEVICE,
+    SIMPLEFOLD_CONFIDENCE_FEATURIZATION,
     simplefold_confidence_artifact_sha256,
     simplefold_confidence_esm2_artifact_sha256,
     simplefold_folding_artifact_sha256,

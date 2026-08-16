@@ -284,9 +284,11 @@ def _provider_asset_identities() -> dict[str, Any]:
         validate_simplefold_folding_environment,
     )
     from modules.folding.simplefold_confidence_adapter import (
-        SIMPLEFOLD_CONFIDENCE_DEVICE,
         configured_runtime_fingerprint as simplefold_confidence_fingerprint,
         validate_simplefold_confidence_environment,
+    )
+    from modules.folding.simplefold_contract import (
+        SIMPLEFOLD_CONFIDENCE_DEVICE,
     )
     from modules.proteinmpnn.adapter import (
         PROTEINMPNN_DEVICE,

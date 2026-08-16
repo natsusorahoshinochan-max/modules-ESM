@@ -39,11 +39,13 @@ def test_simplefold_confidence_v2_evaluates_3gb1_exact_assets_without_refold(
     require_ready("simplefold", readiness)
     from modules.folding.package import MODULE_PACKAGE as FOLDING_PACKAGE
     from modules.folding.simplefold_confidence_adapter import (
+        configured_runtime_fingerprint,
+        provider_identity,
+    )
+    from modules.folding.simplefold_contract import (
         SIMPLEFOLD_CONFIDENCE_ARTIFACTS,
         SIMPLEFOLD_CONFIDENCE_DEVICE,
         SIMPLEFOLD_CONFIDENCE_ESM2_ARTIFACTS,
-        configured_runtime_fingerprint,
-        provider_identity,
     )
     from modules.structure_prediction.package import (
         MODULE_PACKAGE as STRUCTURE_PREDICTION_PACKAGE,

@@ -130,6 +130,10 @@ TIERS = {
         ),
         (
             "tests/test_installed_backend_v2.py::"
+            "test_installed_simplefold_confidence_acceptance_import_closure"
+        ),
+        (
+            "tests/test_installed_backend_v2.py::"
             "test_installed_backend_completes_full_public_v2_journey"
         ),
     )),

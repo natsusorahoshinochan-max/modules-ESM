@@ -31,13 +31,7 @@ from datatypes import (
     StructureAxisSegment,
 )
 from .adapter import normalize_residue_plddt
-from .simplefold_contract import (
-    SIMPLEFOLD_CONFIDENCE_ADAPTER,
-    SIMPLEFOLD_CONFIDENCE_DEVICE,
-    SIMPLEFOLD_CONFIDENCE_FEATURIZATION,
-    simplefold_confidence_artifact_sha256,
-    simplefold_confidence_esm2_artifact_sha256,
-)
+from . import simplefold_contract
 
 
 class _SimpleFoldConfidenceNativeResult(TypedDict):
@@ -89,9 +83,11 @@ def provider_identity() -> dict[str, Any]:
         "esm2_source_revision": SIMPLEFOLD_ESM2_REVISION,
         "esm2_source_tree_sha256": SIMPLEFOLD_ESM2_SOURCE_TREE_SHA256,
         "esm2_artifact_sha256": (
-            simplefold_confidence_esm2_artifact_sha256()
+            simplefold_contract.simplefold_confidence_esm2_artifact_sha256()
         ),
-        "artifact_sha256": simplefold_confidence_artifact_sha256(),
+        "artifact_sha256": (
+            simplefold_contract.simplefold_confidence_artifact_sha256()
+        ),
     }
 
 
@@ -103,9 +99,11 @@ def _runtime_fingerprint(
             "protein-workbench-simplefold-confidence-runtime/v2"
         ),
         "provider_identity": exact_provider_identity,
-        "device": SIMPLEFOLD_CONFIDENCE_DEVICE,
-        "featurization": SIMPLEFOLD_CONFIDENCE_FEATURIZATION,
-        "adapter": SIMPLEFOLD_CONFIDENCE_ADAPTER,
+        "device": simplefold_contract.SIMPLEFOLD_CONFIDENCE_DEVICE,
+        "featurization": (
+            simplefold_contract.SIMPLEFOLD_CONFIDENCE_FEATURIZATION
+        ),
+        "adapter": simplefold_contract.SIMPLEFOLD_CONFIDENCE_ADAPTER,
         "native_to_canonical_scale": (
             "direct_confidence_head_[0,1]_multiply_100"
         ),
@@ -201,7 +199,9 @@ def validate_simplefold_confidence_environment(
     environment: Mapping[str, Any],
 ) -> dict[str, Any]:
     """Resolve and validate the exact confidence assets without model load."""
-    if environment.get("device") != SIMPLEFOLD_CONFIDENCE_DEVICE:
+    if environment.get("device") != (
+        simplefold_contract.SIMPLEFOLD_CONFIDENCE_DEVICE
+    ):
         raise RuntimeError("SimpleFold confidence device identity changed")
     fingerprint = environment.get("resolved_runtime_fingerprint")
     if fingerprint != configured_runtime_fingerprint():
@@ -210,12 +210,12 @@ def validate_simplefold_confidence_environment(
         )
     model_root, observed_model_digests = _validated_file_set(
         environment.get("model_root"),
-        simplefold_confidence_artifact_sha256(),
+        simplefold_contract.simplefold_confidence_artifact_sha256(),
         SIMPLEFOLD_ARTIFACT_IDENTITIES,
     )
     esm2_model_root, observed_esm2_digests = _validated_file_set(
         environment.get("esm2_model_root"),
-        simplefold_confidence_esm2_artifact_sha256(),
+        simplefold_contract.simplefold_confidence_esm2_artifact_sha256(),
         SIMPLEFOLD_ESM2_ARTIFACT_IDENTITIES,
     )
     source_root = environment.get("esm2_source_root")
@@ -420,12 +420,12 @@ def _native_existing_structure_confidence(
         model_dir = _stage_file_set(
             validated["model_root"],
             artifact_root / "verified-provider",
-            simplefold_confidence_artifact_sha256(),
+            simplefold_contract.simplefold_confidence_artifact_sha256(),
         )
         esm2_model_dir = _stage_file_set(
             validated["esm2_model_root"],
             artifact_root / "verified-esm2-model",
-            simplefold_confidence_esm2_artifact_sha256(),
+            simplefold_contract.simplefold_confidence_esm2_artifact_sha256(),
         )
         esm2_source_root = _stage_esm2_source(
             validated["esm2_source_root"],
@@ -497,7 +497,9 @@ def _native_existing_structure_confidence(
             )
             plddt_models = wrapper.from_pretrained_plddt_model()
             device = wrapper.device
-            if str(device) != SIMPLEFOLD_CONFIDENCE_DEVICE:
+            if str(device) != (
+                simplefold_contract.SIMPLEFOLD_CONFIDENCE_DEVICE
+            ):
                 raise RuntimeError(
                     "SimpleFold confidence provider device changed"
                 )

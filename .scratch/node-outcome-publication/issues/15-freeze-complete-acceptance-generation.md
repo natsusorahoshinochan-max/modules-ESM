@@ -153,3 +153,27 @@ evidence.
 - TDD and serial review：public Run regression 覆盖 provider-native exact tail 的成功 publication/retrieval，以及 non-pinned tail 的 Adapter-boundary failure/no output publication；真实 captured trace 的 provider-free replay 也通过。Python review 首轮发现 exact-tail predicate 过宽，修复并补 negative regression 后 `APPROVED`；随后独立 code review `APPROVED`，均 0 remaining findings，且均未运行 Provider/model。
 - Final cumulative provider-free gates：`routine` 1317 passed / 48 deselected；`examples-v2` 12 passed；`deterministic-acceptance` 8 passed；`scientific-repro` 1 passed；`local-esmfold2-v2-contract` 6 passed；`installed-package` 3 passed；`provider-isolation` 16 passed；`security-failure` 10 passed；frontend Oxlint passed，`tsc -b && vite build` passed（179 modules）；`compileall`、`git diff --check` 和 immutable failed-authority digest check passed。全部门禁严格串行，使用 loopback `NO_PROXY`、`HF_HUB_OFFLINE=1` 和 manifest-matching SoluProt root；没有运行新的 installed Provider gate。
 - New freeze boundary：新 authority 必须从本 Ticket 的 clean completion commit 仅通过 `scripts/acceptance_generation.py start` 创建，绑定新的 source/artifacts/Catalog/configuration/assets 并保持 15 个 exact tiers、`results=[]` 且无 `tier-results/`。任何 `run-next` 或 `run-through` 都属于 Ticket 16。
+
+### Reopened after the installed SimpleFold confidence import failure
+
+The `8dfdeb577ae03df5f44d7ab7ab978a71e38482c1` completion and frozen
+generation are superseded and are not current acceptance evidence. Its
+immutable manifest remains at
+`verification-results/acceptance-generation-8dfdeb5-ticket15-simplefold-pdb-refreeze/generation.json`
+with SHA-256
+`fdb7045822efbdd1300af5da4258cea0b3efd150964ff6310324ee9f310454b5`.
+Ordinals 0–7 passed, including real SimpleFold folding, then ordinal 8
+`installed-simplefold-confidence` failed with evidence digest
+`sha256:7363aa3dbde19aaa9ac863ed8db4a0e9889116883c696493e0e58c72b57b4d73`.
+The failure occurred during acceptance import, before the confidence model or
+any confidence Engine Invocation. `installed-soluprot`,
+`installed-protein-sol`, and all four source-bound tiers never ran. This
+generation must not be retried, edited, or combined with later evidence.
+
+- Deterministic RED loop：使用 immutable failed wheel、isolated installed Python 和 `-I`，直接重放 acceptance consumer 的 folding-module import closure；连续两次均在约 0.25 秒内精确失败为 `ImportError: cannot import name SIMPLEFOLD_CONFIDENCE_ARTIFACTS from modules.folding.simplefold_confidence_adapter`。随后将该 loop 固化为 `installed-package` 的 provider-free installed-artifact regression，验证 module origin 不来自 source checkout；未调用 Provider、未加载模型。
+- Root cause：`c55d580` 已把 confidence artifact closure 的唯一 owner 收敛到 `modules.folding.simplefold_contract`，并从 Adapter 移除不再使用的 artifact tuple imports；但 heavy acceptance consumer 仍从旧 Adapter namespace 导入。failed wheel 与 source 的 Adapter/contract bytes 逐字节一致，source 同一错误 import 也失败，而 wheel 从真正 contract owner 导入成功，因此不是 artifact skew、漏打包、circular import 或模型问题。
+- Repair and ownership closure：acceptance consumer 改从 `simplefold_contract` 导入 artifact names、ESM2 artifact names 和 device；Package、generation controller、acceptance conftest 与 provider-free fixtures 同步使用 contract owner。Adapter 改为 module-qualified contract references，删除所有 incidental confidence constant/helper exports；没有 alias、shim、fallback、dual path 或 legacy parser。installed import-closure test 在旧实现 RED、当前实现 GREEN。
+- Identity decision：科学 Method、Binding、Node Type、asset closure、featurization、device、scale、readiness、runtime fingerprint 和执行行为均未改变；current Catalog digest 与 failed authority 仍精确为 `sha256:57b5ccb11dedab41df251ddf8067a16e4482c372e086311b0713578ae67c7838`。因此不创建虚假 version cascade，也不改 Workflow locks、capability inventory 或 protocol。
+- TDD and serial review：focused provider-free selection `59 passed / 2 deselected`；isolated installed import regression通过。Python reviewer 与随后独立 code reviewer 严格串行，均 `APPROVED`、0 findings，确认 exact owner、regression seam 与无 version cascade；均未运行 Provider/model。
+- Final cumulative provider-free gates：`routine` 1317 passed / 49 deselected；`examples-v2` 12 passed；`deterministic-acceptance` 8 passed；`scientific-repro` 1 passed；`local-esmfold2-v2-contract` 6 passed；`installed-package` 4 passed；`provider-isolation` 16 passed；`security-failure` 10 passed；frontend Oxlint passed，`tsc -b && vite build` passed（179 modules）；`compileall`、`git diff --check` 和 immutable failed-authority digest check passed。全部有效门禁严格串行，使用 loopback `NO_PROXY`、`HF_HUB_OFFLINE=1` 和 manifest-matching SoluProt root；没有运行新的 Provider gate或加载模型。
+- New freeze boundary：新 authority 必须从本 Ticket 的 clean completion commit 仅通过 `scripts/acceptance_generation.py start` 创建，保持 15 个 exact tiers、`results=[]` 且无 `tier-results/`。任何 `run-next` 或 `run-through` 都属于 Ticket 16。

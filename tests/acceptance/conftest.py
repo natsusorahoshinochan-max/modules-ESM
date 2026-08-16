@@ -28,10 +28,10 @@ from modules.folding.simplefold_adapter import (
     validate_simplefold_folding_environment,
 )
 from modules.folding.simplefold_confidence_adapter import (
-    SIMPLEFOLD_CONFIDENCE_DEVICE,
     configured_runtime_fingerprint as confidence_runtime_fingerprint,
     validate_simplefold_confidence_environment,
 )
+from modules.folding.simplefold_contract import SIMPLEFOLD_CONFIDENCE_DEVICE
 
 # Project root is three levels up from this file
 PROJECT_ROOT = Path(__file__).parent.parent.parent

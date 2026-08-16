@@ -437,6 +437,64 @@ def test_installed_protocol_catalog_identity_and_separate_availability(
     )
 
 
+def test_installed_simplefold_confidence_acceptance_import_closure(
+    installed_artifact: InstalledArtifact,
+) -> None:
+    acceptance_test = (
+        PROJECT_ROOT
+        / "tests"
+        / "acceptance"
+        / "test_simplefold_confidence_v2.py"
+    )
+    probe = """
+import ast
+import importlib
+from pathlib import Path
+import sys
+
+source_root = Path(sys.argv[1]).resolve()
+test_path = Path(sys.argv[2]).resolve()
+tree = ast.parse(test_path.read_text(encoding="utf-8"))
+target = next(
+    node
+    for node in tree.body
+    if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+    and node.name
+    == "test_simplefold_confidence_v2_evaluates_3gb1_exact_assets_without_refold"
+)
+for statement in ast.walk(target):
+    if (
+        isinstance(statement, ast.ImportFrom)
+        and statement.module is not None
+        and statement.module.startswith("modules.folding")
+    ):
+        module = importlib.import_module(statement.module)
+        assert not Path(module.__file__).resolve().is_relative_to(source_root)
+        for imported_name in statement.names:
+            getattr(module, imported_name.name)
+"""
+    completed = subprocess.run(
+        [
+            str(installed_artifact.python),
+            "-I",
+            "-c",
+            probe,
+            str(PROJECT_ROOT),
+            str(acceptance_test),
+        ],
+        cwd=installed_artifact.run_root,
+        env={
+            key: value
+            for key, value in os.environ.items()
+            if key != "PYTHONPATH"
+        },
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+    assert completed.returncode == 0, completed.stderr
+
+
 def test_installed_backend_completes_full_public_v2_journey(
     installed_artifact: InstalledArtifact,
     tmp_path: Path,
