@@ -1,10 +1,22 @@
-# 15 — 冻结完整 acceptance generation
+# 15 — 准备并资格验证 Acceptance Campaign
 
-**What to build:** 把 1PGA、2EMO、canonical 3GB1、5G53 与全部 installed Provider gates 组成一个可重现、zero-skip、严格串行的 current-generation 验收面，然后冻结将要产生真实证据的 source、artifact、Catalog、protocol 和 Provider assets/configuration。
+**What to build:** 把 1PGA、2EMO、canonical 3GB1、5G53 与全部 installed Provider gates 组成同一个可重现、zero-skip、严格串行的 Acceptance Campaign；先让同一 candidate 的 15 个 Qualification tiers 全绿，再允许 Ticket 16 启动不可重试的 Certification。
 
 **Blocked by:** 14 — 准备 source-bound 5G53 科学验收
 
-**Status:** completed
+**Status:** ready-for-agent
+
+## Current campaign workflow
+
+- [x] `scripts/acceptance_campaign.py` 统一拥有 clean candidate、private Execution Profile identity、Qualification attempts、Certification canonical prefix 与 child lifecycle；旧 `start/run-through` 手工路径已删除。
+- [x] Qualification 明确为 non-authoritative，可按 changed/high-risk-first 顺序执行；同一 candidate 上的 failed/interrupted tier 可重跑，但绝不提升或拼接成 Certification evidence。
+- [x] Certification 只有在 15 个 latest Qualification Results 全部 passed 后才能启动；Certification failure/interruption 持久化并永久终止该 campaign。
+- [x] verifier 保留 private bounded/sanitized console 与 full JUnit diagnostics，SIGINT/SIGTERM 会先终止 pytest process group 并写入 interrupted result。
+- [ ] 在 clean completion commit 前严格串行运行一次完整 provider-free/backend/frontend matrix。
+- [ ] 使用显式 private Execution Profile `prepare` 新 campaign，并按 changed/high-risk-first 后补齐全部 15 个 Qualification tiers。
+- [ ] 确认 `campaign.json` 绑定同一 source、wheel/sdist、protocol、Catalog、inputs/Workflows、Provider configuration/assets 与 profile identity；Qualification 为 15/15 passed，Certification 仍为 `not_started`。
+
+## Superseded generation workflow record
 
 - [x] 保留 canonical 3GB1 现有科学合同：10 个 paired ESM-3 Candidates、top 3 selection、每个 selected parent 的 5 个 ProteinMPNN designs（3×5，共 15 个）、15 个最终 folds/Artifacts 和 exact lineage/provenance，并将其全部切换到 descriptor/retrieval public contract。
 - [x] 1PGA、2EMO、3GB1 和 5G53 分别具有 clean-source、zero-skip、retain-evidence acceptance tier；四个 tiers 的静态收集、input digests、current Catalog references 和 public journey contracts 全部通过；generation freeze 不执行 live selectors，一次独立的误选 Provider 事件按下文审计且不作为验收证据。

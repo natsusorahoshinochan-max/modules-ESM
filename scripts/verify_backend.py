@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+from contextlib import contextmanager
 import hashlib
 import io
 import json
@@ -21,6 +22,7 @@ import xml.etree.ElementTree as ET
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import Iterator, Mapping
 
 from modules.acceptance_verification import ACCEPTANCE_TIER_CONTRACTS
 
@@ -40,6 +42,16 @@ TERMINATION_GRACE_SECONDS = 5.0
 MAX_CONSOLE_BYTES = 16 * 1024 * 1024
 MAX_JUNIT_BYTES = 16 * 1024 * 1024
 OUTPUT_CHUNK_SIZE = 64 * 1024
+PROXY_VARIABLES = (
+    "HTTP_PROXY",
+    "HTTPS_PROXY",
+    "ALL_PROXY",
+    "NO_PROXY",
+    "http_proxy",
+    "https_proxy",
+    "all_proxy",
+    "no_proxy",
+)
 
 
 @dataclass(frozen=True)
@@ -334,12 +346,56 @@ def _bounded_junit_summary(path: Path) -> tuple[int, int, int, bytes]:
     )
 
 
+def _bounded_junit_diagnostics(
+    path: Path,
+    *,
+    staging_root: Path,
+    environment: Mapping[str, str],
+) -> bytes:
+    """Retain exact bounded JUnit diagnostics after local-path redaction."""
+    if path.is_symlink():
+        raise ValueError("JUnit result must not be a symbolic link")
+    if not path.is_file():
+        raise ValueError("JUnit result is missing")
+    if path.stat().st_size > MAX_JUNIT_BYTES:
+        raise ValueError("JUnit result exceeds the retained size bound")
+    ET.parse(path)
+    diagnostic = _redacted_diagnostic(
+        path.read_text(encoding="utf-8"),
+        staging_root=staging_root,
+        environment=environment,
+    ).encode()
+    if len(diagnostic) > MAX_JUNIT_BYTES:
+        raise ValueError("JUnit result exceeds the retained size bound")
+    return diagnostic
+
+
 def _process_group_exists(process_group_id: int) -> bool:
     try:
         os.killpg(process_group_id, 0)
     except (PermissionError, ProcessLookupError):
         return False
     return True
+
+
+@contextmanager
+def _record_interruptions() -> Iterator[dict[str, int | None]]:
+    state: dict[str, int | None] = {"signal": None}
+
+    def record(signum: int, _frame: object) -> None:
+        state["signal"] = signum
+
+    previous = {
+        signum: signal.getsignal(signum)
+        for signum in (signal.SIGINT, signal.SIGTERM)
+    }
+    for signum in previous:
+        signal.signal(signum, record)
+    try:
+        yield state
+    finally:
+        for signum, handler in previous.items():
+            signal.signal(signum, handler)
 
 
 def _terminate_group(process: subprocess.Popen[bytes]) -> None:
@@ -404,6 +460,57 @@ def _sanitized(
     )
 
 
+def _redacted_diagnostic(
+    value: str,
+    *,
+    staging_root: Path,
+    environment: Mapping[str, str],
+) -> str:
+    """Remove credentials and machine-local configured paths from diagnostics."""
+    redacted = _sanitized(value, staging_root=staging_root)
+    credential_values: list[str] = []
+    for name, configured in environment.items():
+        if not configured:
+            continue
+        if any(marker in name for marker in ("TOKEN", "SECRET", "API_KEY")):
+            if name.endswith("_FILE"):
+                credential_path = Path(configured)
+                try:
+                    if (
+                        credential_path.is_file()
+                        and credential_path.stat().st_size <= 1024 * 1024
+                    ):
+                        secret = credential_path.read_text(
+                            encoding="utf-8"
+                        ).strip()
+                        if secret:
+                            credential_values.append(secret)
+                except (OSError, UnicodeError):
+                    pass
+            else:
+                credential_values.append(configured)
+    for secret in sorted(set(credential_values), key=len, reverse=True):
+        redacted = redacted.replace(secret, "$REDACTED_CREDENTIAL")
+    path_suffixes = ("_BINARY", "_DIR", "_FILE", "_PATH", "_ROOT")
+    path_variables = {
+        name: configured
+        for name, configured in environment.items()
+        if configured
+        and (
+            name in ROOT_VARIABLES
+            or name.endswith(path_suffixes)
+            or name in {"HF_HUB_CACHE", "HF_HOME", *PROXY_VARIABLES}
+        )
+    }
+    for name, configured in sorted(
+        path_variables.items(),
+        key=lambda item: len(item[1]),
+        reverse=True,
+    ):
+        redacted = redacted.replace(configured, f"${name}")
+    return redacted
+
+
 def run(tier_name: str, pytest_override: tuple[str, ...]) -> int:
     tier = TIERS[tier_name]
     if tier.zero_skip and pytest_override:
@@ -455,31 +562,35 @@ def run(tier_name: str, pytest_override: tuple[str, ...]) -> int:
             f"--junitxml={junit_path}",
             *arguments,
         ]
-        process = subprocess.Popen(
-            command,
-            cwd=PROJECT_ROOT,
-            env=env,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT,
-            start_new_session=True,
-        )
-        assert process.stdout is not None
-        captured = bytearray()
-        output_state = {"exceeded": False, "read_error": False}
-        reader = threading.Thread(
-            target=_drain_output,
-            args=(process.stdout, captured, output_state),
-            daemon=True,
-        )
-        reader.start()
-        timed_out = False
-        deadline = time.monotonic() + tier.timeout_seconds
-        while process.poll() is None:
-            if time.monotonic() >= deadline:
-                timed_out = True
-                break
-            time.sleep(0.05)
-        _terminate_group(process)
+        with _record_interruptions() as interruption:
+            process = subprocess.Popen(
+                command,
+                cwd=PROJECT_ROOT,
+                env=env,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                start_new_session=True,
+            )
+            assert process.stdout is not None
+            captured = bytearray()
+            output_state = {"exceeded": False, "read_error": False}
+            reader = threading.Thread(
+                target=_drain_output,
+                args=(process.stdout, captured, output_state),
+                daemon=True,
+            )
+            reader.start()
+            timed_out = False
+            deadline = time.monotonic() + tier.timeout_seconds
+            while process.poll() is None:
+                if interruption["signal"] is not None:
+                    break
+                if time.monotonic() >= deadline:
+                    timed_out = True
+                    break
+                time.sleep(0.05)
+            _terminate_group(process)
+        interrupted = interruption["signal"] is not None
         reader.join(timeout=5)
         if reader.is_alive():
             process.stdout.close()
@@ -490,10 +601,16 @@ def run(tier_name: str, pytest_override: tuple[str, ...]) -> int:
         print(output, end="", flush=True)
 
         junit_summary: bytes | None = None
+        junit_diagnostics: bytes | None = None
         junit_valid = False
         try:
             tests, failures, skipped, junit_summary = (
                 _bounded_junit_summary(junit_path)
+            )
+            junit_diagnostics = _bounded_junit_diagnostics(
+                junit_path,
+                staging_root=staging_root,
+                environment=env,
             )
             junit_valid = True
         except (OSError, ET.ParseError, ValueError):
@@ -501,6 +618,7 @@ def run(tier_name: str, pytest_override: tuple[str, ...]) -> int:
         resource_warning = RESOURCE_CLEANUP_WARNING in output
         passed = (
             process.returncode == 0
+            and not interrupted
             and not timed_out
             and not output_state["exceeded"]
             and not output_state["read_error"]
@@ -534,7 +652,7 @@ def run(tier_name: str, pytest_override: tuple[str, ...]) -> int:
                 json.dumps(
                     {
                         "schema_namespace": (
-                            "protein-workbench-verification-tier-result/v1"
+                            "protein-workbench-verification-tier-result/v2"
                         ),
                         "tier": tier_name,
                         "source_revision": revision,
@@ -542,6 +660,7 @@ def run(tier_name: str, pytest_override: tuple[str, ...]) -> int:
                         "failures": failures,
                         "skipped": skipped,
                         "passed": passed,
+                        "interrupted": interrupted,
                     },
                     sort_keys=True,
                     separators=(",", ":"),
@@ -566,6 +685,7 @@ def run(tier_name: str, pytest_override: tuple[str, ...]) -> int:
             + f"return_code={process.returncode}\n"
             + f"tests={tests} failures={failures} skipped={skipped}\n"
             + f"timed_out={str(timed_out).lower()}\n"
+            + f"interrupted={str(interrupted).lower()}\n"
             + (
                 "console_output_exceeded="
                 f"{str(output_state['exceeded']).lower()}\n"
@@ -577,6 +697,14 @@ def run(tier_name: str, pytest_override: tuple[str, ...]) -> int:
         _write_private(
             result_dir / "command-transcript.txt",
             transcript.encode(),
+        )
+        _write_private(
+            result_dir / "console-output.txt",
+            _redacted_diagnostic(
+                output,
+                staging_root=staging_root,
+                environment=env,
+            ).encode(),
         )
         _write_private(
             result_dir / "environment-summary.json",
@@ -604,13 +732,20 @@ def run(tier_name: str, pytest_override: tuple[str, ...]) -> int:
         )
         if junit_summary is not None:
             _write_private(result_dir / "pytest.xml", junit_summary)
+        if junit_diagnostics is not None:
+            _write_private(
+                result_dir / "pytest-diagnostics.xml",
+                junit_diagnostics,
+            )
 
         print(f"RETAINED VERIFICATION RESULT: {result_dir}", flush=True)
         if passed:
             print("BACKEND VERIFICATION RESULT: passed", flush=True)
             return 0
         reason = (
-            "multiprocessing resource cleanup warning"
+            "interrupted"
+            if interrupted
+            else "multiprocessing resource cleanup warning"
             if resource_warning
             else "timeout"
             if timed_out

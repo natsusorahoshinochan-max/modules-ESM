@@ -275,3 +275,26 @@ _Avoid_: Operation Attempt terminal, Projection refresh, Cache write
 The durable terminal conclusion of a Run after every Node disposition and every
 required Selection conclusion is closed.
 _Avoid_: Worker exit, restart marker, last Node completion
+
+## Verification and Release
+
+**Acceptance Campaign**:
+The lifecycle that binds one clean source revision, one artifact set, one
+Execution Profile identity, Qualification Results, and one Certification
+Generation.
+_Avoid_: Test run, acceptance generation, release session
+
+**Execution Profile**:
+The private local mapping of Environment Configuration paths and remote
+transport policy used to execute one Acceptance Campaign.
+_Avoid_: Workflow parameters, manifest paths, shell-state reconstruction
+
+**Qualification Result**:
+Non-authoritative, rerunnable evidence that one exact campaign candidate passes
+one acceptance tier; all current tiers must qualify before certification.
+_Avoid_: Acceptance evidence, dry run, certified result
+
+**Certification Generation**:
+The fresh canonical, immutable sequence that turns a fully qualified campaign
+candidate into authoritative acceptance evidence.
+_Avoid_: Qualification, retryable generation, combined historical evidence

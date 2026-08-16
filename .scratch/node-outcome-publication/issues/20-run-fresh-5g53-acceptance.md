@@ -1,6 +1,6 @@
 # 20 — 执行 fresh 5G53 科学验收
 
-**What to build:** 在同一冻结 generation 上通过 installed public REST/WebSocket surface 执行一次 fresh 5G53 Workflow，证明全部大型 ESM-3 values、独立 folding、loop-scoped Evidence 和 Node Outcome Publication 在生产链上共同闭合。
+**What to build:** 在同一 Acceptance Campaign 的 fresh Certification 上通过 installed public REST/WebSocket surface 执行一次 fresh 5G53 Workflow，证明全部大型 ESM-3 values、独立 folding、loop-scoped Evidence 和 Node Outcome Publication 在生产链上共同闭合。
 
 **Blocked by:** 19 — 执行 fresh canonical 3GB1 验收
 
@@ -12,5 +12,5 @@
 - [ ] 每个 Candidate 的 resolved-core/counterpart TM-score 和 RMSD、resolved-core/loop pLDDT、两个 junction C–N distances、loop/core nonbonded heavy-atom clash 与 explicit residue correspondence/pairing 全部可由 public Evidence 审计，并按已锁定阈值得出结论。
 - [ ] 零个 Candidate 通过科学 gates 可作为完整 conclusion；任何 evidence gap、implicit pairing、压缩 gap、静默排除原始 context 或外部补算都使 acceptance 失败。
 - [ ] Run Projection 有界，canonical values 可逐值 exact retrieval，Artifacts 使用独立 route，Ledger、Result Identity、Cache index、object ownership 和 Run Closure 与 public outcome 一致。
-- [ ] 本 ticket 不修改冻结 generation。任何修复都使 Tickets 16–20 证据失效，必须回到 Ticket 15 重新冻结并从 Ticket 16 开始重跑。
-- [ ] 标记完成前，完整 provider-free repository matrix 和 frontend gates 在冻结 checkout 上再次通过，且 Tickets 01–20 的全部累计 acceptance evidence 保持有效。
+- [ ] 本 ticket 不修改 campaign candidate。任何修复都使 Certification 失效，必须回到 Ticket 15 创建并资格验证新 campaign，再从 Ticket 16 开始新的 canonical Certification。
+- [ ] 标记完成前只核对 campaign authority、durable prefix 与无残留 child/model process；完整 repository/frontend gates 留到 Ticket 21。

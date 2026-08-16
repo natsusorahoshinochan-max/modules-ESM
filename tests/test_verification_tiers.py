@@ -7,6 +7,7 @@ import io
 import json
 import os
 from pathlib import Path
+import signal
 import stat
 import subprocess
 import sys
@@ -142,8 +143,8 @@ def test_required_installed_provider_tiers_fail_on_any_skip() -> None:
     }
 
 
-def test_complete_acceptance_generation_is_exact_and_retains_evidence() -> None:
-    from scripts.acceptance_generation import (
+def test_complete_acceptance_campaign_is_exact_and_retains_evidence() -> None:
+    from scripts.acceptance_campaign import (
         ACCEPTANCE_TIER_ORDER,
         INPUT_DIGESTS,
         INSTALLED_PROVIDER_TIER_ORDER,
@@ -526,10 +527,14 @@ def test_routine_tier_reports_result_and_preserves_configured_roots(
     assert len(retained) == 1
     result_dir = retained[0].parent
     transcript = result_dir / "command-transcript.txt"
+    console_output = result_dir / "console-output.txt"
+    junit_diagnostics = result_dir / "pytest-diagnostics.xml"
     environment_path = result_dir / "environment-summary.json"
     assert "tests=1 failures=0 skipped=0" in transcript.read_text()
     assert "$PROJECT_ENV/bin/python" in transcript.read_text()
     assert stat.S_IMODE(transcript.stat().st_mode) == 0o600
+    assert stat.S_IMODE(console_output.stat().st_mode) == 0o600
+    assert stat.S_IMODE(junit_diagnostics.stat().st_mode) == 0o600
     assert stat.S_IMODE(retained[0].stat().st_mode) == 0o600
     assert stat.S_IMODE(result_dir.stat().st_mode) == 0o700
     environment = json.loads(environment_path.read_text())
@@ -623,29 +628,86 @@ def test_verifier_fails_closed_when_console_output_exceeds_bound(
     assert "console_output_exceeded=true" in transcript
 
 
-def test_retained_junit_is_size_bounded_and_drops_testcase_diagnostics(
+def test_verifier_interruption_terminates_child_and_retains_terminal_state(
+    tmp_path: Path,
+) -> None:
+    results_root = tmp_path / "verification-results"
+    child_pid_path = tmp_path / "pytest.pid"
+    env = os.environ.copy()
+    env["PROTEIN_WORKBENCH_VERIFICATION_RESULTS_ROOT"] = str(results_root)
+    env["PROTEIN_WORKBENCH_INTERRUPT_PROBE_PID"] = str(child_pid_path)
+    process = subprocess.Popen(
+        [
+            sys.executable,
+            str(PROJECT_ROOT / "scripts" / "verify_backend.py"),
+            "routine",
+            "tests/tier_probes/interrupt_probe.py",
+        ],
+        cwd=PROJECT_ROOT,
+        env=env,
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+    )
+    deadline = time.monotonic() + 10
+    while not child_pid_path.exists() and time.monotonic() < deadline:
+        time.sleep(0.01)
+    assert child_pid_path.exists()
+    child_pid = int(child_pid_path.read_text(encoding="utf-8"))
+
+    process.send_signal(signal.SIGTERM)
+    output, _ = process.communicate(timeout=15)
+
+    assert process.returncode == 1, output
+    transcript = next(
+        results_root.glob("routine/*/command-transcript.txt")
+    ).read_text(encoding="utf-8")
+    assert "interrupted=true" in transcript
+    assert "BACKEND VERIFICATION RESULT: failed (interrupted)" in output
+    with pytest.raises(ProcessLookupError):
+        os.kill(child_pid, 0)
+
+
+def test_retained_junit_diagnostics_are_bounded_and_redact_credentials(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     junit_path = tmp_path / "pytest.xml"
+    credential_path = tmp_path / "biohub-token"
+    credential_path.write_text("sk-live-secret", encoding="utf-8")
     junit_path.write_text(
         '<testsuite tests="1" failures="1" errors="0" skipped="0">'
-        '<testcase classname="/private/source.py" name="contains-secret">'
-        "<failure>secret diagnostic</failure>"
+        f'<testcase classname="{tmp_path}/source.py" name="failed-contract">'
+        "<failure>native NLL mismatch; token=sk-live-secret</failure>"
         "</testcase>"
         "</testsuite>"
     )
+    environment = {
+        "PROTEIN_WORKBENCH_BIOHUB_TOKEN_FILE": str(credential_path),
+    }
 
-    tests, failures, skipped, retained = (
+    tests, failures, skipped, summary = (
         verify_backend._bounded_junit_summary(junit_path)
+    )
+    retained = verify_backend._bounded_junit_diagnostics(
+        junit_path,
+        staging_root=tmp_path,
+        environment=environment,
     )
 
     assert (tests, failures, skipped) == (1, 1, 0)
-    assert b"secret" not in retained
-    assert b"/private/source.py" not in retained
+    assert b"native NLL mismatch" in retained
+    assert b"sk-live-secret" not in retained
+    assert b"$REDACTED_CREDENTIAL" in retained
+    assert str(tmp_path).encode() not in retained
+    assert b"native NLL mismatch" not in summary
     monkeypatch.setattr(verify_backend, "MAX_JUNIT_BYTES", 8)
     with pytest.raises(ValueError, match="size bound"):
-        verify_backend._bounded_junit_summary(junit_path)
+        verify_backend._bounded_junit_diagnostics(
+            junit_path,
+            staging_root=tmp_path,
+            environment=environment,
+        )
 
 
 def test_terminate_group_kills_members_after_the_leader_exits(
