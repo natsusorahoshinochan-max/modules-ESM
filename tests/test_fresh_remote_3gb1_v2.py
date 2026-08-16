@@ -242,6 +242,37 @@ def test_fresh_evidence_reads_exact_canonical_value_from_public_route() -> None:
     ) == body
 
 
+def test_fresh_evidence_staging_is_precreated_by_the_verifier(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    evidence_root = tmp_path / "acceptance-evidence"
+    evidence_root.mkdir(mode=0o700)
+    monkeypatch.setenv(
+        "PROTEIN_WORKBENCH_FRESH_EVIDENCE_STAGING",
+        str(evidence_root),
+    )
+
+    assert _require_empty_evidence_root() == evidence_root
+    (evidence_root / "unexpected").write_text("occupied", encoding="utf-8")
+    with pytest.raises(AssertionError):
+        _require_empty_evidence_root()
+    monkeypatch.setenv(
+        "PROTEIN_WORKBENCH_FRESH_EVIDENCE_STAGING",
+        str(tmp_path / "missing"),
+    )
+    with pytest.raises(AssertionError):
+        _require_empty_evidence_root()
+
+
+def _require_empty_evidence_root() -> Path:
+    evidence_root = Path(
+        os.environ["PROTEIN_WORKBENCH_FRESH_EVIDENCE_STAGING"]
+    )
+    assert evidence_root.is_dir() and not any(evidence_root.iterdir())
+    return evidence_root
+
+
 def _digest(path: Path) -> str:
     return "sha256:" + hashlib.sha256(path.read_bytes()).hexdigest()
 
@@ -974,11 +1005,7 @@ def test_fresh_remote_3gb1_installed_public_run_retains_auditable_bundle(
         capture_output=True,
     ).stdout == ""
 
-    evidence_root = Path(
-        os.environ["PROTEIN_WORKBENCH_FRESH_EVIDENCE_STAGING"]
-    )
-    evidence_root.mkdir(mode=0o700)
-    assert not any(evidence_root.iterdir())
+    evidence_root = _require_empty_evidence_root()
 
     configured_token = os.environ.get(
         "PROTEIN_WORKBENCH_BIOHUB_TOKEN_FILE"

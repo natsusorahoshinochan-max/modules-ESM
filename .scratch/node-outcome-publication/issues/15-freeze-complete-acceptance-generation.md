@@ -246,6 +246,35 @@ generation must not be retried, edited, or combined with later evidence.
 - Final cumulative provider-free gates：`routine` 1317 passed / 49 deselected；`examples-v2` 12 passed；`deterministic-acceptance` 8 passed；`scientific-repro` 1 passed；`local-esmfold2-v2-contract` 6 passed；`installed-package` 4 passed；`provider-isolation` 16 passed；`security-failure` 10 passed；frontend Oxlint passed，`tsc -b && vite build` passed（179 modules）；`compileall`、`git diff --check` 和 immutable failed-authority digest check passed。全部有效门禁严格串行，使用 loopback `NO_PROXY`、`HF_HUB_OFFLINE=1` 和 manifest-matching SoluProt root；没有运行新的 Provider gate或加载模型。
 - New freeze boundary：新 authority 必须从本 Ticket 的 clean completion commit 仅通过 `scripts/acceptance_generation.py start` 创建，保持 15 个 exact tiers、`results=[]` 且无 `tier-results/`。任何 `run-next` 或 `run-through` 都属于 Ticket 16。
 
+### Reopened after the canonical 3GB1 evidence-staging ownership failure
+
+The clean `e58328528ca9251a5cb8299e3e22972a36a70f07` candidate was bound to
+`verification-results/acceptance-campaign-e583285-qualification`. Its
+Qualification phase retained a first `fresh-2emo` failure in which the
+official Biohub SDK returned its documented `ESMProteinError` union member;
+the Engine Invocation therefore returned successfully and the owning Adapter
+translated the non-success into an Operation `RuntimeError`. One explicit
+operator rerun against the unchanged candidate passed in 59.63 seconds, as
+permitted for non-authoritative Qualification. No production repair, fallback,
+response repair, automatic retry, or Certification result was created.
+
+The same campaign then retained passed Qualification Results for ProteinMPNN,
+SimpleFold folding, SimpleFold confidence, SoluProt, and Protein-Sol before
+`fresh-canonical-3gb1` failed in 5.05 seconds, before any Provider invocation.
+The exact failed Result is
+`qualification-results/fresh-canonical-3gb1/20260816T151448.789825Z-12435-c4502dd96fda364a`
+with evidence digest
+`sha256:f14806a547df21693cdb99b84f0a10ec6ca0a50ab672cf6a4a88e19c86468089`.
+The terminal campaign manifest SHA-256 is
+`499954b2c00a8833e32331db9bf722651738cd53297b8f5f7e5f7d54eb2e926e`;
+Certification remains `not_started` with no results. This campaign is now
+superseded and must not be resumed, edited, or combined with a later campaign.
+
+- Root cause：`verify_backend` is the single owner that creates an empty mode-0700 evidence staging directory for every retained-evidence tier. The 1PGA, 2EMO, and 5G53 acceptance consumers already require that pre-created empty directory, but the older canonical 3GB1 consumer still called `mkdir()` itself and deterministically raised `FileExistsError` under the campaign controller.
+- TDD seam：a provider-free focused regression supplies the verifier-owned empty directory and requires the canonical consumer boundary to accept it while rejecting missing or occupied staging roots. The old consumer was RED with `NameError` at the new boundary after the real Qualification failure had already demonstrated `FileExistsError`; the minimal owner-alignment implementation is GREEN (`1 passed`). No production, Provider Adapter, Method, Binding, Node Type, Catalog, Workflow, scientific value, or evidence schema changed.
+- Serial review and final provider-free gates：Standards/Spec 双轴审查严格串行，最终 `APPROVED`、0 findings，并复核 retained campaign/result digests、官方 error-union 归因、pre-Provider 失败时序和无 private profile/credential 泄漏。`routine` 1325 passed / 49 deselected；`examples-v2` 12 passed；`deterministic-acceptance` 8 passed；`scientific-repro` 1 passed；`local-esmfold2-v2-contract` 6 passed；`installed-package` 4 passed；`provider-isolation` 16 passed；`security-failure` 10 passed；frontend Oxlint passed，`tsc -b && vite build` passed（179 modules）；`compileall` 与 `git diff --check` passed。全部有效 gate 严格串行并设置 `HF_HUB_OFFLINE=1`；未调用 Provider、未加载本地模型。
+- New campaign boundary：本次 test-harness repair 会创建新的 clean candidate；`e583285...` campaign 保持不可变。新 candidate 先通过 private Execution Profile `prepare` 创建 `results=[]` / Certification `not_started` campaign，再从 Qualification 开始，绝不续跑或拼接旧 campaign。
+
 ### Reopened after the installed-package loopback startup failure
 
 The `1b5dd652d3ee45f915bb3807029ab5a96bb7c6a7` completion and frozen
