@@ -73,6 +73,12 @@ INPUT_SEQUENCE = (
 INPUT_RESIDUE_IDS = tuple(f"A:{index}" for index in range(1, 76))
 
 
+def _upstream_simplefold_serialized_pdb(pdb_string: str) -> str:
+    return "\n".join(
+        line.ljust(80) for line in (*pdb_string.splitlines(), "")
+    )
+
+
 def _workflow_payload() -> dict[str, object]:
     return json.loads(WORKFLOW_PATH.read_text(encoding="utf-8"))
 
@@ -144,7 +150,11 @@ class _ControlledSimpleFold:
         assert kwargs["num_steps"] == 50
         assert kwargs["num_samples"] == 1
         return (
-            [ProteinStructure(self.structure)],
+            [
+                ProteinStructure(
+                    _upstream_simplefold_serialized_pdb(self.structure)
+                )
+            ],
             [{"sample_index": 0, "per_residue": [self.plddt] * 75}],
         )
 
@@ -278,7 +288,7 @@ def test_source_bound_1pga_public_journey_closes_complete_evidence(
             "safe_fingerprint": "provider-free-1pga-esmfold2",
             "invalidation_token": "provider-free-1pga-esmfold2",
         },
-        ("folding.fold.simplefold_local", "6.0.0"): {
+        ("folding.fold.simplefold_local", "7.0.0"): {
             "values": {"provider_client": simplefold},
             "safe_fingerprint": "provider-free-1pga-simplefold",
             "invalidation_token": "provider-free-1pga-simplefold",
@@ -653,7 +663,7 @@ def test_source_bound_1pga_public_classification_contract(
             "safe_fingerprint": "provider-free-1pga-esmfold2",
             "invalidation_token": "provider-free-1pga-esmfold2",
         },
-        ("folding.fold.simplefold_local", "6.0.0"): {
+        ("folding.fold.simplefold_local", "7.0.0"): {
             "values": {"provider_client": simplefold},
             "safe_fingerprint": "provider-free-1pga-simplefold",
             "invalidation_token": "provider-free-1pga-simplefold",

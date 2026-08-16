@@ -97,6 +97,13 @@ configured file set, copies it through no-follow file descriptors into the
 isolated run root, rehashes the staged copies, and only then imports or invokes
 the provider.
 
+The pinned SimpleFold PDB writer pads every record to 80 columns and represents
+its final sentinel as an 80-space record without a trailing newline. The folding
+Adapter accepts only that exact provider tail, translates it to the canonical
+`END` record followed by one newline, and then publishes through the
+`protein.structure@4.0.0` Port. Any other provider tail fails at the Adapter
+boundary instead of being guessed or repaired.
+
 ## mkdssp
 
 The canonical Workflow requires `mkdssp` 4.6.1. The upstream source archive is

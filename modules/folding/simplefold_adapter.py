@@ -80,6 +80,19 @@ class SimpleFoldAdapter(Protocol):
     ) -> SimpleFoldAdapterResult: ...
 
 
+def _translate_provider_structure(structure: ProteinStructure) -> ProteinStructure:
+    """Translate the pinned writer's padded sentinel into canonical PDB text."""
+    lines = structure.pdb_string.split("\n")
+    if (
+        len(lines) < 2
+        or lines[-2:] != ["END".ljust(80), " " * 80]
+    ):
+        raise ValueError(
+            "SimpleFold provider PDB tail is outside the pinned source contract"
+        )
+    return ProteinStructure("\n".join(lines[:-1]) + "\n")
+
+
 def simplefold_folding_provider_identity() -> dict[str, Any]:
     """Return evidence for only the assets actually used by this Binding."""
     return simplefold_provider_identity(
@@ -240,7 +253,9 @@ def _decode_fold_result(
     }
     return tuple(
         SimpleFoldSampleResult(
-            structure=structures[sample_index],
+            structure=_translate_provider_structure(
+                structures[sample_index]
+            ),
             per_residue_plddt=by_sample[sample_index],
         )
         for sample_index in range(sample_count)

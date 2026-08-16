@@ -128,3 +128,28 @@ subsequent installed Provider tiers never ran.
 - Verification audit：有效 focused selection 前曾发现一个来源不明的 `scientific-repro` 进程与首次 focused pytest 短暂并发；两者结果全部弃用，在 clean process state 重新串行验证。`installed-package` 的前两次尝试未传 loopback `NO_PROXY`，installed server 已启动但 urllib readiness request 走代理而超时；显式 `NO_PROXY=127.0.0.1,localhost` 后精确重跑为 `3 passed`。这些失败不属于 acceptance generation，也未触发 Provider 或模型调用。
 - Final cumulative provider-free gates：`routine` 1315 passed / 48 deselected；`examples-v2` 12 passed；`deterministic-acceptance` 8 passed；`scientific-repro` 1 passed；`local-esmfold2-v2-contract` 6 passed；`installed-package` 3 passed；`provider-isolation` 16 passed；`security-failure` 10 passed；frontend Oxlint passed，`tsc -b && vite build` passed（179 modules）；`compileall` 与 `git diff --check` passed。全部有效门禁严格串行并使用 loopback `NO_PROXY` 与 manifest-matching SoluProt root；没有把真实 Provider/model diagnostic 当作 provider-free evidence。
 - New freeze boundary：新 authority 必须从本 Ticket 的 clean completion commit 仅通过 `scripts/acceptance_generation.py start` 创建，绑定新的 source/artifacts/Catalog/configuration/assets 并保持 `results=[]`；不得在 Ticket 15 执行 `run-next` 或 `run-through`。
+
+### Reopened after the installed SimpleFold PDB publication failure
+
+The `92205ca9ced5d90bd4205ae3dae40e23ce82614c` completion and frozen
+generation are superseded and are not current acceptance evidence. Its
+immutable manifest remains at
+`verification-results/acceptance-generation-92205ca-ticket15-proteinmpnn-golden-refreeze/generation.json`,
+has SHA-256
+`890e4d8edeea853ea7625ec91e1e954982a4587a4f24c262eaeeb12163a72945`,
+and was rehashed without change after this repair. Ordinals 0–6 passed, then
+ordinal 7 `installed-simplefold-folding` retained failed evidence digest
+`sha256:80560f476a9001b33c15a871d6e19c271df4afe0f928a449d8f0ad1db299cb28`.
+The exact inner test failed after 340.65 seconds: the SimpleFold Engine
+Invocation terminal was `succeeded`, but Operation output publication raised
+`PortValueError`/`node_execution_failed`; `materialize-confidence` was blocked.
+The three later installed Provider tiers and all four source-bound tiers never
+ran. This generation must not be retried, edited, or combined with later
+evidence.
+
+- Controlled diagnosis：retained Run/Ledger、failed evidence 和 installed artifact 先建立了 provider-free public Run trace-replay，精确复现 invocation succeeded、fold publication failed、materializer blocked。因 Ledger 按 output-publication atomicity 正确地没有保留未发布 Typed Value，generation 外只运行一次 exact revision/provider configuration 的单进程、单模型 controlled capture，未并发、未进入 generation。captured PDB 为 35,396 bytes、SHA-256 `9a70413cfffaa1e1c01df75ea94059bfc033915a12ee23b0a9fac0a07a3c2194`，pLDDT 长度 56；non-acceptance trace 位于 `verification-results/ticket15-simplefold-controlled-diagnostic-92205ca/trace.json`，SHA-256 `e6ee271a815a50e5c8336e32239052ebdf2d2f7d131f3d241353103a3413cb6d`。之后没有再次调用 Provider 或加载模型。
+- Root cause and RED→GREEN：pinned `ml-simplefold@c7a5570...` writer 先追加空 sentinel，再把每行 `ljust(80)`，最后用换行连接；因此 provider-native PDB 以 exact `END`.ljust(80) + 80-space sentinel 结束，且没有 trailing newline。`protein.structure@4.0.0` Port 正确要求 final `END` record 后一个 canonical newline。1.9 秒 trace replay 在旧 Adapter 上稳定 RED；只把该 exact pinned tail 翻译为 canonical `END` + newline 后，同一 public Run/Typed Output/materialization seam GREEN。非 exact tail fail-fast，既不猜 schema 也不做通用 PDB repair。
+- Exact identity cascade：科学 structure、residue mapping、masking、pLDDT、Method 与 shared fold Node Type 均未改变；translation 是 SimpleFold Adapter/Binding 的结果影响实现身份，因此 `folding.fold.simplefold_local` 升至 `7.0.0`、folding package 升至 `8.0.0`，Method `folding.fold.simplefold_100m_c7a5570@4.0.0` 与 `folding.fold@6.0.0` 保持不变。current Catalog、capability inventory、repository Workflow locks、source-bound scripts、fixtures、acceptance setup 和 docs 已原子更新，无兼容层或 dual path。
+- TDD and serial review：public Run regression 覆盖 provider-native exact tail 的成功 publication/retrieval，以及 non-pinned tail 的 Adapter-boundary failure/no output publication；真实 captured trace 的 provider-free replay 也通过。Python review 首轮发现 exact-tail predicate 过宽，修复并补 negative regression 后 `APPROVED`；随后独立 code review `APPROVED`，均 0 remaining findings，且均未运行 Provider/model。
+- Final cumulative provider-free gates：`routine` 1317 passed / 48 deselected；`examples-v2` 12 passed；`deterministic-acceptance` 8 passed；`scientific-repro` 1 passed；`local-esmfold2-v2-contract` 6 passed；`installed-package` 3 passed；`provider-isolation` 16 passed；`security-failure` 10 passed；frontend Oxlint passed，`tsc -b && vite build` passed（179 modules）；`compileall`、`git diff --check` 和 immutable failed-authority digest check passed。全部门禁严格串行，使用 loopback `NO_PROXY`、`HF_HUB_OFFLINE=1` 和 manifest-matching SoluProt root；没有运行新的 installed Provider gate。
+- New freeze boundary：新 authority 必须从本 Ticket 的 clean completion commit 仅通过 `scripts/acceptance_generation.py start` 创建，绑定新的 source/artifacts/Catalog/configuration/assets 并保持 15 个 exact tiers、`results=[]` 且无 `tier-results/`。任何 `run-next` 或 `run-through` 都属于 Ticket 16。

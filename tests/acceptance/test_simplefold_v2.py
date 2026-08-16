@@ -66,7 +66,7 @@ def test_simplefold_v2_folds_3gb1_through_exact_binding(
         node_type_id="folding.fold",
         node_type_version="6.0.0",
         binding_id="folding.fold.simplefold_local",
-        binding_version="6.0.0",
+        binding_version="7.0.0",
         node_parameters={"effective_seed": 1603, "num_samples": 1},
         binding_parameters={"num_steps": 10},
     )
@@ -128,7 +128,7 @@ def test_simplefold_v2_folds_3gb1_through_exact_binding(
     )
     fingerprint = configured_runtime_fingerprint()
     environment = EnvironmentConfiguration({
-        ("folding.fold.simplefold_local", "6.0.0"): {
+        ("folding.fold.simplefold_local", "7.0.0"): {
             "values": {
                 "model_root": Path(
                     os.environ["PROTEIN_WORKBENCH_SIMPLEFOLD_MODEL_ROOT"]
@@ -218,7 +218,7 @@ def test_simplefold_v2_folds_3gb1_through_exact_binding(
     binding = catalog.require_contract(
         "binding",
         "folding.fold.simplefold_local",
-        "6.0.0",
+        "7.0.0",
     )
     assert binding.descriptor["method"]["contract_id"] == (
         "folding.fold.simplefold_100m_c7a5570"
@@ -282,7 +282,7 @@ def test_simplefold_v2_folds_3gb1_through_exact_binding(
         if event["event"]["type"] == "readiness_attested"
         and event["event"]["binding"]["contract_id"]
         == "folding.fold.simplefold_local"
-        and event["event"]["binding"]["contract_version"] == "6.0.0"
+        and event["event"]["binding"]["contract_version"] == "7.0.0"
         and event["event"]["conclusion"] == "passing"
     )
     invocation_index = next(

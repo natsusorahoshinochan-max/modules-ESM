@@ -157,7 +157,7 @@
       "node_type_id": "folding.fold",
       "node_type_version": "6.0.0",
       "binding_id": "folding.fold.simplefold_local",
-      "binding_version": "6.0.0",
+      "binding_version": "7.0.0",
       "node_parameters": {
         "effective_seed": 3513,
         "num_samples": 1
@@ -1613,8 +1613,8 @@
     {
       "contract_kind": "binding",
       "contract_id": "folding.fold.simplefold_local",
-      "contract_version": "6.0.0",
-      "contract_digest": "sha256:66344992b10334219f75de73d53a801f14486fc9e784c1c85eca1b20db7f9055"
+      "contract_version": "7.0.0",
+      "contract_digest": "sha256:c4fcb82e0362980291966ee59a910e081fb40c20aabc3d5d0963e4b957c5ec7d"
     },
     {
       "contract_kind": "binding",

@@ -40,6 +40,9 @@ from tests.fixtures.scientific_operation import (
 )
 
 
+_SIMPLEFOLD_BINDING_VERSION = "7.0.0"
+
+
 def test_simplefold_is_one_explicit_binding_of_the_shared_folding_node() -> None:
     registrations = {
         registration.package_id: registration
@@ -57,7 +60,7 @@ def test_simplefold_is_one_explicit_binding_of_the_shared_folding_node() -> None
     simplefold = catalog.require_contract(
         "binding",
         "folding.fold.simplefold_local",
-        "6.0.0",
+        _SIMPLEFOLD_BINDING_VERSION,
     )
     esmfold2 = catalog.require_contract(
         "binding",
@@ -205,6 +208,17 @@ def _two_residue_pdb() -> str:
             "END",
             "",
         )
+    )
+
+
+def _upstream_simplefold_serialized_pdb(
+    canonical_pdb: str | None = None,
+) -> str:
+    """Match the pinned provider writer's padded final sentinel exactly."""
+    source = _two_residue_pdb() if canonical_pdb is None else canonical_pdb
+    return "\n".join(
+        line.ljust(80)
+        for line in (*source.splitlines(), "")
     )
 
 
@@ -356,7 +370,7 @@ def _run_simplefold(
         node_type_id="folding.fold",
         node_type_version="6.0.0",
         binding_id="folding.fold.simplefold_local",
-        binding_version="6.0.0",
+        binding_version=_SIMPLEFOLD_BINDING_VERSION,
         node_parameters={
             "effective_seed": 1603,
             "num_samples": num_samples,
@@ -426,7 +440,10 @@ def _run_simplefold(
             client,
         )
     environment = EnvironmentConfiguration({
-        ("folding.fold.simplefold_local", "6.0.0"): {
+        (
+            "folding.fold.simplefold_local",
+            _SIMPLEFOLD_BINDING_VERSION,
+        ): {
             "values": environment_values,
             "safe_fingerprint": environment_values[
                 "resolved_runtime_fingerprint"
@@ -469,8 +486,8 @@ def test_simplefold_preserves_high_level_plddt_and_exact_multi_sample_lineage(
             self.calls.append(kwargs)
             return (
                 [
-                    ProteinStructure(_two_residue_pdb()),
-                    ProteinStructure(_two_residue_pdb()),
+                    ProteinStructure(_upstream_simplefold_serialized_pdb()),
+                    ProteinStructure(_upstream_simplefold_serialized_pdb()),
                 ],
                 [
                     {
@@ -573,7 +590,7 @@ def test_simplefold_preserves_high_level_plddt_and_exact_multi_sample_lineage(
     binding = catalog.require_contract(
         "binding",
         "folding.fold.simplefold_local",
-        "6.0.0",
+        _SIMPLEFOLD_BINDING_VERSION,
     )
     method = catalog.require_contract(
         "method",
@@ -620,6 +637,87 @@ def test_simplefold_preserves_high_level_plddt_and_exact_multi_sample_lineage(
     }.isdisjoint(structures.items[0].metadata)
 
 
+def test_simplefold_translates_provider_pdb_tail_before_publication(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    provider_pdb = _upstream_simplefold_serialized_pdb()
+    assert provider_pdb.endswith(" " * 80)
+    assert not provider_pdb.endswith("\n")
+
+    class Client:
+        def fold(
+            self,
+            **_kwargs: Any,
+        ) -> tuple[list[ProteinStructure], list[dict[str, Any]]]:
+            return (
+                [ProteinStructure(provider_pdb)],
+                [{"per_residue": [71.0, 83.0], "sample_index": 0}],
+            )
+
+    catalog, service, projection, events = _run_simplefold(
+        tmp_path,
+        monkeypatch,
+        client=Client(),
+        num_samples=1,
+    )
+
+    assert projection["status"] == "succeeded", json.dumps(events, indent=2)
+    structure_output = next(
+        output
+        for output in projection["outputs"]
+        if output["node_id"] == "fold"
+        and output["output_port"] == "structure_candidates"
+    )
+    structures = _decode_output(
+        catalog,
+        service,
+        projection,
+        structure_output,
+    )
+    published_pdb = structures.items[0].data.pdb_string
+    assert published_pdb == "\n".join(provider_pdb.splitlines()[:-1]) + "\n"
+    assert published_pdb.splitlines()[-1][:6].strip() == "END"
+
+
+def test_simplefold_rejects_non_pinned_provider_pdb_tail(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    non_pinned_pdb = "\n".join(
+        (*_two_residue_pdb().splitlines(), " " * 80)
+    )
+
+    class Client:
+        def fold(
+            self,
+            **_kwargs: Any,
+        ) -> tuple[list[ProteinStructure], list[dict[str, Any]]]:
+            return (
+                [ProteinStructure(non_pinned_pdb)],
+                [{"per_residue": [71.0, 83.0], "sample_index": 0}],
+            )
+
+    _, _, projection, events = _run_simplefold(
+        tmp_path,
+        monkeypatch,
+        client=Client(),
+        num_samples=1,
+    )
+
+    assert projection["status"] == "failed"
+    terminal = next(
+        event["event"]
+        for event in events
+        if event["event"]["type"] == "node_attempt_terminal"
+        and event["event"]["status"] == "failed"
+    )
+    assert terminal["error"]["details"] == {"exception_type": "ValueError"}
+    assert all(
+        output["node_id"] != "fold" for output in projection["outputs"]
+    )
+
+
 def test_simplefold_admits_provider_pdb_without_rebuilding_sequence(
     tmp_path: Path,
 ) -> None:
@@ -633,7 +731,9 @@ def test_simplefold_admits_provider_pdb_without_rebuilding_sequence(
             return (
                 [
                     ProteinStructure(
-                        _trusted_serialized_pdb_with_independent_residue_names()
+                        _upstream_simplefold_serialized_pdb(
+                            _trusted_serialized_pdb_with_independent_residue_names()
+                        )
                     )
                 ],
                 [{"per_residue": [71.0, 83.0], "sample_index": 0}],
@@ -662,7 +762,13 @@ def test_simplefold_admits_provider_pdb_without_rebuilding_sequence(
     )
 
     assert result.samples[0].structure == ProteinStructure(
-        _trusted_serialized_pdb_with_independent_residue_names()
+        "\n".join(
+            line.ljust(80)
+            for line in (
+                _trusted_serialized_pdb_with_independent_residue_names().splitlines()
+            )
+        )
+        + "\n"
     )
 
 
@@ -712,7 +818,7 @@ def test_canonical_simplefold_operation_consumes_normalized_adapter_dto() -> Non
         catalog,
         "folding.fold.simplefold_local",
         object(),
-        binding_version="6.0.0",
+        binding_version=_SIMPLEFOLD_BINDING_VERSION,
         environment={"native_scores": object()},
     )
     adapter = Adapter()
@@ -731,7 +837,7 @@ def test_canonical_simplefold_operation_consumes_normalized_adapter_dto() -> Non
         operation_call(
             catalog=catalog,
             binding_id="folding.fold.simplefold_local",
-            binding_version="6.0.0",
+            binding_version=_SIMPLEFOLD_BINDING_VERSION,
             inputs={
                 "sequence_candidates": CandidateCollection(
                     "parents",
@@ -825,7 +931,7 @@ def test_simplefold_call_seed_uses_candidate_content_not_candidate_identity(
         catalog,
         "folding.fold.simplefold_local",
         object(),
-        binding_version="6.0.0",
+        binding_version=_SIMPLEFOLD_BINDING_VERSION,
     )
 
     def observed(candidate_id: str, sequence: str) -> int:
@@ -839,7 +945,7 @@ def test_simplefold_call_seed_uses_candidate_content_not_candidate_identity(
             operation_call(
                 catalog=catalog,
                 binding_id="folding.fold.simplefold_local",
-                binding_version="6.0.0",
+                binding_version=_SIMPLEFOLD_BINDING_VERSION,
                 inputs={
                     "sequence_candidates": CandidateCollection(
                         "parents",
@@ -886,7 +992,7 @@ def test_source_cache_replay_preserves_noncacheable_simplefold_execution(
             (staging / "fixed-provider-name").write_text("owned")
             self.staging.append(staging)
             return (
-                [ProteinStructure(_two_residue_pdb())],
+                [ProteinStructure(_upstream_simplefold_serialized_pdb())],
                 [{"per_residue": [71.0, 83.0], "sample_index": 0}],
             )
 
@@ -997,7 +1103,7 @@ def test_concurrent_runs_use_disjoint_live_staging_and_stable_identity(
             barrier.wait(timeout=5)
             assert owned.read_text() == "owned"
             return (
-                [ProteinStructure(_two_residue_pdb())],
+                [ProteinStructure(_upstream_simplefold_serialized_pdb())],
                 [{"per_residue": [71.0, 83.0], "sample_index": 0}],
             )
 
@@ -1097,7 +1203,7 @@ def test_simplefold_cleanup_failure_is_visible_without_masking_provider_failure(
             if provider_fails:
                 raise RuntimeError("fixture provider failure")
             return (
-                [ProteinStructure(_two_residue_pdb())],
+                [ProteinStructure(_upstream_simplefold_serialized_pdb())],
                 [{"per_residue": [71.0, 83.0], "sample_index": 0}],
             )
 

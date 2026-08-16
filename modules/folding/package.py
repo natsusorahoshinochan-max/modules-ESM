@@ -84,10 +84,11 @@ from .simplefold_contract import (
 )
 
 
-_PACKAGE_VERSION = "7.0.0"
-_FOLD_NODE_BINDING_VERSION = "6.0.0"
+_PACKAGE_VERSION = "8.0.0"
+_FOLD_NODE_TYPE_VERSION = "6.0.0"
 _REMOTE_FOLD_BINDING_VERSION = "7.0.0"
 _LOCAL_ESMFOLD2_BINDING_VERSION = "8.0.0"
+_SIMPLEFOLD_FOLD_BINDING_VERSION = "7.0.0"
 _CONFIDENCE_NODE_BINDING_VERSION = "4.0.0"
 _METRIC_VERSIONS = {
     "structure.ptm": "2.1.0",
@@ -410,7 +411,7 @@ def _binding(route: str) -> ExecutionBindingDefinition:
         node_type=ContractIdentity(
             "node_type",
             "folding.fold",
-            _FOLD_NODE_BINDING_VERSION,
+            _FOLD_NODE_TYPE_VERSION,
         ),
         method=ContractIdentity(
             "method",
@@ -468,11 +469,11 @@ def _simplefold_binding() -> ExecutionBindingDefinition:
     method_id = "folding.fold.simplefold_100m_c7a5570"
     return ExecutionBindingDefinition(
         binding_id="folding.fold.simplefold_local",
-        version=_FOLD_NODE_BINDING_VERSION,
+        version=_SIMPLEFOLD_FOLD_BINDING_VERSION,
         node_type=ContractIdentity(
             "node_type",
             "folding.fold",
-            _FOLD_NODE_BINDING_VERSION,
+            _FOLD_NODE_TYPE_VERSION,
         ),
         method=ContractIdentity("method", method_id, FOLD_METHOD_VERSION),
         binding_parameters={
@@ -493,14 +494,14 @@ def _simplefold_binding() -> ExecutionBindingDefinition:
         factory=ScientificOperationFactory(
             behavior=BehaviorReference(
                 "folding.fold/factory",
-                _FOLD_NODE_BINDING_VERSION,
+                _SIMPLEFOLD_FOLD_BINDING_VERSION,
                 {"route": "simplefold_local", "model": SIMPLEFOLD_MODEL},
             ),
             build=_build_simplefold,
         ),
         adapter_behavior=BehaviorReference(
             "folding.simplefold_local/adapter",
-            _FOLD_NODE_BINDING_VERSION,
+            _SIMPLEFOLD_FOLD_BINDING_VERSION,
             {
                 "provider_contract": (
                     f"ml-simplefold@{SIMPLEFOLD_REVISION}"
@@ -509,12 +510,15 @@ def _simplefold_binding() -> ExecutionBindingDefinition:
                 "staging": "one-private-directory-per-engine-invocation",
                 "engine_identity": "exact_method_contract_digest",
                 "randomness_evidence": "exact_seed",
+                "pdb_translation": (
+                    "pinned-padded-sentinel-to-canonical-END-newline"
+                ),
             },
         ),
         availability=AvailabilityDeclaration(
             behavior=BehaviorReference(
                 "folding.simplefold_local/availability",
-                _FOLD_NODE_BINDING_VERSION,
+                _SIMPLEFOLD_FOLD_BINDING_VERSION,
                 {"observation": "startup", "model_load": "forbidden"},
             ),
             prerequisites={
@@ -529,7 +533,7 @@ def _simplefold_binding() -> ExecutionBindingDefinition:
         readiness=ReadinessDeclaration(
             behavior=BehaviorReference(
                 "folding.simplefold_local/readiness",
-                _FOLD_NODE_BINDING_VERSION,
+                _SIMPLEFOLD_FOLD_BINDING_VERSION,
                 {
                     "observation": "per-run",
                     "cache_order": "before-cache-lookup",
@@ -583,12 +587,15 @@ def _simplefold_binding() -> ExecutionBindingDefinition:
                 "runtime-device-specific_diffusion_not_cacheable"
             ),
             "staging_policy": "private-per-engine-invocation-cleaned",
+            "pdb_translation": (
+                "pinned-padded-sentinel-to-canonical-END-newline"
+            ),
         },
         effective_randomness_parameters=("effective_seed",),
         effective_randomness_resolver=EffectiveRandomnessResolver(
             behavior=BehaviorReference(
                 "folding.simplefold_local/effective-randomness",
-                _FOLD_NODE_BINDING_VERSION,
+                _SIMPLEFOLD_FOLD_BINDING_VERSION,
                 {
                     "provider_seed_control": "torch_local",
                     "seed_scope": (

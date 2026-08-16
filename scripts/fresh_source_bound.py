@@ -138,7 +138,7 @@ def _environment(tier_name: str) -> tuple[dict[tuple[str, str], Any], bytes]:
         )
 
         fingerprint = configured_runtime_fingerprint()
-        environment[("folding.fold.simplefold_local", "6.0.0")] = {
+        environment[("folding.fold.simplefold_local", "7.0.0")] = {
             "values": {
                 "model_root": Path(
                     os.environ["PROTEIN_WORKBENCH_SIMPLEFOLD_MODEL_ROOT"]

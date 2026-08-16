@@ -46,7 +46,7 @@ from tests.fixtures.public_v2 import decode_service_typed_output_value
 _FOLD_NODE_VERSION = "6.0.0"
 _REMOTE_FOLD_BINDING_VERSION = "7.0.0"
 _LOCAL_FOLD_BINDING_VERSION = "8.0.0"
-_SIMPLEFOLD_BINDING_VERSION = "6.0.0"
+_SIMPLEFOLD_BINDING_VERSION = "7.0.0"
 
 
 def _esmfold2_binding_version(route: str) -> str:
@@ -70,6 +70,12 @@ def _two_residue_pdb() -> str:
             "END",
             "",
         )
+    )
+
+
+def _upstream_simplefold_serialized_pdb() -> str:
+    return "\n".join(
+        line.ljust(80) for line in (*_two_residue_pdb().splitlines(), "")
     )
 
 
@@ -273,7 +279,7 @@ def test_remote_and_local_esmfold2_are_explicit_bindings_of_one_node() -> None:
         for registration in discover_module_packages()
     }
     registration = registrations["folding"]
-    assert registration.package_version == "7.0.0"
+    assert registration.package_version == "8.0.0"
     assert {
         resource.resource for resource in registration.node_definitions
     } == {
@@ -1604,9 +1610,7 @@ def test_remote_and_local_bindings_pass_shared_contract_test_kit(
             assert kwargs["num_samples"] == 1
             return (
                 [
-                    ProteinStructure(
-                        _two_residue_pdb(),
-                    )
+                    ProteinStructure(_upstream_simplefold_serialized_pdb())
                 ],
                 [{"per_residue": [70.0, 80.0], "sample_index": 0}],
             )
