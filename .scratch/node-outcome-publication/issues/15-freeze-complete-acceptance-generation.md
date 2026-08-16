@@ -12,9 +12,65 @@
 - [x] Qualification 明确为 non-authoritative，可按 changed/high-risk-first 顺序执行；同一 candidate 上的 failed/interrupted tier 可重跑，但绝不提升或拼接成 Certification evidence。
 - [x] Certification 只有在 15 个 latest Qualification Results 全部 passed 后才能启动；Certification failure/interruption 持久化并永久终止该 campaign。
 - [x] verifier 保留 private bounded/sanitized console 与 full JUnit diagnostics，SIGINT/SIGTERM 会先终止 pytest process group 并写入 interrupted result。
-- [ ] 在 clean completion commit 前严格串行运行一次完整 provider-free/backend/frontend matrix。
+- [x] 在 clean completion commit 前严格串行运行一次完整 provider-free/backend/frontend matrix。
 - [ ] 使用显式 private Execution Profile `prepare` 新 campaign，并按 changed/high-risk-first 后补齐全部 15 个 Qualification tiers。
 - [ ] 确认 `campaign.json` 绑定同一 source、wheel/sdist、protocol、Catalog、inputs/Workflows、Provider configuration/assets 与 profile identity；Qualification 为 15/15 passed，Certification 仍为 `not_started`。
+
+## Current Qualification evidence
+
+The first campaign under the qualification-before-certification controller is
+retained at
+`verification-results/acceptance-campaign-a45cc8a-qualification`. It bound clean
+source `a45cc8a458308446a27451b139fbbfa43e7f4554`, two installed artifacts, all
+15 tier contracts, and private Execution Profile identity
+`sha256:94dfcea658981ab9b52171fddaee79ea5c9c363d102843261b034ecc2e084cd9`.
+The campaign ran one child at a time. All 11 installed Provider tiers and
+`fresh-1pga` qualified; `fresh-2emo` then failed, so
+`fresh-canonical-3gb1` and `fresh-5g53` did not run. Certification remained
+`not_started`. The terminal manifest SHA-256 is
+`f9ab1278452fce505798d23486006dcc19a2901c353ad38bc4d0318c07d756f5`;
+the failed Qualification Result is retained at
+`qualification-results/fresh-2emo/20260816T135504.443876Z-84623-faf02e7dd99ab13e`
+with evidence-bundle digest
+`sha256:789cd7e65048fba00cb816555b9ad9eaf3f5e9a04888e2182b61c611190dd618`.
+It is non-authoritative diagnostic evidence and is never promoted or combined
+with the next candidate.
+
+- Root cause：the `fresh-2emo` acceptance test incorrectly equated a complete
+  224-residue/224-CA subject and reference population with 224 sequence-aligned
+  atom pairs. ADR-0038's sequence-primary affine Method maximizes BLOSUM62 score
+  before paired-residue count and may therefore choose internal `I`/`D` gaps
+  between equal-length but redesigned sequences. The retained exact counts were
+  221, 216, 218, 219, 221, 219, 221, and 221; every subject/reference axis and
+  CA count remained 224.
+- Provider-free retained replay：
+  `verification-results/ticket15-2emo-alignment-diagnostic-a45cc8a/replay.py`
+  decoded the public `structure_comparison.alignment_evidence@4.0.0` values in
+  6–11 seconds. It proved each fold axis sequence exactly matched its parent
+  design, each correspondence count equalled the segment paired count, and an
+  independent BLOSUM62/gap-score calculation reproduced every retained score.
+  Every gapped score exceeded the forced 224M score, excluding Provider output,
+  lineage, residue-axis, CA-mask, and dynamic-programming regressions without a
+  second Provider/model call.
+- Acceptance repair：the existing installed source-bound public seam now closes
+  alignment subjects bijectively over the folds' complete
+  `CandidateDataReference` values, closes the one exact reference, retains 224
+  as the full axis/CA normalization population, and compares the deterministic
+  aligned-count cohort as an order-independent multiset. No production,
+  Method, Binding, Node Type, package, Workflow, or protocol identity changed.
+- TDD and serial review：the retained replay was stable RED before the test
+  repair and GREEN afterward. Focused structure-comparison and 2EMO workflow
+  suites passed (`31 passed`). Review first found and then eliminated one
+  positional-association violation; final Standards and Spec review were both
+  `APPROVED`, 0 findings.
+- Current provider-free completion gates：`routine` 1324 passed / 49 deselected;
+  `examples-v2` 12 passed；`deterministic-acceptance` 8 passed；
+  `scientific-repro` 1 passed；`local-esmfold2-v2-contract` 6 passed；
+  `installed-package` 4 passed；`provider-isolation` 16 passed；
+  `security-failure` 10 passed；frontend Oxlint and
+  `tsc -b && vite build` passed（179 modules）；`compileall` and
+  `git diff --check` passed. All gates were strictly serial; no real Provider or
+  local model ran during this repair matrix.
 
 ## Superseded generation workflow record
 

@@ -13,7 +13,12 @@ from typing import Any
 import pytest
 
 from core import build_discovered_frozen_catalog
-from datatypes import CandidateCollection, PairwiseCandidateMapping, ScoreCollection
+from datatypes import (
+    CandidateCollection,
+    CandidateDataReference,
+    PairwiseCandidateMapping,
+    ScoreCollection,
+)
 from modules.structure_comparison.contracts import (
     REMOTE_ESMFOLD2_FOLD_METHOD_REFERENCE,
     RMSD_FROM_EVIDENCE_METHOD_REFERENCE,
@@ -502,14 +507,47 @@ def _assert_science(root: Path, tier_name: str, projection: dict[str, Any]) -> N
             for fold in folds.items
         )
         assert len(alignments) == 8
+        structure_port = build_discovered_frozen_catalog().require_port_type(
+            "protein.structure",
+            "4.0.0",
+        )
+        fold_references = {
+            CandidateDataReference(
+                fold.candidate_id,
+                folds.item_type,
+                structure_port.content_digest(fold.data),
+            )
+            for fold in folds.items
+        }
+        reference = normalized.items[0]
+        reference_value = CandidateDataReference(
+            reference.candidate_id,
+            normalized.item_type,
+            structure_port.content_digest(reference.data),
+        )
+        assert {alignment.subject for alignment in alignments} == fold_references
+        assert {alignment.reference for alignment in alignments} == {
+            reference_value
+        }
+        assert tuple(
+            sorted(
+                alignment.normalization.aligned_atom_count
+                for alignment in alignments
+            )
+        ) == (216, 218, 219, 219, 221, 221, 221, 221)
         assert all(
             type(alignment) is StructureAlignmentEvidence
             and alignment.method == SEQUENCE_PRIMARY_AFFINE_METHOD_REFERENCE
-            and alignment.subject.candidate_id in fold_ids
-            and alignment.reference.candidate_id
-            == normalized.items[0].candidate_id
+            and alignment.normalization.subject_axis_residue_count == 224
             and alignment.normalization.reference_axis_residue_count == 224
-            and alignment.normalization.aligned_atom_count == 224
+            and alignment.normalization.subject_ca_count == 224
+            and alignment.normalization.reference_ca_count == 224
+            and alignment.normalization.aligned_atom_count
+            == len(alignment.correspondence)
+            == sum(
+                segment.paired_residue_count
+                for segment in alignment.segment_map
+            )
             for alignment in alignments
         )
 
