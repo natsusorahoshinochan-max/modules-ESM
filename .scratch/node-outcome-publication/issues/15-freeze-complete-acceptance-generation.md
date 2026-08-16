@@ -106,3 +106,25 @@ It must not be retried, edited, or combined with a later generation.
 - Final serial review：production Python 审查与 tests/scripts/generated-locks 的 Standards/Spec 双轴审查均 `APPROVED`，0 findings。后者确认冷/热 RNG 回归会对旧实现失败、public retrieval 修复闭合、Node Type 保持不变且全部 generated locks 一致。
 - Final cumulative provider-free gates：`routine` 1315 passed / 48 deselected；`examples-v2` 12 passed；`deterministic-acceptance` 8 passed；`scientific-repro` 1 passed；`local-esmfold2-v2-contract` 6 passed；`installed-package` 3 passed；`provider-isolation` 16 passed；`security-failure` 10 passed；frontend Oxlint passed，`tsc -b && vite build` passed（179 modules）；`compileall` 与 `git diff --check` passed。全部验证严格串行，`HF_HUB_OFFLINE=1`，未调用 Provider、未加载本地模型、未进入 Ticket 16。
 - New freeze boundary：从本次 clean completion commit 只执行 `scripts/acceptance_generation.py start`，使 manifest 绑定新 source/artifacts/Catalog/configuration/assets 且保持 `results=[]`。任何 `run-next` 或 `run-through` 均属于 Ticket 16，不得在本 ticket 执行。
+
+### Reopened after the installed ProteinMPNN exact-golden failure
+
+The `99ca58cf0f0017d1e8fd644f5e678b6721b25961` completion and frozen
+generation are superseded and are not current acceptance evidence. That
+immutable generation retained six passed prefix tiers and then terminated at
+`installed-proteinmpnn=failed`; its manifest remains at
+`verification-results/acceptance-generation-99ca58c-ticket15-proteinmpnn-rng-refreeze/generation.json`
+with SHA-256
+`caa83f57850769cc125d9239632706bf964317eb409f626a8248c8e2a31883c3`.
+The failed tier evidence digest is
+`sha256:bb904cdcbddf5a532410152188da3d9aaa342a5597c18d29ea53d1f7742e2439`.
+It must not be retried, edited, or combined with a later generation; the four
+subsequent installed Provider tiers never ran.
+
+- Root cause：`99ca58c` 已正确把 ProteinMPNN exact seed 应用于 resident model 解析之后，并把该结果影响语义纳入当前 Method/Binding identities；但 real-model acceptance 仍保留 seed-before-load 时代的 NLL `1.3648624420166016` 与 design digest `e9203eb2...`。frozen wheel 的 ProteinMPNN runtime/package bytes 与 source 完全一致，Catalog/protocol digests 也与 manifest 一致，因此不是 installed artifact/source skew；provider-free cold/first-warm/subsequent-warm 与跨 Adapter residency regressions 排除了模型驻留历史泄漏。
+- Exact reproduction and repair：一次 generation 外、frozen-wheel、单 installed child、单 resident model、无并发的 controlled reproduction 精确得到 NLL `1.385357141494751` 和 design SHA-256 `b89c0a40b93d8b5cbfffd0b39d219a2b01703898e9956a3e893ba7ac02ec9eea`，其余四个 child cases passed。非 acceptance raw record 位于 `verification-results/ticket15-proteinmpnn-controlled-reproduction-99ca58c/raw-output.txt`，SHA-256 `d055e47a40d0277d5b8821df1dcfd4ca8e76919d1941a1c78e553b64a0031875`。修复只同步两个 exact real-model goldens 与 research 文档；production、Method、Binding、Node Type、package、Workflow locks 和 call-seed semantics 均不变，因此不创建虚假 version cascade。
+- TDD and review：retained exact-failure replay 对两个旧 golden 同时稳定 RED，修复后 GREEN；provider runtime、Package/Catalog 与 controller 的 provider-free focused selection `70 passed`。Python review 与随后独立 code review 严格串行，均 `APPROVED`、0 findings。
+- Non-acceptance model-run audit：Python reviewer 超出只读任务范围，额外直接执行了 scoring/design acceptance file，结果 `2 passed`；命令未显式设置 installed-tier residency，按代码推断两个 tests 串行各自加载一个模型。该运行不是 controlled reproduction、不是 generation 或 completion evidence，之后未再运行真实 Provider/model。
+- Verification audit：有效 focused selection 前曾发现一个来源不明的 `scientific-repro` 进程与首次 focused pytest 短暂并发；两者结果全部弃用，在 clean process state 重新串行验证。`installed-package` 的前两次尝试未传 loopback `NO_PROXY`，installed server 已启动但 urllib readiness request 走代理而超时；显式 `NO_PROXY=127.0.0.1,localhost` 后精确重跑为 `3 passed`。这些失败不属于 acceptance generation，也未触发 Provider 或模型调用。
+- Final cumulative provider-free gates：`routine` 1315 passed / 48 deselected；`examples-v2` 12 passed；`deterministic-acceptance` 8 passed；`scientific-repro` 1 passed；`local-esmfold2-v2-contract` 6 passed；`installed-package` 3 passed；`provider-isolation` 16 passed；`security-failure` 10 passed；frontend Oxlint passed，`tsc -b && vite build` passed（179 modules）；`compileall` 与 `git diff --check` passed。全部有效门禁严格串行并使用 loopback `NO_PROXY` 与 manifest-matching SoluProt root；没有把真实 Provider/model diagnostic 当作 provider-free evidence。
+- New freeze boundary：新 authority 必须从本 Ticket 的 clean completion commit 仅通过 `scripts/acceptance_generation.py start` 创建，绑定新的 source/artifacts/Catalog/configuration/assets 并保持 `results=[]`；不得在 Ticket 15 执行 `run-next` 或 `run-through`。

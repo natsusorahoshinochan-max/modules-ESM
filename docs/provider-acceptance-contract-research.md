@@ -127,7 +127,7 @@ Adapter 虽读取 `label_seq_id`，实际却用 `label_asym_id + label_comp_id +
 现有门禁已有很好的正向基础：
 
 - [installed design and score gate](../tests/acceptance/test_installed_provider_gates_v2.py) 证明真实 Binding/Method 执行；
-- [native scoring gate](../tests/acceptance/test_proteinmpnn_scoring_v2.py) 固定 3GB1 NLL `1.3648624420166016`；
+- [native scoring gate](../tests/acceptance/test_proteinmpnn_scoring_v2.py) 固定 seed 在 resident model 解析后应用时的 3GB1 NLL `1.385357141494751`；
 - 同一文件固定 design sequence digest 与 effective seed；
 - [chain-order gate](../tests/acceptance/test_proteinmpnn_chain_order_v2.py) 证明 design B/fix A 后恢复 A,B，并验证 fixed CSH parent 缠有 missing backbone atom 时的保留行为。
 

@@ -269,7 +269,7 @@ def test_proteinmpnn_v2_scoring_publishes_exact_native_observation(
         "proteinmpnn.score.v_48_020_8907e667"
     )
     assert observation.context == IntrinsicObservationContext()
-    assert observation.value == 1.3648624420166016
+    assert observation.value == 1.385357141494751
     invocation = next(
         item["event"]
         for item in events
@@ -361,7 +361,7 @@ def test_proteinmpnn_v2_sibling_design_remains_exact_and_complete(
     assert hashlib.sha256(
         candidate.data.sequence.encode()
     ).hexdigest() == (
-        "e9203eb2d6df671486d3e451bf6eb05c4e1a6500e9580403b95828caa4f57b82"
+        "b89c0a40b93d8b5cbfffd0b39d219a2b01703898e9956a3e893ba7ac02ec9eea"
     )
     assert candidate.metadata["effective_call_seed"] == 4484333622234277
     assert "model" not in candidate.metadata
