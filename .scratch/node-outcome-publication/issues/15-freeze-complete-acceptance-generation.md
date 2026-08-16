@@ -295,3 +295,65 @@ authority.
 - Repair and ownership：acceptance harness 的 loopback urllib opener 使用空 proxy map，shared public acceptance client 使用 `trust_env=False`，WebSocket 使用 `proxy=None`，direct Artifact retrieval 同样不读取环境 proxy。唯一 `_stop_server` owner 先 terminate、drain merged stdout/stderr，超时才 kill；startup failure 不再对运行中的 server 调用 `communicate`。没有 retry、timeout 延长、fallback、production 改动或 scientific/Method/Binding/Node Type/Catalog identity 变化。
 - Serial review and final provider-free gates：Python review 与独立 Standards/Spec code review 严格串行，均 `APPROVED`、0 findings。`routine` 1317 passed / 49 deselected；`examples-v2` 12 passed；`deterministic-acceptance` 8 passed；`scientific-repro` 1 passed；`local-esmfold2-v2-contract` 6 passed；`installed-package` 4 passed；`provider-isolation` 16 passed；`security-failure` 10 passed；frontend Oxlint passed，`tsc -b && vite build` passed（179 modules）。全部有效验证严格串行，`HF_HUB_OFFLINE=1`，未调用 Provider、未加载本地模型。
 - New freeze boundary：新 authority 必须从本 Ticket 的 clean completion commit 仅通过 `scripts/acceptance_generation.py start` 创建，保持 15 个 exact tiers、`results=[]` 且无 `tier-results/`。任何 `run-next` 或 `run-through` 都属于 Ticket 16。
+
+### Reopened after canonical 3GB1 negative-zero residue-axis publication failure
+
+The clean `597da9f9846fe06c0edf072cba42a9e0d5f0ab7d` candidate is bound to
+`verification-results/acceptance-campaign-597da9f-qualification`. Its
+`fresh-canonical-3gb1` Qualification Result is retained at
+`qualification-results/fresh-canonical-3gb1/20260816T153854.578735Z-27835-7969aa4466ec81f1`
+with evidence-bundle digest
+`sha256:7f876fb12a3d2cc74d75bb8b0f5a59b4f2bbbb7da959bdaa05fa44f175fae093`.
+The terminal manifest SHA-256 is
+`de39fb84e12f3e7da6f2c919f117ab1f61d12edcb6a150e27a45ccad4db23078`;
+Certification remains `not_started` with no Results. All ten paired ESM-3
+generations and all ten ESMFold2 folds completed before
+`resolve-folded-residue-axes` failed output admission; downstream alignment,
+scoring, ranking, ProteinMPNN design, and final folding remained blocked. This
+Qualification attempt must not be promoted, edited, or combined with later
+evidence.
+
+- Controlled diagnosis：generation 外的 single-process capture retained at
+  `verification-results/ticket15-canonical-residue-axis-diagnostic-597da9f/capture.json`
+  has SHA-256
+  `d8a0e56a265fe006df07b8c6a932ba651dca4c95c5bed5e774a61e20b2159ec5`.
+  The separate remote draw identified exactly one generated Candidate whose
+  exact 45,121-byte PDB
+  (SHA-256 `f06ab74244337f9a175de407dfce4e83a16bff542d2cdb8d366fdf57ce760c27`)
+  contains `-0.000` at residue `A:68`, atom `CG2`, z coordinate. This reproduces
+  the same resolver/Port failure class observed at the retained Qualification's
+  folded-axis node without claiming Candidate identity across nondeterministic
+  remote draws. The resolver
+  converted that field to IEEE-754 `-0.0`; the closed resolved-axis Port then
+  correctly rejected it as non-canonical I-JSON. The embedded structure,
+  Candidate reference/content digest, layout, sequence, segment topology, and
+  all other captured axes were consistent.
+- Provider-free RED→GREEN：the captured PDB replay reproduced the exact
+  `PortValueError` in 0.2 seconds, then minimized to one VAL/CG2 PDB coordinate.
+  A public `resolve_residue_axis` → resolved-axis codec regression was RED on
+  the negative-zero sign bit. The owning coordinate-extraction seam now maps
+  numeric zero to positive zero while preserving the exact input PDB and every
+  nonzero coordinate; the minimized test and full captured PDB round-trip are
+  GREEN. Focused structure-transform/residue-axis/canonical-version suites are
+  `42 passed`.
+- Identity decision：the active resolved-axis codec already declares RFC 8785
+  canonicalization and therefore already excludes negative zero. `-0.0` and
+  `+0.0` are the same scientific coordinate, the selected atom and nonzero
+  coordinates do not change, and the exact embedded `ProteinStructure` content
+  remains unchanged. This repairs an implementation violation of the existing
+  Port contract rather than changing coordinate-selection science, so Method,
+  Binding, Node Type, Port Type, package, Catalog, and Workflow contract
+  versions remain unchanged.
+- Serial completion gates：an expanded focused structure-transform suite is
+  `50 passed`. `routine` is `1326 passed / 49 deselected`; `examples-v2` 12,
+  `deterministic-acceptance` 8, `scientific-repro` 1,
+  `local-esmfold2-v2-contract` 6, `installed-package` 4,
+  `provider-isolation` 16, and `security-failure` 10 all passed. Frontend
+  Oxlint and `tsc -b && vite build` (179 modules), Python `compileall`, and
+  `git diff --check` passed. The first `provider-isolation` invocation is
+  retained but invalid as completion evidence: the operator had not injected
+  the frozen `PROTEIN_WORKBENCH_SOLUPROT_ROOT`, so 15 tests passed and the last
+  test stopped during environment construction without invoking SoluProt or
+  any model. After restoring the exact frozen private-profile configuration,
+  the selector ran once and passed 16/16. All effective completion gates were
+  serial and `HF_HUB_OFFLINE=1`; no Provider or local model was invoked.

@@ -475,10 +475,13 @@ def _selected_coordinates(
                 f"component {representative.public_residue_id} normalizes "
                 f"duplicate atom {atom_name}"
             )
-        coordinate = (
-            float(record.line[30:38]),
-            float(record.line[38:46]),
-            float(record.line[46:54]),
+        coordinate = tuple(
+            0.0 if value == 0.0 else value
+            for value in (
+                float(record.line[30:38]),
+                float(record.line[38:46]),
+                float(record.line[46:54]),
+            )
         )
         if not all(math.isfinite(value) for value in coordinate):
             raise ValueError("resolved residue coordinate is non-finite")

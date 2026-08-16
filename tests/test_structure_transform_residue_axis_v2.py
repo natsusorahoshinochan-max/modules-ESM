@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import replace
+import math
 from pathlib import Path
 
 import pytest
@@ -341,6 +342,27 @@ def test_resolved_axis_preserves_signed_pdb_residue_identity(
     assert axis.layout.residue_ids == (residue_id,)
     assert axis.segments[0].residue_ids == (residue_id,)
     assert axis.coordinate_for(residue_id, "CA") == (2.0, 2.0, 3.0)
+    assert RESOLVED_AXIS_PORT_TYPE.decode(
+        RESOLVED_AXIS_PORT_TYPE.encode(axis)
+    ) == axis
+
+
+def test_resolved_axis_canonicalizes_pdb_negative_zero_coordinates() -> None:
+    pdb_string = (
+        "ATOM      1 CG2  VAL A   1       1.000   2.000  -0.000  "
+        "1.00 20.00           C  \n"
+        "TER\n"
+        "END\n"
+    )
+    structure = ProteinStructure(pdb_string)
+
+    axis = resolve_residue_axis(structure)
+
+    coordinate = axis.coordinate_for("A:1", "CG2")
+    assert axis.structure == structure
+    assert "-0.000" in axis.structure.pdb_string
+    assert coordinate == (1.0, 2.0, 0.0)
+    assert math.copysign(1.0, coordinate[2]) == 1.0
     assert RESOLVED_AXIS_PORT_TYPE.decode(
         RESOLVED_AXIS_PORT_TYPE.encode(axis)
     ) == axis
