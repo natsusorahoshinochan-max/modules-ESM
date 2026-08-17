@@ -231,6 +231,12 @@ def _assert_common_bundle(root: Path, tier_name: str) -> dict[str, Any]:
         "sha256:" + contract["input_digest"]
     )
     assert receipt["workflow_content_digest"] == _digest(contract["workflow"])
+    if tier_name == "fresh-2emo":
+        assert _load(root, "model-lifecycle.json") == {
+            "model": "proteinmpnn",
+            "load_count": 1,
+            "release": "before-protein-sol",
+        }
     assert projection["status"] == "succeeded"
     validate_response("run_projection", 200, projection)
     assert all(

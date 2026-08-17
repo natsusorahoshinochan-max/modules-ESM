@@ -22,6 +22,7 @@ from modules.solubility.adapter import (
     configured_runtime_fingerprint,
     soluprot_readiness,
 )
+from tests.acceptance.retained_evidence import retain_service_run
 
 
 pytestmark = [pytest.mark.acceptance, pytest.mark.local_provider]
@@ -413,6 +414,13 @@ def test_model_backed_soluprot_golden_methods(
         for event in events
         if event["event"]["type"] == "run_terminal"
     ] == ["succeeded"]
+    retain_service_run(
+        f"soluprot-{mode.replace('_', '-')}",
+        catalog=catalog,
+        service=service,
+        projection=projection,
+        events=events,
+    )
 
 
 def test_stale_no_tm_asset_replacement_invalidates_readiness(

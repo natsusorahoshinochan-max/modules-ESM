@@ -32,6 +32,16 @@ CAMPAIGN_SCHEMA_NAMESPACE = "protein-workbench-acceptance-campaign/v1"
 PROFILE_SCHEMA_NAMESPACE = (
     "protein-workbench-acceptance-execution-profile/v1"
 )
+REPOSITORY_VERIFICATION_TIERS = (
+    "routine",
+    "examples-v2",
+    "deterministic-acceptance",
+    "scientific-repro",
+    "local-esmfold2-v2-contract",
+    "installed-package",
+    "provider-isolation",
+    "security-failure",
+)
 PROXY_VARIABLES = (
     "HTTP_PROXY",
     "HTTPS_PROXY",
@@ -323,6 +333,12 @@ def acceptance_definition() -> dict[str, Any]:
             name: {
                 "pytest_arguments": list(contract.pytest_arguments),
                 "timeout_seconds": contract.timeout_seconds,
+                "required_run_labels": list(
+                    contract.required_run_labels
+                ),
+                "lifecycle_receipt_required": (
+                    contract.lifecycle_receipt_required
+                ),
                 "zero_skip": True,
                 "clean_source": True,
                 "retain_evidence_bundle": True,
@@ -1033,6 +1049,21 @@ def campaign_status(
     }
 
 
+def verify_repository(profile: ExecutionProfile) -> None:
+    """Run the final repository matrix serially from one explicit profile."""
+    for tier in REPOSITORY_VERIFICATION_TIERS:
+        subprocess.run(
+            [
+                sys.executable,
+                str(PROJECT_ROOT / "scripts" / "verify_backend.py"),
+                tier,
+            ],
+            cwd=PROJECT_ROOT,
+            env=profile.environment(),
+            check=True,
+        )
+
+
 def _interrupt_on_termination(_signum: int, _frame: Any) -> None:
     raise KeyboardInterrupt
 
@@ -1064,9 +1095,14 @@ def main() -> int:
     status = subparsers.add_parser("status")
     status.add_argument("root", type=Path)
     status.add_argument("--profile", required=True, type=Path)
+    repository = subparsers.add_parser("verify-repository")
+    repository.add_argument("--profile", required=True, type=Path)
     args = parser.parse_args()
-    root = args.root.resolve()
     profile = ExecutionProfile.load(args.profile.resolve())
+    if args.command == "verify-repository":
+        verify_repository(profile)
+        return 0
+    root = args.root.resolve()
     if args.command == "status":
         print(json.dumps(campaign_status(root, profile), sort_keys=True))
         return 0

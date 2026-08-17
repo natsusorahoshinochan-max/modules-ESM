@@ -24,6 +24,7 @@ from modules.solubility.adapter import (
     configured_protein_sol_runtime_fingerprint,
     protein_sol_readiness,
 )
+from tests.acceptance.retained_evidence import retain_service_run
 from tests.fixtures.public_v2 import wait_for_service_run_terminal_events
 
 
@@ -381,3 +382,10 @@ def test_local_protein_sol_golden_multiple_metrics(
         for event in events
         if event["event"]["type"] == "run_terminal"
     ] == ["succeeded"]
+    retain_service_run(
+        "protein-sol",
+        catalog=catalog,
+        service=service,
+        projection=projection,
+        events=events,
+    )

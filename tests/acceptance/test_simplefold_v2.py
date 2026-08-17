@@ -20,6 +20,7 @@ from core import (
 from core.workflow_v2 import WorkflowEdge
 from datatypes import ScoreCollection
 from tests.acceptance.conftest import require_ready
+from tests.acceptance.retained_evidence import retain_service_run
 
 
 SEQUENCE_3GB1 = (
@@ -296,3 +297,10 @@ def test_simplefold_v2_folds_3gb1_through_exact_binding(
         for event in events
         if event["event"]["type"] == "run_terminal"
     ] == ["succeeded"]
+    retain_service_run(
+        "simplefold-folding",
+        catalog=catalog,
+        service=service,
+        projection=projection,
+        events=events,
+    )

@@ -24,6 +24,7 @@ from core.port_types import canonical_json_bytes
 from core.workflow_v2 import WorkflowEdge
 from datatypes import ScoreCollection
 from tests.acceptance.conftest import require_ready
+from tests.acceptance.retained_evidence import retain_service_run
 
 
 @pytest.mark.acceptance
@@ -406,3 +407,10 @@ def test_simplefold_confidence_v2_evaluates_3gb1_exact_assets_without_refold(
         os.environ["PROTEIN_WORKBENCH_SIMPLEFOLD_ESM2_MODEL_ROOT"],
     ):
         assert forbidden not in public
+    retain_service_run(
+        "simplefold-confidence",
+        catalog=catalog,
+        service=service,
+        projection=projection,
+        events=events,
+    )

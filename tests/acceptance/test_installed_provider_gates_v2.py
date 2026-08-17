@@ -9,6 +9,7 @@ from typing import Any
 import pytest
 
 from tests.acceptance.conftest import PROJECT_ROOT, require_ready
+from tests.acceptance.retained_evidence import retain_service_run
 
 
 BIOHUB_ESM3_GATE_BINDINGS = (
@@ -535,6 +536,9 @@ def test_biohub_esm3_all_remote_bindings_execute_exact_methods(
     }
     invocation_count = 0
     selected_bindings: set[str] = set()
+    retained_runs: list[
+        tuple[str, Any, Any, dict[str, Any], tuple[dict[str, Any], ...]]
+    ] = []
 
     for route, expected_model in routes.items():
         def client_factory(
@@ -771,9 +775,27 @@ def test_biohub_esm3_all_remote_bindings_execute_exact_methods(
 
             invocation_count += len(started)
             selected_bindings.add(binding_id)
+            retained_runs.append((
+                (
+                    f"biohub-{route.removeprefix('biohub_')}-"
+                    f"{operation.replace('_', '-')}"
+                ),
+                catalog,
+                service,
+                projection,
+                events,
+            ))
 
     assert invocation_count == BIOHUB_ESM3_GATE_INVOCATIONS
     assert selected_bindings == set(BIOHUB_ESM3_GATE_BINDINGS)
+    for run_label, catalog, service, projection, events in retained_runs:
+        retain_service_run(
+            run_label,
+            catalog=catalog,
+            service=service,
+            projection=projection,
+            events=events,
+        )
 
 
 @pytest.mark.acceptance
@@ -904,6 +926,13 @@ def test_biohub_esmfold2_executes_exact_method(
     assert structures.items[0].data.pdb_string
     assert observations.entries
     assert len(facts.entries) == 1
+    retain_service_run(
+        "biohub-esmfold2",
+        catalog=catalog,
+        service=service,
+        projection=projection,
+        events=events,
+    )
 
 
 @pytest.mark.acceptance
@@ -976,6 +1005,13 @@ def test_local_esmfold2_executes_exact_method(tmp_path: Path) -> None:
             ],
         }
     }
+    retain_service_run(
+        "local-esmfold2",
+        catalog=catalog,
+        service=service,
+        projection=projection,
+        events=events,
+    )
 
 
 @pytest.mark.acceptance
@@ -1172,6 +1208,20 @@ def test_proteinmpnn_design_and_score_execute_exact_methods(
     assert len(scores.entries) == 1
     assert scores.entries[0].method.contract_digest == (
         score_method.contract_digest
+    )
+    retain_service_run(
+        "proteinmpnn-design",
+        catalog=design_catalog,
+        service=design_service,
+        projection=design_projection,
+        events=design_events,
+    )
+    retain_service_run(
+        "proteinmpnn-score",
+        catalog=score_catalog,
+        service=score_service,
+        projection=score_projection,
+        events=score_events,
     )
 
 
@@ -1372,4 +1422,11 @@ def test_mkdssp_executes_exact_method_through_public_run(
         binding_version="6.0.0",
         method_digest=method.contract_digest,
         expected_roles=("primary",),
+    )
+    retain_service_run(
+        "mkdssp",
+        catalog=catalog,
+        service=service,
+        projection=projection,
+        events=events,
     )

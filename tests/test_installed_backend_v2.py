@@ -25,6 +25,7 @@ import httpx
 import pytest
 
 from core import build_discovered_frozen_catalog
+from modules.acceptance_verification import ACCEPTANCE_TIER_CONTRACTS
 from protein_workbench_public import (
     bundle_bytes,
     bundle_digest,
@@ -34,6 +35,10 @@ from protein_workbench_public import (
     validate_event,
 )
 from tests.public_protocol_acceptance_client import PublicProtocolAcceptanceClient
+from tests.acceptance.retained_evidence import (
+    require_installed_evidence,
+    retain_rest_run,
+)
 from websockets.sync.client import connect
 
 
@@ -87,20 +92,6 @@ REQUIRED_PROVIDER_CASES = {
         (
             "tests/acceptance/test_proteinmpnn_scoring_v2.py::"
             "test_proteinmpnn_v2_sibling_design_remains_exact_and_complete"
-        ),
-        (
-            "tests/acceptance/test_proteinmpnn_chain_order_v2.py::"
-            "test_real_proteinmpnn_reversed_axis_design_restores_b_then_a_"
-            "layout"
-        ),
-        (
-            "tests/acceptance/test_proteinmpnn_chain_order_v2.py::"
-            "test_real_proteinmpnn_preserves_fixed_csh_parent_with_missing_"
-            "backbone_atom"
-        ),
-        (
-            "tests/acceptance/test_proteinmpnn_chain_order_v2.py::"
-            "test_real_proteinmpnn_scores_signed_insertion_and_gap_axis"
         ),
     ),
     "mkdssp": (
@@ -923,6 +914,20 @@ raise SystemExit(pytest.main(sys.argv[1:]))
     )
     skipped = sum(int(suite.attrib.get("skipped", 0)) for suite in suites)
     assert tests > 0 and failures == 0 and skipped == 0, completed.stdout
+    _require_configured_installed_evidence()
+
+
+def _require_configured_installed_evidence() -> None:
+    configured = os.environ.get("PROTEIN_WORKBENCH_FRESH_EVIDENCE_STAGING")
+    if configured is None:
+        return
+    tier = os.environ["PROTEIN_WORKBENCH_VERIFICATION_TIER"]
+    contract = ACCEPTANCE_TIER_CONTRACTS[tier]
+    require_installed_evidence(
+        Path(configured),
+        required_runs=contract.required_run_labels,
+        lifecycle_required=contract.lifecycle_receipt_required,
+    )
 
 
 @contextmanager
@@ -1164,52 +1169,60 @@ def test_installed_biohub_esmc_gate(
                 },
                 representation,
             )
+            assert representation["port_type"]["contract_id"] == (
+                "esm3.esmc_sequence_representation"
+            )
+            value = json.loads(canonical_value)["value"]
+            assert value["sequence"].startswith("MTYKLILNGKTL")
+            assert len(value["mean_embedding"]) == 1152
+            assert all(
+                isinstance(item, (int, float))
+                and item == item
+                and abs(item) != float("inf")
+                for item in value["mean_embedding"]
+            )
+            assert value["sequence_logits_shape"] == [
+                len(value["sequence"]) + 2,
+                64,
+            ]
 
-    assert representation["port_type"]["contract_id"] == (
-        "esm3.esmc_sequence_representation"
-    )
-    value = json.loads(canonical_value)["value"]
-    assert value["sequence"].startswith("MTYKLILNGKTL")
-    assert len(value["mean_embedding"]) == 1152
-    assert all(
-        isinstance(item, (int, float))
-        and item == item
-        and abs(item) != float("inf")
-        for item in value["mean_embedding"]
-    )
-    assert value["sequence_logits_shape"] == [
-        len(value["sequence"]) + 2,
-        64,
-    ]
-
-    events = [message["event"] for message in messages]
-    readiness = [
-        event
-        for event in events
-        if event["type"] == "readiness_attested"
-        and event["binding"]["contract_id"] == binding_id
-    ]
-    assert len(readiness) == 1
-    assert readiness[0]["conclusion"] == "passing"
-    invocations = [
-        event
-        for event in events
-        if event["type"] == "engine_invocation_started"
-        and event["engine_identity"] == method_digest
-    ]
-    assert [event["engine_role"] for event in invocations] == [
-        "sequence_encode",
-        "sequence_logits",
-    ]
-    terminal_by_id = {
-        event["invocation_id"]: event
-        for event in events
-        if event["type"] == "engine_invocation_terminal"
-    }
-    assert all(
-        terminal_by_id[event["invocation_id"]]["status"] == "succeeded"
-        for event in invocations
-    )
+            events = [message["event"] for message in messages]
+            readiness = [
+                event
+                for event in events
+                if event["type"] == "readiness_attested"
+                and event["binding"]["contract_id"] == binding_id
+            ]
+            assert len(readiness) == 1
+            assert readiness[0]["conclusion"] == "passing"
+            invocations = [
+                event
+                for event in events
+                if event["type"] == "engine_invocation_started"
+                and event["engine_identity"] == method_digest
+            ]
+            assert [event["engine_role"] for event in invocations] == [
+                "sequence_encode",
+                "sequence_logits",
+            ]
+            terminal_by_id = {
+                event["invocation_id"]: event
+                for event in events
+                if event["type"] == "engine_invocation_terminal"
+            }
+            assert all(
+                terminal_by_id[event["invocation_id"]]["status"]
+                == "succeeded"
+                for event in invocations
+            )
+            retain_rest_run(
+                "biohub-esmc",
+                catalog=SOURCE_CATALOG,
+                client=client,
+                projection=projection,
+                events=messages,
+            )
+    _require_configured_installed_evidence()
 
 
 @pytest.mark.live_provider

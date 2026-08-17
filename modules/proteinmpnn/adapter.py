@@ -536,3 +536,8 @@ class LocalProteinMPNNAdapter:
             ):
                 raw_score = provider.score(request, sequence)
             return _admit_scoring_result(raw_score)
+
+    def close(self) -> None:
+        """Release operation-scoped resident models after the Operation."""
+        if self._resident_models is not _INSTALLED_GATE_RESIDENT_MODELS:
+            self._resident_models.clear()

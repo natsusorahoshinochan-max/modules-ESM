@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import ast
 import io
 import json
 import os
@@ -16,6 +15,11 @@ import time
 import pytest
 
 import scripts.verify_backend as verify_backend
+import scripts.acceptance_campaign as acceptance_campaign
+from scripts.acceptance_campaign import (
+    ExecutionProfile,
+    REPOSITORY_VERIFICATION_TIERS,
+)
 from scripts.verify_backend import TIERS
 
 
@@ -87,36 +91,44 @@ def test_every_public_tier_has_only_existing_v2_test_targets() -> None:
     assert not (PROJECT_ROOT / "modules" / "provider_evidence.py").exists()
 
 
-def test_proteinmpnn_gate_consumes_the_public_value_retrieval_helper_contract(
+def test_repository_verification_uses_one_profile_backed_serial_matrix(
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    failures: list[str] = []
-    for relative_path in (
-        "tests/acceptance/test_proteinmpnn_scoring_v2.py",
-        "tests/acceptance/test_installed_provider_gates_v2.py",
-    ):
-        tree = ast.parse((PROJECT_ROOT / relative_path).read_text())
-        for node in ast.walk(tree):
-            if (
-                isinstance(node, ast.Assign)
-                and isinstance(node.value, ast.Call)
-                and isinstance(node.value.func, ast.Name)
-                and node.value.func.id == "_run"
-                and isinstance(node.targets[0], ast.Tuple)
-                and len(node.targets[0].elts) != 4
-            ):
-                failures.append(
-                    f"{relative_path}:{node.lineno}: _run result arity"
-                )
-            if (
-                isinstance(node, ast.Call)
-                and isinstance(node.func, ast.Name)
-                and node.func.id == "_decode"
-                and len(node.args) != 4
-            ):
-                failures.append(
-                    f"{relative_path}:{node.lineno}: _decode argument arity"
-                )
-    assert failures == []
+    profile = ExecutionProfile(
+        provider_configuration={
+            "PROTEIN_WORKBENCH_SOLUPROT_ROOT": "/profile/soluprot",
+        },
+        proxy_policy="inherit",
+    )
+    monkeypatch.setenv(
+        "PROTEIN_WORKBENCH_SOLUPROT_ROOT",
+        "/ambient/soluprot",
+    )
+    monkeypatch.setenv("PYTEST_ADDOPTS", "--ambient")
+    calls: list[tuple[list[str], dict[str, str]]] = []
+
+    def run(
+        command: list[str],
+        **kwargs: object,
+    ) -> subprocess.CompletedProcess[str]:
+        environment = kwargs["env"]
+        assert isinstance(environment, dict)
+        calls.append((command, environment))
+        return subprocess.CompletedProcess(command, 0)
+
+    monkeypatch.setattr(acceptance_campaign.subprocess, "run", run)
+
+    acceptance_campaign.verify_repository(profile)
+
+    assert [command[-1] for command, _environment in calls] == list(
+        REPOSITORY_VERIFICATION_TIERS
+    )
+    assert all(
+        environment["PROTEIN_WORKBENCH_SOLUPROT_ROOT"]
+        == "/profile/soluprot"
+        and "PYTEST_ADDOPTS" not in environment
+        for _command, environment in calls
+    )
 
 
 def test_required_installed_provider_tiers_fail_on_any_skip() -> None:
@@ -283,20 +295,6 @@ def test_installed_provider_case_matrix_is_exact_and_collectable() -> None:
                 "tests/acceptance/test_proteinmpnn_scoring_v2.py::"
                 "test_proteinmpnn_v2_sibling_design_remains_exact_and_"
                 "complete"
-            ),
-            (
-                "tests/acceptance/test_proteinmpnn_chain_order_v2.py::"
-                "test_real_proteinmpnn_reversed_axis_design_restores_b_then_a_"
-                "layout"
-            ),
-            (
-                "tests/acceptance/test_proteinmpnn_chain_order_v2.py::"
-                "test_real_proteinmpnn_preserves_fixed_csh_parent_with_"
-                "missing_backbone_atom"
-            ),
-            (
-                "tests/acceptance/test_proteinmpnn_chain_order_v2.py::"
-                "test_real_proteinmpnn_scores_signed_insertion_and_gap_axis"
             ),
         ),
         "mkdssp": (

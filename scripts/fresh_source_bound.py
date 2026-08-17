@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 import hashlib
 from importlib.resources import files
 import json
@@ -59,6 +60,69 @@ def _write_json(path: Path, value: Any) -> None:
         encoding="utf-8",
     )
     path.chmod(0o600)
+
+
+def proteinmpnn_lifecycle_receipt(
+    *,
+    load_count: int,
+    released_before_protein_sol: bool,
+) -> dict[str, object]:
+    """Return the exact direct lifecycle facts required by fresh-2emo."""
+    if not released_before_protein_sol:
+        raise RuntimeError("ProteinMPNN must release before Protein-Sol")
+    return {
+        "model": "proteinmpnn",
+        "load_count": load_count,
+        "release": "before-protein-sol",
+    }
+
+
+def _observe_fresh_2emo_lifecycle(root: Path) -> Callable[[], None]:
+    """Observe only load count and the Protein-Sol entry ordering fact."""
+    import modules.proteinmpnn.adapter as proteinmpnn_adapter
+    import modules.proteinmpnn.provider_runtime as proteinmpnn_runtime
+    import modules.solubility.adapter as solubility_adapter
+
+    original_load = proteinmpnn_runtime._load_model
+    original_close = proteinmpnn_adapter.LocalProteinMPNNAdapter.close
+    original_predict = solubility_adapter.LocalProteinSolAdapter.predict
+    load_count = 0
+    released = False
+    protein_sol_entered_after_release = False
+
+    def counted_load(*args: Any, **kwargs: Any) -> Any:
+        nonlocal load_count
+        load_count += 1
+        return original_load(*args, **kwargs)
+
+    def observed_close(adapter: Any) -> None:
+        nonlocal released
+        original_close(adapter)
+        released = True
+
+    def observed_predict(adapter: Any, *args: Any, **kwargs: Any) -> Any:
+        nonlocal protein_sol_entered_after_release
+        if not released:
+            raise RuntimeError("ProteinMPNN must release before Protein-Sol")
+        protein_sol_entered_after_release = True
+        return original_predict(adapter, *args, **kwargs)
+
+    proteinmpnn_runtime._load_model = counted_load
+    proteinmpnn_adapter.LocalProteinMPNNAdapter.close = observed_close
+    solubility_adapter.LocalProteinSolAdapter.predict = observed_predict
+
+    def retain() -> None:
+        _write_json(
+            root / "model-lifecycle.json",
+            proteinmpnn_lifecycle_receipt(
+                load_count=load_count,
+                released_before_protein_sol=(
+                    protein_sol_entered_after_release
+                ),
+            ),
+        )
+
+    return retain
 
 
 def _remote_environment() -> tuple[dict[tuple[str, str], Any], bytes]:
@@ -358,6 +422,11 @@ def installed_main() -> int:
     )
     environment, credential = _environment(tier_name)
     catalog = build_discovered_frozen_catalog()
+    retain_lifecycle = (
+        _observe_fresh_2emo_lifecycle(root)
+        if tier_name == "fresh-2emo"
+        else None
+    )
     app = create_app(
         v2_environment_configuration=environment,
         _install_canonical_seed=False,
@@ -431,8 +500,14 @@ def installed_main() -> int:
         _write_json(root / "run-admission.json", started.json())
         _write_json(root / "run-projection.json", projection)
         _write_json(root / "events.json", events)
-        _write_json(root / "typed-values.json", _retain_values(client, root, projection))
-        _write_json(root / "artifacts.json", _retain_artifacts(client, root, projection))
+        _write_json(
+            root / "typed-values.json",
+            _retain_values(client, root, projection),
+        )
+        _write_json(
+            root / "artifacts.json",
+            _retain_artifacts(client, root, projection),
+        )
         _write_json(root / "source-bound-receipt.json", {
             "schema_namespace": "protein-workbench-source-bound-evidence/v1",
             "tier": tier_name,
@@ -448,6 +523,8 @@ def installed_main() -> int:
             "run_id": projection["run_id"],
             "status": projection["status"],
         })
+    if retain_lifecycle is not None:
+        retain_lifecycle()
     for path in root.rglob("*"):
         if path.is_file() and credential in path.read_bytes():
             raise RuntimeError("credential reached retained evidence")

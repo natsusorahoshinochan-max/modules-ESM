@@ -11,6 +11,17 @@ Use one public verification command:
 .venv/bin/python scripts/verify_backend.py <tier>
 ```
 
+Run the final repository matrix from one explicit Acceptance Execution Profile:
+
+```bash
+.venv/bin/python scripts/acceptance_campaign.py verify-repository \
+  --profile /absolute/path/to/acceptance-profile.json
+```
+
+This command launches the documented repository tiers serially with
+`ExecutionProfile.environment()`. It does not mutate Qualification or
+Certification state.
+
 Each invocation replaces Project, Cache, output, and Run roots only in the
 child process. It never writes configured production roots. After pytest exits,
 the verifier retains a bounded JUnit file, sanitized command transcript, and
@@ -33,7 +44,7 @@ use mode `0700` and files use mode `0600`.
 | Installed Biohub ESMFold2 | `.venv/bin/python scripts/verify_backend.py installed-biohub-esmfold2` | Invokes the exact remote `esmfold2-fast-2026-05` Binding once through a fresh Run with one SDK attempt. |
 | Installed local ESM-3 | `.venv/bin/python scripts/verify_backend.py installed-local-esm3` | Invokes the installed locked local model for paired, sequence, and structure generation and requires complete invocation evidence. |
 | Installed local ESMFold2 | `.venv/bin/python scripts/verify_backend.py installed-local-esmfold2` | Invokes the exact locked ESMFold2 and ESMC snapshots at the declared CPU/FP32 precision through a fresh Run and requires exact-seed Method evidence. |
-| Installed ProteinMPNN | `.venv/bin/python scripts/verify_backend.py installed-proteinmpnn` | Invokes exact design and native-score Bindings through fresh Runs, then verifies designed-first multi-chain restoration and fixed-residue mapping against the same installed Provider. |
+| Installed ProteinMPNN | `.venv/bin/python scripts/verify_backend.py installed-proteinmpnn` | Invokes exact design, score, native-score, and sibling-design contracts through four public Runs. Direct Adapter edge cases remain non-authoritative Provider regressions. |
 | Installed mkdssp | `.venv/bin/python scripts/verify_backend.py installed-mkdssp` | Invokes exact mkdssp 4.6.1 through the public Run seam and verifies the canonical DSSP residue layout, secondary-structure track, SASA track, and complete Method evidence. |
 | Installed SimpleFold folding | `.venv/bin/python scripts/verify_backend.py installed-simplefold-folding` | Invokes the installed locked SimpleFold folding model with its exact model and ESM-2 assets. |
 | Installed SimpleFold confidence | `.venv/bin/python scripts/verify_backend.py installed-simplefold-confidence` | Invokes the installed exact confidence asset closure and proves direct-confidence output without refolding. |
@@ -54,6 +65,30 @@ checkout, and its bootstrap first proves that `core`, `modules`, and
 locked dependency locations to that isolated environment, but it cannot add
 the source checkout to Python's import path. Installed provider gates reject
 pytest target overrides so a smaller test cannot replace the required case.
+
+Every installed Provider tier retains one lightweight public Evidence bundle:
+
+```text
+evidence/
+  catalog-snapshot.json
+  public-protocol.json
+  runs/<run-label>/
+    projection.json
+    events.json
+    typed-values.json
+    artifacts.json
+    values/*
+    artifacts/*
+  model-lifecycle.json  # only ProteinMPNN tiers that require it
+  tier-result.json
+```
+
+Projection, event, Typed Value, and Artifact data are copied only after the
+acceptance client has validated the public contract and the test's scientific
+assertions have passed. The writer does not repeat protocol, Catalog, event
+causality, or scientific validation. The Acceptance Campaign's result-directory
+digest is the only bundle integrity digest; there are no per-file manifests or
+secondary checksums.
 
 The installed Biohub gates read one private credential file selected by
 `PROTEIN_WORKBENCH_BIOHUB_TOKEN_FILE`, or the repository's private

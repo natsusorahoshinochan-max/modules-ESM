@@ -27,6 +27,7 @@ from datatypes import (
 )
 from modules.proteinmpnn.adapter import configured_runtime_fingerprint
 from tests.acceptance.conftest import require_ready
+from tests.acceptance.retained_evidence import retain_service_run
 
 
 def _source_node() -> WorkflowNodeInstance:
@@ -291,6 +292,13 @@ def test_proteinmpnn_v2_scoring_publishes_exact_native_observation(
         and invocation["invocation_id"] == item["event"]["invocation_id"]
         for item in events
     )
+    retain_service_run(
+        "proteinmpnn-native-score",
+        catalog=catalog,
+        service=service,
+        projection=projection,
+        events=events,
+    )
 
 
 @pytest.mark.acceptance
@@ -400,4 +408,11 @@ def test_proteinmpnn_v2_sibling_design_remains_exact_and_complete(
     assert type(source_candidates) is CandidateCollection
     assert candidate.parent_ids == (
         source_candidates.items[0].candidate_id,
+    )
+    retain_service_run(
+        "proteinmpnn-sibling-design",
+        catalog=catalog,
+        service=service,
+        projection=projection,
+        events=events,
     )

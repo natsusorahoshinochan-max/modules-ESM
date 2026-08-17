@@ -5,6 +5,7 @@ from pathlib import Path
 import pytest
 
 from tests.acceptance.conftest import require_ready
+from tests.acceptance.retained_evidence import retain_service_run
 
 
 @pytest.mark.acceptance
@@ -149,12 +150,12 @@ def test_local_esm3_all_generation_modes(
                 for event in events
                 if event["event"]["type"] == "run_terminal"
             ] == ["succeeded"]
-            results[operation] = (service, catalog, projection)
+            results[operation] = (service, catalog, projection, events)
     finally:
         if shared_client is not None:
             release_local_esm3_client(shared_client)
 
-    paired_service, paired_catalog, paired_projection = results[
+    paired_service, paired_catalog, paired_projection, _paired_events = results[
         "generate_paired"
     ]
     paired_outputs = {
@@ -190,3 +191,16 @@ def test_local_esm3_all_generation_modes(
     assert pairing.entries[0].reference.candidate_id == (
         structures.items[0].candidate_id
     )
+    for operation in (
+        "generate_paired",
+        "generate_sequence",
+        "generate_structure",
+    ):
+        service, catalog, projection, events = results[operation]
+        retain_service_run(
+            f"local-esm3-{operation.replace('_', '-')}",
+            catalog=catalog,
+            service=service,
+            projection=projection,
+            events=events,
+        )

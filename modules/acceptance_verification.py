@@ -11,6 +11,8 @@ class AcceptanceTierContract:
 
     pytest_arguments: tuple[str, ...]
     timeout_seconds: int
+    required_run_labels: tuple[str, ...]
+    lifecycle_receipt_required: bool
 
 
 INSTALLED_PROVIDER_TIER_ORDER = (
@@ -41,8 +43,16 @@ ACCEPTANCE_TIER_ORDER = (
 def _contract(
     selector: str,
     timeout_seconds: int = 30 * 60,
+    *,
+    required_run_labels: tuple[str, ...] = (),
+    lifecycle_receipt_required: bool = False,
 ) -> AcceptanceTierContract:
-    return AcceptanceTierContract((selector,), timeout_seconds)
+    return AcceptanceTierContract(
+        (selector,),
+        timeout_seconds,
+        required_run_labels,
+        lifecycle_receipt_required,
+    )
 
 
 ACCEPTANCE_TIER_CONTRACTS = {
@@ -51,6 +61,7 @@ ACCEPTANCE_TIER_CONTRACTS = {
             "tests/test_installed_backend_v2.py::"
             "test_installed_biohub_esmc_gate"
         ),
+        required_run_labels=("biohub-esmc",),
     ),
     "installed-biohub-esm3": _contract(
         (
@@ -58,6 +69,14 @@ ACCEPTANCE_TIER_CONTRACTS = {
             "test_installed_biohub_esm3_gate"
         ),
         40 * 60,
+        required_run_labels=(
+            "biohub-medium-generate-sequence",
+            "biohub-medium-generate-structure",
+            "biohub-medium-generate-paired",
+            "biohub-open-generate-sequence",
+            "biohub-open-generate-structure",
+            "biohub-open-generate-paired",
+        ),
     ),
     "installed-biohub-esmfold2": _contract(
         (
@@ -65,11 +84,17 @@ ACCEPTANCE_TIER_CONTRACTS = {
             "test_installed_biohub_esmfold2_gate"
         ),
         35 * 60,
+        required_run_labels=("biohub-esmfold2",),
     ),
     "installed-local-esm3": _contract(
         (
             "tests/test_installed_backend_v2.py::"
             "test_installed_local_esm3_gate"
+        ),
+        required_run_labels=(
+            "local-esm3-generate-paired",
+            "local-esm3-generate-sequence",
+            "local-esm3-generate-structure",
         ),
     ),
     "installed-local-esmfold2": _contract(
@@ -78,12 +103,14 @@ ACCEPTANCE_TIER_CONTRACTS = {
             "test_installed_local_esmfold2_gate"
         ),
         105 * 60,
+        required_run_labels=("local-esmfold2",),
     ),
     "installed-mkdssp": _contract(
         (
             "tests/test_installed_backend_v2.py::"
             "test_installed_mkdssp_gate"
         ),
+        required_run_labels=("mkdssp",),
     ),
     "installed-proteinmpnn": _contract(
         (
@@ -91,30 +118,41 @@ ACCEPTANCE_TIER_CONTRACTS = {
             "test_installed_proteinmpnn_gate"
         ),
         75 * 60,
+        required_run_labels=(
+            "proteinmpnn-design",
+            "proteinmpnn-score",
+            "proteinmpnn-native-score",
+            "proteinmpnn-sibling-design",
+        ),
+        lifecycle_receipt_required=True,
     ),
     "installed-simplefold-folding": _contract(
         (
             "tests/test_installed_backend_v2.py::"
             "test_installed_simplefold_folding_gate"
         ),
+        required_run_labels=("simplefold-folding",),
     ),
     "installed-simplefold-confidence": _contract(
         (
             "tests/test_installed_backend_v2.py::"
             "test_installed_simplefold_confidence_gate"
         ),
+        required_run_labels=("simplefold-confidence",),
     ),
     "installed-soluprot": _contract(
         (
             "tests/test_installed_backend_v2.py::"
             "test_installed_soluprot_gate"
         ),
+        required_run_labels=("soluprot-full", "soluprot-no-tm"),
     ),
     "installed-protein-sol": _contract(
         (
             "tests/test_installed_backend_v2.py::"
             "test_installed_protein_sol_gate"
         ),
+        required_run_labels=("protein-sol",),
     ),
     "fresh-1pga": _contract(
         (
@@ -129,6 +167,7 @@ ACCEPTANCE_TIER_CONTRACTS = {
             "test_fresh_2emo_installed_public_run_retains_auditable_bundle"
         ),
         180 * 60,
+        lifecycle_receipt_required=True,
     ),
     "fresh-canonical-3gb1": _contract(
         (

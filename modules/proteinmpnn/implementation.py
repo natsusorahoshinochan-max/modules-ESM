@@ -273,52 +273,55 @@ class ProteinMPNNDesignImplementation:
             )
         constraint_digest = self._constraint_digest(call)
         candidates: list[Candidate] = []
-        for parent_index, (
-            parent_candidate,
-            parent_reference,
-            residue_axis,
-        ) in enumerate(parents):
-            parent_ids = (parent_candidate.candidate_id,)
-            call_seed = self._call_seed(
-                seed,
-                parent_reference.content_digest,
-                parent_index,
-            )
-            sequences = self._adapter.design(
-                residue_axis=residue_axis,
-                num_sequences=count,
-                temperature=temperature,
-                backbone_noise=noise,
-                seed=call_seed,
-                constraints=constraints,
-                reference_sequence=reference,
-                engine_role=f"design_parent_{parent_index}",
-            )
-            if len(sequences) != count:
-                raise RuntimeError(
-                    "ProteinMPNN design returned an incomplete child set"
+        try:
+            for parent_index, (
+                parent_candidate,
+                parent_reference,
+                residue_axis,
+            ) in enumerate(parents):
+                parent_ids = (parent_candidate.candidate_id,)
+                call_seed = self._call_seed(
+                    seed,
+                    parent_reference.content_digest,
+                    parent_index,
                 )
-            for sample_index, sequence in enumerate(sequences):
-                candidates.append(
-                    Candidate(
-                        (
-                            f"proteinmpnn-parent-{parent_index}-"
-                            f"sample-{sample_index}"
-                        ),
-                        sequence,
-                        parent_ids,
-                        {
-                            "parent_index": parent_index,
-                            "sample_index": sample_index,
-                            "effective_seed": seed,
-                            "effective_call_seed": call_seed,
-                            "num_sequences": count,
-                            "temperature": temperature,
-                            "backbone_noise": noise,
-                            "constraint_digest": constraint_digest,
-                        },
+                sequences = self._adapter.design(
+                    residue_axis=residue_axis,
+                    num_sequences=count,
+                    temperature=temperature,
+                    backbone_noise=noise,
+                    seed=call_seed,
+                    constraints=constraints,
+                    reference_sequence=reference,
+                    engine_role=f"design_parent_{parent_index}",
+                )
+                if len(sequences) != count:
+                    raise RuntimeError(
+                        "ProteinMPNN design returned an incomplete child set"
                     )
-                )
+                for sample_index, sequence in enumerate(sequences):
+                    candidates.append(
+                        Candidate(
+                            (
+                                f"proteinmpnn-parent-{parent_index}-"
+                                f"sample-{sample_index}"
+                            ),
+                            sequence,
+                            parent_ids,
+                            {
+                                "parent_index": parent_index,
+                                "sample_index": sample_index,
+                                "effective_seed": seed,
+                                "effective_call_seed": call_seed,
+                                "num_sequences": count,
+                                "temperature": temperature,
+                                "backbone_noise": noise,
+                                "constraint_digest": constraint_digest,
+                            },
+                        )
+                    )
+        finally:
+            self._adapter.close()
         if len(candidates) != len(parents) * count:
             raise RuntimeError("ProteinMPNN design children are incomplete")
         for parent_candidate, _, _ in parents:
@@ -438,10 +441,13 @@ class ProteinMPNNScoreImplementation:
         ) = self._subject(call)
         sequence = sequence_candidate.data
         assert type(sequence) is ProteinSequence
-        score = self._adapter.score(
-            residue_axis=residue_axis,
-            sequence=sequence,
-        )
+        try:
+            score = self._adapter.score(
+                residue_axis=residue_axis,
+                sequence=sequence,
+            )
+        finally:
+            self._adapter.close()
         observation = ScoreObservation(
             subject=sequence_reference,
             metric=self._metric,
